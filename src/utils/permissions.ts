@@ -1,0 +1,58 @@
+import type { Role, WorkspacePage } from "@/types";
+
+/**
+ * Access model: the Owner is the only role with blanket, implicit access to
+ * everything in the workspace. Every other member — regardless of role —
+ * only sees/opens a page if their uid is explicitly listed in that page's
+ * `allowedUsers`. This is enforced identically on the server in
+ * firestore.rules; these client-side checks exist purely for UX (hiding nav
+ * items, showing "Access denied") and must never be the only line of defense.
+ */
+
+export function canManageWorkspace(role: Role): boolean {
+  return role === "owner";
+}
+
+export function canInviteMembers(role: Role): boolean {
+  return role === "owner";
+}
+
+export function canChangeRoles(role: Role): boolean {
+  return role === "owner";
+}
+
+export function canRemoveMembers(role: Role): boolean {
+  return role === "owner";
+}
+
+export function canCreatePages(role: Role): boolean {
+  return role === "owner";
+}
+
+export function canEditPageStructure(role: Role): boolean {
+  return role === "owner";
+}
+
+export function canManagePagePermissions(role: Role): boolean {
+  return role === "owner";
+}
+
+export function canViewHistory(role: Role): boolean {
+  return role === "owner";
+}
+
+export function canRestoreHistory(role: Role): boolean {
+  return role === "owner";
+}
+
+/** Whether a given user (role + uid) may open a specific workspace page at all. */
+export function canAccessPage(page: WorkspacePage, role: Role, uid: string): boolean {
+  if (role === "owner") return true;
+  return page.allowedUsers.includes(uid);
+}
+
+/** Whether a user may edit row data on a specific page (not just view it). */
+export function canEditPageData(page: WorkspacePage, role: Role, uid: string): boolean {
+  if (role === "viewer") return false;
+  return canAccessPage(page, role, uid);
+}

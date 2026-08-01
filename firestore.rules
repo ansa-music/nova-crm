@@ -1,0 +1,132 @@
+rules_version = '2';
+
+// ---------------------------------------------------------------------------
+// Access model: the workspace Owner has blanket access to everything. Every
+// other member — regardless of role — can only read/write a page (and its
+// rows) if their uid is explicitly listed in that page's `allowedUsers`
+// array. This is the actual security boundary; the React app's own checks
+// (utils/permissions.ts) exist only for UX and must never be relied on alone.
+// ---------------------------------------------------------------------------
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function memberDoc(workspaceId, uid) {
+      return get(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(uid));
+    }
+
+    function isMember(workspaceId) {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid));
+    }
+
+    function myRole(workspaceId) {
+      return memberDoc(workspaceId, request.auth.uid).data.role;
+    }
+
+    function isOwner(workspaceId) {
+      return isMember(workspaceId) && myRole(workspaceId) == 'owner';
+    }
+
+    // Owner sees/manages every page unconditionally. Anyone else needs their
+    // uid explicitly present in the page's allowedUsers list.
+    function canAccessPage(workspaceId, pageData) {
+      return isOwner(workspaceId) ||
+        (isMember(workspaceId) && request.auth.uid in pageData.get('allowedUsers', []));
+    }
+
+    // Viewers can open a page but never write row data on it.
+    function canEditPage(workspaceId, pageData) {
+      return canAccessPage(workspaceId, pageData) && myRole(workspaceId) != 'viewer';
+    }
+
+    // ---------------------------------------------------------------------
+    // Users
+    // ---------------------------------------------------------------------
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // ---------------------------------------------------------------------
+    // Workspaces
+    // ---------------------------------------------------------------------
+    match /workspaces/{workspaceId} {
+      allow read: if isMember(workspaceId);
+      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update: if isOwner(workspaceId);
+      allow delete: if isOwner(workspaceId);
+
+      // -----------------------------------------------------------------
+      // Members — only the Owner manages membership, roles, and removal.
+      // -----------------------------------------------------------------
+      match /members/{memberId} {
+        // Existing members can read the full roster. A signed-in user who
+        // is NOT yet a member may still read the one pending-invite doc
+        // that matches their own email — otherwise claimPendingInvites()
+        // could never find its own invite to accept (chicken-and-egg).
+        allow read: if isMember(workspaceId) ||
+          (signedIn() && memberId == request.auth.token.email && resource.data.status == 'invited');
+
+        // Owner manages any membership record: invite, change role, remove.
+        allow create, update, delete: if isOwner(workspaceId);
+
+        // Bootstrap: the workspace creator may create their own Owner record.
+        allow create: if signedIn()
+          && request.auth.uid == memberId
+          && request.resource.data.role == 'owner'
+          && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid;
+
+        // Invite acceptance: a user may create their own uid-keyed record
+        // only if a matching PENDING invite (keyed by their lowercase email)
+        // exists, and role/email must match exactly what was invited.
+        allow create: if signedIn()
+          && request.auth.uid == memberId
+          && request.auth.token.email == request.resource.data.email
+          && request.resource.data.status == 'active'
+          && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.resource.data.email))
+          && memberDoc(workspaceId, request.resource.data.email).data.status == 'invited'
+          && memberDoc(workspaceId, request.resource.data.email).data.role == request.resource.data.role;
+
+        // Cleanup of the placeholder email-keyed invite doc once claimed.
+        allow delete: if signedIn()
+          && memberId == resource.data.email
+          && resource.data.status == 'invited'
+          && isMember(workspaceId)
+          && memberDoc(workspaceId, request.auth.uid).data.email == resource.data.email;
+      }
+
+      // -----------------------------------------------------------------
+      // Pages — only Owner creates/deletes/manages permissions. Read/write
+      // of an individual page and its rows is gated by allowedUsers.
+      // -----------------------------------------------------------------
+      match /pages/{pageId} {
+        allow read: if isMember(workspaceId) && canAccessPage(workspaceId, resource.data);
+        allow create: if isOwner(workspaceId) && request.resource.data.workspaceId == workspaceId;
+        allow update, delete: if isOwner(workspaceId);
+
+        match /rows/{rowId} {
+          allow read: if isMember(workspaceId) &&
+            canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
+          allow create, update, delete: if isMember(workspaceId) &&
+            canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
+        }
+      }
+
+      // -----------------------------------------------------------------
+      // History / audit log — Owner-only visibility, matching "Owner sees
+      // everything" (regular members can still generate entries by editing
+      // pages they have access to, they just can't browse the full log).
+      // -----------------------------------------------------------------
+      match /history/{entryId} {
+        allow read: if isOwner(workspaceId);
+        allow create: if isMember(workspaceId) && myRole(workspaceId) != 'viewer';
+        allow delete: if isOwner(workspaceId);
+      }
+    }
+  }
+}
