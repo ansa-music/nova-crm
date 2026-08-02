@@ -73,9 +73,12 @@ export function useActiveWorkspaceDataBootstrap() {
         membersLoaded = true;
         maybeDone();
       },
-      () => {
+      (error) => {
         // Never leave the app stuck on a skeleton just because this one
-        // read was denied — surface an empty list instead of hanging.
+        // read was denied — surface an empty list instead of hanging, but
+        // log the real error so it's actually diagnosable.
+        console.error(`subscribeToMembers denied for workspace ${activeWorkspaceId}:`, error.code, error.message);
+        setMembers([]);
         membersLoaded = true;
         maybeDone();
       }
@@ -87,7 +90,9 @@ export function useActiveWorkspaceDataBootstrap() {
         pagesLoaded = true;
         maybeDone();
       },
-      () => {
+      (error) => {
+        console.error(`subscribeToPages denied for workspace ${activeWorkspaceId}:`, error.code, error.message);
+        setPages([]);
         pagesLoaded = true;
         maybeDone();
       }
