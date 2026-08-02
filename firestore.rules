@@ -70,9 +70,12 @@ service cloud.firestore {
       // Members — only the Owner manages membership, roles, and removal.
       // -----------------------------------------------------------------
       match /members/{memberId} {
-        // TEMPORARY DIAGNOSTIC — wide open read only, nothing else, to fully
-        // eliminate any chance of a rule-evaluation crash on stale data.
-        allow read: if signedIn();
+        // Existing members can read the full roster. A signed-in user who
+        // is NOT yet a member may still read the one pending-invite doc
+        // that matches their own email — otherwise claimPendingInvites()
+        // could never find its own invite to accept (chicken-and-egg).
+        allow read: if isMember(workspaceId) ||
+          (signedIn() && memberId == request.auth.token.email && resource.data.status == 'invited');
 
         // Owner manages any membership record: invite, change role, remove.
         allow create, update, delete: if isOwner(workspaceId);

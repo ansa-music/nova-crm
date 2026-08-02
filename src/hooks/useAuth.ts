@@ -13,6 +13,20 @@ export function useAuthBootstrap() {
 
   useEffect(() => {
     const unsubscribe = subscribeToAuthChanges(async (user) => {
+      try {
+        if (user) {
+          // Force-refresh/await the ID token BEFORE exposing this user to
+          // the rest of the app. Without this, firebaseUser can be set (and
+          // downstream Firestore listeners like the workspace list can fire)
+          // a moment before the token Firestore's SDK actually sends is
+          // ready — which surfaces as a permanent "permission-denied" that
+          // only a lucky reload fixes, even though the person genuinely has
+          // access. getIdToken() resolves only once a valid token exists.
+          await user.getIdToken();
+        }
+      } catch (tokenError) {
+        console.error("Failed to obtain ID token:", tokenError);
+      }
       setFirebaseUser(user);
       try {
         if (user) {

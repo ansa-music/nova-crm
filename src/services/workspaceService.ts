@@ -66,6 +66,8 @@ export function subscribeToUserWorkspaces(
   const workspaceUnsubs = new Map<string, () => void>();
   const workspaceData = new Map<string, Workspace>();
   let cancelled = false;
+  let unsubscribeMembership = () => {};
+  let hasRetried = false;
 
   function emit() {
     if (cancelled) return;
@@ -78,59 +80,78 @@ export function subscribeToUserWorkspaces(
   // composite index in firestore.indexes.json (`firebase deploy --only
   // firestore:indexes`), otherwise Firestore returns a console link to
   // create it on first run.
-  const membershipQuery = query(paths.memberGroup(), where("uid", "==", uid));
-  const unsubscribeMembership = onSnapshot(
-    membershipQuery,
-    (snapshot) => {
-      if (cancelled) return;
+  function attach() {
+    const membershipQuery = query(paths.memberGroup(), where("uid", "==", uid));
+    unsubscribeMembership = onSnapshot(
+      membershipQuery,
+      (snapshot) => {
+        if (cancelled) return;
 
-      const currentWorkspaceIds = new Set(
-        snapshot.docs.map((d) => d.ref.parent.parent?.id).filter((id): id is string => Boolean(id))
-      );
+        const currentWorkspaceIds = new Set(
+          snapshot.docs.map((d) => d.ref.parent.parent?.id).filter((id): id is string => Boolean(id))
+        );
 
-      // Tear down listeners for workspaces the user no longer belongs to.
-      for (const [wsId, unsub] of workspaceUnsubs) {
-        if (!currentWorkspaceIds.has(wsId)) {
-          unsub();
-          workspaceUnsubs.delete(wsId);
-          workspaceData.delete(wsId);
+        // Tear down listeners for workspaces the user no longer belongs to.
+        for (const [wsId, unsub] of workspaceUnsubs) {
+          if (!currentWorkspaceIds.has(wsId)) {
+            unsub();
+            workspaceUnsubs.delete(wsId);
+            workspaceData.delete(wsId);
+          }
         }
-      }
 
-      // Attach listeners for newly-visible workspaces.
-      for (const wsId of currentWorkspaceIds) {
-        if (workspaceUnsubs.has(wsId)) continue;
-        const unsub = subscribeToDoc<Workspace>(paths.workspace(wsId), (ws) => {
-          if (ws) workspaceData.set(wsId, ws);
-          else workspaceData.delete(wsId);
-          emit();
-        });
-        workspaceUnsubs.set(wsId, unsub);
+        // Attach listeners for newly-visible workspaces.
+        for (const wsId of currentWorkspaceIds) {
+          if (workspaceUnsubs.has(wsId)) continue;
+          const unsub = subscribeToDoc<Workspace>(paths.workspace(wsId), (ws) => {
+            if (ws) workspaceData.set(wsId, ws);
+            else workspaceData.delete(wsId);
+            emit();
+          });
+          workspaceUnsubs.set(wsId, unsub);
+        }
+        emit();
+      },
+      (error) => {
+        if (cancelled) return;
+        // permission-denied here is very often a transient false alarm: the
+        // Firebase Auth ID token hadn't fully attached to the Firestore SDK
+        // yet at the moment this listener was first established (a race on
+        // fresh sign-in), and Firestore treats permission-denied as a
+        // permanent failure it won't auto-retry. One silent retry after a
+        // short delay resolves the vast majority of these without the
+        // person needing to manually refresh the page.
+        if (error.code === "permission-denied" && !hasRetried) {
+          hasRetried = true;
+          unsubscribeMembership();
+          setTimeout(() => {
+            if (!cancelled) attach();
+          }, 1200);
+          return;
+        }
+        // Two likely persistent failure modes for this specific query:
+        // rules not deployed yet (permission-denied), or the composite
+        // collectionGroup index not deployed yet (failed-precondition, which
+        // includes a direct "create it" link from Firestore in error.message).
+        if (error.code === "failed-precondition") {
+          toast.error("Firestore требует индекс для списка workspace", {
+            description:
+              "Выполните firebase deploy --only firestore:indexes, либо откройте ссылку из консоли браузера для создания индекса вручную.",
+            duration: 12000,
+          });
+        } else if (error.code === "permission-denied") {
+          toast.error("Firestore отклонил запрос (permission-denied)", {
+            description: "Похоже, firestore.rules ещё не задеплоены. См. README.",
+            duration: 10000,
+          });
+        }
+        // Don't leave the caller's loading state spinning forever.
+        emit();
       }
-      emit();
-    },
-    (error) => {
-      if (cancelled) return;
-      // Two likely first-run failure modes for this specific query:
-      // rules not deployed yet (permission-denied), or the composite
-      // collectionGroup index not deployed yet (failed-precondition, which
-      // includes a direct "create it" link from Firestore in error.message).
-      if (error.code === "failed-precondition") {
-        toast.error("Firestore требует индекс для списка workspace", {
-          description:
-            "Выполните firebase deploy --only firestore:indexes, либо откройте ссылку из консоли браузера для создания индекса вручную.",
-          duration: 12000,
-        });
-      } else if (error.code === "permission-denied") {
-        toast.error("Firestore отклонил запрос (permission-denied)", {
-          description: "Похоже, firestore.rules ещё не задеплоены. См. README.",
-          duration: 10000,
-        });
-      }
-      // Don't leave the caller's loading state spinning forever.
-      emit();
-    }
-  );
+    );
+  }
+
+  attach();
 
   return () => {
     cancelled = true;
