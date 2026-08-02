@@ -39,10 +39,11 @@ function stripUndefined<T>(value: T): T {
 
 export function subscribeToPages(
   workspaceId: string,
-  onData: (pages: WorkspacePage[]) => void
+  onData: (pages: WorkspacePage[]) => void,
+  onError?: (error: import("firebase/firestore").FirestoreError) => void
 ) {
   const q = query(paths.pages(workspaceId), orderBy("order", "asc"));
-  return subscribe<WorkspacePage>(q, onData);
+  return subscribe<WorkspacePage>(q, onData, onError);
 }
 
 export interface CreatePageInput {

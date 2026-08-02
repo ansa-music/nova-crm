@@ -66,16 +66,32 @@ export function useActiveWorkspaceDataBootstrap() {
     function maybeDone() {
       if (membersLoaded && pagesLoaded) setLoadingWorkspaceData(false);
     }
-    const unsubMembers = subscribeToMembers(activeWorkspaceId, (members) => {
-      setMembers(members);
-      membersLoaded = true;
-      maybeDone();
-    });
-    const unsubPages = subscribeToPages(activeWorkspaceId, (pages) => {
-      setPages(pages);
-      pagesLoaded = true;
-      maybeDone();
-    });
+    const unsubMembers = subscribeToMembers(
+      activeWorkspaceId,
+      (members) => {
+        setMembers(members);
+        membersLoaded = true;
+        maybeDone();
+      },
+      () => {
+        // Never leave the app stuck on a skeleton just because this one
+        // read was denied — surface an empty list instead of hanging.
+        membersLoaded = true;
+        maybeDone();
+      }
+    );
+    const unsubPages = subscribeToPages(
+      activeWorkspaceId,
+      (pages) => {
+        setPages(pages);
+        pagesLoaded = true;
+        maybeDone();
+      },
+      () => {
+        pagesLoaded = true;
+        maybeDone();
+      }
+    );
     return () => {
       unsubMembers();
       unsubPages();

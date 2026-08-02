@@ -7,10 +7,13 @@ import type { Role, WorkspaceMember } from "@/types";
 
 export function subscribeToMembers(
   workspaceId: string,
-  onData: (members: WorkspaceMember[]) => void
+  onData: (members: WorkspaceMember[]) => void,
+  onError?: (error: import("firebase/firestore").FirestoreError) => void
 ) {
-  return subscribe<WorkspaceMember>(paths.members(workspaceId), (members) =>
-    onData(members.sort((a, b) => a.invitedAt - b.invitedAt))
+  return subscribe<WorkspaceMember>(
+    paths.members(workspaceId),
+    (members) => onData(members.sort((a, b) => a.invitedAt - b.invitedAt)),
+    onError
   );
 }
 
