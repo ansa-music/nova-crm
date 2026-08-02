@@ -37,13 +37,33 @@ function stripUndefined<T>(value: T): T {
 // Pages
 // ---------------------------------------------------------------------------
 
+/**
+ * `isOwner` bypasses the per-doc `allowedUsers` check entirely, so a plain
+ * unfiltered list is safe for the Owner (rule evaluation doesn't depend on
+ * resource.data at all for them). For everyone else, Firestore CANNOT
+ * validate an unfiltered list query against a per-document rule condition
+ * like "uid in allowedUsers" — that combination is always denied outright,
+ * regardless of whether the data itself would actually pass. The fix is to
+ * make the query itself carry the same condition the rule checks, via an
+ * explicit `where("allowedUsers", "array-contains", uid)` — then Firestore
+ * can prove every possible result already satisfies the rule.
+ */
 export function subscribeToPages(
   workspaceId: string,
   onData: (pages: WorkspacePage[]) => void,
-  onError?: (error: import("firebase/firestore").FirestoreError) => void
+  onError?: (error: import("firebase/firestore").FirestoreError) => void,
+  currentUserUid?: string,
+  isOwnerOfWorkspace?: boolean
 ) {
-  const q = query(paths.pages(workspaceId), orderBy("order", "asc"));
-  return subscribe<WorkspacePage>(q, onData, onError);
+  const q =
+    !isOwnerOfWorkspace && currentUserUid
+      ? query(paths.pages(workspaceId), where("allowedUsers", "array-contains", currentUserUid))
+      : query(paths.pages(workspaceId), orderBy("order", "asc"));
+  return subscribe<WorkspacePage>(
+    q,
+    (pages) => onData([...pages].sort((a, b) => a.order - b.order)),
+    onError
+  );
 }
 
 export interface CreatePageInput {
