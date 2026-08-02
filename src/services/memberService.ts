@@ -2,6 +2,7 @@ import { deleteDoc, getDocs, query, setDoc, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, subscribe } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
+import { addOwnWorkspaceId } from "@/services/authService";
 import type { Role, WorkspaceMember } from "@/types";
 
 export function subscribeToMembers(
@@ -86,6 +87,7 @@ export async function claimPendingInvites(
         status: "active",
         joinedAt: Date.now(),
       });
+      await addOwnWorkspaceId(uid, workspaceId);
       if (docSnap.id !== uid) {
         await deleteDoc(docSnap.ref);
       }

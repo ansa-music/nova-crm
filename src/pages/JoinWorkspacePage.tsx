@@ -8,6 +8,7 @@ import {
   submitJoinRequest,
   subscribeToOwnJoinRequest,
 } from "@/services/joinRequestService";
+import { addOwnWorkspaceId } from "@/services/authService";
 import type { JoinRequest, Workspace } from "@/types";
 
 export default function JoinWorkspacePage() {
@@ -24,7 +25,14 @@ export default function JoinWorkspacePage() {
 
   useEffect(() => {
     if (!workspaceId || !profile?.uid) return;
-    return subscribeToOwnJoinRequest(workspaceId, profile.uid, setOwnRequest);
+    return subscribeToOwnJoinRequest(workspaceId, profile.uid, (request) => {
+      setOwnRequest(request);
+      if (request?.status === "approved") {
+        addOwnWorkspaceId(profile.uid, workspaceId).catch((err) =>
+          console.error("Не удалось сохранить workspace в профиле:", err)
+        );
+      }
+    });
   }, [workspaceId, profile?.uid]);
 
   async function handleRequestAccess() {
