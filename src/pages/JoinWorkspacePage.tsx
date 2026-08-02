@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router";
-import { Building2, CheckCircle2, Clock, Loader2 } from "lucide-react";
+import { useNavigate, useParams } from "react-router";
+import { Building2, Clock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -13,6 +13,7 @@ import type { JoinRequest, Workspace } from "@/types";
 
 export default function JoinWorkspacePage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
+  const navigate = useNavigate();
   const { profile } = useAuth();
   const [workspace, setWorkspace] = useState<Workspace | null | undefined>(undefined);
   const [ownRequest, setOwnRequest] = useState<JoinRequest | null>(null);
@@ -28,12 +29,17 @@ export default function JoinWorkspacePage() {
     return subscribeToOwnJoinRequest(workspaceId, profile.uid, (request) => {
       setOwnRequest(request);
       if (request?.status === "approved") {
-        addOwnWorkspaceId(profile.uid, workspaceId).catch((err) =>
-          console.error("Не удалось сохранить workspace в профиле:", err)
-        );
+        addOwnWorkspaceId(profile.uid, workspaceId)
+          .then(() => {
+            // Give the workspace-list listener a beat to pick up the fresh
+            // id before navigating, so the app doesn't land on an empty
+            // "create a workspace" screen for a split second.
+            setTimeout(() => navigate("/", { replace: true }), 400);
+          })
+          .catch((err) => console.error("Не удалось сохранить workspace в профиле:", err));
       }
     });
-  }, [workspaceId, profile?.uid]);
+  }, [workspaceId, profile?.uid, navigate]);
 
   async function handleRequestAccess() {
     if (!workspaceId || !profile) return;
@@ -84,7 +90,7 @@ export default function JoinWorkspacePage() {
           </div>
         ) : ownRequest?.status === "approved" ? (
           <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-500">
-            <CheckCircle2 className="h-4 w-4" /> Доступ открыт — обновите страницу
+            <Loader2 className="h-4 w-4 animate-spin" /> Доступ открыт, переходим в workspace...
           </div>
         ) : (
           <Button onClick={handleRequestAccess} disabled={isSubmitting} className="w-full">
