@@ -62,7 +62,13 @@ service cloud.firestore {
       // Everything under it (members, pages, rows, history) stays gated by
       // isMember()/isOwner() as before.
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
+      // Only this one account may create new workspaces. Everyone else
+      // must be invited or approved via a /join/:workspaceId request — see
+      // the joinRequests block below. Keep in sync with
+      // src/utils/adminAccess.ts (WORKSPACE_ADMIN_EMAIL) on the client.
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.auth.token.email == 'nurpro2005@gmail.com';
       allow update: if isOwner(workspaceId);
       allow delete: if isOwner(workspaceId);
 

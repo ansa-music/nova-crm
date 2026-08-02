@@ -1,20 +1,24 @@
 import { useState } from "react";
 import { Outlet } from "react-router";
 import { motion, AnimatePresence } from "framer-motion";
-import { Building2, Plus } from "lucide-react";
+import { Building2, Lock, Plus } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog";
 import { Button } from "@/components/ui/button";
 import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorkspace";
+import { useAuth } from "@/hooks/useAuth";
 import { useIsMobile } from "@/hooks/useMediaQuery";
 import { Skeleton } from "@/components/ui/skeleton";
+import { isWorkspaceAdmin } from "@/utils/adminAccess";
 
 export function AppLayout() {
   useActiveWorkspaceDataBootstrap();
   const { activeWorkspace, isLoadingWorkspaces } = useWorkspace();
+  const { profile } = useAuth();
   const isMobile = useIsMobile();
   const [createOpen, setCreateOpen] = useState(false);
+  const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
 
   if (isLoadingWorkspaces) {
     return (
@@ -31,19 +35,31 @@ export function AppLayout() {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background px-4 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-purple-500 text-white shadow-glow">
-          <Building2 className="h-6 w-6" />
+          {canCreateWorkspace ? <Building2 className="h-6 w-6" /> : <Lock className="h-6 w-6" />}
         </div>
-        <div>
-          <h1 className="text-lg font-semibold">Начните с создания workspace</h1>
-          <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-            Workspace — это отдельное рабочее пространство со своими страницами, участниками и
-            данными, например «Animation Studio» или «Finance».
-          </p>
-        </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" /> Создать workspace
-        </Button>
-        <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />
+        {canCreateWorkspace ? (
+          <>
+            <div>
+              <h1 className="text-lg font-semibold">Начните с создания workspace</h1>
+              <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                Workspace — это отдельное рабочее пространство со своими страницами, участниками и
+                данными, например «Animation Studio» или «Finance».
+              </p>
+            </div>
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" /> Создать workspace
+            </Button>
+            <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />
+          </>
+        ) : (
+          <div>
+            <h1 className="text-lg font-semibold">У вас пока нет доступа ни к одному workspace</h1>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+              Создание новых workspace ограничено. Попросите ссылку-приглашение у владельца
+              нужного workspace — доступ откроется после его подтверждения.
+            </p>
+          </div>
+        )}
       </div>
     );
   }

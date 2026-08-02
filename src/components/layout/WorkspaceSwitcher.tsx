@@ -10,13 +10,17 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { useAuth } from "@/hooks/useAuth";
+import { isWorkspaceAdmin } from "@/utils/adminAccess";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { cn } from "@/utils/cn";
 import type { PageIconName } from "@/types";
 
 export function WorkspaceSwitcher({ collapsed }: { collapsed?: boolean }) {
   const { workspaces, activeWorkspace, setActiveWorkspaceId } = useWorkspace();
+  const { profile } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
+  const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
 
   const ActiveIcon = activeWorkspace
     ? PAGE_ICON_MAP[(activeWorkspace.icon as PageIconName) ?? "Building2"] ?? PAGE_ICON_MAP.Building2
@@ -67,14 +71,18 @@ export function WorkspaceSwitcher({ collapsed }: { collapsed?: boolean }) {
               </DropdownMenuItem>
             );
           })}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4" />
-            Создать workspace
-          </DropdownMenuItem>
+          {canCreateWorkspace && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setCreateOpen(true)}>
+                <Plus className="h-4 w-4" />
+                Создать workspace
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
-      <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />
+      {canCreateWorkspace && <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />}
     </>
   );
 }
