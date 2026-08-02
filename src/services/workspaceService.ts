@@ -1,6 +1,6 @@
 import { deleteDoc, DocumentData, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths, subscribeToDoc } from "@/firebase/firestore";
+import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { addOwnWorkspaceId } from "@/services/authService";
 import type { Workspace } from "@/types";
@@ -75,16 +75,16 @@ export function subscribeToUserWorkspaces(
   const workspaceUnsubs = new Map<string, () => void>();
   const workspaceData = new Map<string, Workspace>();
   let cancelled = false;
+  let emittedOnce = false;
+  let pendingEmptyCacheTimer: ReturnType<typeof setTimeout> | null = null;
 
   function emit() {
     if (cancelled) return;
+    emittedOnce = true;
     onData(Array.from(workspaceData.values()).sort((a, b) => a.createdAt - b.createdAt));
   }
 
-  const unsubscribeUser = subscribeToDoc<{ workspaceIds?: string[] }>(paths.user(uid), (userDoc) => {
-    if (cancelled) return;
-    const currentWorkspaceIds = new Set(userDoc?.workspaceIds ?? []);
-
+  function applyWorkspaceIds(currentWorkspaceIds: Set<string>) {
     // Tear down listeners for workspaces no longer in the cached list.
     for (const [wsId, unsub] of workspaceUnsubs) {
       if (!currentWorkspaceIds.has(wsId)) {
@@ -93,7 +93,6 @@ export function subscribeToUserWorkspaces(
         workspaceData.delete(wsId);
       }
     }
-
     // Attach listeners for newly-visible workspaces.
     for (const wsId of currentWorkspaceIds) {
       if (workspaceUnsubs.has(wsId)) continue;
@@ -117,10 +116,39 @@ export function subscribeToUserWorkspaces(
       workspaceUnsubs.set(wsId, unsub);
     }
     emit();
+  }
+
+  const unsubscribeUser = onSnapshot(paths.user(uid), (snapshot) => {
+    if (cancelled) return;
+    const userDoc = snapshot.exists() ? (snapshot.data() as { workspaceIds?: string[] }) : undefined;
+    const currentWorkspaceIds = new Set(userDoc?.workspaceIds ?? []);
+
+    if (pendingEmptyCacheTimer) {
+      clearTimeout(pendingEmptyCacheTimer);
+      pendingEmptyCacheTimer = null;
+    }
+
+    // Fresh full page load: the very first snapshot can come from a stale
+    // local cache captured before this account had any workspaces cached
+    // (or before a just-approved join finished syncing). Trusting an EMPTY
+    // result straight from cache is exactly what causes "opens on the 2nd
+    // reload but not the 1st" — give the real server snapshot a brief
+    // window to arrive before treating "no workspaces" as final. A non-
+    // empty cached result is trusted immediately (worst case a stale id
+    // gets silently dropped once its own doc read is denied).
+    if (snapshot.metadata.fromCache && currentWorkspaceIds.size === 0 && !emittedOnce) {
+      pendingEmptyCacheTimer = setTimeout(() => {
+        if (!cancelled) applyWorkspaceIds(currentWorkspaceIds);
+      }, 1500);
+      return;
+    }
+
+    applyWorkspaceIds(currentWorkspaceIds);
   });
 
   return () => {
     cancelled = true;
+    if (pendingEmptyCacheTimer) clearTimeout(pendingEmptyCacheTimer);
     unsubscribeUser();
     workspaceUnsubs.forEach((unsub) => unsub());
     workspaceUnsubs.clear();
