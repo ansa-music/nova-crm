@@ -39,12 +39,22 @@ export function useWorkspaceListBootstrap() {
 /** Subscribes to members + pages of whichever workspace is currently active. Call once in the app layout. */
 export function useActiveWorkspaceDataBootstrap() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const isLoadingWorkspaces = useWorkspaceStore((s) => s.isLoadingWorkspaces);
   const setMembers = useWorkspaceStore((s) => s.setMembers);
   const setPages = useWorkspaceStore((s) => s.setPages);
   const setLoadingWorkspaceData = useWorkspaceStore((s) => s.setLoadingWorkspaceData);
 
+  // Don't trust a persisted (localStorage) activeWorkspaceId until the live
+  // workspace list has confirmed it's actually one we belong to — otherwise
+  // a stale id from a previous account/session fires a real, correctly-
+  // denied read against a workspace we're not a member of, surfacing a
+  // confusing permission-denied toast for something that isn't a bug.
+  const isConfirmedActive = Boolean(activeWorkspaceId && workspaces.some((w) => w.id === activeWorkspaceId));
+
   useEffect(() => {
-    if (!activeWorkspaceId) {
+    if (isLoadingWorkspaces) return;
+    if (!isConfirmedActive || !activeWorkspaceId) {
       setMembers([]);
       setPages([]);
       setLoadingWorkspaceData(false);
@@ -70,7 +80,7 @@ export function useActiveWorkspaceDataBootstrap() {
       unsubMembers();
       unsubPages();
     };
-  }, [activeWorkspaceId, setMembers, setPages, setLoadingWorkspaceData]);
+  }, [activeWorkspaceId, isConfirmedActive, isLoadingWorkspaces, setMembers, setPages, setLoadingWorkspaceData]);
 }
 
 export function useWorkspace() {

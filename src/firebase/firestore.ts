@@ -56,6 +56,11 @@ export const paths = {
     doc(requireDb(), "workspaces", workspaceId, "members", uid),
   memberGroup: () => collectionGroup(requireDb(), "members"),
 
+  joinRequests: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "joinRequests"),
+  joinRequest: (workspaceId: string, uid: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "joinRequests", uid),
+
   pages: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "pages"),
   page: (workspaceId: string, pageId: string) =>
     doc(requireDb(), "workspaces", workspaceId, "pages", pageId),

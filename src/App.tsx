@@ -13,6 +13,7 @@ const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const DynamicTablePage = lazy(() => import("@/pages/DynamicTablePage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const UsersPage = lazy(() => import("@/pages/UsersPage"));
+const JoinWorkspacePage = lazy(() => import("@/pages/JoinWorkspacePage"));
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
 
 function PageFallback() {
@@ -54,6 +55,14 @@ function AppShell() {
               <RedirectIfAuthed>
                 <LoginPage />
               </RedirectIfAuthed>
+            }
+          />
+          <Route
+            path="/join/:workspaceId"
+            element={
+              <RequireAuth>
+                <JoinWorkspacePage />
+              </RequireAuth>
             }
           />
           <Route

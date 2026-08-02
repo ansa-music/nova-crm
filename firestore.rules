@@ -56,7 +56,12 @@ service cloud.firestore {
     // Workspaces
     // ---------------------------------------------------------------------
     match /workspaces/{workspaceId} {
-      allow read: if isMember(workspaceId);
+      // Any signed-in user may read the workspace's own top-level doc (name,
+      // icon, color, ownerId — nothing sensitive) so the public /join/:id
+      // page can show "Request access to «Name»" before they're a member.
+      // Everything under it (members, pages, rows, history) stays gated by
+      // isMember()/isOwner() as before.
+      allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
       allow update: if isOwner(workspaceId);
       allow delete: if isOwner(workspaceId);
@@ -98,6 +103,23 @@ service cloud.firestore {
           && resource.data.status == 'invited'
           && isMember(workspaceId)
           && memberDoc(workspaceId, request.auth.uid).data.email == resource.data.email;
+      }
+
+      // -----------------------------------------------------------------
+      // Join requests — the "request to join instead of creating your own
+      // workspace" flow behind a shared /join/:workspaceId link. Anyone
+      // signed in may create exactly one request doc for themselves; only
+      // the Owner may read the list, approve (by creating a real member
+      // record separately), or reject.
+      // -----------------------------------------------------------------
+      match /joinRequests/{uid} {
+        allow read: if isOwner(workspaceId) || (signedIn() && request.auth.uid == uid);
+        allow create: if signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.uid == uid
+          && request.resource.data.status == 'pending';
+        allow update: if isOwner(workspaceId);
+        allow delete: if isOwner(workspaceId) || (signedIn() && request.auth.uid == uid);
       }
 
       // -----------------------------------------------------------------

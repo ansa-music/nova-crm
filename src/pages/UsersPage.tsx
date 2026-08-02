@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ChevronDown, ChevronRight, Mail, ShieldCheck, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, ChevronDown, ChevronRight, Copy, Link2, Mail, ShieldCheck, Trash2, X } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -10,18 +10,26 @@ import { InviteMemberForm } from "@/components/members/InviteMemberForm";
 import { RoleSelect } from "@/components/members/RoleSelect";
 import { changeMemberRole, removeMember, resendInvite } from "@/services/memberService";
 import { toggleUserPageAccess } from "@/services/pageService";
+import { approveJoinRequest, rejectJoinRequest, subscribeToJoinRequests } from "@/services/joinRequestService";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { timeAgo } from "@/utils/date";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
-import type { PageIconName } from "@/types";
+import type { JoinRequest, PageIconName } from "@/types";
 
 export default function UsersPage() {
   const { profile } = useAuth();
   const { activeWorkspaceId, members, pages } = useWorkspace();
   const permissions = usePermissions();
   const [expandedUid, setExpandedUid] = useState<string | null>(null);
+  const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  useEffect(() => {
+    if (!activeWorkspaceId || !permissions.canManageWorkspace) return;
+    return subscribeToJoinRequests(activeWorkspaceId, setJoinRequests);
+  }, [activeWorkspaceId, permissions.canManageWorkspace]);
 
   if (!permissions.canManageWorkspace) {
     return (
@@ -34,6 +42,25 @@ export default function UsersPage() {
   }
 
   if (!activeWorkspaceId) return null;
+
+  const joinLink = `${window.location.origin}/join/${activeWorkspaceId}`;
+
+  async function handleCopyLink() {
+    await navigator.clipboard.writeText(joinLink);
+    setLinkCopied(true);
+    toast.success("Ссылка скопирована");
+    setTimeout(() => setLinkCopied(false), 2000);
+  }
+
+  async function handleApproveRequest(request: JoinRequest) {
+    await approveJoinRequest(activeWorkspaceId!, request, "viewer", profile?.uid ?? "");
+    toast.success(`${request.name} добавлен(а) в workspace как Viewer`);
+  }
+
+  async function handleRejectRequest(uid: string) {
+    await rejectJoinRequest(activeWorkspaceId!, uid);
+    toast.success("Заявка отклонена");
+  }
 
   async function handleRoleChange(uid: string, role: Parameters<typeof changeMemberRole>[2]) {
     await changeMemberRole(activeWorkspaceId!, uid, role);
@@ -64,6 +91,55 @@ export default function UsersPage() {
           видит все страницы всегда — остальным доступ нужно выдать явно.
         </p>
       </div>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Ссылка для вступления</CardTitle>
+          <CardDescription>
+            Новые люди по этой ссылке не создают свой workspace — они отправляют вам заявку, и вы сами решаете, впустить их или нет.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 truncate rounded-md border border-border bg-muted px-3 py-2 text-xs">{joinLink}</code>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={handleCopyLink}>
+              {linkCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              Копировать
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {joinRequests.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Link2 className="h-4 w-4" /> Заявки на вступление ({joinRequests.length})
+            </CardTitle>
+            <CardDescription>При одобрении человек добавляется с ролью Viewer — роль и доступ к страницам настройте после.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {joinRequests.map((request) => (
+              <div key={request.uid} className="flex items-center gap-3 rounded-lg border border-border p-3">
+                <Avatar className="h-8 w-8">
+                  <AvatarImage src={request.photoURL ?? undefined} />
+                  <AvatarFallback>{request.name[0]?.toUpperCase()}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{request.name}</p>
+                  <p className="truncate text-xs text-muted-foreground">{request.email}</p>
+                </div>
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleRejectRequest(request.uid)}>
+                  <X className="h-3.5 w-3.5" /> Отклонить
+                </Button>
+                <Button size="sm" className="gap-1.5" onClick={() => handleApproveRequest(request)}>
+                  <Check className="h-3.5 w-3.5" /> Одобрить
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="mb-6">
         <CardHeader>
