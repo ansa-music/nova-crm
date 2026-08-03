@@ -1,7 +1,8 @@
-import { deleteDoc, onSnapshot, orderBy, query, serverTimestamp, setDoc } from "firebase/firestore";
+import { deleteDoc, onSnapshot, orderBy, query, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
+import { normalizeTimestamp } from "@/utils/date";
 import type { Announcement, AnnouncementPriority } from "@/types";
 
 export function subscribeToAnnouncements(
@@ -14,6 +15,7 @@ export function subscribeToAnnouncements(
     q,
     (snapshot) => {
       const items = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as Announcement);
+      items.forEach((a) => (a.createdAt = normalizeTimestamp(a.createdAt)));
       onData(items);
     },
     withErrorReporting(onError)
@@ -48,7 +50,7 @@ export async function createAnnouncement(input: CreateAnnouncementInput): Promis
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
-  await setDoc(paths.announcement(input.workspaceId, id), { ...announcement, createdAt: serverTimestamp() });
+  await setDoc(paths.announcement(input.workspaceId, id), announcement);
   return announcement;
 }
 

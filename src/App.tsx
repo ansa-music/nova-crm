@@ -1,6 +1,7 @@
 import { Suspense, lazy } from "react";
 import { Navigate, Route, BrowserRouter, Routes, useLocation } from "react-router";
 import { ThemeProvider } from "@/contexts/ThemeProvider";
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -104,11 +105,13 @@ function AppShell() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <TooltipProvider delayDuration={200}>
-        <AppShell />
-        <Toaster />
-      </TooltipProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <TooltipProvider delayDuration={200}>
+          <AppShell />
+          <Toaster />
+        </TooltipProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

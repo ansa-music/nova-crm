@@ -6,11 +6,11 @@ import {
   onSnapshot,
   orderBy,
   query,
-  serverTimestamp,
   setDoc,
 } from "firebase/firestore";
 import { withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
+import { normalizeTimestamp } from "@/utils/date";
 import type { ChatMessage } from "@/types";
 
 export function subscribeToChat(
@@ -23,6 +23,7 @@ export function subscribeToChat(
     q,
     (snapshot) => {
       const items = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as ChatMessage);
+      items.forEach((m) => (m.createdAt = normalizeTimestamp(m.createdAt)));
       onData(items);
     },
     withErrorReporting(onError)
@@ -52,7 +53,7 @@ export async function sendChatMessage(ref: CollectionReference<DocumentData>, in
     replyToAuthorName: input.replyTo?.authorName ?? null,
     replyToText: input.replyTo ? input.replyTo.text.slice(0, 140) : null,
   };
-  await setDoc(doc(ref, id), { ...message, createdAt: serverTimestamp() });
+  await setDoc(doc(ref, id), message);
   return message;
 }
 

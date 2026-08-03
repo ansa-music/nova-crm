@@ -1,7 +1,8 @@
-import { onSnapshot, query, serverTimestamp, setDoc, where, writeBatch } from "firebase/firestore";
+import { onSnapshot, query, setDoc, where, writeBatch } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
+import { normalizeTimestamp } from "@/utils/date";
 import type { Notification, NotificationTargetKind, Role, WorkspaceMember, WorkspacePage } from "@/types";
 
 export interface SendNotificationInput {
@@ -64,7 +65,7 @@ export async function sendNotification(input: SendNotificationInput, targetUids:
       createdAt: Date.now(),
       relatedAnnouncementId: input.relatedAnnouncementId ?? null,
     };
-    batch.set(paths.notification(input.workspaceId, id), { ...notification, createdAt: serverTimestamp() });
+    batch.set(paths.notification(input.workspaceId, id), notification);
   }
   await batch.commit();
 }
@@ -81,6 +82,7 @@ export function subscribeToMyNotifications(
     (snapshot) => {
       const items = snapshot.docs
         .map((d) => ({ id: d.id, ...d.data() }) as unknown as Notification)
+        .map((n) => ({ ...n, createdAt: normalizeTimestamp(n.createdAt) }))
         .sort((a, b) => b.createdAt - a.createdAt);
       onData(items);
     },
