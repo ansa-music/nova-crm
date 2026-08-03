@@ -4,12 +4,15 @@ import { Eye, EyeOff, History, Lock, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/table/DataTable";
+import { SubPageTabs } from "@/components/table/SubPageTabs";
+import { SubPageStats } from "@/components/table/SubPageStats";
 import { EditPageDialog } from "@/components/pagesnav/EditPageDialog";
 import { HistoryPanel } from "@/components/history/HistoryPanel";
 import { toast } from "@/components/ui/sonner";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePageRows } from "@/hooks/usePageRows";
+import { useSubPages, useSubPageRows } from "@/hooks/useSubPageData";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
 import { ensurePriceColumn, togglePageVisibility } from "@/services/pageService";
@@ -22,10 +25,26 @@ export default function DynamicTablePage() {
   const { profile } = useAuth();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activeSubPageId, setActiveSubPageId] = useState<string | null>(null);
 
   const page = pages.find((p) => p.id === pageId);
   const hasAccess = Boolean(page && permissions.canAccessPage(page));
-  const { rows, isLoading: rowsLoading } = usePageRows(activeWorkspaceId, hasAccess && page ? page.id : null);
+  const { rows: pageRows, isLoading: pageRowsLoading } = usePageRows(activeWorkspaceId, hasAccess && page ? page.id : null);
+  const { subPages } = useSubPages(activeWorkspaceId, hasAccess && page ? page.id : null);
+  const activeSubPage = subPages.find((s) => s.id === activeSubPageId) ?? null;
+  const { rows: subPageRows, isLoading: subPageRowsLoading } = useSubPageRows(
+    activeWorkspaceId,
+    hasAccess && page ? page.id : null,
+    activeSubPageId
+  );
+
+  // Reset the active tab whenever navigating to a different page entirely.
+  useEffect(() => {
+    setActiveSubPageId(null);
+  }, [pageId]);
+
+  const rows = activeSubPageId ? subPageRows : pageRows;
+  const rowsLoading = activeSubPageId ? subPageRowsLoading : pageRowsLoading;
 
   // Retrofit: pages created before "Цена" became a standard column don't
   // have one. If an Owner/Admin opens such a page, silently add it once
@@ -124,6 +143,18 @@ export default function DynamicTablePage() {
         )}
       </div>
 
+      <SubPageTabs
+        workspaceId={page.workspaceId}
+        page={page}
+        subPages={subPages}
+        activeSubPageId={activeSubPageId}
+        onSelect={setActiveSubPageId}
+        canManage={canEditData}
+        userId={profile?.uid ?? ""}
+      />
+
+      {activeSubPage && <SubPageStats columns={activeSubPage.columns} rows={subPageRows} />}
+
       <div className="flex-1 overflow-hidden">
         {rowsLoading ? (
           <div className="p-6">
@@ -132,7 +163,8 @@ export default function DynamicTablePage() {
         ) : (
           <DataTable
             workspaceId={page.workspaceId}
-            page={page}
+            page={activeSubPage ? { ...page, columns: activeSubPage.columns } : page}
+            subPageId={activeSubPage?.id}
             rows={rows}
             canEdit={canEditData}
             canEditStructure={permissions.canEditPageStructure}

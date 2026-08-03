@@ -73,3 +73,26 @@ export interface PageRow {
   createdAt: number;
   updatedAt: number;
 }
+
+/**
+ * An independent inner tab inside a WorkspacePage — e.g. "Финка" can have
+ * subpages "Январь", "Февраль", etc. Purely additive to the existing model:
+ * the page's own original table/rows/columns are untouched and keep working
+ * exactly as before; subpages are extra, optional, nested tables under it.
+ * Access follows the parent page's allowedUsers — there's no separate
+ * per-subpage permission list.
+ */
+export interface SubPage {
+  id: string;
+  pageId: string;
+  workspaceId: string;
+  name: string;
+  color: string;
+  icon: PageIconName;
+  order: number;
+  isArchived?: boolean;
+  columns: PageColumn[];
+  createdAt: number;
+  updatedAt: number;
+  createdBy: string;
+}

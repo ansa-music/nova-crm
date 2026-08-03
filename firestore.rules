@@ -156,6 +156,26 @@ service cloud.firestore {
           allow create, update, delete: if isMember(workspaceId) &&
             canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
         }
+
+        // -----------------------------------------------------------------
+        // Subpages (inner tabs, e.g. "Январь"/"Февраль" inside "Финка") —
+        // purely additive nested tables. Access mirrors the parent page
+        // exactly: same allowedUsers-gated read, same non-viewer-gated
+        // write/create — there is no separate per-subpage permission list.
+        // -----------------------------------------------------------------
+        match /subpages/{subPageId} {
+          allow read: if isMember(workspaceId) &&
+            canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
+          allow create, update, delete: if isMember(workspaceId) &&
+            canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
+
+          match /rows/{rowId} {
+            allow read: if isMember(workspaceId) &&
+              canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
+            allow create, update, delete: if isMember(workspaceId) &&
+              canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
+          }
+        }
       }
 
       // -----------------------------------------------------------------

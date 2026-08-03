@@ -70,6 +70,15 @@ export const paths = {
   row: (workspaceId: string, pageId: string, rowId: string) =>
     doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "rows", rowId),
 
+  subPages: (workspaceId: string, pageId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "subpages"),
+  subPage: (workspaceId: string, pageId: string, subPageId: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "subpages", subPageId),
+  subPageRows: (workspaceId: string, pageId: string, subPageId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "subpages", subPageId, "rows"),
+  subPageRow: (workspaceId: string, pageId: string, subPageId: string, rowId: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "subpages", subPageId, "rows", rowId),
+
   history: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "history"),
   historyEntry: (workspaceId: string, entryId: string) =>
     doc(requireDb(), "workspaces", workspaceId, "history", entryId),

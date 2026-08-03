@@ -36,18 +36,31 @@ import { TablePagination } from "@/components/table/TablePagination";
 import { FilterPopover } from "@/components/table/FilterPopover";
 import { toast } from "@/components/ui/sonner";
 import {
-  addRow as addRowService,
-  deleteRow as deleteRowService,
-  duplicateRow as duplicateRowService,
-  reorderRows,
-  updateRowCell,
-  updateRowHeight,
-  updatePageColumns,
-  renameColumn as renameColumnService,
-  changeColumnType as changeColumnTypeService,
-  duplicateColumn as duplicateColumnService,
-  deleteColumn as deleteColumnService,
+  addRow as addRowServiceBase,
+  deleteRow as deleteRowServiceBase,
+  duplicateRow as duplicateRowServiceBase,
+  reorderRows as reorderRowsBase,
+  updateRowCell as updateRowCellBase,
+  updateRowHeight as updateRowHeightBase,
+  updatePageColumns as updatePageColumnsBase,
+  renameColumn as renameColumnServiceBase,
+  changeColumnType as changeColumnTypeServiceBase,
+  duplicateColumn as duplicateColumnServiceBase,
+  deleteColumn as deleteColumnServiceBase,
 } from "@/services/pageService";
+import {
+  addSubPageRow,
+  deleteSubPageRow,
+  duplicateSubPageRow,
+  reorderSubPageRows,
+  updateSubPageRowCell,
+  updateSubPageRowHeight,
+  updateSubPageColumns,
+  renameSubPageColumn,
+  changeSubPageColumnType,
+  duplicateSubPageColumn,
+  deleteSubPageColumn,
+} from "@/services/subPageService";
 import { AddColumnDialog } from "@/components/table/AddColumnDialog";
 import { formatCurrency, downloadCsv } from "@/utils";
 import type { CellAddress, ColumnType, PageRow, SortState, WorkspacePage } from "@/types";
@@ -66,12 +79,59 @@ interface DataTableProps {
   canEditStructure: boolean;
   userId: string;
   userName: string;
+  /** When set, every row/column mutation targets this subpage's nested table instead of the page's own. */
+  subPageId?: string;
 }
 
 type Command = { undo: () => void | Promise<void>; redo: () => void | Promise<void> };
 
-export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName }: DataTableProps) {
+export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId }: DataTableProps) {
   const columns = useMemo(() => [...page.columns].sort((a, b) => a.order - b.order), [page.columns]);
+
+  // Branch every row/column mutation between the page's own table and a
+  // subpage's nested one, based on whether subPageId is set. Every call
+  // site below keeps using the same short names as before — only these
+  // definitions differ.
+  const addRowService = subPageId
+    ? (wsId: string, pId: string, cells: Record<string, string | number | null>, order: number) =>
+        addSubPageRow(wsId, pId, subPageId, cells, order)
+    : addRowServiceBase;
+  const deleteRowService = subPageId
+    ? (wsId: string, pId: string, rowId: string) => deleteSubPageRow(wsId, pId, subPageId, rowId)
+    : deleteRowServiceBase;
+  const duplicateRowService = subPageId
+    ? (wsId: string, pId: string, row: PageRow, order: number) => duplicateSubPageRow(wsId, pId, subPageId, row, order)
+    : duplicateRowServiceBase;
+  const reorderRows = subPageId
+    ? (wsId: string, pId: string, orderedIds: string[]) => reorderSubPageRows(wsId, pId, subPageId, orderedIds)
+    : reorderRowsBase;
+  const updateRowHeight = subPageId
+    ? (wsId: string, pId: string, rowId: string, height: number) => updateSubPageRowHeight(wsId, pId, subPageId, rowId, height)
+    : updateRowHeightBase;
+  const updatePageColumns = subPageId
+    ? (wsId: string, pId: string, cols: typeof page.columns) => updateSubPageColumns(wsId, pId, subPageId, cols)
+    : updatePageColumnsBase;
+  const renameColumnService = subPageId
+    ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string, newLabel: string) =>
+        renameSubPageColumn(wsId, pId, subPageId, cols, colKey, newLabel)
+    : renameColumnServiceBase;
+  const changeColumnTypeService = subPageId
+    ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string, type: ColumnType, statusOptions?: typeof columns[number]["statusOptions"]) =>
+        changeSubPageColumnType(wsId, pId, subPageId, cols, colKey, type, statusOptions)
+    : changeColumnTypeServiceBase;
+  const duplicateColumnService = subPageId
+    ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string) => duplicateSubPageColumn(wsId, pId, subPageId, cols, colKey)
+    : duplicateColumnServiceBase;
+  const deleteColumnService = subPageId
+    ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string) => deleteSubPageColumn(wsId, pId, subPageId, cols, colKey)
+    : deleteColumnServiceBase;
+  async function updateRowCell(ctx: Parameters<typeof updateRowCellBase>[0]) {
+    if (subPageId) {
+      await updateSubPageRowCell(ctx.workspaceId, ctx.pageId, subPageId, ctx.rowId, ctx.field, ctx.newValue);
+      return;
+    }
+    await updateRowCellBase(ctx);
+  }
 
   const [activeCell, setActiveCell] = useState<CellAddress | null>(null);
   const [rangeAnchor, setRangeAnchor] = useState<CellAddress | null>(null);

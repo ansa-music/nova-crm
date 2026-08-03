@@ -20,7 +20,7 @@ import type { PageColumn, PageIconName, PageRow, StatusOption, WorkspacePage } f
 // (Firestore не разрешает undefined, даже во вложенных объектах/массивах —
 // например statusOptions у текстовых/телефонных/датных колонок)
 // ---------------------------------------------------------------------------
-function stripUndefined<T>(value: T): T {
+export function stripUndefined<T>(value: T): T {
   if (Array.isArray(value)) {
     return value.map((item) => stripUndefined(item)) as unknown as T;
   }
