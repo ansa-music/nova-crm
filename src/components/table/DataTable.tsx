@@ -148,10 +148,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const [pinnedKeys, setPinnedKeys] = useState<string[]>(() => {
     try {
       const raw = localStorage.getItem(`nova-crm:pinned:${page.id}`);
-      return raw ? JSON.parse(raw) : [];
+      if (raw) return JSON.parse(raw);
     } catch {
-      return [];
+      // fall through to default below
     }
+    // First-time default: pin the first column so it stays visible while
+    // scrolling horizontally through the rest — matters most on mobile,
+    // where only 1-2 columns fit on screen at once.
+    return columns[0] ? [columns[0].key] : [];
   });
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [pageIndex, setPageIndex] = useState(0);
