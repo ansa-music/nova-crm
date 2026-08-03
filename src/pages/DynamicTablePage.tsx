@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
-import { Eye, EyeOff, History, Lock, Settings2 } from "lucide-react";
+import { Eye, EyeOff, History, Lock, MessageSquare, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/table/DataTable";
@@ -8,6 +8,7 @@ import { SubPageTabs } from "@/components/table/SubPageTabs";
 import { SubPageStats } from "@/components/table/SubPageStats";
 import { EditPageDialog } from "@/components/pagesnav/EditPageDialog";
 import { HistoryPanel } from "@/components/history/HistoryPanel";
+import { PageChatPanel } from "@/components/chat/PageChatPanel";
 import { toast } from "@/components/ui/sonner";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -24,6 +25,7 @@ export default function DynamicTablePage() {
   const permissions = usePermissions();
   const { profile } = useAuth();
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeSubPageId, setActiveSubPageId] = useState<string | null>(null);
 
@@ -131,6 +133,9 @@ export default function DynamicTablePage() {
             )}
           </Button>
         )}
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setChatOpen(true)}>
+          <MessageSquare className="h-3.5 w-3.5" /> Чат страницы
+        </Button>
         {permissions.canViewHistory && (
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setHistoryOpen(true)}>
             <History className="h-3.5 w-3.5" /> История
@@ -178,6 +183,7 @@ export default function DynamicTablePage() {
       {permissions.canViewHistory && (
         <HistoryPanel open={historyOpen} onOpenChange={setHistoryOpen} workspaceId={page.workspaceId} pageId={page.id} />
       )}
+      <PageChatPanel open={chatOpen} onOpenChange={setChatOpen} workspaceId={page.workspaceId} pageId={page.id} pageName={page.name} />
     </div>
   );
 }

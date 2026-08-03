@@ -24,6 +24,8 @@ export interface WorkspaceMember {
   joinedAt?: number;
   /** Present only while status === 'invited'; used as the accept-invite token. */
   inviteToken?: string;
+  /** Self-reported heartbeat timestamp, refreshed periodically while the app is open. Drives the online/away/offline indicator. */
+  lastActiveAt?: number;
 }
 
 export type JoinRequestStatus = "pending" | "approved" | "rejected";

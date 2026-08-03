@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink } from "react-router";
-import { ChevronLeft, ChevronRight, LayoutDashboard, LogOut, Plus, Settings, User, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight, LayoutDashboard, LogOut, Megaphone, MessageCircle, MessageSquare, Plus, Settings, User, Users } from "lucide-react";
 import { motion } from "framer-motion";
 import {
   DropdownMenu,
@@ -76,6 +76,108 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
             >
               <LayoutDashboard className="h-4 w-4 shrink-0" />
               Dashboard
+            </NavLink>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-0.5">
+          {collapsed ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <NavLink
+                  to="/announcements"
+                  className={({ isActive }) =>
+                    cn(
+                      "flex items-center justify-center rounded-lg p-2 transition-colors",
+                      isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                    )
+                  }
+                >
+                  <Megaphone className="h-4 w-4 shrink-0" />
+                </NavLink>
+              </TooltipTrigger>
+              <TooltipContent side="right">Объявления</TooltipContent>
+            </Tooltip>
+          ) : (
+            <NavLink
+              to="/announcements"
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+                  isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                )
+              }
+            >
+              <Megaphone className="h-4 w-4 shrink-0" />
+              Объявления
+            </NavLink>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-0.5">
+          {collapsed ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <NavLink
+                  to="/chat"
+                  className={({ isActive }) =>
+                    cn(
+                      "flex items-center justify-center rounded-lg p-2 transition-colors",
+                      isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                    )
+                  }
+                >
+                  <MessageSquare className="h-4 w-4 shrink-0" />
+                </NavLink>
+              </TooltipTrigger>
+              <TooltipContent side="right">Чат Workspace</TooltipContent>
+            </Tooltip>
+          ) : (
+            <NavLink
+              to="/chat"
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+                  isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                )
+              }
+            >
+              <MessageSquare className="h-4 w-4 shrink-0" />
+              Чат Workspace
+            </NavLink>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-0.5">
+          {collapsed ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <NavLink
+                  to="/messages"
+                  className={({ isActive }) =>
+                    cn(
+                      "flex items-center justify-center rounded-lg p-2 transition-colors",
+                      isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                    )
+                  }
+                >
+                  <MessageCircle className="h-4 w-4 shrink-0" />
+                </NavLink>
+              </TooltipTrigger>
+              <TooltipContent side="right">Личные сообщения</TooltipContent>
+            </Tooltip>
+          ) : (
+            <NavLink
+              to="/messages"
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+                  isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                )
+              }
+            >
+              <MessageCircle className="h-4 w-4 shrink-0" />
+              Личные сообщения
             </NavLink>
           )}
         </div>

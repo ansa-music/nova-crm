@@ -8,6 +8,7 @@ import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog
 import { NicknamePrompt } from "@/components/common/NicknamePrompt";
 import { Button } from "@/components/ui/button";
 import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorkspace";
+import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
 import { useAuth } from "@/hooks/useAuth";
 import { useIsMobile } from "@/hooks/useMediaQuery";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,6 +16,7 @@ import { isWorkspaceAdmin } from "@/utils/adminAccess";
 
 export function AppLayout() {
   useActiveWorkspaceDataBootstrap();
+  usePresenceHeartbeat();
   const { activeWorkspace, isLoadingWorkspaces } = useWorkspace();
   const { profile } = useAuth();
   const isMobile = useIsMobile();

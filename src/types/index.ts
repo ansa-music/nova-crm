@@ -4,3 +4,6 @@ export * from "@/types/workspace";
 export * from "@/types/page";
 export * from "@/types/history";
 export * from "@/types/table";
+export * from "@/types/announcement";
+export * from "@/types/notification";
+export * from "@/types/chat";

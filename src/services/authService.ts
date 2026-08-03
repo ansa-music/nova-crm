@@ -49,6 +49,23 @@ export async function syncNicknameToMemberships(uid: string, workspaceIds: strin
 }
 
 /**
+ * Presence heartbeat: refreshes `lastActiveAt` on the person's own member
+ * doc in every workspace they belong to. Called periodically while the app
+ * is open (see useHeartbeat hook) — never blocks on failure.
+ */
+export async function updatePresenceHeartbeat(uid: string, workspaceIds: string[]) {
+  await Promise.all(
+    workspaceIds.map(async (workspaceId) => {
+      try {
+        await setDoc(paths.member(workspaceId, uid), { lastActiveAt: Date.now() }, { merge: true });
+      } catch (error) {
+        console.error(`Failed to update presence heartbeat for workspace ${workspaceId}:`, error);
+      }
+    })
+  );
+}
+
+/**
  * Self-service only (the rules only allow a user to write their own doc):
  * call this as the person who just gained membership, right after their own
  * member doc was created (workspace creation, invite acceptance, or a

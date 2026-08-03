@@ -13,6 +13,9 @@ const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const DynamicTablePage = lazy(() => import("@/pages/DynamicTablePage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const UsersPage = lazy(() => import("@/pages/UsersPage"));
+const AnnouncementsPage = lazy(() => import("@/pages/AnnouncementsPage"));
+const WorkspaceChatPage = lazy(() => import("@/pages/WorkspaceChatPage"));
+const MessagesPage = lazy(() => import("@/pages/MessagesPage"));
 const JoinWorkspacePage = lazy(() => import("@/pages/JoinWorkspacePage"));
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
 
@@ -87,6 +90,9 @@ function AppShell() {
             <Route index element={<DashboardPage />} />
             <Route path="page/:pageId" element={<DynamicTablePage />} />
             <Route path="users" element={<UsersPage />} />
+            <Route path="announcements" element={<AnnouncementsPage />} />
+            <Route path="chat" element={<WorkspaceChatPage />} />
+            <Route path="messages" element={<MessagesPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<NotFoundPage />} />

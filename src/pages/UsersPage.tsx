@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Copy, Link2, Mail, ShieldCheck, Trash2, X } from "lucide-react";
 import { displayNameOf } from "@/utils/displayName";
+import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
+import { cn } from "@/utils/cn";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -163,10 +165,21 @@ export default function UsersPage() {
           return (
             <Card key={member.uid || member.email}>
               <div className="flex items-center gap-3 p-4">
-                <Avatar className="h-9 w-9">
-                  <AvatarImage src={member.photoURL ?? undefined} />
-                  <AvatarFallback>{displayNameOf(member)[0]?.toUpperCase()}</AvatarFallback>
-                </Avatar>
+                <div className="relative shrink-0">
+                  <Avatar className="h-9 w-9">
+                    <AvatarImage src={member.photoURL ?? undefined} />
+                    <AvatarFallback>{displayNameOf(member)[0]?.toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  {member.status === "active" && (
+                    <span
+                      className={cn(
+                        "absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card",
+                        PRESENCE_DOT_COLOR[getPresenceStatus(member.lastActiveAt)]
+                      )}
+                      title={PRESENCE_LABEL[getPresenceStatus(member.lastActiveAt)]}
+                    />
+                  )}
+                </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">
                     {displayNameOf(member)}

@@ -32,6 +32,10 @@ service cloud.firestore {
       return isMember(workspaceId) && myRole(workspaceId) == 'owner';
     }
 
+    function isOwnerOrAdmin(workspaceId) {
+      return isMember(workspaceId) && (myRole(workspaceId) == 'owner' || myRole(workspaceId) == 'admin');
+    }
+
     // Owner sees/manages every page unconditionally. Anyone else needs their
     // uid explicitly present in the page's allowedUsers list.
     function canAccessPage(workspaceId, pageData) {
@@ -89,13 +93,12 @@ service cloud.firestore {
         allow read: if isMember(workspaceId) ||
           (signedIn() && memberId == request.auth.token.email && resource.data.status == 'invited');
 
-        // Self-service: a member may update just their own nickname on
-        // their own member doc (keeps it in sync after they change it in
-        // their profile), without needing Owner-level member-management
-        // rights for anything else.
+        // Self-service: a member may update just their own nickname and/or
+        // presence heartbeat on their own member doc, without needing
+        // Owner-level member-management rights for anything else.
         allow update: if signedIn()
           && memberId == request.auth.uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname']);
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname', 'lastActiveAt']);
 
         // Owner manages any membership record: invite, change role, remove.
         allow create, update, delete: if isOwner(workspaceId);
@@ -173,6 +176,18 @@ service cloud.firestore {
             canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
           allow create, update, delete: if isMember(workspaceId) &&
             canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
+
+          // Row-level comment threads — anyone with VIEW access to the
+          // page (even a Viewer) can read and post; editing/deleting a
+          // comment stays restricted to its own author.
+          match /comments/{commentId} {
+            allow read: if isMember(workspaceId) &&
+              canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
+            allow create: if isMember(workspaceId) &&
+              canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
+              request.resource.data.authorUid == request.auth.uid;
+            allow update, delete: if isMember(workspaceId) && resource.data.authorUid == request.auth.uid;
+          }
         }
 
         // -----------------------------------------------------------------
@@ -194,6 +209,20 @@ service cloud.firestore {
               canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
           }
         }
+
+        // -----------------------------------------------------------------
+        // Per-page chat — anyone with view access to this page (even a
+        // Viewer) can read and post; editing/deleting a message stays
+        // restricted to its own author.
+        // -----------------------------------------------------------------
+        match /chat/{messageId} {
+          allow read: if isMember(workspaceId) &&
+            canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
+          allow create: if isMember(workspaceId) &&
+            canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
+            request.resource.data.authorUid == request.auth.uid;
+          allow update, delete: if isMember(workspaceId) && resource.data.authorUid == request.auth.uid;
+        }
       }
 
       // -----------------------------------------------------------------
@@ -205,6 +234,64 @@ service cloud.firestore {
         allow read: if isOwner(workspaceId);
         allow create: if isMember(workspaceId) && myRole(workspaceId) != 'viewer';
         allow delete: if isOwner(workspaceId);
+      }
+
+      // -----------------------------------------------------------------
+      // Announcements — any member may read; only Owner/Admin may post,
+      // edit, pin, archive, or delete.
+      // -----------------------------------------------------------------
+      match /announcements/{announcementId} {
+        allow read: if isMember(workspaceId);
+        allow create: if isOwnerOrAdmin(workspaceId) && request.resource.data.authorUid == request.auth.uid;
+        allow update, delete: if isOwnerOrAdmin(workspaceId);
+      }
+
+      // -----------------------------------------------------------------
+      // Notifications — fan-out, one doc per recipient. Only the Owner may
+      // send (create) notifications. Each person may only read/update
+      // (mark-as-read) their own — never anyone else's — and may delete
+      // their own to clear it from their list.
+      // -----------------------------------------------------------------
+      match /notifications/{notificationId} {
+        allow read, delete: if signedIn() && resource.data.targetUid == request.auth.uid;
+        allow update: if signedIn()
+          && resource.data.targetUid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+        // Owner-only BROADCAST sending (the Announcements "notify" picker)
+        // is enforced by the client UI, not here — this rule's job is just
+        // to stop someone from faking who a notification is "from". Any
+        // member may create a notification for this reason: @mentions in
+        // chat/comments need to let ANY member ping ANY other member, not
+        // just the Owner.
+        allow create: if isMember(workspaceId) && request.resource.data.fromUid == request.auth.uid;
+      }
+
+      // -----------------------------------------------------------------
+      // Workspace group chat — any member may read/post; editing or
+      // deleting a message is restricted to its own author.
+      // -----------------------------------------------------------------
+      match /workspaceChat/{messageId} {
+        allow read: if isMember(workspaceId);
+        allow create: if isMember(workspaceId) && request.resource.data.authorUid == request.auth.uid;
+        allow update, delete: if isMember(workspaceId) && resource.data.authorUid == request.auth.uid;
+      }
+
+      // -----------------------------------------------------------------
+      // Private (1:1) messages. chatId is a deterministic pairing of the
+      // two participants' uids, e.g. "<uidA>_<uidB>" sorted — so anyone
+      // can be verified as a legitimate participant just from the chatId
+      // itself, without needing a separate membership document.
+      // -----------------------------------------------------------------
+      function isInPrivateChat(chatId) {
+        return chatId.split('_')[0] == request.auth.uid || chatId.split('_')[1] == request.auth.uid;
+      }
+      match /privateChats/{chatId} {
+        allow read, write: if isMember(workspaceId) && isInPrivateChat(chatId);
+        match /messages/{messageId} {
+          allow read: if isMember(workspaceId) && isInPrivateChat(chatId);
+          allow create: if isMember(workspaceId) && isInPrivateChat(chatId) && request.resource.data.authorUid == request.auth.uid;
+          allow update, delete: if isMember(workspaceId) && isInPrivateChat(chatId) && resource.data.authorUid == request.auth.uid;
+        }
       }
     }
   }

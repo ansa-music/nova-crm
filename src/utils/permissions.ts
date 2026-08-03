@@ -45,6 +45,16 @@ export function canRestoreHistory(role: Role): boolean {
   return role === "owner";
 }
 
+/** Owner and Admin may post/edit/pin/archive/delete announcements. */
+export function canManageAnnouncements(role: Role): boolean {
+  return role === "owner" || role === "admin";
+}
+
+/** Only the Owner may send notifications (as opposed to merely posting an announcement). */
+export function canSendNotifications(role: Role): boolean {
+  return role === "owner";
+}
+
 /** Whether a given user (role + uid) may open a specific workspace page at all. */
 export function canAccessPage(page: WorkspacePage, role: Role, uid: string): boolean {
   if (role === "owner") return true;

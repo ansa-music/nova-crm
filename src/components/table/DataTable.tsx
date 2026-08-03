@@ -62,6 +62,7 @@ import {
   deleteSubPageColumn,
 } from "@/services/subPageService";
 import { AddColumnDialog } from "@/components/table/AddColumnDialog";
+import { RowCommentsPanel } from "@/components/chat/RowCommentsPanel";
 import { formatCurrency, downloadCsv } from "@/utils";
 import type { CellAddress, ColumnType, PageRow, SortState, WorkspacePage } from "@/types";
 
@@ -145,6 +146,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [density, setDensity] = useState<"compact" | "default" | "comfortable">("default");
   const [addColumnOpen, setAddColumnOpen] = useState(false);
+  const [commentRowId, setCommentRowId] = useState<string | null>(null);
   const [pinnedKeys, setPinnedKeys] = useState<string[]>(() => {
     try {
       const raw = localStorage.getItem(`nova-crm:pinned:${page.id}`);
@@ -1047,6 +1049,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                 <ContextMenuItem onClick={handleDuplicateRow} disabled={!canEdit}>
                   Дублировать строку
                 </ContextMenuItem>
+                {!subPageId && (
+                  <ContextMenuItem onClick={() => setCommentRowId(contextRowIdRef.current)}>
+                    Комментарий
+                  </ContextMenuItem>
+                )}
                 <ContextMenuItem onClick={handleDeleteRow} disabled={!canEdit} className="text-destructive focus:text-destructive">
                   Удалить строку
                 </ContextMenuItem>
@@ -1119,6 +1126,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         workspaceId={workspaceId}
         pageId={page.id}
         existingColumns={columns}
+      />
+
+      <RowCommentsPanel
+        open={Boolean(commentRowId)}
+        onOpenChange={(o) => !o && setCommentRowId(null)}
+        workspaceId={workspaceId}
+        pageId={page.id}
+        rowId={commentRowId}
       />
     </div>
   );

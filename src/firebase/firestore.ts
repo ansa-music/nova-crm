@@ -69,6 +69,10 @@ export const paths = {
     collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "rows"),
   row: (workspaceId: string, pageId: string, rowId: string) =>
     doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "rows", rowId),
+  rowComments: (workspaceId: string, pageId: string, rowId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "rows", rowId, "comments"),
+  rowComment: (workspaceId: string, pageId: string, rowId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "rows", rowId, "comments", id),
 
   subPages: (workspaceId: string, pageId: string) =>
     collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "subpages"),
@@ -82,6 +86,33 @@ export const paths = {
   history: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "history"),
   historyEntry: (workspaceId: string, entryId: string) =>
     doc(requireDb(), "workspaces", workspaceId, "history", entryId),
+
+  announcements: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "announcements"),
+  announcement: (workspaceId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "announcements", id),
+
+  notifications: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "notifications"),
+  notification: (workspaceId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "notifications", id),
+
+  workspaceChat: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "workspaceChat"),
+  workspaceChatMessage: (workspaceId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "workspaceChat", id),
+
+  privateChatMessages: (workspaceId: string, chatId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "privateChats", chatId, "messages"),
+  privateChatMessage: (workspaceId: string, chatId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "privateChats", chatId, "messages", id),
+  privateChatMeta: (workspaceId: string, chatId: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "privateChats", chatId),
+
+  pageChat: (workspaceId: string, pageId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "chat"),
+  pageChatMessage: (workspaceId: string, pageId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "chat", id),
 };
 
 /** Generic helper to subscribe to any query/collection with typed converter output. */
