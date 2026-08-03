@@ -58,7 +58,7 @@ export function canSendNotifications(role: Role): boolean {
 /** Whether a given user (role + uid) may open a specific workspace page at all. */
 export function canAccessPage(page: WorkspacePage, role: Role, uid: string): boolean {
   if (role === "owner") return true;
-  if (page.hiddenByResponsible && page.responsibleUserId !== uid) return false;
+  if (isResponsibleForPage(page, uid)) return true;
   return page.allowedUsers.includes(uid);
 }
 

@@ -21,7 +21,7 @@ import type { PageIconName } from "@/types";
 
 export default function DynamicTablePage() {
   const { pageId } = useParams<{ pageId: string }>();
-  const { activeWorkspaceId, pages, isLoadingWorkspaceData } = useWorkspace();
+  const { activeWorkspaceId, pages, members, isLoadingWorkspaceData } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -98,9 +98,15 @@ export default function DynamicTablePage() {
 
   async function handleToggleVisibility() {
     if (!page) return;
+    const willShow = Boolean(page.hiddenByResponsible);
     try {
-      await togglePageVisibility(page.workspaceId, page.id, !page.hiddenByResponsible);
-      toast.success(page.hiddenByResponsible ? "Страница снова видна остальным" : "Страница скрыта от остальных");
+      const allActiveMemberUids = members.filter((m) => m.status === "active").map((m) => m.uid);
+      await togglePageVisibility(page.workspaceId, page.id, willShow, allActiveMemberUids, page.responsibleUserId);
+      toast.success(
+        willShow
+          ? "Страница видна всем — доступ на просмотр (без редактирования)"
+          : "Доступ убран у всех, кроме вас и Owner"
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось изменить видимость");
     }

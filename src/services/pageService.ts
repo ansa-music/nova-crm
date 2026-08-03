@@ -180,9 +180,33 @@ export async function setPageResponsible(
 }
 
 /** Only the assigned responsible person may call this — hides/shows the page for everyone else in allowedUsers. */
-export async function togglePageVisibility(workspaceId: string, pageId: string, hidden: boolean) {
+/**
+ * "Показать" grants VIEW access (not edit) to every active member at once —
+ * "Скрыть" removes everyone's access again (Owner and the responsible
+ * person always see it regardless). Implemented purely via `allowedUsers`
+ * (the same mechanism already used for individual grants) rather than a
+ * separate visibility field, so it never risks the Firestore list-query
+ * safety issue a per-doc "visibility" field would reintroduce for the
+ * pages list query.
+ */
+export async function togglePageVisibility(
+  workspaceId: string,
+  pageId: string,
+  show: boolean,
+  allActiveMemberUids: string[],
+  responsibleUserId?: string | null
+) {
   if (!db) return;
-  await setDoc(paths.page(workspaceId, pageId), { hiddenByResponsible: hidden, updatedAt: Date.now() }, { merge: true });
+  const allowedUsers = show
+    ? Array.from(new Set(allActiveMemberUids))
+    : responsibleUserId
+      ? [responsibleUserId]
+      : [];
+  await setDoc(
+    paths.page(workspaceId, pageId),
+    { allowedUsers, hiddenByResponsible: !show, updatedAt: Date.now() },
+    { merge: true }
+  );
 }
 
 /**
