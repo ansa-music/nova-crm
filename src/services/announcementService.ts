@@ -1,4 +1,4 @@
-import { deleteDoc, onSnapshot, orderBy, query, setDoc } from "firebase/firestore";
+import { deleteDoc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -10,12 +10,22 @@ export function subscribeToAnnouncements(
   onData: (announcements: Announcement[]) => void,
   onError?: (error: import("firebase/firestore").FirestoreError) => void
 ) {
-  const q = query(paths.announcements(workspaceId), orderBy("createdAt", "desc"));
+  // No orderBy() in the query: it would silently exclude the announcement
+  // already created before this fix (no serverOrderAt field yet). Sorted
+  // client-side instead, preferring the server-authoritative order and
+  // falling back to the plain client timestamp for older documents.
   return onSnapshot(
-    q,
+    paths.announcements(workspaceId),
     (snapshot) => {
-      const items = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as Announcement);
+      const items = snapshot.docs.map(
+        (d) => ({ id: d.id, ...d.data() }) as unknown as Announcement & { serverOrderAt?: unknown }
+      );
       items.forEach((a) => (a.createdAt = normalizeTimestamp(a.createdAt)));
+      items.sort((a, b) => {
+        const keyA = a.serverOrderAt ? normalizeTimestamp(a.serverOrderAt) : a.createdAt;
+        const keyB = b.serverOrderAt ? normalizeTimestamp(b.serverOrderAt) : b.createdAt;
+        return keyB - keyA;
+      });
       onData(items);
     },
     withErrorReporting(onError)
@@ -50,7 +60,7 @@ export async function createAnnouncement(input: CreateAnnouncementInput): Promis
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
-  await setDoc(paths.announcement(input.workspaceId, id), announcement);
+  await setDoc(paths.announcement(input.workspaceId, id), { ...announcement, serverOrderAt: serverTimestamp() });
   return announcement;
 }
 

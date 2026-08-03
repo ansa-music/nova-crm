@@ -1,4 +1,4 @@
-import { onSnapshot, query, setDoc, where, writeBatch } from "firebase/firestore";
+import { onSnapshot, query, serverTimestamp, setDoc, where, writeBatch } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -65,7 +65,7 @@ export async function sendNotification(input: SendNotificationInput, targetUids:
       createdAt: Date.now(),
       relatedAnnouncementId: input.relatedAnnouncementId ?? null,
     };
-    batch.set(paths.notification(input.workspaceId, id), notification);
+    batch.set(paths.notification(input.workspaceId, id), { ...notification, serverOrderAt: serverTimestamp() });
   }
   await batch.commit();
 }
