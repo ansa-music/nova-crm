@@ -382,21 +382,63 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     });
   }
 
-  function moveActiveAfterCommit(direction: "down" | "right" | "none") {
+  async function moveActiveAfterCommit(direction: "down" | "right" | "left" | "none") {
     if (direction === "none" || !activeCell) return;
     const rIdx = rowIds.indexOf(activeCell.rowId);
     const cIdx = columns.findIndex((c) => c.key === activeCell.colKey);
+
+    // Enter on the last row: auto-create a fresh empty row and jump straight
+    // into editing the same column on it — matches Google Sheets/Airtable's
+    // "just keep typing" flow instead of getting stuck on the last row.
+    if (direction === "down" && rIdx === rowIds.length - 1) {
+      if (!canEdit) return;
+      const cells: Record<string, string | number | null> = {};
+      columns.forEach((c) => (cells[c.key] = ""));
+      const newRow = await addRowService(workspaceId, page.id, cells, rows.length);
+      pushCommand({
+        undo: () => deleteRowService(workspaceId, page.id, newRow.id),
+        redo: () => {
+          addRowService(workspaceId, page.id, cells, rows.length);
+        },
+      });
+      const nextAddr = { rowId: newRow.id, colKey: activeCell.colKey };
+      requestAnimationFrame(() => {
+        setActiveCell(nextAddr);
+        setRangeAnchor(nextAddr);
+        const col = columns.find((c) => c.key === nextAddr.colKey);
+        if (col && col.type !== "status") {
+          setEditingCell(nextAddr);
+          setEditValue("");
+        }
+        containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight });
+      });
+      return;
+    }
+
     let nr = rIdx;
     let nc = cIdx;
     if (direction === "down") nr = Math.min(rowIds.length - 1, rIdx + 1);
     if (direction === "right") nc = Math.min(columns.length - 1, cIdx + 1);
+    if (direction === "left") nc = Math.max(0, cIdx - 1);
     const next = { rowId: rowIds[nr], colKey: columns[nc].key };
     setActiveCell(next);
     setRangeAnchor(next);
+
+    // Enter (down) auto-opens editing on the newly active cell so the
+    // person can just keep typing without a second keypress — Tab/Shift+Tab
+    // deliberately only move the selection, matching normal spreadsheet feel.
+    if (direction === "down" && canEdit) {
+      const col = columns.find((c) => c.key === next.colKey);
+      if (col && col.type !== "status") {
+        const row = rows.find((r) => r.id === next.rowId);
+        setEditingCell(next);
+        setEditValue(String(row?.cells[next.colKey] ?? ""));
+      }
+    }
   }
 
   const handleCommitEdit = useCallback(
-    (direction: "down" | "right" | "none" = "none") => {
+    (direction: "down" | "right" | "left" | "none" = "none") => {
       if (!editingCell) return;
       const { rowId, colKey } = editingCell;
       const row = rows.find((r) => r.id === rowId);
@@ -643,7 +685,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       }
       if (e.key === "Tab") {
         e.preventDefault();
-        moveSelection("right", false);
+        moveSelection(e.shiftKey ? "left" : "right", false);
         return;
       }
       if (!isCtrl && !e.altKey && e.key.length === 1) {

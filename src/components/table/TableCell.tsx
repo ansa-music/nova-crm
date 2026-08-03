@@ -17,7 +17,7 @@ interface TableCellProps {
   onMouseEnter: () => void;
   onDoubleClick: () => void;
   onEditValueChange: (value: string) => void;
-  onCommitEdit: (direction?: "down" | "right" | "none") => void;
+  onCommitEdit: (direction?: "down" | "right" | "left" | "none") => void;
   onCancelEdit: () => void;
   onStatusChange: (value: string) => void;
   stickyLeft?: number;
@@ -114,7 +114,7 @@ export function TableCell({
               onCommitEdit("down");
             } else if (e.key === "Tab") {
               e.preventDefault();
-              onCommitEdit("right");
+              onCommitEdit(e.shiftKey ? "left" : "right");
             } else if (e.key === "Escape") {
               e.preventDefault();
               onCancelEdit();

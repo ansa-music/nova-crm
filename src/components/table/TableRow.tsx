@@ -27,7 +27,7 @@ interface TableRowProps {
   onCellMouseEnter: (rowId: string, colKey: string) => void;
   onCellDoubleClick: (rowId: string, colKey: string) => void;
   onEditValueChange: (value: string) => void;
-  onCommitEdit: (direction?: "down" | "right" | "none") => void;
+  onCommitEdit: (direction?: "down" | "right" | "left" | "none") => void;
   onCancelEdit: () => void;
   onStatusChange: (rowId: string, colKey: string, value: string) => void;
   onRowNumberMouseDown: (rowId: string, e: React.MouseEvent) => void;
