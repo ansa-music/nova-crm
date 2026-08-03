@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
-import { History, Lock, Settings2 } from "lucide-react";
+import { Eye, EyeOff, History, Lock, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/table/DataTable";
 import { EditPageDialog } from "@/components/pagesnav/EditPageDialog";
 import { HistoryPanel } from "@/components/history/HistoryPanel";
+import { toast } from "@/components/ui/sonner";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePageRows } from "@/hooks/usePageRows";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
-import { ensurePriceColumn } from "@/services/pageService";
+import { ensurePriceColumn, togglePageVisibility } from "@/services/pageService";
 import type { PageIconName } from "@/types";
 
 export default function DynamicTablePage() {
@@ -72,6 +73,17 @@ export default function DynamicTablePage() {
 
   const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid;
   const canEditData = permissions.canEditPageData(page);
+  const isResponsible = permissions.isResponsibleForPage(page);
+
+  async function handleToggleVisibility() {
+    if (!page) return;
+    try {
+      await togglePageVisibility(page.workspaceId, page.id, !page.hiddenByResponsible);
+      toast.success(page.hiddenByResponsible ? "Страница снова видна остальным" : "Страница скрыта от остальных");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось изменить видимость");
+    }
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -87,6 +99,19 @@ export default function DynamicTablePage() {
           <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Только просмотр</span>
         )}
         <div className="flex-1" />
+        {isResponsible && (
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleToggleVisibility}>
+            {page.hiddenByResponsible ? (
+              <>
+                <EyeOff className="h-3.5 w-3.5 text-destructive" /> Скрыто от других
+              </>
+            ) : (
+              <>
+                <Eye className="h-3.5 w-3.5" /> Видно другим
+              </>
+            )}
+          </Button>
+        )}
         {permissions.canViewHistory && (
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setHistoryOpen(true)}>
             <History className="h-3.5 w-3.5" /> История

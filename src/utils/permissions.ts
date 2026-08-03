@@ -48,6 +48,7 @@ export function canRestoreHistory(role: Role): boolean {
 /** Whether a given user (role + uid) may open a specific workspace page at all. */
 export function canAccessPage(page: WorkspacePage, role: Role, uid: string): boolean {
   if (role === "owner") return true;
+  if (page.hiddenByResponsible && page.responsibleUserId !== uid) return false;
   return page.allowedUsers.includes(uid);
 }
 
@@ -55,4 +56,9 @@ export function canAccessPage(page: WorkspacePage, role: Role, uid: string): boo
 export function canEditPageData(page: WorkspacePage, role: Role, uid: string): boolean {
   if (role === "viewer") return false;
   return canAccessPage(page, role, uid);
+}
+
+/** Only the person the Owner assigned as responsible for this page may toggle its visibility to others. */
+export function isResponsibleForPage(page: WorkspacePage, uid: string): boolean {
+  return Boolean(page.responsibleUserId) && page.responsibleUserId === uid;
 }

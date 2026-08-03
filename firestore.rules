@@ -137,6 +137,19 @@ service cloud.firestore {
         allow create: if isOwner(workspaceId) && request.resource.data.workspaceId == workspaceId;
         allow update, delete: if isOwner(workspaceId);
 
+        // The person the Owner assigned as "responsible" for this page may
+        // flip its hidden-from-others flag themselves — and ONLY that flag,
+        // nothing else about the page. (Note: this only controls whether the
+        // client's own UI shows/hides the page for others in allowedUsers;
+        // the underlying read rule above is intentionally left unchanged —
+        // it must stay a plain allowedUsers check with no other per-doc
+        // condition, or Firestore can no longer prove the pages list query
+        // safe and denies it outright for every non-Owner, same class of
+        // bug fixed earlier for the pages list query.)
+        allow update: if isMember(workspaceId)
+          && resource.data.responsibleUserId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hiddenByResponsible', 'updatedAt']);
+
         match /rows/{rowId} {
           allow read: if isMember(workspaceId) &&
             canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);

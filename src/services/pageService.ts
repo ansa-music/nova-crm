@@ -117,6 +117,22 @@ export async function updatePagePermissions(workspaceId: string, pageId: string,
   await setDoc(paths.page(workspaceId, pageId), { allowedUsers, updatedAt: Date.now() }, { merge: true });
 }
 
+/** Owner-only: assign (or clear) who's responsible for this page. */
+export async function setPageResponsible(workspaceId: string, pageId: string, responsibleUserId: string | null) {
+  if (!db) return;
+  await setDoc(
+    paths.page(workspaceId, pageId),
+    { responsibleUserId, hiddenByResponsible: false, updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
+/** Only the assigned responsible person may call this — hides/shows the page for everyone else in allowedUsers. */
+export async function togglePageVisibility(workspaceId: string, pageId: string, hidden: boolean) {
+  if (!db) return;
+  await setDoc(paths.page(workspaceId, pageId), { hiddenByResponsible: hidden, updatedAt: Date.now() }, { merge: true });
+}
+
 /**
  * Instantly grants or revokes one member's access to one page — used by the
  * Workspace → Users checkbox grid, where every toggle applies immediately.

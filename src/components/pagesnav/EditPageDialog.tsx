@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, ShieldCheck } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -12,11 +12,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/sonner";
 import { IconPicker } from "@/components/common/IconPicker";
 import { ColorPicker } from "@/components/common/ColorPicker";
-import { renamePage, updatePageAppearance, updatePagePermissions } from "@/services/pageService";
+import { renamePage, setPageResponsible, updatePageAppearance, updatePagePermissions } from "@/services/pageService";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import type { PageIconName, WorkspacePage } from "@/types";
 
@@ -31,6 +32,7 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
   const [icon, setIcon] = useState<PageIconName>(page?.icon ?? "LayoutGrid");
   const [color, setColor] = useState(page?.color ?? "243 75% 59%");
   const [allowedUsers, setAllowedUsers] = useState<string[]>(page?.allowedUsers ?? []);
+  const [responsibleUserId, setResponsibleUserId] = useState<string>(page?.responsibleUserId ?? "");
   const [isSaving, setIsSaving] = useState(false);
 
   if (!page) return null;
@@ -48,6 +50,10 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
         await updatePageAppearance(page.workspaceId, page.id, { icon, color });
       }
       await updatePagePermissions(page.workspaceId, page.id, allowedUsers);
+      const nextResponsible = responsibleUserId || null;
+      if (nextResponsible !== (page.responsibleUserId ?? null)) {
+        await setPageResponsible(page.workspaceId, page.id, nextResponsible);
+      }
       toast.success("Страница обновлена");
       onOpenChange(false);
     } catch (error) {
@@ -104,6 +110,31 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
                   В workspace пока нет других участников — пригласите их на странице «Пользователи».
                 </p>
               )}
+            </div>
+
+            <div className="flex flex-col gap-1.5 border-t border-border pt-4">
+              <Label className="flex items-center gap-1.5">
+                <ShieldCheck className="h-3.5 w-3.5" /> Ответственный за страницу
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Только этот человек сможет скрывать или снова показывать страницу остальным участникам
+                из списка выше — независимо от вас.
+              </p>
+              <Select value={responsibleUserId || "none"} onValueChange={(v) => setResponsibleUserId(v === "none" ? "" : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Не назначен" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Не назначен</SelectItem>
+                  {members
+                    .filter((m) => m.status === "active" && m.role !== "owner")
+                    .map((m) => (
+                      <SelectItem key={m.uid} value={m.uid}>
+                        {m.name} ({m.email})
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
             </div>
           </TabsContent>
         </Tabs>

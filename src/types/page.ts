@@ -42,6 +42,21 @@ export interface WorkspacePage {
    * including Admins, sees a page only if their uid is listed here.
    */
   allowedUsers: string[];
+  /**
+   * The one member (besides Owner) responsible for this page. Only the
+   * Owner may assign/change who this is (via EditPageDialog). The
+   * responsible person — and only them, besides the Owner — may then flip
+   * `hiddenByResponsible` themselves, controlling whether everyone else in
+   * `allowedUsers` can currently see the page. Owner and the responsible
+   * person can always see it regardless of this flag.
+   */
+  responsibleUserId?: string | null;
+  /**
+   * When true, the page is hidden from everyone except the Owner and
+   * `responsibleUserId`, even if their uid is in `allowedUsers`. Toggled
+   * exclusively by the responsible person, not the Owner.
+   */
+  hiddenByResponsible?: boolean;
   columns: PageColumn[];
   createdAt: number;
   updatedAt: number;

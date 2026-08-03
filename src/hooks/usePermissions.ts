@@ -13,6 +13,7 @@ import {
   canRemoveMembers,
   canRestoreHistory,
   canViewHistory,
+  isResponsibleForPage,
 } from "@/utils/permissions";
 import type { Role, WorkspacePage } from "@/types";
 
@@ -40,6 +41,7 @@ export function usePermissions() {
       canRestoreHistory: canRestoreHistory(role),
       canAccessPage: (page: WorkspacePage) => canAccessPage(page, role, profile?.uid ?? ""),
       canEditPageData: (page: WorkspacePage) => canEditPageData(page, role, profile?.uid ?? ""),
+      isResponsibleForPage: (page: WorkspacePage) => isResponsibleForPage(page, profile?.uid ?? ""),
     }),
     [role, profile?.uid]
   );
