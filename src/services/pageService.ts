@@ -1,6 +1,7 @@
 import {
   deleteDoc,
   getDocs,
+  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
@@ -9,7 +10,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths, subscribe } from "@/firebase/firestore";
+import { paths, subscribe, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { logChange } from "@/services/historyService";
 import type { PageColumn, PageIconName, PageRow, StatusOption, WorkspacePage } from "@/types";
@@ -59,11 +60,48 @@ export function subscribeToPages(
     !isOwnerOfWorkspace && currentUserUid
       ? query(paths.pages(workspaceId), where("allowedUsers", "array-contains", currentUserUid))
       : query(paths.pages(workspaceId), orderBy("order", "asc"));
-  return subscribe<WorkspacePage>(
+
+  let cancelled = false;
+  let emittedOnce = false;
+  let pendingEmptyCacheTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const unsubscribe = onSnapshot(
     q,
-    (pages) => onData([...pages].sort((a, b) => a.order - b.order)),
-    onError
+    (snapshot) => {
+      if (cancelled) return;
+      const pages = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as WorkspacePage);
+
+      if (pendingEmptyCacheTimer) {
+        clearTimeout(pendingEmptyCacheTimer);
+        pendingEmptyCacheTimer = null;
+      }
+
+      // Same class of fix as the workspace list: a fresh navigation/reload
+      // can surface a stale, empty local cache (e.g. right after gaining
+      // page access) before the real server snapshot arrives. Give the
+      // server a brief window rather than flashing "Access denied"/an empty
+      // page and requiring a manual reload to fix it.
+      if (snapshot.metadata.fromCache && pages.length === 0 && !emittedOnce) {
+        pendingEmptyCacheTimer = setTimeout(() => {
+          if (!cancelled) {
+            emittedOnce = true;
+            onData([]);
+          }
+        }, 1200);
+        return;
+      }
+
+      emittedOnce = true;
+      onData([...pages].sort((a, b) => a.order - b.order));
+    },
+    withErrorReporting(onError)
   );
+
+  return () => {
+    cancelled = true;
+    if (pendingEmptyCacheTimer) clearTimeout(pendingEmptyCacheTimer);
+    unsubscribe();
+  };
 }
 
 export interface CreatePageInput {

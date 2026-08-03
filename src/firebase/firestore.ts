@@ -36,7 +36,7 @@ function reportFirestoreError(error: FirestoreError) {
   }
 }
 
-function withErrorReporting(onError?: (error: FirestoreError) => void) {
+export function withErrorReporting(onError?: (error: FirestoreError) => void) {
   return (error: FirestoreError) => {
     reportFirestoreError(error);
     onError?.(error);
