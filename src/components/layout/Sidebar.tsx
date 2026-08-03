@@ -17,6 +17,7 @@ import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialog";
 import { EditPageDialog } from "@/components/pagesnav/EditPageDialog";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { useInboxSummary } from "@/hooks/useInboxSummary";
 import { usePermissions } from "@/hooks/usePermissions";
 import { signOutUser } from "@/firebase/auth";
 import { cn } from "@/utils/cn";
@@ -25,7 +26,8 @@ import type { WorkspacePage } from "@/types";
 
 export function Sidebar({ mobile }: { mobile?: boolean }) {
   const { profile } = useAuth();
-  const { pages } = useWorkspace();
+  const { pages, activeWorkspaceId } = useWorkspace();
+  const { workspaceChatUnread, privateUnreadTotal } = useInboxSummary(activeWorkspaceId, profile?.uid ?? null);
   const permissions = usePermissions();
   const collapsed = useUiStore((s) => s.sidebarCollapsed) && !mobile;
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
@@ -122,12 +124,15 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   to="/chat"
                   className={({ isActive }) =>
                     cn(
-                      "flex items-center justify-center rounded-lg p-2 transition-colors",
+                      "relative flex items-center justify-center rounded-lg p-2 transition-colors",
                       isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
                     )
                   }
                 >
                   <MessageSquare className="h-4 w-4 shrink-0" />
+                  {workspaceChatUnread > 0 && (
+                    <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-red-500" />
+                  )}
                 </NavLink>
               </TooltipTrigger>
               <TooltipContent side="right">Чат Workspace</TooltipContent>
@@ -144,6 +149,11 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
             >
               <MessageSquare className="h-4 w-4 shrink-0" />
               Чат Workspace
+              {workspaceChatUnread > 0 && (
+                <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+                  {workspaceChatUnread > 9 ? "9+" : workspaceChatUnread}
+                </span>
+              )}
             </NavLink>
           )}
         </div>
@@ -156,12 +166,15 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   to="/messages"
                   className={({ isActive }) =>
                     cn(
-                      "flex items-center justify-center rounded-lg p-2 transition-colors",
+                      "relative flex items-center justify-center rounded-lg p-2 transition-colors",
                       isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
                     )
                   }
                 >
                   <MessageCircle className="h-4 w-4 shrink-0" />
+                  {privateUnreadTotal > 0 && (
+                    <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-red-500" />
+                  )}
                 </NavLink>
               </TooltipTrigger>
               <TooltipContent side="right">Личные сообщения</TooltipContent>
@@ -178,6 +191,11 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
             >
               <MessageCircle className="h-4 w-4 shrink-0" />
               Личные сообщения
+              {privateUnreadTotal > 0 && (
+                <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+                  {privateUnreadTotal > 9 ? "9+" : privateUnreadTotal}
+                </span>
+              )}
             </NavLink>
           )}
         </div>

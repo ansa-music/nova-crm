@@ -7,3 +7,4 @@ export * from "@/types/table";
 export * from "@/types/announcement";
 export * from "@/types/notification";
 export * from "@/types/chat";
+export * from "@/types/inbox";

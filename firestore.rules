@@ -286,12 +286,35 @@ service cloud.firestore {
         return chatId.split('_')[0] == request.auth.uid || chatId.split('_')[1] == request.auth.uid;
       }
       match /privateChats/{chatId} {
-        allow read, write: if isMember(workspaceId) && isInPrivateChat(chatId);
+        // Two ways to qualify: the chatId-derived check (fine for reading
+        // one already-known conversation) OR — needed for the "list all my
+        // conversations" query, which filters by
+        // where("participants","array-contains",uid) — a check on the
+        // `participants` FIELD itself, so Firestore can prove that query
+        // safe the same way it proves the allowedUsers array-contains
+        // pattern used for pages.
+        allow read, write: if isMember(workspaceId) &&
+          (isInPrivateChat(chatId) || request.auth.uid in resource.data.get('participants', []));
+        allow create: if isMember(workspaceId) &&
+          (isInPrivateChat(chatId) || request.auth.uid in request.resource.data.get('participants', []));
         match /messages/{messageId} {
           allow read: if isMember(workspaceId) && isInPrivateChat(chatId);
           allow create: if isMember(workspaceId) && isInPrivateChat(chatId) && request.resource.data.authorUid == request.auth.uid;
           allow update, delete: if isMember(workspaceId) && isInPrivateChat(chatId) && resource.data.authorUid == request.auth.uid;
         }
+      }
+
+      // -----------------------------------------------------------------
+      // Read markers — "when did I last read this conversation" per
+      // context (workspace chat / a specific private chat). Strictly
+      // self-service: the doc's own `uid` field must match the caller, and
+      // list queries always filter by `where("uid","==",me)`, matching
+      // this rule's per-doc condition exactly (the same safe pattern used
+      // for notifications).
+      // -----------------------------------------------------------------
+      match /readMarkers/{markerId} {
+        allow read: if isMember(workspaceId) && resource.data.uid == request.auth.uid;
+        allow create, update: if isMember(workspaceId) && request.resource.data.uid == request.auth.uid;
       }
     }
   }

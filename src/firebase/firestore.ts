@@ -106,8 +106,15 @@ export const paths = {
     collection(requireDb(), "workspaces", workspaceId, "privateChats", chatId, "messages"),
   privateChatMessage: (workspaceId: string, chatId: string, id: string) =>
     doc(requireDb(), "workspaces", workspaceId, "privateChats", chatId, "messages", id),
+  privateChats: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "privateChats"),
   privateChatMeta: (workspaceId: string, chatId: string) =>
     doc(requireDb(), "workspaces", workspaceId, "privateChats", chatId),
+
+  readMarkers: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "readMarkers"),
+  readMarker: (workspaceId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "readMarkers", id),
 
   pageChat: (workspaceId: string, pageId: string) =>
     collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "chat"),

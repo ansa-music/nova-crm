@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog";
 import { NicknamePrompt } from "@/components/common/NicknamePrompt";
+import { GlobalMessageToaster } from "@/components/common/GlobalMessageToaster";
 import { Button } from "@/components/ui/button";
 import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorkspace";
 import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
@@ -70,6 +71,7 @@ export function AppLayout() {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <NicknamePrompt />
+      <GlobalMessageToaster />
       {!isMobile && <Sidebar />}
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />

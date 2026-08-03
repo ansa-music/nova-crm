@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { MessageSquare } from "lucide-react";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -7,6 +7,7 @@ import { useWorkspaceChat } from "@/hooks/useWorkspaceChat";
 import { paths } from "@/firebase/firestore";
 import { deleteChatMessage, editChatMessage, sendChatMessage } from "@/services/chatService";
 import { notifyMentions } from "@/services/notificationService";
+import { markContextRead } from "@/services/inboxService";
 import { displayNameOf } from "@/utils/displayName";
 import type { ChatMessage } from "@/types";
 
@@ -19,6 +20,11 @@ export default function WorkspaceChatPage() {
     () => members.filter((m) => m.status === "active").map((m) => ({ uid: m.uid, name: displayNameOf(m) })),
     [members]
   );
+
+  useEffect(() => {
+    if (!activeWorkspaceId || !profile?.uid) return;
+    markContextRead(activeWorkspaceId, profile.uid, "workspaceChat");
+  }, [activeWorkspaceId, profile?.uid, messages.length]);
 
   if (!activeWorkspaceId || !profile) return null;
 
