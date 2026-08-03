@@ -43,6 +43,14 @@ export interface WorkspacePage {
    */
   allowedUsers: string[];
   /**
+   * Subset of `allowedUsers` who may also EDIT the page's data (not just
+   * view it). Being in `allowedUsers` alone now only grants read access —
+   * edit rights are a separate, explicit grant on top of that, managed by
+   * the Owner or this page's responsible person. Owner and the responsible
+   * person can always edit regardless of this list.
+   */
+  editableUsers?: string[];
+  /**
    * The one member (besides Owner) responsible for this page. Only the
    * Owner may assign/change who this is (via EditPageDialog). The
    * responsible person — and only them, besides the Owner — may then flip

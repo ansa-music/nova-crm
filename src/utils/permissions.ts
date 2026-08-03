@@ -52,11 +52,18 @@ export function canAccessPage(page: WorkspacePage, role: Role, uid: string): boo
   return page.allowedUsers.includes(uid);
 }
 
-/** Whether a user may edit row data on a specific page (not just view it). */
+/**
+ * Whether a user may edit row data on a specific page (not just view it).
+ * Being in `allowedUsers` alone is no longer enough — edit rights are now a
+ * separate, explicit grant (`editableUsers`) on top of view access, managed
+ * by the Owner or this page's responsible person. Owner and the responsible
+ * person can always edit regardless of this list.
+ */
 export function canEditPageData(page: WorkspacePage, role: Role, uid: string): boolean {
+  if (role === "owner") return true;
   if (isResponsibleForPage(page, uid)) return true;
-  if (role === "viewer") return false;
-  return canAccessPage(page, role, uid);
+  if (!canAccessPage(page, role, uid)) return false;
+  return Boolean(page.editableUsers?.includes(uid));
 }
 
 /** Only the person the Owner assigned as responsible for this page may toggle its visibility to others. */

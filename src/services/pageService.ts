@@ -155,6 +155,12 @@ export async function updatePagePermissions(workspaceId: string, pageId: string,
   await setDoc(paths.page(workspaceId, pageId), { allowedUsers, updatedAt: Date.now() }, { merge: true });
 }
 
+/** Owner/responsible: grant or revoke EDIT rights for someone who already has view access. */
+export async function updatePageEditableUsers(workspaceId: string, pageId: string, editableUsers: string[]) {
+  if (!db) return;
+  await setDoc(paths.page(workspaceId, pageId), { editableUsers, updatedAt: Date.now() }, { merge: true });
+}
+
 /** Owner-only: assign (or clear) who's responsible for this page. */
 export async function setPageResponsible(
   workspaceId: string,

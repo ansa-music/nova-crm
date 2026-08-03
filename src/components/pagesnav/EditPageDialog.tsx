@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Loader2, Search, ShieldCheck, Users, UserX } from "lucide-react";
+import { Loader2, Pencil, Search, ShieldCheck, Users, UserX } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +19,13 @@ import { toast } from "@/components/ui/sonner";
 import { IconPicker } from "@/components/common/IconPicker";
 import { ColorPicker } from "@/components/common/ColorPicker";
 import { displayNameOf } from "@/utils/displayName";
-import { renamePage, setPageResponsible, updatePageAppearance, updatePagePermissions } from "@/services/pageService";
+import {
+  renamePage,
+  setPageResponsible,
+  updatePageAppearance,
+  updatePageEditableUsers,
+  updatePagePermissions,
+} from "@/services/pageService";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { PageIconName, WorkspacePage } from "@/types";
@@ -36,6 +42,7 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
   const [icon, setIcon] = useState<PageIconName>(page?.icon ?? "LayoutGrid");
   const [color, setColor] = useState(page?.color ?? "243 75% 59%");
   const [allowedUsers, setAllowedUsers] = useState<string[]>(page?.allowedUsers ?? []);
+  const [editableUsers, setEditableUsers] = useState<string[]>(page?.editableUsers ?? []);
   const [responsibleUserId, setResponsibleUserId] = useState<string>(page?.responsibleUserId ?? "");
   const [search, setSearch] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -64,19 +71,37 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
   const canEdit = permissions.canManagePage(page);
   const canAssignResponsible = permissions.canAssignResponsible;
 
-  function toggleUser(uid: string) {
+  function toggleAccess(uid: string) {
     if (!canEdit) return;
-    setAllowedUsers((prev) => (prev.includes(uid) ? prev.filter((u) => u !== uid) : [...prev, uid]));
+    setAllowedUsers((prev) => {
+      const hasAccess = prev.includes(uid);
+      if (hasAccess) {
+        // Revoking view access must also revoke edit rights — editableUsers
+        // is always meant to be a subset of allowedUsers.
+        setEditableUsers((editPrev) => editPrev.filter((u) => u !== uid));
+        return prev.filter((u) => u !== uid);
+      }
+      return [...prev, uid];
+    });
+  }
+
+  function toggleEdit(uid: string) {
+    if (!canEdit) return;
+    setEditableUsers((prev) => (prev.includes(uid) ? prev.filter((u) => u !== uid) : [...prev, uid]));
   }
 
   function grantAll() {
+    // View access only by default — edit rights always stay a separate,
+    // explicit grant even when opening the page up to everyone at once.
     setAllowedUsers(otherMembers.map((m) => m.uid));
   }
   function revokeAll() {
     setAllowedUsers([]);
+    setEditableUsers([]);
   }
   function onlyRole(role: "manager" | "viewer") {
     setAllowedUsers(otherMembers.filter((m) => m.role === role).map((m) => m.uid));
+    setEditableUsers((prev) => prev.filter((uid) => otherMembers.some((m) => m.uid === uid && m.role === role)));
   }
 
   async function handleSave() {
@@ -89,6 +114,7 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
           await updatePageAppearance(page.workspaceId, page.id, { icon, color });
         }
         await updatePagePermissions(page.workspaceId, page.id, allowedUsers);
+        await updatePageEditableUsers(page.workspaceId, page.id, editableUsers);
       }
       const nextResponsible = responsibleUserId || null;
       if (canAssignResponsible && nextResponsible !== (page.responsibleUserId ?? null)) {
@@ -165,14 +191,15 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
 
           <TabsContent value="access" className="flex flex-col gap-3">
             <p className="text-xs text-muted-foreground">
-              {owner ? displayNameOf(owner) : "Owner"} всегда видит эту страницу. Остальные — только
-              если им выдан доступ ниже.
+              {owner ? displayNameOf(owner) : "Owner"} и ответственный всегда могут просматривать и
+              редактировать эту страницу. Остальным доступ на просмотр и право редактирования
+              выдаются отдельно — просмотр не даёт возможности редактировать сам по себе.
             </p>
 
             {canEdit && (
               <div className="flex flex-wrap gap-1.5">
                 <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={grantAll}>
-                  <Users className="h-3 w-3" /> Выдать всем
+                  <Users className="h-3 w-3" /> Выдать всем просмотр
                 </Button>
                 <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={revokeAll}>
                   <UserX className="h-3 w-3" /> Убрать у всех
@@ -196,9 +223,16 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
               />
             </div>
 
+            <div className="flex items-center gap-3 px-2.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <span className="min-w-0 flex-1" />
+              <span className="w-14 text-center">Доступ</span>
+              <span className="w-14 text-center">Правка</span>
+            </div>
+
             <div className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
               {filteredMembers.map((m) => {
-                const checked = allowedUsers.includes(m.uid);
+                const hasAccess = allowedUsers.includes(m.uid);
+                const canEditThis = editableUsers.includes(m.uid);
                 return (
                   <div
                     key={m.uid}
@@ -217,7 +251,16 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
                         Ответственный
                       </span>
                     )}
-                    <Switch checked={checked} onCheckedChange={() => toggleUser(m.uid)} disabled={!canEdit} />
+                    <div className="flex w-14 shrink-0 justify-center" title="Доступ на просмотр">
+                      <Switch checked={hasAccess} onCheckedChange={() => toggleAccess(m.uid)} disabled={!canEdit} />
+                    </div>
+                    <div className="flex w-14 shrink-0 justify-center" title="Право редактирования">
+                      <Switch
+                        checked={canEditThis}
+                        onCheckedChange={() => toggleEdit(m.uid)}
+                        disabled={!canEdit || !hasAccess}
+                      />
+                    </div>
                   </div>
                 );
               })}
@@ -229,6 +272,9 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
                 </p>
               )}
             </div>
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Pencil className="h-3 w-3" /> «Правка» доступна только тем, кому уже открыт просмотр.
+            </p>
           </TabsContent>
         </Tabs>
         <DialogFooter>

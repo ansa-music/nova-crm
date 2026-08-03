@@ -40,9 +40,14 @@ service cloud.firestore {
     }
 
     // Viewers can open a page but never write row data on it.
+    // Being in allowedUsers only grants VIEW access now. Editing row data
+    // (or managing subpages) requires being explicitly listed in
+    // editableUsers too — a separate grant the Owner or this page's
+    // responsible person controls independently of plain view access.
     function canEditPage(workspaceId, pageData) {
-      return (canAccessPage(workspaceId, pageData) && myRole(workspaceId) != 'viewer') ||
-        pageData.get('responsibleUserId', null) == request.auth.uid;
+      return isOwner(workspaceId) ||
+        pageData.get('responsibleUserId', null) == request.auth.uid ||
+        (canAccessPage(workspaceId, pageData) && request.auth.uid in pageData.get('editableUsers', []));
     }
 
     // ---------------------------------------------------------------------
