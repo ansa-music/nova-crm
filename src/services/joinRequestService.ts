@@ -63,9 +63,25 @@ export function subscribeToJoinRequests(
   );
 }
 
-/** Owner approves: creates a real member record, then marks the request approved (kept for the requester's own UI + audit trail). */
+/**
+ * Owner approves: creates a real member record, then marks the request
+ * approved (kept for the requester's own UI + audit trail).
+ *
+ * Defensive check: refuses outright if the requester already has a member
+ * doc (most importantly if they're the Owner). This should never normally
+ * happen — JoinWorkspacePage redirects existing members away from the
+ * request flow before a request can even be submitted — but this exists as
+ * a second, independent line of defense so a stray/duplicate request can
+ * never silently downgrade someone's existing role again.
+ */
 export async function approveJoinRequest(workspaceId: string, request: JoinRequest, role: Role, approvedBy: string) {
   if (!db) return;
+  const existing = await getDoc(paths.member(workspaceId, request.uid));
+  if (existing.exists()) {
+    throw new Error(
+      `${request.name} уже состоит в этом workspace (роль: ${(existing.data() as WorkspaceMember).role}). Заявка отклонена автоматически — обновите список участников.`
+    );
+  }
   const member: WorkspaceMember = {
     uid: request.uid,
     email: request.email,

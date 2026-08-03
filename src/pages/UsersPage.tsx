@@ -53,8 +53,12 @@ export default function UsersPage() {
   }
 
   async function handleApproveRequest(request: JoinRequest) {
-    await approveJoinRequest(activeWorkspaceId!, request, "viewer", profile?.uid ?? "");
-    toast.success(`${request.name} добавлен(а) в workspace как Viewer`);
+    try {
+      await approveJoinRequest(activeWorkspaceId!, request, "viewer", profile?.uid ?? "");
+      toast.success(`${request.name} добавлен(а) в workspace как Viewer`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось одобрить заявку");
+    }
   }
 
   async function handleRejectRequest(uid: string) {

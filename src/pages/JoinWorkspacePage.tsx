@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router";
 import { Building2, Clock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
+import { useWorkspace } from "@/hooks/useWorkspace";
 import {
   getPublicWorkspaceInfo,
   submitJoinRequest,
@@ -15,6 +16,7 @@ export default function JoinWorkspacePage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const navigate = useNavigate();
   const { profile } = useAuth();
+  const { workspaces, isLoadingWorkspaces } = useWorkspace();
   const [workspace, setWorkspace] = useState<Workspace | null | undefined>(undefined);
   const [ownRequest, setOwnRequest] = useState<JoinRequest | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -23,6 +25,20 @@ export default function JoinWorkspacePage() {
     if (!workspaceId) return;
     getPublicWorkspaceInfo(workspaceId).then(setWorkspace);
   }, [workspaceId]);
+
+  // If this account is already a member (most importantly: the Owner
+  // themselves clicking their own invite link) — never let them go through
+  // the request-access flow at all. Approving a join request for someone
+  // who's already a member overwrites their existing role, which is
+  // catastrophic if that someone happens to be the Owner. Uses the live
+  // workspace list (not a possibly-stale profile snapshot) so this is
+  // reliable even right after gaining access some other way.
+  useEffect(() => {
+    if (!workspaceId || isLoadingWorkspaces) return;
+    if (workspaces.some((w) => w.id === workspaceId)) {
+      navigate("/", { replace: true });
+    }
+  }, [workspaceId, workspaces, isLoadingWorkspaces, navigate]);
 
   useEffect(() => {
     if (!workspaceId || !profile?.uid) return;
