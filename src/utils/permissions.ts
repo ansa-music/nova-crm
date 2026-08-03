@@ -54,6 +54,7 @@ export function canAccessPage(page: WorkspacePage, role: Role, uid: string): boo
 
 /** Whether a user may edit row data on a specific page (not just view it). */
 export function canEditPageData(page: WorkspacePage, role: Role, uid: string): boolean {
+  if (isResponsibleForPage(page, uid)) return true;
   if (role === "viewer") return false;
   return canAccessPage(page, role, uid);
 }
@@ -61,4 +62,20 @@ export function canEditPageData(page: WorkspacePage, role: Role, uid: string): b
 /** Only the person the Owner assigned as responsible for this page may toggle its visibility to others. */
 export function isResponsibleForPage(page: WorkspacePage, uid: string): boolean {
   return Boolean(page.responsibleUserId) && page.responsibleUserId === uid;
+}
+
+/**
+ * Page-scoped "administrator" rights: full control over THIS ONE page
+ * (rename, colour/icon, columns, subpages, who has access) without any of
+ * the workspace-wide Owner powers (roles, billing, other pages, deleting
+ * the workspace). Owner always qualifies; otherwise only the person
+ * explicitly assigned as this page's responsible.
+ */
+export function canManagePage(page: WorkspacePage, role: Role, uid: string): boolean {
+  return role === "owner" || isResponsibleForPage(page, uid);
+}
+
+/** Only Owner or Admin may assign/change who is responsible for a page. */
+export function canAssignResponsible(role: Role): boolean {
+  return role === "owner" || role === "admin";
 }

@@ -41,7 +41,8 @@ service cloud.firestore {
 
     // Viewers can open a page but never write row data on it.
     function canEditPage(workspaceId, pageData) {
-      return canAccessPage(workspaceId, pageData) && myRole(workspaceId) != 'viewer';
+      return (canAccessPage(workspaceId, pageData) && myRole(workspaceId) != 'viewer') ||
+        pageData.get('responsibleUserId', null) == request.auth.uid;
     }
 
     // ---------------------------------------------------------------------
@@ -82,6 +83,14 @@ service cloud.firestore {
         // could never find its own invite to accept (chicken-and-egg).
         allow read: if isMember(workspaceId) ||
           (signedIn() && memberId == request.auth.token.email && resource.data.status == 'invited');
+
+        // Self-service: a member may update just their own nickname on
+        // their own member doc (keeps it in sync after they change it in
+        // their profile), without needing Owner-level member-management
+        // rights for anything else.
+        allow update: if signedIn()
+          && memberId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname']);
 
         // Owner manages any membership record: invite, change role, remove.
         allow create, update, delete: if isOwner(workspaceId);
@@ -137,18 +146,22 @@ service cloud.firestore {
         allow create: if isOwner(workspaceId) && request.resource.data.workspaceId == workspaceId;
         allow update, delete: if isOwner(workspaceId);
 
-        // The person the Owner assigned as "responsible" for this page may
-        // flip its hidden-from-others flag themselves — and ONLY that flag,
-        // nothing else about the page. (Note: this only controls whether the
-        // client's own UI shows/hides the page for others in allowedUsers;
-        // the underlying read rule above is intentionally left unchanged —
-        // it must stay a plain allowedUsers check with no other per-doc
-        // condition, or Firestore can no longer prove the pages list query
-        // safe and denies it outright for every non-Owner, same class of
-        // bug fixed earlier for the pages list query.)
+        // The person assigned as this page's "responsible" gets full control
+        // over the page itself (rename, colour/icon, allowedUsers, columns)
+        // — everything except reassigning who's responsible, which stays an
+        // Owner/Admin-only action (see the Admin rule right below). This is
+        // deliberately a plain per-field diff check, not a read/list rule,
+        // so it carries none of the "list query" safety constraints that
+        // apply to canAccessPage/the pages list query elsewhere in this file.
         allow update: if isMember(workspaceId)
           && resource.data.responsibleUserId == request.auth.uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hiddenByResponsible', 'updatedAt']);
+          && !('responsibleUserId' in request.resource.data.diff(resource.data).affectedKeys());
+
+        // Admin (not Owner, who already has full rights above) may assign
+        // or reassign who's responsible for this page — and only that field.
+        allow update: if isMember(workspaceId)
+          && myRole(workspaceId) == 'admin'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['responsibleUserId', 'updatedAt']);
 
         match /rows/{rowId} {
           allow read: if isMember(workspaceId) &&

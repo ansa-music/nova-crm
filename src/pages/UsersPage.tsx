@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Copy, Link2, Mail, ShieldCheck, Trash2, X } from "lucide-react";
+import { displayNameOf } from "@/utils/displayName";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -164,11 +165,11 @@ export default function UsersPage() {
               <div className="flex items-center gap-3 p-4">
                 <Avatar className="h-9 w-9">
                   <AvatarImage src={member.photoURL ?? undefined} />
-                  <AvatarFallback>{member.name[0]?.toUpperCase()}</AvatarFallback>
+                  <AvatarFallback>{displayNameOf(member)[0]?.toUpperCase()}</AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">
-                    {member.name}
+                    {displayNameOf(member)}
                     {member.uid === profile?.uid && <span className="ml-1.5 text-xs text-muted-foreground">(вы)</span>}
                   </p>
                   <p className="truncate text-xs text-muted-foreground">{member.email}</p>

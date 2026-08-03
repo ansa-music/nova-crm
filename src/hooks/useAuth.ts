@@ -36,7 +36,7 @@ export function useAuthBootstrap() {
           // A failure here (rules edge case, no invites, offline, etc.)
           // should not leave the whole app stuck on the loading screen.
           try {
-            await claimPendingInvites(user.uid, profile.email, profile.name, profile.photoURL);
+            await claimPendingInvites(user.uid, profile.email, profile.name, profile.photoURL, profile.nickname);
           } catch (inviteError) {
             console.error("claimPendingInvites failed:", inviteError);
           }

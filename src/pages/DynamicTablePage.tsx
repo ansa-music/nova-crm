@@ -51,14 +51,14 @@ export default function DynamicTablePage() {
   // (no-ops server-side if a currency column already exists).
   const priceMigrationRan = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!page || !hasAccess || !permissions.canEditPageStructure) return;
+    if (!page || !hasAccess || !permissions.canManagePage(page)) return;
     if (priceMigrationRan.current.has(page.id)) return;
     if (page.columns.some((c) => c.type === "currency")) return;
     priceMigrationRan.current.add(page.id);
     ensurePriceColumn(page.workspaceId, page.id, page.columns).catch((err) =>
       console.error("Не удалось добавить колонку «Цена»:", err)
     );
-  }, [page, hasAccess, permissions.canEditPageStructure]);
+  }, [page, hasAccess, permissions.canManagePage]);
 
   if (isLoadingWorkspaceData) {
     return (
@@ -136,7 +136,7 @@ export default function DynamicTablePage() {
             <History className="h-3.5 w-3.5" /> История
           </Button>
         )}
-        {permissions.canEditPageStructure && (
+        {(permissions.canManagePage(page) || permissions.canAssignResponsible) && (
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setSettingsOpen(true)}>
             <Settings2 className="h-3.5 w-3.5" /> Настройки
           </Button>
@@ -149,7 +149,7 @@ export default function DynamicTablePage() {
         subPages={subPages}
         activeSubPageId={activeSubPageId}
         onSelect={setActiveSubPageId}
-        canManage={canEditData}
+        canManage={canEditData || permissions.canManagePage(page)}
         userId={profile?.uid ?? ""}
       />
 
@@ -167,7 +167,7 @@ export default function DynamicTablePage() {
             subPageId={activeSubPage?.id}
             rows={rows}
             canEdit={canEditData}
-            canEditStructure={permissions.canEditPageStructure}
+            canEditStructure={permissions.canManagePage(page)}
             userId={profile?.uid ?? ""}
             userName={profile?.name ?? "Пользователь"}
           />

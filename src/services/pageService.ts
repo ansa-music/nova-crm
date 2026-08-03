@@ -156,11 +156,19 @@ export async function updatePagePermissions(workspaceId: string, pageId: string,
 }
 
 /** Owner-only: assign (or clear) who's responsible for this page. */
-export async function setPageResponsible(workspaceId: string, pageId: string, responsibleUserId: string | null) {
+export async function setPageResponsible(
+  workspaceId: string,
+  pageId: string,
+  responsibleUserId: string | null,
+  currentAllowedUsers: string[]
+) {
   if (!db) return;
+  const allowedUsers = responsibleUserId
+    ? Array.from(new Set([...currentAllowedUsers, responsibleUserId]))
+    : currentAllowedUsers;
   await setDoc(
     paths.page(workspaceId, pageId),
-    { responsibleUserId, hiddenByResponsible: false, updatedAt: Date.now() },
+    { responsibleUserId, hiddenByResponsible: false, allowedUsers, updatedAt: Date.now() },
     { merge: true }
   );
 }

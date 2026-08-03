@@ -3,11 +3,13 @@ import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import {
   canAccessPage,
+  canAssignResponsible,
   canChangeRoles,
   canCreatePages,
   canEditPageData,
   canEditPageStructure,
   canInviteMembers,
+  canManagePage,
   canManagePagePermissions,
   canManageWorkspace,
   canRemoveMembers,
@@ -39,9 +41,11 @@ export function usePermissions() {
       canManagePagePermissions: canManagePagePermissions(role),
       canViewHistory: canViewHistory(role),
       canRestoreHistory: canRestoreHistory(role),
+      canAssignResponsible: canAssignResponsible(role),
       canAccessPage: (page: WorkspacePage) => canAccessPage(page, role, profile?.uid ?? ""),
       canEditPageData: (page: WorkspacePage) => canEditPageData(page, role, profile?.uid ?? ""),
       isResponsibleForPage: (page: WorkspacePage) => isResponsibleForPage(page, profile?.uid ?? ""),
+      canManagePage: (page: WorkspacePage) => canManagePage(page, role, profile?.uid ?? ""),
     }),
     [role, profile?.uid]
   );

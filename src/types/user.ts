@@ -2,6 +2,12 @@ export interface AppUser {
   uid: string;
   email: string;
   name: string;
+  /**
+   * Short display name the person picks for themselves on first sign-in
+   * (e.g. "Nurba", "Manager1"). Shown everywhere in place of email/full
+   * name once set — access lists, member cards, etc.
+   */
+  nickname?: string;
   photoURL?: string | null;
   createdAt: number;
   /**

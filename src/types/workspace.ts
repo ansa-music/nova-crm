@@ -15,6 +15,7 @@ export interface WorkspaceMember {
   uid: string;
   email: string;
   name: string;
+  nickname?: string;
   photoURL?: string | null;
   role: Role;
   status: MemberStatus;

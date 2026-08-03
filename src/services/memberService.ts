@@ -101,7 +101,8 @@ export async function claimPendingInvites(
   uid: string,
   email: string,
   name: string,
-  photoURL?: string | null
+  photoURL?: string | null,
+  nickname?: string
 ) {
   if (!db) return;
   const normalizedEmail = email.trim().toLowerCase();
@@ -120,6 +121,7 @@ export async function claimPendingInvites(
         ...data,
         uid,
         name: name || data.name,
+        nickname: nickname ?? data.nickname ?? null,
         photoURL: photoURL ?? null,
         status: "active",
         joinedAt: Date.now(),

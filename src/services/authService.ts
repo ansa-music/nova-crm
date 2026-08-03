@@ -30,6 +30,25 @@ export async function updateUserDoc(uid: string, patch: Partial<AppUser>) {
 }
 
 /**
+ * Best-effort: after a person sets/changes their nickname, sync it onto
+ * their own member doc in every workspace they already belong to (each
+ * write is self-service — allowed by rules to touch only the nickname
+ * field on one's own member record). Any single workspace failing here
+ * (e.g. a stale id) is silently skipped, never blocks the others.
+ */
+export async function syncNicknameToMemberships(uid: string, workspaceIds: string[], nickname: string) {
+  await Promise.all(
+    workspaceIds.map(async (workspaceId) => {
+      try {
+        await setDoc(paths.member(workspaceId, uid), { nickname }, { merge: true });
+      } catch (error) {
+        console.error(`Failed to sync nickname to workspace ${workspaceId}:`, error);
+      }
+    })
+  );
+}
+
+/**
  * Self-service only (the rules only allow a user to write their own doc):
  * call this as the person who just gained membership, right after their own
  * member doc was created (workspace creation, invite acceptance, or a

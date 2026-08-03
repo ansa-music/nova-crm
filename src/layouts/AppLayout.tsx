@@ -5,6 +5,7 @@ import { Building2, Lock, Plus } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog";
+import { NicknamePrompt } from "@/components/common/NicknamePrompt";
 import { Button } from "@/components/ui/button";
 import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
@@ -66,6 +67,7 @@ export function AppLayout() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      <NicknamePrompt />
       {!isMobile && <Sidebar />}
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
