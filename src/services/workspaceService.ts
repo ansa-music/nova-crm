@@ -75,22 +75,43 @@ export function subscribeToUserWorkspaces(
   const workspaceUnsubs = new Map<string, () => void>();
   const workspaceData = new Map<string, Workspace>();
   let cancelled = false;
-  let emittedOnce = false;
   let pendingEmptyCacheTimer: ReturnType<typeof setTimeout> | null = null;
 
-  function emit() {
+  // Tracks which currently-expected workspace ids have reported in at least
+  // once (success OR a gracefully-handled denial) since they were attached.
+  // `onData` — and therefore the caller's isLoadingWorkspaces=false — must
+  // never fire until every expected id has resolved at least once. Without
+  // this, the very first call used to fire immediately after attaching
+  // brand-new per-workspace listeners, before any of them had received data,
+  // marking "loading" complete while the list was still empty/incomplete —
+  // the exact root cause of the app briefly (or, on a slow connection,
+  // persistently enough to notice) showing "create a workspace"/"no access"
+  // on a fresh load even though the account already had real access.
+  let expectedIds = new Set<string>();
+  const resolvedIds = new Set<string>();
+  let hasEmittedReady = false;
+
+  function tryEmit() {
     if (cancelled) return;
-    emittedOnce = true;
+    if (!hasEmittedReady) {
+      for (const id of expectedIds) {
+        if (!resolvedIds.has(id)) return; // still waiting on at least one workspace doc
+      }
+      hasEmittedReady = true;
+    }
     onData(Array.from(workspaceData.values()).sort((a, b) => a.createdAt - b.createdAt));
   }
 
   function applyWorkspaceIds(currentWorkspaceIds: Set<string>) {
+    expectedIds = currentWorkspaceIds;
+
     // Tear down listeners for workspaces no longer in the cached list.
     for (const [wsId, unsub] of workspaceUnsubs) {
       if (!currentWorkspaceIds.has(wsId)) {
         unsub();
         workspaceUnsubs.delete(wsId);
         workspaceData.delete(wsId);
+        resolvedIds.delete(wsId);
       }
     }
     // Attach listeners for newly-visible workspaces.
@@ -104,18 +125,24 @@ export function subscribeToUserWorkspaces(
           } else {
             workspaceData.delete(wsId);
           }
-          emit();
+          resolvedIds.add(wsId);
+          tryEmit();
         },
         () => {
           // A stale/removed id in the cache — drop it silently, never
           // surface a toast for this, it's expected eventual-consistency.
+          // Still counts as "resolved" so it can never block readiness.
           workspaceData.delete(wsId);
-          emit();
+          resolvedIds.add(wsId);
+          tryEmit();
         }
       );
       workspaceUnsubs.set(wsId, unsub);
     }
-    emit();
+    // Zero expected ids (brand new account, genuinely no workspaces) has
+    // nothing to wait for — that empty result IS the final answer.
+    if (currentWorkspaceIds.size === 0) hasEmittedReady = true;
+    tryEmit();
   }
 
   const unsubscribeUser = onSnapshot(paths.user(uid), (snapshot) => {
@@ -136,7 +163,7 @@ export function subscribeToUserWorkspaces(
     // window to arrive before treating "no workspaces" as final. A non-
     // empty cached result is trusted immediately (worst case a stale id
     // gets silently dropped once its own doc read is denied).
-    if (snapshot.metadata.fromCache && currentWorkspaceIds.size === 0 && !emittedOnce) {
+    if (snapshot.metadata.fromCache && currentWorkspaceIds.size === 0 && !hasEmittedReady) {
       pendingEmptyCacheTimer = setTimeout(() => {
         if (!cancelled) applyWorkspaceIds(currentWorkspaceIds);
       }, 1500);

@@ -1,5 +1,5 @@
 import { Suspense, lazy } from "react";
-import { Navigate, Route, BrowserRouter, Routes } from "react-router";
+import { Navigate, Route, BrowserRouter, Routes, useLocation } from "react-router";
 import { ThemeProvider } from "@/contexts/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -29,15 +29,26 @@ function PageFallback() {
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
   if (isLoading) return <PageFallback />;
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!isAuthenticated) {
+    // Remember where they were trying to go (e.g. a /join/:workspaceId
+    // invite link) so LoginPage can send them back there after signing in,
+    // instead of always landing on the dashboard and forcing them to find
+    // and re-open the invite link a second time.
+    return <Navigate to="/login" state={{ from: location.pathname + location.search }} replace />;
+  }
   return <>{children}</>;
 }
 
 function RedirectIfAuthed({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
   if (isLoading) return <PageFallback />;
-  if (isAuthenticated) return <Navigate to="/" replace />;
+  if (isAuthenticated) {
+    const from = (location.state as { from?: string } | null)?.from;
+    return <Navigate to={from && from !== "/login" ? from : "/"} replace />;
+  }
   return <>{children}</>;
 }
 
