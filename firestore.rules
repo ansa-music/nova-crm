@@ -111,12 +111,34 @@ service cloud.firestore {
         allow read: if isMember(workspaceId) ||
           (signedIn() && memberId == request.auth.token.email && resource.data.status == 'invited');
 
-        // Self-service: a member may update just their own nickname and/or
-        // presence heartbeat on their own member doc, without needing
+        // Self-service: a member may update just their own nickname,
+        // presence heartbeat, and/or simulated activeRole ("Переключение
+        // режима привилегий") on their own member doc — without needing
         // Owner-level member-management rights for anything else.
+        //
+        // activeRole is capped by the member's REAL, Owner-controlled
+        // `role` field (resource.data.role — never writable by this same
+        // rule, since 'role' is not in the allowed affectedKeys set below,
+        // so it can only ever reflect what the Owner actually granted):
+        //   role == owner  -> activeRole in [owner, admin, manager, viewer]
+        //   role == admin  -> activeRole in [admin, manager, viewer]  (never owner)
+        //   role == manager or viewer -> may not set activeRole at all
+        // This is the actual security boundary for the feature — nothing
+        // else in this file ever reads activeRole, so even a raw DevTools
+        // Firestore write can't grant real elevated access, only flip this
+        // purely-informational field within limits the person's true role
+        // already permits.
         allow update: if signedIn()
           && memberId == request.auth.uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname', 'lastActiveAt']);
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname', 'lastActiveAt', 'activeRole'])
+          && (
+            !('activeRole' in request.resource.data.diff(resource.data).affectedKeys())
+            || request.resource.data.activeRole == null
+            || (resource.data.role == 'owner' &&
+                request.resource.data.activeRole in ['owner', 'admin', 'manager', 'viewer'])
+            || (resource.data.role == 'admin' &&
+                request.resource.data.activeRole in ['admin', 'manager', 'viewer'])
+          );
 
         // Owner manages any membership record: invite, change role, remove.
         allow create, update, delete: if isOwner(workspaceId);

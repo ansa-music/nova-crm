@@ -119,6 +119,26 @@ export function canAssignResponsible(role: Role): boolean {
 }
 
 /**
+ * "Переключение режима привилегий" — which activeRole values a person's
+ * REAL role is allowed to simulate. This is the single source of truth for
+ * the escalation rules and is mirrored exactly in firestore.rules, since the
+ * actual security boundary lives there, not here (this copy is for UI only —
+ * hiding options the person couldn't set anyway).
+ *
+ *   Owner  -> owner, admin, manager, viewer
+ *   Admin  -> admin, manager, viewer   (never owner)
+ *   Manager, Viewer -> not allowed to simulate anything
+ */
+export function allowedSimulatedRoles(realRole: Role): Role[] {
+  if (realRole === "owner") return ["owner", "admin", "manager", "viewer"];
+  if (realRole === "admin") return ["admin", "manager", "viewer"];
+  return [];
+}
+
+export function canSimulateRole(realRole: Role, targetRole: Role): boolean {
+  return allowedSimulatedRoles(realRole).includes(targetRole);
+}
+/**
  * Whether a page created by `uid` may be deleted by them. Mirrors the rules:
  * Owner always; otherwise only the creator who is still its responsible person.
  */

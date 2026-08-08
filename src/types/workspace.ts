@@ -26,6 +26,20 @@ export interface WorkspaceMember {
   inviteToken?: string;
   /** Self-reported heartbeat timestamp, refreshed periodically while the app is open. Drives the online/away/offline indicator. */
   lastActiveAt?: number;
+  /**
+   * Optional simulated role for testing/UX purposes ONLY — see
+   * "Переключение режима привилегий". This is a self-writable, client-
+   * visible field and MUST NEVER be trusted by Firestore Rules or any
+   * server-side permission check: those always read `role` (above), which
+   * only the Owner can change. `activeRole` only affects what the CLIENT
+   * shows/attempts; the real Firestore-level access for this account is
+   * always governed by `role`. Firestore Rules additionally cap which
+   * values a member may set here to those their real `role` is allowed to
+   * simulate (Owner: any; Admin: admin/manager/viewer; Manager/Viewer: not
+   * allowed to set this field at all) — see the self-service member update
+   * rule. Absent/null means "not simulating — use my real role".
+   */
+  activeRole?: Role | null;
 }
 
 export type JoinRequestStatus = "pending" | "approved" | "rejected";

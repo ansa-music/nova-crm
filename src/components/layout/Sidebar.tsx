@@ -20,6 +20,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { useInboxSummary } from "@/hooks/useInboxSummary";
 import { usePermissions } from "@/hooks/usePermissions";
 import { signOutUser } from "@/firebase/auth";
+import { setActiveRole } from "@/services/memberService";
 import { cn } from "@/utils/cn";
 import { useUiStore } from "@/store/uiStore";
 import type { WorkspacePage } from "@/types";
@@ -336,7 +337,22 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
             </NavLink>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => signOutUser()} className="text-destructive focus:text-destructive">
+          <DropdownMenuItem
+            onClick={async () => {
+              // Best-effort: clear any simulated role before ending the
+              // session, so a later sign-in never inherits a forgotten
+              // "Переключение режима привилегий" state.
+              if (activeWorkspaceId && profile) {
+                try {
+                  await setActiveRole(activeWorkspaceId, profile.uid, null);
+                } catch {
+                  // Non-blocking — sign out regardless.
+                }
+              }
+              signOutUser();
+            }}
+            className="text-destructive focus:text-destructive"
+          >
             <LogOut className="h-4 w-4" /> Выйти
           </DropdownMenuItem>
         </DropdownMenuContent>

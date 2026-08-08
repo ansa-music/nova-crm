@@ -8,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { RoleSwitcher } from "@/components/common/RoleSwitcher";
 import { GlobalSearch } from "@/components/layout/GlobalSearch";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { useIsMobile } from "@/hooks/useMediaQuery";
@@ -99,6 +100,7 @@ export function Topbar({ title }: { title?: string }) {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <RoleSwitcher />
       <ThemeToggle />
     </header>
   );

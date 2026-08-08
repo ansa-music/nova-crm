@@ -8,6 +8,7 @@ import { Topbar } from "@/components/layout/Topbar";
 import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog";
 import { NicknamePrompt } from "@/components/common/NicknamePrompt";
 import { GlobalMessageToaster } from "@/components/common/GlobalMessageToaster";
+import { SimulationBanner } from "@/components/common/RoleSwitcher";
 import { AppBootScreen } from "@/components/common/AppBootScreen";
 import { Button } from "@/components/ui/button";
 import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorkspace";
@@ -80,6 +81,7 @@ export function AppLayout() {
       {!isMobile && <Sidebar />}
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
+        <SimulationBanner />
         <main className="flex-1 overflow-y-auto scrollbar-thin">
           <AnimatePresence mode="wait">
             <motion.div

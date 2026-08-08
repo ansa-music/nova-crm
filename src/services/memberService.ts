@@ -88,6 +88,18 @@ export async function changeMemberRole(workspaceId: string, uid: string, role: R
   await setDoc(paths.member(workspaceId, uid), { role }, { merge: true });
 }
 
+/**
+ * "Переключение режима привилегий" — self-service, changes only how THIS
+ * person's own client behaves (effectiveRole), never their real `role`.
+ * Firestore Rules independently cap which values are accepted based on the
+ * caller's real role, so this can never be used to self-escalate even via a
+ * raw write. Pass `null` to stop simulating and return to the real role.
+ */
+export async function setActiveRole(workspaceId: string, uid: string, activeRole: Role | null) {
+  if (!db) return;
+  await setDoc(paths.member(workspaceId, uid), { activeRole }, { merge: true });
+}
+
 export async function removeMember(workspaceId: string, uid: string) {
   if (!db) return;
   await deleteDoc(paths.member(workspaceId, uid));
