@@ -120,6 +120,28 @@ export const paths = {
     collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "chat"),
   pageChatMessage: (workspaceId: string, pageId: string, id: string) =>
     doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "chat", id),
+
+  managerPageClaim: (workspaceId: string, uid: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "managerPageClaims", uid),
+
+  personalZone: (workspaceId: string, pageId: string, uid: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "personalZones", uid),
+  personalReports: (workspaceId: string, pageId: string, uid: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "personalZones", uid, "reports"),
+  personalReport: (workspaceId: string, pageId: string, uid: string, reportId: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "personalZones", uid, "reports", reportId),
+  personalReportRows: (workspaceId: string, pageId: string, uid: string, reportId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "personalZones", uid, "reports", reportId, "rows"),
+  personalReportRow: (workspaceId: string, pageId: string, uid: string, reportId: string, rowId: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "personalZones", uid, "reports", reportId, "rows", rowId),
+  personalFinance: (workspaceId: string, pageId: string, uid: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "personalZones", uid, "finance"),
+  personalFinanceEntry: (workspaceId: string, pageId: string, uid: string, entryId: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "personalZones", uid, "finance", entryId),
+  personalNotes: (workspaceId: string, pageId: string, uid: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "personalZones", uid, "notes"),
+  personalNote: (workspaceId: string, pageId: string, uid: string, noteId: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "personalZones", uid, "notes", noteId),
 };
 
 /** Generic helper to subscribe to any query/collection with typed converter output. */

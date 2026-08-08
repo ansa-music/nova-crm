@@ -65,6 +65,10 @@ export interface WorkspacePage {
    * exclusively by the responsible person, not the Owner.
    */
   hiddenByResponsible?: boolean;
+  /** Reserved for a future public/private page toggle. Not yet enforced anywhere — always treat as "public" until wired up. */
+  visibility?: "public" | "private";
+  /** Uids explicitly allowed into this page's Personal Space (Reports/Finance/Notes), beyond the Owner and responsibleUserId who always have it. */
+  personalZoneAllowedUsers?: string[];
   columns: PageColumn[];
   createdAt: number;
   updatedAt: number;
@@ -99,6 +103,15 @@ export interface SubPage {
   icon: PageIconName;
   order: number;
   isArchived?: boolean;
+  /**
+   * When set, this subpage is a Personal Space monthly report — NOT an
+   * ordinary shared subpage. It must never be visible to a regular page
+   * viewer just because they can see the parent page; see
+   * `canAccessSubPage` in firestore.rules and the personalOwnerUid /
+   * personalAllowedUsers checks there.
+   */
+  personalOwnerUid?: string;
+  personalAllowedUsers?: string[];
   columns: PageColumn[];
   createdAt: number;
   updatedAt: number;

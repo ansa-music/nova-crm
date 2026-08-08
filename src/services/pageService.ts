@@ -113,6 +113,9 @@ export interface CreatePageInput {
   allowedUsers: string[];
   createdBy: string;
   order: number;
+  responsibleUserId?: string | null;
+  editableUsers?: string[];
+  visibility?: "public" | "private";
 }
 
 export async function createPage(input: CreatePageInput): Promise<WorkspacePage> {
@@ -127,10 +130,13 @@ export async function createPage(input: CreatePageInput): Promise<WorkspacePage>
     color: input.color,
     order: input.order,
     allowedUsers,
-    // The creator becomes this page's responsible person — matters most for
-    // a Manager/Admin, who has no blanket workspace access otherwise and
-    // would be unable to see the page they themselves just made.
-    responsibleUserId: input.createdBy,
+    // The creator becomes this page's responsible person by default — matters
+    // most for a Manager/Admin, who has no blanket workspace access otherwise
+    // and would be unable to see the page they themselves just made. Callers
+    // (e.g. Owner-created pages) may explicitly pass null to opt out.
+    responsibleUserId: input.responsibleUserId !== undefined ? input.responsibleUserId : input.createdBy,
+    editableUsers: input.editableUsers ?? [],
+    visibility: input.visibility ?? "public",
     columns: input.columns.map((c, i) => stripUndefined({ ...c, id: generateId("col"), order: i })),
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -138,6 +144,39 @@ export async function createPage(input: CreatePageInput): Promise<WorkspacePage>
   };
   await setDoc(paths.page(input.workspaceId, id), stripUndefined(page));
   return page;
+}
+
+/**
+ * Creates a page appropriate for the caller's role. A plain Manager (without
+ * elevated create permission) is routed through the atomic one-page quota;
+ * everyone else (Owner, Admin, or a Manager who's been granted elevated
+ * permission) goes through the normal unlimited createPage.
+ */
+export async function createPageForCurrentRole(
+  input: CreatePageInput & {
+    role: "owner" | "admin" | "manager" | "viewer";
+    uid: string;
+    hasElevatedCreatePermission?: boolean;
+  }
+): Promise<WorkspacePage> {
+  if (input.role === "viewer") throw new Error("Viewer не может создавать страницы");
+  if (input.role === "manager" && !input.hasElevatedCreatePermission) {
+    const { createManagerOwnedPage } = await import("@/services/managerPageQuota");
+    return createManagerOwnedPage({
+      workspaceId: input.workspaceId,
+      name: input.name,
+      icon: input.icon,
+      color: input.color,
+      columns: input.columns,
+      managerUid: input.uid,
+      order: input.order,
+    });
+  }
+  return createPage({
+    ...input,
+    responsibleUserId: input.responsibleUserId ?? (input.role === "manager" ? input.uid : null),
+    allowedUsers: Array.from(new Set([...input.allowedUsers, ...(input.role === "manager" ? [input.uid] : [])])),
+  });
 }
 
 export async function renamePage(workspaceId: string, pageId: string, name: string) {

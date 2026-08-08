@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
-import { Eye, EyeOff, History, Lock, MessageSquare, Settings2 } from "lucide-react";
+import { Eye, EyeOff, History, Lock, MessageSquare, Settings2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/table/DataTable";
@@ -9,6 +9,7 @@ import { SubPageStats } from "@/components/table/SubPageStats";
 import { EditPageDialog } from "@/components/pagesnav/EditPageDialog";
 import { HistoryPanel } from "@/components/history/HistoryPanel";
 import { PageChatPanel } from "@/components/chat/PageChatPanel";
+import { PersonalSpacePanel } from "@/components/personal/PersonalSpacePanel";
 import { toast } from "@/components/ui/sonner";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -27,6 +28,7 @@ export default function DynamicTablePage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [personalSpaceOpen, setPersonalSpaceOpen] = useState(false);
   const [activeSubPageId, setActiveSubPageId] = useState<string | null>(null);
 
   const page = pages.find((p) => p.id === pageId);
@@ -118,6 +120,8 @@ export default function DynamicTablePage() {
   const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid;
   const canEditData = permissions.canEditPageData(page);
   const isResponsible = permissions.isResponsibleForPage(page);
+  const canUsePersonalSpace =
+    permissions.role === "owner" || isResponsible || Boolean(page.personalZoneAllowedUsers?.includes(permissions.uid));
 
   async function handleToggleVisibility() {
     if (!page) return;
@@ -165,6 +169,16 @@ export default function DynamicTablePage() {
         <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setChatOpen(true)}>
           <MessageSquare className="h-3.5 w-3.5" /> Чат страницы
         </Button>
+        {canUsePersonalSpace && (
+          <Button
+            variant={personalSpaceOpen ? "default" : "outline"}
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setPersonalSpaceOpen((v) => !v)}
+          >
+            <User className="h-3.5 w-3.5" /> Личное пространство
+          </Button>
+        )}
         {permissions.canViewHistory && (
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setHistoryOpen(true)}>
             <History className="h-3.5 w-3.5" /> История
@@ -177,36 +191,49 @@ export default function DynamicTablePage() {
         )}
       </div>
 
-      <SubPageTabs
-        workspaceId={page.workspaceId}
-        page={page}
-        subPages={subPages}
-        activeSubPageId={activeSubPageId}
-        onSelect={setActiveSubPageId}
-        canManage={canEditData || permissions.canManagePage(page)}
-        userId={profile?.uid ?? ""}
-      />
-
-      {activeSubPage && <SubPageStats columns={activeSubPage.columns} rows={subPageRows} />}
-
-      <div className="flex-1 overflow-hidden">
-        {rowsLoading ? (
-          <div className="p-6">
-            <Skeleton className="h-64 w-full" />
-          </div>
-        ) : (
-          <DataTable
+      {personalSpaceOpen ? (
+        <div className="flex-1 overflow-hidden">
+          <PersonalSpacePanel
             workspaceId={page.workspaceId}
-            page={activeSubPage ? { ...page, columns: activeSubPage.columns } : page}
-            subPageId={activeSubPage?.id}
-            rows={rows}
-            canEdit={canEditData}
-            canEditStructure={permissions.canManagePage(page)}
-            userId={profile?.uid ?? ""}
-            userName={profile?.name ?? "Пользователь"}
+            pageId={page.id}
+            uid={permissions.uid}
+            onClose={() => setPersonalSpaceOpen(false)}
           />
-        )}
-      </div>
+        </div>
+      ) : (
+        <>
+          <SubPageTabs
+            workspaceId={page.workspaceId}
+            page={page}
+            subPages={subPages}
+            activeSubPageId={activeSubPageId}
+            onSelect={setActiveSubPageId}
+            canManage={canEditData || permissions.canManagePage(page)}
+            userId={profile?.uid ?? ""}
+          />
+
+          {activeSubPage && <SubPageStats columns={activeSubPage.columns} rows={subPageRows} />}
+
+          <div className="flex-1 overflow-hidden">
+            {rowsLoading ? (
+              <div className="p-6">
+                <Skeleton className="h-64 w-full" />
+              </div>
+            ) : (
+              <DataTable
+                workspaceId={page.workspaceId}
+                page={activeSubPage ? { ...page, columns: activeSubPage.columns } : page}
+                subPageId={activeSubPage?.id}
+                rows={rows}
+                canEdit={canEditData}
+                canEditStructure={permissions.canManagePage(page)}
+                userId={profile?.uid ?? ""}
+                userName={profile?.name ?? "Пользователь"}
+              />
+            )}
+          </div>
+        </>
+      )}
 
       {settingsOpen && <EditPageDialog page={page} onOpenChange={() => setSettingsOpen(false)} />}
       {permissions.canViewHistory && (

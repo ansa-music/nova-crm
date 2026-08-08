@@ -36,6 +36,23 @@ service cloud.firestore {
       return isMember(workspaceId) && (myRole(workspaceId) == 'owner' || myRole(workspaceId) == 'admin');
     }
 
+    function isResponsiblePage(workspaceId, pageData) {
+      return isMember(workspaceId) && pageData.get('responsibleUserId', null) == request.auth.uid;
+    }
+
+    // Gates a page's Personal Space (Reports/Finance/Notes): the Owner
+    // always; the page's own responsible person for THEIR OWN zone; anyone
+    // else only for their OWN zone AND only if explicitly listed in
+    // personalZoneAllowedUsers. Regular page access (allowedUsers) is
+    // deliberately NOT sufficient here — Personal Space is a stricter,
+    // separate gate on top of the parent page ACL.
+    function canUsePersonalZone(workspaceId, pageData, zoneUid) {
+      return isOwner(workspaceId)
+        || (isResponsiblePage(workspaceId, pageData) && zoneUid == request.auth.uid)
+        || (isMember(workspaceId) && zoneUid == request.auth.uid
+            && request.auth.uid in pageData.get('personalZoneAllowedUsers', []));
+    }
+
     // Owner sees/manages every page unconditionally. Anyone else needs their
     // uid explicitly present in the page's allowedUsers list.
     function canAccessPage(workspaceId, pageData) {
@@ -149,18 +166,49 @@ service cloud.firestore {
       // Pages — only Owner creates/deletes/manages permissions. Read/write
       // of an individual page and its rows is gated by allowedUsers.
       // -----------------------------------------------------------------
+      // -----------------------------------------------------------------
+      // Manager page quota: one claim per manager uid. The claim and the
+      // page it points to must be created together in the SAME write
+      // batch — see managerPageQuota.ts. Once a claim exists, a second
+      // create() for that uid always fails (exists() check below), so a
+      // race between two tabs or a raw repeated Firestore write can never
+      // grant a second page.
+      // -----------------------------------------------------------------
+      match /managerPageClaims/{uid} {
+        allow read: if isOwner(workspaceId) || (isMember(workspaceId) && uid == request.auth.uid);
+        allow create: if isMember(workspaceId)
+          && uid == request.auth.uid
+          && myRole(workspaceId) == 'manager'
+          && !exists(/databases/$(database)/documents/workspaces/$(workspaceId)/managerPageClaims/$(uid))
+          && existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId))
+          && getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId)).data.createdBy == request.auth.uid
+          && request.resource.data.uid == request.auth.uid;
+        allow update, delete: if isOwner(workspaceId);
+      }
+
       match /pages/{pageId} {
         allow read: if isMember(workspaceId) && canAccessPage(workspaceId, resource.data);
 
         // Owner always. Admin/Manager may also create a page, but ONLY as
         // its own responsible person and only if they include themselves in
         // allowedUsers — otherwise they'd create a page invisible to
-        // themselves (Admin/Manager have no blanket page access).
+        // themselves (Admin/Manager have no blanket page access). A Manager
+        // additionally may only ever have ONE page: the create is atomically
+        // paired (same batch) with a managerPageClaims/{uid} doc, and once
+        // that claim exists a second create for the same uid is rejected —
+        // including from a second tab or a repeated direct write.
         allow create: if isMember(workspaceId) && request.resource.data.workspaceId == workspaceId &&
           (isOwner(workspaceId) ||
-            ((myRole(workspaceId) == 'admin' || myRole(workspaceId) == 'manager') &&
+            (myRole(workspaceId) == 'admin' &&
               request.resource.data.responsibleUserId == request.auth.uid &&
-              request.auth.uid in request.resource.data.get('allowedUsers', [])));
+              request.auth.uid in request.resource.data.get('allowedUsers', [])) ||
+            (myRole(workspaceId) == 'manager' &&
+              request.resource.data.createdBy == request.auth.uid &&
+              request.resource.data.responsibleUserId == request.auth.uid &&
+              request.auth.uid in request.resource.data.get('allowedUsers', []) &&
+              !exists(/databases/$(database)/documents/workspaces/$(workspaceId)/managerPageClaims/$(request.auth.uid)) &&
+              existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/managerPageClaims/$(request.auth.uid)) &&
+              getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/managerPageClaims/$(request.auth.uid)).data.pageId == pageId));
 
         allow update: if isOwner(workspaceId);
         // Delete: Owner always, or the page's own creator while they're
@@ -236,6 +284,63 @@ service cloud.firestore {
             canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
             request.resource.data.authorUid == request.auth.uid;
           allow update, delete: if isMember(workspaceId) && resource.data.authorUid == request.auth.uid;
+        }
+
+        // -----------------------------------------------------------------
+        // Personal Space — Reports/Finance/Notes nested under this page,
+        // keyed by the owning member's uid. Gated by canUsePersonalZone,
+        // a STRICTER check than plain page access: the parent page ACL is
+        // NOT sufficient by itself, so an ordinary Viewer of the page never
+        // automatically sees anyone's personal zone. Every path here is
+        // already scoped to one specific zoneUid — never queried unfiltered
+        // across zones — so this carries none of the "list query" safety
+        // constraints that apply to the shared subpages/pages lists
+        // elsewhere in this file.
+        // -----------------------------------------------------------------
+        match /personalZones/{zoneUid} {
+          allow read: if isMember(workspaceId) && canUsePersonalZone(
+            workspaceId,
+            get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data,
+            zoneUid
+          );
+          allow create, update: if isMember(workspaceId) && canUsePersonalZone(
+            workspaceId,
+            get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data,
+            zoneUid
+          ) && request.resource.data.uid == zoneUid;
+
+          match /finance/{entryId} {
+            allow read: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
+              get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid);
+            allow create, update, delete: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
+              get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid)
+              && request.resource.data.uid == zoneUid;
+          }
+
+          match /notes/{noteId} {
+            allow read: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
+              get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid);
+            allow create, update, delete: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
+              get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid)
+              && request.resource.data.authorId == zoneUid;
+          }
+
+          // Monthly reports — a SEPARATE collection from the shared
+          // `subpages` used by ordinary page tabs (see personalSpaceService.ts
+          // for why), already uid-scoped so no list-query safety concern.
+          match /reports/{reportId} {
+            allow read: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
+              get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid);
+            allow create, update, delete: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
+              get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid);
+
+            match /rows/{rowId} {
+              allow read: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
+                get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid);
+              allow create, update, delete: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
+                get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid);
+            }
+          }
         }
       }
 

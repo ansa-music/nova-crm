@@ -64,6 +64,7 @@ import {
 import { AddColumnDialog } from "@/components/table/AddColumnDialog";
 import { RowCommentsPanel } from "@/components/chat/RowCommentsPanel";
 import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
+import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
 import { formatCurrency, downloadCsv } from "@/utils";
 import type { CellAddress, ColumnType, PageRow, SortState, WorkspacePage } from "@/types";
 
@@ -139,6 +140,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const [rangeAnchor, setRangeAnchor] = useState<CellAddress | null>(null);
   const [editingCell, setEditingCell] = useState<CellAddress | null>(null);
   useUnsavedGuard(Boolean(editingCell));
+  const pendingWrites = usePendingCellWrites();
   const [editValue, setEditValue] = useState("");
   const [sortState, setSortState] = useState<SortState>({ colKey: null, direction: null });
   const [filters, setFilters] = useState<Record<string, Set<string>>>({});
@@ -369,19 +371,29 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   );
 
   async function persistCellEdit(rowId: string, colKey: string, oldValue: string, newValue: string) {
-    const col = columns.find((c) => c.key === colKey);
-    await updateRowCell({
-      workspaceId,
-      pageId: page.id,
-      pageName: page.name,
-      rowId,
-      field: colKey,
-      fieldLabel: col?.label ?? colKey,
-      oldValue,
-      newValue,
-      userId,
-      userName,
-    });
+    const version = pendingWrites.begin(rowId, colKey, newValue);
+    try {
+      const col = columns.find((c) => c.key === colKey);
+      await updateRowCell({
+        workspaceId,
+        pageId: page.id,
+        pageName: page.name,
+        rowId,
+        field: colKey,
+        fieldLabel: col?.label ?? colKey,
+        oldValue,
+        newValue,
+        userId,
+        userName,
+      });
+      pendingWrites.confirm(rowId, colKey, version);
+    } catch (error) {
+      pendingWrites.fail(rowId, colKey, version);
+      toast.error("Не удалось сохранить значение", {
+        description: "Текст остался на месте. Повторите сохранение.",
+      });
+      throw error;
+    }
   }
 
   async function moveActiveAfterCommit(direction: "down" | "right" | "left" | "none") {
@@ -934,10 +946,18 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       resizePreview?.type === "row" && resizePreview.rowId === row.id
         ? resizePreview.height
         : row.height ?? rowHeight;
+    const displayRow = columns.some((c) => pendingWrites.state(row.id, c.key) !== "idle")
+      ? {
+          ...row,
+          cells: Object.fromEntries(
+            columns.map((c) => [c.key, pendingWrites.resolve(row.id, c.key, row.cells[c.key] ?? null)])
+          ),
+        }
+      : row;
     return (
       <TableRow
         key={row.id}
-        row={row}
+        row={displayRow}
         rowNumber={index + 1}
         columns={displayColumns}
         rowHeight={effectiveRowHeight}

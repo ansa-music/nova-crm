@@ -69,6 +69,8 @@ export function usePermissions() {
       canAssignResponsible: isResolved && canAssignResponsible(role),
       canManageAnnouncements: isResolved && canManageAnnouncements(role),
       canSendNotifications: isResolved && canSendNotifications(role),
+      /** Owner/Admin create pages freely; a plain Manager is limited to one owned page (see managerPageQuota.ts). */
+      hasElevatedCreatePermission: isResolved && (role === "owner" || role === "admin"),
 
       canAccessPage: (page: WorkspacePage) =>
         isResolved && canAccessPage(page, role, profile?.uid ?? ""),

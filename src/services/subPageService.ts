@@ -5,7 +5,6 @@ import {
   onSnapshot,
   orderBy,
   query,
-  serverTimestamp,
   setDoc,
   writeBatch,
 } from "firebase/firestore";
@@ -73,6 +72,9 @@ export interface CreateSubPageInput {
   columns: PageColumn[];
   order: number;
   createdBy: string;
+  /** Marks this subpage as a Personal Space monthly report, not an ordinary shared one — see canAccessSubPage in firestore.rules. */
+  personalOwnerUid?: string;
+  personalAllowedUsers?: string[];
 }
 
 export async function createSubPage(input: CreateSubPageInput): Promise<SubPage> {
@@ -87,15 +89,14 @@ export async function createSubPage(input: CreateSubPageInput): Promise<SubPage>
     icon: input.icon,
     order: input.order,
     isArchived: false,
+    personalOwnerUid: input.personalOwnerUid,
+    personalAllowedUsers: input.personalAllowedUsers,
     columns: stripUndefined(input.columns),
     createdAt: Date.now(),
     updatedAt: Date.now(),
     createdBy: input.createdBy,
   };
-  await setDoc(paths.subPage(input.workspaceId, input.pageId, id), {
-    ...subPage,
-    createdAt: serverTimestamp(),
-  });
+  await setDoc(paths.subPage(input.workspaceId, input.pageId, id), stripUndefined(subPage));
   return subPage;
 }
 
