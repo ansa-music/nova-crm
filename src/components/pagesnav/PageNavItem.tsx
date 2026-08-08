@@ -18,12 +18,13 @@ import type { PageIconName, WorkspacePage } from "@/types";
 interface PageNavItemProps {
   page: WorkspacePage;
   canManage: boolean;
+  canDelete: boolean;
   nextOrder: number;
   onEdit: (page: WorkspacePage) => void;
   collapsed?: boolean;
 }
 
-export function PageNavItem({ page, canManage, nextOrder, onEdit, collapsed }: PageNavItemProps) {
+export function PageNavItem({ page, canManage, canDelete, nextOrder, onEdit, collapsed }: PageNavItemProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [draftName, setDraftName] = useState(page.name);
   const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid;
@@ -137,10 +138,14 @@ export function PageNavItem({ page, canManage, nextOrder, onEdit, collapsed }: P
         <ContextMenuItem onClick={handleDuplicate}>
           <Copy className="h-4 w-4" /> Дублировать
         </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={handleDelete} className="text-destructive focus:text-destructive">
-          <Trash2 className="h-4 w-4" /> Удалить
-        </ContextMenuItem>
+        {canDelete && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={handleDelete} className="text-destructive focus:text-destructive">
+              <Trash2 className="h-4 w-4" /> Удалить
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );

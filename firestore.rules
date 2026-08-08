@@ -49,6 +49,7 @@ service cloud.firestore {
     function canUsePersonalZone(workspaceId, pageData, zoneUid) {
       return isOwner(workspaceId)
         || (isResponsiblePage(workspaceId, pageData) && zoneUid == request.auth.uid)
+        || (isMember(workspaceId) && myRole(workspaceId) == 'manager' && zoneUid == request.auth.uid)
         || (isMember(workspaceId) && zoneUid == request.auth.uid
             && request.auth.uid in pageData.get('personalZoneAllowedUsers', []));
     }
@@ -312,17 +313,27 @@ service cloud.firestore {
           match /finance/{entryId} {
             allow read: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
               get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid);
-            allow create, update, delete: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
+            allow create, update: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
               get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid)
               && request.resource.data.uid == zoneUid;
+            // Delete has no request.resource (no incoming document data) — a
+            // rule that reads request.resource.data on a delete always
+            // evaluates falsy and silently denies it. This was the exact bug
+            // behind "удаление в финансах не работает": every delete was
+            // being rejected by the server despite the button doing the
+            // right thing client-side.
+            allow delete: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
+              get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid);
           }
 
           match /notes/{noteId} {
             allow read: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
               get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid);
-            allow create, update, delete: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
+            allow create, update: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
               get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid)
               && request.resource.data.authorId == zoneUid;
+            allow delete: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
+              get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid);
           }
 
           // Monthly reports — a SEPARATE collection from the shared

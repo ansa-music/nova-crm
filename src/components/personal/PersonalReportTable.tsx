@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency } from "@/utils/format";
 import {
   addPersonalReportRow,
@@ -9,7 +10,7 @@ import {
   updatePersonalReportRowCell,
   type PersonalReportRow,
 } from "@/services/personalSpaceService";
-import { calculateReportAggregates } from "@/utils/reportAggregates";
+import { cn } from "@/utils/cn";
 import type { PageColumn, SubPage } from "@/types";
 
 interface PersonalReportTableProps {
@@ -24,6 +25,7 @@ export function PersonalReportTable({ workspaceId, pageId, uid, report, rows }: 
   const [editing, setEditing] = useState<{ rowId: string; colKey: string } | null>(null);
   const [editValue, setEditValue] = useState("");
   const columns = [...report.columns].sort((a, b) => a.order - b.order);
+  const priceColumn = columns.find((c) => c.type === "currency" || c.key === "price");
 
   async function handleAddRow() {
     const cells: Record<string, string | number | null> = {};
@@ -32,6 +34,7 @@ export function PersonalReportTable({ workspaceId, pageId, uid, report, rows }: 
   }
 
   function startEdit(rowId: string, col: PageColumn, current: string | number | null) {
+    if (col.type === "status") return; // status commits immediately via the select, no text-edit mode
     setEditing({ rowId, colKey: col.key });
     setEditValue(current === null || current === undefined ? "" : String(current));
   }
@@ -42,10 +45,13 @@ export function PersonalReportTable({ workspaceId, pageId, uid, report, rows }: 
     setEditing(null);
   }
 
-  const aggregates = calculateReportAggregates(
-    rows.map((r) => ({ id: r.id, pageId: report.id, cells: r.cells, order: r.order, createdAt: r.createdAt, updatedAt: r.updatedAt })),
-    columns
-  );
+  async function handleStatusChange(rowId: string, colKey: string, value: string) {
+    await updatePersonalReportRowCell(workspaceId, pageId, uid, report.id, rowId, colKey, value);
+  }
+
+  const total = priceColumn
+    ? rows.reduce((sum, row) => sum + (Number(row.cells[priceColumn.key]) || 0), 0)
+    : 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -67,6 +73,40 @@ export function PersonalReportTable({ workspaceId, pageId, uid, report, rows }: 
                 {columns.map((c) => {
                   const isEditing = editing?.rowId === row.id && editing.colKey === c.key;
                   const value = row.cells[c.key];
+
+                  if (c.type === "status") {
+                    const currentOption = c.statusOptions?.find((o) => o.value === value);
+                    return (
+                      <td key={c.key} className="px-1 py-1">
+                        <Select value={String(value ?? "")} onValueChange={(v) => handleStatusChange(row.id, c.key, v)}>
+                          <SelectTrigger className="h-8 border-0 bg-transparent shadow-none focus:ring-0">
+                            <SelectValue placeholder="—">
+                              {currentOption && (
+                                <span className="flex items-center gap-1.5">
+                                  <span
+                                    className="h-2 w-2 rounded-full"
+                                    style={{ backgroundColor: `hsl(${currentOption.color})` }}
+                                  />
+                                  {currentOption.label}
+                                </span>
+                              )}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {c.statusOptions?.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                <span className="flex items-center gap-1.5">
+                                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: `hsl(${opt.color})` }} />
+                                  {opt.label}
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </td>
+                    );
+                  }
+
                   return (
                     <td key={c.key} className="px-1 py-1" onClick={() => !isEditing && startEdit(row.id, c, value)}>
                       {isEditing ? (
@@ -82,8 +122,8 @@ export function PersonalReportTable({ workspaceId, pageId, uid, report, rows }: 
                           className="h-8"
                         />
                       ) : (
-                        <div className="min-h-8 cursor-text px-2 py-1.5">
-                          {c.type === "currency" && value ? formatCurrency(Number(value)) : String(value ?? "")}
+                        <div className={cn("min-h-8 cursor-text px-2 py-1.5", !value && "text-muted-foreground")}>
+                          {c.type === "currency" && value ? formatCurrency(Number(value)) : String(value ?? "—")}
                         </div>
                       )}
                     </td>
@@ -115,14 +155,12 @@ export function PersonalReportTable({ workspaceId, pageId, uid, report, rows }: 
         <Plus className="h-3.5 w-3.5" /> Добавить строку
       </Button>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {aggregates.map((a) => (
-          <div key={a.rate} className="rounded-lg border border-border p-3">
-            <p className="text-xs text-muted-foreground">{a.rate}%</p>
-            <p className="mt-1 text-sm font-semibold">{formatCurrency(a.done)}</p>
-          </div>
-        ))}
-      </div>
+      {priceColumn && (
+        <div className="rounded-lg border border-border p-3">
+          <p className="text-xs text-muted-foreground">Общая сумма</p>
+          <p className="mt-1 text-lg font-semibold">{formatCurrency(total)}</p>
+        </div>
+      )}
     </div>
   );
 }

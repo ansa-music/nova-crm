@@ -50,6 +50,12 @@ export function FinanceTab({ workspaceId, pageId, uid }: FinanceTabProps) {
     return { income, expense, balance: income - expense };
   }, [monthEntries]);
 
+  const overallBalance = useMemo(() => {
+    let total = 0;
+    entries.forEach((e) => (total += e.type === "income" ? e.amountMinor : -e.amountMinor));
+    return total;
+  }, [entries]);
+
   async function handleAdd() {
     const parsed = parseFinanceInput(draft, type);
     if (!parsed.valid) {
@@ -74,6 +80,16 @@ export function FinanceTab({ workspaceId, pageId, uid }: FinanceTabProps) {
 
   return (
     <div className="flex flex-col gap-4">
+      <Card className="border-primary/30 bg-primary/5">
+        <CardContent className="p-4">
+          <p className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Wallet className="h-3 w-3" /> Всего у вас есть
+          </p>
+          <p className="mt-1 text-2xl font-bold">{formatMinor(overallBalance)}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Сумма всех доходов минус расходы за всё время</p>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-3 gap-2">
         <Card>
           <CardContent className="p-3">
@@ -94,7 +110,7 @@ export function FinanceTab({ workspaceId, pageId, uid }: FinanceTabProps) {
         <Card>
           <CardContent className="p-3">
             <p className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Wallet className="h-3 w-3" /> Баланс
+              <Wallet className="h-3 w-3" /> Баланс за месяц
             </p>
             <p className="mt-1 text-sm font-semibold">{formatMinor(balance)}</p>
           </CardContent>

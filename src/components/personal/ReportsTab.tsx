@@ -25,6 +25,7 @@ const DEFAULT_REPORT_COLUMNS: PageColumn[] = [
     order: 1,
     statusOptions: [
       { value: "todo", label: "К выполнению", color: "240 4% 46%" },
+      { value: "active", label: "В работе", color: "38 92% 50%" },
       { value: "done", label: "Готово", color: "142 71% 45%" },
     ],
   },

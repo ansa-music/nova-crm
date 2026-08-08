@@ -221,7 +221,8 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
             <PageNavItem
               key={page.id}
               page={page}
-              canManage={permissions.canEditPageStructure}
+              canManage={permissions.canManagePage(page)}
+              canDelete={permissions.canDeletePage(page)}
               nextOrder={pages.length}
               onEdit={setEditingPage}
               collapsed={collapsed}

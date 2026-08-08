@@ -121,7 +121,10 @@ export default function DynamicTablePage() {
   const canEditData = permissions.canEditPageData(page);
   const isResponsible = permissions.isResponsibleForPage(page);
   const canUsePersonalSpace =
-    permissions.role === "owner" || isResponsible || Boolean(page.personalZoneAllowedUsers?.includes(permissions.uid));
+    permissions.role === "owner" ||
+    permissions.role === "manager" ||
+    isResponsible ||
+    Boolean(page.personalZoneAllowedUsers?.includes(permissions.uid));
 
   async function handleToggleVisibility() {
     if (!page) return;
