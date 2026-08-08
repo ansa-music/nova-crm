@@ -1,0 +1,21 @@
+NOVA CRM - SOURCE INDEX
+
+Project:
+C:\Users\nurpr\Documents\Nova\crm-platform
+
+Source files found:
+135
+
+Generated files:
+
+00_PROJECT_CONFIG.txt
+Contains package.json, Firebase configuration, Firestore rules and build configuration.
+
+src_1.txt ... src_9.txt
+Contains the complete source code from src/, divided into 9 parts.
+
+IMPORTANT:
+These files were generated automatically from the actual project.
+node_modules, dist, .git and other generated dependencies were excluded.
+
+The agent should treat these files as the current source of truth.

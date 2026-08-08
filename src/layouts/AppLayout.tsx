@@ -1,3 +1,4 @@
+// PATH: src/layouts/AppLayout.tsx  (REPLACES EXISTING)
 import { useState } from "react";
 import { Outlet } from "react-router";
 import { motion, AnimatePresence } from "framer-motion";
@@ -7,35 +8,39 @@ import { Topbar } from "@/components/layout/Topbar";
 import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog";
 import { NicknamePrompt } from "@/components/common/NicknamePrompt";
 import { GlobalMessageToaster } from "@/components/common/GlobalMessageToaster";
+import { AppBootScreen } from "@/components/common/AppBootScreen";
 import { Button } from "@/components/ui/button";
 import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorkspace";
+import { useAppBootstrap } from "@/hooks/useAppBootstrap";
 import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
 import { useAuth } from "@/hooks/useAuth";
 import { useIsMobile } from "@/hooks/useMediaQuery";
-import { Skeleton } from "@/components/ui/skeleton";
 import { isWorkspaceAdmin } from "@/utils/adminAccess";
 
 export function AppLayout() {
+  // Hooks always run before any early return, so the subscriptions keep making
+  // progress while a boot screen is on-screen.
   useActiveWorkspaceDataBootstrap();
   usePresenceHeartbeat();
-  const { activeWorkspace, isLoadingWorkspaces } = useWorkspace();
+
+  const { phase } = useAppBootstrap();
+  const { activeWorkspace } = useWorkspace();
   const { profile } = useAuth();
   const isMobile = useIsMobile();
   const [createOpen, setCreateOpen] = useState(false);
+
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
 
-  if (isLoadingWorkspaces) {
-    return (
-      <div className="flex h-screen items-center justify-center gap-3 bg-background">
-        <div className="flex flex-col gap-3">
-          <Skeleton className="h-4 w-48" />
-          <Skeleton className="h-4 w-32" />
-        </div>
-      </div>
-    );
+  // Any not-yet-resolved phase renders the shared boot screen. Crucially this
+  // includes "workspace-data": members (=> role) and pages (=> access) must
+  // both be in before ANY child page is allowed to evaluate permissions.
+  if (phase !== "ready" && phase !== "no-workspace") {
+    return <AppBootScreen phase={phase} />;
   }
 
-  if (!activeWorkspace) {
+  // Reached only when the workspace list has definitively resolved to empty —
+  // never as a flash while it was still loading.
+  if (phase === "no-workspace" || !activeWorkspace) {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background px-4 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-purple-500 text-white shadow-glow">

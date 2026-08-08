@@ -1,0 +1,1351 @@
+
+
+============================================================
+FILE: src\components\announcements\AnnouncementDialog.tsx
+============================================================
+
+import { useMemo, useState } from "react";
+import { Loader2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "@/components/ui/sonner";
+import { createAnnouncement, updateAnnouncement } from "@/services/announcementService";
+import { resolveNotificationTargets, sendNotification } from "@/services/notificationService";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { useAuth } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
+import { displayNameOf } from "@/utils/displayName";
+import type { Announcement, AnnouncementPriority, NotificationTargetKind, Role } from "@/types";
+
+interface AnnouncementDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  editing?: Announcement | null;
+}
+
+const PRIORITY_LABELS: Record<AnnouncementPriority, string> = {
+  normal: "Обычный",
+  important: "Важный",
+  urgent: "Срочный",
+};
+
+export function AnnouncementDialog({ open, onOpenChange, editing }: AnnouncementDialogProps) {
+  const { profile } = useAuth();
+  const { activeWorkspaceId, members, pages } = useWorkspace();
+  const permissions = usePermissions();
+  const [title, setTitle] = useState(editing?.title ?? "");
+  const [body, setBody] = useState(editing?.body ?? "");
+  const [priority, setPriority] = useState<AnnouncementPriority>(editing?.priority ?? "normal");
+  const [pinned, setPinned] = useState(editing?.pinned ?? false);
+  const [notify, setNotify] = useState(false);
+  const [target, setTarget] = useState<NotificationTargetKind>("all");
+  const [selectedUids, setSelectedUids] = useState<string[]>([]);
+  const [targetRole, setTargetRole] = useState<Role>("manager");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const otherMembers = useMemo(
+    () => members.filter((m) => m.status === "active" && m.uid !== profile?.uid),
+    [members, profile?.uid]
+  );
+
+  function toggleSelected(uid: string) {
+    setSelectedUids((prev) => (prev.includes(uid) ? prev.filter((u) => u !== uid) : [...prev, uid]));
+  }
+
+  async function handleSave() {
+    if (!activeWorkspaceId || !profile) return;
+    if (!title.trim() || !body.trim()) {
+      toast.error("Заполните заголовок и текст");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      let announcementId: string;
+      if (editing) {
+        await updateAnnouncement(activeWorkspaceId, editing.id, { title: title.trim(), body: body.trim(), priority, pinned });
+        announcementId = editing.id;
+      } else {
+        const created = await createAnnouncement({
+          workspaceId: activeWorkspaceId,
+          title: title.trim(),
+          body: body.trim(),
+          priority,
+          pinned,
+          authorUid: profile.uid,
+          authorName: profile.nickname || profile.name,
+          authorPhotoURL: profile.photoURL,
+        });
+        announcementId = created.id;
+      }
+
+      if (notify && permissions.canSendNotifications) {
+        const targetUids = resolveNotificationTargets(target, otherMembers, pages, {
+          selectedUids,
+          role: targetRole,
+        });
+        await sendNotification(
+          {
+            workspaceId: activeWorkspaceId,
+            title: `Объявление: ${title.trim()}`,
+            body: body.trim(),
+            priority,
+            fromUid: profile.uid,
+            fromName: profile.nickname || profile.name,
+            relatedAnnouncementId: announcementId,
+            target,
+          },
+          targetUids
+        );
+      }
+
+      toast.success(editing ? "Объявление обновлено" : "Объявление опубликовано");
+      onOpenChange(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить объявление");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{editing ? "Редактировать объявление" : "Новое объявление"}</DialogTitle>
+          <DialogDescription>Видно всем участникам workspace.</DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label>Заголовок</Label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Например, Обновление регламента" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Текст</Label>
+            <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} placeholder="Текст объявления..." />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Приоритет</Label>
+            <Select value={priority} onValueChange={(v) => setPriority(v as AnnouncementPriority)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(PRIORITY_LABELS) as AnnouncementPriority[]).map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {PRIORITY_LABELS[p]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox checked={pinned} onCheckedChange={(v) => setPinned(Boolean(v))} />
+            Закрепить сверху
+          </label>
+
+          {permissions.canSendNotifications && (
+            <div className="flex flex-col gap-2 border-t border-border pt-4">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <Checkbox checked={notify} onCheckedChange={(v) => setNotify(Boolean(v))} />
+                Также отправить уведомление
+              </label>
+              {notify && (
+                <div className="flex flex-col gap-2 pl-6">
+                  <Select value={target} onValueChange={(v) => setTarget(v as NotificationTargetKind)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Всем пользователям Workspace</SelectItem>
+                      <SelectItem value="selected">Только выбранным</SelectItem>
+                      <SelectItem value="role">По роли</SelectItem>
+                      <SelectItem value="responsible">Только ответственным</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  {target === "role" && (
+                    <Select value={targetRole} onValueChange={(v) => setTargetRole(v as Role)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="admin">Только Admin</SelectItem>
+                        <SelectItem value="manager">Только Manager</SelectItem>
+                        <SelectItem value="viewer">Только Viewer</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+
+                  {target === "selected" && (
+                    <div className="flex max-h-40 flex-col gap-1 overflow-y-auto rounded-lg border border-border p-2">
+                      {otherMembers.map((m) => (
+                        <label key={m.uid} className="flex items-center gap-2 text-sm">
+                          <Checkbox checked={selectedUids.includes(m.uid)} onCheckedChange={() => toggleSelected(m.uid)} />
+                          {displayNameOf(m)}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button onClick={handleSave} disabled={isSaving}>
+            {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+            {editing ? "Сохранить" : "Опубликовать"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\common\NicknamePrompt.tsx
+============================================================
+
+import { useState } from "react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Loader2 } from "lucide-react";
+import { toast } from "@/components/ui/sonner";
+import { useAuth } from "@/hooks/useAuth";
+import { updateUserDoc, syncNicknameToMemberships } from "@/services/authService";
+
+export function NicknamePrompt() {
+  const { profile } = useAuth();
+  const [value, setValue] = useState(profile?.name ?? "");
+  const [isSaving, setIsSaving] = useState(false);
+
+  if (!profile || profile.nickname) return null;
+
+  async function handleSave() {
+    const nickname = value.trim();
+    if (!nickname) {
+      toast.error("Введите отображаемое имя");
+      return;
+    }
+    if (nickname.length > 30) {
+      toast.error("Слишком длинно — до 30 символов");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await updateUserDoc(profile!.uid, { nickname });
+      if (profile?.workspaceIds?.length) {
+        await syncNicknameToMemberships(profile.uid, profile.workspaceIds, nickname);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open>
+      <DialogContent className="sm:max-w-sm" onInteractOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
+        <DialogHeader>
+          <DialogTitle>Придумайте отображаемое имя</DialogTitle>
+          <DialogDescription>
+            Оно будет видно другим участникам вместо email — например «Nurba», «Alihan», «Manager1».
+          </DialogDescription>
+        </DialogHeader>
+        <Input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="Ваш никнейм"
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSave();
+          }}
+        />
+        <Button onClick={handleSave} disabled={isSaving} className="w-full">
+          {isSaving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+          Сохранить
+        </Button>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\layout\ThemeToggle.tsx
+============================================================
+
+import { Check, Laptop, Moon, Sun } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { useUiStore, type ThemeMode } from "@/store/uiStore";
+
+const OPTIONS: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
+  { value: "light", label: "Светлая", icon: Sun },
+  { value: "dark", label: "Тёмная", icon: Moon },
+  { value: "system", label: "Системная", icon: Laptop },
+];
+
+export function ThemeToggle() {
+  const theme = useUiStore((s) => s.theme);
+  const setTheme = useUiStore((s) => s.setTheme);
+  const CurrentIcon = OPTIONS.find((o) => o.value === theme)?.icon ?? Sun;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" title="Тема оформления">
+          <CurrentIcon className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {OPTIONS.map((opt) => (
+          <DropdownMenuItem key={opt.value} onClick={() => setTheme(opt.value)}>
+            <opt.icon className="h-4 w-4" />
+            {opt.label}
+            {theme === opt.value && <Check className="ml-auto h-3.5 w-3.5" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\table\ColumnHeaderCell.tsx
+============================================================
+
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { ArrowDown, ArrowUp, Filter, GripVertical, Pin, PinOff } from "lucide-react";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { cn } from "@/utils/cn";
+import type { ColumnType, PageColumn, SortState } from "@/types";
+
+const COLUMN_TYPE_LABELS: Record<ColumnType, string> = {
+  text: "Текст",
+  number: "Число",
+  currency: "Валюта",
+  status: "Статус",
+  date: "Дата",
+  email: "Email",
+  phone: "Телефон",
+};
+const COLUMN_TYPES: ColumnType[] = ["text", "number", "currency", "status", "date", "email", "phone"];
+
+interface ColumnHeaderCellProps {
+  column: PageColumn;
+  sortState: SortState;
+  onSort: (colKey: string) => void;
+  onFilterClick: (colKey: string, e: React.MouseEvent) => void;
+  hasActiveFilter: boolean;
+  onResizeStart: (colKey: string, e: React.MouseEvent) => void;
+  isPinned: boolean;
+  onTogglePin: (colKey: string) => void;
+  stickyLeft?: number;
+  canReorder: boolean;
+  canEditStructure?: boolean;
+  onRename?: (colKey: string) => void;
+  onChangeType?: (colKey: string, type: ColumnType) => void;
+  onDuplicate?: (colKey: string) => void;
+  onDelete?: (colKey: string) => void;
+}
+
+export function ColumnHeaderCell({
+  column,
+  sortState,
+  onSort,
+  onFilterClick,
+  hasActiveFilter,
+  onResizeStart,
+  isPinned,
+  onTogglePin,
+  stickyLeft,
+  canReorder,
+  canEditStructure,
+  onRename,
+  onChangeType,
+  onDuplicate,
+  onDelete,
+}: ColumnHeaderCellProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: column.id,
+    disabled: !canReorder,
+  });
+
+  const isSorted = sortState.colKey === column.key;
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <th
+          ref={setNodeRef}
+          style={{
+            width: column.width,
+            minWidth: column.width,
+            left: stickyLeft,
+            transform: CSS.Transform.toString(transform),
+            transition,
+            opacity: isDragging ? 0.6 : 1,
+          }}
+          className={cn(
+            "group relative border-b border-r border-border bg-muted/60 px-1 text-left text-xs font-medium text-muted-foreground",
+            stickyLeft !== undefined && "sticky z-20 bg-muted"
+          )}
+        >
+          <div className="flex h-9 items-center gap-1">
+            {canReorder && (
+              <button
+                {...attributes}
+                {...listeners}
+                className="cursor-grab touch-none rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100 active:cursor-grabbing"
+                title="Перетащить столбец"
+              >
+                <GripVertical className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <button
+              onClick={() => onSort(column.key)}
+              className="flex min-w-0 flex-1 items-center gap-1 truncate text-left hover:text-foreground"
+            >
+              <span className="truncate">{column.label}</span>
+              {isSorted && sortState.direction === "asc" && <ArrowUp className="h-3 w-3 shrink-0" />}
+              {isSorted && sortState.direction === "desc" && <ArrowDown className="h-3 w-3 shrink-0" />}
+            </button>
+            <button
+              onClick={() => onTogglePin(column.key)}
+              className={cn(
+                "shrink-0 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100",
+                isPinned && "opacity-100 text-primary"
+              )}
+              title={isPinned ? "Открепить столбец" : "Закрепить столбец"}
+            >
+              {isPinned ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
+            </button>
+            <button
+              onClick={(e) => onFilterClick(column.key, e)}
+              className={cn(
+                "shrink-0 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100",
+                hasActiveFilter && "opacity-100 text-primary"
+              )}
+              title="Фильтр"
+            >
+              <Filter className="h-3 w-3" />
+            </button>
+          </div>
+          <div
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              onResizeStart(column.key, e);
+            }}
+            className="absolute -right-[1px] top-0 h-full w-[3px] cursor-col-resize opacity-0 hover:opacity-100 hover:bg-primary"
+          />
+        </th>
+      </ContextMenuTrigger>
+      {canEditStructure && (
+        <ContextMenuContent>
+          <ContextMenuItem onClick={() => onRename?.(column.key)}>Переименовать</ContextMenuItem>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>Изменить тип</ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              {COLUMN_TYPES.map((t) => (
+                <ContextMenuItem key={t} onClick={() => onChangeType?.(column.key, t)}>
+                  {COLUMN_TYPE_LABELS[t]}
+                  {column.type === t && " ✓"}
+                </ContextMenuItem>
+              ))}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuItem onClick={() => onDuplicate?.(column.key)}>Дублировать</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            onClick={() => onDelete?.(column.key)}
+            className="text-destructive focus:text-destructive"
+          >
+            Удалить столбец
+          </ContextMenuItem>
+        </ContextMenuContent>
+      )}
+    </ContextMenu>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\table\TableRow.tsx
+============================================================
+
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { GripVertical } from "lucide-react";
+import { TableCell } from "@/components/table/TableCell";
+import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/utils/cn";
+import type { CellAddress, PageColumn, PageRow } from "@/types";
+
+const ROW_GUTTER_WIDTH = 56;
+
+interface TableRowProps {
+  row: PageRow;
+  rowNumber: number;
+  columns: PageColumn[];
+  rowHeight: number;
+  activeCell: CellAddress | null;
+  rangeCells: Set<string>;
+  editingCell: CellAddress | null;
+  editValue: string;
+  canEdit: boolean;
+  canReorder: boolean;
+  isRowFullySelected: boolean;
+  isChecked: boolean;
+  pinnedKeys: string[];
+  onToggleChecked: (rowId: string) => void;
+  onCellMouseDown: (rowId: string, colKey: string, e: React.MouseEvent) => void;
+  onCellMouseEnter: (rowId: string, colKey: string) => void;
+  onCellDoubleClick: (rowId: string, colKey: string) => void;
+  onEditValueChange: (value: string) => void;
+  onCommitEdit: (direction?: "down" | "right" | "left" | "none") => void;
+  onCancelEdit: () => void;
+  onStatusChange: (rowId: string, colKey: string, value: string) => void;
+  onRowNumberMouseDown: (rowId: string, e: React.MouseEvent) => void;
+  onRowResizeStart: (rowId: string, e: React.MouseEvent) => void;
+  onContextMenuOpen: (rowId: string) => void;
+}
+
+export function TableRow({
+  row,
+  rowNumber,
+  columns,
+  rowHeight,
+  activeCell,
+  rangeCells,
+  editingCell,
+  editValue,
+  canEdit,
+  canReorder,
+  isRowFullySelected,
+  isChecked,
+  pinnedKeys,
+  onToggleChecked,
+  onCellMouseDown,
+  onCellMouseEnter,
+  onCellDoubleClick,
+  onEditValueChange,
+  onCommitEdit,
+  onCancelEdit,
+  onStatusChange,
+  onRowNumberMouseDown,
+  onRowResizeStart,
+  onContextMenuOpen,
+}: TableRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: row.id,
+    disabled: !canReorder,
+  });
+
+  let cumulativeLeft = ROW_GUTTER_WIDTH;
+  const pinnedOffsets = new Map<string, number>();
+  columns
+    .filter((c) => pinnedKeys.includes(c.key))
+    .forEach((c) => {
+      pinnedOffsets.set(c.key, cumulativeLeft);
+      cumulativeLeft += c.width;
+    });
+
+  return (
+    <tr
+      ref={setNodeRef}
+      style={{ height: rowHeight, transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
+      className="group/row"
+      onContextMenu={() => onContextMenuOpen(row.id)}
+    >
+      <td
+        onMouseDown={(e) => onRowNumberMouseDown(row.id, e)}
+        className={cn(
+          "sticky left-0 z-20 select-none border-b border-r border-border bg-muted/60 text-center text-xs text-muted-foreground",
+          isRowFullySelected && "bg-primary/10 font-medium text-primary"
+        )}
+        style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}
+      >
+        <div className="relative flex h-full w-full items-center justify-center gap-1">
+          <button
+            {...attributes}
+            {...listeners}
+            className="hidden cursor-grab touch-none text-muted-foreground group-hover/row:block active:cursor-grabbing"
+            title="Перетащить строку"
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
+          <span className="flex h-4 w-4 items-center justify-center group-hover/row:hidden">
+            {isChecked ? null : rowNumber}
+          </span>
+          <Checkbox
+            checked={isChecked}
+            onCheckedChange={() => onToggleChecked(row.id)}
+            onClick={(e) => e.stopPropagation()}
+            className={cn("absolute", !isChecked && "hidden group-hover/row:flex")}
+          />
+          <div
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              onRowResizeStart(row.id, e);
+            }}
+            className="absolute -bottom-[1px] left-0 h-[3px] w-full cursor-row-resize opacity-0 hover:opacity-100 hover:bg-primary"
+          />
+        </div>
+      </td>
+      {columns.map((column) => {
+        const isActive = activeCell?.rowId === row.id && activeCell?.colKey === column.key;
+        const isEditing = editingCell?.rowId === row.id && editingCell?.colKey === column.key;
+        const isInRange = rangeCells.has(`${row.id}:${column.key}`);
+        const stickyLeft = pinnedOffsets.get(column.key);
+        return (
+          <TableCell
+            key={column.id}
+            column={column}
+            value={row.cells[column.key] ?? ""}
+            isActive={isActive}
+            isInRange={isInRange || isActive}
+            isEditing={isEditing}
+            editValue={editValue}
+            canEdit={canEdit}
+            onMouseDown={(e) => onCellMouseDown(row.id, column.key, e)}
+            onMouseEnter={() => onCellMouseEnter(row.id, column.key)}
+            onDoubleClick={() => onCellDoubleClick(row.id, column.key)}
+            onEditValueChange={onEditValueChange}
+            onCommitEdit={onCommitEdit}
+            onCancelEdit={onCancelEdit}
+            onStatusChange={(v) => onStatusChange(row.id, column.key, v)}
+            stickyLeft={stickyLeft}
+          />
+        );
+      })}
+    </tr>
+  );
+}
+
+export { ROW_GUTTER_WIDTH };
+
+
+
+============================================================
+FILE: src\components\ui\dropdown-menu.tsx
+============================================================
+
+import * as React from "react";
+import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
+import { Check, ChevronRight, Circle } from "lucide-react";
+import { cn } from "@/utils/cn";
+
+export const DropdownMenu = DropdownMenuPrimitive.Root;
+export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
+export const DropdownMenuGroup = DropdownMenuPrimitive.Group;
+export const DropdownMenuSub = DropdownMenuPrimitive.Sub;
+export const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
+
+export const DropdownMenuSubTrigger = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.SubTrigger>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubTrigger> & { inset?: boolean }
+>(({ className, inset, children, ...props }, ref) => (
+  <DropdownMenuPrimitive.SubTrigger
+    ref={ref}
+    className={cn(
+      "flex cursor-pointer select-none items-center rounded-md px-2 py-1.5 text-sm outline-none focus:bg-accent data-[state=open]:bg-accent",
+      inset && "pl-8",
+      className
+    )}
+    {...props}
+  >
+    {children}
+    <ChevronRight className="ml-auto h-4 w-4" />
+  </DropdownMenuPrimitive.SubTrigger>
+));
+DropdownMenuSubTrigger.displayName = "DropdownMenuSubTrigger";
+
+export const DropdownMenuSubContent = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.SubContent>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent>
+>(({ className, ...props }, ref) => (
+  <DropdownMenuPrimitive.SubContent
+    ref={ref}
+    className={cn(
+      "z-50 min-w-[10rem] overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-popover animate-in fade-in-0 zoom-in-95",
+      className
+    )}
+    {...props}
+  />
+));
+DropdownMenuSubContent.displayName = "DropdownMenuSubContent";
+
+export const DropdownMenuContent = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>
+>(({ className, sideOffset = 6, ...props }, ref) => (
+  <DropdownMenuPrimitive.Portal>
+    <DropdownMenuPrimitive.Content
+      ref={ref}
+      sideOffset={sideOffset}
+      className={cn(
+        "z-50 min-w-[12rem] overflow-hidden rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-popover data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+        className
+      )}
+      {...props}
+    />
+  </DropdownMenuPrimitive.Portal>
+));
+DropdownMenuContent.displayName = "DropdownMenuContent";
+
+export const DropdownMenuItem = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.Item>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item> & { inset?: boolean }
+>(({ className, inset, ...props }, ref) => (
+  <DropdownMenuPrimitive.Item
+    ref={ref}
+    className={cn(
+      "relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-40",
+      inset && "pl-8",
+      className
+    )}
+    {...props}
+  />
+));
+DropdownMenuItem.displayName = "DropdownMenuItem";
+
+export const DropdownMenuCheckboxItem = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.CheckboxItem>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.CheckboxItem>
+>(({ className, children, checked, ...props }, ref) => (
+  <DropdownMenuPrimitive.CheckboxItem
+    ref={ref}
+    className={cn(
+      "relative flex cursor-pointer select-none items-center rounded-md py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent",
+      className
+    )}
+    checked={checked}
+    {...props}
+  >
+    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+      <DropdownMenuPrimitive.ItemIndicator>
+        <Check className="h-4 w-4" />
+      </DropdownMenuPrimitive.ItemIndicator>
+    </span>
+    {children}
+  </DropdownMenuPrimitive.CheckboxItem>
+));
+DropdownMenuCheckboxItem.displayName = "DropdownMenuCheckboxItem";
+
+export const DropdownMenuRadioItem = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.RadioItem>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem>
+>(({ className, children, ...props }, ref) => (
+  <DropdownMenuPrimitive.RadioItem
+    ref={ref}
+    className={cn(
+      "relative flex cursor-pointer select-none items-center rounded-md py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent",
+      className
+    )}
+    {...props}
+  >
+    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+      <DropdownMenuPrimitive.ItemIndicator>
+        <Circle className="h-2 w-2 fill-current" />
+      </DropdownMenuPrimitive.ItemIndicator>
+    </span>
+    {children}
+  </DropdownMenuPrimitive.RadioItem>
+));
+DropdownMenuRadioItem.displayName = "DropdownMenuRadioItem";
+
+export const DropdownMenuLabel = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.Label>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Label> & { inset?: boolean }
+>(({ className, inset, ...props }, ref) => (
+  <DropdownMenuPrimitive.Label
+    ref={ref}
+    className={cn("px-2 py-1.5 text-xs font-semibold text-muted-foreground", inset && "pl-8", className)}
+    {...props}
+  />
+));
+DropdownMenuLabel.displayName = "DropdownMenuLabel";
+
+export const DropdownMenuSeparator = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.Separator>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Separator>
+>(({ className, ...props }, ref) => (
+  <DropdownMenuPrimitive.Separator ref={ref} className={cn("-mx-1 my-1 h-px bg-border", className)} {...props} />
+));
+DropdownMenuSeparator.displayName = "DropdownMenuSeparator";
+
+export const DropdownMenuShortcut = ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) => (
+  <span className={cn("ml-auto text-xs tracking-widest text-muted-foreground", className)} {...props} />
+);
+
+
+
+============================================================
+FILE: src\components\ui\skeleton.tsx
+============================================================
+
+import { cn } from "@/utils/cn";
+
+export function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn("skeleton rounded-md", className)} {...props} />;
+}
+
+
+
+============================================================
+FILE: src\firebase\firestore.ts
+============================================================
+
+import {
+  collection,
+  collectionGroup,
+  doc,
+  type CollectionReference,
+  type DocumentReference,
+  type Query,
+  onSnapshot,
+  type DocumentData,
+  type FirestoreError,
+} from "firebase/firestore";
+import { db } from "@/firebase/firebase";
+import { toast } from "@/components/ui/sonner";
+
+function requireDb() {
+  if (!db) throw new Error("Firebase не настроен: заполните .env.local");
+  return db;
+}
+
+let permissionHintShown = false;
+
+/**
+ * Firestore denies every request by default until firestore.rules is actually
+ * deployed to the project (`firebase deploy --only firestore:rules`). That is
+ * the single most common "why doesn't anything load" cause for a fresh clone
+ * of this project, so surface it once, clearly, instead of a silent failure.
+ */
+function reportFirestoreError(error: FirestoreError) {
+  if (error.code === "permission-denied" && !permissionHintShown) {
+    permissionHintShown = true;
+    toast.error("Firestore отклонил запрос (permission-denied)", {
+      description:
+        "Похоже, firestore.rules ещё не задеплоены в проект. Выполните: firebase deploy --only firestore:rules,storage — подробности в README.",
+      duration: 10000,
+    });
+  }
+}
+
+export function withErrorReporting(onError?: (error: FirestoreError) => void) {
+  return (error: FirestoreError) => {
+    reportFirestoreError(error);
+    onError?.(error);
+  };
+}
+
+export const paths = {
+  users: () => collection(requireDb(), "users"),
+  user: (uid: string) => doc(requireDb(), "users", uid),
+
+  workspaces: () => collection(requireDb(), "workspaces"),
+  workspace: (workspaceId: string) => doc(requireDb(), "workspaces", workspaceId),
+
+  members: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "members"),
+  member: (workspaceId: string, uid: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "members", uid),
+  memberGroup: () => collectionGroup(requireDb(), "members"),
+
+  joinRequests: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "joinRequests"),
+  joinRequest: (workspaceId: string, uid: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "joinRequests", uid),
+
+  pages: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "pages"),
+  page: (workspaceId: string, pageId: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "pages", pageId),
+
+  rows: (workspaceId: string, pageId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "rows"),
+  row: (workspaceId: string, pageId: string, rowId: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "rows", rowId),
+  rowComments: (workspaceId: string, pageId: string, rowId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "rows", rowId, "comments"),
+  rowComment: (workspaceId: string, pageId: string, rowId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "rows", rowId, "comments", id),
+
+  subPages: (workspaceId: string, pageId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "subpages"),
+  subPage: (workspaceId: string, pageId: string, subPageId: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "subpages", subPageId),
+  subPageRows: (workspaceId: string, pageId: string, subPageId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "subpages", subPageId, "rows"),
+  subPageRow: (workspaceId: string, pageId: string, subPageId: string, rowId: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "subpages", subPageId, "rows", rowId),
+
+  history: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "history"),
+  historyEntry: (workspaceId: string, entryId: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "history", entryId),
+
+  announcements: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "announcements"),
+  announcement: (workspaceId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "announcements", id),
+
+  notifications: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "notifications"),
+  notification: (workspaceId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "notifications", id),
+
+  workspaceChat: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "workspaceChat"),
+  workspaceChatMessage: (workspaceId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "workspaceChat", id),
+
+  privateChatMessages: (workspaceId: string, chatId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "privateChats", chatId, "messages"),
+  privateChatMessage: (workspaceId: string, chatId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "privateChats", chatId, "messages", id),
+  privateChats: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "privateChats"),
+  privateChatMeta: (workspaceId: string, chatId: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "privateChats", chatId),
+
+  readMarkers: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "readMarkers"),
+  readMarker: (workspaceId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "readMarkers", id),
+
+  pageChat: (workspaceId: string, pageId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "chat"),
+  pageChatMessage: (workspaceId: string, pageId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "chat", id),
+};
+
+/** Generic helper to subscribe to any query/collection with typed converter output. */
+export function subscribe<T>(
+  ref: Query<DocumentData> | CollectionReference<DocumentData>,
+  onData: (items: T[]) => void,
+  onError?: (error: FirestoreError) => void
+) {
+  return onSnapshot(
+    ref,
+    (snapshot) => {
+      const items = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as T);
+      onData(items);
+    },
+    withErrorReporting(onError)
+  );
+}
+
+export function subscribeToDoc<T>(
+  ref: DocumentReference<DocumentData>,
+  onData: (item: T | null) => void,
+  onError?: (error: FirestoreError) => void
+) {
+  return onSnapshot(
+    ref,
+    (snapshot) => {
+      onData(snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as T) : null);
+    },
+    withErrorReporting(onError)
+  );
+}
+
+
+
+============================================================
+FILE: src\hooks\useNotifications.ts
+============================================================
+
+import { useEffect, useState } from "react";
+import { subscribeToMyNotifications } from "@/services/notificationService";
+import type { Notification } from "@/types";
+
+export function useNotifications(workspaceId: string | null, uid: string | null) {
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+
+  useEffect(() => {
+    if (!workspaceId || !uid) {
+      setNotifications([]);
+      return;
+    }
+    return subscribeToMyNotifications(workspaceId, uid, setNotifications, (error) =>
+      console.error("subscribeToMyNotifications denied:", error.code, error.message)
+    );
+  }, [workspaceId, uid]);
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  return { notifications, unreadCount };
+}
+
+
+
+============================================================
+FILE: src\layouts\AppLayout.tsx
+============================================================
+
+import { useState } from "react";
+import { Outlet } from "react-router";
+import { motion, AnimatePresence } from "framer-motion";
+import { Building2, Lock, Plus } from "lucide-react";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { Topbar } from "@/components/layout/Topbar";
+import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog";
+import { NicknamePrompt } from "@/components/common/NicknamePrompt";
+import { GlobalMessageToaster } from "@/components/common/GlobalMessageToaster";
+import { Button } from "@/components/ui/button";
+import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorkspace";
+import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
+import { useAuth } from "@/hooks/useAuth";
+import { useIsMobile } from "@/hooks/useMediaQuery";
+import { Skeleton } from "@/components/ui/skeleton";
+import { isWorkspaceAdmin } from "@/utils/adminAccess";
+
+export function AppLayout() {
+  useActiveWorkspaceDataBootstrap();
+  usePresenceHeartbeat();
+  const { activeWorkspace, isLoadingWorkspaces } = useWorkspace();
+  const { profile } = useAuth();
+  const isMobile = useIsMobile();
+  const [createOpen, setCreateOpen] = useState(false);
+  const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
+
+  if (isLoadingWorkspaces) {
+    return (
+      <div className="flex h-screen items-center justify-center gap-3 bg-background">
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-4 w-48" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!activeWorkspace) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background px-4 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-purple-500 text-white shadow-glow">
+          {canCreateWorkspace ? <Building2 className="h-6 w-6" /> : <Lock className="h-6 w-6" />}
+        </div>
+        {canCreateWorkspace ? (
+          <>
+            <div>
+              <h1 className="text-lg font-semibold">Начните с создания workspace</h1>
+              <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                Workspace — это отдельное рабочее пространство со своими страницами, участниками и
+                данными, например «Animation Studio» или «Finance».
+              </p>
+            </div>
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" /> Создать workspace
+            </Button>
+            <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />
+          </>
+        ) : (
+          <div>
+            <h1 className="text-lg font-semibold">У вас пока нет доступа ни к одному workspace</h1>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+              Создание новых workspace ограничено. Попросите ссылку-приглашение у владельца
+              нужного workspace — доступ откроется после его подтверждения.
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-background">
+      <NicknamePrompt />
+      <GlobalMessageToaster />
+      {!isMobile && <Sidebar />}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Topbar />
+        <main className="flex-1 overflow-y-auto scrollbar-thin">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeWorkspace.id}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.2 }}
+              className="h-full"
+            >
+              <Outlet />
+            </motion.div>
+          </AnimatePresence>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\pages\NotFoundPage.tsx
+============================================================
+
+import { Link } from "react-router";
+import { Button } from "@/components/ui/button";
+
+export default function NotFoundPage() {
+  return (
+    <div className="flex h-screen flex-col items-center justify-center gap-3 bg-background text-center">
+      <p className="text-5xl font-semibold tracking-tight">404</p>
+      <p className="text-muted-foreground">Страница не найдена</p>
+      <Button asChild>
+        <Link to="/">На главную</Link>
+      </Button>
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\services\joinRequestService.ts
+============================================================
+
+import { getDoc, setDoc } from "firebase/firestore";
+import { db } from "@/firebase/firebase";
+import { paths, subscribe, subscribeToDoc } from "@/firebase/firestore";
+import type { JoinRequest, Role, Workspace, WorkspaceMember } from "@/types";
+
+/** Minimal public info shown on the /join/:workspaceId page before the person is a member. */
+export async function getPublicWorkspaceInfo(workspaceId: string): Promise<Workspace | null> {
+  if (!db) return null;
+  const snap = await getDoc(paths.workspace(workspaceId));
+  return snap.exists() ? ({ id: snap.id, ...snap.data() } as Workspace) : null;
+}
+
+export function subscribeToPublicWorkspaceInfo(
+  workspaceId: string,
+  onData: (workspace: Workspace | null) => void
+) {
+  return subscribeToDoc<Workspace>(paths.workspace(workspaceId), onData);
+}
+
+/** The requester creates their own request doc — this is what a "join link" click does. */
+export async function submitJoinRequest(
+  workspaceId: string,
+  uid: string,
+  email: string,
+  name: string,
+  photoURL?: string | null
+): Promise<JoinRequest> {
+  if (!db) throw new Error("Firebase не настроен");
+  const request: JoinRequest = {
+    id: uid,
+    uid,
+    email,
+    name,
+    photoURL: photoURL ?? null,
+    workspaceId,
+    status: "pending",
+    requestedAt: Date.now(),
+  };
+  await setDoc(paths.joinRequest(workspaceId, uid), request);
+  return request;
+}
+
+/** So the requester's own UI can show "your request is pending / was rejected". */
+export function subscribeToOwnJoinRequest(
+  workspaceId: string,
+  uid: string,
+  onData: (request: JoinRequest | null) => void
+) {
+  return subscribeToDoc<JoinRequest>(paths.joinRequest(workspaceId, uid), onData);
+}
+
+/** Owner-only: list of everyone currently waiting to be let in. */
+export function subscribeToJoinRequests(
+  workspaceId: string,
+  onData: (requests: JoinRequest[]) => void
+) {
+  return subscribe<JoinRequest>(paths.joinRequests(workspaceId), (requests) =>
+    onData(
+      requests
+        .filter((r) => r.status === "pending")
+        .sort((a, b) => a.requestedAt - b.requestedAt)
+    )
+  );
+}
+
+/**
+ * Owner approves: creates a real member record, then marks the request
+ * approved (kept for the requester's own UI + audit trail).
+ *
+ * Defensive check: refuses outright if the requester already has a member
+ * doc (most importantly if they're the Owner). This should never normally
+ * happen — JoinWorkspacePage redirects existing members away from the
+ * request flow before a request can even be submitted — but this exists as
+ * a second, independent line of defense so a stray/duplicate request can
+ * never silently downgrade someone's existing role again.
+ */
+export async function approveJoinRequest(workspaceId: string, request: JoinRequest, role: Role, approvedBy: string) {
+  if (!db) return;
+  const existing = await getDoc(paths.member(workspaceId, request.uid));
+  if (existing.exists()) {
+    throw new Error(
+      `${request.name} уже состоит в этом workspace (роль: ${(existing.data() as WorkspaceMember).role}). Заявка отклонена автоматически — обновите список участников.`
+    );
+  }
+  const member: WorkspaceMember = {
+    uid: request.uid,
+    email: request.email,
+    name: request.name,
+    photoURL: request.photoURL ?? null,
+    role,
+    status: "active",
+    invitedAt: request.requestedAt,
+    invitedBy: approvedBy,
+    joinedAt: Date.now(),
+  };
+  await setDoc(paths.member(workspaceId, request.uid), member);
+  await setDoc(paths.joinRequest(workspaceId, request.uid), { status: "approved" }, { merge: true });
+}
+
+/** Owner rejects: marks the request rejected, no member is created. */
+export async function rejectJoinRequest(workspaceId: string, uid: string) {
+  if (!db) return;
+  await setDoc(paths.joinRequest(workspaceId, uid), { status: "rejected" }, { merge: true });
+}
+
+
+
+============================================================
+FILE: src\store\workspaceStore.ts
+============================================================
+
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import type { Workspace, WorkspaceMember, WorkspacePage } from "@/types";
+
+interface WorkspaceState {
+  workspaces: Workspace[];
+  activeWorkspaceId: string | null;
+  members: WorkspaceMember[];
+  pages: WorkspacePage[];
+  isLoadingWorkspaces: boolean;
+  isLoadingWorkspaceData: boolean;
+  setWorkspaces: (workspaces: Workspace[]) => void;
+  setActiveWorkspaceId: (id: string | null) => void;
+  setMembers: (members: WorkspaceMember[]) => void;
+  setPages: (pages: WorkspacePage[]) => void;
+  setLoadingWorkspaces: (loading: boolean) => void;
+  setLoadingWorkspaceData: (loading: boolean) => void;
+}
+
+export const useWorkspaceStore = create<WorkspaceState>()(
+  persist(
+    (set) => ({
+      workspaces: [],
+      activeWorkspaceId: null,
+      members: [],
+      pages: [],
+      isLoadingWorkspaces: true,
+      isLoadingWorkspaceData: true,
+      setWorkspaces: (workspaces) => set({ workspaces }),
+      setActiveWorkspaceId: (activeWorkspaceId) => set({ activeWorkspaceId }),
+      setMembers: (members) => set({ members }),
+      setPages: (pages) => set({ pages }),
+      setLoadingWorkspaces: (isLoadingWorkspaces) => set({ isLoadingWorkspaces }),
+      setLoadingWorkspaceData: (isLoadingWorkspaceData) => set({ isLoadingWorkspaceData }),
+    }),
+    {
+      name: "nova-crm:workspace",
+      partialize: (state) => ({ activeWorkspaceId: state.activeWorkspaceId }),
+    }
+  )
+);
+
+
+
+============================================================
+FILE: src\types\table.ts
+============================================================
+
+export interface CellAddress {
+  rowId: string;
+  colKey: string;
+}
+
+export interface SelectionBounds {
+  rowStart: number;
+  rowEnd: number;
+  colStart: number;
+  colEnd: number;
+}
+
+export type SortDirection = "asc" | "desc" | null;
+
+export interface SortState {
+  colKey: string | null;
+  direction: SortDirection;
+}
+
+export interface ClipboardPayload {
+  matrix: string[][];
+}
+
+
+
+============================================================
+FILE: src\utils\format.ts
+============================================================
+
+export function formatCurrency(value: number, currency = "KZT"): string {
+  return new Intl.NumberFormat("ru-RU", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(value || 0);
+}
+
+export function formatNumber(value: number): string {
+  return new Intl.NumberFormat("ru-RU").format(value || 0);
+}
+
+export function parseNumeric(value: string): number {
+  const digits = value.replace(/[^\d.-]/g, "");
+  return parseFloat(digits) || 0;
+}
+

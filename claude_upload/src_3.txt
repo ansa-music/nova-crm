@@ -1,3 +1,428 @@
+
+
+============================================================
+FILE: src\components\auth\LoginForm.tsx
+============================================================
+
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { motion } from "framer-motion";
+import { Loader2, Lock, Mail, User } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "@/components/ui/sonner";
+import {
+  loginSchema,
+  signupSchema,
+  type LoginFormValues,
+  type SignupFormValues,
+} from "@/utils/validation";
+import { signInWithEmail, signInWithGoogle, signUpWithEmail } from "@/firebase/auth";
+import { getAuthErrorMessage } from "@/utils/firebaseErrors";
+import { isFirebaseConfigured } from "@/firebase/firebase";
+
+function GoogleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4">
+      <path
+        fill="#4285F4"
+        d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29A11.96 11.96 0 000 12c0 1.94.46 3.77 1.29 5.38l3.98-3.09z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"
+      />
+    </svg>
+  );
+}
+
+export function LoginForm() {
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+
+  const loginForm = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: { email: "", password: "" },
+  });
+
+  const signupForm = useForm<SignupFormValues>({
+    resolver: zodResolver(signupSchema),
+    defaultValues: { name: "", email: "", password: "", confirmPassword: "" },
+  });
+
+  async function handleLogin(values: LoginFormValues) {
+    setIsSubmitting(true);
+    try {
+      await signInWithEmail(values.email, values.password);
+      toast.success("С возвращением!");
+    } catch (error) {
+      toast.error(getAuthErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleSignup(values: SignupFormValues) {
+    setIsSubmitting(true);
+    try {
+      await signUpWithEmail(values.email, values.password, values.name);
+      toast.success("Аккаунт создан!");
+    } catch (error) {
+      toast.error(getAuthErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleGoogle() {
+    setIsGoogleLoading(true);
+    try {
+      await signInWithGoogle();
+    } catch (error) {
+      toast.error(getAuthErrorMessage(error));
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: "easeOut" }}
+      className="w-full max-w-sm"
+    >
+      <div className="glass rounded-2xl p-8 shadow-glow">
+        <div className="mb-7 flex flex-col items-center text-center">
+          <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-purple-500 shadow-glow">
+            <svg viewBox="0 0 32 32" className="h-6 w-6" fill="none">
+              <path
+                d="M9 21V11l7 7 7-7v10"
+                stroke="white"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+          <h1 className="text-xl font-semibold tracking-tight">
+            {mode === "login" ? "С возвращением" : "Создайте аккаунт"}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {mode === "login"
+              ? "Войдите, чтобы продолжить работу в Nova CRM"
+              : "Начните управлять командой и клиентами за пару минут"}
+          </p>
+        </div>
+
+        {!isFirebaseConfigured && (
+          <div className="mb-5 rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs text-warning-foreground">
+            Firebase не настроен. Заполните <code>.env.local</code> данными вашего проекта —
+            подробности в README.
+          </div>
+        )}
+
+        <Button
+          variant="glass"
+          className="mb-4 w-full"
+          onClick={handleGoogle}
+          disabled={isGoogleLoading || !isFirebaseConfigured}
+        >
+          {isGoogleLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <GoogleIcon />
+          )}
+          Продолжить с Google
+        </Button>
+
+        <div className="mb-4 flex items-center gap-3">
+          <div className="h-px flex-1 bg-border" />
+          <span className="text-xs text-muted-foreground">или через email</span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+
+        {mode === "login" ? (
+          <form onSubmit={loginForm.handleSubmit(handleLogin)} className="flex flex-col gap-3.5">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="email">Email</Label>
+              <div className="relative">
+                <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input id="email" type="email" placeholder="you@company.com" className="pl-9" {...loginForm.register("email")} />
+              </div>
+              {loginForm.formState.errors.email && (
+                <p className="text-xs text-destructive">{loginForm.formState.errors.email.message}</p>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="password">Пароль</Label>
+              <div className="relative">
+                <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input id="password" type="password" placeholder="••••••••" className="pl-9" {...loginForm.register("password")} />
+              </div>
+              {loginForm.formState.errors.password && (
+                <p className="text-xs text-destructive">{loginForm.formState.errors.password.message}</p>
+              )}
+            </div>
+            <Button type="submit" className="mt-1 w-full" disabled={isSubmitting || !isFirebaseConfigured}>
+              {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Войти
+            </Button>
+          </form>
+        ) : (
+          <form onSubmit={signupForm.handleSubmit(handleSignup)} className="flex flex-col gap-3.5">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="name">Имя</Label>
+              <div className="relative">
+                <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input id="name" placeholder="Ваше имя" className="pl-9" {...signupForm.register("name")} />
+              </div>
+              {signupForm.formState.errors.name && (
+                <p className="text-xs text-destructive">{signupForm.formState.errors.name.message}</p>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="signup-email">Email</Label>
+              <div className="relative">
+                <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input id="signup-email" type="email" placeholder="you@company.com" className="pl-9" {...signupForm.register("email")} />
+              </div>
+              {signupForm.formState.errors.email && (
+                <p className="text-xs text-destructive">{signupForm.formState.errors.email.message}</p>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="signup-password">Пароль</Label>
+              <div className="relative">
+                <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input id="signup-password" type="password" placeholder="••••••••" className="pl-9" {...signupForm.register("password")} />
+              </div>
+              {signupForm.formState.errors.password && (
+                <p className="text-xs text-destructive">{signupForm.formState.errors.password.message}</p>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="confirm-password">Подтвердите пароль</Label>
+              <div className="relative">
+                <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input id="confirm-password" type="password" placeholder="••••••••" className="pl-9" {...signupForm.register("confirmPassword")} />
+              </div>
+              {signupForm.formState.errors.confirmPassword && (
+                <p className="text-xs text-destructive">{signupForm.formState.errors.confirmPassword.message}</p>
+              )}
+            </div>
+            <Button type="submit" className="mt-1 w-full" disabled={isSubmitting || !isFirebaseConfigured}>
+              {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Создать аккаунт
+            </Button>
+          </form>
+        )}
+
+        <p className="mt-5 text-center text-sm text-muted-foreground">
+          {mode === "login" ? "Ещё нет аккаунта?" : "Уже есть аккаунт?"}{" "}
+          <button
+            type="button"
+            className="font-medium text-primary hover:underline"
+            onClick={() => setMode(mode === "login" ? "signup" : "login")}
+          >
+            {mode === "login" ? "Создать аккаунт" : "Войти"}
+          </button>
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\dashboard\RecentActivity.tsx
+============================================================
+
+import { motion } from "framer-motion";
+import { History, Pencil, Plus, Trash2 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { timeAgo } from "@/utils/date";
+import type { HistoryEntry } from "@/types";
+
+const ACTION_ICON = {
+  create: Plus,
+  update: Pencil,
+  delete: Trash2,
+  restore: History,
+} as const;
+
+export function RecentActivity({ entries }: { entries: HistoryEntry[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Последние изменения</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-1">
+        {entries.length === 0 && (
+          <p className="py-6 text-center text-sm text-muted-foreground">Изменений пока нет</p>
+        )}
+        {entries.slice(0, 8).map((entry, i) => {
+          const Icon = ACTION_ICON[entry.action];
+          return (
+            <motion.div
+              key={entry.id}
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.03 }}
+              className="flex items-start gap-3 rounded-lg px-2 py-2 hover:bg-accent/50"
+            >
+              <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
+                <Icon className="h-3 w-3" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm">
+                  <span className="font-medium">{entry.userName}</span>{" "}
+                  {entry.action === "update" && `изменил(а) «${entry.fieldLabel ?? entry.field}»`}
+                  {entry.action === "create" && "добавил(а) запись"}
+                  {entry.action === "delete" && "удалил(а) запись"}
+                  {entry.action === "restore" && "восстановил(а) значение"}
+                  {entry.pageName && <span className="text-muted-foreground"> в «{entry.pageName}»</span>}
+                </p>
+                <p className="text-xs text-muted-foreground">{timeAgo(entry.timestamp)}</p>
+              </div>
+            </motion.div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\layout\Topbar.tsx
+============================================================
+
+import { useState } from "react";
+import { Bell, Menu } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { GlobalSearch } from "@/components/layout/GlobalSearch";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { useIsMobile } from "@/hooks/useMediaQuery";
+import { useAuth } from "@/hooks/useAuth";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { useNotifications } from "@/hooks/useNotifications";
+import { markAllNotificationsRead, markNotificationRead } from "@/services/notificationService";
+import { timeAgo } from "@/utils/date";
+import { cn } from "@/utils/cn";
+
+const PRIORITY_DOT: Record<string, string> = {
+  normal: "bg-muted-foreground",
+  important: "bg-amber-500",
+  urgent: "bg-red-500",
+};
+
+export function Topbar({ title }: { title?: string }) {
+  const isMobile = useIsMobile();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const { profile } = useAuth();
+  const { activeWorkspaceId } = useWorkspace();
+  const { notifications, unreadCount } = useNotifications(activeWorkspaceId, profile?.uid ?? null);
+
+  return (
+    <header className="glass-panel sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b px-4">
+      {isMobile && (
+        <>
+          <Button variant="ghost" size="icon" onClick={() => setMobileNavOpen(true)}>
+            <Menu className="h-4 w-4" />
+          </Button>
+          <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+            <SheetContent side="left" className="w-64 p-0">
+              <Sidebar mobile />
+            </SheetContent>
+          </Sheet>
+        </>
+      )}
+
+      {title && <h1 className="hidden shrink-0 text-sm font-semibold sm:block">{title}</h1>}
+
+      <div className="flex-1">
+        <GlobalSearch />
+      </div>
+
+      <DropdownMenu
+        onOpenChange={(open) => {
+          if (open && activeWorkspaceId) markAllNotificationsRead(activeWorkspaceId, notifications);
+        }}
+      >
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" title="Уведомления" className="relative">
+            <Bell className="h-4 w-4" />
+            {unreadCount > 0 && (
+              <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-semibold text-white">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-80 p-0">
+          <div className="border-b border-border px-3 py-2 text-sm font-semibold">Уведомления</div>
+          <div className="max-h-96 overflow-y-auto">
+            {notifications.length === 0 ? (
+              <div className="p-4 text-center text-sm text-muted-foreground">
+                У вас пока нет новых уведомлений
+              </div>
+            ) : (
+              notifications.map((n) => (
+                <button
+                  key={n.id}
+                  onClick={() => activeWorkspaceId && !n.read && markNotificationRead(activeWorkspaceId, n.id)}
+                  className={cn(
+                    "flex w-full items-start gap-2 border-b border-border px-3 py-2.5 text-left transition-colors last:border-0 hover:bg-accent/40",
+                    !n.read && "bg-accent/20"
+                  )}
+                >
+                  <span className={cn("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", PRIORITY_DOT[n.priority])} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{n.title}</p>
+                    <p className="line-clamp-2 text-xs text-muted-foreground">{n.body}</p>
+                    <p className="mt-0.5 text-[10px] text-muted-foreground">
+                      {n.fromName} · {timeAgo(n.createdAt)}
+                    </p>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <ThemeToggle />
+    </header>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\table\DataTable.tsx
+============================================================
+
 import {
   Fragment,
   useCallback,
@@ -63,7 +488,6 @@ import {
 } from "@/services/subPageService";
 import { AddColumnDialog } from "@/components/table/AddColumnDialog";
 import { RowCommentsPanel } from "@/components/chat/RowCommentsPanel";
-import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
 import { formatCurrency, downloadCsv } from "@/utils";
 import type { CellAddress, ColumnType, PageRow, SortState, WorkspacePage } from "@/types";
 
@@ -138,7 +562,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const [activeCell, setActiveCell] = useState<CellAddress | null>(null);
   const [rangeAnchor, setRangeAnchor] = useState<CellAddress | null>(null);
   const [editingCell, setEditingCell] = useState<CellAddress | null>(null);
-  useUnsavedGuard(Boolean(editingCell));
   const [editValue, setEditValue] = useState("");
   const [sortState, setSortState] = useState<SortState>({ colKey: null, direction: null });
   const [filters, setFilters] = useState<Record<string, Set<string>>>({});
@@ -1182,3 +1605,689 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     </div>
   );
 }
+
+
+
+============================================================
+FILE: src\components\table\TableToolbar.tsx
+============================================================
+
+import { Download, Plus, Search, Rows3, Columns3 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import type { PageColumn } from "@/types";
+
+interface TableToolbarProps {
+  columns: PageColumn[];
+  searchQuery: string;
+  onSearchChange: (value: string) => void;
+  groupByKey: string | null;
+  onGroupByChange: (key: string | null) => void;
+  density: "compact" | "default" | "comfortable";
+  onDensityChange: (density: "compact" | "default" | "comfortable") => void;
+  onAddRow: () => void;
+  onExportCsv: () => void;
+  canEdit: boolean;
+  canEditStructure: boolean;
+  onAddColumn: () => void;
+  selectedCount: number;
+  onDeleteSelected: () => void;
+}
+
+const DENSITY_LABELS: Record<TableToolbarProps["density"], string> = {
+  compact: "Компактно",
+  default: "Обычно",
+  comfortable: "Свободно",
+};
+
+export function TableToolbar({
+  columns,
+  searchQuery,
+  onSearchChange,
+  groupByKey,
+  onGroupByChange,
+  density,
+  onDensityChange,
+  onAddRow,
+  onExportCsv,
+  canEdit,
+  canEditStructure,
+  onAddColumn,
+  selectedCount,
+  onDeleteSelected,
+}: TableToolbarProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
+      <div className="relative w-64">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchQuery}
+          onChange={(e) => onSearchChange(e.target.value)}
+          placeholder="Поиск по таблице…"
+          className="h-8 pl-8"
+        />
+      </div>
+
+      <Select value={groupByKey ?? "__none__"} onValueChange={(v) => onGroupByChange(v === "__none__" ? null : v)}>
+        <SelectTrigger className="h-8 w-44">
+          <SelectValue placeholder="Группировка" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__none__">Без группировки</SelectItem>
+          {columns.map((c) => (
+            <SelectItem key={c.id} value={c.key}>
+              По полю «{c.label}»
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" className="h-8 gap-1.5">
+            <Rows3 className="h-3.5 w-3.5" /> {DENSITY_LABELS[density]}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {(Object.keys(DENSITY_LABELS) as TableToolbarProps["density"][]).map((d) => (
+            <DropdownMenuItem key={d} onClick={() => onDensityChange(d)}>
+              {DENSITY_LABELS[d]}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <div className="flex-1" />
+
+      {selectedCount > 0 && (
+        <Button variant="destructive" size="sm" className="h-8" onClick={onDeleteSelected}>
+          Удалить выбранные ({selectedCount})
+        </Button>
+      )}
+
+      <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={onExportCsv}>
+        <Download className="h-3.5 w-3.5" /> CSV
+      </Button>
+
+      {canEditStructure && (
+        <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={onAddColumn}>
+          <Columns3 className="h-3.5 w-3.5" /> Столбец
+        </Button>
+      )}
+
+      {canEdit && (
+        <Button size="sm" className="h-8 gap-1.5" onClick={onAddRow}>
+          <Plus className="h-3.5 w-3.5" /> Строка
+        </Button>
+      )}
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\ui\index.ts
+============================================================
+
+export * from "@/components/ui/button";
+export * from "@/components/ui/input";
+export * from "@/components/ui/label";
+export * from "@/components/ui/card";
+export * from "@/components/ui/badge";
+export * from "@/components/ui/avatar";
+export * from "@/components/ui/dialog";
+export * from "@/components/ui/dropdown-menu";
+export * from "@/components/ui/context-menu";
+export * from "@/components/ui/select";
+export * from "@/components/ui/tooltip";
+export * from "@/components/ui/popover";
+export * from "@/components/ui/tabs";
+export * from "@/components/ui/switch";
+export * from "@/components/ui/checkbox";
+export * from "@/components/ui/separator";
+export * from "@/components/ui/scroll-area";
+export * from "@/components/ui/skeleton";
+export * from "@/components/ui/sheet";
+export * from "@/components/ui/sonner";
+
+
+
+============================================================
+FILE: src\components\ui\sonner.tsx
+============================================================
+
+import { Toaster as Sonner } from "sonner";
+import { useUiStore } from "@/store/uiStore";
+
+export function Toaster() {
+  const theme = useUiStore((s) => s.theme);
+  return (
+    <Sonner
+      theme={theme === "system" ? "system" : theme}
+      className="toaster group"
+      position="bottom-right"
+      toastOptions={{
+        classNames: {
+          toast:
+            "group toast group-[.toaster]:bg-card group-[.toaster]:text-card-foreground group-[.toaster]:border-border group-[.toaster]:shadow-popover group-[.toaster]:rounded-xl",
+          description: "group-[.toast]:text-muted-foreground",
+          actionButton: "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
+          cancelButton: "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
+        },
+      }}
+    />
+  );
+}
+
+export { toast } from "sonner";
+
+
+
+============================================================
+FILE: src\firebase\storage.ts
+============================================================
+
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { storage } from "@/firebase/firebase";
+
+export async function uploadAvatar(uid: string, file: File): Promise<string> {
+  if (!storage) throw new Error("Firebase не настроен: заполните .env.local");
+  const fileRef = ref(storage, `avatars/${uid}/${Date.now()}-${file.name}`);
+  await uploadBytes(fileRef, file);
+  return getDownloadURL(fileRef);
+}
+
+
+
+============================================================
+FILE: src\hooks\usePageRows.ts
+============================================================
+
+import { useEffect, useState } from "react";
+import { subscribeToRows } from "@/services/pageService";
+import type { PageRow } from "@/types";
+
+export function usePageRows(workspaceId: string | null, pageId: string | null) {
+  const [rows, setRows] = useState<PageRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!workspaceId || !pageId) {
+      setRows([]);
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    const unsubscribe = subscribeToRows(workspaceId, pageId, (data) => {
+      setRows(data);
+      setIsLoading(false);
+    });
+    return unsubscribe;
+  }, [workspaceId, pageId]);
+
+  return { rows, isLoading };
+}
+
+
+
+============================================================
+FILE: src\layouts\AuthLayout.tsx
+============================================================
+
+export function AuthLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -left-32 -top-32 h-96 w-96 rounded-full bg-primary/30 blur-[120px]" />
+        <div className="absolute -right-24 top-1/3 h-80 w-80 rounded-full bg-purple-500/25 blur-[120px]" />
+        <div className="absolute bottom-[-10rem] left-1/3 h-96 w-96 rounded-full bg-sky-400/20 blur-[120px]" />
+      </div>
+      <div className="relative z-10 flex w-full flex-col items-center">{children}</div>
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\pages\SettingsPage.tsx
+============================================================
+
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Loader2, Trash2, Users } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Link } from "react-router";
+import { toast } from "@/components/ui/sonner";
+import { profileSchema, type ProfileFormValues } from "@/utils/validation";
+import { useAuth } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { updateUserPassword, updateUserProfile } from "@/firebase/auth";
+import { updateUserDoc } from "@/services/authService";
+import { deleteWorkspace, updateWorkspace } from "@/services/workspaceService";
+import { getAuthErrorMessage } from "@/utils/firebaseErrors";
+
+export default function SettingsPage() {
+  const { profile } = useAuth();
+  const permissions = usePermissions();
+  const { activeWorkspace, setActiveWorkspaceId, workspaces } = useWorkspace();
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
+  const [workspaceName, setWorkspaceName] = useState(activeWorkspace?.name ?? "");
+  const [isSavingWorkspace, setIsSavingWorkspace] = useState(false);
+
+  const profileForm = useForm<ProfileFormValues>({
+    resolver: zodResolver(profileSchema),
+    defaultValues: { name: profile?.name ?? "" },
+  });
+
+  async function onSaveProfile(values: ProfileFormValues) {
+    setIsSavingProfile(true);
+    try {
+      await updateUserProfile(values.name);
+      if (profile) await updateUserDoc(profile.uid, { name: values.name });
+      toast.success("Профиль обновлён");
+    } catch (error) {
+      toast.error(getAuthErrorMessage(error));
+    } finally {
+      setIsSavingProfile(false);
+    }
+  }
+
+  async function handlePasswordSave() {
+    if (newPassword.length < 6) {
+      toast.error("Пароль должен быть не короче 6 символов");
+      return;
+    }
+    setIsSavingPassword(true);
+    try {
+      await updateUserPassword(newPassword);
+      toast.success("Пароль обновлён");
+      setNewPassword("");
+    } catch (error) {
+      toast.error(getAuthErrorMessage(error));
+    } finally {
+      setIsSavingPassword(false);
+    }
+  }
+
+  async function handleSaveWorkspaceName() {
+    if (!activeWorkspace) return;
+    setIsSavingWorkspace(true);
+    try {
+      await updateWorkspace(activeWorkspace.id, { name: workspaceName });
+      toast.success("Workspace обновлён");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить");
+    } finally {
+      setIsSavingWorkspace(false);
+    }
+  }
+
+  async function handleDeleteWorkspace() {
+    if (!activeWorkspace) return;
+    if (!window.confirm(`Удалить workspace «${activeWorkspace.name}»? Это действие необратимо.`)) return;
+    await deleteWorkspace(activeWorkspace.id);
+    const next = workspaces.find((w) => w.id !== activeWorkspace.id);
+    setActiveWorkspaceId(next?.id ?? null);
+    toast.success("Workspace удалён");
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl p-6">
+      <h1 className="mb-6 text-2xl font-semibold tracking-tight">Настройки</h1>
+
+      <Tabs defaultValue="profile">
+        <TabsList>
+          <TabsTrigger value="profile">Профиль</TabsTrigger>
+          <TabsTrigger value="workspace">Workspace</TabsTrigger>
+          <TabsTrigger value="members">Роли и доступ</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="profile" className="flex flex-col gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Личные данные</CardTitle>
+              <CardDescription>Ваше имя видно всем участникам workspace.</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-5">
+              <div className="flex items-center gap-4">
+                <Avatar className="h-16 w-16">
+                  <AvatarImage src={profile?.photoURL ?? undefined} />
+                  <AvatarFallback className="text-lg">{profile?.name?.[0]?.toUpperCase()}</AvatarFallback>
+                </Avatar>
+              </div>
+
+              <form onSubmit={profileForm.handleSubmit(onSaveProfile)} className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="name">Имя</Label>
+                  <Input id="name" {...profileForm.register("name")} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Email</Label>
+                  <Input value={profile?.email ?? ""} disabled />
+                </div>
+                <Button type="submit" className="w-fit" disabled={isSavingProfile}>
+                  {isSavingProfile && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Сохранить
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Пароль</CardTitle>
+              <CardDescription>
+                Обновите пароль для входа по email. Если вы вошли через Google, эта опция недоступна.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-end gap-2">
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Label htmlFor="password">Новый пароль</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="••••••••"
+                />
+              </div>
+              <Button onClick={handlePasswordSave} disabled={isSavingPassword}>
+                {isSavingPassword && <Loader2 className="h-4 w-4 animate-spin" />}
+                Обновить
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="workspace" className="flex flex-col gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Общие настройки</CardTitle>
+              <CardDescription>Название текущего workspace «{activeWorkspace?.name}».</CardDescription>
+            </CardHeader>
+            <CardContent className="flex items-end gap-2">
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Label htmlFor="ws-name">Название</Label>
+                <Input
+                  id="ws-name"
+                  value={workspaceName}
+                  onChange={(e) => setWorkspaceName(e.target.value)}
+                  disabled={!permissions.canManageWorkspace}
+                />
+              </div>
+              {permissions.canManageWorkspace && (
+                <Button onClick={handleSaveWorkspaceName} disabled={isSavingWorkspace}>
+                  {isSavingWorkspace && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Сохранить
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+
+          {permissions.canManageWorkspace && (
+            <Card className="border-destructive/40">
+              <CardHeader>
+                <CardTitle className="text-destructive">Опасная зона</CardTitle>
+                <CardDescription>Удаление workspace необратимо и удалит все страницы и данные.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button variant="destructive" className="gap-1.5" onClick={handleDeleteWorkspace}>
+                  <Trash2 className="h-4 w-4" /> Удалить workspace
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="members">
+          <Card>
+            <CardHeader>
+              <CardTitle>Участники и роли</CardTitle>
+              <CardDescription>
+                Приглашения, роли и доступ к отдельным страницам теперь управляются на
+                отдельной странице «Пользователи».
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild className="gap-1.5">
+                <Link to="/users">
+                  <Users className="h-4 w-4" /> Перейти к пользователям
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\services\memberService.ts
+============================================================
+
+import { deleteDoc, getDocs, onSnapshot, query, setDoc, where } from "firebase/firestore";
+import { db } from "@/firebase/firebase";
+import { paths, withErrorReporting } from "@/firebase/firestore";
+import { generateId } from "@/utils/id";
+import { addOwnWorkspaceId } from "@/services/authService";
+import type { Role, WorkspaceMember } from "@/types";
+
+export function subscribeToMembers(
+  workspaceId: string,
+  onData: (members: WorkspaceMember[]) => void,
+  onError?: (error: import("firebase/firestore").FirestoreError) => void
+) {
+  let cancelled = false;
+  let emittedOnce = false;
+  let pendingEmptyCacheTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const unsubscribe = onSnapshot(
+    paths.members(workspaceId),
+    (snapshot) => {
+      if (cancelled) return;
+      const members = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as WorkspaceMember);
+
+      if (pendingEmptyCacheTimer) {
+        clearTimeout(pendingEmptyCacheTimer);
+        pendingEmptyCacheTimer = null;
+      }
+
+      // Same fix as pages/workspace list: don't trust an empty result from
+      // local cache on the very first snapshot — wait briefly for the real
+      // server confirmation instead of flashing empty and requiring reload.
+      if (snapshot.metadata.fromCache && members.length === 0 && !emittedOnce) {
+        pendingEmptyCacheTimer = setTimeout(() => {
+          if (!cancelled) {
+            emittedOnce = true;
+            onData([]);
+          }
+        }, 1200);
+        return;
+      }
+
+      emittedOnce = true;
+      onData(members.sort((a, b) => a.invitedAt - b.invitedAt));
+    },
+    withErrorReporting(onError)
+  );
+
+  return () => {
+    cancelled = true;
+    if (pendingEmptyCacheTimer) clearTimeout(pendingEmptyCacheTimer);
+    unsubscribe();
+  };
+}
+
+/** Creates a pending invite, keyed temporarily by email until the user signs in. */
+export async function inviteMember(
+  workspaceId: string,
+  email: string,
+  role: Role,
+  invitedBy: string
+) {
+  if (!db) throw new Error("Firebase не настроен");
+  const normalizedEmail = email.trim().toLowerCase();
+  const member: WorkspaceMember = {
+    uid: "",
+    email: normalizedEmail,
+    name: normalizedEmail.split("@")[0],
+    role,
+    status: "invited",
+    invitedAt: Date.now(),
+    invitedBy,
+    inviteToken: generateId("inv"),
+  };
+  await setDoc(paths.member(workspaceId, normalizedEmail), member);
+  return member;
+}
+
+export async function resendInvite(workspaceId: string, email: string) {
+  if (!db) return;
+  await setDoc(
+    paths.member(workspaceId, email),
+    { invitedAt: Date.now(), inviteToken: generateId("inv") },
+    { merge: true }
+  );
+}
+
+export async function changeMemberRole(workspaceId: string, uid: string, role: Role) {
+  if (!db) return;
+  await setDoc(paths.member(workspaceId, uid), { role }, { merge: true });
+}
+
+export async function removeMember(workspaceId: string, uid: string) {
+  if (!db) return;
+  await deleteDoc(paths.member(workspaceId, uid));
+}
+
+/**
+ * Called right after a successful sign-in: converts any pending
+ * email-keyed invites that match this account into active memberships.
+ */
+export async function claimPendingInvites(
+  uid: string,
+  email: string,
+  name: string,
+  photoURL?: string | null,
+  nickname?: string
+) {
+  if (!db) return;
+  const normalizedEmail = email.trim().toLowerCase();
+  const q = query(
+    paths.memberGroup(),
+    where("email", "==", normalizedEmail),
+    where("status", "==", "invited")
+  );
+  const snapshot = await getDocs(q);
+  await Promise.all(
+    snapshot.docs.map(async (docSnap) => {
+      const workspaceId = docSnap.ref.parent.parent?.id;
+      if (!workspaceId) return;
+      const data = docSnap.data() as WorkspaceMember;
+      await setDoc(paths.member(workspaceId, uid), {
+        ...data,
+        uid,
+        name: name || data.name,
+        nickname: nickname ?? data.nickname ?? null,
+        photoURL: photoURL ?? null,
+        status: "active",
+        joinedAt: Date.now(),
+      });
+      await addOwnWorkspaceId(uid, workspaceId);
+      if (docSnap.id !== uid) {
+        await deleteDoc(docSnap.ref);
+      }
+    })
+  );
+}
+
+
+
+============================================================
+FILE: src\types\announcement.ts
+============================================================
+
+export type AnnouncementPriority = "normal" | "important" | "urgent";
+
+export interface Announcement {
+  id: string;
+  workspaceId: string;
+  title: string;
+  body: string;
+  authorUid: string;
+  authorName: string;
+  authorPhotoURL?: string | null;
+  priority: AnnouncementPriority;
+  pinned: boolean;
+  isArchived?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+
+
+============================================================
+FILE: src\types\user.ts
+============================================================
+
+export interface AppUser {
+  uid: string;
+  email: string;
+  name: string;
+  /**
+   * Short display name the person picks for themselves on first sign-in
+   * (e.g. "Nurba", "Manager1"). Shown everywhere in place of email/full
+   * name once set — access lists, member cards, etc.
+   */
+  nickname?: string;
+  photoURL?: string | null;
+  createdAt: number;
+  /**
+   * Cache of workspace ids this user belongs to, maintained by the client
+   * whenever they gain membership (create/accept invite/get approved).
+   * Lets the app list "my workspaces" via a plain doc read instead of a
+   * collectionGroup query. May lag briefly behind reality (e.g. right after
+   * an Owner approves a join request while the requester is offline) — in
+   * that case a stale id just fails its own individual workspace read and
+   * is quietly dropped from the list, never breaking the whole query.
+   */
+  workspaceIds?: string[];
+}
+
+
+
+============================================================
+FILE: src\utils\id.ts
+============================================================
+
+export function generateId(prefix = "id"): string {
+  return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+}
+

@@ -1,0 +1,1253 @@
+
+
+============================================================
+FILE: src\components\chat\ChatPanel.tsx
+============================================================
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, Pencil, Reply, Search, Smile, Trash2, X } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { toast } from "@/components/ui/sonner";
+import { cn } from "@/utils/cn";
+import { formatDate } from "@/utils/date";
+import type { ChatMessage } from "@/types";
+
+const EMOJI = ["😀", "😂", "❤️", "👍", "👎", "🎉", "🔥", "😢", "😮", "🙏", "👏", "✅"];
+
+export interface MentionableUser {
+  uid: string;
+  name: string;
+}
+
+interface ChatPanelProps {
+  messages: ChatMessage[];
+  currentUid: string;
+  onSend: (text: string, replyTo: ChatMessage | null, mentionedUids: string[]) => Promise<void>;
+  onEdit: (id: string, text: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  emptyMessage?: string;
+  /** Enables @mention autocomplete + highlighting + notifying the mentioned person. */
+  mentionableUsers?: MentionableUser[];
+}
+
+/** Renders message text with "@Name" occurrences (matching a known mentionable user) highlighted. */
+function renderTextWithMentions(text: string, mentionableUsers: MentionableUser[]) {
+  if (mentionableUsers.length === 0) return text;
+  const names = mentionableUsers.map((u) => u.name).sort((a, b) => b.length - a.length);
+  const pattern = new RegExp(`@(${names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`, "g");
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  while ((match = pattern.exec(text))) {
+    if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
+    parts.push(
+      <span key={key++} className="rounded bg-primary/15 px-1 font-medium text-primary">
+        @{match[1]}
+      </span>
+    );
+    lastIndex = match.index + match[0].length;
+  }
+  parts.push(text.slice(lastIndex));
+  return parts;
+}
+
+/** Extracts the uids of every mentionable user whose "@Name" appears in the text. */
+function extractMentionedUids(text: string, mentionableUsers: MentionableUser[]): string[] {
+  return mentionableUsers.filter((u) => new RegExp(`@${u.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(text)).map((u) => u.uid);
+}
+
+export function ChatPanel({
+  messages,
+  currentUid,
+  onSend,
+  onEdit,
+  onDelete,
+  emptyMessage,
+  mentionableUsers = [],
+}: ChatPanelProps) {
+  const [draft, setDraft] = useState("");
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length]);
+
+  // Mention autocomplete: look at the text right before the cursor for an
+  // unclosed "@word" and, if found, offer matching mentionable users.
+  const mentionQuery = useMemo(() => {
+    const caret = textareaRef.current?.selectionStart ?? draft.length;
+    const upToCaret = draft.slice(0, caret);
+    const match = upToCaret.match(/@(\w*)$/);
+    return match ? match[1] : null;
+  }, [draft]);
+
+  const mentionMatches = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const q = mentionQuery.toLowerCase();
+    return mentionableUsers.filter((u) => u.name.toLowerCase().startsWith(q)).slice(0, 6);
+  }, [mentionQuery, mentionableUsers]);
+
+  function insertMention(user: MentionableUser) {
+    const caret = textareaRef.current?.selectionStart ?? draft.length;
+    const upToCaret = draft.slice(0, caret);
+    const replaced = upToCaret.replace(/@(\w*)$/, `@${user.name} `);
+    setDraft(replaced + draft.slice(caret));
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }
+
+  async function handleSend() {
+    const text = draft.trim();
+    if (!text) return;
+    setDraft("");
+    const wasReplying = replyTo;
+    setReplyTo(null);
+    try {
+      await onSend(text, wasReplying, extractMentionedUids(text, mentionableUsers));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось отправить сообщение");
+    }
+  }
+
+  async function handleSaveEdit(id: string) {
+    const text = editValue.trim();
+    if (!text) return;
+    try {
+      await onEdit(id, text);
+      setEditingId(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось изменить сообщение");
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!window.confirm("Удалить сообщение?")) return;
+    try {
+      await onDelete(id);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось удалить сообщение");
+    }
+  }
+
+  const displayedMessages = search.trim()
+    ? messages.filter((m) => !m.deleted && m.text.toLowerCase().includes(search.trim().toLowerCase()))
+    : messages;
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <button
+          onClick={() => {
+            setSearchOpen((v) => !v);
+            if (searchOpen) setSearch("");
+          }}
+          className={cn(
+            "flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+            searchOpen && "bg-accent text-foreground"
+          )}
+        >
+          <Search className="h-3.5 w-3.5" /> Поиск
+        </button>
+        {searchOpen && (
+          <Input
+            autoFocus
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Поиск по сообщениям..."
+            className="h-7 flex-1 text-sm"
+          />
+        )}
+        {search.trim() && (
+          <span className="shrink-0 text-xs text-muted-foreground">{displayedMessages.length} найдено</span>
+        )}
+      </div>
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-4">
+        {displayedMessages.length === 0 && (
+          <p className="py-12 text-center text-sm text-muted-foreground">
+            {search.trim() ? "Ничего не найдено" : emptyMessage ?? "Сообщений пока нет"}
+          </p>
+        )}
+        <div className="flex flex-col gap-3">
+          {displayedMessages.map((m) => {
+            const isMine = m.authorUid === currentUid;
+            const isEditing = editingId === m.id;
+            return (
+              <div key={m.id} className="group flex items-start gap-2.5">
+                <Avatar className="h-8 w-8 shrink-0">
+                  <AvatarImage src={m.authorPhotoURL ?? undefined} />
+                  <AvatarFallback>{m.authorName[0]?.toUpperCase()}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-sm font-medium">{m.authorName}</span>
+                    <span className="text-[10px] text-muted-foreground">{formatDate(m.createdAt, "HH:mm")}</span>
+                    {m.editedAt && !m.deleted && (
+                      <span className="text-[10px] text-muted-foreground">(изменено)</span>
+                    )}
+                  </div>
+
+                  {m.replyToId && !m.deleted && (
+                    <div className="mt-0.5 rounded border-l-2 border-primary/40 bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+                      <span className="font-medium">{m.replyToAuthorName}: </span>
+                      {m.replyToText}
+                    </div>
+                  )}
+
+                  {isEditing ? (
+                    <div className="mt-1 flex flex-col gap-1.5">
+                      <Textarea
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        rows={2}
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSaveEdit(m.id);
+                          }
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
+                      />
+                      <div className="flex gap-1.5">
+                        <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => handleSaveEdit(m.id)}>
+                          <Check className="h-3 w-3" /> Сохранить
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => setEditingId(null)}>
+                          <X className="h-3 w-3" /> Отмена
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className={cn("whitespace-pre-wrap text-sm", m.deleted && "italic text-muted-foreground")}>
+                      {m.deleted ? "Сообщение удалено" : renderTextWithMentions(m.text, mentionableUsers)}
+                    </p>
+                  )}
+                </div>
+
+                {!isEditing && !m.deleted && (
+                  <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                    <Button variant="ghost" size="icon" className="h-6 w-6" title="Ответить" onClick={() => setReplyTo(m)}>
+                      <Reply className="h-3 w-3" />
+                    </Button>
+                    {isMine && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          title="Редактировать"
+                          onClick={() => {
+                            setEditingId(m.id);
+                            setEditValue(m.text);
+                          }}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-destructive"
+                          title="Удалить"
+                          onClick={() => handleDelete(m.id)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div ref={bottomRef} />
+      </div>
+
+      <div className="relative border-t border-border p-3">
+        {mentionMatches.length > 0 && (
+          <div className="absolute bottom-full left-3 mb-1 w-56 rounded-lg border border-border bg-popover p-1 shadow-popover">
+            {mentionMatches.map((u) => (
+              <button
+                key={u.uid}
+                onClick={() => insertMention(u)}
+                className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+              >
+                @{u.name}
+              </button>
+            ))}
+          </div>
+        )}
+        {replyTo && (
+          <div className="mb-2 flex items-center justify-between rounded-lg bg-muted/50 px-3 py-1.5 text-xs">
+            <span className="truncate text-muted-foreground">
+              Ответ <span className="font-medium">{replyTo.authorName}</span>: {replyTo.text.slice(0, 80)}
+            </span>
+            <button onClick={() => setReplyTo(null)} className="shrink-0 text-muted-foreground hover:text-foreground">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+        <div className="flex items-end gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="shrink-0" title="Emoji">
+                <Smile className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="grid w-56 grid-cols-6 gap-1 p-2">
+              {EMOJI.map((e) => (
+                <button
+                  key={e}
+                  onClick={() => setDraft((d) => d + e)}
+                  className="rounded p-1 text-lg hover:bg-accent"
+                >
+                  {e}
+                </button>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Textarea
+            ref={textareaRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={mentionableUsers.length > 0 ? "Написать сообщение... (@ для упоминания)" : "Написать сообщение..."}
+            rows={1}
+            className="max-h-32 min-h-9 flex-1 resize-none"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && mentionMatches.length === 0) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+          />
+          <Button onClick={handleSend} disabled={!draft.trim()} className="shrink-0">
+            Отправить
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\dashboard\RevenueChart.tsx
+============================================================
+
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+interface RevenueChartProps {
+  data: { label: string; value: number }[];
+}
+
+export function RevenueChart({ data }: RevenueChartProps) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Доход по месяцам</CardTitle>
+      </CardHeader>
+      <CardContent className="h-72 pl-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data} margin={{ top: 10, right: 24, left: 8, bottom: 0 }}>
+            <defs>
+              <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="hsl(243 75% 59%)" stopOpacity={0.35} />
+                <stop offset="100%" stopColor="hsl(243 75% 59%)" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+            <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
+            <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} width={48} />
+            <Tooltip
+              contentStyle={{
+                background: "hsl(var(--popover))",
+                border: "1px solid hsl(var(--border))",
+                borderRadius: 8,
+                fontSize: 13,
+              }}
+              formatter={(value: number) => [new Intl.NumberFormat("ru-RU").format(value), "Доход"]}
+            />
+            <Area type="monotone" dataKey="value" stroke="hsl(243 75% 59%)" strokeWidth={2} fill="url(#revenueGradient)" />
+          </AreaChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\layout\WorkspaceSwitcher.tsx
+============================================================
+
+import { useState } from "react";
+import { ChevronsUpDown, Plus } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { useAuth } from "@/hooks/useAuth";
+import { isWorkspaceAdmin } from "@/utils/adminAccess";
+import { PAGE_ICON_MAP } from "@/utils/pageIcons";
+import { cn } from "@/utils/cn";
+import type { PageIconName } from "@/types";
+
+export function WorkspaceSwitcher({ collapsed }: { collapsed?: boolean }) {
+  const { workspaces, activeWorkspace, setActiveWorkspaceId } = useWorkspace();
+  const { profile } = useAuth();
+  const [createOpen, setCreateOpen] = useState(false);
+  const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
+
+  const ActiveIcon = activeWorkspace
+    ? PAGE_ICON_MAP[(activeWorkspace.icon as PageIconName) ?? "Building2"] ?? PAGE_ICON_MAP.Building2
+    : PAGE_ICON_MAP.Building2;
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            className={cn(
+              "flex w-full items-center gap-2 rounded-lg border border-sidebar-border bg-sidebar-accent/40 px-2.5 py-2 text-left transition-colors hover:bg-sidebar-accent",
+              collapsed && "justify-center px-0"
+            )}
+          >
+            <span
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white"
+              style={{ backgroundColor: activeWorkspace ? `hsl(${activeWorkspace.color})` : "hsl(243 75% 59%)" }}
+            >
+              <ActiveIcon className="h-4 w-4" />
+            </span>
+            {!collapsed && (
+              <>
+                <span className="flex-1 truncate text-sm font-medium text-sidebar-foreground">
+                  {activeWorkspace?.name ?? "Выберите workspace"}
+                </span>
+                <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </>
+            )}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-64">
+          <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
+          {workspaces.map((ws) => {
+            const Icon = PAGE_ICON_MAP[(ws.icon as PageIconName) ?? "Building2"] ?? PAGE_ICON_MAP.Building2;
+            return (
+              <DropdownMenuItem key={ws.id} onClick={() => setActiveWorkspaceId(ws.id)}>
+                <span
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-white"
+                  style={{ backgroundColor: `hsl(${ws.color})` }}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                </span>
+                <span className="flex-1 truncate">{ws.name}</span>
+                {ws.id === activeWorkspace?.id && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                )}
+              </DropdownMenuItem>
+            );
+          })}
+          {canCreateWorkspace && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setCreateOpen(true)}>
+                <Plus className="h-4 w-4" />
+                Создать workspace
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {canCreateWorkspace && <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />}
+    </>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\table\FilterPopover.tsx
+============================================================
+
+import { useEffect, useRef } from "react";
+
+interface FilterPopoverProps {
+  x: number;
+  y: number;
+  values: string[];
+  excluded: Set<string>;
+  onToggleValue: (value: string) => void;
+  onSelectAll: () => void;
+  onClose: () => void;
+}
+
+export function FilterPopover({ x, y, values, excluded, onToggleValue, onSelectAll, onClose }: FilterPopoverProps) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [onClose]);
+
+  return (
+    <div
+      ref={ref}
+      style={{ top: y, left: x }}
+      className="fixed z-50 w-56 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-popover"
+    >
+      <button onClick={onSelectAll} className="mb-1 text-xs text-primary hover:underline">
+        Выбрать все
+      </button>
+      <div className="max-h-52 overflow-y-auto border-t border-border pt-1 scrollbar-thin">
+        {values.length === 0 && <div className="px-1 py-2 text-xs text-muted-foreground">Нет значений</div>}
+        {values.map((value) => {
+          const checked = !excluded.has(value);
+          return (
+            <label key={value || "__empty__"} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-xs hover:bg-accent">
+              <input type="checkbox" checked={checked} onChange={() => onToggleValue(value)} className="h-3.5 w-3.5" />
+              <span className="truncate">{value || "(пусто)"}</span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\ui\avatar.tsx
+============================================================
+
+import * as React from "react";
+import * as AvatarPrimitive from "@radix-ui/react-avatar";
+import { cn } from "@/utils/cn";
+
+export const Avatar = React.forwardRef<
+  React.ElementRef<typeof AvatarPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Root>
+>(({ className, ...props }, ref) => (
+  <AvatarPrimitive.Root
+    ref={ref}
+    className={cn("relative flex h-9 w-9 shrink-0 overflow-hidden rounded-full", className)}
+    {...props}
+  />
+));
+Avatar.displayName = "Avatar";
+
+export const AvatarImage = React.forwardRef<
+  React.ElementRef<typeof AvatarPrimitive.Image>,
+  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Image>
+>(({ className, ...props }, ref) => (
+  <AvatarPrimitive.Image ref={ref} className={cn("aspect-square h-full w-full object-cover", className)} {...props} />
+));
+AvatarImage.displayName = "AvatarImage";
+
+export const AvatarFallback = React.forwardRef<
+  React.ElementRef<typeof AvatarPrimitive.Fallback>,
+  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Fallback>
+>(({ className, ...props }, ref) => (
+  <AvatarPrimitive.Fallback
+    ref={ref}
+    className={cn(
+      "flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-primary to-purple-500 text-xs font-semibold text-primary-foreground",
+      className
+    )}
+    {...props}
+  />
+));
+AvatarFallback.displayName = "AvatarFallback";
+
+
+
+============================================================
+FILE: src\components\ui\input.tsx
+============================================================
+
+import * as React from "react";
+import { cn } from "@/utils/cn";
+
+export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
+  ({ className, type, ...props }, ref) => (
+    <input
+      type={type}
+      ref={ref}
+      className={cn(
+        "flex h-9 w-full rounded-lg border border-input bg-background px-3 py-1 text-sm shadow-subtle transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+        className
+      )}
+      {...props}
+    />
+  )
+);
+Input.displayName = "Input";
+
+
+
+============================================================
+FILE: src\components\ui\switch.tsx
+============================================================
+
+import * as React from "react";
+import * as SwitchPrimitive from "@radix-ui/react-switch";
+import { cn } from "@/utils/cn";
+
+export const Switch = React.forwardRef<
+  React.ElementRef<typeof SwitchPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof SwitchPrimitive.Root>
+>(({ className, ...props }, ref) => (
+  <SwitchPrimitive.Root
+    ref={ref}
+    className={cn(
+      "peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input",
+      className
+    )}
+    {...props}
+  >
+    <SwitchPrimitive.Thumb
+      className={cn(
+        "pointer-events-none block h-4 w-4 rounded-full bg-white shadow-lg ring-0 transition-transform data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0"
+      )}
+    />
+  </SwitchPrimitive.Root>
+));
+Switch.displayName = "Switch";
+
+
+
+============================================================
+FILE: src\hooks\useAnnouncements.ts
+============================================================
+
+import { useEffect, useState } from "react";
+import { subscribeToAnnouncements } from "@/services/announcementService";
+import type { Announcement } from "@/types";
+
+export function useAnnouncements(workspaceId: string | null) {
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!workspaceId) {
+      setAnnouncements([]);
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    const unsubscribe = subscribeToAnnouncements(
+      workspaceId,
+      (data) => {
+        setAnnouncements(data);
+        setIsLoading(false);
+      },
+      (error) => {
+        console.error("subscribeToAnnouncements denied:", error.code, error.message);
+        setAnnouncements([]);
+        setIsLoading(false);
+      }
+    );
+    return unsubscribe;
+  }, [workspaceId]);
+
+  return { announcements, isLoading };
+}
+
+
+
+============================================================
+FILE: src\hooks\usePermissions.ts
+============================================================
+
+import { useMemo } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import {
+  canAccessPage,
+  canAssignResponsible,
+  canChangeRoles,
+  canCreatePages,
+  canEditPageData,
+  canEditPageStructure,
+  canInviteMembers,
+  canManageAnnouncements,
+  canManagePage,
+  canManagePagePermissions,
+  canManageWorkspace,
+  canRemoveMembers,
+  canRestoreHistory,
+  canSendNotifications,
+  canViewHistory,
+  isResponsibleForPage,
+} from "@/utils/permissions";
+import type { Role, WorkspacePage } from "@/types";
+
+export function usePermissions() {
+  const { profile } = useAuth();
+  const { members } = useWorkspace();
+
+  const role: Role = useMemo(() => {
+    const me = members.find((m) => m.uid === profile?.uid);
+    return me?.role ?? "viewer";
+  }, [members, profile?.uid]);
+
+  return useMemo(
+    () => ({
+      role,
+      uid: profile?.uid ?? "",
+      canManageWorkspace: canManageWorkspace(role),
+      canInviteMembers: canInviteMembers(role),
+      canChangeRoles: canChangeRoles(role),
+      canRemoveMembers: canRemoveMembers(role),
+      canCreatePages: canCreatePages(role),
+      canEditPageStructure: canEditPageStructure(role),
+      canManagePagePermissions: canManagePagePermissions(role),
+      canViewHistory: canViewHistory(role),
+      canRestoreHistory: canRestoreHistory(role),
+      canAssignResponsible: canAssignResponsible(role),
+      canManageAnnouncements: canManageAnnouncements(role),
+      canSendNotifications: canSendNotifications(role),
+      canAccessPage: (page: WorkspacePage) => canAccessPage(page, role, profile?.uid ?? ""),
+      canEditPageData: (page: WorkspacePage) => canEditPageData(page, role, profile?.uid ?? ""),
+      isResponsibleForPage: (page: WorkspacePage) => isResponsibleForPage(page, profile?.uid ?? ""),
+      canManagePage: (page: WorkspacePage) => canManagePage(page, role, profile?.uid ?? ""),
+    }),
+    [role, profile?.uid]
+  );
+}
+
+
+
+============================================================
+FILE: src\main.tsx
+============================================================
+
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "@/App";
+import "@/index.css";
+
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+
+
+
+============================================================
+FILE: src\pages\UsersPage.tsx
+============================================================
+
+import { useEffect, useState } from "react";
+import { Check, ChevronDown, ChevronRight, Copy, Link2, Mail, ShieldCheck, Trash2, X } from "lucide-react";
+import { displayNameOf } from "@/utils/displayName";
+import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
+import { cn } from "@/utils/cn";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { toast } from "@/components/ui/sonner";
+import { InviteMemberForm } from "@/components/members/InviteMemberForm";
+import { RoleSelect } from "@/components/members/RoleSelect";
+import { changeMemberRole, removeMember, resendInvite } from "@/services/memberService";
+import { toggleUserPageAccess } from "@/services/pageService";
+import { approveJoinRequest, rejectJoinRequest, subscribeToJoinRequests } from "@/services/joinRequestService";
+import { PAGE_ICON_MAP } from "@/utils/pageIcons";
+import { timeAgo } from "@/utils/date";
+import { useAuth } from "@/hooks/useAuth";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { usePermissions } from "@/hooks/usePermissions";
+import type { JoinRequest, PageIconName } from "@/types";
+
+export default function UsersPage() {
+  const { profile } = useAuth();
+  const { activeWorkspaceId, members, pages } = useWorkspace();
+  const permissions = usePermissions();
+  const [expandedUid, setExpandedUid] = useState<string | null>(null);
+  const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  useEffect(() => {
+    if (!activeWorkspaceId || !permissions.canManageWorkspace) return;
+    return subscribeToJoinRequests(activeWorkspaceId, setJoinRequests);
+  }, [activeWorkspaceId, permissions.canManageWorkspace]);
+
+  if (!permissions.canManageWorkspace) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+        <ShieldCheck className="h-8 w-8 text-muted-foreground" />
+        <p className="text-lg font-semibold">Доступ ограничен</p>
+        <p className="text-sm text-muted-foreground">Управление пользователями доступно только Owner.</p>
+      </div>
+    );
+  }
+
+  if (!activeWorkspaceId) return null;
+
+  const joinLink = `${window.location.origin}/join/${activeWorkspaceId}`;
+
+  async function handleCopyLink() {
+    await navigator.clipboard.writeText(joinLink);
+    setLinkCopied(true);
+    toast.success("Ссылка скопирована");
+    setTimeout(() => setLinkCopied(false), 2000);
+  }
+
+  async function handleApproveRequest(request: JoinRequest) {
+    try {
+      await approveJoinRequest(activeWorkspaceId!, request, "viewer", profile?.uid ?? "");
+      toast.success(`${request.name} добавлен(а) в workspace как Viewer`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось одобрить заявку");
+    }
+  }
+
+  async function handleRejectRequest(uid: string) {
+    await rejectJoinRequest(activeWorkspaceId!, uid);
+    toast.success("Заявка отклонена");
+  }
+
+  async function handleRoleChange(uid: string, role: Parameters<typeof changeMemberRole>[2]) {
+    await changeMemberRole(activeWorkspaceId!, uid, role);
+    toast.success("Роль обновлена");
+  }
+
+  async function handleRemove(uid: string, name: string) {
+    if (!window.confirm(`Убрать ${name} из workspace? Он потеряет доступ ко всем страницам.`)) return;
+    await removeMember(activeWorkspaceId!, uid);
+    toast.success("Пользователь удалён");
+  }
+
+  async function handleResend(email: string) {
+    await resendInvite(activeWorkspaceId!, email);
+    toast.success("Приглашение обновлено");
+  }
+
+  async function handleTogglePageAccess(uid: string, page: (typeof pages)[number], checked: boolean) {
+    await toggleUserPageAccess(activeWorkspaceId!, page, uid, checked);
+  }
+
+  return (
+    <div className="mx-auto max-w-4xl p-6">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Workspace → Пользователи</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Приглашайте сотрудников и выберите, какие страницы каждому из них видно. Owner
+          видит все страницы всегда — остальным доступ нужно выдать явно.
+        </p>
+      </div>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Ссылка для вступления</CardTitle>
+          <CardDescription>
+            Новые люди по этой ссылке не создают свой workspace — они отправляют вам заявку, и вы сами решаете, впустить их или нет.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 truncate rounded-md border border-border bg-muted px-3 py-2 text-xs">{joinLink}</code>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={handleCopyLink}>
+              {linkCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              Копировать
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {joinRequests.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Link2 className="h-4 w-4" /> Заявки на вступление ({joinRequests.length})
+            </CardTitle>
+            <CardDescription>При одобрении человек добавляется с ролью Viewer — роль и доступ к страницам настройте после.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {joinRequests.map((request) => (
+              <div key={request.uid} className="flex items-center gap-3 rounded-lg border border-border p-3">
+                <Avatar className="h-8 w-8">
+                  <AvatarImage src={request.photoURL ?? undefined} />
+                  <AvatarFallback>{request.name[0]?.toUpperCase()}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{request.name}</p>
+                  <p className="truncate text-xs text-muted-foreground">{request.email}</p>
+                </div>
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleRejectRequest(request.uid)}>
+                  <X className="h-3.5 w-3.5" /> Отклонить
+                </Button>
+                <Button size="sm" className="gap-1.5" onClick={() => handleApproveRequest(request)}>
+                  <Check className="h-3.5 w-3.5" /> Одобрить
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Пригласить сотрудника</CardTitle>
+          <CardDescription>Приглашение появится сразу после того, как человек войдёт с этим email.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <InviteMemberForm workspaceId={activeWorkspaceId} />
+        </CardContent>
+      </Card>
+
+      <div className="flex flex-col gap-3">
+        {members.map((member) => {
+          const isOwner = member.role === "owner";
+          const isExpanded = expandedUid === member.uid;
+          return (
+            <Card key={member.uid || member.email}>
+              <div className="flex items-center gap-3 p-4">
+                <div className="relative shrink-0">
+                  <Avatar className="h-9 w-9">
+                    <AvatarImage src={member.photoURL ?? undefined} />
+                    <AvatarFallback>{displayNameOf(member)[0]?.toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  {member.status === "active" && (
+                    <span
+                      className={cn(
+                        "absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card",
+                        PRESENCE_DOT_COLOR[getPresenceStatus(member.lastActiveAt)]
+                      )}
+                      title={PRESENCE_LABEL[getPresenceStatus(member.lastActiveAt)]}
+                    />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">
+                    {displayNameOf(member)}
+                    {member.uid === profile?.uid && <span className="ml-1.5 text-xs text-muted-foreground">(вы)</span>}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">{member.email}</p>
+                </div>
+                {member.status === "invited" && <Badge variant="warning">Приглашён</Badge>}
+                <span className="hidden text-xs text-muted-foreground sm:block">
+                  {member.status === "active" ? timeAgo(member.joinedAt ?? member.invitedAt) : timeAgo(member.invitedAt)}
+                </span>
+                {isOwner ? (
+                  <Badge variant="outline">Owner</Badge>
+                ) : (
+                  <RoleSelect value={member.role} onChange={(role) => handleRoleChange(member.uid, role)} />
+                )}
+                {member.status === "invited" && (
+                  <Button variant="ghost" size="icon" title="Отправить снова" onClick={() => handleResend(member.email)}>
+                    <Mail className="h-4 w-4" />
+                  </Button>
+                )}
+                {!isOwner && (
+                  <Button variant="ghost" size="icon" title="Удалить" onClick={() => handleRemove(member.uid, member.name)}>
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                )}
+                {!isOwner && member.status === "active" && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Страницы, доступные этому пользователю"
+                    onClick={() => setExpandedUid(isExpanded ? null : member.uid)}
+                  >
+                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  </Button>
+                )}
+              </div>
+
+              {!isOwner && member.status === "active" && isExpanded && (
+                <CardContent className="border-t border-border pt-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Доступные страницы
+                  </p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {pages.map((page) => {
+                      const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid;
+                      const checked = page.allowedUsers.includes(member.uid);
+                      return (
+                        <label
+                          key={page.id}
+                          className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-accent/40"
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(value) => handleTogglePageAccess(member.uid, page, Boolean(value))}
+                          />
+                          <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: `hsl(${page.color})` }} />
+                          <span className="truncate">{page.name}</span>
+                        </label>
+                      );
+                    })}
+                    {pages.length === 0 && (
+                      <p className="text-xs text-muted-foreground">В workspace пока нет страниц.</p>
+                    )}
+                  </div>
+                </CardContent>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\services\notificationService.ts
+============================================================
+
+import { onSnapshot, query, serverTimestamp, setDoc, where, writeBatch } from "firebase/firestore";
+import { db } from "@/firebase/firebase";
+import { paths, withErrorReporting } from "@/firebase/firestore";
+import { generateId } from "@/utils/id";
+import { normalizeTimestamp } from "@/utils/date";
+import type { Notification, NotificationTargetKind, Role, WorkspaceMember, WorkspacePage } from "@/types";
+
+export interface SendNotificationInput {
+  workspaceId: string;
+  title: string;
+  body: string;
+  priority: "normal" | "important" | "urgent";
+  fromUid: string;
+  fromName: string;
+  relatedAnnouncementId?: string | null;
+  target: NotificationTargetKind;
+  /** Required when target === "selected" */
+  selectedUids?: string[];
+  /** Required when target === "role" */
+  role?: Role;
+}
+
+/** Resolves the target picker's choice down to a concrete list of member uids to notify. */
+export function resolveNotificationTargets(
+  target: NotificationTargetKind,
+  members: WorkspaceMember[],
+  pages: WorkspacePage[],
+  opts: { selectedUids?: string[]; role?: Role } = {}
+): string[] {
+  const active = members.filter((m) => m.status === "active");
+  switch (target) {
+    case "all":
+      return active.map((m) => m.uid);
+    case "selected":
+      return opts.selectedUids ?? [];
+    case "role":
+      return active.filter((m) => m.role === opts.role).map((m) => m.uid);
+    case "responsible": {
+      const uids = new Set(pages.map((p) => p.responsibleUserId).filter((id): id is string => Boolean(id)));
+      return Array.from(uids);
+    }
+    default:
+      return [];
+  }
+}
+
+/** Fan-out write: one notification doc per targeted user, so each person's own query stays a simple, safe `where(targetUid == me)`. */
+export async function sendNotification(input: SendNotificationInput, targetUids: string[]) {
+  if (!db) throw new Error("Firebase не настроен");
+  if (targetUids.length === 0) return;
+  const batch = writeBatch(db);
+  const uniqueTargets = Array.from(new Set(targetUids));
+  for (const targetUid of uniqueTargets) {
+    const id = generateId("notif");
+    const notification: Notification = {
+      id,
+      workspaceId: input.workspaceId,
+      targetUid,
+      title: input.title,
+      body: input.body,
+      priority: input.priority,
+      fromUid: input.fromUid,
+      fromName: input.fromName,
+      read: false,
+      createdAt: Date.now(),
+      relatedAnnouncementId: input.relatedAnnouncementId ?? null,
+    };
+    batch.set(paths.notification(input.workspaceId, id), { ...notification, serverOrderAt: serverTimestamp() });
+  }
+  await batch.commit();
+}
+
+export function subscribeToMyNotifications(
+  workspaceId: string,
+  uid: string,
+  onData: (notifications: Notification[]) => void,
+  onError?: (error: import("firebase/firestore").FirestoreError) => void
+) {
+  const q = query(paths.notifications(workspaceId), where("targetUid", "==", uid));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items = snapshot.docs
+        .map((d) => ({ id: d.id, ...d.data() }) as unknown as Notification)
+        .map((n) => ({ ...n, createdAt: normalizeTimestamp(n.createdAt) }))
+        .sort((a, b) => b.createdAt - a.createdAt);
+      onData(items);
+    },
+    withErrorReporting(onError)
+  );
+}
+
+export async function markNotificationRead(workspaceId: string, id: string) {
+  if (!db) return;
+  await setDoc(paths.notification(workspaceId, id), { read: true }, { merge: true });
+}
+
+export async function markAllNotificationsRead(workspaceId: string, notifications: Notification[]) {
+  if (!db) return;
+  const unread = notifications.filter((n) => !n.read);
+  if (unread.length === 0) return;
+  const batch = writeBatch(db);
+  unread.forEach((n) => batch.set(paths.notification(workspaceId, n.id), { read: true }, { merge: true }));
+  await batch.commit();
+}
+
+/** Pings each @mentioned person with a lightweight notification. Never blocks/breaks sending the chat message itself if it fails. */
+export async function notifyMentions(
+  workspaceId: string,
+  fromUid: string,
+  fromName: string,
+  mentionedUids: string[],
+  context: string
+) {
+  const targets = mentionedUids.filter((uid) => uid !== fromUid);
+  if (targets.length === 0) return;
+  try {
+    await sendNotification(
+      {
+        workspaceId,
+        title: `${fromName} упомянул(а) вас`,
+        body: context.slice(0, 140),
+        priority: "normal",
+        fromUid,
+        fromName,
+        target: "selected",
+      },
+      targets
+    );
+  } catch (error) {
+    console.error("notifyMentions failed:", error);
+  }
+}
+
+
+
+============================================================
+FILE: src\types\chat.ts
+============================================================
+
+export interface ChatMessage {
+  id: string;
+  authorUid: string;
+  authorName: string;
+  authorPhotoURL?: string | null;
+  text: string;
+  createdAt: number;
+  editedAt?: number | null;
+  deleted?: boolean;
+  replyToId?: string | null;
+  replyToAuthorName?: string | null;
+  replyToText?: string | null;
+}
+
+
+
+============================================================
+FILE: src\types\workspace.ts
+============================================================
+
+import type { Role } from "@/types/role";
+
+export interface Workspace {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  ownerId: string;
+  createdAt: number;
+}
+
+export type MemberStatus = "active" | "invited";
+
+export interface WorkspaceMember {
+  uid: string;
+  email: string;
+  name: string;
+  nickname?: string;
+  photoURL?: string | null;
+  role: Role;
+  status: MemberStatus;
+  invitedAt: number;
+  invitedBy: string;
+  joinedAt?: number;
+  /** Present only while status === 'invited'; used as the accept-invite token. */
+  inviteToken?: string;
+  /** Self-reported heartbeat timestamp, refreshed periodically while the app is open. Drives the online/away/offline indicator. */
+  lastActiveAt?: number;
+}
+
+export type JoinRequestStatus = "pending" | "approved" | "rejected";
+
+/**
+ * Someone who followed a workspace's shareable join link and asked to be let
+ * in, before an Owner has approved them as an actual member. Anyone signed
+ * in may create their own request doc; only the workspace Owner can read the
+ * list, approve (which creates a real WorkspaceMember), or reject it.
+ */
+export interface JoinRequest {
+  id: string;
+  uid: string;
+  email: string;
+  name: string;
+  photoURL?: string | null;
+  workspaceId: string;
+  status: JoinRequestStatus;
+  requestedAt: number;
+}
+
+
+
+============================================================
+FILE: src\utils\index.ts
+============================================================
+
+export * from "@/utils/cn";
+export * from "@/utils/id";
+export * from "@/utils/date";
+export * from "@/utils/format";
+export * from "@/utils/permissions";
+export * from "@/utils/csv";
+export * from "@/utils/pageIcons";
+

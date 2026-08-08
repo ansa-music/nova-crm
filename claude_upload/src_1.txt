@@ -1,0 +1,1567 @@
+
+
+============================================================
+FILE: src\App.tsx
+============================================================
+
+import { Suspense, lazy } from "react";
+import { Navigate, Route, BrowserRouter, Routes, useLocation } from "react-router";
+import { ThemeProvider } from "@/contexts/ThemeProvider";
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Skeleton } from "@/components/ui/skeleton";
+import { AppLayout } from "@/layouts/AppLayout";
+import { useAuth, useAuthBootstrap } from "@/hooks/useAuth";
+import { useWorkspaceListBootstrap } from "@/hooks/useWorkspace";
+
+const LoginPage = lazy(() => import("@/pages/LoginPage"));
+const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
+const DynamicTablePage = lazy(() => import("@/pages/DynamicTablePage"));
+const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
+const UsersPage = lazy(() => import("@/pages/UsersPage"));
+const AnnouncementsPage = lazy(() => import("@/pages/AnnouncementsPage"));
+const WorkspaceChatPage = lazy(() => import("@/pages/WorkspaceChatPage"));
+const MessagesPage = lazy(() => import("@/pages/MessagesPage"));
+const JoinWorkspacePage = lazy(() => import("@/pages/JoinWorkspacePage"));
+const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
+
+function PageFallback() {
+  return (
+    <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex flex-col gap-3">
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-4 w-32" />
+      </div>
+    </div>
+  );
+}
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
+  if (isLoading) return <PageFallback />;
+  if (!isAuthenticated) {
+    // Remember where they were trying to go (e.g. a /join/:workspaceId
+    // invite link) so LoginPage can send them back there after signing in,
+    // instead of always landing on the dashboard and forcing them to find
+    // and re-open the invite link a second time.
+    return <Navigate to="/login" state={{ from: location.pathname + location.search }} replace />;
+  }
+  return <>{children}</>;
+}
+
+function RedirectIfAuthed({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
+  if (isLoading) return <PageFallback />;
+  if (isAuthenticated) {
+    const from = (location.state as { from?: string } | null)?.from;
+    return <Navigate to={from && from !== "/login" ? from : "/"} replace />;
+  }
+  return <>{children}</>;
+}
+
+function AppShell() {
+  useAuthBootstrap();
+  useWorkspaceListBootstrap();
+
+  return (
+    <BrowserRouter>
+      <Suspense fallback={<PageFallback />}>
+        <Routes>
+          <Route
+            path="/login"
+            element={
+              <RedirectIfAuthed>
+                <LoginPage />
+              </RedirectIfAuthed>
+            }
+          />
+          <Route
+            path="/join/:workspaceId"
+            element={
+              <RequireAuth>
+                <JoinWorkspacePage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/"
+            element={
+              <RequireAuth>
+                <AppLayout />
+              </RequireAuth>
+            }
+          >
+            <Route index element={<DashboardPage />} />
+            <Route path="page/:pageId" element={<DynamicTablePage />} />
+            <Route path="users" element={<UsersPage />} />
+            <Route path="announcements" element={<AnnouncementsPage />} />
+            <Route path="chat" element={<WorkspaceChatPage />} />
+            <Route path="messages" element={<MessagesPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+          </Route>
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
+      </Suspense>
+    </BrowserRouter>
+  );
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <ThemeProvider>
+        <TooltipProvider delayDuration={200}>
+          <AppShell />
+          <Toaster />
+        </TooltipProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\common\IconPicker.tsx
+============================================================
+
+import { PAGE_ICON_MAP, PAGE_ICON_NAMES } from "@/utils/pageIcons";
+import { cn } from "@/utils/cn";
+import type { PageIconName } from "@/types";
+
+interface IconPickerProps {
+  value: PageIconName;
+  onChange: (icon: PageIconName) => void;
+  color?: string;
+}
+
+export function IconPicker({ value, onChange, color = "243 75% 59%" }: IconPickerProps) {
+  return (
+    <div className="grid grid-cols-5 gap-2">
+      {PAGE_ICON_NAMES.map((name) => {
+        const Icon = PAGE_ICON_MAP[name];
+        const active = value === name;
+        return (
+          <button
+            key={name}
+            type="button"
+            onClick={() => onChange(name)}
+            className={cn(
+              "flex h-10 w-10 items-center justify-center rounded-lg border transition-all",
+              active ? "border-transparent ring-2 ring-offset-2 ring-offset-background" : "border-border hover:bg-accent"
+            )}
+            style={
+              active
+                ? { backgroundColor: `hsl(${color} / 0.15)`, color: `hsl(${color})`, boxShadow: `0 0 0 2px hsl(${color})` }
+                : undefined
+            }
+          >
+            <Icon className="h-4.5 w-4.5" />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\layout\Sidebar.tsx
+============================================================
+
+import { useState } from "react";
+import { NavLink } from "react-router";
+import { ChevronLeft, ChevronRight, LayoutDashboard, LogOut, Megaphone, MessageCircle, MessageSquare, Plus, Settings, User, Users } from "lucide-react";
+import { motion } from "framer-motion";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { WorkspaceSwitcher } from "@/components/layout/WorkspaceSwitcher";
+import { PageNavItem } from "@/components/pagesnav/PageNavItem";
+import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialog";
+import { EditPageDialog } from "@/components/pagesnav/EditPageDialog";
+import { useAuth } from "@/hooks/useAuth";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { useInboxSummary } from "@/hooks/useInboxSummary";
+import { usePermissions } from "@/hooks/usePermissions";
+import { signOutUser } from "@/firebase/auth";
+import { cn } from "@/utils/cn";
+import { useUiStore } from "@/store/uiStore";
+import type { WorkspacePage } from "@/types";
+
+export function Sidebar({ mobile }: { mobile?: boolean }) {
+  const { profile } = useAuth();
+  const { pages, activeWorkspaceId } = useWorkspace();
+  const { workspaceChatUnread, privateUnreadTotal } = useInboxSummary(activeWorkspaceId, profile?.uid ?? null);
+  const permissions = usePermissions();
+  const collapsed = useUiStore((s) => s.sidebarCollapsed) && !mobile;
+  const toggleSidebar = useUiStore((s) => s.toggleSidebar);
+  const [createPageOpen, setCreatePageOpen] = useState(false);
+  const [editingPage, setEditingPage] = useState<WorkspacePage | null>(null);
+
+  const visiblePages = pages.filter((p) => permissions.canAccessPage(p));
+
+  return (
+    <div
+      className={cn(
+        "relative flex h-full flex-col gap-4 border-r border-sidebar-border bg-sidebar px-3 py-4 text-sidebar-foreground",
+        collapsed ? "w-[68px] items-center" : "w-[248px]"
+      )}
+    >
+      <WorkspaceSwitcher collapsed={collapsed} />
+
+      <nav className="flex flex-1 flex-col gap-4 overflow-y-auto scrollbar-thin">
+        <div className="flex flex-col gap-0.5">
+          {collapsed ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <NavLink
+                  to="/"
+                  end
+                  className={({ isActive }) =>
+                    cn(
+                      "flex items-center justify-center rounded-lg p-2 transition-colors",
+                      isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                    )
+                  }
+                >
+                  <LayoutDashboard className="h-4 w-4 shrink-0" />
+                </NavLink>
+              </TooltipTrigger>
+              <TooltipContent side="right">Dashboard</TooltipContent>
+            </Tooltip>
+          ) : (
+            <NavLink
+              to="/"
+              end
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+                  isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                )
+              }
+            >
+              <LayoutDashboard className="h-4 w-4 shrink-0" />
+              Dashboard
+            </NavLink>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-0.5">
+          {collapsed ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <NavLink
+                  to="/announcements"
+                  className={({ isActive }) =>
+                    cn(
+                      "flex items-center justify-center rounded-lg p-2 transition-colors",
+                      isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                    )
+                  }
+                >
+                  <Megaphone className="h-4 w-4 shrink-0" />
+                </NavLink>
+              </TooltipTrigger>
+              <TooltipContent side="right">Объявления</TooltipContent>
+            </Tooltip>
+          ) : (
+            <NavLink
+              to="/announcements"
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+                  isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                )
+              }
+            >
+              <Megaphone className="h-4 w-4 shrink-0" />
+              Объявления
+            </NavLink>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-0.5">
+          {collapsed ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <NavLink
+                  to="/chat"
+                  className={({ isActive }) =>
+                    cn(
+                      "relative flex items-center justify-center rounded-lg p-2 transition-colors",
+                      isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                    )
+                  }
+                >
+                  <MessageSquare className="h-4 w-4 shrink-0" />
+                  {workspaceChatUnread > 0 && (
+                    <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-red-500" />
+                  )}
+                </NavLink>
+              </TooltipTrigger>
+              <TooltipContent side="right">Чат Workspace</TooltipContent>
+            </Tooltip>
+          ) : (
+            <NavLink
+              to="/chat"
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+                  isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                )
+              }
+            >
+              <MessageSquare className="h-4 w-4 shrink-0" />
+              Чат Workspace
+              {workspaceChatUnread > 0 && (
+                <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+                  {workspaceChatUnread > 9 ? "9+" : workspaceChatUnread}
+                </span>
+              )}
+            </NavLink>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-0.5">
+          {collapsed ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <NavLink
+                  to="/messages"
+                  className={({ isActive }) =>
+                    cn(
+                      "relative flex items-center justify-center rounded-lg p-2 transition-colors",
+                      isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                    )
+                  }
+                >
+                  <MessageCircle className="h-4 w-4 shrink-0" />
+                  {privateUnreadTotal > 0 && (
+                    <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-red-500" />
+                  )}
+                </NavLink>
+              </TooltipTrigger>
+              <TooltipContent side="right">Личные сообщения</TooltipContent>
+            </Tooltip>
+          ) : (
+            <NavLink
+              to="/messages"
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+                  isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                )
+              }
+            >
+              <MessageCircle className="h-4 w-4 shrink-0" />
+              Личные сообщения
+              {privateUnreadTotal > 0 && (
+                <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+                  {privateUnreadTotal > 9 ? "9+" : privateUnreadTotal}
+                </span>
+              )}
+            </NavLink>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-0.5">
+          {!collapsed && (
+            <div className="flex items-center justify-between px-2 pb-1">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Страницы
+              </span>
+              {permissions.canCreatePages && (
+                <button
+                  onClick={() => setCreatePageOpen(true)}
+                  className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+                  title="Добавить страницу"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+          {visiblePages.map((page) => (
+            <PageNavItem
+              key={page.id}
+              page={page}
+              canManage={permissions.canEditPageStructure}
+              nextOrder={pages.length}
+              onEdit={setEditingPage}
+              collapsed={collapsed}
+            />
+          ))}
+          {visiblePages.length === 0 && !collapsed && (
+            <p className="px-2 text-xs text-muted-foreground">Пока нет доступных страниц</p>
+          )}
+          {collapsed && permissions.canCreatePages && (
+            <button
+              onClick={() => setCreatePageOpen(true)}
+              className="flex items-center justify-center rounded-lg p-2 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+              title="Добавить страницу"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        <div className="mt-auto flex flex-col gap-0.5">
+          {permissions.canManageWorkspace &&
+            (collapsed ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <NavLink
+                    to="/users"
+                    className={({ isActive }) =>
+                      cn(
+                        "flex items-center justify-center rounded-lg p-2 transition-colors",
+                        isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                      )
+                    }
+                  >
+                    <Users className="h-4 w-4 shrink-0" />
+                  </NavLink>
+                </TooltipTrigger>
+                <TooltipContent side="right">Пользователи</TooltipContent>
+              </Tooltip>
+            ) : (
+              <NavLink
+                to="/users"
+                className={({ isActive }) =>
+                  cn(
+                    "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+                    isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                  )
+                }
+              >
+                <Users className="h-4 w-4 shrink-0" />
+                Пользователи
+              </NavLink>
+            ))}
+          {collapsed ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <NavLink
+                  to="/settings"
+                  className={({ isActive }) =>
+                    cn(
+                      "flex items-center justify-center rounded-lg p-2 transition-colors",
+                      isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                    )
+                  }
+                >
+                  <Settings className="h-4 w-4 shrink-0" />
+                </NavLink>
+              </TooltipTrigger>
+              <TooltipContent side="right">Настройки</TooltipContent>
+            </Tooltip>
+          ) : (
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+                  isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                )
+              }
+            >
+              <Settings className="h-4 w-4 shrink-0" />
+              Настройки
+            </NavLink>
+          )}
+        </div>
+      </nav>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            className={cn(
+              "flex items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/60",
+              collapsed && "justify-center px-0"
+            )}
+          >
+            <Avatar className="h-7 w-7">
+              <AvatarImage src={profile?.photoURL ?? undefined} />
+              <AvatarFallback>{profile?.name?.[0]?.toUpperCase() ?? <User className="h-3.5 w-3.5" />}</AvatarFallback>
+            </Avatar>
+            {!collapsed && (
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{profile?.name}</p>
+                <p className="truncate text-xs text-muted-foreground">{profile?.email}</p>
+              </div>
+            )}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-56">
+          <DropdownMenuItem asChild>
+            <NavLink to="/settings">
+              <User className="h-4 w-4" /> Профиль
+            </NavLink>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => signOutUser()} className="text-destructive focus:text-destructive">
+            <LogOut className="h-4 w-4" /> Выйти
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {!mobile && (
+        <motion.button
+          onClick={toggleSidebar}
+          whileTap={{ scale: 0.9 }}
+          className="absolute -right-3 top-16 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-subtle hover:text-foreground"
+        >
+          {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
+        </motion.button>
+      )}
+
+      <CreatePageDialog open={createPageOpen} onOpenChange={setCreatePageOpen} />
+      <EditPageDialog key={editingPage?.id ?? "none"} page={editingPage} onOpenChange={() => setEditingPage(null)} />
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\table\AddColumnDialog.tsx
+============================================================
+
+import { useState } from "react";
+import { Loader2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "@/components/ui/sonner";
+import { addColumn } from "@/services/pageService";
+import type { ColumnType, PageColumn } from "@/types";
+
+interface AddColumnDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  workspaceId: string;
+  pageId: string;
+  existingColumns: PageColumn[];
+  onCreated?: (column: PageColumn) => void;
+}
+
+const COLUMN_TYPE_LABELS: Record<ColumnType, string> = {
+  text: "Текст",
+  number: "Число",
+  currency: "Валюта",
+  status: "Статус",
+  date: "Дата",
+  email: "Email",
+  phone: "Телефон",
+};
+
+const COLUMN_TYPES: ColumnType[] = ["text", "number", "currency", "status", "date", "email", "phone"];
+
+const DEFAULT_STATUS_OPTIONS = [
+  { value: "new", label: "Новый", color: "217 91% 60%" },
+  { value: "in_progress", label: "В работе", color: "38 92% 50%" },
+  { value: "waiting", label: "Ожидание", color: "38 92% 50%" },
+  { value: "done", label: "Готово", color: "142 71% 45%" },
+  { value: "cancelled", label: "Отмена", color: "240 4% 60%" },
+];
+
+function slugify(label: string, existingKeys: Set<string>): string {
+  const base =
+    label
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-zа-яё0-9]+/gi, "_")
+      .replace(/^_+|_+$/g, "") || "col";
+  let key = base;
+  let i = 1;
+  while (existingKeys.has(key)) {
+    key = `${base}_${i}`;
+    i += 1;
+  }
+  return key;
+}
+
+export function AddColumnDialog({
+  open,
+  onOpenChange,
+  workspaceId,
+  pageId,
+  existingColumns,
+  onCreated,
+}: AddColumnDialogProps) {
+  const [label, setLabel] = useState("");
+  const [type, setType] = useState<ColumnType>("text");
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function handleCreate() {
+    if (!label.trim()) {
+      toast.error("Введите название столбца");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const existingKeys = new Set(existingColumns.map((c) => c.key));
+      const key = slugify(label, existingKeys);
+      const column = await addColumn(workspaceId, pageId, existingColumns, {
+        key,
+        label: label.trim(),
+        type,
+        statusOptions: type === "status" ? DEFAULT_STATUS_OPTIONS : undefined,
+      });
+      toast.success(`Столбец «${column.label}» добавлен`);
+      onCreated?.(column);
+      setLabel("");
+      setType("text");
+      onOpenChange(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось добавить столбец");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Добавить столбец</DialogTitle>
+          <DialogDescription>Новый столбец появится сразу у всех, кто открыл эту страницу.</DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label>Название</Label>
+            <Input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="Например, Комментарий"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreate();
+              }}
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>Тип</Label>
+            <Select value={type} onValueChange={(v) => setType(v as ColumnType)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {COLUMN_TYPES.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {COLUMN_TYPE_LABELS[t]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
+            Отмена
+          </Button>
+          <Button onClick={handleCreate} disabled={isSaving}>
+            {isSaving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            Добавить
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\table\TablePagination.tsx
+============================================================
+
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+interface TablePaginationProps {
+  page: number;
+  pageSize: number;
+  total: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
+}
+
+const PAGE_SIZES = [10, 25, 50, 100];
+
+export function TablePagination({ page, pageSize, total, onPageChange, onPageSizeChange }: TablePaginationProps) {
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const from = total === 0 ? 0 : page * pageSize + 1;
+  const to = Math.min(total, (page + 1) * pageSize);
+
+  return (
+    <div className="flex items-center justify-between border-t border-border px-4 py-2 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2">
+        <span>Строк на странице</span>
+        <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
+          <SelectTrigger className="h-7 w-[72px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PAGE_SIZES.map((size) => (
+              <SelectItem key={size} value={String(size)}>
+                {size}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex items-center gap-4">
+        <span>
+          {from}–{to} из {total}
+        </span>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" disabled={page === 0} onClick={() => onPageChange(0)}>
+            <ChevronsLeft className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" disabled={page === 0} onClick={() => onPageChange(page - 1)}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="px-2 text-xs">
+            {page + 1} / {pageCount}
+          </span>
+          <Button variant="ghost" size="icon" disabled={page >= pageCount - 1} onClick={() => onPageChange(page + 1)}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" disabled={page >= pageCount - 1} onClick={() => onPageChange(pageCount - 1)}>
+            <ChevronsRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\ui\dialog.tsx
+============================================================
+
+import * as React from "react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { X } from "lucide-react";
+import { cn } from "@/utils/cn";
+
+export const Dialog = DialogPrimitive.Root;
+export const DialogTrigger = DialogPrimitive.Trigger;
+export const DialogPortal = DialogPrimitive.Portal;
+export const DialogClose = DialogPrimitive.Close;
+
+export const DialogOverlay = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Overlay>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Overlay
+    ref={ref}
+    className={cn(
+      "fixed inset-0 z-50 bg-background/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      className
+    )}
+    {...props}
+  />
+));
+DialogOverlay.displayName = "DialogOverlay";
+
+export const DialogContent = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
+>(({ className, children, ...props }, ref) => (
+  <DialogPortal>
+    <DialogOverlay />
+    <DialogPrimitive.Content
+      ref={ref}
+      className={cn(
+        "fixed left-[50%] top-[50%] z-50 grid w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 rounded-xl border border-border bg-card p-6 shadow-popover duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-md opacity-60 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring disabled:pointer-events-none">
+        <X className="h-4 w-4" />
+        <span className="sr-only">Закрыть</span>
+      </DialogPrimitive.Close>
+    </DialogPrimitive.Content>
+  </DialogPortal>
+));
+DialogContent.displayName = "DialogContent";
+
+export const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+  <div className={cn("flex flex-col gap-1.5 text-left", className)} {...props} />
+);
+
+export const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+  <div className={cn("flex flex-col-reverse gap-2 sm:flex-row sm:justify-end", className)} {...props} />
+);
+
+export const DialogTitle = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Title>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Title ref={ref} className={cn("text-lg font-semibold leading-none", className)} {...props} />
+));
+DialogTitle.displayName = "DialogTitle";
+
+export const DialogDescription = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Description>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Description ref={ref} className={cn("text-sm text-muted-foreground", className)} {...props} />
+));
+DialogDescription.displayName = "DialogDescription";
+
+
+
+============================================================
+FILE: src\components\ui\sheet.tsx
+============================================================
+
+import * as React from "react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { cva, type VariantProps } from "class-variance-authority";
+import { X } from "lucide-react";
+import { cn } from "@/utils/cn";
+
+export const Sheet = DialogPrimitive.Root;
+export const SheetTrigger = DialogPrimitive.Trigger;
+export const SheetClose = DialogPrimitive.Close;
+export const SheetPortal = DialogPrimitive.Portal;
+
+export const SheetOverlay = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Overlay>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Overlay
+    ref={ref}
+    className={cn(
+      "fixed inset-0 z-50 bg-background/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      className
+    )}
+    {...props}
+  />
+));
+SheetOverlay.displayName = "SheetOverlay";
+
+const sheetVariants = cva(
+  "fixed z-50 gap-4 border-border bg-card p-5 shadow-popover transition ease-in-out data-[state=closed]:duration-200 data-[state=open]:duration-300",
+  {
+    variants: {
+      side: {
+        left: "inset-y-0 left-0 h-full w-3/4 max-w-xs border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left",
+        right:
+          "inset-y-0 right-0 h-full w-3/4 max-w-xs border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right",
+      },
+    },
+    defaultVariants: { side: "left" },
+  }
+);
+
+interface SheetContentProps
+  extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>,
+    VariantProps<typeof sheetVariants> {}
+
+export const SheetContent = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Content>,
+  SheetContentProps
+>(({ side = "left", className, children, ...props }, ref) => (
+  <SheetPortal>
+    <SheetOverlay />
+    <DialogPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
+      {children}
+      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-md opacity-60 transition-opacity hover:opacity-100">
+        <X className="h-4 w-4" />
+      </DialogPrimitive.Close>
+    </DialogPrimitive.Content>
+  </SheetPortal>
+));
+SheetContent.displayName = "SheetContent";
+
+export const SheetHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+  <div className={cn("flex flex-col gap-1.5", className)} {...props} />
+);
+
+export const SheetTitle = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Title>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Title ref={ref} className={cn("text-base font-semibold", className)} {...props} />
+));
+SheetTitle.displayName = "SheetTitle";
+
+
+
+============================================================
+FILE: src\firebase\firebase.ts
+============================================================
+
+import { type FirebaseApp, initializeApp, getApps } from "firebase/app";
+import { type Auth, getAuth } from "firebase/auth";
+import { type Firestore, initializeFirestore } from "firebase/firestore";
+import { type FirebaseStorage, getStorage } from "firebase/storage";
+import { getAnalytics, isSupported, type Analytics } from "firebase/analytics";
+
+// Your web app's Firebase configuration.
+// Firebase web API keys are not secret — access is controlled by Firestore/Storage
+// security rules (see firestore.rules) — so committing a working default here is
+// safe. Values can still be overridden per-environment via .env.local (VITE_FIREBASE_*)
+// without touching this file, e.g. to point a staging build at a different project.
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDvcnG_bcSt0ODT-hsbxRjamxSzIlnvvCc",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "nurba-6e70d.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "nurba-6e70d",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "nurba-6e70d.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "890276594199",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:890276594199:web:e624cc48aba78720c2d252",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-JWGQFF1TBS",
+};
+
+export const isFirebaseConfigured = true;
+
+export const app: FirebaseApp = getApps().length ? getApps()[0]! : initializeApp(firebaseConfig);
+
+export const auth: Auth = getAuth(app);
+
+// long-polling auto-detection avoids issues behind corporate proxies / ad-blockers
+export const db: Firestore = initializeFirestore(app, {
+  experimentalAutoDetectLongPolling: true,
+});
+
+export const storage: FirebaseStorage = getStorage(app);
+
+// Analytics only works in a real browser context (not SSR, not every environment
+// supports it, e.g. Safari private mode) — guard with isSupported().
+export let analytics: Analytics | null = null;
+if (typeof window !== "undefined") {
+  isSupported()
+    .then((supported) => {
+      if (supported) analytics = getAnalytics(app);
+    })
+    .catch(() => {
+      /* analytics unsupported in this environment — ignore */
+    });
+}
+
+
+
+============================================================
+FILE: src\hooks\useMultiPageRows.ts
+============================================================
+
+import { useEffect, useState } from "react";
+import { subscribeToRows } from "@/services/pageService";
+import type { PageRow } from "@/types";
+
+export function useMultiPageRows(workspaceId: string | null, pageIds: string[]) {
+  const [rowsByPage, setRowsByPage] = useState<Record<string, PageRow[]>>({});
+  const key = pageIds.join(",");
+
+  useEffect(() => {
+    if (!workspaceId || pageIds.length === 0) {
+      setRowsByPage({});
+      return;
+    }
+    const unsubscribes = pageIds.map((pageId) =>
+      subscribeToRows(workspaceId, pageId, (rows) => {
+        setRowsByPage((prev) => ({ ...prev, [pageId]: rows }));
+      })
+    );
+    return () => unsubscribes.forEach((unsub) => unsub());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId, key]);
+
+  return rowsByPage;
+}
+
+
+
+============================================================
+FILE: src\index.css
+============================================================
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 12%;
+
+    --primary: 243 75% 59%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 10% 12%;
+
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+
+    --accent: 243 75% 96%;
+    --accent-foreground: 243 75% 40%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 60% 40%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 240 10% 12%;
+
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 243 75% 59%;
+
+    --sidebar: 240 20% 99%;
+    --sidebar-foreground: 240 10% 30%;
+    --sidebar-border: 240 6% 91%;
+    --sidebar-accent: 243 75% 96%;
+
+    --radius: 0.65rem;
+  }
+
+  .dark {
+    --background: 240 15% 7%;
+    --foreground: 240 10% 92%;
+
+    --card: 240 14% 9.5%;
+    --card-foreground: 240 10% 92%;
+
+    --popover: 240 14% 9%;
+    --popover-foreground: 240 10% 92%;
+
+    --primary: 243 85% 67%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 10% 14%;
+    --secondary-foreground: 240 10% 92%;
+
+    --muted: 240 10% 14%;
+    --muted-foreground: 240 5% 62%;
+
+    --accent: 243 40% 18%;
+    --accent-foreground: 243 85% 80%;
+
+    --destructive: 0 70% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 55% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 240 10% 12%;
+
+    --border: 240 8% 18%;
+    --input: 240 8% 18%;
+    --ring: 243 85% 67%;
+
+    --sidebar: 240 16% 8%;
+    --sidebar-foreground: 240 8% 75%;
+    --sidebar-border: 240 8% 16%;
+    --sidebar-accent: 243 35% 16%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white/70 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10;
+  }
+  .glass-panel {
+    @apply bg-background/80 backdrop-blur-xl border border-border/60;
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .skeleton {
+    @apply relative overflow-hidden bg-muted;
+  }
+  .skeleton::after {
+    content: "";
+    @apply absolute inset-0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--foreground) / 0.06),
+      transparent
+    );
+    animation: shimmer 1.6s infinite;
+    background-size: 1000px 100%;
+  }
+  .no-select {
+    user-select: none;
+  }
+}
+
+
+
+============================================================
+FILE: src\pages\MessagesPage.tsx
+============================================================
+
+import { useEffect, useMemo, useState } from "react";
+import { MessageCircle, Search, UserPlus } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ChatPanel } from "@/components/chat/ChatPanel";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { useAuth } from "@/hooks/useAuth";
+import { usePrivateChat, privateChatId } from "@/hooks/usePrivateChat";
+import { useInboxSummary } from "@/hooks/useInboxSummary";
+import { paths } from "@/firebase/firestore";
+import { deleteChatMessage, editChatMessage, sendChatMessage } from "@/services/chatService";
+import { upsertPrivateChatMeta, markContextRead } from "@/services/inboxService";
+import { displayNameOf } from "@/utils/displayName";
+import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
+import { timeAgo } from "@/utils/date";
+import { cn } from "@/utils/cn";
+import type { ChatMessage } from "@/types";
+
+export default function MessagesPage() {
+  const { activeWorkspaceId, members } = useWorkspace();
+  const { profile } = useAuth();
+  const [selectedUid, setSelectedUid] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const { conversations } = useInboxSummary(activeWorkspaceId, profile?.uid ?? null);
+
+  const otherMembers = useMemo(
+    () => members.filter((m) => m.status === "active" && m.uid !== profile?.uid),
+    [members, profile?.uid]
+  );
+  const memberByUid = useMemo(() => new Map(otherMembers.map((m) => [m.uid, m])), [otherMembers]);
+
+  const filteredConversations = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return conversations
+      .map((c) => {
+        const otherUid = c.participants.find((p) => p !== profile?.uid) ?? c.participants[0];
+        return { ...c, otherUid, otherMember: memberByUid.get(otherUid) };
+      })
+      .filter((c) => !q || (c.otherMember && displayNameOf(c.otherMember).toLowerCase().includes(q)));
+  }, [conversations, search, profile?.uid, memberByUid]);
+
+  const conversationUids = new Set(conversations.map((c) => c.participants.find((p) => p !== profile?.uid)));
+  const filteredNewContacts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return otherMembers.filter(
+      (m) => !conversationUids.has(m.uid) && (!q || displayNameOf(m).toLowerCase().includes(q))
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otherMembers, search, conversations]);
+
+  const { messages } = usePrivateChat(activeWorkspaceId, profile?.uid ?? null, selectedUid);
+  const selectedMember = otherMembers.find((m) => m.uid === selectedUid) ?? null;
+
+  // Mark this conversation read whenever it's open and messages update.
+  useEffect(() => {
+    if (!activeWorkspaceId || !profile?.uid || !selectedUid) return;
+    markContextRead(activeWorkspaceId, profile.uid, `private:${privateChatId(profile.uid, selectedUid)}`);
+  }, [activeWorkspaceId, profile?.uid, selectedUid, messages.length]);
+
+  if (!activeWorkspaceId || !profile) return null;
+
+  const chatId = selectedUid ? privateChatId(profile.uid, selectedUid) : null;
+  const chatRef = chatId ? paths.privateChatMessages(activeWorkspaceId, chatId) : null;
+
+  async function handleSend(text: string, replyTo: ChatMessage | null) {
+    if (!chatRef || !chatId || !selectedUid) return;
+    await sendChatMessage(chatRef, {
+      authorUid: profile!.uid,
+      authorName: profile!.nickname || profile!.name,
+      authorPhotoURL: profile!.photoURL,
+      text,
+      replyTo,
+    });
+    await upsertPrivateChatMeta(
+      activeWorkspaceId!,
+      chatId,
+      [profile!.uid, selectedUid].sort() as [string, string],
+      text,
+      profile!.uid,
+      profile!.nickname || profile!.name
+    );
+  }
+
+  return (
+    <div className="flex h-full">
+      <div className="flex w-72 shrink-0 flex-col border-r border-border">
+        <div className="border-b border-border p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <h1 className="text-sm font-semibold">Личные сообщения</h1>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7" title="Написать новому">
+                  <UserPlus className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-64 overflow-y-auto">
+                {otherMembers.map((m) => (
+                  <DropdownMenuItem key={m.uid} onClick={() => setSelectedUid(m.uid)}>
+                    {displayNameOf(m)}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск..." className="h-8 pl-8 text-sm" />
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
+          {filteredConversations.map((c) => {
+            if (!c.otherMember) return null;
+            return (
+              <button
+                key={c.id}
+                onClick={() => setSelectedUid(c.otherUid)}
+                className={cn(
+                  "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-accent/40",
+                  selectedUid === c.otherUid && "bg-accent/60"
+                )}
+              >
+                <div className="relative shrink-0">
+                  <Avatar className="h-9 w-9">
+                    <AvatarImage src={c.otherMember.photoURL ?? undefined} />
+                    <AvatarFallback>{displayNameOf(c.otherMember)[0]?.toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <span
+                    className={cn(
+                      "absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card",
+                      PRESENCE_DOT_COLOR[getPresenceStatus(c.otherMember.lastActiveAt)]
+                    )}
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-1">
+                    <p className={cn("truncate text-sm", c.unread ? "font-semibold" : "font-medium")}>
+                      {displayNameOf(c.otherMember)}
+                    </p>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo(c.lastMessageAt)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-1">
+                    <p className={cn("truncate text-xs", c.unread ? "font-medium text-foreground" : "text-muted-foreground")}>
+                      {c.lastMessageFromUid === profile.uid ? "Вы: " : ""}
+                      {c.lastMessageText}
+                    </p>
+                    {c.unread && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+
+          {filteredNewContacts.length > 0 && (
+            <>
+              <p className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Начать переписку
+              </p>
+              {filteredNewContacts.map((m) => (
+                <button
+                  key={m.uid}
+                  onClick={() => setSelectedUid(m.uid)}
+                  className={cn(
+                    "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-accent/40",
+                    selectedUid === m.uid && "bg-accent/60"
+                  )}
+                >
+                  <Avatar className="h-9 w-9 shrink-0">
+                    <AvatarImage src={m.photoURL ?? undefined} />
+                    <AvatarFallback>{displayNameOf(m)[0]?.toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{displayNameOf(m)}</p>
+                    <p className="truncate text-xs text-muted-foreground">{m.email}</p>
+                  </div>
+                </button>
+              ))}
+            </>
+          )}
+
+          {filteredConversations.length === 0 && filteredNewContacts.length === 0 && (
+            <p className="p-4 text-center text-xs text-muted-foreground">Никого не найдено</p>
+          )}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-hidden">
+        {selectedMember ? (
+          <div className="flex h-full flex-col">
+            <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
+              <Avatar className="h-8 w-8">
+                <AvatarImage src={selectedMember.photoURL ?? undefined} />
+                <AvatarFallback>{displayNameOf(selectedMember)[0]?.toUpperCase()}</AvatarFallback>
+              </Avatar>
+              <div>
+                <p className="text-sm font-medium leading-tight">{displayNameOf(selectedMember)}</p>
+                <p className="text-xs leading-tight text-muted-foreground">
+                  {PRESENCE_LABEL[getPresenceStatus(selectedMember.lastActiveAt)]}
+                </p>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <ChatPanel
+                messages={messages}
+                currentUid={profile.uid}
+                onSend={handleSend}
+                onEdit={async (id, text) => {
+                  if (chatRef) await editChatMessage(chatRef, id, text);
+                }}
+                onDelete={async (id) => {
+                  if (chatRef) await deleteChatMessage(chatRef, id);
+                }}
+                emptyMessage={`Напишите первое сообщение — ${displayNameOf(selectedMember)}`}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-muted-foreground">
+            <MessageCircle className="h-8 w-8" />
+            <p className="text-sm">Выберите переписку слева</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\services\inboxService.ts
+============================================================
+
+import { onSnapshot, query, setDoc, where } from "firebase/firestore";
+import { db } from "@/firebase/firebase";
+import { paths, withErrorReporting } from "@/firebase/firestore";
+import { normalizeTimestamp } from "@/utils/date";
+import type { PrivateChatMeta, ReadMarker } from "@/types";
+
+export async function upsertPrivateChatMeta(
+  workspaceId: string,
+  chatId: string,
+  participants: [string, string],
+  lastMessageText: string,
+  lastMessageFromUid: string,
+  lastMessageFromName: string
+) {
+  if (!db) return;
+  const meta: PrivateChatMeta = {
+    id: chatId,
+    participants,
+    lastMessageText: lastMessageText.slice(0, 140),
+    lastMessageAt: Date.now(),
+    lastMessageFromUid,
+    lastMessageFromName,
+  };
+  await setDoc(paths.privateChatMeta(workspaceId, chatId), meta, { merge: true });
+}
+
+export function subscribeToMyConversations(
+  workspaceId: string,
+  uid: string,
+  onData: (conversations: PrivateChatMeta[]) => void,
+  onError?: (error: import("firebase/firestore").FirestoreError) => void
+) {
+  const q = query(paths.privateChats(workspaceId), where("participants", "array-contains", uid));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items = snapshot.docs
+        .map((d) => ({ id: d.id, ...d.data() }) as unknown as PrivateChatMeta)
+        .map((c) => ({ ...c, lastMessageAt: normalizeTimestamp(c.lastMessageAt) }))
+        .sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+      onData(items);
+    },
+    withErrorReporting(onError)
+  );
+}
+
+/** context is "workspaceChat" or `private:${chatId}` */
+export async function markContextRead(workspaceId: string, uid: string, context: string) {
+  if (!db) return;
+  const id = `${uid}_${context.replace(/[^a-zA-Z0-9:_-]/g, "")}`;
+  const marker: ReadMarker = { id, uid, context, lastReadAt: Date.now() };
+  await setDoc(paths.readMarker(workspaceId, id), marker, { merge: true });
+}
+
+export function subscribeToReadMarkers(
+  workspaceId: string,
+  uid: string,
+  onData: (markers: Record<string, number>) => void,
+  onError?: (error: import("firebase/firestore").FirestoreError) => void
+) {
+  const q = query(paths.readMarkers(workspaceId), where("uid", "==", uid));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const map: Record<string, number> = {};
+      snapshot.docs.forEach((d) => {
+        const data = d.data() as ReadMarker;
+        map[data.context] = normalizeTimestamp(data.lastReadAt);
+      });
+      onData(map);
+    },
+    withErrorReporting(onError)
+  );
+}
+
+
+
+============================================================
+FILE: src\store\uiStore.ts
+============================================================
+
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+
+export type ThemeMode = "light" | "dark" | "system";
+
+interface UiState {
+  theme: ThemeMode;
+  sidebarCollapsed: boolean;
+  setTheme: (theme: ThemeMode) => void;
+  toggleSidebar: () => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
+}
+
+export const useUiStore = create<UiState>()(
+  persist(
+    (set) => ({
+      theme: "system",
+      sidebarCollapsed: false,
+      setTheme: (theme) => set({ theme }),
+      toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+      setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+    }),
+    { name: "nova-crm:ui" }
+  )
+);
+
+
+
+============================================================
+FILE: src\types\role.ts
+============================================================
+
+export type Role = "owner" | "admin" | "manager" | "viewer";
+
+export const ROLE_LABELS: Record<Role, string> = {
+  owner: "Owner",
+  admin: "Admin",
+  manager: "Manager",
+  viewer: "Viewer",
+};
+
+export const ROLE_DESCRIPTIONS: Record<Role, string> = {
+  owner: "Полный доступ: workspace, участники, права, история",
+  admin: "Создание и редактирование страниц, управление пользователями",
+  manager: "Редактирование только разрешённых страниц",
+  viewer: "Только просмотр",
+};
+
+export const ROLE_RANK: Record<Role, number> = {
+  owner: 4,
+  admin: 3,
+  manager: 2,
+  viewer: 1,
+};
+
+export const ALL_ROLES: Role[] = ["owner", "admin", "manager", "viewer"];
+
+/** True if `role` has at least the privilege level of `min`. */
+export function roleAtLeast(role: Role, min: Role): boolean {
+  return ROLE_RANK[role] >= ROLE_RANK[min];
+}
+
+
+
+============================================================
+FILE: src\utils\firebaseErrors.ts
+============================================================
+
+const MESSAGES: Record<string, string> = {
+  "auth/invalid-email": "Некорректный email",
+  "auth/user-disabled": "Аккаунт отключён",
+  "auth/user-not-found": "Пользователь не найден",
+  "auth/wrong-password": "Неверный пароль",
+  "auth/invalid-credential": "Неверный email или пароль",
+  "auth/email-already-in-use": "Этот email уже зарегистрирован",
+  "auth/weak-password": "Пароль слишком простой",
+  "auth/popup-closed-by-user": "Окно входа было закрыто",
+  "auth/network-request-failed": "Проблема с сетью, попробуйте снова",
+  "auth/too-many-requests": "Слишком много попыток, попробуйте позже",
+};
+
+export function getAuthErrorMessage(error: unknown): string {
+  const code = (error as { code?: string })?.code;
+  if (code && MESSAGES[code]) return MESSAGES[code];
+  if (error instanceof Error) return error.message;
+  return "Что-то пошло не так, попробуйте ещё раз";
+}
+

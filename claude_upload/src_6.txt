@@ -1,0 +1,1222 @@
+
+
+============================================================
+FILE: src\components\chat\RowCommentsPanel.tsx
+============================================================
+
+import { useEffect, useMemo, useState } from "react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { ChatPanel } from "@/components/chat/ChatPanel";
+import { paths } from "@/firebase/firestore";
+import { subscribeToChat, sendChatMessage, editChatMessage, deleteChatMessage } from "@/services/chatService";
+import { notifyMentions } from "@/services/notificationService";
+import { useAuth } from "@/hooks/useAuth";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { displayNameOf } from "@/utils/displayName";
+import type { ChatMessage } from "@/types";
+
+interface RowCommentsPanelProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  workspaceId: string;
+  pageId: string;
+  rowId: string | null;
+}
+
+export function RowCommentsPanel({ open, onOpenChange, workspaceId, pageId, rowId }: RowCommentsPanelProps) {
+  const { profile } = useAuth();
+  const { members } = useWorkspace();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const mentionableUsers = useMemo(
+    () => members.filter((m) => m.status === "active").map((m) => ({ uid: m.uid, name: displayNameOf(m) })),
+    [members]
+  );
+
+  useEffect(() => {
+    if (!open || !rowId) return;
+    return subscribeToChat(paths.rowComments(workspaceId, pageId, rowId), setMessages, (error) =>
+      console.error("subscribeToChat(rowComments) denied:", error.code, error.message)
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, workspaceId, pageId, rowId]);
+
+  if (!profile || !rowId) return null;
+  const ref = paths.rowComments(workspaceId, pageId, rowId);
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="flex w-full flex-col p-0 sm:max-w-md">
+        <SheetHeader className="border-b border-border p-4">
+          <SheetTitle>Комментарии к строке</SheetTitle>
+        </SheetHeader>
+        <div className="flex-1 overflow-hidden">
+          <ChatPanel
+            messages={messages}
+            currentUid={profile.uid}
+            onSend={async (text, replyTo, mentionedUids) => {
+              await sendChatMessage(ref, {
+                authorUid: profile.uid,
+                authorName: profile.nickname || profile.name,
+                authorPhotoURL: profile.photoURL,
+                text,
+                replyTo,
+              });
+              await notifyMentions(workspaceId, profile.uid, profile.nickname || profile.name, mentionedUids, text);
+            }}
+            onEdit={(id, text) => editChatMessage(ref, id, text)}
+            onDelete={(id) => deleteChatMessage(ref, id)}
+            emptyMessage="Обсудите эту строку с коллегами"
+            mentionableUsers={mentionableUsers}
+          />
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\dashboard\StatusChart.tsx
+============================================================
+
+import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+interface StatusChartProps {
+  title: string;
+  data: { name: string; value: number; color: string }[];
+}
+
+export function StatusChart({ title, data }: StatusChartProps) {
+  const hasData = data.some((d) => d.value > 0);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="h-72">
+        {hasData ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie data={data} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={3}>
+                {data.map((entry) => (
+                  <Cell key={entry.name} fill={`hsl(${entry.color})`} stroke="transparent" />
+                ))}
+              </Pie>
+              <Tooltip
+                contentStyle={{
+                  background: "hsl(var(--popover))",
+                  border: "1px solid hsl(var(--border))",
+                  borderRadius: 8,
+                  fontSize: 13,
+                }}
+              />
+              <Legend
+                verticalAlign="bottom"
+                iconType="circle"
+                iconSize={8}
+                formatter={(value) => <span className="text-xs text-muted-foreground">{value}</span>}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+            Пока нет данных
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\members\RoleSelect.tsx
+============================================================
+
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ROLE_LABELS, type Role } from "@/types";
+
+interface RoleSelectProps {
+  value: Role;
+  onChange: (role: Role) => void;
+  disabled?: boolean;
+  assignableRoles?: Role[];
+}
+
+export function RoleSelect({ value, onChange, disabled, assignableRoles = ["admin", "manager", "viewer"] }: RoleSelectProps) {
+  return (
+    <Select value={value} onValueChange={(v) => onChange(v as Role)} disabled={disabled}>
+      <SelectTrigger className="h-8 w-32">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {value === "owner" && <SelectItem value="owner">{ROLE_LABELS.owner}</SelectItem>}
+        {assignableRoles.map((role) => (
+          <SelectItem key={role} value={role}>
+            {ROLE_LABELS[role]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\table\StatusBadge.tsx
+============================================================
+
+import type { StatusOption } from "@/types";
+import { cn } from "@/utils/cn";
+
+interface StatusBadgeProps {
+  value: string;
+  options: StatusOption[];
+  className?: string;
+}
+
+export function StatusBadge({ value, options, className }: StatusBadgeProps) {
+  const option = options.find((o) => o.value === value);
+  if (!option) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  return (
+    <span
+      className={cn(
+        "inline-flex max-w-full items-center gap-1.5 truncate rounded-full px-2.5 py-1 text-xs font-medium",
+        className
+      )}
+      style={{ backgroundColor: `hsl(${option.color} / 0.15)`, color: `hsl(${option.color})` }}
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: `hsl(${option.color})` }} />
+      <span className="truncate">{option.label}</span>
+    </span>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\ui\button.tsx
+============================================================
+
+import * as React from "react";
+import { Slot } from "@radix-ui/react-slot";
+import { cva, type VariantProps } from "class-variance-authority";
+import { cn } from "@/utils/cn";
+
+const buttonVariants = cva(
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98]",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground shadow-subtle hover:bg-primary/90",
+        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        outline: "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        ghost: "hover:bg-accent hover:text-accent-foreground",
+        link: "text-primary underline-offset-4 hover:underline",
+        glass: "glass text-foreground hover:bg-white/90 dark:hover:bg-white/[0.08] shadow-subtle",
+      },
+      size: {
+        default: "h-9 px-4 py-2",
+        sm: "h-8 rounded-md px-3 text-xs",
+        lg: "h-11 rounded-lg px-6 text-base",
+        icon: "h-9 w-9",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+);
+
+export interface ButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {
+  asChild?: boolean;
+}
+
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant, size, asChild = false, ...props }, ref) => {
+    const Comp = asChild ? Slot : "button";
+    return (
+      <Comp ref={ref} className={cn(buttonVariants({ variant, size, className }))} {...props} />
+    );
+  }
+);
+Button.displayName = "Button";
+
+
+
+============================================================
+FILE: src\components\ui\popover.tsx
+============================================================
+
+import * as React from "react";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { cn } from "@/utils/cn";
+
+export const Popover = PopoverPrimitive.Root;
+export const PopoverTrigger = PopoverPrimitive.Trigger;
+export const PopoverAnchor = PopoverPrimitive.Anchor;
+
+export const PopoverContent = React.forwardRef<
+  React.ElementRef<typeof PopoverPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
+>(({ className, align = "center", sideOffset = 6, ...props }, ref) => (
+  <PopoverPrimitive.Portal>
+    <PopoverPrimitive.Content
+      ref={ref}
+      align={align}
+      sideOffset={sideOffset}
+      className={cn(
+        "z-50 w-72 rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-popover outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+        className
+      )}
+      {...props}
+    />
+  </PopoverPrimitive.Portal>
+));
+PopoverContent.displayName = "PopoverContent";
+
+
+
+============================================================
+FILE: src\components\ui\textarea.tsx
+============================================================
+
+import * as React from "react";
+import { cn } from "@/utils/cn";
+
+export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(
+  ({ className, ...props }, ref) => (
+    <textarea
+      ref={ref}
+      className={cn(
+        "flex w-full rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-subtle transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+        className
+      )}
+      {...props}
+    />
+  )
+);
+Textarea.displayName = "Textarea";
+
+
+
+============================================================
+FILE: src\hooks\useDebounce.ts
+============================================================
+
+import { useEffect, useState } from "react";
+
+export function useDebounce<T>(value: T, delay = 300): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
+
+
+
+============================================================
+FILE: src\hooks\usePrivateChat.ts
+============================================================
+
+import { useEffect, useState } from "react";
+import { paths } from "@/firebase/firestore";
+import { subscribeToChat } from "@/services/chatService";
+import type { ChatMessage } from "@/types";
+
+/** Deterministic chat id for a pair of uids — same regardless of who opens the chat first. */
+export function privateChatId(uidA: string, uidB: string): string {
+  return [uidA, uidB].sort().join("_");
+}
+
+export function usePrivateChat(workspaceId: string | null, myUid: string | null, otherUid: string | null) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const chatId = myUid && otherUid ? privateChatId(myUid, otherUid) : null;
+
+  useEffect(() => {
+    if (!workspaceId || !chatId) {
+      setMessages([]);
+      return;
+    }
+    return subscribeToChat(paths.privateChatMessages(workspaceId, chatId), setMessages, (error) =>
+      console.error("subscribeToChat(privateChat) denied:", error.code, error.message)
+    );
+  }, [workspaceId, chatId]);
+
+  return { messages, chatId };
+}
+
+
+
+============================================================
+FILE: src\pages\DashboardPage.tsx
+============================================================
+
+import { useMemo } from "react";
+import { motion } from "framer-motion";
+import { Briefcase, Users, UserCog, Wallet } from "lucide-react";
+import { StatCard } from "@/components/dashboard/StatCard";
+import { RevenueChart } from "@/components/dashboard/RevenueChart";
+import { StatusChart } from "@/components/dashboard/StatusChart";
+import { RecentActivity } from "@/components/dashboard/RecentActivity";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { useMultiPageRows } from "@/hooks/useMultiPageRows";
+import { useHistoryLog } from "@/hooks/useHistoryLog";
+import { usePermissions } from "@/hooks/usePermissions";
+import { formatCurrency } from "@/utils/format";
+import { formatDate } from "@/utils/date";
+
+export default function DashboardPage() {
+  const { activeWorkspace, activeWorkspaceId, pages, members, isLoadingWorkspaceData } = useWorkspace();
+  const permissions = usePermissions();
+
+  // Only aggregate stats from pages the current viewer can actually open —
+  // Owner sees everything, everyone else only their allowed pages. Without
+  // this filter, a regular member's Dashboard would leak revenue/client
+  // counts pulled from pages they have no access to.
+  const visiblePages = useMemo(
+    () => pages.filter((p) => permissions.canAccessPage(p)),
+    [pages, permissions]
+  );
+
+  const clientsPage = visiblePages.find((p) => p.name.toLowerCase().includes("клиент"));
+  const projectsPage = visiblePages.find((p) => p.name.toLowerCase().includes("проект"));
+
+  const rowsByPage = useMultiPageRows(
+    activeWorkspaceId,
+    [clientsPage?.id, projectsPage?.id].filter((id): id is string => Boolean(id))
+  );
+
+  const clientRows = clientsPage ? rowsByPage[clientsPage.id] ?? [] : [];
+  const projectRows = projectsPage ? rowsByPage[projectsPage.id] ?? [] : [];
+
+  const totalRevenue = useMemo(
+    () => clientRows.reduce((sum, row) => sum + (Number(row.cells.amount) || 0), 0),
+    [clientRows]
+  );
+
+  const activeEmployeesCount = members.filter((m) => m.status === "active").length;
+
+  const revenueByMonth = useMemo(() => {
+    const buckets = new Map<string, number>();
+    clientRows.forEach((row) => {
+      const label = formatDate(row.createdAt, "LLL yyyy");
+      buckets.set(label, (buckets.get(label) ?? 0) + (Number(row.cells.amount) || 0));
+    });
+    return Array.from(buckets.entries()).map(([label, value]) => ({ label, value }));
+  }, [clientRows]);
+
+  const statusColumn = clientsPage?.columns.find((c) => c.key === "status");
+  const statusDistribution = useMemo(() => {
+    if (!statusColumn?.statusOptions) return [];
+    return statusColumn.statusOptions.map((opt) => ({
+      name: opt.label,
+      value: clientRows.filter((r) => r.cells.status === opt.value).length,
+      color: opt.color,
+    }));
+  }, [statusColumn, clientRows]);
+
+  // The history/audit log is Owner-only per firestore.rules — don't even
+  // subscribe for anyone else, or every non-owner would hit a guaranteed
+  // permission-denied on their very first Dashboard load.
+  const { entries: historyEntries } = useHistoryLog(permissions.canViewHistory ? activeWorkspaceId : null);
+
+  if (isLoadingWorkspaceData) {
+    return (
+      <div className="p-6">
+        <Skeleton className="mb-6 h-8 w-64" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-28" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-7xl p-6">
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          С возвращением{activeWorkspace ? `, ${activeWorkspace.name}` : ""} 👋
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Обзор ключевых показателей workspace на {formatDate(Date.now(), "d MMMM")}
+        </p>
+      </motion.div>
+
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Клиенты" value={String(clientRows.length)} icon={Users} color="243 75% 59%" delay={0} />
+        <StatCard label="Доход" value={formatCurrency(totalRevenue)} icon={Wallet} color="152 60% 40%" delay={0.05} />
+        <StatCard label="Проекты" value={String(projectRows.length)} icon={Briefcase} color="271 81% 56%" delay={0.1} />
+        <StatCard label="Сотрудники" value={String(activeEmployeesCount)} icon={UserCog} color="199 89% 48%" delay={0.15} />
+      </div>
+
+      <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <RevenueChart data={revenueByMonth} />
+        </div>
+        <StatusChart title="Статусы клиентов" data={statusDistribution} />
+      </div>
+
+      {permissions.canViewHistory && <RecentActivity entries={historyEntries} />}
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\services\announcementService.ts
+============================================================
+
+import { deleteDoc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { db } from "@/firebase/firebase";
+import { paths, withErrorReporting } from "@/firebase/firestore";
+import { generateId } from "@/utils/id";
+import { normalizeTimestamp } from "@/utils/date";
+import type { Announcement, AnnouncementPriority } from "@/types";
+
+export function subscribeToAnnouncements(
+  workspaceId: string,
+  onData: (announcements: Announcement[]) => void,
+  onError?: (error: import("firebase/firestore").FirestoreError) => void
+) {
+  // No orderBy() in the query: it would silently exclude the announcement
+  // already created before this fix (no serverOrderAt field yet). Sorted
+  // client-side instead, preferring the server-authoritative order and
+  // falling back to the plain client timestamp for older documents.
+  return onSnapshot(
+    paths.announcements(workspaceId),
+    (snapshot) => {
+      const items = snapshot.docs.map(
+        (d) => ({ id: d.id, ...d.data() }) as unknown as Announcement & { serverOrderAt?: unknown }
+      );
+      items.forEach((a) => (a.createdAt = normalizeTimestamp(a.createdAt)));
+      items.sort((a, b) => {
+        const keyA = a.serverOrderAt ? normalizeTimestamp(a.serverOrderAt) : a.createdAt;
+        const keyB = b.serverOrderAt ? normalizeTimestamp(b.serverOrderAt) : b.createdAt;
+        return keyB - keyA;
+      });
+      onData(items);
+    },
+    withErrorReporting(onError)
+  );
+}
+
+export interface CreateAnnouncementInput {
+  workspaceId: string;
+  title: string;
+  body: string;
+  priority: AnnouncementPriority;
+  pinned: boolean;
+  authorUid: string;
+  authorName: string;
+  authorPhotoURL?: string | null;
+}
+
+export async function createAnnouncement(input: CreateAnnouncementInput): Promise<Announcement> {
+  if (!db) throw new Error("Firebase не настроен");
+  const id = generateId("ann");
+  const announcement: Announcement = {
+    id,
+    workspaceId: input.workspaceId,
+    title: input.title,
+    body: input.body,
+    priority: input.priority,
+    pinned: input.pinned,
+    isArchived: false,
+    authorUid: input.authorUid,
+    authorName: input.authorName,
+    authorPhotoURL: input.authorPhotoURL ?? null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  await setDoc(paths.announcement(input.workspaceId, id), { ...announcement, serverOrderAt: serverTimestamp() });
+  return announcement;
+}
+
+export async function updateAnnouncement(
+  workspaceId: string,
+  id: string,
+  patch: Partial<Pick<Announcement, "title" | "body" | "priority" | "pinned">>
+) {
+  if (!db) return;
+  await setDoc(paths.announcement(workspaceId, id), { ...patch, updatedAt: Date.now() }, { merge: true });
+}
+
+export async function togglePinAnnouncement(workspaceId: string, id: string, pinned: boolean) {
+  if (!db) return;
+  await setDoc(paths.announcement(workspaceId, id), { pinned, updatedAt: Date.now() }, { merge: true });
+}
+
+export async function archiveAnnouncement(workspaceId: string, id: string, archived: boolean) {
+  if (!db) return;
+  await setDoc(paths.announcement(workspaceId, id), { isArchived: archived, updatedAt: Date.now() }, { merge: true });
+}
+
+export async function deleteAnnouncement(workspaceId: string, id: string) {
+  if (!db) return;
+  await deleteDoc(paths.announcement(workspaceId, id));
+}
+
+
+
+============================================================
+FILE: src\services\pageService.ts
+============================================================
+
+import {
+  deleteDoc,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+  writeBatch,
+} from "firebase/firestore";
+import { db } from "@/firebase/firebase";
+import { paths, subscribe, withErrorReporting } from "@/firebase/firestore";
+import { generateId } from "@/utils/id";
+import { logChange } from "@/services/historyService";
+import type { PageColumn, PageIconName, PageRow, StatusOption, WorkspacePage } from "@/types";
+
+// ---------------------------------------------------------------------------
+// Убирает поля со значением undefined перед записью в Firestore
+// (Firestore не разрешает undefined, даже во вложенных объектах/массивах —
+// например statusOptions у текстовых/телефонных/датных колонок)
+// ---------------------------------------------------------------------------
+export function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefined(item)) as unknown as T;
+  }
+  if (value && typeof value === "object" && !(value instanceof Date)) {
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      if (val !== undefined) result[key] = stripUndefined(val);
+    }
+    return result as T;
+  }
+  return value;
+}
+
+// ---------------------------------------------------------------------------
+// Pages
+// ---------------------------------------------------------------------------
+
+/**
+ * `isOwner` bypasses the per-doc `allowedUsers` check entirely, so a plain
+ * unfiltered list is safe for the Owner (rule evaluation doesn't depend on
+ * resource.data at all for them). For everyone else, Firestore CANNOT
+ * validate an unfiltered list query against a per-document rule condition
+ * like "uid in allowedUsers" — that combination is always denied outright,
+ * regardless of whether the data itself would actually pass. The fix is to
+ * make the query itself carry the same condition the rule checks, via an
+ * explicit `where("allowedUsers", "array-contains", uid)` — then Firestore
+ * can prove every possible result already satisfies the rule.
+ */
+export function subscribeToPages(
+  workspaceId: string,
+  onData: (pages: WorkspacePage[]) => void,
+  onError?: (error: import("firebase/firestore").FirestoreError) => void,
+  currentUserUid?: string,
+  isOwnerOfWorkspace?: boolean
+) {
+  const q =
+    !isOwnerOfWorkspace && currentUserUid
+      ? query(paths.pages(workspaceId), where("allowedUsers", "array-contains", currentUserUid))
+      : query(paths.pages(workspaceId), orderBy("order", "asc"));
+
+  let cancelled = false;
+  let emittedOnce = false;
+  let pendingEmptyCacheTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const unsubscribe = onSnapshot(
+    q,
+    (snapshot) => {
+      if (cancelled) return;
+      const pages = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as WorkspacePage);
+
+      if (pendingEmptyCacheTimer) {
+        clearTimeout(pendingEmptyCacheTimer);
+        pendingEmptyCacheTimer = null;
+      }
+
+      // Same class of fix as the workspace list: a fresh navigation/reload
+      // can surface a stale, empty local cache (e.g. right after gaining
+      // page access) before the real server snapshot arrives. Give the
+      // server a brief window rather than flashing "Access denied"/an empty
+      // page and requiring a manual reload to fix it.
+      if (snapshot.metadata.fromCache && pages.length === 0 && !emittedOnce) {
+        pendingEmptyCacheTimer = setTimeout(() => {
+          if (!cancelled) {
+            emittedOnce = true;
+            onData([]);
+          }
+        }, 1200);
+        return;
+      }
+
+      emittedOnce = true;
+      onData([...pages].sort((a, b) => a.order - b.order));
+    },
+    withErrorReporting(onError)
+  );
+
+  return () => {
+    cancelled = true;
+    if (pendingEmptyCacheTimer) clearTimeout(pendingEmptyCacheTimer);
+    unsubscribe();
+  };
+}
+
+export interface CreatePageInput {
+  workspaceId: string;
+  name: string;
+  icon: PageIconName;
+  color: string;
+  columns: Omit<PageColumn, "id">[];
+  /** Uids of members (besides the Owner, who always has access) allowed to see this page. */
+  allowedUsers: string[];
+  createdBy: string;
+  order: number;
+}
+
+export async function createPage(input: CreatePageInput): Promise<WorkspacePage> {
+  if (!db) throw new Error("Firebase не настроен");
+  const id = generateId("page");
+  const page: WorkspacePage = {
+    id,
+    workspaceId: input.workspaceId,
+    name: input.name,
+    icon: input.icon,
+    color: input.color,
+    order: input.order,
+    allowedUsers: input.allowedUsers,
+    columns: input.columns.map((c, i) => stripUndefined({ ...c, id: generateId("col"), order: i })),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    createdBy: input.createdBy,
+  };
+  await setDoc(paths.page(input.workspaceId, id), stripUndefined({ ...page, createdAt: serverTimestamp() }));
+  return page;
+}
+
+export async function renamePage(workspaceId: string, pageId: string, name: string) {
+  if (!db) return;
+  await setDoc(paths.page(workspaceId, pageId), { name, updatedAt: Date.now() }, { merge: true });
+}
+
+export async function updatePageAppearance(
+  workspaceId: string,
+  pageId: string,
+  patch: { icon?: PageIconName; color?: string }
+) {
+  if (!db) return;
+  await setDoc(paths.page(workspaceId, pageId), { ...patch, updatedAt: Date.now() }, { merge: true });
+}
+
+export async function updatePagePermissions(workspaceId: string, pageId: string, allowedUsers: string[]) {
+  if (!db) return;
+  await setDoc(paths.page(workspaceId, pageId), { allowedUsers, updatedAt: Date.now() }, { merge: true });
+}
+
+/** Owner/responsible: grant or revoke EDIT rights for someone who already has view access. */
+export async function updatePageEditableUsers(workspaceId: string, pageId: string, editableUsers: string[]) {
+  if (!db) return;
+  await setDoc(paths.page(workspaceId, pageId), { editableUsers, updatedAt: Date.now() }, { merge: true });
+}
+
+/** Owner-only: assign (or clear) who's responsible for this page. */
+export async function setPageResponsible(
+  workspaceId: string,
+  pageId: string,
+  responsibleUserId: string | null,
+  currentAllowedUsers: string[]
+) {
+  if (!db) return;
+  const allowedUsers = responsibleUserId
+    ? Array.from(new Set([...currentAllowedUsers, responsibleUserId]))
+    : currentAllowedUsers;
+  await setDoc(
+    paths.page(workspaceId, pageId),
+    { responsibleUserId, hiddenByResponsible: false, allowedUsers, updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
+/** Only the assigned responsible person may call this — hides/shows the page for everyone else in allowedUsers. */
+/**
+ * "Показать" grants VIEW access (not edit) to every active member at once —
+ * "Скрыть" removes everyone's access again (Owner and the responsible
+ * person always see it regardless). Implemented purely via `allowedUsers`
+ * (the same mechanism already used for individual grants) rather than a
+ * separate visibility field, so it never risks the Firestore list-query
+ * safety issue a per-doc "visibility" field would reintroduce for the
+ * pages list query.
+ */
+export async function togglePageVisibility(
+  workspaceId: string,
+  pageId: string,
+  show: boolean,
+  allActiveMemberUids: string[],
+  responsibleUserId?: string | null
+) {
+  if (!db) return;
+  const allowedUsers = show
+    ? Array.from(new Set(allActiveMemberUids))
+    : responsibleUserId
+      ? [responsibleUserId]
+      : [];
+  await setDoc(
+    paths.page(workspaceId, pageId),
+    { allowedUsers, hiddenByResponsible: !show, updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
+/**
+ * Instantly grants or revokes one member's access to one page — used by the
+ * Workspace → Users checkbox grid, where every toggle applies immediately.
+ */
+export async function toggleUserPageAccess(
+  workspaceId: string,
+  page: WorkspacePage,
+  uid: string,
+  grant: boolean
+) {
+  const next = grant
+    ? Array.from(new Set([...page.allowedUsers, uid]))
+    : page.allowedUsers.filter((id) => id !== uid);
+  await updatePagePermissions(workspaceId, page.id, next);
+}
+
+export async function updatePageColumns(workspaceId: string, pageId: string, columns: PageColumn[]) {
+  if (!db) return;
+  await setDoc(paths.page(workspaceId, pageId), { columns: stripUndefined(columns), updatedAt: Date.now() }, { merge: true });
+}
+
+/** Airtable-style: append a brand new column to a page. Owner/Admin only (enforced by caller via permissions). */
+/**
+ * Guarantees a page has a "Цена" (currency) column, inserting one just
+ * before a "Примечание"/note-like column if present, otherwise appending it
+ * at the end. Used to retrofit the Price column onto pages/workspaces that
+ * were created before it became a standard column. No-ops if a currency
+ * column already exists.
+ */
+export async function ensurePriceColumn(workspaceId: string, pageId: string, existingColumns: PageColumn[]) {
+  if (existingColumns.some((c) => c.type === "currency")) return;
+  const noteIndex = existingColumns.findIndex(
+    (c) => c.key === "note" || c.label.toLowerCase().includes("примечан")
+  );
+  const priceColumn: PageColumn = {
+    id: generateId("col"),
+    key: "price",
+    label: "Цена",
+    type: "currency",
+    width: 140,
+    order: 0,
+  };
+  const withoutOrder = noteIndex === -1 ? [...existingColumns, priceColumn] : [
+    ...existingColumns.slice(0, noteIndex),
+    priceColumn,
+    ...existingColumns.slice(noteIndex),
+  ];
+  const columns = withoutOrder.map((c, i) => ({ ...c, order: i }));
+  await updatePageColumns(workspaceId, pageId, columns);
+}
+
+export async function addColumn(
+  workspaceId: string,
+  pageId: string,
+  existingColumns: PageColumn[],
+  input: { key: string; label: string; type: PageColumn["type"]; statusOptions?: StatusOption[] }
+): Promise<PageColumn> {
+  if (!db) throw new Error("Firebase не настроен");
+  const newColumn: PageColumn = {
+    id: generateId("col"),
+    key: input.key,
+    label: input.label,
+    type: input.type,
+    width: 160,
+    order: existingColumns.length,
+    statusOptions: input.statusOptions,
+  };
+  const columns = [...existingColumns, stripUndefined(newColumn)];
+  await updatePageColumns(workspaceId, pageId, columns);
+  return newColumn;
+}
+
+/** Duplicate an existing column definition (data is not copied, only the column shape). */
+export async function duplicateColumn(
+  workspaceId: string,
+  pageId: string,
+  existingColumns: PageColumn[],
+  columnKey: string
+): Promise<PageColumn> {
+  const source = existingColumns.find((c) => c.key === columnKey);
+  if (!source) throw new Error("Столбец не найден");
+  const copy: PageColumn = {
+    ...source,
+    id: generateId("col"),
+    key: generateId("col"),
+    label: `${source.label} (копия)`,
+    order: existingColumns.length,
+  };
+  const columns = [...existingColumns, stripUndefined(copy)];
+  await updatePageColumns(workspaceId, pageId, columns);
+  return copy;
+}
+
+/** Remove a column definition entirely (row data for that key is left in place but no longer shown). */
+export async function deleteColumn(workspaceId: string, pageId: string, existingColumns: PageColumn[], columnKey: string) {
+  const columns = existingColumns.filter((c) => c.key !== columnKey).map((c, i) => ({ ...c, order: i }));
+  await updatePageColumns(workspaceId, pageId, columns);
+}
+
+/** Rename a column's display label. */
+export async function renameColumn(workspaceId: string, pageId: string, existingColumns: PageColumn[], columnKey: string, newLabel: string) {
+  const columns = existingColumns.map((c) => (c.key === columnKey ? { ...c, label: newLabel } : c));
+  await updatePageColumns(workspaceId, pageId, columns);
+}
+
+/** Change a column's type (e.g. text -> currency). Existing cell values are left as-is. */
+export async function changeColumnType(
+  workspaceId: string,
+  pageId: string,
+  existingColumns: PageColumn[],
+  columnKey: string,
+  newType: PageColumn["type"],
+  statusOptions?: StatusOption[]
+) {
+  const columns = existingColumns.map((c) =>
+    c.key === columnKey ? stripUndefined({ ...c, type: newType, statusOptions }) : c
+  );
+  await updatePageColumns(workspaceId, pageId, columns);
+}
+
+export async function reorderPages(workspaceId: string, orderedIds: string[]) {
+  if (!db) return;
+  const batch = writeBatch(db);
+  orderedIds.forEach((id, index) => {
+    batch.set(paths.page(workspaceId, id), { order: index }, { merge: true });
+  });
+  await batch.commit();
+}
+
+export async function deletePage(workspaceId: string, pageId: string) {
+  if (!db) return;
+  const database = db;
+  const [rowsSnapshot, historySnapshot] = await Promise.all([
+    getDocs(paths.rows(workspaceId, pageId)),
+    getDocs(query(paths.history(workspaceId), where("pageId", "==", pageId))),
+  ]);
+
+  // Firestore batches cap out at 500 writes; chunk defensively for pages
+  // with a lot of rows/history so deletion never silently fails partway.
+  const refsToDelete = [
+    ...rowsSnapshot.docs.map((d) => d.ref),
+    ...historySnapshot.docs.map((d) => d.ref),
+    paths.page(workspaceId, pageId),
+  ];
+  const CHUNK_SIZE = 450;
+  for (let i = 0; i < refsToDelete.length; i += CHUNK_SIZE) {
+    const batch = writeBatch(database);
+    refsToDelete.slice(i, i + CHUNK_SIZE).forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
+}
+
+export async function duplicatePage(workspaceId: string, page: WorkspacePage, newOrder: number) {
+  if (!db) throw new Error("Firebase не настроен");
+  const newId = generateId("page");
+  const duplicated: WorkspacePage = {
+    ...page,
+    id: newId,
+    name: `${page.name} (копия)`,
+    order: newOrder,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const batch = writeBatch(db);
+  batch.set(paths.page(workspaceId, newId), duplicated);
+  const rowsSnapshot = await getDocs(paths.rows(workspaceId, page.id));
+  rowsSnapshot.docs.forEach((d) => {
+    const rowId = generateId("row");
+    batch.set(paths.row(workspaceId, newId, rowId), { ...d.data(), id: rowId, pageId: newId });
+  });
+  await batch.commit();
+  return duplicated;
+}
+
+// ---------------------------------------------------------------------------
+// Rows
+// ---------------------------------------------------------------------------
+
+export function subscribeToRows(
+  workspaceId: string,
+  pageId: string,
+  onData: (rows: PageRow[]) => void
+) {
+  const q = query(paths.rows(workspaceId, pageId), orderBy("order", "asc"));
+  return subscribe<PageRow>(q, onData);
+}
+
+export async function addRow(
+  workspaceId: string,
+  pageId: string,
+  cells: Record<string, string | number | null>,
+  order: number
+) {
+  if (!db) throw new Error("Firebase не настроен");
+  const id = generateId("row");
+  const row: PageRow = { id, pageId, cells, order, createdAt: Date.now(), updatedAt: Date.now() };
+  await setDoc(paths.row(workspaceId, pageId, id), row);
+  return row;
+}
+
+interface UpdateCellContext {
+  workspaceId: string;
+  pageId: string;
+  pageName: string;
+  rowId: string;
+  field: string;
+  fieldLabel: string;
+  oldValue: string | number | null;
+  newValue: string | number | null;
+  userId: string;
+  userName: string;
+  action?: "update" | "restore";
+}
+
+export async function updateRowCell(ctx: UpdateCellContext) {
+  if (!db) return;
+  await setDoc(
+    paths.row(ctx.workspaceId, ctx.pageId, ctx.rowId),
+    { cells: { [ctx.field]: ctx.newValue }, updatedAt: Date.now() },
+    { merge: true }
+  );
+  if (ctx.oldValue !== ctx.newValue) {
+    await logChange({
+      workspaceId: ctx.workspaceId,
+      pageId: ctx.pageId,
+      pageName: ctx.pageName,
+      rowId: ctx.rowId,
+      field: ctx.field,
+      fieldLabel: ctx.fieldLabel,
+      oldValue: ctx.oldValue,
+      newValue: ctx.newValue,
+      action: ctx.action ?? "update",
+      userId: ctx.userId,
+      userName: ctx.userName,
+    });
+  }
+}
+
+export async function updateRowCellsBulk(
+  workspaceId: string,
+  pageId: string,
+  rowId: string,
+  patch: Record<string, string | number | null>
+) {
+  if (!db) return;
+  await setDoc(
+    paths.row(workspaceId, pageId, rowId),
+    { cells: patch, updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
+export async function updateRowHeight(
+  workspaceId: string,
+  pageId: string,
+  rowId: string,
+  height: number
+) {
+  if (!db) return;
+  await setDoc(paths.row(workspaceId, pageId, rowId), { height }, { merge: true });
+}
+
+export async function deleteRow(workspaceId: string, pageId: string, rowId: string) {
+  if (!db) return;
+  await deleteDoc(paths.row(workspaceId, pageId, rowId));
+}
+
+export async function duplicateRow(workspaceId: string, pageId: string, row: PageRow, order: number) {
+  if (!db) return;
+  const id = generateId("row");
+  await setDoc(paths.row(workspaceId, pageId, id), {
+    ...row,
+    id,
+    order,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+}
+
+export async function reorderRows(workspaceId: string, pageId: string, orderedRowIds: string[]) {
+  if (!db) return;
+  const batch = writeBatch(db);
+  orderedRowIds.forEach((rowId, index) => {
+    batch.set(paths.row(workspaceId, pageId, rowId), { order: index }, { merge: true });
+  });
+  await batch.commit();
+}
+
+
+
+============================================================
+FILE: src\types\inbox.ts
+============================================================
+
+/** Denormalized summary doc per private chat — lets the inbox list conversations without discovering chatIds another way. */
+export interface PrivateChatMeta {
+  id: string;
+  participants: [string, string];
+  lastMessageText: string;
+  lastMessageAt: number;
+  lastMessageFromUid: string;
+  lastMessageFromName: string;
+}
+
+/** "workspaceChat" or "private:<chatId>" — tracks when this user last read that conversation. */
+export interface ReadMarker {
+  id: string;
+  uid: string;
+  context: string;
+  lastReadAt: number;
+}
+
+
+
+============================================================
+FILE: src\utils\cn.ts
+============================================================
+
+import { type ClassValue, clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+
+
+============================================================
+FILE: src\utils\permissions.ts
+============================================================
+
+import type { Role, WorkspacePage } from "@/types";
+
+/**
+ * Access model: the Owner is the only role with blanket, implicit access to
+ * everything in the workspace. Every other member — regardless of role —
+ * only sees/opens a page if their uid is explicitly listed in that page's
+ * `allowedUsers`. This is enforced identically on the server in
+ * firestore.rules; these client-side checks exist purely for UX (hiding nav
+ * items, showing "Access denied") and must never be the only line of defense.
+ */
+
+export function canManageWorkspace(role: Role): boolean {
+  return role === "owner";
+}
+
+export function canInviteMembers(role: Role): boolean {
+  return role === "owner";
+}
+
+export function canChangeRoles(role: Role): boolean {
+  return role === "owner";
+}
+
+export function canRemoveMembers(role: Role): boolean {
+  return role === "owner";
+}
+
+export function canCreatePages(role: Role): boolean {
+  return role === "owner";
+}
+
+export function canEditPageStructure(role: Role): boolean {
+  return role === "owner";
+}
+
+export function canManagePagePermissions(role: Role): boolean {
+  return role === "owner";
+}
+
+export function canViewHistory(role: Role): boolean {
+  return role === "owner";
+}
+
+export function canRestoreHistory(role: Role): boolean {
+  return role === "owner";
+}
+
+/** Owner and Admin may post/edit/pin/archive/delete announcements. */
+export function canManageAnnouncements(role: Role): boolean {
+  return role === "owner" || role === "admin";
+}
+
+/** Only the Owner may send notifications (as opposed to merely posting an announcement). */
+export function canSendNotifications(role: Role): boolean {
+  return role === "owner";
+}
+
+/** Whether a given user (role + uid) may open a specific workspace page at all. */
+export function canAccessPage(page: WorkspacePage, role: Role, uid: string): boolean {
+  if (role === "owner") return true;
+  if (isResponsibleForPage(page, uid)) return true;
+  return page.allowedUsers.includes(uid);
+}
+
+/**
+ * Whether a user may edit row data on a specific page (not just view it).
+ * Being in `allowedUsers` alone is no longer enough — edit rights are now a
+ * separate, explicit grant (`editableUsers`) on top of view access, managed
+ * by the Owner or this page's responsible person. Owner and the responsible
+ * person can always edit regardless of this list.
+ */
+export function canEditPageData(page: WorkspacePage, role: Role, uid: string): boolean {
+  if (role === "owner") return true;
+  if (isResponsibleForPage(page, uid)) return true;
+  if (!canAccessPage(page, role, uid)) return false;
+  return Boolean(page.editableUsers?.includes(uid));
+}
+
+/** Only the person the Owner assigned as responsible for this page may toggle its visibility to others. */
+export function isResponsibleForPage(page: WorkspacePage, uid: string): boolean {
+  return Boolean(page.responsibleUserId) && page.responsibleUserId === uid;
+}
+
+/**
+ * Page-scoped "administrator" rights: full control over THIS ONE page
+ * (rename, colour/icon, columns, subpages, who has access) without any of
+ * the workspace-wide Owner powers (roles, billing, other pages, deleting
+ * the workspace). Owner always qualifies; otherwise only the person
+ * explicitly assigned as this page's responsible.
+ */
+export function canManagePage(page: WorkspacePage, role: Role, uid: string): boolean {
+  return role === "owner" || isResponsibleForPage(page, uid);
+}
+
+/** Only Owner or Admin may assign/change who is responsible for a page. */
+export function canAssignResponsible(role: Role): boolean {
+  return role === "owner" || role === "admin";
+}
+

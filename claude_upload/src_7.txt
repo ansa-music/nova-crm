@@ -1,0 +1,1399 @@
+
+
+============================================================
+FILE: src\components\common\ColorPicker.tsx
+============================================================
+
+import { Check } from "lucide-react";
+import { cn } from "@/utils/cn";
+
+export const COLOR_PRESETS: string[] = [
+  "243 75% 59%", // indigo
+  "271 81% 56%", // violet
+  "199 89% 48%", // sky
+  "152 60% 40%", // emerald
+  "38 92% 50%", // amber
+  "0 72% 51%", // red
+  "330 81% 60%", // pink
+  "24 75% 50%", // orange
+  "240 4% 46%", // slate
+];
+
+interface ColorPickerProps {
+  value: string;
+  onChange: (color: string) => void;
+}
+
+export function ColorPicker({ value, onChange }: ColorPickerProps) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {COLOR_PRESETS.map((color) => (
+        <button
+          key={color}
+          type="button"
+          onClick={() => onChange(color)}
+          className="flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-110"
+          style={{ backgroundColor: `hsl(${color})` }}
+        >
+          {value === color && <Check className="h-4 w-4 text-white" />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\history\HistoryPanel.tsx
+============================================================
+
+import { History, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { toast } from "@/components/ui/sonner";
+import { useHistoryLog } from "@/hooks/useHistoryLog";
+import { usePermissions } from "@/hooks/usePermissions";
+import { useAuth } from "@/hooks/useAuth";
+import { updateRowCell } from "@/services/pageService";
+import { timeAgo } from "@/utils/date";
+import type { HistoryEntry } from "@/types";
+
+const ACTION_ICON = { create: Plus, update: Pencil, delete: Trash2, restore: RotateCcw } as const;
+
+interface HistoryPanelProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  workspaceId: string;
+  pageId?: string;
+}
+
+export function HistoryPanel({ open, onOpenChange, workspaceId, pageId }: HistoryPanelProps) {
+  const { entries } = useHistoryLog(workspaceId, pageId);
+  const permissions = usePermissions();
+  const { profile } = useAuth();
+
+  async function handleRestore(entry: HistoryEntry) {
+    if (!entry.pageId || !entry.rowId || !entry.field) return;
+    await updateRowCell({
+      workspaceId,
+      pageId: entry.pageId,
+      pageName: entry.pageName ?? "",
+      rowId: entry.rowId,
+      field: entry.field,
+      fieldLabel: entry.fieldLabel ?? entry.field,
+      oldValue: entry.newValue,
+      newValue: entry.oldValue,
+      userId: profile?.uid ?? "",
+      userName: profile?.name ?? "Пользователь",
+      action: "restore",
+    });
+    toast.success("Значение восстановлено");
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full max-w-md">
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2">
+            <History className="h-4 w-4" /> История изменений
+          </SheetTitle>
+        </SheetHeader>
+        <div className="mt-4 flex flex-col gap-1 overflow-y-auto scrollbar-thin" style={{ maxHeight: "calc(100vh - 6rem)" }}>
+          {entries.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">История пуста</p>}
+          {entries.map((entry) => {
+            const Icon = ACTION_ICON[entry.action];
+            return (
+              <div key={entry.id} className="flex items-start gap-3 rounded-lg border border-transparent px-2 py-2.5 hover:border-border hover:bg-accent/30">
+                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                  <Icon className="h-3.5 w-3.5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm">
+                    <span className="font-medium">{entry.userName}</span>{" "}
+                    {entry.action === "update" && (
+                      <>
+                        изменил(а) «{entry.fieldLabel ?? entry.field}»: <span className="text-muted-foreground line-through">{String(entry.oldValue ?? "—")}</span>{" "}
+                        → <span className="font-medium">{String(entry.newValue ?? "—")}</span>
+                      </>
+                    )}
+                    {entry.action === "restore" && (
+                      <>восстановил(а) «{entry.fieldLabel ?? entry.field}» до {String(entry.newValue ?? "—")}</>
+                    )}
+                    {entry.action === "create" && "добавил(а) запись"}
+                    {entry.action === "delete" && "удалил(а) запись"}
+                  </p>
+                  <div className="mt-0.5 flex items-center gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      {entry.pageName && `${entry.pageName} · `}
+                      {timeAgo(entry.timestamp)}
+                    </p>
+                    {permissions.canRestoreHistory && entry.action === "update" && entry.rowId && (
+                      <button
+                        onClick={() => handleRestore(entry)}
+                        className="text-xs font-medium text-primary hover:underline"
+                      >
+                        Восстановить
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\pagesnav\CreatePageDialog.tsx
+============================================================
+
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Loader2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { toast } from "@/components/ui/sonner";
+import { IconPicker } from "@/components/common/IconPicker";
+import { ColorPicker, COLOR_PRESETS } from "@/components/common/ColorPicker";
+import { pageSchema, type PageFormValues } from "@/utils/validation";
+import { createPage } from "@/services/pageService";
+import { useAuth } from "@/hooks/useAuth";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import type { PageColumn, PageIconName } from "@/types";
+
+interface CreatePageDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+const BLANK_COLUMNS: Omit<PageColumn, "id">[] = [
+  { key: "name", label: "Название", type: "text", width: 220, order: 0 },
+  { key: "status", label: "Статус", type: "status", width: 150, order: 1, statusOptions: [
+    { value: "todo", label: "К выполнению", color: "240 4% 46%" },
+    { value: "active", label: "В работе", color: "38 92% 50%" },
+    { value: "done", label: "Готово", color: "142 71% 45%" },
+  ] },
+  { key: "note", label: "Примечание", type: "text", width: 220, order: 2 },
+];
+
+export function CreatePageDialog({ open, onOpenChange }: CreatePageDialogProps) {
+  const { profile } = useAuth();
+  const { activeWorkspaceId, pages, members } = useWorkspace();
+  const [icon, setIcon] = useState<PageIconName>("LayoutGrid");
+  const [color, setColor] = useState(COLOR_PRESETS[2]);
+  const [allowedUsers, setAllowedUsers] = useState<string[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const form = useForm<PageFormValues>({
+    resolver: zodResolver(pageSchema),
+    defaultValues: { name: "" },
+  });
+
+  function toggleUser(uid: string) {
+    setAllowedUsers((prev) => (prev.includes(uid) ? prev.filter((u) => u !== uid) : [...prev, uid]));
+  }
+
+  async function onSubmit(values: PageFormValues) {
+    if (!profile || !activeWorkspaceId) return;
+    setIsSubmitting(true);
+    try {
+      await createPage({
+        workspaceId: activeWorkspaceId,
+        name: values.name,
+        icon,
+        color,
+        columns: BLANK_COLUMNS,
+        allowedUsers,
+        createdBy: profile.uid,
+        order: pages.length,
+      });
+      toast.success(`Страница «${values.name}» создана`);
+      form.reset();
+      setAllowedUsers([]);
+      onOpenChange(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось создать страницу");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  const otherMembers = members.filter((m) => m.status === "active" && m.uid !== profile?.uid);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Новая страница</DialogTitle>
+          <DialogDescription>Таблица с настраиваемыми столбцами внутри текущего workspace.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="page-name">Название</Label>
+            <Input id="page-name" placeholder="Например, Задачи" {...form.register("name")} />
+            {form.formState.errors.name && (
+              <p className="text-xs text-destructive">{form.formState.errors.name.message}</p>
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Цвет</Label>
+            <ColorPicker value={color} onChange={setColor} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Иконка</Label>
+            <IconPicker value={icon} onChange={setIcon} color={color} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Кому дать доступ (кроме вас — вы Owner и видите всё)</Label>
+            <div className="flex max-h-40 flex-col gap-2 overflow-y-auto rounded-lg border border-border p-3">
+              {otherMembers.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  В workspace пока нет других участников — доступ можно выдать позже на странице «Пользователи».
+                </p>
+              )}
+              {otherMembers.map((m) => (
+                <label key={m.uid} className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={allowedUsers.includes(m.uid)} onCheckedChange={() => toggleUser(m.uid)} />
+                  <span className="truncate">{m.name}</span>
+                  <span className="truncate text-xs text-muted-foreground">{m.email}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Создать страницу
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\table\SubPageStats.tsx
+============================================================
+
+import { useMemo } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { formatCurrency } from "@/utils/format";
+import { cn } from "@/utils/cn";
+import type { PageColumn, PageRow } from "@/types";
+
+const PERCENTS = [5, 8, 10, 12];
+
+interface SubPageStatsProps {
+  columns: PageColumn[];
+  rows: PageRow[];
+}
+
+export function SubPageStats({ columns, rows }: SubPageStatsProps) {
+  const stats = useMemo(() => {
+    const priceCol = columns.find((c) => c.type === "currency");
+    const statusCol = columns.find((c) => c.type === "status");
+    if (!priceCol) return null;
+
+    let grandTotal = 0;
+    let doneTotal = 0;
+    for (const row of rows) {
+      const raw = Number(row.cells[priceCol.key] ?? 0) || 0;
+      grandTotal += raw;
+      if (statusCol) {
+        const rawStatus = String(row.cells[statusCol.key] ?? "");
+        const label = statusCol.statusOptions?.find((o) => o.value === rawStatus)?.label ?? rawStatus;
+        if (label.toLowerCase().includes("готов")) doneTotal += raw;
+      }
+    }
+    return { grandTotal, doneTotal };
+  }, [columns, rows]);
+
+  if (!stats) return null;
+
+  return (
+    <div className="border-b border-border p-3 sm:p-4">
+      {/* Mobile: compact horizontal-scroll strip of pills — keeps the table
+          visible above the fold instead of pushing it far down the screen. */}
+      <div className="flex gap-2 overflow-x-auto scrollbar-thin sm:hidden">
+        <StatPill label="Готово" value={stats.doneTotal} accent />
+        <StatPill label="Общий" value={stats.grandTotal} />
+        {PERCENTS.map((pct) => (
+          <StatPill key={pct} label={`${pct}%`} value={(stats.doneTotal * pct) / 100} />
+        ))}
+      </div>
+
+      {/* sm+ : full card grid */}
+      <div className="hidden gap-3 sm:grid sm:grid-cols-3 lg:grid-cols-6">
+        <Card className="glass-panel border-emerald-500/20 bg-emerald-500/5">
+          <CardContent className="p-3">
+            <p className="text-xs text-muted-foreground">Готово</p>
+            <p className="mt-1 text-lg font-semibold text-emerald-500">{formatCurrency(stats.doneTotal)}</p>
+          </CardContent>
+        </Card>
+        <Card className="glass-panel">
+          <CardContent className="p-3">
+            <p className="text-xs text-muted-foreground">Общий доход</p>
+            <p className="mt-1 text-lg font-semibold">{formatCurrency(stats.grandTotal)}</p>
+          </CardContent>
+        </Card>
+        {PERCENTS.map((pct) => (
+          <Card key={pct} className="glass-panel">
+            <CardContent className="p-3">
+              <p className="text-xs text-muted-foreground">{pct}%</p>
+              <p className="mt-1 text-lg font-semibold">{formatCurrency((stats.doneTotal * pct) / 100)}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StatPill({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
+  return (
+    <div
+      className={cn(
+        "glass-panel flex shrink-0 flex-col gap-0.5 rounded-lg border px-3 py-2",
+        accent ? "border-emerald-500/20 bg-emerald-500/5" : "border-border"
+      )}
+    >
+      <span className="text-[10px] text-muted-foreground">{label}</span>
+      <span className={cn("text-sm font-semibold whitespace-nowrap", accent && "text-emerald-500")}>
+        {formatCurrency(value)}
+      </span>
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\ui\card.tsx
+============================================================
+
+import * as React from "react";
+import { cn } from "@/utils/cn";
+
+export const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => (
+    <div
+      ref={ref}
+      className={cn("rounded-xl border border-border bg-card text-card-foreground shadow-card", className)}
+      {...props}
+    />
+  )
+);
+Card.displayName = "Card";
+
+export const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => (
+    <div ref={ref} className={cn("flex flex-col gap-1 p-5", className)} {...props} />
+  )
+);
+CardHeader.displayName = "CardHeader";
+
+export const CardTitle = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLHeadingElement>>(
+  ({ className, ...props }, ref) => (
+    <h3 ref={ref} className={cn("text-sm font-semibold leading-none", className)} {...props} />
+  )
+);
+CardTitle.displayName = "CardTitle";
+
+export const CardDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(
+  ({ className, ...props }, ref) => (
+    <p ref={ref} className={cn("text-sm text-muted-foreground", className)} {...props} />
+  )
+);
+CardDescription.displayName = "CardDescription";
+
+export const CardContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => <div ref={ref} className={cn("p-5 pt-0", className)} {...props} />
+);
+CardContent.displayName = "CardContent";
+
+export const CardFooter = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => (
+    <div ref={ref} className={cn("flex items-center p-5 pt-0", className)} {...props} />
+  )
+);
+CardFooter.displayName = "CardFooter";
+
+
+
+============================================================
+FILE: src\components\ui\scroll-area.tsx
+============================================================
+
+import * as React from "react";
+import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
+import { cn } from "@/utils/cn";
+
+export const ScrollArea = React.forwardRef<
+  React.ElementRef<typeof ScrollAreaPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root>
+>(({ className, children, ...props }, ref) => (
+  <ScrollAreaPrimitive.Root ref={ref} className={cn("relative overflow-hidden", className)} {...props}>
+    <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">
+      {children}
+    </ScrollAreaPrimitive.Viewport>
+    <ScrollBar />
+    <ScrollAreaPrimitive.Corner />
+  </ScrollAreaPrimitive.Root>
+));
+ScrollArea.displayName = "ScrollArea";
+
+export const ScrollBar = React.forwardRef<
+  React.ElementRef<typeof ScrollAreaPrimitive.ScrollAreaScrollbar>,
+  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.ScrollAreaScrollbar>
+>(({ className, orientation = "vertical", ...props }, ref) => (
+  <ScrollAreaPrimitive.ScrollAreaScrollbar
+    ref={ref}
+    orientation={orientation}
+    className={cn(
+      "flex touch-none select-none transition-colors",
+      orientation === "vertical" && "h-full w-2.5 border-l border-l-transparent p-[1px]",
+      orientation === "horizontal" && "h-2.5 flex-col border-t border-t-transparent p-[1px]",
+      className
+    )}
+    {...props}
+  >
+    <ScrollAreaPrimitive.ScrollAreaThumb className="relative flex-1 rounded-full bg-border" />
+  </ScrollAreaPrimitive.ScrollAreaScrollbar>
+));
+ScrollBar.displayName = "ScrollBar";
+
+
+
+============================================================
+FILE: src\components\ui\tooltip.tsx
+============================================================
+
+import * as React from "react";
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import { cn } from "@/utils/cn";
+
+export const TooltipProvider = TooltipPrimitive.Provider;
+export const Tooltip = TooltipPrimitive.Root;
+export const TooltipTrigger = TooltipPrimitive.Trigger;
+
+export const TooltipContent = React.forwardRef<
+  React.ElementRef<typeof TooltipPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
+>(({ className, sideOffset = 6, ...props }, ref) => (
+  <TooltipPrimitive.Portal>
+    <TooltipPrimitive.Content
+      ref={ref}
+      sideOffset={sideOffset}
+      className={cn(
+        "z-50 overflow-hidden rounded-md bg-foreground px-2.5 py-1.5 text-xs text-background shadow-md animate-in fade-in-0 zoom-in-95",
+        className
+      )}
+      {...props}
+    />
+  </TooltipPrimitive.Portal>
+));
+TooltipContent.displayName = "TooltipContent";
+
+
+
+============================================================
+FILE: src\hooks\useHistoryLog.ts
+============================================================
+
+import { useEffect, useState } from "react";
+import { subscribeToHistory } from "@/services/historyService";
+import type { HistoryEntry } from "@/types";
+
+export function useHistoryLog(workspaceId: string | null, pageId?: string) {
+  const [entries, setEntries] = useState<HistoryEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!workspaceId) {
+      setEntries([]);
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    const unsubscribe = subscribeToHistory(workspaceId, (data) => {
+      setEntries(pageId ? data.filter((e) => e.pageId === pageId) : data);
+      setIsLoading(false);
+    });
+    return unsubscribe;
+  }, [workspaceId, pageId]);
+
+  return { entries, isLoading };
+}
+
+
+
+============================================================
+FILE: src\hooks\useSubPageData.ts
+============================================================
+
+import { useEffect, useState } from "react";
+import { subscribeToSubPages, subscribeToSubPageRows } from "@/services/subPageService";
+import type { PageRow, SubPage } from "@/types";
+
+export function useSubPages(workspaceId: string | null, pageId: string | null) {
+  const [subPages, setSubPages] = useState<SubPage[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!workspaceId || !pageId) {
+      setSubPages([]);
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    const unsubscribe = subscribeToSubPages(workspaceId, pageId, (data) => {
+      setSubPages(data);
+      setIsLoading(false);
+    });
+    return unsubscribe;
+  }, [workspaceId, pageId]);
+
+  return { subPages, isLoading };
+}
+
+export function useSubPageRows(workspaceId: string | null, pageId: string | null, subPageId: string | null) {
+  const [rows, setRows] = useState<PageRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!workspaceId || !pageId || !subPageId) {
+      setRows([]);
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    const unsubscribe = subscribeToSubPageRows(workspaceId, pageId, subPageId, (data) => {
+      setRows(data);
+      setIsLoading(false);
+    });
+    return unsubscribe;
+  }, [workspaceId, pageId, subPageId]);
+
+  return { rows, isLoading };
+}
+
+
+
+============================================================
+FILE: src\pages\DynamicTablePage.tsx
+============================================================
+
+import { useEffect, useRef, useState } from "react";
+import { useParams } from "react-router";
+import { Eye, EyeOff, History, Lock, MessageSquare, Settings2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { DataTable } from "@/components/table/DataTable";
+import { SubPageTabs } from "@/components/table/SubPageTabs";
+import { SubPageStats } from "@/components/table/SubPageStats";
+import { EditPageDialog } from "@/components/pagesnav/EditPageDialog";
+import { HistoryPanel } from "@/components/history/HistoryPanel";
+import { PageChatPanel } from "@/components/chat/PageChatPanel";
+import { toast } from "@/components/ui/sonner";
+import { PAGE_ICON_MAP } from "@/utils/pageIcons";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { usePageRows } from "@/hooks/usePageRows";
+import { useSubPages, useSubPageRows } from "@/hooks/useSubPageData";
+import { usePermissions } from "@/hooks/usePermissions";
+import { useAuth } from "@/hooks/useAuth";
+import { ensurePriceColumn, togglePageVisibility } from "@/services/pageService";
+import type { PageIconName } from "@/types";
+
+export default function DynamicTablePage() {
+  const { pageId } = useParams<{ pageId: string }>();
+  const { activeWorkspaceId, pages, members, isLoadingWorkspaceData } = useWorkspace();
+  const permissions = usePermissions();
+  const { profile } = useAuth();
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activeSubPageId, setActiveSubPageId] = useState<string | null>(null);
+
+  const page = pages.find((p) => p.id === pageId);
+  const hasAccess = Boolean(page && permissions.canAccessPage(page));
+  const { rows: pageRows, isLoading: pageRowsLoading } = usePageRows(activeWorkspaceId, hasAccess && page ? page.id : null);
+  const { subPages } = useSubPages(activeWorkspaceId, hasAccess && page ? page.id : null);
+  const activeSubPage = subPages.find((s) => s.id === activeSubPageId) ?? null;
+  const { rows: subPageRows, isLoading: subPageRowsLoading } = useSubPageRows(
+    activeWorkspaceId,
+    hasAccess && page ? page.id : null,
+    activeSubPageId
+  );
+
+  // Reset the active tab whenever navigating to a different page entirely.
+  useEffect(() => {
+    setActiveSubPageId(null);
+  }, [pageId]);
+
+  const rows = activeSubPageId ? subPageRows : pageRows;
+  const rowsLoading = activeSubPageId ? subPageRowsLoading : pageRowsLoading;
+
+  // Retrofit: pages created before "Цена" became a standard column don't
+  // have one. If an Owner/Admin opens such a page, silently add it once
+  // (no-ops server-side if a currency column already exists).
+  const priceMigrationRan = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!page || !hasAccess || !permissions.canManagePage(page)) return;
+    if (priceMigrationRan.current.has(page.id)) return;
+    if (page.columns.some((c) => c.type === "currency")) return;
+    priceMigrationRan.current.add(page.id);
+    ensurePriceColumn(page.workspaceId, page.id, page.columns).catch((err) =>
+      console.error("Не удалось добавить колонку «Цена»:", err)
+    );
+  }, [page, hasAccess, permissions.canManagePage]);
+
+  if (isLoadingWorkspaceData) {
+    return (
+      <div className="p-6">
+        <Skeleton className="mb-4 h-8 w-48" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  if (!page) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+        <p className="text-lg font-semibold">Страница не найдена</p>
+        <p className="text-sm text-muted-foreground">Возможно, она была удалена или у вас нет к ней доступа.</p>
+      </div>
+    );
+  }
+
+  if (!hasAccess) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+        <Lock className="h-8 w-8 text-muted-foreground" />
+        <p className="text-lg font-semibold">Access denied</p>
+        <p className="text-sm text-muted-foreground">
+          У вас нет доступа к этой странице. Обратитесь к Owner workspace, чтобы получить доступ.
+        </p>
+      </div>
+    );
+  }
+
+  const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid;
+  const canEditData = permissions.canEditPageData(page);
+  const isResponsible = permissions.isResponsibleForPage(page);
+
+  async function handleToggleVisibility() {
+    if (!page) return;
+    const willShow = Boolean(page.hiddenByResponsible);
+    try {
+      const allActiveMemberUids = members.filter((m) => m.status === "active").map((m) => m.uid);
+      await togglePageVisibility(page.workspaceId, page.id, willShow, allActiveMemberUids, page.responsibleUserId);
+      toast.success(
+        willShow
+          ? "Страница видна всем — доступ на просмотр (без редактирования)"
+          : "Доступ убран у всех, кроме вас и Owner"
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось изменить видимость");
+    }
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-2 border-b border-border px-6 py-4">
+        <span
+          className="flex h-8 w-8 items-center justify-center rounded-lg"
+          style={{ backgroundColor: `hsl(${page.color} / 0.15)`, color: `hsl(${page.color})` }}
+        >
+          <Icon className="h-4 w-4" />
+        </span>
+        <h1 className="text-lg font-semibold">{page.name}</h1>
+        {!canEditData && (
+          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Только просмотр</span>
+        )}
+        <div className="flex-1" />
+        {isResponsible && (
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleToggleVisibility}>
+            {page.hiddenByResponsible ? (
+              <>
+                <EyeOff className="h-3.5 w-3.5 text-destructive" /> Скрыто от других
+              </>
+            ) : (
+              <>
+                <Eye className="h-3.5 w-3.5" /> Видно другим
+              </>
+            )}
+          </Button>
+        )}
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setChatOpen(true)}>
+          <MessageSquare className="h-3.5 w-3.5" /> Чат страницы
+        </Button>
+        {permissions.canViewHistory && (
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setHistoryOpen(true)}>
+            <History className="h-3.5 w-3.5" /> История
+          </Button>
+        )}
+        {(permissions.canManagePage(page) || permissions.canAssignResponsible) && (
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setSettingsOpen(true)}>
+            <Settings2 className="h-3.5 w-3.5" /> Настройки
+          </Button>
+        )}
+      </div>
+
+      <SubPageTabs
+        workspaceId={page.workspaceId}
+        page={page}
+        subPages={subPages}
+        activeSubPageId={activeSubPageId}
+        onSelect={setActiveSubPageId}
+        canManage={canEditData || permissions.canManagePage(page)}
+        userId={profile?.uid ?? ""}
+      />
+
+      {activeSubPage && <SubPageStats columns={activeSubPage.columns} rows={subPageRows} />}
+
+      <div className="flex-1 overflow-hidden">
+        {rowsLoading ? (
+          <div className="p-6">
+            <Skeleton className="h-64 w-full" />
+          </div>
+        ) : (
+          <DataTable
+            workspaceId={page.workspaceId}
+            page={activeSubPage ? { ...page, columns: activeSubPage.columns } : page}
+            subPageId={activeSubPage?.id}
+            rows={rows}
+            canEdit={canEditData}
+            canEditStructure={permissions.canManagePage(page)}
+            userId={profile?.uid ?? ""}
+            userName={profile?.name ?? "Пользователь"}
+          />
+        )}
+      </div>
+
+      {settingsOpen && <EditPageDialog page={page} onOpenChange={() => setSettingsOpen(false)} />}
+      {permissions.canViewHistory && (
+        <HistoryPanel open={historyOpen} onOpenChange={setHistoryOpen} workspaceId={page.workspaceId} pageId={page.id} />
+      )}
+      <PageChatPanel open={chatOpen} onOpenChange={setChatOpen} workspaceId={page.workspaceId} pageId={page.id} pageName={page.name} />
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\services\authService.ts
+============================================================
+
+import { arrayRemove, arrayUnion, doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import type { User } from "firebase/auth";
+import { db } from "@/firebase/firebase";
+import { paths } from "@/firebase/firestore";
+import type { AppUser } from "@/types";
+
+/** Ensures a `users/{uid}` profile document exists after sign-in. */
+export async function ensureUserProfile(user: User): Promise<AppUser> {
+  if (!db) throw new Error("Firebase не настроен");
+  const ref = paths.user(user.uid);
+  const snapshot = await getDoc(ref);
+  if (snapshot.exists()) {
+    return snapshot.data() as AppUser;
+  }
+  const profile: AppUser = {
+    uid: user.uid,
+    email: user.email ?? "",
+    name: user.displayName ?? user.email?.split("@")[0] ?? "Пользователь",
+    photoURL: user.photoURL ?? null,
+    createdAt: Date.now(),
+    workspaceIds: [],
+  };
+  await setDoc(ref, { ...profile, createdAt: serverTimestamp() });
+  return profile;
+}
+
+export async function updateUserDoc(uid: string, patch: Partial<AppUser>) {
+  if (!db) return;
+  await setDoc(doc(paths.users(), uid), patch, { merge: true });
+}
+
+/**
+ * Best-effort: after a person sets/changes their nickname, sync it onto
+ * their own member doc in every workspace they already belong to (each
+ * write is self-service — allowed by rules to touch only the nickname
+ * field on one's own member record). Any single workspace failing here
+ * (e.g. a stale id) is silently skipped, never blocks the others.
+ */
+export async function syncNicknameToMemberships(uid: string, workspaceIds: string[], nickname: string) {
+  await Promise.all(
+    workspaceIds.map(async (workspaceId) => {
+      try {
+        await setDoc(paths.member(workspaceId, uid), { nickname }, { merge: true });
+      } catch (error) {
+        console.error(`Failed to sync nickname to workspace ${workspaceId}:`, error);
+      }
+    })
+  );
+}
+
+/**
+ * Presence heartbeat: refreshes `lastActiveAt` on the person's own member
+ * doc in every workspace they belong to. Called periodically while the app
+ * is open (see useHeartbeat hook) — never blocks on failure.
+ */
+export async function updatePresenceHeartbeat(uid: string, workspaceIds: string[]) {
+  await Promise.all(
+    workspaceIds.map(async (workspaceId) => {
+      try {
+        await setDoc(paths.member(workspaceId, uid), { lastActiveAt: Date.now() }, { merge: true });
+      } catch (error) {
+        console.error(`Failed to update presence heartbeat for workspace ${workspaceId}:`, error);
+      }
+    })
+  );
+}
+
+/**
+ * Self-service only (the rules only allow a user to write their own doc):
+ * call this as the person who just gained membership, right after their own
+ * member doc was created (workspace creation, invite acceptance, or a
+ * join-request they see flip to "approved").
+ */
+export async function addOwnWorkspaceId(uid: string, workspaceId: string) {
+  if (!db) return;
+  await setDoc(doc(paths.users(), uid), { workspaceIds: arrayUnion(workspaceId) }, { merge: true });
+}
+
+/** Self-service removal — call as the person leaving/losing access. */
+export async function removeOwnWorkspaceId(uid: string, workspaceId: string) {
+  if (!db) return;
+  await setDoc(doc(paths.users(), uid), { workspaceIds: arrayRemove(workspaceId) }, { merge: true });
+}
+
+
+
+============================================================
+FILE: src\services\subPageService.ts
+============================================================
+
+import {
+  deleteDoc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  writeBatch,
+} from "firebase/firestore";
+import { db } from "@/firebase/firebase";
+import { paths, subscribe, withErrorReporting } from "@/firebase/firestore";
+import { generateId } from "@/utils/id";
+import { stripUndefined } from "@/services/pageService";
+import type { PageColumn, PageIconName, PageRow, StatusOption, SubPage } from "@/types";
+
+// ---------------------------------------------------------------------------
+// Subpages themselves (the tabs)
+// ---------------------------------------------------------------------------
+
+export function subscribeToSubPages(
+  workspaceId: string,
+  pageId: string,
+  onData: (subPages: SubPage[]) => void,
+  onError?: (error: import("firebase/firestore").FirestoreError) => void
+) {
+  const q = query(paths.subPages(workspaceId, pageId), orderBy("order", "asc"));
+
+  // Same stale-empty-cache guard used elsewhere in the app: avoids a flash
+  // of "no tabs yet" before the real server snapshot arrives.
+  let cancelled = false;
+  let emittedOnce = false;
+  let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const unsubscribe = onSnapshot(
+    q,
+    (snapshot) => {
+      if (cancelled) return;
+      const subPages = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as SubPage);
+      if (pendingTimer) {
+        clearTimeout(pendingTimer);
+        pendingTimer = null;
+      }
+      if (snapshot.metadata.fromCache && subPages.length === 0 && !emittedOnce) {
+        pendingTimer = setTimeout(() => {
+          if (!cancelled) {
+            emittedOnce = true;
+            onData([]);
+          }
+        }, 1200);
+        return;
+      }
+      emittedOnce = true;
+      onData(subPages);
+    },
+    withErrorReporting(onError)
+  );
+
+  return () => {
+    cancelled = true;
+    if (pendingTimer) clearTimeout(pendingTimer);
+    unsubscribe();
+  };
+}
+
+export interface CreateSubPageInput {
+  workspaceId: string;
+  pageId: string;
+  name: string;
+  color: string;
+  icon: PageIconName;
+  columns: PageColumn[];
+  order: number;
+  createdBy: string;
+}
+
+export async function createSubPage(input: CreateSubPageInput): Promise<SubPage> {
+  if (!db) throw new Error("Firebase не настроен");
+  const id = generateId("sub");
+  const subPage: SubPage = {
+    id,
+    pageId: input.pageId,
+    workspaceId: input.workspaceId,
+    name: input.name,
+    color: input.color,
+    icon: input.icon,
+    order: input.order,
+    isArchived: false,
+    columns: stripUndefined(input.columns),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    createdBy: input.createdBy,
+  };
+  await setDoc(paths.subPage(input.workspaceId, input.pageId, id), {
+    ...subPage,
+    createdAt: serverTimestamp(),
+  });
+  return subPage;
+}
+
+export async function renameSubPage(workspaceId: string, pageId: string, subPageId: string, name: string) {
+  if (!db) return;
+  await setDoc(paths.subPage(workspaceId, pageId, subPageId), { name, updatedAt: Date.now() }, { merge: true });
+}
+
+export async function updateSubPageAppearance(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string,
+  patch: { color?: string; icon?: PageIconName }
+) {
+  if (!db) return;
+  await setDoc(paths.subPage(workspaceId, pageId, subPageId), { ...patch, updatedAt: Date.now() }, { merge: true });
+}
+
+export async function updateSubPageColumns(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string,
+  columns: PageColumn[]
+) {
+  if (!db) return;
+  await setDoc(
+    paths.subPage(workspaceId, pageId, subPageId),
+    { columns: stripUndefined(columns), updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
+export async function archiveSubPage(workspaceId: string, pageId: string, subPageId: string, archived: boolean) {
+  if (!db) return;
+  await setDoc(
+    paths.subPage(workspaceId, pageId, subPageId),
+    { isArchived: archived, updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
+/** Permanently removes the subpage and (best-effort) all of its rows. */
+export async function deleteSubPage(workspaceId: string, pageId: string, subPageId: string) {
+  if (!db) return;
+  const rowsSnap = await getDocs(paths.subPageRows(workspaceId, pageId, subPageId));
+  const batch = writeBatch(db);
+  rowsSnap.docs.forEach((d) => batch.delete(d.ref));
+  batch.delete(paths.subPage(workspaceId, pageId, subPageId));
+  await batch.commit();
+}
+
+export async function reorderSubPages(workspaceId: string, pageId: string, orderedIds: string[]) {
+  if (!db) return;
+  const batch = writeBatch(db);
+  orderedIds.forEach((id, index) => {
+    batch.set(paths.subPage(workspaceId, pageId, id), { order: index }, { merge: true });
+  });
+  await batch.commit();
+}
+
+/**
+ * Duplicates a subpage. `includeData: false` copies only the column
+ * structure (a fresh, empty table) — `includeData: true` also copies every
+ * row's cells.
+ */
+export async function duplicateSubPage(
+  workspaceId: string,
+  pageId: string,
+  source: SubPage,
+  nextOrder: number,
+  createdBy: string,
+  includeData: boolean
+): Promise<SubPage> {
+  if (!db) throw new Error("Firebase не настроен");
+  const copy = await createSubPage({
+    workspaceId,
+    pageId,
+    name: `${source.name} (копия)`,
+    color: source.color,
+    icon: source.icon,
+    columns: source.columns,
+    order: nextOrder,
+    createdBy,
+  });
+  if (includeData) {
+    const rowsSnap = await getDocs(paths.subPageRows(workspaceId, pageId, source.id));
+    const batch = writeBatch(db);
+    rowsSnap.docs.forEach((d, i) => {
+      const data = d.data() as PageRow;
+      const newRowId = generateId("row");
+      batch.set(paths.subPageRow(workspaceId, pageId, copy.id, newRowId), {
+        ...data,
+        id: newRowId,
+        pageId: copy.id,
+        order: i,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    await batch.commit();
+  }
+  return copy;
+}
+
+const MONTHS_RU = [
+  "январь", "февраль", "март", "апрель", "май", "июнь",
+  "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
+];
+
+/** Guesses "next month" from a subpage name like "Январь" or "Июль 2026", falling back to a generic name if it doesn't recognize a month. */
+function guessNextMonthName(currentName: string): string {
+  const trimmed = currentName.trim();
+  const match = trimmed.match(/^(\p{L}+)(\s+(\d{4}))?$/u);
+  if (!match) return "Новый месяц";
+  const word = match[1].toLowerCase();
+  const year = match[3] ? parseInt(match[3], 10) : null;
+  const idx = MONTHS_RU.findIndex((m) => m === word);
+  if (idx === -1) return "Новый месяц";
+  const nextIdx = (idx + 1) % 12;
+  const nextWord = MONTHS_RU[nextIdx][0].toUpperCase() + MONTHS_RU[nextIdx].slice(1);
+  const nextYear = year !== null ? (nextIdx === 0 ? year + 1 : year) : null;
+  return nextYear ? `${nextWord} ${nextYear}` : nextWord;
+}
+
+/** "Создать следующий месяц" — clones the current subpage's column structure (never its data) into a new, smartly-named subpage. */
+export async function createNextMonthSubPage(
+  workspaceId: string,
+  pageId: string,
+  current: SubPage,
+  nextOrder: number,
+  createdBy: string
+): Promise<SubPage> {
+  return createSubPage({
+    workspaceId,
+    pageId,
+    name: guessNextMonthName(current.name),
+    color: current.color,
+    icon: current.icon,
+    columns: current.columns,
+    order: nextOrder,
+    createdBy,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Rows within a subpage — mirrors pageService's row functions exactly,
+// nested one level deeper under /subpages/{subPageId}/rows.
+// ---------------------------------------------------------------------------
+
+export function subscribeToSubPageRows(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string,
+  onData: (rows: PageRow[]) => void
+) {
+  const q = query(paths.subPageRows(workspaceId, pageId, subPageId), orderBy("order", "asc"));
+  return subscribe<PageRow>(q, onData);
+}
+
+export async function addSubPageRow(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string,
+  cells: Record<string, string | number | null>,
+  order: number
+) {
+  if (!db) throw new Error("Firebase не настроен");
+  const id = generateId("row");
+  const row: PageRow = { id, pageId: subPageId, cells, order, createdAt: Date.now(), updatedAt: Date.now() };
+  await setDoc(paths.subPageRow(workspaceId, pageId, subPageId, id), row);
+  return row;
+}
+
+export async function updateSubPageRowCell(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string,
+  rowId: string,
+  field: string,
+  newValue: string | number | null
+) {
+  if (!db) return;
+  await setDoc(
+    paths.subPageRow(workspaceId, pageId, subPageId, rowId),
+    { cells: { [field]: newValue }, updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
+export async function updateSubPageRowCellsBulk(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string,
+  rowId: string,
+  patch: Record<string, string | number | null>
+) {
+  if (!db) return;
+  await setDoc(
+    paths.subPageRow(workspaceId, pageId, subPageId, rowId),
+    { cells: patch, updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
+export async function updateSubPageRowHeight(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string,
+  rowId: string,
+  height: number
+) {
+  if (!db) return;
+  await setDoc(paths.subPageRow(workspaceId, pageId, subPageId, rowId), { height }, { merge: true });
+}
+
+export async function deleteSubPageRow(workspaceId: string, pageId: string, subPageId: string, rowId: string) {
+  if (!db) return;
+  await deleteDoc(paths.subPageRow(workspaceId, pageId, subPageId, rowId));
+}
+
+export async function duplicateSubPageRow(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string,
+  row: PageRow,
+  order: number
+) {
+  if (!db) return;
+  const id = generateId("row");
+  await setDoc(paths.subPageRow(workspaceId, pageId, subPageId, id), {
+    ...row,
+    id,
+    order,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+}
+
+export async function reorderSubPageRows(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string,
+  orderedRowIds: string[]
+) {
+  if (!db) return;
+  const batch = writeBatch(db);
+  orderedRowIds.forEach((rowId, index) => {
+    batch.set(paths.subPageRow(workspaceId, pageId, subPageId, rowId), { order: index }, { merge: true });
+  });
+  await batch.commit();
+}
+
+// ---------------------------------------------------------------------------
+// Columns within a subpage — mirrors pageService's column functions.
+// ---------------------------------------------------------------------------
+
+export async function addSubPageColumn(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string,
+  existingColumns: PageColumn[],
+  input: { key: string; label: string; type: PageColumn["type"]; statusOptions?: StatusOption[] }
+): Promise<PageColumn> {
+  if (!db) throw new Error("Firebase не настроен");
+  const newColumn: PageColumn = {
+    id: generateId("col"),
+    key: input.key,
+    label: input.label,
+    type: input.type,
+    width: 160,
+    order: existingColumns.length,
+    statusOptions: input.statusOptions,
+  };
+  const columns = [...existingColumns, stripUndefined(newColumn)];
+  await updateSubPageColumns(workspaceId, pageId, subPageId, columns);
+  return newColumn;
+}
+
+export async function duplicateSubPageColumn(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string,
+  existingColumns: PageColumn[],
+  columnKey: string
+): Promise<PageColumn> {
+  const source = existingColumns.find((c) => c.key === columnKey);
+  if (!source) throw new Error("Столбец не найден");
+  const copy: PageColumn = {
+    ...source,
+    id: generateId("col"),
+    key: generateId("col"),
+    label: `${source.label} (копия)`,
+    order: existingColumns.length,
+  };
+  const columns = [...existingColumns, stripUndefined(copy)];
+  await updateSubPageColumns(workspaceId, pageId, subPageId, columns);
+  return copy;
+}
+
+export async function deleteSubPageColumn(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string,
+  existingColumns: PageColumn[],
+  columnKey: string
+) {
+  const columns = existingColumns.filter((c) => c.key !== columnKey).map((c, i) => ({ ...c, order: i }));
+  await updateSubPageColumns(workspaceId, pageId, subPageId, columns);
+}
+
+export async function renameSubPageColumn(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string,
+  existingColumns: PageColumn[],
+  columnKey: string,
+  newLabel: string
+) {
+  const columns = existingColumns.map((c) => (c.key === columnKey ? { ...c, label: newLabel } : c));
+  await updateSubPageColumns(workspaceId, pageId, subPageId, columns);
+}
+
+export async function changeSubPageColumnType(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string,
+  existingColumns: PageColumn[],
+  columnKey: string,
+  newType: PageColumn["type"],
+  statusOptions?: StatusOption[]
+) {
+  const columns = existingColumns.map((c) =>
+    c.key === columnKey ? stripUndefined({ ...c, type: newType, statusOptions }) : c
+  );
+  await updateSubPageColumns(workspaceId, pageId, subPageId, columns);
+}
+
+
+
+============================================================
+FILE: src\types\index.ts
+============================================================
+
+export * from "@/types/role";
+export * from "@/types/user";
+export * from "@/types/workspace";
+export * from "@/types/page";
+export * from "@/types/history";
+export * from "@/types/table";
+export * from "@/types/announcement";
+export * from "@/types/notification";
+export * from "@/types/chat";
+export * from "@/types/inbox";
+
+
+
+============================================================
+FILE: src\utils\csv.ts
+============================================================
+
+export function downloadCsv(filename: string, header: string[], rows: string[][]) {
+  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  const csv = [header.map(escape).join(";"), ...rows.map((r) => r.map(escape).join(";"))].join(
+    "\n"
+  );
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+
+
+============================================================
+FILE: src\utils\presence.ts
+============================================================
+
+export type PresenceStatus = "online" | "away" | "offline";
+
+const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+const AWAY_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+
+export function getPresenceStatus(lastActiveAt: number | undefined | null): PresenceStatus {
+  if (!lastActiveAt) return "offline";
+  const diff = Date.now() - lastActiveAt;
+  if (diff < ONLINE_THRESHOLD_MS) return "online";
+  if (diff < AWAY_THRESHOLD_MS) return "away";
+  return "offline";
+}
+
+export const PRESENCE_LABEL: Record<PresenceStatus, string> = {
+  online: "В сети",
+  away: "Был(а) недавно",
+  offline: "Не в сети",
+};
+
+export const PRESENCE_DOT_COLOR: Record<PresenceStatus, string> = {
+  online: "bg-emerald-500",
+  away: "bg-amber-500",
+  offline: "bg-muted-foreground/50",
+};
+

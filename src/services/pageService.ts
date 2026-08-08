@@ -4,7 +4,6 @@ import {
   onSnapshot,
   orderBy,
   query,
-  serverTimestamp,
   setDoc,
   where,
   writeBatch,
@@ -119,6 +118,7 @@ export interface CreatePageInput {
 export async function createPage(input: CreatePageInput): Promise<WorkspacePage> {
   if (!db) throw new Error("Firebase не настроен");
   const id = generateId("page");
+  const allowedUsers = Array.from(new Set([...input.allowedUsers, input.createdBy]));
   const page: WorkspacePage = {
     id,
     workspaceId: input.workspaceId,
@@ -126,13 +126,17 @@ export async function createPage(input: CreatePageInput): Promise<WorkspacePage>
     icon: input.icon,
     color: input.color,
     order: input.order,
-    allowedUsers: input.allowedUsers,
+    allowedUsers,
+    // The creator becomes this page's responsible person — matters most for
+    // a Manager/Admin, who has no blanket workspace access otherwise and
+    // would be unable to see the page they themselves just made.
+    responsibleUserId: input.createdBy,
     columns: input.columns.map((c, i) => stripUndefined({ ...c, id: generateId("col"), order: i })),
     createdAt: Date.now(),
     updatedAt: Date.now(),
     createdBy: input.createdBy,
   };
-  await setDoc(paths.page(input.workspaceId, id), stripUndefined({ ...page, createdAt: serverTimestamp() }));
+  await setDoc(paths.page(input.workspaceId, id), stripUndefined(page));
   return page;
 }
 

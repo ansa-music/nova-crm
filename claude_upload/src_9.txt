@@ -1,0 +1,1007 @@
+
+
+============================================================
+FILE: src\components\common\GlobalMessageToaster.tsx
+============================================================
+
+import { useEffect, useRef } from "react";
+import { useLocation, useNavigate } from "react-router";
+import { toast } from "@/components/ui/sonner";
+import { useAuth } from "@/hooks/useAuth";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { useInboxSummary } from "@/hooks/useInboxSummary";
+import { displayNameOf } from "@/utils/displayName";
+
+/** Mount once near the app root. Renders nothing — purely a side-effect watcher. */
+export function GlobalMessageToaster() {
+  const { profile } = useAuth();
+  const { activeWorkspaceId, members } = useWorkspace();
+  const { conversations } = useInboxSummary(activeWorkspaceId, profile?.uid ?? null);
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const seenConversationTimestamps = useRef<Map<string, number>>(new Map());
+  const isFirstRun = useRef(true);
+
+  useEffect(() => {
+    // Don't toast for the very first snapshot on load — only for messages
+    // that arrive AFTER the app is already open and watching.
+    if (isFirstRun.current) {
+      conversations.forEach((c) => seenConversationTimestamps.current.set(c.id, c.lastMessageAt));
+      isFirstRun.current = false;
+      return;
+    }
+
+    for (const c of conversations) {
+      const previouslySeenAt = seenConversationTimestamps.current.get(c.id) ?? 0;
+      const isNew = c.lastMessageAt > previouslySeenAt;
+      seenConversationTimestamps.current.set(c.id, c.lastMessageAt);
+      if (!isNew || c.lastMessageFromUid === profile?.uid) continue;
+
+      const alreadyViewing = location.pathname === "/messages";
+      if (alreadyViewing) continue;
+
+      const fromMember = members.find((m) => m.uid === c.lastMessageFromUid);
+      toast(`${fromMember ? displayNameOf(fromMember) : c.lastMessageFromName} написал(а) вам`, {
+        description: c.lastMessageText,
+        action: {
+          label: "Открыть",
+          onClick: () => navigate("/messages"),
+        },
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations]);
+
+  return null;
+}
+
+
+
+============================================================
+FILE: src\components\layout\GlobalSearch.tsx
+============================================================
+
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router";
+import { Search } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Input } from "@/components/ui/input";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { usePermissions } from "@/hooks/usePermissions";
+import { PAGE_ICON_MAP } from "@/utils/pageIcons";
+import type { PageIconName } from "@/types";
+
+export function GlobalSearch() {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const { pages, members } = useWorkspace();
+  const permissions = usePermissions();
+  const navigate = useNavigate();
+
+  const filteredPages = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return pages
+      .filter((p) => permissions.canAccessPage(p))
+      .filter((p) => !q || p.name.toLowerCase().includes(q));
+  }, [pages, query, permissions]);
+
+  const filteredMembers = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return members.filter(
+      (m) => m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q)
+    );
+  }, [members, query]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button className="flex w-full max-w-sm items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 text-sm text-muted-foreground shadow-subtle transition-colors hover:bg-accent/50">
+          <Search className="h-3.5 w-3.5" />
+          <span className="flex-1 text-left">Поиск по страницам и людям…</span>
+          <kbd className="rounded border border-border px-1.5 py-0.5 text-[10px]">Ctrl K</kbd>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 p-2">
+        <Input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Начните вводить…"
+          className="mb-2"
+        />
+        <div className="max-h-72 overflow-y-auto scrollbar-thin">
+          {filteredPages.length > 0 && (
+            <div className="mb-1">
+              <p className="px-1 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Страницы
+              </p>
+              {filteredPages.map((p) => {
+                const Icon = PAGE_ICON_MAP[(p.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      navigate(`/page/${p.id}`);
+                      setOpen(false);
+                      setQuery("");
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+                  >
+                    <Icon className="h-4 w-4" style={{ color: `hsl(${p.color})` }} />
+                    {p.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {filteredMembers.length > 0 && (
+            <div>
+              <p className="px-1 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Участники
+              </p>
+              {filteredMembers.map((m) => (
+                <div key={m.uid || m.email} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-medium">
+                    {m.name[0]?.toUpperCase()}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate">{m.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">{m.email}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {query && filteredPages.length === 0 && filteredMembers.length === 0 && (
+            <p className="px-2 py-4 text-center text-sm text-muted-foreground">Ничего не найдено</p>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\pagesnav\PageNavItem.tsx
+============================================================
+
+import { useState } from "react";
+import { NavLink } from "react-router";
+import { Copy, MoreHorizontal, Pencil, Settings2, Trash2 } from "lucide-react";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { toast } from "@/components/ui/sonner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { deletePage, duplicatePage, renamePage } from "@/services/pageService";
+import { PAGE_ICON_MAP } from "@/utils/pageIcons";
+import { cn } from "@/utils/cn";
+import type { PageIconName, WorkspacePage } from "@/types";
+
+interface PageNavItemProps {
+  page: WorkspacePage;
+  canManage: boolean;
+  nextOrder: number;
+  onEdit: (page: WorkspacePage) => void;
+  collapsed?: boolean;
+}
+
+export function PageNavItem({ page, canManage, nextOrder, onEdit, collapsed }: PageNavItemProps) {
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [draftName, setDraftName] = useState(page.name);
+  const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid;
+
+  if (collapsed) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <NavLink
+            to={`/page/${page.id}`}
+            className={({ isActive }) =>
+              cn(
+                "flex items-center justify-center rounded-lg p-2 transition-colors",
+                isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+              )
+            }
+          >
+            <Icon className="h-4 w-4" style={{ color: `hsl(${page.color})` }} />
+          </NavLink>
+        </TooltipTrigger>
+        <TooltipContent side="right">{page.name}</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  async function commitRename() {
+    setIsRenaming(false);
+    const trimmed = draftName.trim();
+    if (trimmed && trimmed !== page.name) {
+      await renamePage(page.workspaceId, page.id, trimmed);
+    } else {
+      setDraftName(page.name);
+    }
+  }
+
+  async function handleDuplicate() {
+    await duplicatePage(page.workspaceId, page, nextOrder);
+    toast.success("Страница продублирована");
+  }
+
+  async function handleDelete() {
+    if (!window.confirm(`Удалить страницу «${page.name}»? Это действие необратимо.`)) return;
+    await deletePage(page.workspaceId, page.id);
+    toast.success("Страница удалена");
+  }
+
+  const content = isRenaming ? (
+    <input
+      autoFocus
+      value={draftName}
+      onChange={(e) => setDraftName(e.target.value)}
+      onBlur={commitRename}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          setDraftName(page.name);
+          setIsRenaming(false);
+        }
+      }}
+      className="w-full rounded border border-primary bg-background px-1.5 py-0.5 text-sm outline-none"
+    />
+  ) : (
+    <NavLink
+      to={`/page/${page.id}`}
+      className={({ isActive }) =>
+        cn(
+          "group flex flex-1 items-center gap-2 truncate rounded-lg px-2 py-1.5 text-sm transition-colors",
+          isActive
+            ? "bg-sidebar-accent font-medium text-foreground"
+            : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+        )
+      }
+    >
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded" style={{ color: `hsl(${page.color})` }}>
+        <Icon className="h-4 w-4" />
+      </span>
+      <span className="flex-1 truncate">{page.name}</span>
+    </NavLink>
+  );
+
+  if (!canManage) {
+    return <div className="flex items-center">{content}</div>;
+  }
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className="group/item relative flex items-center">
+          {content}
+          {!isRenaming && (
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                onEdit(page);
+              }}
+              className="absolute right-1 hidden h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent group-hover/item:flex"
+              title="Настроить страницу"
+            >
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={() => setIsRenaming(true)}>
+          <Pencil className="h-4 w-4" /> Переименовать
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => onEdit(page)}>
+          <Settings2 className="h-4 w-4" /> Настройки страницы
+        </ContextMenuItem>
+        <ContextMenuItem onClick={handleDuplicate}>
+          <Copy className="h-4 w-4" /> Дублировать
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={handleDelete} className="text-destructive focus:text-destructive">
+          <Trash2 className="h-4 w-4" /> Удалить
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\table\TableCell.tsx
+============================================================
+
+import { useEffect, useRef } from "react";
+import { StatusBadge } from "@/components/table/StatusBadge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { formatCurrency } from "@/utils/format";
+import { cn } from "@/utils/cn";
+import type { PageColumn } from "@/types";
+
+interface TableCellProps {
+  column: PageColumn;
+  value: string | number | null;
+  isActive: boolean;
+  isInRange: boolean;
+  isEditing: boolean;
+  editValue: string;
+  canEdit: boolean;
+  onMouseDown: (e: React.MouseEvent) => void;
+  onMouseEnter: () => void;
+  onDoubleClick: () => void;
+  onEditValueChange: (value: string) => void;
+  onCommitEdit: (direction?: "down" | "right" | "left" | "none") => void;
+  onCancelEdit: () => void;
+  onStatusChange: (value: string) => void;
+  stickyLeft?: number;
+}
+
+export function TableCell({
+  column,
+  value,
+  isActive,
+  isInRange,
+  isEditing,
+  editValue,
+  canEdit,
+  onMouseDown,
+  onMouseEnter,
+  onDoubleClick,
+  onEditValueChange,
+  onCommitEdit,
+  onCancelEdit,
+  onStatusChange,
+  stickyLeft,
+}: TableCellProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
+
+  const isNumeric = column.type === "number" || column.type === "currency";
+  const stringValue = value === null || value === undefined ? "" : String(value);
+
+  function renderDisplay() {
+    if (column.type === "status") {
+      return <StatusBadge value={stringValue} options={column.statusOptions ?? []} />;
+    }
+    if (column.type === "currency" && stringValue) {
+      return <span className="tabular-nums">{formatCurrency(Number(stringValue))}</span>;
+    }
+    return <span className="truncate">{stringValue}</span>;
+  }
+
+  return (
+    <td
+      className={cn(
+        "relative select-none border-b border-r border-border/70 p-0 align-middle transition-colors",
+        stickyLeft !== undefined && "sticky z-[15] bg-background",
+        isInRange && !isEditing && "bg-primary/[0.07]",
+        isActive && !isEditing && "outline outline-2 outline-primary -outline-offset-1 z-10"
+      )}
+      style={{
+        width: column.width,
+        minWidth: column.width,
+        maxWidth: column.width,
+        height: "100%",
+        left: stickyLeft,
+      }}
+      onMouseDown={onMouseDown}
+      onMouseEnter={onMouseEnter}
+      onDoubleClick={onDoubleClick}
+      data-col={column.key}
+    >
+      {column.type === "status" ? (
+        <Select
+          value={stringValue || undefined}
+          onValueChange={(v) => onStatusChange(v === "__clear__" ? "" : v)}
+          disabled={!canEdit}
+        >
+          <SelectTrigger className="h-full w-full rounded-none border-0 bg-transparent px-2 shadow-none focus:ring-0">
+            <SelectValue placeholder="">{renderDisplay()}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {(column.statusOptions ?? []).map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                <StatusBadge value={opt.value} options={column.statusOptions ?? []} />
+              </SelectItem>
+            ))}
+            <SelectItem value="__clear__" className="text-muted-foreground">
+              Очистить
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      ) : isEditing ? (
+        <input
+          ref={inputRef}
+          value={editValue}
+          onChange={(e) => onEditValueChange(e.target.value)}
+          onBlur={() => onCommitEdit("none")}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              onCommitEdit("down");
+            } else if (e.key === "Tab") {
+              e.preventDefault();
+              onCommitEdit(e.shiftKey ? "left" : "right");
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              onCancelEdit();
+            }
+          }}
+          className={cn(
+            "h-full w-full border-0 bg-background px-2.5 text-sm outline-none ring-2 ring-primary",
+            isNumeric && "text-right tabular-nums"
+          )}
+        />
+      ) : (
+        <div
+          className={cn(
+            "flex h-full w-full items-center px-2.5 text-sm leading-none",
+            isNumeric && "justify-end tabular-nums"
+          )}
+          title={stringValue}
+        >
+          {renderDisplay()}
+        </div>
+      )}
+    </td>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\ui\context-menu.tsx
+============================================================
+
+import * as React from "react";
+import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
+import { Check, ChevronRight, Circle } from "lucide-react";
+import { cn } from "@/utils/cn";
+
+export const ContextMenu = ContextMenuPrimitive.Root;
+export const ContextMenuTrigger = ContextMenuPrimitive.Trigger;
+export const ContextMenuGroup = ContextMenuPrimitive.Group;
+export const ContextMenuSub = ContextMenuPrimitive.Sub;
+export const ContextMenuRadioGroup = ContextMenuPrimitive.RadioGroup;
+
+export const ContextMenuSubTrigger = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.SubTrigger>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubTrigger> & { inset?: boolean }
+>(({ className, inset, children, ...props }, ref) => (
+  <ContextMenuPrimitive.SubTrigger
+    ref={ref}
+    className={cn(
+      "flex cursor-pointer select-none items-center rounded-md px-2 py-1.5 text-sm outline-none focus:bg-accent data-[state=open]:bg-accent",
+      inset && "pl-8",
+      className
+    )}
+    {...props}
+  >
+    {children}
+    <ChevronRight className="ml-auto h-4 w-4" />
+  </ContextMenuPrimitive.SubTrigger>
+));
+ContextMenuSubTrigger.displayName = "ContextMenuSubTrigger";
+
+export const ContextMenuSubContent = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.SubContent>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubContent>
+>(({ className, ...props }, ref) => (
+  <ContextMenuPrimitive.SubContent
+    ref={ref}
+    className={cn(
+      "z-50 min-w-[10rem] overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-popover",
+      className
+    )}
+    {...props}
+  />
+));
+ContextMenuSubContent.displayName = "ContextMenuSubContent";
+
+export const ContextMenuContent = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Content>
+>(({ className, ...props }, ref) => (
+  <ContextMenuPrimitive.Portal>
+    <ContextMenuPrimitive.Content
+      ref={ref}
+      className={cn(
+        "z-50 min-w-[14rem] overflow-hidden rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-popover animate-in fade-in-0 zoom-in-95",
+        className
+      )}
+      {...props}
+    />
+  </ContextMenuPrimitive.Portal>
+));
+ContextMenuContent.displayName = "ContextMenuContent";
+
+export const ContextMenuItem = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.Item>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Item> & { inset?: boolean }
+>(({ className, inset, ...props }, ref) => (
+  <ContextMenuPrimitive.Item
+    ref={ref}
+    className={cn(
+      "relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none focus:bg-accent data-[disabled]:pointer-events-none data-[disabled]:opacity-40",
+      inset && "pl-8",
+      className
+    )}
+    {...props}
+  />
+));
+ContextMenuItem.displayName = "ContextMenuItem";
+
+export const ContextMenuCheckboxItem = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.CheckboxItem>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.CheckboxItem>
+>(({ className, children, checked, ...props }, ref) => (
+  <ContextMenuPrimitive.CheckboxItem
+    ref={ref}
+    className={cn(
+      "relative flex cursor-pointer select-none items-center rounded-md py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent",
+      className
+    )}
+    checked={checked}
+    {...props}
+  >
+    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+      <ContextMenuPrimitive.ItemIndicator>
+        <Check className="h-4 w-4" />
+      </ContextMenuPrimitive.ItemIndicator>
+    </span>
+    {children}
+  </ContextMenuPrimitive.CheckboxItem>
+));
+ContextMenuCheckboxItem.displayName = "ContextMenuCheckboxItem";
+
+export const ContextMenuRadioItem = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.RadioItem>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.RadioItem>
+>(({ className, children, ...props }, ref) => (
+  <ContextMenuPrimitive.RadioItem
+    ref={ref}
+    className={cn(
+      "relative flex cursor-pointer select-none items-center rounded-md py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent",
+      className
+    )}
+    {...props}
+  >
+    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+      <ContextMenuPrimitive.ItemIndicator>
+        <Circle className="h-2 w-2 fill-current" />
+      </ContextMenuPrimitive.ItemIndicator>
+    </span>
+    {children}
+  </ContextMenuPrimitive.RadioItem>
+));
+ContextMenuRadioItem.displayName = "ContextMenuRadioItem";
+
+export const ContextMenuLabel = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.Label>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Label> & { inset?: boolean }
+>(({ className, inset, ...props }, ref) => (
+  <ContextMenuPrimitive.Label
+    ref={ref}
+    className={cn("px-2 py-1.5 text-xs font-semibold text-muted-foreground", inset && "pl-8", className)}
+    {...props}
+  />
+));
+ContextMenuLabel.displayName = "ContextMenuLabel";
+
+export const ContextMenuSeparator = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.Separator>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Separator>
+>(({ className, ...props }, ref) => (
+  <ContextMenuPrimitive.Separator ref={ref} className={cn("-mx-1 my-1 h-px bg-border", className)} {...props} />
+));
+ContextMenuSeparator.displayName = "ContextMenuSeparator";
+
+export const ContextMenuShortcut = ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) => (
+  <span className={cn("ml-auto text-xs tracking-widest text-muted-foreground", className)} {...props} />
+);
+
+
+
+============================================================
+FILE: src\components\ui\separator.tsx
+============================================================
+
+import * as React from "react";
+import * as SeparatorPrimitive from "@radix-ui/react-separator";
+import { cn } from "@/utils/cn";
+
+export const Separator = React.forwardRef<
+  React.ElementRef<typeof SeparatorPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof SeparatorPrimitive.Root>
+>(({ className, orientation = "horizontal", decorative = true, ...props }, ref) => (
+  <SeparatorPrimitive.Root
+    ref={ref}
+    decorative={decorative}
+    orientation={orientation}
+    className={cn(
+      "shrink-0 bg-border",
+      orientation === "horizontal" ? "h-px w-full" : "h-full w-px",
+      className
+    )}
+    {...props}
+  />
+));
+Separator.displayName = "Separator";
+
+
+
+============================================================
+FILE: src\firebase\auth.ts
+============================================================
+
+import {
+  GoogleAuthProvider,
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  updatePassword,
+  updateProfile,
+  type User,
+} from "firebase/auth";
+import { auth } from "@/firebase/firebase";
+
+function requireAuth() {
+  if (!auth) throw new Error("Firebase не настроен: заполните .env.local");
+  return auth;
+}
+
+export async function signInWithGoogle() {
+  const provider = new GoogleAuthProvider();
+  const result = await signInWithPopup(requireAuth(), provider);
+  return result.user;
+}
+
+export async function signUpWithEmail(email: string, password: string, name: string) {
+  const credential = await createUserWithEmailAndPassword(requireAuth(), email, password);
+  await updateProfile(credential.user, { displayName: name });
+  return credential.user;
+}
+
+export async function signInWithEmail(email: string, password: string) {
+  const credential = await signInWithEmailAndPassword(requireAuth(), email, password);
+  return credential.user;
+}
+
+export async function signOutUser() {
+  await signOut(requireAuth());
+}
+
+export function subscribeToAuthChanges(callback: (user: User | null) => void) {
+  if (!auth) {
+    callback(null);
+    return () => {};
+  }
+  return onAuthStateChanged(auth, callback);
+}
+
+export async function updateUserProfile(displayName: string, photoURL?: string) {
+  const current = requireAuth().currentUser;
+  if (!current) return;
+  await updateProfile(current, { displayName, photoURL });
+}
+
+export async function updateUserPassword(newPassword: string) {
+  const current = requireAuth().currentUser;
+  if (!current) throw new Error("Не удалось определить текущего пользователя");
+  await updatePassword(current, newPassword);
+}
+
+
+
+============================================================
+FILE: src\hooks\useMediaQuery.ts
+============================================================
+
+import { useEffect, useState } from "react";
+
+export function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia(query).matches : false
+  );
+
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const handler = () => setMatches(mql.matches);
+    handler();
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, [query]);
+
+  return matches;
+}
+
+export const useIsMobile = () => useMediaQuery("(max-width: 767px)");
+export const useIsTablet = () => useMediaQuery("(max-width: 1023px)");
+
+
+
+============================================================
+FILE: src\hooks\useWorkspaceChat.ts
+============================================================
+
+import { useEffect, useState } from "react";
+import { paths } from "@/firebase/firestore";
+import { subscribeToChat } from "@/services/chatService";
+import type { ChatMessage } from "@/types";
+
+export function useWorkspaceChat(workspaceId: string | null) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+
+  useEffect(() => {
+    if (!workspaceId) {
+      setMessages([]);
+      return;
+    }
+    return subscribeToChat(paths.workspaceChat(workspaceId), setMessages, (error) =>
+      console.error("subscribeToChat(workspaceChat) denied:", error.code, error.message)
+    );
+  }, [workspaceId]);
+
+  return messages;
+}
+
+
+
+============================================================
+FILE: src\pages\LoginPage.tsx
+============================================================
+
+import { AuthLayout } from "@/layouts/AuthLayout";
+import { LoginForm } from "@/components/auth/LoginForm";
+
+export default function LoginPage() {
+  return (
+    <AuthLayout>
+      <LoginForm />
+    </AuthLayout>
+  );
+}
+
+
+
+============================================================
+FILE: src\services\historyService.ts
+============================================================
+
+import { deleteDoc, orderBy, query, setDoc, limit as fsLimit } from "firebase/firestore";
+import { db } from "@/firebase/firebase";
+import { paths, subscribe } from "@/firebase/firestore";
+import { generateId } from "@/utils/id";
+import type { HistoryAction, HistoryEntry } from "@/types";
+
+export interface LogChangeInput {
+  workspaceId: string;
+  pageId?: string;
+  pageName?: string;
+  rowId?: string;
+  field?: string;
+  fieldLabel?: string;
+  oldValue: string | number | null;
+  newValue: string | number | null;
+  action: HistoryAction;
+  userId: string;
+  userName: string;
+}
+
+export async function logChange(input: LogChangeInput) {
+  if (!db) return;
+  const id = generateId("hist");
+  const entry: HistoryEntry = { id, timestamp: Date.now(), ...input };
+  await setDoc(paths.historyEntry(input.workspaceId, id), entry);
+}
+
+export function subscribeToHistory(
+  workspaceId: string,
+  onData: (entries: HistoryEntry[]) => void,
+  max = 200
+) {
+  const q = query(paths.history(workspaceId), orderBy("timestamp", "desc"), fsLimit(max));
+  return subscribe<HistoryEntry>(q, onData);
+}
+
+export async function deleteHistoryEntry(workspaceId: string, entryId: string) {
+  if (!db) return;
+  await deleteDoc(paths.historyEntry(workspaceId, entryId));
+}
+
+
+
+============================================================
+FILE: src\store\authStore.ts
+============================================================
+
+import { create } from "zustand";
+import type { User } from "firebase/auth";
+import type { AppUser } from "@/types";
+
+interface AuthState {
+  firebaseUser: User | null;
+  profile: AppUser | null;
+  isLoading: boolean;
+  setFirebaseUser: (user: User | null) => void;
+  setProfile: (profile: AppUser | null) => void;
+  setLoading: (loading: boolean) => void;
+  reset: () => void;
+}
+
+export const useAuthStore = create<AuthState>((set) => ({
+  firebaseUser: null,
+  profile: null,
+  isLoading: true,
+  setFirebaseUser: (firebaseUser) => set({ firebaseUser }),
+  setProfile: (profile) => set({ profile }),
+  setLoading: (isLoading) => set({ isLoading }),
+  reset: () => set({ firebaseUser: null, profile: null, isLoading: false }),
+}));
+
+
+
+============================================================
+FILE: src\types\page.ts
+============================================================
+
+export type ColumnType = "text" | "number" | "currency" | "status" | "date" | "email" | "phone";
+
+export interface StatusOption {
+  value: string;
+  label: string;
+  color: string; // hex or hsl token used for the badge
+}
+
+export interface PageColumn {
+  id: string;
+  key: string;
+  label: string;
+  type: ColumnType;
+  width: number;
+  order: number;
+  statusOptions?: StatusOption[];
+}
+
+export type PageIconName =
+  | "Users"
+  | "Briefcase"
+  | "Wallet"
+  | "UserCog"
+  | "LayoutGrid"
+  | "Building2"
+  | "Target"
+  | "ClipboardList"
+  | "Rocket"
+  | "Star";
+
+export interface WorkspacePage {
+  id: string;
+  workspaceId: string;
+  name: string;
+  icon: PageIconName;
+  color: string;
+  order: number;
+  /**
+   * Explicit allow-list of member uids who may see/open this page. The
+   * workspace Owner always has access regardless of this list (enforced in
+   * both client permission checks and Firestore rules) — everyone else,
+   * including Admins, sees a page only if their uid is listed here.
+   */
+  allowedUsers: string[];
+  /**
+   * Subset of `allowedUsers` who may also EDIT the page's data (not just
+   * view it). Being in `allowedUsers` alone now only grants read access —
+   * edit rights are a separate, explicit grant on top of that, managed by
+   * the Owner or this page's responsible person. Owner and the responsible
+   * person can always edit regardless of this list.
+   */
+  editableUsers?: string[];
+  /**
+   * The one member (besides Owner) responsible for this page. Only the
+   * Owner may assign/change who this is (via EditPageDialog). The
+   * responsible person — and only them, besides the Owner — may then flip
+   * `hiddenByResponsible` themselves, controlling whether everyone else in
+   * `allowedUsers` can currently see the page. Owner and the responsible
+   * person can always see it regardless of this flag.
+   */
+  responsibleUserId?: string | null;
+  /**
+   * When true, the page is hidden from everyone except the Owner and
+   * `responsibleUserId`, even if their uid is in `allowedUsers`. Toggled
+   * exclusively by the responsible person, not the Owner.
+   */
+  hiddenByResponsible?: boolean;
+  columns: PageColumn[];
+  createdAt: number;
+  updatedAt: number;
+  createdBy: string;
+  isDashboard?: boolean;
+}
+
+export interface PageRow {
+  id: string;
+  pageId: string;
+  cells: Record<string, string | number | null>;
+  order: number;
+  height?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * An independent inner tab inside a WorkspacePage — e.g. "Финка" can have
+ * subpages "Январь", "Февраль", etc. Purely additive to the existing model:
+ * the page's own original table/rows/columns are untouched and keep working
+ * exactly as before; subpages are extra, optional, nested tables under it.
+ * Access follows the parent page's allowedUsers — there's no separate
+ * per-subpage permission list.
+ */
+export interface SubPage {
+  id: string;
+  pageId: string;
+  workspaceId: string;
+  name: string;
+  color: string;
+  icon: PageIconName;
+  order: number;
+  isArchived?: boolean;
+  columns: PageColumn[];
+  createdAt: number;
+  updatedAt: number;
+  createdBy: string;
+}
+
+
+
+============================================================
+FILE: src\utils\displayName.ts
+============================================================
+
+/** Prefer the nickname the person picked for themselves; fall back to their full name. */
+export function displayNameOf(entity: { nickname?: string; name?: string } | null | undefined): string {
+  return entity?.nickname?.trim() || entity?.name?.trim() || "Пользователь";
+}
+
+
+
+============================================================
+FILE: src\vite-env.d.ts
+============================================================
+
+/// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  readonly VITE_FIREBASE_API_KEY: string;
+  readonly VITE_FIREBASE_AUTH_DOMAIN: string;
+  readonly VITE_FIREBASE_PROJECT_ID: string;
+  readonly VITE_FIREBASE_STORAGE_BUCKET: string;
+  readonly VITE_FIREBASE_MESSAGING_SENDER_ID: string;
+  readonly VITE_FIREBASE_APP_ID: string;
+  readonly VITE_FIREBASE_MEASUREMENT_ID?: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}
+

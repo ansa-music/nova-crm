@@ -1,0 +1,1717 @@
+
+
+============================================================
+FILE: src\components\common\ErrorBoundary.tsx
+============================================================
+
+import { Component, type ReactNode } from "react";
+import { AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+
+interface Props {
+  children: ReactNode;
+}
+
+interface State {
+  error: Error | null;
+}
+
+export class ErrorBoundary extends Component<Props, State> {
+  state: State = { error: null };
+
+  static getDerivedStateFromError(error: Error): State {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error("Unhandled render error:", error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background px-4 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
+            <AlertTriangle className="h-6 w-6" />
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold">Что-то пошло не так</h1>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+              Произошла непредвиденная ошибка. Попробуйте обновить страницу — если проблема
+              повторится, сообщите об этом.
+            </p>
+          </div>
+          <Button onClick={() => window.location.reload()}>Обновить страницу</Button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+
+
+============================================================
+FILE: src\components\layout\CreateWorkspaceDialog.tsx
+============================================================
+
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Loader2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "@/components/ui/sonner";
+import { IconPicker } from "@/components/common/IconPicker";
+import { ColorPicker, COLOR_PRESETS } from "@/components/common/ColorPicker";
+import { workspaceSchema, type WorkspaceFormValues } from "@/utils/validation";
+import { createWorkspace } from "@/services/workspaceService";
+import { seedDefaultWorkspacePages } from "@/services/onboardingService";
+import { useAuth } from "@/hooks/useAuth";
+import { useWorkspaceStore } from "@/store/workspaceStore";
+import type { PageIconName } from "@/types";
+
+interface CreateWorkspaceDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDialogProps) {
+  const { profile } = useAuth();
+  const setActiveWorkspaceId = useWorkspaceStore((s) => s.setActiveWorkspaceId);
+  const [icon, setIcon] = useState<PageIconName>("Building2");
+  const [color, setColor] = useState(COLOR_PRESETS[0]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const form = useForm<WorkspaceFormValues>({
+    resolver: zodResolver(workspaceSchema),
+    defaultValues: { name: "" },
+  });
+
+  async function onSubmit(values: WorkspaceFormValues) {
+    if (!profile) return;
+    setIsSubmitting(true);
+    try {
+      const workspace = await createWorkspace({
+        name: values.name,
+        icon,
+        color,
+        ownerId: profile.uid,
+        ownerEmail: profile.email,
+        ownerName: profile.name,
+      });
+      await seedDefaultWorkspacePages(workspace.id, profile.uid);
+      setActiveWorkspaceId(workspace.id);
+      toast.success(`Workspace «${workspace.name}» создан`);
+      form.reset();
+      onOpenChange(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось создать workspace");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Новый workspace</DialogTitle>
+          <DialogDescription>
+            Отдельное рабочее пространство со своими страницами, сотрудниками и данными.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="workspace-name">Название</Label>
+            <Input id="workspace-name" placeholder="Например, Finance" {...form.register("name")} />
+            {form.formState.errors.name && (
+              <p className="text-xs text-destructive">{form.formState.errors.name.message}</p>
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Цвет</Label>
+            <ColorPicker value={color} onChange={setColor} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Иконка</Label>
+            <IconPicker value={icon} onChange={setIcon} color={color} />
+          </div>
+          <DialogFooter>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Создать workspace
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\pagesnav\EditPageDialog.tsx
+============================================================
+
+import { useMemo, useState } from "react";
+import { Loader2, Pencil, Search, ShieldCheck, Users, UserX } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toast } from "@/components/ui/sonner";
+import { IconPicker } from "@/components/common/IconPicker";
+import { ColorPicker } from "@/components/common/ColorPicker";
+import { displayNameOf } from "@/utils/displayName";
+import {
+  renamePage,
+  setPageResponsible,
+  updatePageAppearance,
+  updatePageEditableUsers,
+  updatePagePermissions,
+} from "@/services/pageService";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { usePermissions } from "@/hooks/usePermissions";
+import type { PageIconName, WorkspacePage } from "@/types";
+
+interface EditPageDialogProps {
+  page: WorkspacePage | null;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
+  const { members } = useWorkspace();
+  const permissions = usePermissions();
+  const [name, setName] = useState(page?.name ?? "");
+  const [icon, setIcon] = useState<PageIconName>(page?.icon ?? "LayoutGrid");
+  const [color, setColor] = useState(page?.color ?? "243 75% 59%");
+  const [allowedUsers, setAllowedUsers] = useState<string[]>(page?.allowedUsers ?? []);
+  const [editableUsers, setEditableUsers] = useState<string[]>(page?.editableUsers ?? []);
+  const [responsibleUserId, setResponsibleUserId] = useState<string>(page?.responsibleUserId ?? "");
+  const [search, setSearch] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const otherMembers = useMemo(
+    () => members.filter((m) => m.status === "active" && m.role !== "owner"),
+    [members]
+  );
+  const filteredMembers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return otherMembers;
+    return otherMembers.filter(
+      (m) =>
+        displayNameOf(m).toLowerCase().includes(q) ||
+        m.name.toLowerCase().includes(q) ||
+        m.email.toLowerCase().includes(q)
+    );
+  }, [otherMembers, search]);
+
+  if (!page) return null;
+
+  // Owner can always fully manage; otherwise only the person assigned as
+  // responsible for THIS page — everyone else who can merely open the
+  // dialog (e.g. an Admin, only to reassign who's responsible) gets a
+  // read-only view of general/access.
+  const canEdit = permissions.canManagePage(page);
+  const canAssignResponsible = permissions.canAssignResponsible;
+
+  function toggleAccess(uid: string) {
+    if (!canEdit) return;
+    setAllowedUsers((prev) => {
+      const hasAccess = prev.includes(uid);
+      if (hasAccess) {
+        // Revoking view access must also revoke edit rights — editableUsers
+        // is always meant to be a subset of allowedUsers.
+        setEditableUsers((editPrev) => editPrev.filter((u) => u !== uid));
+        return prev.filter((u) => u !== uid);
+      }
+      return [...prev, uid];
+    });
+  }
+
+  function toggleEdit(uid: string) {
+    if (!canEdit) return;
+    setEditableUsers((prev) => (prev.includes(uid) ? prev.filter((u) => u !== uid) : [...prev, uid]));
+  }
+
+  function grantAll() {
+    // View access only by default — edit rights always stay a separate,
+    // explicit grant even when opening the page up to everyone at once.
+    setAllowedUsers(otherMembers.map((m) => m.uid));
+  }
+  function revokeAll() {
+    setAllowedUsers([]);
+    setEditableUsers([]);
+  }
+  function onlyRole(role: "manager" | "viewer") {
+    setAllowedUsers(otherMembers.filter((m) => m.role === role).map((m) => m.uid));
+    setEditableUsers((prev) => prev.filter((uid) => otherMembers.some((m) => m.uid === uid && m.role === role)));
+  }
+
+  async function handleSave() {
+    if (!page) return;
+    setIsSaving(true);
+    try {
+      if (canEdit) {
+        if (name.trim() && name !== page.name) await renamePage(page.workspaceId, page.id, name.trim());
+        if (icon !== page.icon || color !== page.color) {
+          await updatePageAppearance(page.workspaceId, page.id, { icon, color });
+        }
+        await updatePagePermissions(page.workspaceId, page.id, allowedUsers);
+        await updatePageEditableUsers(page.workspaceId, page.id, editableUsers);
+      }
+      const nextResponsible = responsibleUserId || null;
+      if (canAssignResponsible && nextResponsible !== (page.responsibleUserId ?? null)) {
+        await setPageResponsible(page.workspaceId, page.id, nextResponsible, allowedUsers);
+      }
+      toast.success("Страница обновлена");
+      onOpenChange(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить изменения");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  const owner = members.find((m) => m.role === "owner");
+
+  return (
+    <Dialog open={Boolean(page)} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Настройки страницы</DialogTitle>
+          <DialogDescription>Внешний вид и права доступа для «{page.name}».</DialogDescription>
+        </DialogHeader>
+        <Tabs defaultValue="general">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="general">Общее</TabsTrigger>
+            <TabsTrigger value="access">Доступ</TabsTrigger>
+          </TabsList>
+          <TabsContent value="general" className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="edit-page-name">Название</Label>
+              <Input
+                id="edit-page-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                disabled={!canEdit}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Цвет</Label>
+              <ColorPicker value={color} onChange={canEdit ? setColor : () => {}} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Иконка</Label>
+              <IconPicker value={icon} onChange={canEdit ? setIcon : () => {}} color={color} />
+            </div>
+
+            {canAssignResponsible && (
+              <div className="flex flex-col gap-1.5 border-t border-border pt-4">
+                <Label className="flex items-center gap-1.5">
+                  <ShieldCheck className="h-3.5 w-3.5" /> Ответственный за страницу
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Ответственный получает права администратора именно этой страницы: может её
+                  редактировать, управлять колонками и вкладками, выдавать и убирать доступ другим
+                  участникам — без прав на весь workspace.
+                </p>
+                <Select value={responsibleUserId || "none"} onValueChange={(v) => setResponsibleUserId(v === "none" ? "" : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Не назначен" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Не назначен</SelectItem>
+                    {otherMembers.map((m) => (
+                      <SelectItem key={m.uid} value={m.uid}>
+                        {displayNameOf(m)} ({m.email})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="access" className="flex flex-col gap-3">
+            <p className="text-xs text-muted-foreground">
+              {owner ? displayNameOf(owner) : "Owner"} и ответственный всегда могут просматривать и
+              редактировать эту страницу. Остальным доступ на просмотр и право редактирования
+              выдаются отдельно — просмотр не даёт возможности редактировать сам по себе.
+            </p>
+
+            {canEdit && (
+              <div className="flex flex-wrap gap-1.5">
+                <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={grantAll}>
+                  <Users className="h-3 w-3" /> Выдать всем просмотр
+                </Button>
+                <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={revokeAll}>
+                  <UserX className="h-3 w-3" /> Убрать у всех
+                </Button>
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => onlyRole("manager")}>
+                  Только Manager
+                </Button>
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => onlyRole("viewer")}>
+                  Только Viewer
+                </Button>
+              </div>
+            )}
+
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Поиск по никнейму, имени или email..."
+                className="pl-8"
+              />
+            </div>
+
+            <div className="flex items-center gap-3 px-2.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <span className="min-w-0 flex-1" />
+              <span className="w-14 text-center">Доступ</span>
+              <span className="w-14 text-center">Правка</span>
+            </div>
+
+            <div className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
+              {filteredMembers.map((m) => {
+                const hasAccess = allowedUsers.includes(m.uid);
+                const canEditThis = editableUsers.includes(m.uid);
+                return (
+                  <div
+                    key={m.uid}
+                    className="flex items-center gap-3 rounded-lg border border-border p-2.5 transition-colors hover:bg-accent/40"
+                  >
+                    <Avatar className="h-8 w-8 shrink-0">
+                      <AvatarImage src={m.photoURL ?? undefined} />
+                      <AvatarFallback>{displayNameOf(m)[0]?.toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{displayNameOf(m)}</p>
+                      <p className="truncate text-xs text-muted-foreground">{m.email}</p>
+                    </div>
+                    {m.uid === responsibleUserId && (
+                      <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                        Ответственный
+                      </span>
+                    )}
+                    <div className="flex w-14 shrink-0 justify-center" title="Доступ на просмотр">
+                      <Switch checked={hasAccess} onCheckedChange={() => toggleAccess(m.uid)} disabled={!canEdit} />
+                    </div>
+                    <div className="flex w-14 shrink-0 justify-center" title="Право редактирования">
+                      <Switch
+                        checked={canEditThis}
+                        onCheckedChange={() => toggleEdit(m.uid)}
+                        disabled={!canEdit || !hasAccess}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+              {filteredMembers.length === 0 && (
+                <p className="py-4 text-center text-xs text-muted-foreground">
+                  {otherMembers.length === 0
+                    ? "В workspace пока нет других участников — пригласите их на странице «Пользователи»."
+                    : "Никого не найдено."}
+                </p>
+              )}
+            </div>
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Pencil className="h-3 w-3" /> «Правка» доступна только тем, кому уже открыт просмотр.
+            </p>
+          </TabsContent>
+        </Tabs>
+        <DialogFooter>
+          <Button onClick={handleSave} disabled={isSaving}>
+            {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Сохранить
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\table\SubPageTabs.tsx
+============================================================
+
+import { useState } from "react";
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { Archive, ArchiveRestore, ArrowRightCircle, Copy, GripVertical, Plus, Trash2 } from "lucide-react";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/sonner";
+import { PAGE_ICON_MAP } from "@/utils/pageIcons";
+import { cn } from "@/utils/cn";
+import {
+  archiveSubPage,
+  createNextMonthSubPage,
+  createSubPage,
+  deleteSubPage,
+  duplicateSubPage,
+  renameSubPage,
+  reorderSubPages,
+} from "@/services/subPageService";
+import type { PageIconName, SubPage, WorkspacePage } from "@/types";
+
+interface SubPageTabsProps {
+  workspaceId: string;
+  page: WorkspacePage;
+  subPages: SubPage[];
+  activeSubPageId: string | null;
+  onSelect: (subPageId: string | null) => void;
+  canManage: boolean;
+  userId: string;
+}
+
+export function SubPageTabs({
+  workspaceId,
+  page,
+  subPages,
+  activeSubPageId,
+  onSelect,
+  canManage,
+  userId,
+}: SubPageTabsProps) {
+  const [showArchived, setShowArchived] = useState(false);
+  const [duplicateTarget, setDuplicateTarget] = useState<SubPage | null>(null);
+  const [duplicateMode, setDuplicateMode] = useState<"data" | "structure">("data");
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const visible = subPages.filter((s) => Boolean(s.isArchived) === showArchived).sort((a, b) => a.order - b.order);
+  const archivedCount = subPages.filter((s) => s.isArchived).length;
+
+  async function handleAddTab() {
+    const name = window.prompt("Название вкладки", `Вкладка ${subPages.length + 1}`);
+    if (!name || !name.trim()) return;
+    try {
+      const created = await createSubPage({
+        workspaceId,
+        pageId: page.id,
+        name: name.trim(),
+        color: page.color,
+        icon: page.icon,
+        columns: page.columns,
+        order: subPages.length,
+        createdBy: userId,
+      });
+      onSelect(created.id);
+      toast.success(`Вкладка «${created.name}» создана`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось создать вкладку");
+    }
+  }
+
+  async function handleNextMonth(current: SubPage) {
+    try {
+      const created = await createNextMonthSubPage(workspaceId, page.id, current, subPages.length, userId);
+      onSelect(created.id);
+      toast.success(`Создана вкладка «${created.name}»`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось создать следующий месяц");
+    }
+  }
+
+  async function handleRename(sub: SubPage) {
+    const name = window.prompt("Новое название", sub.name);
+    if (!name || !name.trim() || name.trim() === sub.name) return;
+    await renameSubPage(workspaceId, page.id, sub.id, name.trim());
+  }
+
+  async function handleArchiveToggle(sub: SubPage) {
+    await archiveSubPage(workspaceId, page.id, sub.id, !sub.isArchived);
+    if (activeSubPageId === sub.id) onSelect(null);
+    toast.success(sub.isArchived ? "Вкладка восстановлена" : "Вкладка архивирована");
+  }
+
+  async function handleDelete(sub: SubPage) {
+    if (!window.confirm(`Удалить вкладку «${sub.name}» вместе со всеми данными? Это необратимо.`)) return;
+    await deleteSubPage(workspaceId, page.id, sub.id);
+    if (activeSubPageId === sub.id) onSelect(null);
+    toast.success("Вкладка удалена");
+  }
+
+  async function confirmDuplicate() {
+    if (!duplicateTarget) return;
+    try {
+      const copy = await duplicateSubPage(
+        workspaceId,
+        page.id,
+        duplicateTarget,
+        subPages.length,
+        userId,
+        duplicateMode === "data"
+      );
+      onSelect(copy.id);
+      toast.success(`Вкладка «${copy.name}» создана`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось дублировать вкладку");
+    } finally {
+      setDuplicateTarget(null);
+    }
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = visible.findIndex((s) => s.id === active.id);
+    const newIndex = visible.findIndex((s) => s.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    const reordered = arrayMove(visible, oldIndex, newIndex);
+    reorderSubPages(workspaceId, page.id, reordered.map((s) => s.id));
+  }
+
+  return (
+    <div className="flex items-center gap-1 border-b border-border bg-muted/20 px-3 py-1.5">
+      <button
+        onClick={() => onSelect(null)}
+        className={cn(
+          "shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+          activeSubPageId === null ? "bg-card shadow-subtle" : "text-muted-foreground hover:bg-card/60"
+        )}
+      >
+        Основная
+      </button>
+
+      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+        <SortableContext items={visible.map((s) => s.id)} strategy={horizontalListSortingStrategy}>
+          <div className="flex flex-1 items-center gap-1 overflow-x-auto scrollbar-thin">
+            {visible.map((sub) => (
+              <SortableTab
+                key={sub.id}
+                sub={sub}
+                active={activeSubPageId === sub.id}
+                canManage={canManage}
+                onSelect={() => onSelect(sub.id)}
+                onRename={() => handleRename(sub)}
+                onDuplicate={() => {
+                  setDuplicateTarget(sub);
+                  setDuplicateMode("data");
+                }}
+                onNextMonth={() => handleNextMonth(sub)}
+                onArchiveToggle={() => handleArchiveToggle(sub)}
+                onDelete={() => handleDelete(sub)}
+              />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
+
+      {canManage && !showArchived && (
+        <button
+          onClick={handleAddTab}
+          className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-card/60 hover:text-foreground"
+          title="Добавить вкладку"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      )}
+
+      {archivedCount > 0 && (
+        <button
+          onClick={() => setShowArchived((v) => !v)}
+          className={cn(
+            "ml-auto shrink-0 flex items-center gap-1 rounded-lg px-2 py-1 text-xs",
+            showArchived ? "bg-card text-foreground shadow-subtle" : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Archive className="h-3 w-3" /> Архив ({archivedCount})
+        </button>
+      )}
+
+      <Dialog open={Boolean(duplicateTarget)} onOpenChange={(o) => !o && setDuplicateTarget(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Дублировать «{duplicateTarget?.name}»</DialogTitle>
+            <DialogDescription>Выберите, что скопировать в новую вкладку.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => setDuplicateMode("data")}
+              className={cn(
+                "flex items-center gap-2 rounded-lg border p-3 text-left text-sm transition-colors",
+                duplicateMode === "data" ? "border-primary bg-primary/5" : "border-border"
+              )}
+            >
+              <span
+                className={cn(
+                  "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2",
+                  duplicateMode === "data" ? "border-primary" : "border-muted-foreground"
+                )}
+              >
+                {duplicateMode === "data" && <span className="h-2 w-2 rounded-full bg-primary" />}
+              </span>
+              Копировать данные (со всеми строками)
+            </button>
+            <button
+              onClick={() => setDuplicateMode("structure")}
+              className={cn(
+                "flex items-center gap-2 rounded-lg border p-3 text-left text-sm transition-colors",
+                duplicateMode === "structure" ? "border-primary bg-primary/5" : "border-border"
+              )}
+            >
+              <span
+                className={cn(
+                  "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2",
+                  duplicateMode === "structure" ? "border-primary" : "border-muted-foreground"
+                )}
+              >
+                {duplicateMode === "structure" && <span className="h-2 w-2 rounded-full bg-primary" />}
+              </span>
+              Только структуру (пустая таблица)
+            </button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDuplicateTarget(null)}>
+              Отмена
+            </Button>
+            <Button onClick={confirmDuplicate}>Дублировать</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+interface SortableTabProps {
+  sub: SubPage;
+  active: boolean;
+  canManage: boolean;
+  onSelect: () => void;
+  onRename: () => void;
+  onDuplicate: () => void;
+  onNextMonth: () => void;
+  onArchiveToggle: () => void;
+  onDelete: () => void;
+}
+
+function SortableTab({
+  sub,
+  active,
+  canManage,
+  onSelect,
+  onRename,
+  onDuplicate,
+  onNextMonth,
+  onArchiveToggle,
+  onDelete,
+}: SortableTabProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: sub.id });
+  const Icon = PAGE_ICON_MAP[sub.icon] ?? PAGE_ICON_MAP.LayoutGrid;
+
+  const tab = (
+    <button
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : 1 }}
+      onClick={onSelect}
+      className={cn(
+        "group flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+        active ? "bg-card shadow-subtle" : "text-muted-foreground hover:bg-card/60"
+      )}
+    >
+      {canManage && (
+        <span {...attributes} {...listeners} className="cursor-grab opacity-0 group-hover:opacity-60 active:cursor-grabbing">
+          <GripVertical className="h-3 w-3" />
+        </span>
+      )}
+      <span style={{ color: `hsl(${sub.color})` }}>
+        <Icon className="h-3.5 w-3.5" />
+      </span>
+      <span className="max-w-[140px] truncate">{sub.name}</span>
+    </button>
+  );
+
+  if (!canManage) return tab;
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{tab}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={onRename}>Переименовать</ContextMenuItem>
+        <ContextMenuItem onClick={onDuplicate}>
+          <Copy className="h-3.5 w-3.5" /> Дублировать
+        </ContextMenuItem>
+        <ContextMenuItem onClick={onNextMonth}>
+          <ArrowRightCircle className="h-3.5 w-3.5" /> Создать следующий месяц
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={onArchiveToggle}>
+          {sub.isArchived ? (
+            <>
+              <ArchiveRestore className="h-3.5 w-3.5" /> Восстановить из архива
+            </>
+          ) : (
+            <>
+              <Archive className="h-3.5 w-3.5" /> Архивировать
+            </>
+          )}
+        </ContextMenuItem>
+        <ContextMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
+          <Trash2 className="h-3.5 w-3.5" /> Удалить
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\ui\checkbox.tsx
+============================================================
+
+import * as React from "react";
+import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
+import { Check } from "lucide-react";
+import { cn } from "@/utils/cn";
+
+export const Checkbox = React.forwardRef<
+  React.ElementRef<typeof CheckboxPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof CheckboxPrimitive.Root>
+>(({ className, ...props }, ref) => (
+  <CheckboxPrimitive.Root
+    ref={ref}
+    className={cn(
+      "peer h-4 w-4 shrink-0 rounded border border-input shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=checked]:border-primary data-[state=checked]:text-primary-foreground",
+      className
+    )}
+    {...props}
+  >
+    <CheckboxPrimitive.Indicator className="flex items-center justify-center text-current">
+      <Check className="h-3 w-3" />
+    </CheckboxPrimitive.Indicator>
+  </CheckboxPrimitive.Root>
+));
+Checkbox.displayName = "Checkbox";
+
+
+
+============================================================
+FILE: src\components\ui\select.tsx
+============================================================
+
+import * as React from "react";
+import * as SelectPrimitive from "@radix-ui/react-select";
+import { Check, ChevronDown, ChevronUp } from "lucide-react";
+import { cn } from "@/utils/cn";
+
+export const Select = SelectPrimitive.Root;
+export const SelectValue = SelectPrimitive.Value;
+export const SelectGroup = SelectPrimitive.Group;
+
+export const SelectTrigger = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
+>(({ className, children, ...props }, ref) => (
+  <SelectPrimitive.Trigger
+    ref={ref}
+    className={cn(
+      "flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-input bg-background px-3 py-1 text-sm shadow-subtle focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+      className
+    )}
+    {...props}
+  >
+    {children}
+    <SelectPrimitive.Icon asChild>
+      <ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
+    </SelectPrimitive.Icon>
+  </SelectPrimitive.Trigger>
+));
+SelectTrigger.displayName = "SelectTrigger";
+
+export const SelectScrollUpButton = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.ScrollUpButton>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.ScrollUpButton>
+>(({ className, ...props }, ref) => (
+  <SelectPrimitive.ScrollUpButton ref={ref} className={cn("flex items-center justify-center py-1", className)} {...props}>
+    <ChevronUp className="h-4 w-4" />
+  </SelectPrimitive.ScrollUpButton>
+));
+SelectScrollUpButton.displayName = "SelectScrollUpButton";
+
+export const SelectScrollDownButton = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.ScrollDownButton>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.ScrollDownButton>
+>(({ className, ...props }, ref) => (
+  <SelectPrimitive.ScrollDownButton ref={ref} className={cn("flex items-center justify-center py-1", className)} {...props}>
+    <ChevronDown className="h-4 w-4" />
+  </SelectPrimitive.ScrollDownButton>
+));
+SelectScrollDownButton.displayName = "SelectScrollDownButton";
+
+export const SelectContent = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
+>(({ className, children, position = "popper", ...props }, ref) => (
+  <SelectPrimitive.Portal>
+    <SelectPrimitive.Content
+      ref={ref}
+      position={position}
+      className={cn(
+        "relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-popover data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+        position === "popper" &&
+          "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
+        className
+      )}
+      {...props}
+    >
+      <SelectScrollUpButton />
+      <SelectPrimitive.Viewport
+        className={cn(
+          "p-1",
+          position === "popper" &&
+            "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]"
+        )}
+      >
+        {children}
+      </SelectPrimitive.Viewport>
+      <SelectScrollDownButton />
+    </SelectPrimitive.Content>
+  </SelectPrimitive.Portal>
+));
+SelectContent.displayName = "SelectContent";
+
+export const SelectLabel = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Label>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Label>
+>(({ className, ...props }, ref) => (
+  <SelectPrimitive.Label ref={ref} className={cn("px-2 py-1.5 text-xs font-semibold text-muted-foreground", className)} {...props} />
+));
+SelectLabel.displayName = "SelectLabel";
+
+export const SelectItem = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Item>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
+>(({ className, children, ...props }, ref) => (
+  <SelectPrimitive.Item
+    ref={ref}
+    className={cn(
+      "relative flex w-full cursor-pointer select-none items-center rounded-md py-1.5 pl-7 pr-2 text-sm outline-none focus:bg-accent data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      className
+    )}
+    {...props}
+  >
+    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+      <SelectPrimitive.ItemIndicator>
+        <Check className="h-4 w-4" />
+      </SelectPrimitive.ItemIndicator>
+    </span>
+    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+  </SelectPrimitive.Item>
+));
+SelectItem.displayName = "SelectItem";
+
+export const SelectSeparator = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Separator>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Separator>
+>(({ className, ...props }, ref) => (
+  <SelectPrimitive.Separator ref={ref} className={cn("-mx-1 my-1 h-px bg-border", className)} {...props} />
+));
+SelectSeparator.displayName = "SelectSeparator";
+
+
+
+============================================================
+FILE: src\contexts\ThemeProvider.tsx
+============================================================
+
+import { useEffect } from "react";
+import { useUiStore } from "@/store/uiStore";
+
+function applyTheme(theme: "light" | "dark") {
+  const root = document.documentElement;
+  root.classList.toggle("dark", theme === "dark");
+}
+
+/** Watches the persisted theme preference (and system preference, when 'system')
+ *  and keeps the `dark` class on <html> in sync. Mount once near the app root. */
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const theme = useUiStore((s) => s.theme);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+
+    function sync() {
+      if (theme === "system") {
+        applyTheme(media.matches ? "dark" : "light");
+      } else {
+        applyTheme(theme);
+      }
+    }
+
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, [theme]);
+
+  return <>{children}</>;
+}
+
+
+
+============================================================
+FILE: src\hooks\useInboxSummary.ts
+============================================================
+
+import { useEffect, useMemo, useState } from "react";
+import { paths } from "@/firebase/firestore";
+import { subscribeToChat } from "@/services/chatService";
+import { subscribeToMyConversations, subscribeToReadMarkers } from "@/services/inboxService";
+import type { ChatMessage, PrivateChatMeta } from "@/types";
+
+export function useInboxSummary(workspaceId: string | null, uid: string | null) {
+  const [workspaceMessages, setWorkspaceMessages] = useState<ChatMessage[]>([]);
+  const [conversations, setConversations] = useState<PrivateChatMeta[]>([]);
+  const [readMarkers, setReadMarkers] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (!workspaceId || !uid) {
+      setWorkspaceMessages([]);
+      setConversations([]);
+      setReadMarkers({});
+      return;
+    }
+    const unsubMessages = subscribeToChat(paths.workspaceChat(workspaceId), setWorkspaceMessages);
+    const unsubConversations = subscribeToMyConversations(workspaceId, uid, setConversations);
+    const unsubMarkers = subscribeToReadMarkers(workspaceId, uid, setReadMarkers);
+    return () => {
+      unsubMessages();
+      unsubConversations();
+      unsubMarkers();
+    };
+  }, [workspaceId, uid]);
+
+  const workspaceChatUnread = useMemo(() => {
+    const lastRead = readMarkers["workspaceChat"] ?? 0;
+    return workspaceMessages.filter((m) => m.authorUid !== uid && m.createdAt > lastRead && !m.deleted).length;
+  }, [workspaceMessages, readMarkers, uid]);
+
+  const conversationsWithUnread = useMemo(
+    () =>
+      conversations.map((c) => {
+        const lastRead = readMarkers[`private:${c.id}`] ?? 0;
+        const unread = c.lastMessageFromUid !== uid && c.lastMessageAt > lastRead;
+        return { ...c, unread };
+      }),
+    [conversations, readMarkers, uid]
+  );
+
+  const privateUnreadTotal = conversationsWithUnread.filter((c) => c.unread).length;
+
+  return { workspaceChatUnread, conversations: conversationsWithUnread, privateUnreadTotal };
+}
+
+
+
+============================================================
+FILE: src\hooks\useWorkspace.ts
+============================================================
+
+import { useEffect } from "react";
+import { subscribeToUserWorkspaces } from "@/services/workspaceService";
+import { subscribeToMembers } from "@/services/memberService";
+import { subscribeToPages } from "@/services/pageService";
+import { useAuthStore } from "@/store/authStore";
+import { useWorkspaceStore } from "@/store/workspaceStore";
+
+/** Subscribes to the list of workspaces the current user belongs to. Call once near the app root. */
+export function useWorkspaceListBootstrap() {
+  const uid = useAuthStore((s) => s.firebaseUser?.uid);
+  const setWorkspaces = useWorkspaceStore((s) => s.setWorkspaces);
+  const setLoadingWorkspaces = useWorkspaceStore((s) => s.setLoadingWorkspaces);
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+  const setActiveWorkspaceId = useWorkspaceStore((s) => s.setActiveWorkspaceId);
+
+  useEffect(() => {
+    if (!uid) {
+      setWorkspaces([]);
+      setLoadingWorkspaces(false);
+      return;
+    }
+    setLoadingWorkspaces(true);
+    const unsubscribe = subscribeToUserWorkspaces(uid, (workspaces) => {
+      setWorkspaces(workspaces);
+      setLoadingWorkspaces(false);
+      const stillValid = workspaces.some((w) => w.id === activeWorkspaceId);
+      if (!stillValid && workspaces.length > 0) {
+        setActiveWorkspaceId(workspaces[0].id);
+      }
+      if (workspaces.length === 0) {
+        setActiveWorkspaceId(null);
+      }
+    });
+    return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid]);
+}
+
+/** Subscribes to members + pages of whichever workspace is currently active. Call once in the app layout. */
+export function useActiveWorkspaceDataBootstrap() {
+  const uid = useAuthStore((s) => s.firebaseUser?.uid);
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const isLoadingWorkspaces = useWorkspaceStore((s) => s.isLoadingWorkspaces);
+  const setMembers = useWorkspaceStore((s) => s.setMembers);
+  const setPages = useWorkspaceStore((s) => s.setPages);
+  const setLoadingWorkspaceData = useWorkspaceStore((s) => s.setLoadingWorkspaceData);
+
+  // Don't trust a persisted (localStorage) activeWorkspaceId until the live
+  // workspace list has confirmed it's actually one we belong to — otherwise
+  // a stale id from a previous account/session fires a real, correctly-
+  // denied read against a workspace we're not a member of, surfacing a
+  // confusing permission-denied toast for something that isn't a bug.
+  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? null;
+  const isConfirmedActive = Boolean(activeWorkspaceId && activeWorkspace);
+  const isOwnerOfActive = Boolean(activeWorkspace && uid && activeWorkspace.ownerId === uid);
+
+  useEffect(() => {
+    if (isLoadingWorkspaces) return;
+    if (!isConfirmedActive || !activeWorkspaceId) {
+      setMembers([]);
+      setPages([]);
+      setLoadingWorkspaceData(false);
+      return;
+    }
+    setLoadingWorkspaceData(true);
+    let membersLoaded = false;
+    let pagesLoaded = false;
+    function maybeDone() {
+      if (membersLoaded && pagesLoaded) setLoadingWorkspaceData(false);
+    }
+    const unsubMembers = subscribeToMembers(
+      activeWorkspaceId,
+      (members) => {
+        setMembers(members);
+        membersLoaded = true;
+        maybeDone();
+      },
+      (error) => {
+        // Never leave the app stuck on a skeleton just because this one
+        // read was denied — surface an empty list instead of hanging, but
+        // log the real error so it's actually diagnosable.
+        console.error(`subscribeToMembers denied for workspace ${activeWorkspaceId}:`, error.code, error.message);
+        setMembers([]);
+        membersLoaded = true;
+        maybeDone();
+      }
+    );
+    const unsubPages = subscribeToPages(
+      activeWorkspaceId,
+      (pages) => {
+        setPages(pages);
+        pagesLoaded = true;
+        maybeDone();
+      },
+      (error) => {
+        console.error(`subscribeToPages denied for workspace ${activeWorkspaceId}:`, error.code, error.message);
+        setPages([]);
+        pagesLoaded = true;
+        maybeDone();
+      },
+      uid,
+      isOwnerOfActive
+    );
+    return () => {
+      unsubMembers();
+      unsubPages();
+    };
+  }, [activeWorkspaceId, isConfirmedActive, isOwnerOfActive, isLoadingWorkspaces, uid, setMembers, setPages, setLoadingWorkspaceData]);
+}
+
+export function useWorkspace() {
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+  const setActiveWorkspaceId = useWorkspaceStore((s) => s.setActiveWorkspaceId);
+  const members = useWorkspaceStore((s) => s.members);
+  const pages = useWorkspaceStore((s) => s.pages);
+  const isLoadingWorkspaces = useWorkspaceStore((s) => s.isLoadingWorkspaces);
+  const isLoadingWorkspaceData = useWorkspaceStore((s) => s.isLoadingWorkspaceData);
+
+  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? null;
+
+  return {
+    workspaces,
+    activeWorkspace,
+    activeWorkspaceId,
+    setActiveWorkspaceId,
+    members,
+    pages,
+    isLoadingWorkspaces,
+    isLoadingWorkspaceData,
+  };
+}
+
+
+
+============================================================
+FILE: src\pages\JoinWorkspacePage.tsx
+============================================================
+
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router";
+import { Building2, Clock, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/useAuth";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import {
+  getPublicWorkspaceInfo,
+  submitJoinRequest,
+  subscribeToOwnJoinRequest,
+} from "@/services/joinRequestService";
+import { addOwnWorkspaceId } from "@/services/authService";
+import type { JoinRequest, Workspace } from "@/types";
+
+export default function JoinWorkspacePage() {
+  const { workspaceId } = useParams<{ workspaceId: string }>();
+  const navigate = useNavigate();
+  const { profile } = useAuth();
+  const { workspaces, isLoadingWorkspaces } = useWorkspace();
+  const [workspace, setWorkspace] = useState<Workspace | null | undefined>(undefined);
+  const [ownRequest, setOwnRequest] = useState<JoinRequest | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    getPublicWorkspaceInfo(workspaceId).then(setWorkspace);
+  }, [workspaceId]);
+
+  // If this account is already a member (most importantly: the Owner
+  // themselves clicking their own invite link) — never let them go through
+  // the request-access flow at all. Approving a join request for someone
+  // who's already a member overwrites their existing role, which is
+  // catastrophic if that someone happens to be the Owner. Uses the live
+  // workspace list (not a possibly-stale profile snapshot) so this is
+  // reliable even right after gaining access some other way.
+  useEffect(() => {
+    if (!workspaceId || isLoadingWorkspaces) return;
+    if (workspaces.some((w) => w.id === workspaceId)) {
+      navigate("/", { replace: true });
+    }
+  }, [workspaceId, workspaces, isLoadingWorkspaces, navigate]);
+
+  useEffect(() => {
+    if (!workspaceId || !profile?.uid) return;
+    return subscribeToOwnJoinRequest(workspaceId, profile.uid, (request) => {
+      setOwnRequest(request);
+      if (request?.status === "approved") {
+        addOwnWorkspaceId(profile.uid, workspaceId)
+          .then(() => {
+            // Give the workspace-list listener a beat to pick up the fresh
+            // id before navigating, so the app doesn't land on an empty
+            // "create a workspace" screen for a split second.
+            setTimeout(() => navigate("/", { replace: true }), 400);
+          })
+          .catch((err) => console.error("Не удалось сохранить workspace в профиле:", err));
+      }
+    });
+  }, [workspaceId, profile?.uid, navigate]);
+
+  async function handleRequestAccess() {
+    if (!workspaceId || !profile) return;
+    setIsSubmitting(true);
+    try {
+      await submitJoinRequest(workspaceId, profile.uid, profile.email, profile.name, profile.photoURL);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  if (workspace === undefined) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (workspace === null) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-2 bg-background text-center">
+        <p className="text-lg font-semibold">Workspace не найден</p>
+        <p className="text-sm text-muted-foreground">Проверьте, что ссылка скопирована полностью и без опечаток.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen items-center justify-center bg-background px-4">
+      <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-xl border border-border bg-card p-8 text-center shadow-sm">
+        <span
+          className="flex h-14 w-14 items-center justify-center rounded-xl"
+          style={{ backgroundColor: `hsl(${workspace.color} / 0.15)`, color: `hsl(${workspace.color})` }}
+        >
+          <Building2 className="h-7 w-7" />
+        </span>
+        <div>
+          <h1 className="text-lg font-semibold">{workspace.name}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Чтобы работать в этом workspace, нужно одобрение от его владельца.
+          </p>
+        </div>
+
+        {ownRequest?.status === "pending" ? (
+          <div className="flex items-center gap-2 rounded-lg bg-muted px-4 py-2.5 text-sm text-muted-foreground">
+            <Clock className="h-4 w-4" /> Заявка отправлена, ждём подтверждения
+          </div>
+        ) : ownRequest?.status === "approved" ? (
+          <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Доступ открыт, переходим в workspace...
+          </div>
+        ) : (
+          <Button onClick={handleRequestAccess} disabled={isSubmitting} className="w-full">
+            {isSubmitting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            Запросить доступ
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\services\chatService.ts
+============================================================
+
+import {
+  CollectionReference,
+  DocumentData,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+} from "firebase/firestore";
+import { withErrorReporting } from "@/firebase/firestore";
+import { generateId } from "@/utils/id";
+import { normalizeTimestamp } from "@/utils/date";
+import type { ChatMessage } from "@/types";
+
+/**
+ * Messages are ordered by `serverOrderAt` (a Firestore serverTimestamp()),
+ * NOT by `createdAt` — different people's devices can have clocks that are
+ * minutes off from each other, and ordering by a client-set number made
+ * messages appear scrambled/out of sequence for other participants. The
+ * server timestamp is authoritative and always consistent regardless of
+ * whose device sent what. `createdAt` stays a plain client number used only
+ * for display (kept for date-fns formatting safety — never render a raw
+ * Firestore Timestamp object directly, that's what caused the earlier
+ * "Invalid time value" crash).
+ */
+export function subscribeToChat(
+  ref: CollectionReference<DocumentData>,
+  onData: (messages: ChatMessage[]) => void,
+  onError?: (error: import("firebase/firestore").FirestoreError) => void
+) {
+  // No orderBy() in the query itself: Firestore's orderBy silently excludes
+  // any document missing that field, which would have made every message
+  // sent before this fix (no serverOrderAt yet) vanish from the list.
+  // Sorting client-side instead, preferring the server-authoritative
+  // timestamp and falling back to the client one for older messages.
+  return onSnapshot(
+    ref,
+    (snapshot) => {
+      const items = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as ChatMessage & { serverOrderAt?: unknown });
+      items.forEach((m) => (m.createdAt = normalizeTimestamp(m.createdAt)));
+      items.sort((a, b) => orderKey(a) - orderKey(b));
+      onData(items);
+    },
+    withErrorReporting(onError)
+  );
+}
+
+function orderKey(m: ChatMessage & { serverOrderAt?: unknown }): number {
+  return m.serverOrderAt ? normalizeTimestamp(m.serverOrderAt) : m.createdAt;
+}
+
+export interface SendMessageInput {
+  authorUid: string;
+  authorName: string;
+  authorPhotoURL?: string | null;
+  text: string;
+  replyTo?: ChatMessage | null;
+}
+
+export async function sendChatMessage(ref: CollectionReference<DocumentData>, input: SendMessageInput) {
+  const id = generateId("msg");
+  const message: ChatMessage = {
+    id,
+    authorUid: input.authorUid,
+    authorName: input.authorName,
+    authorPhotoURL: input.authorPhotoURL ?? null,
+    text: input.text,
+    createdAt: Date.now(),
+    editedAt: null,
+    deleted: false,
+    replyToId: input.replyTo?.id ?? null,
+    replyToAuthorName: input.replyTo?.authorName ?? null,
+    replyToText: input.replyTo ? input.replyTo.text.slice(0, 140) : null,
+  };
+  await setDoc(doc(ref, id), { ...message, serverOrderAt: serverTimestamp() });
+  return message;
+}
+
+export async function editChatMessage(ref: CollectionReference<DocumentData>, messageId: string, text: string) {
+  await setDoc(doc(ref, messageId), { text, editedAt: Date.now() }, { merge: true });
+}
+
+/** Soft-delete: keeps the doc (so replies referencing it still resolve) but clears the text and marks it deleted. */
+export async function deleteChatMessage(ref: CollectionReference<DocumentData>, messageId: string) {
+  await setDoc(doc(ref, messageId), { text: "", deleted: true, editedAt: Date.now() }, { merge: true });
+}
+
+export async function hardDeleteChatMessage(ref: CollectionReference<DocumentData>, messageId: string) {
+  await deleteDoc(doc(ref, messageId));
+}
+
+
+
+============================================================
+FILE: src\services\workspaceService.ts
+============================================================
+
+import { deleteDoc, DocumentData, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { db } from "@/firebase/firebase";
+import { paths } from "@/firebase/firestore";
+import { generateId } from "@/utils/id";
+import { addOwnWorkspaceId } from "@/services/authService";
+import type { Workspace } from "@/types";
+
+export interface CreateWorkspaceInput {
+  name: string;
+  icon: string;
+  color: string;
+  ownerId: string;
+  ownerEmail: string;
+  ownerName: string;
+}
+
+export async function createWorkspace(input: CreateWorkspaceInput): Promise<Workspace> {
+  if (!db) throw new Error("Firebase не настроен");
+  const id = generateId("ws");
+  const workspace: Workspace = {
+    id,
+    name: input.name,
+    icon: input.icon,
+    color: input.color,
+    ownerId: input.ownerId,
+    createdAt: Date.now(),
+  };
+  await setDoc(paths.workspace(id), { ...workspace, createdAt: serverTimestamp() });
+  await setDoc(paths.member(id, input.ownerId), {
+    uid: input.ownerId,
+    email: input.ownerEmail,
+    name: input.ownerName,
+    role: "owner",
+    status: "active",
+    invitedAt: Date.now(),
+    invitedBy: input.ownerId,
+    joinedAt: Date.now(),
+  });
+  await addOwnWorkspaceId(input.ownerId, id);
+  return workspace;
+}
+
+export async function deleteWorkspace(workspaceId: string) {
+  if (!db) return;
+  await deleteDoc(paths.workspace(workspaceId));
+}
+
+export async function updateWorkspace(workspaceId: string, patch: Partial<Workspace>) {
+  if (!db) return;
+  await setDoc(paths.workspace(workspaceId), patch, { merge: true });
+}
+
+/**
+ * Subscribes to all workspaces a given user belongs to, keeping both the
+ * membership list *and* each workspace's own document in realtime sync.
+ * Returns an unsubscribe function that tears down all nested listeners.
+ *
+ * Deliberately does NOT use a `collectionGroup` query on `members` — that
+ * approach turned out to be unreliable in practice. Instead this reads the
+ * cached `workspaceIds` array off the user's own profile doc (a plain,
+ * simple, always-reliable read) and subscribes to each workspace doc
+ * individually. If one cached id turns out to be stale (e.g. removed while
+ * offline), only that single doc read is denied and it's just quietly
+ * dropped from the list — it can never take down the whole subscription.
+ */
+export function subscribeToUserWorkspaces(
+  uid: string,
+  onData: (workspaces: Workspace[]) => void
+): () => void {
+  if (!db) {
+    onData([]);
+    return () => {};
+  }
+
+  const workspaceUnsubs = new Map<string, () => void>();
+  const workspaceData = new Map<string, Workspace>();
+  let cancelled = false;
+  let pendingEmptyCacheTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Tracks which currently-expected workspace ids have reported in at least
+  // once (success OR a gracefully-handled denial) since they were attached.
+  // `onData` — and therefore the caller's isLoadingWorkspaces=false — must
+  // never fire until every expected id has resolved at least once. Without
+  // this, the very first call used to fire immediately after attaching
+  // brand-new per-workspace listeners, before any of them had received data,
+  // marking "loading" complete while the list was still empty/incomplete —
+  // the exact root cause of the app briefly (or, on a slow connection,
+  // persistently enough to notice) showing "create a workspace"/"no access"
+  // on a fresh load even though the account already had real access.
+  let expectedIds = new Set<string>();
+  const resolvedIds = new Set<string>();
+  let hasEmittedReady = false;
+
+  function tryEmit() {
+    if (cancelled) return;
+    if (!hasEmittedReady) {
+      for (const id of expectedIds) {
+        if (!resolvedIds.has(id)) return; // still waiting on at least one workspace doc
+      }
+      hasEmittedReady = true;
+    }
+    onData(Array.from(workspaceData.values()).sort((a, b) => a.createdAt - b.createdAt));
+  }
+
+  function applyWorkspaceIds(currentWorkspaceIds: Set<string>) {
+    expectedIds = currentWorkspaceIds;
+
+    // Tear down listeners for workspaces no longer in the cached list.
+    for (const [wsId, unsub] of workspaceUnsubs) {
+      if (!currentWorkspaceIds.has(wsId)) {
+        unsub();
+        workspaceUnsubs.delete(wsId);
+        workspaceData.delete(wsId);
+        resolvedIds.delete(wsId);
+      }
+    }
+    // Attach listeners for newly-visible workspaces.
+    for (const wsId of currentWorkspaceIds) {
+      if (workspaceUnsubs.has(wsId)) continue;
+      const unsub = onSnapshot(
+        paths.workspace(wsId),
+        (snap) => {
+          if (snap.exists()) {
+            workspaceData.set(wsId, { id: snap.id, ...(snap.data() as DocumentData) } as Workspace);
+          } else {
+            workspaceData.delete(wsId);
+          }
+          resolvedIds.add(wsId);
+          tryEmit();
+        },
+        () => {
+          // A stale/removed id in the cache — drop it silently, never
+          // surface a toast for this, it's expected eventual-consistency.
+          // Still counts as "resolved" so it can never block readiness.
+          workspaceData.delete(wsId);
+          resolvedIds.add(wsId);
+          tryEmit();
+        }
+      );
+      workspaceUnsubs.set(wsId, unsub);
+    }
+    // Zero expected ids (brand new account, genuinely no workspaces) has
+    // nothing to wait for — that empty result IS the final answer.
+    if (currentWorkspaceIds.size === 0) hasEmittedReady = true;
+    tryEmit();
+  }
+
+  const unsubscribeUser = onSnapshot(paths.user(uid), (snapshot) => {
+    if (cancelled) return;
+    const userDoc = snapshot.exists() ? (snapshot.data() as { workspaceIds?: string[] }) : undefined;
+    const currentWorkspaceIds = new Set(userDoc?.workspaceIds ?? []);
+
+    if (pendingEmptyCacheTimer) {
+      clearTimeout(pendingEmptyCacheTimer);
+      pendingEmptyCacheTimer = null;
+    }
+
+    // Fresh full page load: the very first snapshot can come from a stale
+    // local cache captured before this account had any workspaces cached
+    // (or before a just-approved join finished syncing). Trusting an EMPTY
+    // result straight from cache is exactly what causes "opens on the 2nd
+    // reload but not the 1st" — give the real server snapshot a brief
+    // window to arrive before treating "no workspaces" as final. A non-
+    // empty cached result is trusted immediately (worst case a stale id
+    // gets silently dropped once its own doc read is denied).
+    if (snapshot.metadata.fromCache && currentWorkspaceIds.size === 0 && !hasEmittedReady) {
+      pendingEmptyCacheTimer = setTimeout(() => {
+        if (!cancelled) applyWorkspaceIds(currentWorkspaceIds);
+      }, 1500);
+      return;
+    }
+
+    applyWorkspaceIds(currentWorkspaceIds);
+  });
+
+  return () => {
+    cancelled = true;
+    if (pendingEmptyCacheTimer) clearTimeout(pendingEmptyCacheTimer);
+    unsubscribeUser();
+    workspaceUnsubs.forEach((unsub) => unsub());
+    workspaceUnsubs.clear();
+  };
+}
+
+
+
+============================================================
+FILE: src\types\notification.ts
+============================================================
+
+export type NotificationTargetKind = "all" | "selected" | "role" | "responsible";
+
+export interface Notification {
+  id: string;
+  workspaceId: string;
+  targetUid: string;
+  title: string;
+  body: string;
+  priority: "normal" | "important" | "urgent";
+  fromUid: string;
+  fromName: string;
+  read: boolean;
+  createdAt: number;
+  relatedAnnouncementId?: string | null;
+}
+
+
+
+============================================================
+FILE: src\utils\date.ts
+============================================================
+
+import { formatDistanceToNow, format } from "date-fns";
+import { ru } from "date-fns/locale";
+
+/**
+ * Normalizes a timestamp value to a plain millisecond number. Handles both
+ * the normal case (already a number) and a Firestore Timestamp object
+ * (has .toMillis()/.seconds) slipping through from a document that was
+ * written with serverTimestamp() — defensive fallback so a stray malformed
+ * value can never crash date rendering and take down the whole app.
+ */
+export function normalizeTimestamp(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value && typeof value === "object") {
+    const maybeTimestamp = value as { toMillis?: () => number; seconds?: number };
+    if (typeof maybeTimestamp.toMillis === "function") return maybeTimestamp.toMillis();
+    if (typeof maybeTimestamp.seconds === "number") return maybeTimestamp.seconds * 1000;
+  }
+  return Date.now();
+}
+
+function toMillis(value: unknown): number {
+  return normalizeTimestamp(value);
+}
+
+export function timeAgo(timestamp: number): string {
+  return formatDistanceToNow(new Date(toMillis(timestamp)), { addSuffix: true, locale: ru });
+}
+
+export function formatDate(timestamp: number, pattern = "d MMM yyyy, HH:mm"): string {
+  return format(new Date(toMillis(timestamp)), pattern, { locale: ru });
+}
+
+
+
+============================================================
+FILE: src\utils\validation.ts
+============================================================
+
+import { z } from "zod";
+
+export const loginSchema = z.object({
+  email: z.string().min(1, "Введите email").email("Некорректный email"),
+  password: z.string().min(6, "Минимум 6 символов"),
+});
+export type LoginFormValues = z.infer<typeof loginSchema>;
+
+export const signupSchema = z
+  .object({
+    name: z.string().min(2, "Введите имя"),
+    email: z.string().min(1, "Введите email").email("Некорректный email"),
+    password: z.string().min(6, "Минимум 6 символов"),
+    confirmPassword: z.string().min(6, "Минимум 6 символов"),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Пароли не совпадают",
+    path: ["confirmPassword"],
+  });
+export type SignupFormValues = z.infer<typeof signupSchema>;
+
+export const inviteSchema = z.object({
+  email: z.string().min(1, "Введите email").email("Некорректный email"),
+  role: z.enum(["admin", "manager", "viewer"]),
+});
+export type InviteFormValues = z.infer<typeof inviteSchema>;
+
+export const workspaceSchema = z.object({
+  name: z.string().min(2, "Минимум 2 символа").max(40, "Максимум 40 символов"),
+});
+export type WorkspaceFormValues = z.infer<typeof workspaceSchema>;
+
+export const pageSchema = z.object({
+  name: z.string().min(1, "Введите название").max(40, "Максимум 40 символов"),
+});
+export type PageFormValues = z.infer<typeof pageSchema>;
+
+export const profileSchema = z.object({
+  name: z.string().min(2, "Минимум 2 символа"),
+});
+export type ProfileFormValues = z.infer<typeof profileSchema>;
+

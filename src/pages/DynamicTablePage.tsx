@@ -21,7 +21,7 @@ import type { PageIconName } from "@/types";
 
 export default function DynamicTablePage() {
   const { pageId } = useParams<{ pageId: string }>();
-  const { activeWorkspaceId, pages, members, isLoadingWorkspaceData } = useWorkspace();
+  const { activeWorkspaceId, pages, members } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -30,7 +30,7 @@ export default function DynamicTablePage() {
   const [activeSubPageId, setActiveSubPageId] = useState<string | null>(null);
 
   const page = pages.find((p) => p.id === pageId);
-  const hasAccess = Boolean(page && permissions.canAccessPage(page));
+  const hasAccess = permissions.isResolved && Boolean(page && permissions.canAccessPage(page));
   const { rows: pageRows, isLoading: pageRowsLoading } = usePageRows(activeWorkspaceId, hasAccess && page ? page.id : null);
   const { subPages } = useSubPages(activeWorkspaceId, hasAccess && page ? page.id : null);
   const activeSubPage = subPages.find((s) => s.id === activeSubPageId) ?? null;
@@ -62,7 +62,10 @@ export default function DynamicTablePage() {
     );
   }, [page, hasAccess, permissions.canManagePage]);
 
-  if (isLoadingWorkspaceData) {
+  // 1. Still resolving user -> role -> workspace -> pages. Never render a
+  //    verdict here: this is precisely the window where the old code could
+  //    flash "Страница не найдена" / "Access denied" and needed an F5.
+  if (!permissions.isResolved) {
     return (
       <div className="p-6">
         <Skeleton className="mb-4 h-8 w-48" />
@@ -71,11 +74,31 @@ export default function DynamicTablePage() {
     );
   }
 
+  // 2. Resolved, but this account has no member record in the workspace.
+  if (!permissions.hasMembership) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+        <Lock className="h-8 w-8 text-muted-foreground" />
+        <p className="text-lg font-semibold">Вы не участник этого workspace</p>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          Попросите владельца добавить вас — после этого страница откроется без перезагрузки.
+        </p>
+      </div>
+    );
+  }
+
+  // 3. Resolved and a member, but the page genuinely isn't in our visible
+  //    set. For a non-owner the pages query is filtered by allowedUsers, so
+  //    "not in the list" and "no access" are the same fact.
   if (!page) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <p className="text-lg font-semibold">Страница не найдена</p>
-        <p className="text-sm text-muted-foreground">Возможно, она была удалена или у вас нет к ней доступа.</p>
+        <Lock className="h-8 w-8 text-muted-foreground" />
+        <p className="text-lg font-semibold">Страница недоступна</p>
+        <p className="text-sm text-muted-foreground">
+          Она удалена, либо у вас нет к ней доступа. Обратитесь к Owner workspace или к
+          ответственному за страницу.
+        </p>
       </div>
     );
   }
@@ -84,7 +107,7 @@ export default function DynamicTablePage() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
         <Lock className="h-8 w-8 text-muted-foreground" />
-        <p className="text-lg font-semibold">Access denied</p>
+        <p className="text-lg font-semibold">Нет доступа</p>
         <p className="text-sm text-muted-foreground">
           У вас нет доступа к этой странице. Обратитесь к Owner workspace, чтобы получить доступ.
         </p>

@@ -1,13 +1,15 @@
+// PATH: src/App.tsx  (REPLACES EXISTING)
 import { Suspense, lazy } from "react";
 import { Navigate, Route, BrowserRouter, Routes, useLocation } from "react-router";
 import { ThemeProvider } from "@/contexts/ThemeProvider";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
+import { AppBootScreen } from "@/components/common/AppBootScreen";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Skeleton } from "@/components/ui/skeleton";
 import { AppLayout } from "@/layouts/AppLayout";
-import { useAuth, useAuthBootstrap } from "@/hooks/useAuth";
+import { useAuthBootstrap } from "@/hooks/useAuth";
 import { useWorkspaceListBootstrap } from "@/hooks/useWorkspace";
+import { useAppBootstrap } from "@/hooks/useAppBootstrap";
 
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
@@ -20,40 +22,42 @@ const MessagesPage = lazy(() => import("@/pages/MessagesPage"));
 const JoinWorkspacePage = lazy(() => import("@/pages/JoinWorkspacePage"));
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
 
-function PageFallback() {
-  return (
-    <div className="flex h-screen items-center justify-center bg-background">
-      <div className="flex flex-col gap-3">
-        <Skeleton className="h-4 w-48" />
-        <Skeleton className="h-4 w-32" />
-      </div>
-    </div>
-  );
-}
-
+/**
+ * Route guard. Branches on the bootstrap PHASE, never on a raw isLoading
+ * boolean: "auth" and "profile" are indistinguishable from the router's point
+ * of view (both mean "we do not yet know who this is"), and redirecting to
+ * /login during either of them is what used to log people out of a deep link
+ * on a cold open.
+ */
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { phase, isAuthenticated } = useAppBootstrap();
   const location = useLocation();
-  if (isLoading) return <PageFallback />;
+
+  if (phase === "auth" || phase === "profile") return <AppBootScreen phase={phase} />;
+
   if (!isAuthenticated) {
-    // Remember where they were trying to go (e.g. a /join/:workspaceId
-    // invite link) so LoginPage can send them back there after signing in,
-    // instead of always landing on the dashboard and forcing them to find
-    // and re-open the invite link a second time.
+    // Remember the intended destination (e.g. /join/:workspaceId or a deep
+    // /page/:pageId link) so LoginPage can restore it after sign-in.
     return <Navigate to="/login" state={{ from: location.pathname + location.search }} replace />;
   }
   return <>{children}</>;
 }
 
 function RedirectIfAuthed({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { phase, isAuthenticated } = useAppBootstrap();
   const location = useLocation();
-  if (isLoading) return <PageFallback />;
+
+  if (phase === "auth") return <AppBootScreen phase={phase} />;
+
   if (isAuthenticated) {
     const from = (location.state as { from?: string } | null)?.from;
     return <Navigate to={from && from !== "/login" ? from : "/"} replace />;
   }
   return <>{children}</>;
+}
+
+function RouteFallback() {
+  return <AppBootScreen phase="workspace-data" />;
 }
 
 function AppShell() {
@@ -62,7 +66,7 @@ function AppShell() {
 
   return (
     <BrowserRouter>
-      <Suspense fallback={<PageFallback />}>
+      <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route
             path="/login"

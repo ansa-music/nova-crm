@@ -1,0 +1,943 @@
+
+
+============================================================
+FILE: src\components\chat\PageChatPanel.tsx
+============================================================
+
+import { useEffect, useMemo, useState } from "react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { ChatPanel } from "@/components/chat/ChatPanel";
+import { paths } from "@/firebase/firestore";
+import { subscribeToChat, sendChatMessage, editChatMessage, deleteChatMessage } from "@/services/chatService";
+import { notifyMentions } from "@/services/notificationService";
+import { useAuth } from "@/hooks/useAuth";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { displayNameOf } from "@/utils/displayName";
+import type { ChatMessage } from "@/types";
+
+interface PageChatPanelProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  workspaceId: string;
+  pageId: string;
+  pageName: string;
+}
+
+export function PageChatPanel({ open, onOpenChange, workspaceId, pageId, pageName }: PageChatPanelProps) {
+  const { profile } = useAuth();
+  const { members } = useWorkspace();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const chatRef = paths.pageChat(workspaceId, pageId);
+  const mentionableUsers = useMemo(
+    () => members.filter((m) => m.status === "active").map((m) => ({ uid: m.uid, name: displayNameOf(m) })),
+    [members]
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    return subscribeToChat(chatRef, setMessages, (error) =>
+      console.error("subscribeToChat(pageChat) denied:", error.code, error.message)
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, workspaceId, pageId]);
+
+  if (!profile) return null;
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="flex w-full flex-col p-0 sm:max-w-md">
+        <SheetHeader className="border-b border-border p-4">
+          <SheetTitle>Чат страницы «{pageName}»</SheetTitle>
+        </SheetHeader>
+        <div className="flex-1 overflow-hidden">
+          <ChatPanel
+            messages={messages}
+            currentUid={profile.uid}
+            onSend={async (text, replyTo, mentionedUids) => {
+              await sendChatMessage(chatRef, {
+                authorUid: profile.uid,
+                authorName: profile.nickname || profile.name,
+                authorPhotoURL: profile.photoURL,
+                text,
+                replyTo,
+              });
+              await notifyMentions(workspaceId, profile.uid, profile.nickname || profile.name, mentionedUids, text);
+            }}
+            onEdit={(id, text) => editChatMessage(chatRef, id, text)}
+            onDelete={(id) => deleteChatMessage(chatRef, id)}
+            emptyMessage="Обсудите эту страницу прямо здесь"
+            mentionableUsers={mentionableUsers}
+          />
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\dashboard\StatCard.tsx
+============================================================
+
+import { motion } from "framer-motion";
+import type { LucideIcon } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { cn } from "@/utils/cn";
+
+interface StatCardProps {
+  label: string;
+  value: string;
+  icon: LucideIcon;
+  trend?: string;
+  trendUp?: boolean;
+  color?: string;
+  delay?: number;
+}
+
+export function StatCard({ label, value, icon: Icon, trend, trendUp, color = "243 75% 59%", delay = 0 }: StatCardProps) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, delay }}
+    >
+      <Card className="relative overflow-hidden p-5 transition-shadow hover:shadow-popover">
+        <div
+          className="absolute -right-6 -top-6 h-24 w-24 rounded-full opacity-[0.12]"
+          style={{ backgroundColor: `hsl(${color})` }}
+        />
+        <div className="relative flex items-start justify-between">
+          <div>
+            <p className="text-sm text-muted-foreground">{label}</p>
+            <p className="mt-2 text-2xl font-semibold tracking-tight">{value}</p>
+            {trend && (
+              <p className={cn("mt-1 text-xs font-medium", trendUp ? "text-success" : "text-destructive")}>
+                {trend}
+              </p>
+            )}
+          </div>
+          <span
+            className="flex h-10 w-10 items-center justify-center rounded-xl"
+            style={{ backgroundColor: `hsl(${color} / 0.15)`, color: `hsl(${color})` }}
+          >
+            <Icon className="h-5 w-5" />
+          </span>
+        </div>
+      </Card>
+    </motion.div>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\members\InviteMemberForm.tsx
+============================================================
+
+import { useState } from "react";
+import { useForm, Controller } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Loader2, UserPlus } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/sonner";
+import { RoleSelect } from "@/components/members/RoleSelect";
+import { inviteSchema, type InviteFormValues } from "@/utils/validation";
+import { inviteMember } from "@/services/memberService";
+import { useAuth } from "@/hooks/useAuth";
+
+export function InviteMemberForm({ workspaceId }: { workspaceId: string }) {
+  const { profile } = useAuth();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const form = useForm<InviteFormValues>({
+    resolver: zodResolver(inviteSchema),
+    defaultValues: { email: "", role: "manager" },
+  });
+
+  async function onSubmit(values: InviteFormValues) {
+    if (!profile) return;
+    setIsSubmitting(true);
+    try {
+      await inviteMember(workspaceId, values.email, values.role, profile.uid);
+      toast.success(`Приглашение для ${values.email} создано`);
+      form.reset({ email: "", role: "manager" });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось пригласить пользователя");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)} className="flex items-start gap-2">
+      <div className="flex-1">
+        <Input placeholder="email@company.com" {...form.register("email")} />
+        {form.formState.errors.email && (
+          <p className="mt-1 text-xs text-destructive">{form.formState.errors.email.message}</p>
+        )}
+      </div>
+      <Controller
+        control={form.control}
+        name="role"
+        render={({ field }) => (
+          <RoleSelect value={field.value} onChange={field.onChange} assignableRoles={["admin", "manager", "viewer"]} />
+        )}
+      />
+      <Button type="submit" disabled={isSubmitting} className="gap-1.5">
+        {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+        Пригласить
+      </Button>
+    </form>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\table\GroupHeaderRow.tsx
+============================================================
+
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { cn } from "@/utils/cn";
+
+interface GroupHeaderRowProps {
+  label: string;
+  count: number;
+  colSpan: number;
+  collapsed: boolean;
+  onToggle: () => void;
+  color?: string;
+}
+
+export function GroupHeaderRow({ label, count, colSpan, collapsed, onToggle, color }: GroupHeaderRowProps) {
+  return (
+    <tr>
+      <td colSpan={colSpan + 1} className="border-b border-border bg-muted/40 p-0">
+        <button
+          onClick={onToggle}
+          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium hover:bg-muted/70"
+        >
+          {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          {color && <span className="h-2 w-2 rounded-full" style={{ backgroundColor: `hsl(${color})` }} />}
+          <span className={cn(!label && "italic text-muted-foreground")}>{label || "Без значения"}</span>
+          <span className="text-xs font-normal text-muted-foreground">{count}</span>
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+
+
+============================================================
+FILE: src\components\ui\badge.tsx
+============================================================
+
+import * as React from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+import { cn } from "@/utils/cn";
+
+const badgeVariants = cva(
+  "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+  {
+    variants: {
+      variant: {
+        default: "border-transparent bg-primary text-primary-foreground",
+        secondary: "border-transparent bg-secondary text-secondary-foreground",
+        destructive: "border-transparent bg-destructive text-destructive-foreground",
+        success: "border-transparent bg-success/15 text-success",
+        warning: "border-transparent bg-warning/15 text-warning-foreground",
+        outline: "text-foreground border-border",
+      },
+    },
+    defaultVariants: { variant: "default" },
+  }
+);
+
+export interface BadgeProps
+  extends React.HTMLAttributes<HTMLDivElement>,
+    VariantProps<typeof badgeVariants> {}
+
+export function Badge({ className, variant, ...props }: BadgeProps) {
+  return <div className={cn(badgeVariants({ variant, className }))} {...props} />;
+}
+
+
+
+============================================================
+FILE: src\components\ui\label.tsx
+============================================================
+
+import * as React from "react";
+import * as LabelPrimitive from "@radix-ui/react-label";
+import { cn } from "@/utils/cn";
+
+export const Label = React.forwardRef<
+  React.ElementRef<typeof LabelPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof LabelPrimitive.Root>
+>(({ className, ...props }, ref) => (
+  <LabelPrimitive.Root
+    ref={ref}
+    className={cn(
+      "text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70",
+      className
+    )}
+    {...props}
+  />
+));
+Label.displayName = "Label";
+
+
+
+============================================================
+FILE: src\components\ui\tabs.tsx
+============================================================
+
+import * as React from "react";
+import * as TabsPrimitive from "@radix-ui/react-tabs";
+import { cn } from "@/utils/cn";
+
+export const Tabs = TabsPrimitive.Root;
+
+export const TabsList = React.forwardRef<
+  React.ElementRef<typeof TabsPrimitive.List>,
+  React.ComponentPropsWithoutRef<typeof TabsPrimitive.List>
+>(({ className, ...props }, ref) => (
+  <TabsPrimitive.List
+    ref={ref}
+    className={cn(
+      "inline-flex h-9 items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground",
+      className
+    )}
+    {...props}
+  />
+));
+TabsList.displayName = "TabsList";
+
+export const TabsTrigger = React.forwardRef<
+  React.ElementRef<typeof TabsPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger>
+>(({ className, ...props }, ref) => (
+  <TabsPrimitive.Trigger
+    ref={ref}
+    className={cn(
+      "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-subtle",
+      className
+    )}
+    {...props}
+  />
+));
+TabsTrigger.displayName = "TabsTrigger";
+
+export const TabsContent = React.forwardRef<
+  React.ElementRef<typeof TabsPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Content>
+>(({ className, ...props }, ref) => (
+  <TabsPrimitive.Content
+    ref={ref}
+    className={cn("mt-4 focus-visible:outline-none", className)}
+    {...props}
+  />
+));
+TabsContent.displayName = "TabsContent";
+
+
+
+============================================================
+FILE: src\hooks\useAuth.ts
+============================================================
+
+import { useEffect, useRef } from "react";
+import { subscribeToAuthChanges } from "@/firebase/auth";
+import { ensureUserProfile, syncNicknameToMemberships } from "@/services/authService";
+import { claimPendingInvites } from "@/services/memberService";
+import { paths, subscribeToDoc } from "@/firebase/firestore";
+import { useAuthStore } from "@/store/authStore";
+import { toast } from "@/components/ui/sonner";
+import type { AppUser } from "@/types";
+
+/** Wires the Firebase auth listener into the auth store. Call once near the app root. */
+export function useAuthBootstrap() {
+  const setFirebaseUser = useAuthStore((s) => s.setFirebaseUser);
+  const setProfile = useAuthStore((s) => s.setProfile);
+  const setLoading = useAuthStore((s) => s.setLoading);
+  const unsubscribeProfileRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToAuthChanges(async (user) => {
+      // Tear down any previous live profile subscription (e.g. on sign-out
+      // or switching accounts) before starting a new one.
+      unsubscribeProfileRef.current?.();
+      unsubscribeProfileRef.current = null;
+
+      try {
+        if (user) {
+          // Force-refresh/await the ID token BEFORE exposing this user to
+          // the rest of the app. Without this, firebaseUser can be set (and
+          // downstream Firestore listeners like the workspace list can fire)
+          // a moment before the token Firestore's SDK actually sends is
+          // ready — which surfaces as a permanent "permission-denied" that
+          // only a lucky reload fixes, even though the person genuinely has
+          // access. getIdToken() resolves only once a valid token exists.
+          await user.getIdToken();
+        }
+      } catch (tokenError) {
+        console.error("Failed to obtain ID token:", tokenError);
+      }
+      setFirebaseUser(user);
+      try {
+        if (user) {
+          const profile = await ensureUserProfile(user);
+          setProfile(profile);
+
+          // From here on, keep `profile` LIVE — a plain one-time fetch was
+          // the root cause of the nickname modal never closing (it saved
+          // successfully, but the in-memory profile object never updated to
+          // reflect that) and of the nickname not showing up anywhere else
+          // without a full page reload. Any future field (name, photo,
+          // nickname, workspaceIds) now propagates instantly everywhere
+          // `useAuth().profile` is read.
+          unsubscribeProfileRef.current = subscribeToDoc<AppUser>(paths.user(user.uid), (liveProfile) => {
+            if (liveProfile) setProfile(liveProfile);
+          });
+
+          // Best-effort: claiming pending invites must never block sign-in.
+          // A failure here (rules edge case, no invites, offline, etc.)
+          // should not leave the whole app stuck on the loading screen.
+          try {
+            await claimPendingInvites(user.uid, profile.email, profile.name, profile.photoURL, profile.nickname);
+          } catch (inviteError) {
+            console.error("claimPendingInvites failed:", inviteError);
+          }
+          if (profile.nickname && profile.workspaceIds?.length) {
+            syncNicknameToMemberships(user.uid, profile.workspaceIds, profile.nickname).catch((err) =>
+              console.error("Nickname self-heal sync failed:", err)
+            );
+          }
+        } else {
+          setProfile(null);
+        }
+      } catch (error) {
+        console.error("Auth bootstrap failed:", error);
+        toast.error("Не удалось загрузить профиль", {
+          description: error instanceof Error ? error.message : "Попробуйте обновить страницу.",
+        });
+      } finally {
+        setLoading(false);
+      }
+    });
+    return () => {
+      unsubscribeProfileRef.current?.();
+      unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
+export function useAuth() {
+  const firebaseUser = useAuthStore((s) => s.firebaseUser);
+  const profile = useAuthStore((s) => s.profile);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  return { user: firebaseUser, profile, isLoading, isAuthenticated: Boolean(firebaseUser) };
+}
+
+
+
+============================================================
+FILE: src\hooks\usePresenceHeartbeat.ts
+============================================================
+
+import { useEffect } from "react";
+import { updatePresenceHeartbeat } from "@/services/authService";
+import { useAuth } from "@/hooks/useAuth";
+
+const HEARTBEAT_INTERVAL_MS = 45 * 1000;
+
+/** Mount once near the app root (inside AppLayout). Keeps this user's presence fresh across all their workspaces. */
+export function usePresenceHeartbeat() {
+  const { profile } = useAuth();
+  const uid = profile?.uid;
+  const workspaceIds = profile?.workspaceIds;
+
+  useEffect(() => {
+    if (!uid || !workspaceIds?.length) return;
+
+    function beat() {
+      if (document.visibilityState === "visible") {
+        updatePresenceHeartbeat(uid!, workspaceIds!);
+      }
+    }
+
+    beat();
+    const interval = setInterval(beat, HEARTBEAT_INTERVAL_MS);
+    document.addEventListener("visibilitychange", beat);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", beat);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid, JSON.stringify(workspaceIds)]);
+}
+
+
+
+============================================================
+FILE: src\pages\AnnouncementsPage.tsx
+============================================================
+
+import { useMemo, useState } from "react";
+import { Archive, ArchiveRestore, Megaphone, Pencil, Pin, Plus, Search, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toast } from "@/components/ui/sonner";
+import { AnnouncementDialog } from "@/components/announcements/AnnouncementDialog";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { usePermissions } from "@/hooks/usePermissions";
+import { useAnnouncements } from "@/hooks/useAnnouncements";
+import { archiveAnnouncement, deleteAnnouncement, togglePinAnnouncement } from "@/services/announcementService";
+import { formatDate } from "@/utils/date";
+import { cn } from "@/utils/cn";
+import type { Announcement, AnnouncementPriority } from "@/types";
+
+const PRIORITY_STYLES: Record<AnnouncementPriority, { label: string; badge: string; border: string }> = {
+  normal: { label: "Обычный", badge: "bg-muted text-muted-foreground", border: "border-border" },
+  important: { label: "Важный", badge: "bg-amber-500/15 text-amber-500", border: "border-amber-500/30" },
+  urgent: { label: "Срочный", badge: "bg-red-500/15 text-red-500", border: "border-red-500/40" },
+};
+
+export default function AnnouncementsPage() {
+  const { activeWorkspaceId } = useWorkspace();
+  const permissions = usePermissions();
+  const { announcements } = useAnnouncements(activeWorkspaceId);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<Announcement | null>(null);
+  const [search, setSearch] = useState("");
+  const [tab, setTab] = useState<"active" | "archived">("active");
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return announcements
+      .filter((a) => Boolean(a.isArchived) === (tab === "archived"))
+      .filter((a) => !q || a.title.toLowerCase().includes(q) || a.body.toLowerCase().includes(q))
+      .sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+        return b.createdAt - a.createdAt;
+      });
+  }, [announcements, search, tab]);
+
+  if (!activeWorkspaceId) return null;
+
+  async function handleTogglePin(a: Announcement) {
+    await togglePinAnnouncement(activeWorkspaceId!, a.id, !a.pinned);
+  }
+  async function handleArchive(a: Announcement) {
+    await archiveAnnouncement(activeWorkspaceId!, a.id, !a.isArchived);
+    toast.success(a.isArchived ? "Объявление восстановлено" : "Объявление в архиве");
+  }
+  async function handleDelete(a: Announcement) {
+    if (!window.confirm(`Удалить объявление «${a.title}»?`)) return;
+    await deleteAnnouncement(activeWorkspaceId!, a.id);
+    toast.success("Объявление удалено");
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-2 border-b border-border px-6 py-4">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Megaphone className="h-4 w-4" />
+        </span>
+        <h1 className="text-lg font-semibold">Объявления</h1>
+        <div className="flex-1" />
+        {permissions.canManageAnnouncements && (
+          <Button
+            size="sm"
+            className="gap-1.5"
+            onClick={() => {
+              setEditing(null);
+              setDialogOpen(true);
+            }}
+          >
+            <Plus className="h-4 w-4" /> Создать
+          </Button>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-3 border-b border-border px-6 py-3 sm:flex-row sm:items-center">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "active" | "archived")}>
+          <TabsList>
+            <TabsTrigger value="active">Активные</TabsTrigger>
+            <TabsTrigger value="archived">Архив</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <div className="relative flex-1 sm:max-w-xs">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск объявлений..." className="pl-8" />
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="mx-auto flex max-w-2xl flex-col gap-3">
+          {filtered.map((a) => {
+            const style = PRIORITY_STYLES[a.priority];
+            return (
+              <Card key={a.id} className={cn("glass-panel border", style.border)}>
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-3">
+                    <Avatar className="h-9 w-9 shrink-0">
+                      <AvatarImage src={a.authorPhotoURL ?? undefined} />
+                      <AvatarFallback>{a.authorName[0]?.toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {a.pinned && <Pin className="h-3.5 w-3.5 shrink-0 fill-primary text-primary" />}
+                        <h3 className="font-semibold">{a.title}</h3>
+                        <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", style.badge)}>
+                          {style.label}
+                        </span>
+                      </div>
+                      <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{a.body}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {a.authorName} · {formatDate(a.createdAt)}
+                      </p>
+                    </div>
+                    {permissions.canManageAnnouncements && (
+                      <div className="flex shrink-0 gap-1">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" title="Закрепить" onClick={() => handleTogglePin(a)}>
+                          <Pin className={cn("h-3.5 w-3.5", a.pinned && "fill-primary text-primary")} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title="Редактировать"
+                          onClick={() => {
+                            setEditing(a);
+                            setDialogOpen(true);
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" title="Архив" onClick={() => handleArchive(a)}>
+                          {a.isArchived ? <ArchiveRestore className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive"
+                          title="Удалить"
+                          onClick={() => handleDelete(a)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+          {filtered.length === 0 && (
+            <p className="py-12 text-center text-sm text-muted-foreground">
+              {tab === "archived" ? "В архиве пока пусто" : "Пока нет объявлений"}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <AnnouncementDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} />
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\pages\WorkspaceChatPage.tsx
+============================================================
+
+import { useEffect, useMemo } from "react";
+import { MessageSquare } from "lucide-react";
+import { ChatPanel } from "@/components/chat/ChatPanel";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { useAuth } from "@/hooks/useAuth";
+import { useWorkspaceChat } from "@/hooks/useWorkspaceChat";
+import { paths } from "@/firebase/firestore";
+import { deleteChatMessage, editChatMessage, sendChatMessage } from "@/services/chatService";
+import { notifyMentions } from "@/services/notificationService";
+import { markContextRead } from "@/services/inboxService";
+import { displayNameOf } from "@/utils/displayName";
+import type { ChatMessage } from "@/types";
+
+export default function WorkspaceChatPage() {
+  const { activeWorkspaceId, members } = useWorkspace();
+  const { profile } = useAuth();
+  const messages = useWorkspaceChat(activeWorkspaceId);
+
+  const mentionableUsers = useMemo(
+    () => members.filter((m) => m.status === "active").map((m) => ({ uid: m.uid, name: displayNameOf(m) })),
+    [members]
+  );
+
+  useEffect(() => {
+    if (!activeWorkspaceId || !profile?.uid) return;
+    markContextRead(activeWorkspaceId, profile.uid, "workspaceChat");
+  }, [activeWorkspaceId, profile?.uid, messages.length]);
+
+  if (!activeWorkspaceId || !profile) return null;
+
+  const chatRef = paths.workspaceChat(activeWorkspaceId);
+
+  async function handleSend(text: string, replyTo: ChatMessage | null, mentionedUids: string[]) {
+    await sendChatMessage(chatRef, {
+      authorUid: profile!.uid,
+      authorName: profile!.nickname || profile!.name,
+      authorPhotoURL: profile!.photoURL,
+      text,
+      replyTo,
+    });
+    await notifyMentions(activeWorkspaceId!, profile!.uid, profile!.nickname || profile!.name, mentionedUids, text);
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-2 border-b border-border px-6 py-4">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <MessageSquare className="h-4 w-4" />
+        </span>
+        <h1 className="text-lg font-semibold">Чат Workspace</h1>
+      </div>
+      <div className="flex-1 overflow-hidden">
+        <ChatPanel
+          messages={messages}
+          currentUid={profile.uid}
+          onSend={handleSend}
+          onEdit={(id, text) => editChatMessage(chatRef, id, text)}
+          onDelete={(id) => deleteChatMessage(chatRef, id)}
+          emptyMessage="Пока никто ничего не написал — начните обсуждение первым"
+          mentionableUsers={mentionableUsers}
+        />
+      </div>
+    </div>
+  );
+}
+
+
+
+============================================================
+FILE: src\services\onboardingService.ts
+============================================================
+
+import { createPage, addRow } from "@/services/pageService";
+import type { PageColumn, StatusOption } from "@/types";
+
+const CLIENT_STATUS: StatusOption[] = [
+  { value: "success", label: "Успешно", color: "142 71% 45%" },
+  { value: "waiting", label: "Ждём", color: "38 92% 50%" },
+  { value: "in_progress", label: "В работе", color: "0 72% 51%" },
+  { value: "done", label: "Готово", color: "142 71% 45%" },
+  { value: "cancelled", label: "Отмена", color: "240 4% 60%" },
+];
+
+const PROJECT_STATUS: StatusOption[] = [
+  { value: "planning", label: "Планирование", color: "217 91% 60%" },
+  { value: "active", label: "В работе", color: "38 92% 50%" },
+  { value: "done", label: "Готово", color: "142 71% 45%" },
+  { value: "blocked", label: "Заблокировано", color: "0 72% 51%" },
+];
+
+const EMPLOYEE_STATUS: StatusOption[] = [
+  { value: "active", label: "Активен", color: "142 71% 45%" },
+  { value: "vacation", label: "В отпуске", color: "38 92% 50%" },
+  { value: "inactive", label: "Неактивен", color: "240 4% 60%" },
+];
+
+function col(
+  key: string,
+  label: string,
+  type: PageColumn["type"],
+  width = 160,
+  statusOptions?: StatusOption[]
+): Omit<PageColumn, "id"> {
+  return { key, label, type, width, order: 0, statusOptions };
+}
+
+export async function seedDefaultWorkspacePages(workspaceId: string, createdBy: string) {
+  const clientsPage = await createPage({
+    workspaceId,
+    name: "Клиенты",
+    icon: "Users",
+    color: "243 75% 59%",
+    createdBy,
+    order: 0,
+    allowedUsers: [createdBy],
+    columns: [
+      col("name", "Имя клиента", "text", 200),
+      col("phone", "Телефон", "phone", 150),
+      col("amount", "Сумма", "currency", 130),
+      col("status", "Статус", "status", 140, CLIENT_STATUS),
+      col("price", "Цена", "currency", 140),
+      col("note", "Примечание", "text", 220),
+    ],
+  });
+
+  await createPage({
+    workspaceId,
+    name: "Проекты",
+    icon: "Briefcase",
+    color: "271 81% 56%",
+    createdBy,
+    order: 1,
+    allowedUsers: [createdBy],
+    columns: [
+      col("name", "Проект", "text", 220),
+      col("client", "Клиент", "text", 160),
+      col("deadline", "Дедлайн", "date", 140),
+      col("status", "Статус", "status", 150, PROJECT_STATUS),
+      col("budget", "Бюджет", "currency", 130),
+    ],
+  });
+
+  await createPage({
+    workspaceId,
+    name: "Финансы",
+    icon: "Wallet",
+    color: "152 60% 40%",
+    createdBy,
+    order: 2,
+    allowedUsers: [createdBy],
+    columns: [
+      col("description", "Описание", "text", 220),
+      col("category", "Категория", "text", 150),
+      col("amount", "Сумма", "currency", 140),
+      col("type", "Тип", "status", 130, [
+        { value: "income", label: "Доход", color: "142 71% 45%" },
+        { value: "expense", label: "Расход", color: "0 72% 51%" },
+      ]),
+      col("date", "Дата", "date", 140),
+    ],
+  });
+
+  await createPage({
+    workspaceId,
+    name: "Сотрудники",
+    icon: "UserCog",
+    color: "199 89% 48%",
+    createdBy,
+    order: 3,
+    allowedUsers: [createdBy],
+    columns: [
+      col("name", "Имя", "text", 200),
+      col("position", "Должность", "text", 180),
+      col("email", "Email", "email", 200),
+      col("phone", "Телефон", "phone", 150),
+      col("status", "Статус", "status", 140, EMPLOYEE_STATUS),
+    ],
+  });
+
+  const demoClients: Array<[string, string, string, string]> = [
+    ["Роман Ким", "+7 705 558 24 25", "150000", "success"],
+    ["Бексултан Ахметов", "+7 701 564 20 89", "60000", "success"],
+    ["Анжелика Ли", "+7 705 910 26 86", "121984", "success"],
+    ["Санжар Тулеген", "+7 701 479 39 93", "141500", "success"],
+    ["Юлия Смирнова", "+7 701 514 14 24", "134000", "waiting"],
+    ["Куба Ержанов", "+7 701 224 34 12", "315000", "waiting"],
+    ["Маржан Байжанова", "", "125000", "in_progress"],
+  ];
+
+  await Promise.all(
+    demoClients.map((c, i) =>
+      addRow(
+        workspaceId,
+        clientsPage.id,
+        { name: c[0], phone: c[1], amount: c[2], status: c[3], note: "" },
+        i
+      )
+    )
+  );
+
+  return clientsPage;
+}
+
+
+
+============================================================
+FILE: src\types\history.ts
+============================================================
+
+export type HistoryAction = "create" | "update" | "delete" | "restore";
+
+export interface HistoryEntry {
+  id: string;
+  workspaceId: string;
+  pageId?: string;
+  pageName?: string;
+  rowId?: string;
+  field?: string;
+  fieldLabel?: string;
+  oldValue: string | number | null;
+  newValue: string | number | null;
+  action: HistoryAction;
+  userId: string;
+  userName: string;
+  timestamp: number;
+}
+
+
+
+============================================================
+FILE: src\utils\adminAccess.ts
+============================================================
+
+/**
+ * Only this account may create new workspaces. Everyone else who lands on
+ * the app without a workspace must be invited or approved via a join link
+ * (see JoinWorkspacePage) — self-service workspace creation is intentionally
+ * closed off to prevent random signed-in users from spinning up their own.
+ */
+export const WORKSPACE_ADMIN_EMAIL = "nurpro2005@gmail.com";
+
+export function isWorkspaceAdmin(email: string | null | undefined): boolean {
+  return (email ?? "").trim().toLowerCase() === WORKSPACE_ADMIN_EMAIL;
+}
+
+
+
+============================================================
+FILE: src\utils\pageIcons.tsx
+============================================================
+
+import {
+  Briefcase,
+  Building2,
+  ClipboardList,
+  LayoutGrid,
+  Rocket,
+  Star,
+  Target,
+  UserCog,
+  Users,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
+import type { PageIconName } from "@/types";
+
+export const PAGE_ICON_MAP: Record<PageIconName, LucideIcon> = {
+  Users,
+  Briefcase,
+  Wallet,
+  UserCog,
+  LayoutGrid,
+  Building2,
+  Target,
+  ClipboardList,
+  Rocket,
+  Star,
+};
+
+export const PAGE_ICON_NAMES = Object.keys(PAGE_ICON_MAP) as PageIconName[];
+

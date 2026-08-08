@@ -1,9 +1,11 @@
+// PATH: src/hooks/useAuth.ts  (REPLACES EXISTING)
 import { useEffect, useRef } from "react";
 import { subscribeToAuthChanges } from "@/firebase/auth";
 import { ensureUserProfile, syncNicknameToMemberships } from "@/services/authService";
 import { claimPendingInvites } from "@/services/memberService";
 import { paths, subscribeToDoc } from "@/firebase/firestore";
 import { useAuthStore } from "@/store/authStore";
+import { useBootstrapStore } from "@/store/bootstrapStore";
 import { toast } from "@/components/ui/sonner";
 import type { AppUser } from "@/types";
 
@@ -15,51 +17,54 @@ export function useAuthBootstrap() {
   const unsubscribeProfileRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
+    const {
+      setAuthResolved,
+      setProfileResolved,
+      resetBootstrap,
+    } = useBootstrapStore.getState();
+
     const unsubscribe = subscribeToAuthChanges(async (user) => {
-      // Tear down any previous live profile subscription (e.g. on sign-out
-      // or switching accounts) before starting a new one.
       unsubscribeProfileRef.current?.();
       unsubscribeProfileRef.current = null;
 
+      // Every auth transition (sign-in, sign-out, account switch) restarts the
+      // downstream boot sequence. Without this, a logout->login cycle would
+      // briefly report "ready" using the PREVIOUS account's resolved flags.
+      resetBootstrap();
+
       try {
         if (user) {
-          // Force-refresh/await the ID token BEFORE exposing this user to
-          // the rest of the app. Without this, firebaseUser can be set (and
-          // downstream Firestore listeners like the workspace list can fire)
-          // a moment before the token Firestore's SDK actually sends is
-          // ready — which surfaces as a permanent "permission-denied" that
-          // only a lucky reload fixes, even though the person genuinely has
-          // access. getIdToken() resolves only once a valid token exists.
+          // Force-await the ID token BEFORE exposing this user to the rest of
+          // the app, otherwise downstream Firestore listeners can fire a
+          // moment before the token the SDK sends is valid -> a permanent
+          // "permission-denied" that only a lucky reload fixed.
           await user.getIdToken();
         }
       } catch (tokenError) {
         console.error("Failed to obtain ID token:", tokenError);
       }
+
       setFirebaseUser(user);
+      // Auth itself is now definitively resolved (signed in or signed out).
+      setAuthResolved(true);
+
       try {
         if (user) {
           const profile = await ensureUserProfile(user);
           setProfile(profile);
+          // The profile is now known — downstream phases may proceed.
+          setProfileResolved(true);
 
-          // From here on, keep `profile` LIVE — a plain one-time fetch was
-          // the root cause of the nickname modal never closing (it saved
-          // successfully, but the in-memory profile object never updated to
-          // reflect that) and of the nickname not showing up anywhere else
-          // without a full page reload. Any future field (name, photo,
-          // nickname, workspaceIds) now propagates instantly everywhere
-          // `useAuth().profile` is read.
           unsubscribeProfileRef.current = subscribeToDoc<AppUser>(paths.user(user.uid), (liveProfile) => {
             if (liveProfile) setProfile(liveProfile);
           });
 
-          // Best-effort: claiming pending invites must never block sign-in.
-          // A failure here (rules edge case, no invites, offline, etc.)
-          // should not leave the whole app stuck on the loading screen.
           try {
             await claimPendingInvites(user.uid, profile.email, profile.name, profile.photoURL, profile.nickname);
           } catch (inviteError) {
             console.error("claimPendingInvites failed:", inviteError);
           }
+
           if (profile.nickname && profile.workspaceIds?.length) {
             syncNicknameToMemberships(user.uid, profile.workspaceIds, profile.nickname).catch((err) =>
               console.error("Nickname self-heal sync failed:", err)
@@ -67,9 +72,13 @@ export function useAuthBootstrap() {
           }
         } else {
           setProfile(null);
+          setProfileResolved(true);
         }
       } catch (error) {
         console.error("Auth bootstrap failed:", error);
+        // Still mark resolved: a hard failure must surface a real error state,
+        // never an infinite skeleton the user can only escape by reloading.
+        setProfileResolved(true);
         toast.error("Не удалось загрузить профиль", {
           description: error instanceof Error ? error.message : "Попробуйте обновить страницу.",
         });
@@ -77,6 +86,7 @@ export function useAuthBootstrap() {
         setLoading(false);
       }
     });
+
     return () => {
       unsubscribeProfileRef.current?.();
       unsubscribe();
