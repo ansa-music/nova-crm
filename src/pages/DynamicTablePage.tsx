@@ -120,9 +120,12 @@ export default function DynamicTablePage() {
   const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid;
   const canEditData = permissions.canEditPageData(page);
   const isResponsible = permissions.isResponsibleForPage(page);
+  // Personal Space is visible only to whoever is actually responsible for
+  // THIS page (or explicitly whitelisted) — being a Manager elsewhere in the
+  // workspace does not grant it. Owner keeps oversight, matching how every
+  // other "responsible person" page-scoped feature in this app works.
   const canUsePersonalSpace =
     permissions.role === "owner" ||
-    permissions.role === "manager" ||
     isResponsible ||
     Boolean(page.personalZoneAllowedUsers?.includes(permissions.uid));
 

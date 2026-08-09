@@ -49,7 +49,6 @@ service cloud.firestore {
     function canUsePersonalZone(workspaceId, pageData, zoneUid) {
       return isOwner(workspaceId)
         || (isResponsiblePage(workspaceId, pageData) && zoneUid == request.auth.uid)
-        || (isMember(workspaceId) && myRole(workspaceId) == 'manager' && zoneUid == request.auth.uid)
         || (isMember(workspaceId) && zoneUid == request.auth.uid
             && request.auth.uid in pageData.get('personalZoneAllowedUsers', []));
     }
@@ -354,6 +353,18 @@ service cloud.firestore {
             allow create, update: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
               get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid)
               && request.resource.data.authorId == zoneUid;
+            allow delete: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
+              get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid);
+          }
+
+          // Debts — "кто мне сколько должен". Same isolated, uid-scoped
+          // pattern as finance/notes.
+          match /debts/{debtId} {
+            allow read: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
+              get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid);
+            allow create, update: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
+              get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid)
+              && request.resource.data.uid == zoneUid;
             allow delete: if isMember(workspaceId) && canUsePersonalZone(workspaceId,
               get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data, zoneUid);
           }

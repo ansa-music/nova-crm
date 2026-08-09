@@ -142,6 +142,11 @@ export const paths = {
     collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "personalZones", uid, "notes"),
   personalNote: (workspaceId: string, pageId: string, uid: string, noteId: string) =>
     doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "personalZones", uid, "notes", noteId),
+
+  personalDebts: (workspaceId: string, pageId: string, uid: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "personalZones", uid, "debts"),
+  personalDebt: (workspaceId: string, pageId: string, uid: string, debtId: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "personalZones", uid, "debts", debtId),
 };
 
 /** Generic helper to subscribe to any query/collection with typed converter output. */

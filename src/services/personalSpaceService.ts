@@ -314,3 +314,76 @@ export async function deletePersonalNote(workspaceId: string, pageId: string, ui
   if (!db) return;
   await deleteDoc(paths.personalNote(workspaceId, pageId, uid, noteId));
 }
+
+// ---------------------------------------------------------------------------
+// Debts — "кто мне сколько должен". Quick add, mark paid, delete.
+// ---------------------------------------------------------------------------
+
+export interface PersonalDebt {
+  id: string;
+  uid: string;
+  personName: string;
+  amountMinor: number;
+  note: string;
+  paid: boolean;
+  createdAt: number;
+  paidAt: number | null;
+}
+
+export function subscribeToPersonalDebts(
+  workspaceId: string,
+  pageId: string,
+  uid: string,
+  onData: (debts: PersonalDebt[]) => void,
+  onError?: (error: import("firebase/firestore").FirestoreError) => void
+) {
+  const q = query(paths.personalDebts(workspaceId, pageId, uid), orderBy("createdAt", "desc"));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as PersonalDebt);
+      items.forEach((e) => {
+        e.createdAt = normalizeTimestamp(e.createdAt);
+        if (e.paidAt) e.paidAt = normalizeTimestamp(e.paidAt);
+      });
+      onData(items);
+    },
+    withErrorReporting(onError)
+  );
+}
+
+export async function addPersonalDebt(
+  workspaceId: string,
+  pageId: string,
+  uid: string,
+  input: { personName: string; amountMinor: number; note?: string }
+): Promise<PersonalDebt> {
+  if (!db) throw new Error("Firebase не настроен");
+  const id = generateId("debt");
+  const debt: PersonalDebt = {
+    id,
+    uid,
+    personName: input.personName.trim(),
+    amountMinor: input.amountMinor,
+    note: input.note?.trim() ?? "",
+    paid: false,
+    createdAt: Date.now(),
+    paidAt: null,
+  };
+  await setDoc(paths.personalDebt(workspaceId, pageId, uid, id), debt);
+  return debt;
+}
+
+export async function setPersonalDebtPaid(workspaceId: string, pageId: string, uid: string, debtId: string, paid: boolean) {
+  if (!db) return;
+  await setDoc(
+    paths.personalDebt(workspaceId, pageId, uid, debtId),
+    { uid, paid, paidAt: paid ? Date.now() : null },
+    { merge: true }
+  );
+}
+
+export async function deletePersonalDebt(workspaceId: string, pageId: string, uid: string, debtId: string) {
+  if (!db) return;
+  await deleteDoc(paths.personalDebt(workspaceId, pageId, uid, debtId));
+}
