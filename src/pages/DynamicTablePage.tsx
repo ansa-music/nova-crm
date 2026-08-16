@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
-import { Eye, EyeOff, History, Lock, MessageSquare, Settings2, User } from "lucide-react";
+import { BarChart3, Eye, EyeOff, History, Lock, MessageSquare, Settings2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/table/DataTable";
@@ -29,6 +29,7 @@ export default function DynamicTablePage() {
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [personalSpaceOpen, setPersonalSpaceOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
   const [activeSubPageId, setActiveSubPageId] = useState<string | null>(null);
 
   const page = pages.find((p) => p.id === pageId);
@@ -175,6 +176,16 @@ export default function DynamicTablePage() {
         <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setChatOpen(true)}>
           <MessageSquare className="h-3.5 w-3.5" /> Чат страницы
         </Button>
+        {activeSubPage && (
+          <Button
+            variant={statsOpen ? "default" : "outline"}
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setStatsOpen((v) => !v)}
+          >
+            <BarChart3 className="h-3.5 w-3.5" /> {statsOpen ? "Скрыть статистику" : "Показать статистику"}
+          </Button>
+        )}
         {canUsePersonalSpace && (
           <Button
             variant={personalSpaceOpen ? "default" : "outline"}
@@ -218,7 +229,7 @@ export default function DynamicTablePage() {
             userId={profile?.uid ?? ""}
           />
 
-          {activeSubPage && <SubPageStats columns={activeSubPage.columns} rows={subPageRows} />}
+          {activeSubPage && statsOpen && <SubPageStats columns={activeSubPage.columns} rows={subPageRows} />}
 
           <div className="flex-1 overflow-hidden">
             {rowsLoading ? (
