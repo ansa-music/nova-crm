@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
-import { Briefcase, Users, UserCog, Wallet } from "lucide-react";
+import { ArrowUpRight, Briefcase, CalendarDays, Users, UserCog, Wallet } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { StatusChart } from "@/components/dashboard/StatusChart";
@@ -82,21 +83,28 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl p-6">
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          С возвращением{activeWorkspace ? `, ${activeWorkspace.name}` : ""} 👋
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Обзор ключевых показателей workspace на {formatDate(Date.now(), "d MMMM")}
-        </p>
+    <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-primary">Рабочее пространство</p>
+          <h1 className="text-3xl font-semibold tracking-tight sm:text-[2rem]">
+            С возвращением{activeWorkspace ? `, ${activeWorkspace.name}` : ""} <span aria-hidden="true">👋</span>
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Сводка по команде и продажам на {formatDate(Date.now(), "d MMMM")}
+          </p>
+        </div>
+        <Button variant="outline" className="w-fit gap-2 rounded-xl bg-card/70 shadow-subtle">
+          <CalendarDays className="h-4 w-4" /> Сегодня
+          <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+        </Button>
       </motion.div>
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Клиенты" value={String(clientRows.length)} icon={Users} color="243 75% 59%" delay={0} />
-        <StatCard label="Доход" value={formatCurrency(totalRevenue)} icon={Wallet} color="152 60% 40%" delay={0.05} />
-        <StatCard label="Проекты" value={String(projectRows.length)} icon={Briefcase} color="271 81% 56%" delay={0.1} />
-        <StatCard label="Сотрудники" value={String(activeEmployeesCount)} icon={UserCog} color="199 89% 48%" delay={0.15} />
+        <StatCard label="Клиенты" value={String(clientRows.length)} icon={Users} color="248 79% 62%" delay={0} />
+        <StatCard label="Доход" value={formatCurrency(totalRevenue)} icon={Wallet} color="158 64% 40%" delay={0.05} />
+        <StatCard label="Проекты" value={String(projectRows.length)} icon={Briefcase} color="275 72% 57%" delay={0.1} />
+        <StatCard label="Сотрудники" value={String(activeEmployeesCount)} icon={UserCog} color="196 82% 46%" delay={0.15} />
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">

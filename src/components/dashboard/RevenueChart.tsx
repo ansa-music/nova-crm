@@ -7,17 +7,18 @@ interface RevenueChartProps {
 
 export function RevenueChart({ data }: RevenueChartProps) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Доход по месяцам</CardTitle>
+    <Card className="border-white/80 bg-card/90 shadow-card dark:border-border">
+      <CardHeader className="pb-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Динамика</p>
+        <CardTitle className="text-lg">Доход по месяцам</CardTitle>
       </CardHeader>
       <CardContent className="h-72 pl-0">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 10, right: 24, left: 8, bottom: 0 }}>
             <defs>
               <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="hsl(243 75% 59%)" stopOpacity={0.35} />
-                <stop offset="100%" stopColor="hsl(243 75% 59%)" stopOpacity={0} />
+                <stop offset="0%" stopColor="hsl(248 79% 62%)" stopOpacity={0.36} />
+                <stop offset="100%" stopColor="hsl(248 79% 62%)" stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
@@ -32,7 +33,7 @@ export function RevenueChart({ data }: RevenueChartProps) {
               }}
               formatter={(value: number) => [new Intl.NumberFormat("ru-RU").format(value), "Доход"]}
             />
-            <Area type="monotone" dataKey="value" stroke="hsl(243 75% 59%)" strokeWidth={2} fill="url(#revenueGradient)" />
+            <Area type="monotone" dataKey="value" stroke="hsl(248 79% 62%)" strokeWidth={2.5} fill="url(#revenueGradient)" />
           </AreaChart>
         </ResponsiveContainer>
       </CardContent>

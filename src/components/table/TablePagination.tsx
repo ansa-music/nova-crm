@@ -18,7 +18,7 @@ export function TablePagination({ page, pageSize, total, onPageChange, onPageSiz
   const to = Math.min(total, (page + 1) * pageSize);
 
   return (
-    <div className="flex items-center justify-between border-t border-border px-4 py-2 text-sm text-muted-foreground">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-card/60 px-4 py-2.5 text-sm text-muted-foreground">
       <div className="flex items-center gap-2">
         <span>Строк на странице</span>
         <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>

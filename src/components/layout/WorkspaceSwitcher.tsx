@@ -32,19 +32,19 @@ export function WorkspaceSwitcher({ collapsed }: { collapsed?: boolean }) {
         <DropdownMenuTrigger asChild>
           <button
             className={cn(
-              "flex w-full items-center gap-2 rounded-lg border border-sidebar-border bg-sidebar-accent/40 px-2.5 py-2 text-left transition-colors hover:bg-sidebar-accent",
+              "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent",
               collapsed && "justify-center px-0"
             )}
           >
             <span
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white shadow-subtle"
               style={{ backgroundColor: activeWorkspace ? `hsl(${activeWorkspace.color})` : "hsl(243 75% 59%)" }}
             >
               <ActiveIcon className="h-4 w-4" />
             </span>
             {!collapsed && (
               <>
-                <span className="flex-1 truncate text-sm font-medium text-sidebar-foreground">
+                <span className="flex-1 truncate text-[13px] font-semibold text-sidebar-foreground">
                   {activeWorkspace?.name ?? "Выберите workspace"}
                 </span>
                 <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />

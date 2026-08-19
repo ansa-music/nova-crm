@@ -988,7 +988,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const pinnedOrder = displayColumns.filter((c) => pinnedKeys.includes(c.key));
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-card/50">
       <TableToolbar
         columns={columns}
         searchQuery={searchQuery}
@@ -1010,12 +1010,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       />
 
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-        <div ref={containerRef} tabIndex={0} className="relative flex-1 overflow-auto outline-none">
+        <div ref={containerRef} tabIndex={0} className="relative flex-1 overflow-auto bg-background outline-none">
           <table className="border-collapse" style={{ tableLayout: "fixed" }}>
             <thead className="sticky top-0 z-20">
               <tr>
                 <th
-                  className="sticky left-0 top-0 z-30 border-b border-r border-border bg-muted"
+                  className="sticky left-0 top-0 z-30 border-b border-r border-border bg-muted/80"
                   style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}
                 />
                 <SortableContext items={displayColumns.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
@@ -1157,7 +1157,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       </DndContext>
 
       {financialSummary && (
-        <div className="flex items-center gap-6 border-t border-border bg-muted/30 px-4 py-2 text-sm">
+        <div className="flex items-center gap-6 border-t border-border bg-muted/30 px-4 py-2.5 text-sm">
           <div>
             <span className="mr-2 text-xs text-muted-foreground">Общий:</span>
             <span className="font-semibold">{formatCurrency(financialSummary.grandTotal)}</span>

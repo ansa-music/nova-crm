@@ -40,8 +40,8 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
   return (
     <div
       className={cn(
-        "relative flex h-full flex-col gap-4 border-r border-sidebar-border bg-sidebar px-3 py-4 text-sidebar-foreground",
-        collapsed ? "w-[68px] items-center" : "w-[248px]"
+        "relative flex h-full flex-col gap-4 border-r border-sidebar-border bg-sidebar px-2 py-3 text-sidebar-foreground",
+        collapsed ? "w-[68px] items-center" : "w-[236px]"
       )}
     >
       <WorkspaceSwitcher collapsed={collapsed} />
@@ -72,7 +72,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               end
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+                  "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
                   isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
                 )
               }
@@ -106,7 +106,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               to="/announcements"
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+                  "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
                   isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
                 )
               }
@@ -143,7 +143,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               to="/chat"
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+                  "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
                   isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
                 )
               }
@@ -185,7 +185,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               to="/messages"
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+                  "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
                   isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
                 )
               }
@@ -204,7 +204,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
         <div className="flex flex-col gap-0.5">
           {!collapsed && (
             <div className="flex items-center justify-between px-2 pb-1">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
                 Страницы
               </span>
               {permissions.canCreatePages && (
@@ -267,7 +267,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                 to="/users"
                 className={({ isActive }) =>
                   cn(
-                    "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+                    "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
                     isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
                   )
                 }
@@ -298,7 +298,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               to="/settings"
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+                  "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
                   isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
                 )
               }
@@ -314,7 +314,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
         <DropdownMenuTrigger asChild>
           <button
             className={cn(
-              "flex items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/60",
+              "flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-sidebar-accent/60",
               collapsed && "justify-center px-0"
             )}
           >

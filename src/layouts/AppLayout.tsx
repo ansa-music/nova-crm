@@ -75,7 +75,7 @@ export function AppLayout() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="page-surface flex h-screen overflow-hidden bg-background">
       <NicknamePrompt />
       <GlobalMessageToaster />
       {!isMobile && <Sidebar />}
