@@ -1,4 +1,5 @@
 import type { Role } from "@/types/role";
+import type { StatusOption } from "@/types/page";
 
 export interface Workspace {
   id: string;
@@ -7,6 +8,16 @@ export interface Workspace {
   color: string;
   ownerId: string;
   createdAt: number;
+  /**
+   * Shared, site-wide list of "Ответственный" options. Unlike a status
+   * column's `statusOptions` (per-column, set once at creation), this one
+   * list is used by EVERY "responsible"-type column across every page on
+   * the whole site — add a name here and it's instantly available
+   * everywhere. Only the Owner may write it (enforced by the same
+   * `allow update: if isOwner(workspaceId)` rule as the rest of this doc);
+   * managed from Настройки → Workspace → «Ответственные».
+   */
+  responsibleOptions?: StatusOption[];
 }
 
 export type MemberStatus = "active" | "invited";

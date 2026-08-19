@@ -19,11 +19,12 @@ const COLUMN_TYPE_LABELS: Record<ColumnType, string> = {
   number: "Число",
   currency: "Валюта",
   status: "Статус",
+  responsible: "Ответственный",
   date: "Дата",
   email: "Email",
   phone: "Телефон",
 };
-const COLUMN_TYPES: ColumnType[] = ["text", "number", "currency", "status", "date", "email", "phone"];
+const COLUMN_TYPES: ColumnType[] = ["text", "number", "currency", "status", "responsible", "date", "email", "phone"];
 
 interface ColumnHeaderCellProps {
   column: PageColumn;

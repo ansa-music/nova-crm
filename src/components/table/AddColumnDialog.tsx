@@ -30,12 +30,13 @@ const COLUMN_TYPE_LABELS: Record<ColumnType, string> = {
   number: "Число",
   currency: "Валюта",
   status: "Статус",
+  responsible: "Ответственный",
   date: "Дата",
   email: "Email",
   phone: "Телефон",
 };
 
-const COLUMN_TYPES: ColumnType[] = ["text", "number", "currency", "status", "date", "email", "phone"];
+const COLUMN_TYPES: ColumnType[] = ["text", "number", "currency", "status", "responsible", "date", "email", "phone"];
 
 const DEFAULT_STATUS_OPTIONS = [
   { value: "new", label: "Новый", color: "217 91% 60%" },
@@ -86,6 +87,8 @@ export function AddColumnDialog({
         key,
         label: label.trim(),
         type,
+        // "responsible" columns don't store their own options — they read
+        // the shared, workspace-wide list (see src/utils/columnOptions.ts).
         statusOptions: type === "status" ? DEFAULT_STATUS_OPTIONS : undefined,
       });
       toast.success(`Столбец «${column.label}» добавлен`);
@@ -136,6 +139,12 @@ export function AddColumnDialog({
                 ))}
               </SelectContent>
             </Select>
+            {type === "responsible" && (
+              <p className="text-xs text-muted-foreground">
+                Варианты для этого столбца общие для всего сайта — их добавляет Овнер в
+                Настройках → Workspace → «Ответственные».
+              </p>
+            )}
           </div>
         </div>
 

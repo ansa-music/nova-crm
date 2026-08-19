@@ -1,4 +1,4 @@
-export type ColumnType = "text" | "number" | "currency" | "status" | "date" | "email" | "phone";
+export type ColumnType = "text" | "number" | "currency" | "status" | "responsible" | "date" | "email" | "phone";
 
 export interface StatusOption {
   value: string;
@@ -13,6 +13,15 @@ export interface PageColumn {
   type: ColumnType;
   width: number;
   order: number;
+  /**
+   * Per-column option list — only meaningful for type "status". Set once at
+   * column creation and editable via the type-change flow.
+   * Columns of type "responsible" do NOT use this: their options come from
+   * the single, workspace-wide `Workspace.responsibleOptions` list instead
+   * (managed by the Owner in Настройки → Workspace), so every "Ответственный"
+   * column on the site always shows the same shared, site-wide list. See
+   * `src/utils/columnOptions.ts`.
+   */
   statusOptions?: StatusOption[];
 }
 

@@ -3,7 +3,7 @@ import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { addOwnWorkspaceId } from "@/services/authService";
-import type { Workspace } from "@/types";
+import type { StatusOption, Workspace } from "@/types";
 
 export interface CreateWorkspaceInput {
   name: string;
@@ -48,6 +48,17 @@ export async function deleteWorkspace(workspaceId: string) {
 export async function updateWorkspace(workspaceId: string, patch: Partial<Workspace>) {
   if (!db) return;
   await setDoc(paths.workspace(workspaceId), patch, { merge: true });
+}
+
+/**
+ * Overwrites the shared, site-wide "Ответственный" options list. Only the
+ * Owner can call this in practice — enforced by the same
+ * `allow update: if isOwner(workspaceId)` Firestore rule as any other
+ * workspace-doc write; this is just a thin, purpose-named wrapper around
+ * `updateWorkspace` for the Settings UI.
+ */
+export async function updateResponsibleOptions(workspaceId: string, options: StatusOption[]) {
+  await updateWorkspace(workspaceId, { responsibleOptions: options });
 }
 
 /**

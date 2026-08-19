@@ -53,7 +53,7 @@ export function TableCell({
   const stringValue = value === null || value === undefined ? "" : String(value);
 
   function renderDisplay() {
-    if (column.type === "status") {
+    if (column.type === "status" || column.type === "responsible") {
       return <StatusBadge value={stringValue} options={column.statusOptions ?? []} />;
     }
     if (column.type === "currency" && stringValue) {
@@ -82,7 +82,7 @@ export function TableCell({
       onDoubleClick={onDoubleClick}
       data-col={column.key}
     >
-      {column.type === "status" ? (
+      {column.type === "status" || column.type === "responsible" ? (
         <Select
           value={stringValue || undefined}
           onValueChange={(v) => onStatusChange(v === "__clear__" ? "" : v)}

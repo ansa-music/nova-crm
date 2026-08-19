@@ -65,7 +65,9 @@ import { AddColumnDialog } from "@/components/table/AddColumnDialog";
 import { RowCommentsPanel } from "@/components/chat/RowCommentsPanel";
 import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
 import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
+import { useWorkspace } from "@/hooks/useWorkspace";
 import { formatCurrency, downloadCsv } from "@/utils";
+import { isOptionColumn } from "@/utils/columnOptions";
 import type { CellAddress, ColumnType, PageRow, SortState, WorkspacePage } from "@/types";
 
 const DENSITY_ROW_HEIGHT: Record<"compact" | "default" | "comfortable", number> = {
@@ -172,13 +174,27 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     | null
   >(null);
 
-  // Columns with the live drag preview overlaid, used only for rendering —
-  // selection math and all other logic always use the stable `columns` array.
+  const { activeWorkspace } = useWorkspace();
+  const responsibleOptions = activeWorkspace?.responsibleOptions ?? [];
+
+  // Columns with the live drag preview AND the shared "Ответственный" list
+  // overlaid, used only for rendering/exporting/grouping — selection math,
+  // sorting, and every *Service(...) mutation call always use the stable
+  // `columns` array untouched, so the workspace-wide list never gets
+  // accidentally persisted into a specific column's own statusOptions field.
   const displayColumns = useMemo(() => {
-    if (resizePreview?.type !== "col") return columns;
-    return columns.map((c) => (c.key === resizePreview.colKey ? { ...c, width: resizePreview.width } : c));
+    return columns.map((c) => {
+      let next = c;
+      if (resizePreview?.type === "col" && c.key === resizePreview.colKey) {
+        next = { ...next, width: resizePreview.width };
+      }
+      if (c.type === "responsible") {
+        next = { ...next, statusOptions: responsibleOptions };
+      }
+      return next;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [columns, resizePreview]);
+  }, [columns, resizePreview, responsibleOptions]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const isSelectingRef = useRef(false);
@@ -264,18 +280,18 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // ---- Grouping ----
   const groups = useMemo(() => {
     if (!groupByKey) return null;
-    const col = columns.find((c) => c.key === groupByKey);
+    const col = displayColumns.find((c) => c.key === groupByKey);
     const map = new Map<string, PageRow[]>();
     processedRows.forEach((row) => {
       const raw = String(row.cells[groupByKey] ?? "");
       const label =
-        col?.type === "status" ? col.statusOptions?.find((o) => o.value === raw)?.label ?? raw : raw;
+        col && isOptionColumn(col.type) ? col.statusOptions?.find((o) => o.value === raw)?.label ?? raw : raw;
       const key = label || "__empty__";
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(row);
     });
     return { col, entries: Array.from(map.entries()) };
-  }, [groupByKey, processedRows, columns]);
+  }, [groupByKey, processedRows, displayColumns]);
 
   // ---- Pagination (disabled while grouped) ----
   const paginatedRows = useMemo(() => {
@@ -525,13 +541,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       const rowData = rowsById.get(rowIds[r]);
       const line: string[] = [];
       for (let c = bounds.colStart; c <= bounds.colEnd; c++) {
-        const col = columns[c];
+        const col = displayColumns[c];
         if (!rowData) {
           line.push("");
           continue;
         }
         const raw = String(rowData.cells[col.key] ?? "");
-        if (col.type === "status") {
+        if (isOptionColumn(col.type)) {
           line.push(col.statusOptions?.find((o) => o.value === raw)?.label ?? "");
         } else {
           line.push(raw);
@@ -561,11 +577,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       const row = rows.find((r) => r.id === rowId);
       if (!row) return;
       line.forEach((val, ci) => {
-        const col = columns[startColIdx + ci];
+        const col = displayColumns[startColIdx + ci];
         if (!col) return;
         const oldValue = String(row.cells[col.key] ?? "");
         let newValue = val;
-        if (col.type === "status") {
+        if (isOptionColumn(col.type)) {
           const match = col.statusOptions?.find((o) => o.label.toLowerCase() === val.trim().toLowerCase());
           newValue = match ? match.value : oldValue;
         }
@@ -872,11 +888,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   function handleExportCsv() {
-    const header = columns.map((c) => c.label);
+    const header = displayColumns.map((c) => c.label);
     const lines = processedRows.map((row) =>
-      columns.map((c) => {
+      displayColumns.map((c) => {
         const raw = String(row.cells[c.key] ?? "");
-        if (c.type === "status") return c.statusOptions?.find((o) => o.value === raw)?.label ?? "";
+        if (isOptionColumn(c.type)) return c.statusOptions?.find((o) => o.value === raw)?.label ?? "";
         if (c.type === "currency" && raw) return formatCurrency(Number(raw));
         return raw;
       })
@@ -896,7 +912,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   async function handleChangeColumnType(colKey: string, type: ColumnType) {
     const current = columns.find((c) => c.key === colKey);
     if (!current || current.type === type) return;
-    await changeColumnTypeService(workspaceId, page.id, columns, colKey, type, current.statusOptions);
+    // "responsible" columns never store their own options (they read the
+    // shared workspace-wide list) — only carry statusOptions over when the
+    // new type is "status".
+    const nextStatusOptions = type === "status" ? current.statusOptions : undefined;
+    await changeColumnTypeService(workspaceId, page.id, columns, colKey, type, nextStatusOptions);
     toast.success("Тип столбца изменён");
   }
 

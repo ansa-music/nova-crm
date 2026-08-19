@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, Trash2, Users } from "lucide-react";
+import { Loader2, Trash2, Users, X } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,14 +10,18 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Link } from "react-router";
 import { toast } from "@/components/ui/sonner";
+import { StatusBadge } from "@/components/table/StatusBadge";
 import { profileSchema, type ProfileFormValues } from "@/utils/validation";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { updateUserPassword, updateUserProfile } from "@/firebase/auth";
 import { updateUserDoc } from "@/services/authService";
-import { deleteWorkspace, updateWorkspace } from "@/services/workspaceService";
+import { deleteWorkspace, updateResponsibleOptions, updateWorkspace } from "@/services/workspaceService";
 import { getAuthErrorMessage } from "@/utils/firebaseErrors";
+import { generateId } from "@/utils/id";
+import { COLOR_PRESETS } from "@/components/common/ColorPicker";
+import type { StatusOption } from "@/types";
 
 export default function SettingsPage() {
   const { profile } = useAuth();
@@ -84,6 +88,42 @@ export default function SettingsPage() {
     const next = workspaces.find((w) => w.id !== activeWorkspace.id);
     setActiveWorkspaceId(next?.id ?? null);
     toast.success("Workspace удалён");
+  }
+
+  // ---- Общий список "Ответственных" (используется всеми столбцами типа
+  // "Ответственный" на любой странице сайта) ----
+  const responsibleOptions = activeWorkspace?.responsibleOptions ?? [];
+  const [newResponsibleName, setNewResponsibleName] = useState("");
+  const [isSavingResponsible, setIsSavingResponsible] = useState(false);
+
+  async function persistResponsibleOptions(next: StatusOption[]) {
+    if (!activeWorkspace) return;
+    setIsSavingResponsible(true);
+    try {
+      await updateResponsibleOptions(activeWorkspace.id, next);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить");
+    } finally {
+      setIsSavingResponsible(false);
+    }
+  }
+
+  async function handleAddResponsibleOption() {
+    const name = newResponsibleName.trim();
+    if (!name) return;
+    if (responsibleOptions.some((o) => o.label.toLowerCase() === name.toLowerCase())) {
+      toast.error("Такой вариант уже есть в списке");
+      return;
+    }
+    const color = COLOR_PRESETS[responsibleOptions.length % COLOR_PRESETS.length];
+    const next = [...responsibleOptions, { value: generateId("resp"), label: name, color }];
+    await persistResponsibleOptions(next);
+    setNewResponsibleName("");
+  }
+
+  async function handleRemoveResponsibleOption(value: string) {
+    const next = responsibleOptions.filter((o) => o.value !== value);
+    await persistResponsibleOptions(next);
   }
 
   return (
@@ -178,6 +218,61 @@ export default function SettingsPage() {
               )}
             </CardContent>
           </Card>
+
+          {permissions.canManageWorkspace && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Ответственные</CardTitle>
+                <CardDescription>
+                  Общий список вариантов для столбцов типа «Ответственный» — виден и доступен для выбора во
+                  всех таблицах на всех страницах сайта. Добавлять и удалять варианты может только Овнер.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <div className="flex flex-wrap gap-2">
+                  {responsibleOptions.length === 0 && (
+                    <p className="text-sm text-muted-foreground">Пока нет ни одного варианта.</p>
+                  )}
+                  {responsibleOptions.map((opt) => (
+                    <div key={opt.value} className="flex items-center gap-1">
+                      <StatusBadge value={opt.value} options={responsibleOptions} />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveResponsibleOption(opt.value)}
+                        disabled={isSavingResponsible}
+                        className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"
+                        title="Удалить"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-end gap-2">
+                  <div className="flex flex-1 flex-col gap-1.5">
+                    <Label htmlFor="new-responsible">Новый вариант</Label>
+                    <Input
+                      id="new-responsible"
+                      value={newResponsibleName}
+                      onChange={(e) => setNewResponsibleName(e.target.value)}
+                      placeholder="Например, Айгуль"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleAddResponsibleOption();
+                        }
+                      }}
+                      disabled={isSavingResponsible}
+                    />
+                  </div>
+                  <Button onClick={handleAddResponsibleOption} disabled={isSavingResponsible}>
+                    {isSavingResponsible && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Добавить
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {permissions.canManageWorkspace && (
             <Card className="border-destructive/40">
