@@ -43,6 +43,7 @@ import {
   updateRowCell as updateRowCellBase,
   updateRowHeight as updateRowHeightBase,
   updatePageColumns as updatePageColumnsBase,
+  addColumn as addColumnServiceBase,
   renameColumn as renameColumnServiceBase,
   changeColumnType as changeColumnTypeServiceBase,
   duplicateColumn as duplicateColumnServiceBase,
@@ -56,6 +57,7 @@ import {
   updateSubPageRowCell,
   updateSubPageRowHeight,
   updateSubPageColumns,
+  addSubPageColumn,
   renameSubPageColumn,
   changeSubPageColumnType,
   duplicateSubPageColumn,
@@ -116,6 +118,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const updatePageColumns = subPageId
     ? (wsId: string, pId: string, cols: typeof page.columns) => updateSubPageColumns(wsId, pId, subPageId, cols)
     : updatePageColumnsBase;
+  const addColumnService = subPageId
+    ? (wsId: string, pId: string, cols: typeof page.columns, input: Parameters<typeof addColumnServiceBase>[3]) =>
+        addSubPageColumn(wsId, pId, subPageId, cols, input)
+    : addColumnServiceBase;
   const renameColumnService = subPageId
     ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string, newLabel: string) =>
         renameSubPageColumn(wsId, pId, subPageId, cols, colKey, newLabel)
@@ -1210,6 +1216,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         workspaceId={workspaceId}
         pageId={page.id}
         existingColumns={columns}
+        createColumn={addColumnService}
       />
 
       <RowCommentsPanel

@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/components/ui/sonner";
-import { addColumn } from "@/services/pageService";
+import type { addColumn } from "@/services/pageService";
 import type { ColumnType, PageColumn } from "@/types";
 
 interface AddColumnDialogProps {
@@ -22,6 +22,16 @@ interface AddColumnDialogProps {
   workspaceId: string;
   pageId: string;
   existingColumns: PageColumn[];
+  /**
+   * The actual column-creation call to make. Passed in by the caller
+   * (DataTable) already routed to the right target — a page's own columns,
+   * or a specific subpage's nested columns when editing a subpage tab.
+   * MUST NOT default to `pageService.addColumn` internally: that call only
+   * ever targets the top-level page doc, so a dialog opened from inside a
+   * subpage would silently overwrite the PARENT page's real columns with
+   * the subpage's list instead of adding the column to the subpage.
+   */
+  createColumn: typeof addColumn;
   onCreated?: (column: PageColumn) => void;
 }
 
@@ -68,6 +78,7 @@ export function AddColumnDialog({
   workspaceId,
   pageId,
   existingColumns,
+  createColumn,
   onCreated,
 }: AddColumnDialogProps) {
   const [label, setLabel] = useState("");
@@ -83,7 +94,7 @@ export function AddColumnDialog({
     try {
       const existingKeys = new Set(existingColumns.map((c) => c.key));
       const key = slugify(label, existingKeys);
-      const column = await addColumn(workspaceId, pageId, existingColumns, {
+      const column = await createColumn(workspaceId, pageId, existingColumns, {
         key,
         label: label.trim(),
         type,

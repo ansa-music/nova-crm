@@ -93,8 +93,8 @@ export function PageNavItem({ page, canManage, canDelete, nextOrder, onEdit, col
         cn(
           "group flex flex-1 items-center gap-2 truncate rounded-lg px-2 py-1.5 text-sm transition-colors",
           isActive
-            ? "bg-sidebar-accent font-medium text-foreground"
-            : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+            ? "bg-sidebar-accent font-medium text-primary"
+            : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
         )
       }
     >

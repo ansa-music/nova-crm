@@ -3,88 +3,97 @@
 @tailwind utilities;
 
 @layer base {
+  /*
+    Design tokens for the "Архив" look (see Nova_CRM_Redesign mockup):
+    warm near-black background, off-white "ink" text, a single vermilion
+    accent (#FF4A22) spent sparingly, hairline borders instead of shadows,
+    Inter for body text and IBM Plex Mono for eyebrows/labels/numbers.
+    Light mode keeps the same hue family (warm cream / same ink / same
+    accent) purely as a fallback for anyone who switches the toggle — the
+    product's actual identity is the dark palette below.
+  */
   :root {
-    --background: 228 33% 98%;
-    --foreground: 232 38% 15%;
+    --background: 36 22% 97%;
+    --foreground: 30 15% 12%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 232 38% 15%;
+    --card: 36 30% 99%;
+    --card-foreground: 30 15% 12%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 12%;
+    --popover: 36 30% 99%;
+    --popover-foreground: 30 15% 12%;
 
-    --primary: 248 79% 62%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 13 100% 57%;
+    --primary-foreground: 36 22% 98%;
 
-    --secondary: 228 28% 95%;
-    --secondary-foreground: 232 38% 15%;
+    --secondary: 36 18% 93%;
+    --secondary-foreground: 30 15% 12%;
 
-    --muted: 228 25% 95%;
-    --muted-foreground: 229 13% 45%;
+    --muted: 36 16% 93%;
+    --muted-foreground: 30 8% 42%;
 
-    --accent: 249 100% 96%;
-    --accent-foreground: 248 69% 45%;
+    --accent: 36 20% 91%;
+    --accent-foreground: 13 80% 40%;
 
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
+    --destructive: 4 78% 50%;
+    --destructive-foreground: 36 22% 98%;
 
-    --success: 152 60% 40%;
+    --success: 142 55% 36%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 38 92% 50%;
-    --warning-foreground: 240 10% 12%;
+    --warning: 38 85% 48%;
+    --warning-foreground: 30 15% 12%;
 
-    --border: 228 19% 89%;
-    --input: 228 19% 89%;
-    --ring: 248 79% 62%;
+    --border: 36 15% 86%;
+    --input: 36 15% 86%;
+    --ring: 13 100% 57%;
 
-    --sidebar: 233 45% 98%;
-    --sidebar-foreground: 230 22% 35%;
-    --sidebar-border: 229 28% 91%;
-    --sidebar-accent: 249 100% 95%;
+    --sidebar: 36 22% 97%;
+    --sidebar-foreground: 30 10% 35%;
+    --sidebar-border: 36 15% 86%;
+    --sidebar-accent: 36 18% 92%;
 
-    --radius: 0.9rem;
+    --radius: 0.6rem;
   }
 
   .dark {
-    --background: 240 15% 7%;
-    --foreground: 240 10% 92%;
+    --background: 36 14% 7%;
+    --foreground: 40 30% 90%;
 
-    --card: 240 14% 9.5%;
-    --card-foreground: 240 10% 92%;
+    --card: 30 13% 9%;
+    --card-foreground: 40 30% 90%;
 
-    --popover: 240 14% 9%;
-    --popover-foreground: 240 10% 92%;
+    --popover: 30 13% 9%;
+    --popover-foreground: 40 30% 90%;
 
-    --primary: 243 85% 67%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 13 100% 57%;
+    --primary-foreground: 36 14% 7%;
 
-    --secondary: 240 10% 14%;
-    --secondary-foreground: 240 10% 92%;
+    --secondary: 30 12% 13%;
+    --secondary-foreground: 40 30% 90%;
 
-    --muted: 240 10% 14%;
-    --muted-foreground: 240 5% 62%;
+    --muted: 30 11% 13%;
+    --muted-foreground: 37 8% 55%;
 
-    --accent: 243 40% 18%;
-    --accent-foreground: 243 85% 80%;
+    --accent: 36 12% 15%;
+    --accent-foreground: 40 30% 92%;
 
-    --destructive: 0 70% 55%;
-    --destructive-foreground: 0 0% 100%;
+    --destructive: 4 78% 58%;
+    --destructive-foreground: 36 14% 96%;
 
-    --success: 152 55% 45%;
+    --success: 142 45% 45%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 38 92% 55%;
-    --warning-foreground: 240 10% 12%;
+    --warning: 38 85% 55%;
+    --warning-foreground: 36 14% 10%;
 
-    --border: 240 8% 18%;
-    --input: 240 8% 18%;
-    --ring: 243 85% 67%;
+    --border: 36 12% 17%;
+    --input: 36 12% 17%;
+    --ring: 13 100% 57%;
 
-    --sidebar: 240 16% 8%;
-    --sidebar-foreground: 240 8% 75%;
-    --sidebar-border: 240 8% 16%;
-    --sidebar-accent: 243 35% 16%;
+    --sidebar: 36 14% 7%;
+    --sidebar-foreground: 40 14% 67%;
+    --sidebar-border: 36 12% 15%;
+    --sidebar-accent: 30 12% 13%;
   }
 
   * {
@@ -98,19 +107,32 @@
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-    background-image: radial-gradient(circle at 80% -20%, hsl(var(--primary) / 0.09), transparent 30rem);
+    background-image: radial-gradient(circle at 1px 1px, hsl(var(--foreground) / 0.035) 1px, transparent 0);
+    background-size: 22px 22px;
+  }
+
+  ::selection {
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+  }
+
+  /* Small uppercase mono labels — eyebrows, section headers, table column
+     headers, filter chips. The recurring typographic "signature" of this
+     redesign, standing in for the mockup's IBM Plex Mono micro-labels. */
+  .eyebrow {
+    @apply font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground;
   }
 }
 
 @layer utilities {
   .glass {
-    @apply bg-white/70 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10;
+    @apply bg-white/70 dark:bg-white/[0.03] backdrop-blur-xl border border-white/20 dark:border-white/10;
   }
   .glass-panel {
     @apply bg-background/85 backdrop-blur-xl border border-border/60;
   }
   .page-surface {
-    background: radial-gradient(circle at 100% 0%, hsl(var(--primary) / 0.08), transparent 28rem);
+    background: radial-gradient(circle at 100% 0%, hsl(var(--primary) / 0.05), transparent 28rem);
   }
   .scrollbar-thin {
     scrollbar-width: thin;

@@ -18,6 +18,13 @@ export default {
           "Segoe UI",
           "sans-serif",
         ],
+        mono: [
+          '"IBM Plex Mono"',
+          "ui-monospace",
+          "SFMono-Regular",
+          "Menlo",
+          "monospace",
+        ],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -75,10 +82,10 @@ export default {
         xl: "calc(var(--radius) + 4px)",
       },
       boxShadow: {
-        subtle: "0 1px 2px 0 rgb(0 0 0 / 0.04)",
-        card: "0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06)",
-        popover: "0 10px 40px -10px rgb(0 0 0 / 0.2), 0 4px 12px -4px rgb(0 0 0 / 0.1)",
-        glow: "0 0 0 1px hsl(var(--primary) / 0.15), 0 4px 24px -4px hsl(var(--primary) / 0.25)",
+        subtle: "0 1px 2px 0 rgb(0 0 0 / 0.16)",
+        card: "0 2px 12px -4px rgb(0 0 0 / 0.4)",
+        popover: "0 12px 30px -8px rgb(0 0 0 / 0.55)",
+        glow: "0 0 0 1px hsl(var(--primary) / 0.25), 0 4px 20px -6px hsl(var(--primary) / 0.35)",
       },
       keyframes: {
         "accordion-down": {

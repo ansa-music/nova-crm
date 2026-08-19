@@ -152,12 +152,14 @@ export function SubPageTabs({
   }
 
   return (
-    <div className="flex items-center gap-1 border-b border-border bg-muted/20 px-3 py-1.5">
+    <div className="flex items-center gap-1.5 border-b border-border bg-muted/10 px-3 py-2">
       <button
         onClick={() => onSelect(null)}
         className={cn(
-          "shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-          activeSubPageId === null ? "bg-card shadow-subtle" : "text-muted-foreground hover:bg-card/60"
+          "shrink-0 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
+          activeSubPageId === null
+            ? "border-primary/50 bg-primary/10 text-primary"
+            : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
         )}
       >
         Основная
@@ -190,7 +192,7 @@ export function SubPageTabs({
       {canManage && !showArchived && (
         <button
           onClick={handleAddTab}
-          className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-card/60 hover:text-foreground"
+          className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1.5 text-sm text-muted-foreground hover:bg-card/60 hover:text-foreground"
           title="Добавить вкладку"
         >
           <Plus className="h-3.5 w-3.5" />
@@ -201,8 +203,8 @@ export function SubPageTabs({
         <button
           onClick={() => setShowArchived((v) => !v)}
           className={cn(
-            "ml-auto shrink-0 flex items-center gap-1 rounded-lg px-2 py-1 text-xs",
-            showArchived ? "bg-card text-foreground shadow-subtle" : "text-muted-foreground hover:text-foreground"
+            "ml-auto shrink-0 flex items-center gap-1 rounded-full px-2.5 py-1 font-mono text-xs",
+            showArchived ? "bg-card text-foreground" : "text-muted-foreground hover:text-foreground"
           )}
         >
           <Archive className="h-3 w-3" /> Архив ({archivedCount})
@@ -295,8 +297,10 @@ function SortableTab({
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : 1 }}
       onClick={onSelect}
       className={cn(
-        "group flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-        active ? "bg-card shadow-subtle" : "text-muted-foreground hover:bg-card/60"
+        "group flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
+        active
+          ? "border-primary/50 bg-primary/10 text-primary"
+          : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
       )}
     >
       {canManage && (

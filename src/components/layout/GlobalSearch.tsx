@@ -33,10 +33,10 @@ export function GlobalSearch() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button className="flex w-full max-w-sm items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 text-sm text-muted-foreground shadow-subtle transition-colors hover:bg-accent/50">
+        <button className="flex w-full max-w-sm items-center gap-2 rounded-full border border-input bg-background px-3.5 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground">
           <Search className="h-3.5 w-3.5" />
           <span className="flex-1 text-left">Поиск по страницам и людям…</span>
-          <kbd className="rounded border border-border px-1.5 py-0.5 text-[10px]">Ctrl K</kbd>
+          <kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px]">Ctrl K</kbd>
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-2">

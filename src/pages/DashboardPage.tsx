@@ -86,15 +86,15 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-primary">Рабочее пространство</p>
-          <h1 className="text-3xl font-semibold tracking-tight sm:text-[2rem]">
+          <p className="eyebrow mb-2 text-primary">Рабочее пространство</p>
+          <h1 className="text-3xl font-light tracking-tight sm:text-[2rem]">
             С возвращением{activeWorkspace ? `, ${activeWorkspace.name}` : ""} <span aria-hidden="true">👋</span>
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Сводка по команде и продажам на {formatDate(Date.now(), "d MMMM")}
           </p>
         </div>
-        <Button variant="outline" className="w-fit gap-2 rounded-xl bg-card/70 shadow-subtle">
+        <Button variant="outline" className="w-fit gap-2">
           <CalendarDays className="h-4 w-4" /> Сегодня
           <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
         </Button>

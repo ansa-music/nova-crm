@@ -57,7 +57,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   className={({ isActive }) =>
                     cn(
                       "flex items-center justify-center rounded-lg p-2 transition-colors",
-                      isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                      isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
                     )
                   }
                 >
@@ -73,7 +73,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
-                  isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                  isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
                 )
               }
             >
@@ -92,7 +92,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   className={({ isActive }) =>
                     cn(
                       "flex items-center justify-center rounded-lg p-2 transition-colors",
-                      isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                      isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
                     )
                   }
                 >
@@ -107,7 +107,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
-                  isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                  isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
                 )
               }
             >
@@ -126,7 +126,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   className={({ isActive }) =>
                     cn(
                       "relative flex items-center justify-center rounded-lg p-2 transition-colors",
-                      isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                      isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
                     )
                   }
                 >
@@ -144,7 +144,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
-                  isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                  isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
                 )
               }
             >
@@ -168,7 +168,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   className={({ isActive }) =>
                     cn(
                       "relative flex items-center justify-center rounded-lg p-2 transition-colors",
-                      isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                      isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
                     )
                   }
                 >
@@ -186,7 +186,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
-                  isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                  isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
                 )
               }
             >
@@ -204,9 +204,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
         <div className="flex flex-col gap-0.5">
           {!collapsed && (
             <div className="flex items-center justify-between px-2 pb-1">
-              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
-                Страницы
-              </span>
+              <span className="eyebrow px-2">Страницы</span>
               {permissions.canCreatePages && (
                 <button
                   onClick={() => setCreatePageOpen(true)}
@@ -253,7 +251,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                     className={({ isActive }) =>
                       cn(
                         "flex items-center justify-center rounded-lg p-2 transition-colors",
-                        isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                        isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
                       )
                     }
                   >
@@ -268,7 +266,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                 className={({ isActive }) =>
                   cn(
                     "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
-                    isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                    isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
                   )
                 }
               >
@@ -284,7 +282,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   className={({ isActive }) =>
                     cn(
                       "flex items-center justify-center rounded-lg p-2 transition-colors",
-                      isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                      isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
                     )
                   }
                 >
@@ -299,7 +297,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
-                  isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                  isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
                 )
               }
             >

@@ -56,19 +56,19 @@ export function TableToolbar({
   onDeleteSelected,
 }: TableToolbarProps) {
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card/60 px-4 py-2.5">
+    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card/40 px-4 py-2.5">
       <div className="relative w-full sm:w-64">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="Поиск по таблице…"
-          className="h-8 rounded-md bg-background pl-8 shadow-none"
+          className="h-8 rounded-full bg-background pl-8"
         />
       </div>
 
       <Select value={groupByKey ?? "__none__"} onValueChange={(v) => onGroupByChange(v === "__none__" ? null : v)}>
-        <SelectTrigger className="h-8 w-44">
+        <SelectTrigger className="h-8 w-44 rounded-full">
           <SelectValue placeholder="Группировка" />
         </SelectTrigger>
         <SelectContent>
