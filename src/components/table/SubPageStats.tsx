@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatCurrency } from "@/utils/format";
 import { cn } from "@/utils/cn";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import type { PageColumn, PageRow } from "@/types";
 
 const PERCENTS = [5, 8, 10, 12];
@@ -12,6 +14,9 @@ interface SubPageStatsProps {
 }
 
 export function SubPageStats({ columns, rows }: SubPageStatsProps) {
+  const { activeWorkspace } = useWorkspace();
+  const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
+
   const stats = useMemo(() => {
     const priceCol = columns.find((c) => c.type === "currency");
     const statusCol = columns.find((c) => c.type === "status");
@@ -24,12 +29,12 @@ export function SubPageStats({ columns, rows }: SubPageStatsProps) {
       grandTotal += raw;
       if (statusCol) {
         const rawStatus = String(row.cells[statusCol.key] ?? "");
-        const label = statusCol.statusOptions?.find((o) => o.value === rawStatus)?.label ?? rawStatus;
+        const label = statusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
         if (label.toLowerCase().includes("готов")) doneTotal += raw;
       }
     }
     return { grandTotal, doneTotal };
-  }, [columns, rows]);
+  }, [columns, rows, statusOptions]);
 
   if (!stats) return null;
 

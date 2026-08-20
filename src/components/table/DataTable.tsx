@@ -46,7 +46,6 @@ import {
   addColumn as addColumnServiceBase,
   renameColumn as renameColumnServiceBase,
   changeColumnType as changeColumnTypeServiceBase,
-  updateColumnStatusOptions as updateColumnStatusOptionsServiceBase,
   duplicateColumn as duplicateColumnServiceBase,
   deleteColumn as deleteColumnServiceBase,
 } from "@/services/pageService";
@@ -61,7 +60,6 @@ import {
   addSubPageColumn,
   renameSubPageColumn,
   changeSubPageColumnType,
-  updateSubPageColumnStatusOptions,
   duplicateSubPageColumn,
   deleteSubPageColumn,
 } from "@/services/subPageService";
@@ -72,9 +70,9 @@ import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
 import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
-import { updateResponsibleOptions } from "@/services/workspaceService";
+import { updateResponsibleOptions, updateStatusOptions } from "@/services/workspaceService";
 import { formatCurrency, downloadCsv } from "@/utils";
-import { getColumnOptions, isOptionColumn } from "@/utils/columnOptions";
+import { getColumnOptions, isOptionColumn, DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import type { CellAddress, ColumnType, PageRow, SortState, StatusOption, WorkspacePage } from "@/types";
 
 const DENSITY_ROW_HEIGHT: Record<"compact" | "default" | "comfortable", number> = {
@@ -135,10 +133,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string, type: ColumnType, statusOptions?: typeof columns[number]["statusOptions"]) =>
         changeSubPageColumnType(wsId, pId, subPageId, cols, colKey, type, statusOptions)
     : changeColumnTypeServiceBase;
-  const updateColumnStatusOptionsService = subPageId
-    ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string, statusOptions: StatusOption[]) =>
-        updateSubPageColumnStatusOptions(wsId, pId, subPageId, cols, colKey, statusOptions)
-    : updateColumnStatusOptionsServiceBase;
   const duplicateColumnService = subPageId
     ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string) => duplicateSubPageColumn(wsId, pId, subPageId, cols, colKey)
     : duplicateColumnServiceBase;
@@ -194,6 +188,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const permissions = usePermissions();
   const isOwner = permissions.role === "owner";
   const responsibleOptions = activeWorkspace?.responsibleOptions ?? [];
+  const sharedStatusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
 
   // Columns with the live drag preview AND the shared "Ответственный" list
   // overlaid, used only for rendering/exporting/grouping — selection math,
@@ -208,11 +203,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       }
       if (c.type === "responsible") {
         next = { ...next, statusOptions: responsibleOptions };
+      } else if (c.type === "status") {
+        next = { ...next, statusOptions: sharedStatusOptions };
       }
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [columns, resizePreview, responsibleOptions]);
+  }, [columns, resizePreview, responsibleOptions, sharedStatusOptions]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const isSelectingRef = useRef(false);
@@ -930,11 +927,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   async function handleChangeColumnType(colKey: string, type: ColumnType) {
     const current = columns.find((c) => c.key === colKey);
     if (!current || current.type === type) return;
-    // "responsible" columns never store their own options (they read the
-    // shared workspace-wide list) — only carry statusOptions over when the
-    // new type is "status".
-    const nextStatusOptions = type === "status" ? current.statusOptions : undefined;
-    await changeColumnTypeService(workspaceId, page.id, columns, colKey, type, nextStatusOptions);
+    // Neither "status" nor "responsible" store their own options anymore —
+    // both read a shared, workspace-wide list — so there's never anything
+    // to carry over into the column doc itself.
+    await changeColumnTypeService(workspaceId, page.id, columns, colKey, type, undefined);
     toast.success("Тип столбца изменён");
   }
 
@@ -942,11 +938,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   async function handleSaveColumnOptions(options: StatusOption[]) {
     if (!manageOptionsColumn) return;
+    // Both option-based column types are shared, site-wide lists that live
+    // on the workspace doc — never on the individual column.
     if (manageOptionsColumn.type === "responsible") {
-      // Shared, site-wide list — lives on the workspace doc, not this column.
       await updateResponsibleOptions(workspaceId, options);
-    } else {
-      await updateColumnStatusOptionsService(workspaceId, page.id, columns, manageOptionsColumn.key, options);
+    } else if (manageOptionsColumn.type === "status") {
+      await updateStatusOptions(workspaceId, options);
     }
     toast.success("Варианты обновлены");
   }
@@ -980,12 +977,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       grandTotal += raw;
       if (statusCol) {
         const rawStatus = String(row.cells[statusCol.key] ?? "");
-        const label = statusCol.statusOptions?.find((o) => o.value === rawStatus)?.label ?? rawStatus;
+        const label = sharedStatusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
         if (label.toLowerCase().includes("готов")) doneTotal += raw;
       }
     }
     return { priceCol, statusCol, grandTotal, doneTotal };
-  }, [columns, rows]);
+  }, [columns, rows, sharedStatusOptions]);
 
   const virtualItems = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
@@ -1185,9 +1182,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
               values={Array.from(
                 new Set(
                   rows.map((r) => {
-                    const col = columns.find((c) => c.key === filterPopover.colKey);
+                    const col = displayColumns.find((c) => c.key === filterPopover.colKey);
                     const raw = String(r.cells[filterPopover.colKey] ?? "");
-                    return col?.type === "status" ? col.statusOptions?.find((o) => o.value === raw)?.label ?? raw : raw;
+                    return col && isOptionColumn(col.type)
+                      ? col.statusOptions?.find((o) => o.value === raw)?.label ?? raw
+                      : raw;
                   })
                 )
               ).sort((a, b) => a.localeCompare(b, "ru"))}
@@ -1254,7 +1253,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           description={
             manageOptionsColumn.type === "responsible"
               ? "Общий список для всех столбцов «Ответственный» на сайте — изменения увидят все."
-              : "Варианты этого статуса видны только в этом столбце на этой странице."
+              : "Общий список для всех столбцов «Статус» на сайте — изменения увидят все."
           }
           options={getColumnOptions(manageOptionsColumn, activeWorkspace)}
           onSave={handleSaveColumnOptions}

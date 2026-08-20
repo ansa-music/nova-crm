@@ -11,6 +11,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { useMultiPageRows } from "@/hooks/useMultiPageRows";
 import { useHistoryLog } from "@/hooks/useHistoryLog";
 import { usePermissions } from "@/hooks/usePermissions";
+import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { formatCurrency } from "@/utils/format";
 import { formatDate } from "@/utils/date";
 
@@ -56,13 +57,14 @@ export default function DashboardPage() {
 
   const statusColumn = clientsPage?.columns.find((c) => c.key === "status");
   const statusDistribution = useMemo(() => {
-    if (!statusColumn?.statusOptions) return [];
-    return statusColumn.statusOptions.map((opt) => ({
+    if (!statusColumn) return [];
+    const options = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
+    return options.map((opt) => ({
       name: opt.label,
       value: clientRows.filter((r) => r.cells.status === opt.value).length,
       color: opt.color,
     }));
-  }, [statusColumn, clientRows]);
+  }, [statusColumn, clientRows, activeWorkspace?.statusOptions]);
 
   // The history/audit log is Owner-only per firestore.rules — don't even
   // subscribe for anyone else, or every non-owner would hit a guaranteed

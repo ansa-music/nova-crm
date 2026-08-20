@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, Trash2, Users, X } from "lucide-react";
+import { Loader2, Trash2, Users } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,16 +11,16 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Link } from "react-router";
 import { toast } from "@/components/ui/sonner";
 import { StatusBadge } from "@/components/table/StatusBadge";
+import { ManageOptionsDialog } from "@/components/table/ManageOptionsDialog";
 import { profileSchema, type ProfileFormValues } from "@/utils/validation";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { updateUserPassword, updateUserProfile } from "@/firebase/auth";
 import { updateUserDoc } from "@/services/authService";
-import { deleteWorkspace, updateResponsibleOptions, updateWorkspace } from "@/services/workspaceService";
+import { deleteWorkspace, updateResponsibleOptions, updateStatusOptions, updateWorkspace } from "@/services/workspaceService";
 import { getAuthErrorMessage } from "@/utils/firebaseErrors";
-import { generateId } from "@/utils/id";
-import { COLOR_PRESETS } from "@/components/common/ColorPicker";
+import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import type { StatusOption } from "@/types";
 
 export default function SettingsPage() {
@@ -90,40 +90,19 @@ export default function SettingsPage() {
     toast.success("Workspace удалён");
   }
 
-  // ---- Общий список "Ответственных" (используется всеми столбцами типа
-  // "Ответственный" на любой странице сайта) ----
+  // ---- Общие списки "Ответственных" и "Статусов" — используются всеми
+  // столбцами соответствующего типа на любой странице/подстранице сайта.
   const responsibleOptions = activeWorkspace?.responsibleOptions ?? [];
-  const [newResponsibleName, setNewResponsibleName] = useState("");
-  const [isSavingResponsible, setIsSavingResponsible] = useState(false);
+  const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
+  const [manageOptionsKind, setManageOptionsKind] = useState<"responsible" | "status" | null>(null);
 
-  async function persistResponsibleOptions(next: StatusOption[]) {
+  async function handleSaveSharedOptions(next: StatusOption[]) {
     if (!activeWorkspace) return;
-    setIsSavingResponsible(true);
-    try {
+    if (manageOptionsKind === "responsible") {
       await updateResponsibleOptions(activeWorkspace.id, next);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось сохранить");
-    } finally {
-      setIsSavingResponsible(false);
+    } else if (manageOptionsKind === "status") {
+      await updateStatusOptions(activeWorkspace.id, next);
     }
-  }
-
-  async function handleAddResponsibleOption() {
-    const name = newResponsibleName.trim();
-    if (!name) return;
-    if (responsibleOptions.some((o) => o.label.toLowerCase() === name.toLowerCase())) {
-      toast.error("Такой вариант уже есть в списке");
-      return;
-    }
-    const color = COLOR_PRESETS[responsibleOptions.length % COLOR_PRESETS.length];
-    const next = [...responsibleOptions, { value: generateId("resp"), label: name, color }];
-    await persistResponsibleOptions(next);
-    setNewResponsibleName("");
-  }
-
-  async function handleRemoveResponsibleOption(value: string) {
-    const next = responsibleOptions.filter((o) => o.value !== value);
-    await persistResponsibleOptions(next);
   }
 
   return (
@@ -222,57 +201,60 @@ export default function SettingsPage() {
           {permissions.canManageWorkspace && (
             <Card>
               <CardHeader>
-                <CardTitle>Ответственные</CardTitle>
+                <CardTitle>Общие списки вариантов</CardTitle>
                 <CardDescription>
-                  Общий список вариантов для столбцов типа «Ответственный» — виден и доступен для выбора во
-                  всех таблицах на всех страницах сайта. Добавлять и удалять варианты может только Овнер.
+                  «Статус» и «Ответственный» — единые списки на весь сайт: значение, добавленное здесь,
+                  сразу доступно в любом таком столбце на любой странице. Управляет только Овнер.
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
-                <div className="flex flex-wrap gap-2">
-                  {responsibleOptions.length === 0 && (
-                    <p className="text-sm text-muted-foreground">Пока нет ни одного варианта.</p>
-                  )}
-                  {responsibleOptions.map((opt) => (
-                    <div key={opt.value} className="flex items-center gap-1">
-                      <StatusBadge value={opt.value} options={responsibleOptions} />
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveResponsibleOption(opt.value)}
-                        disabled={isSavingResponsible}
-                        className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"
-                        title="Удалить"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
+                <div className="flex items-center justify-between rounded-lg border border-border p-3">
+                  <div>
+                    <p className="text-sm font-medium">Статус</p>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {statusOptions.length === 0 ? (
+                        <span className="text-xs text-muted-foreground">Нет вариантов</span>
+                      ) : (
+                        statusOptions.map((opt) => (
+                          <StatusBadge key={opt.value} value={opt.value} options={statusOptions} />
+                        ))
+                      )}
                     </div>
-                  ))}
-                </div>
-                <div className="flex items-end gap-2">
-                  <div className="flex flex-1 flex-col gap-1.5">
-                    <Label htmlFor="new-responsible">Новый вариант</Label>
-                    <Input
-                      id="new-responsible"
-                      value={newResponsibleName}
-                      onChange={(e) => setNewResponsibleName(e.target.value)}
-                      placeholder="Например, Айгуль"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          handleAddResponsibleOption();
-                        }
-                      }}
-                      disabled={isSavingResponsible}
-                    />
                   </div>
-                  <Button onClick={handleAddResponsibleOption} disabled={isSavingResponsible}>
-                    {isSavingResponsible && <Loader2 className="h-4 w-4 animate-spin" />}
-                    Добавить
+                  <Button variant="outline" size="sm" onClick={() => setManageOptionsKind("status")}>
+                    Изменить
+                  </Button>
+                </div>
+
+                <div className="flex items-center justify-between rounded-lg border border-border p-3">
+                  <div>
+                    <p className="text-sm font-medium">Ответственный</p>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {responsibleOptions.length === 0 ? (
+                        <span className="text-xs text-muted-foreground">Нет вариантов</span>
+                      ) : (
+                        responsibleOptions.map((opt) => (
+                          <StatusBadge key={opt.value} value={opt.value} options={responsibleOptions} />
+                        ))
+                      )}
+                    </div>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => setManageOptionsKind("responsible")}>
+                    Изменить
                   </Button>
                 </div>
               </CardContent>
             </Card>
           )}
+
+          <ManageOptionsDialog
+            open={manageOptionsKind !== null}
+            onOpenChange={(o) => !o && setManageOptionsKind(null)}
+            title={manageOptionsKind === "status" ? "Варианты статуса" : "Варианты «Ответственный»"}
+            description="Изменения увидят все, кто пользуется сайтом."
+            options={manageOptionsKind === "status" ? statusOptions : responsibleOptions}
+            onSave={handleSaveSharedOptions}
+          />
 
           {permissions.canManageWorkspace && (
             <Card className="border-destructive/40">

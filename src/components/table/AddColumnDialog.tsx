@@ -48,14 +48,6 @@ const COLUMN_TYPE_LABELS: Record<ColumnType, string> = {
 
 const COLUMN_TYPES: ColumnType[] = ["text", "number", "currency", "status", "responsible", "date", "email", "phone"];
 
-const DEFAULT_STATUS_OPTIONS = [
-  { value: "new", label: "Новый", color: "217 91% 60%" },
-  { value: "in_progress", label: "В работе", color: "38 92% 50%" },
-  { value: "waiting", label: "Ожидание", color: "38 92% 50%" },
-  { value: "done", label: "Готово", color: "142 71% 45%" },
-  { value: "cancelled", label: "Отмена", color: "240 4% 60%" },
-];
-
 function slugify(label: string, existingKeys: Set<string>): string {
   const base =
     label
@@ -98,9 +90,10 @@ export function AddColumnDialog({
         key,
         label: label.trim(),
         type,
-        // "responsible" columns don't store their own options — they read
-        // the shared, workspace-wide list (see src/utils/columnOptions.ts).
-        statusOptions: type === "status" ? DEFAULT_STATUS_OPTIONS : undefined,
+        // Neither "status" nor "responsible" columns store their own
+        // options anymore — both read a shared, workspace-wide list (see
+        // src/utils/columnOptions.ts), managed by the Owner in Настройки.
+        statusOptions: undefined,
       });
       toast.success(`Столбец «${column.label}» добавлен`);
       onCreated?.(column);
@@ -150,10 +143,10 @@ export function AddColumnDialog({
                 ))}
               </SelectContent>
             </Select>
-            {type === "responsible" && (
+            {(type === "responsible" || type === "status") && (
               <p className="text-xs text-muted-foreground">
                 Варианты для этого столбца общие для всего сайта — их добавляет Овнер в
-                Настройках → Workspace → «Ответственные».
+                Настройках → Workspace → «{type === "responsible" ? "Ответственные" : "Статусы"}».
               </p>
             )}
           </div>

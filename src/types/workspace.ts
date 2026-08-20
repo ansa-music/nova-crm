@@ -18,6 +18,13 @@ export interface Workspace {
    * managed from Настройки → Workspace → «Ответственные».
    */
   responsibleOptions?: StatusOption[];
+  /**
+   * Same idea, for "Статус" columns: ONE shared, site-wide list instead of
+   * each column keeping its own. Every "Статус" column on every page/
+   * subpage shows this list; managed from Настройки → Workspace →
+   * «Статусы», Owner-only.
+   */
+  statusOptions?: StatusOption[];
 }
 
 export type MemberStatus = "active" | "invited";

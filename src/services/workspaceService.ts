@@ -61,6 +61,11 @@ export async function updateResponsibleOptions(workspaceId: string, options: Sta
   await updateWorkspace(workspaceId, { responsibleOptions: options });
 }
 
+/** Same idea as updateResponsibleOptions, for the shared "Статус" list. */
+export async function updateStatusOptions(workspaceId: string, options: StatusOption[]) {
+  await updateWorkspace(workspaceId, { statusOptions: options });
+}
+
 /**
  * Subscribes to all workspaces a given user belongs to, keeping both the
  * membership list *and* each workspace's own document in realtime sync.
