@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bell, Menu } from "lucide-react";
+import { Bell, Keyboard, Menu } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +18,7 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { markAllNotificationsRead, markNotificationRead } from "@/services/notificationService";
 import { timeAgo } from "@/utils/date";
 import { cn } from "@/utils/cn";
+import { useUiStore } from "@/store/uiStore";
 
 const PRIORITY_DOT: Record<string, string> = {
   normal: "bg-muted-foreground",
@@ -101,6 +102,14 @@ export function Topbar({ title }: { title?: string }) {
       </DropdownMenu>
 
       <RoleSwitcher />
+      <Button
+        variant="ghost"
+        size="icon"
+        title="Горячие клавиши (?)"
+        onClick={() => useUiStore.getState().setShortcutsHelpOpen(true)}
+      >
+        <Keyboard className="h-4 w-4" />
+      </Button>
       <ThemeToggle />
     </header>
   );

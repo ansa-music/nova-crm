@@ -51,13 +51,19 @@ export function TableCell({
 
   const isNumeric = column.type === "number" || column.type === "currency";
   const stringValue = value === null || value === undefined ? "" : String(value);
+  // A little built-in conditional formatting: negative numbers/amounts read
+  // as red, same convention as any spreadsheet — no per-column setup needed.
+  const isNegative = isNumeric && stringValue !== "" && Number(stringValue) < 0;
 
   function renderDisplay() {
     if (column.type === "status" || column.type === "responsible") {
       return <StatusBadge value={stringValue} options={column.statusOptions ?? []} />;
     }
     if (column.type === "currency" && stringValue) {
-      return <span className="tabular-nums">{formatCurrency(Number(stringValue))}</span>;
+      return <span className={cn("tabular-nums", isNegative && "font-medium text-destructive")}>{formatCurrency(Number(stringValue))}</span>;
+    }
+    if (column.type === "number" && stringValue) {
+      return <span className={cn("tabular-nums", isNegative && "font-medium text-destructive")}>{stringValue}</span>;
     }
     return <span className="truncate">{stringValue}</span>;
   }

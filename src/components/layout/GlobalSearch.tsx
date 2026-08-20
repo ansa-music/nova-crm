@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { Search } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -14,6 +14,22 @@ export function GlobalSearch() {
   const { pages, members } = useWorkspace();
   const permissions = usePermissions();
   const navigate = useNavigate();
+
+  // The trigger button has always advertised "Ctrl K" as a badge — actually
+  // wire it up so that promise is true. Ignored while typing in any other
+  // input/textarea so it doesn't hijack normal typing elsewhere on the page.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const isCtrl = e.ctrlKey || e.metaKey;
+      if (!isCtrl || e.key.toLowerCase() !== "k") return;
+      const tag = (document.activeElement?.tagName ?? "").toLowerCase();
+      if (tag === "input" || tag === "textarea") return;
+      e.preventDefault();
+      setOpen(true);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const filteredPages = useMemo(() => {
     const q = query.trim().toLowerCase();

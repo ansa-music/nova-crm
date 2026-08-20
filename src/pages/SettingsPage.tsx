@@ -1,7 +1,24 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, Trash2, Users } from "lucide-react";
+import {
+  Archive,
+  Columns3,
+  Download,
+  EyeOff,
+  Filter,
+  History,
+  Keyboard,
+  Layers,
+  Loader2,
+  MousePointerSquareDashed,
+  Palette,
+  Redo2,
+  ShieldCheck,
+  Trash2,
+  UserCog,
+  Users,
+} from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,9 +36,79 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { updateUserPassword, updateUserProfile } from "@/firebase/auth";
 import { updateUserDoc } from "@/services/authService";
 import { deleteWorkspace, updateResponsibleOptions, updateStatusOptions, updateWorkspace } from "@/services/workspaceService";
+import { downloadWorkspaceBackup } from "@/services/backupService";
 import { getAuthErrorMessage } from "@/utils/firebaseErrors";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import type { StatusOption } from "@/types";
+
+const FEATURE_ITEMS = [
+  {
+    icon: Columns3,
+    title: "Добавление и удаление столбцов",
+    description: "Кнопка «Столбец» над таблицей или ПКМ по заголовку → «Изменить тип» / «Удалить столбец».",
+  },
+  {
+    icon: Palette,
+    title: "Свои варианты Статуса и Ответственного",
+    description:
+      "ПКМ по заголовку столбца → «Изменить варианты» — добавляйте, переименовывайте, перекрашивайте. Список общий на весь сайт.",
+  },
+  {
+    icon: Redo2,
+    title: "Отмена действий",
+    description: "Ctrl+Z — отменить последнее действие в таблице, Ctrl+Y — вернуть обратно.",
+  },
+  {
+    icon: History,
+    title: "История изменений",
+    description: "Кнопка «История» на странице — кто, что и когда менял, с возможностью восстановить.",
+  },
+  {
+    icon: Filter,
+    title: "Фильтры и группировка",
+    description: "Клик по значку фильтра в заголовке столбца, или выпадающий список «Группировка» над таблицей.",
+  },
+  {
+    icon: MousePointerSquareDashed,
+    title: "Копирование и вставка как в Excel",
+    description: "Выделите диапазон ячеек — Ctrl+C/Ctrl+V работает между строками и столбцами сразу.",
+  },
+  {
+    icon: Download,
+    title: "Экспорт в CSV",
+    description: "Кнопка «CSV» над таблицей — выгружает текущий вид таблицы файлом.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Ответственный за страницу",
+    description: "В настройках страницы можно назначить Ответственного — он получает права администратора именно этой страницы.",
+  },
+  {
+    icon: EyeOff,
+    title: "Скрыть страницу у себя",
+    description: "ПКМ по странице в сайдбаре → «Скрыть у себя» — уберёт её из вашего списка, не влияя на других.",
+  },
+  {
+    icon: Archive,
+    title: "Архив вкладок",
+    description: "У подстраниц есть архив — кнопка «Архив» рядом с вкладками, ничего не удаляется безвозвратно.",
+  },
+  {
+    icon: Layers,
+    title: "Личное пространство",
+    description: "У Ответственного за страницу есть приватный раздел с отчётами, финансами и заметками — их не видит никто другой.",
+  },
+  {
+    icon: UserCog,
+    title: "Режим привилегий",
+    description: "Owner и Admin могут временно посмотреть на сайт глазами другой роли — переключатель рядом с аватаром.",
+  },
+  {
+    icon: Keyboard,
+    title: "Горячие клавиши",
+    description: "Нажмите «?» в любой момент (не во время ввода текста) — откроется полный список сочетаний клавиш.",
+  },
+] as const;
 
 export default function SettingsPage() {
   const { profile } = useAuth();
@@ -90,6 +177,21 @@ export default function SettingsPage() {
     toast.success("Workspace удалён");
   }
 
+  const [isBackingUp, setIsBackingUp] = useState(false);
+
+  async function handleDownloadBackup() {
+    if (!activeWorkspace) return;
+    setIsBackingUp(true);
+    try {
+      await downloadWorkspaceBackup(activeWorkspace.id, activeWorkspace.name);
+      toast.success("Бэкап скачан");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось собрать бэкап");
+    } finally {
+      setIsBackingUp(false);
+    }
+  }
+
   // ---- Общие списки "Ответственных" и "Статусов" — используются всеми
   // столбцами соответствующего типа на любой странице/подстранице сайта.
   const responsibleOptions = activeWorkspace?.responsibleOptions ?? [];
@@ -109,12 +211,38 @@ export default function SettingsPage() {
     <div className="mx-auto max-w-3xl p-6">
       <h1 className="mb-6 text-3xl font-light tracking-tight">Настройки</h1>
 
-      <Tabs defaultValue="profile">
+      <Tabs defaultValue="features">
         <TabsList>
+          <TabsTrigger value="features">Возможности</TabsTrigger>
           <TabsTrigger value="profile">Профиль</TabsTrigger>
           <TabsTrigger value="workspace">Workspace</TabsTrigger>
           <TabsTrigger value="members">Роли и доступ</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="features" className="flex flex-col gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Что умеет Nova CRM</CardTitle>
+              <CardDescription>
+                Короткая шпаргалка по всему, что уже есть на сайте — многое не сразу заметно с
+                первого взгляда.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {FEATURE_ITEMS.map((item) => (
+                <div key={item.title} className="flex gap-3 rounded-lg border border-border p-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <item.icon className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{item.title}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{item.description}</p>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="profile" className="flex flex-col gap-4">
           <Card>
@@ -255,6 +383,24 @@ export default function SettingsPage() {
             options={manageOptionsKind === "status" ? statusOptions : responsibleOptions}
             onSave={handleSaveSharedOptions}
           />
+
+          {permissions.canManageWorkspace && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Резервная копия</CardTitle>
+                <CardDescription>
+                  Скачивает JSON со всеми страницами, подстраницами, строками и участниками —
+                  на случай, если что-то случайно перезаписалось или удалилось.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" className="gap-1.5" onClick={handleDownloadBackup} disabled={isBackingUp}>
+                  {isBackingUp ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  Скачать бэкап workspace
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
           {permissions.canManageWorkspace && (
             <Card className="border-destructive/40">

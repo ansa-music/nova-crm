@@ -75,6 +75,11 @@ export function TableRow({
       cumulativeLeft += c.width;
     });
 
+  // A quiet "new" marker — no extra reads needed, createdAt is already on
+  // every row. Just a thin accent bar, not a badge, so it doesn't compete
+  // with the actual data for attention.
+  const isNew = Date.now() - row.createdAt < 24 * 60 * 60 * 1000;
+
   return (
     <tr
       ref={setNodeRef}
@@ -91,6 +96,12 @@ export function TableRow({
         style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}
       >
         <div className="relative flex h-full w-full items-center justify-center gap-1">
+          {isNew && (
+            <span
+              className="absolute left-0 top-1/2 h-3.5 w-[3px] -translate-y-1/2 rounded-full bg-primary"
+              title="Добавлено недавно"
+            />
+          )}
           <button
             {...attributes}
             {...listeners}

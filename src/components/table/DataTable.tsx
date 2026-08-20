@@ -73,6 +73,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { updateResponsibleOptions, updateStatusOptions } from "@/services/workspaceService";
 import { formatCurrency, downloadCsv } from "@/utils";
 import { getColumnOptions, isOptionColumn, DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
+import { celebrateDone } from "@/utils/confetti";
 import type { CellAddress, ColumnType, PageRow, SortState, StatusOption, WorkspacePage } from "@/types";
 
 const DENSITY_ROW_HEIGHT: Record<"compact" | "default" | "comfortable", number> = {
@@ -521,6 +522,16 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       undo: () => persistCellEdit(rowId, colKey, value, oldValue),
       redo: () => persistCellEdit(rowId, colKey, oldValue, value),
     });
+
+    // Little celebration the moment a row flips INTO "Готово" — but only on
+    // that specific transition, never on every edit of an already-done row
+    // (e.g. re-picking the same status, or editing an unrelated field).
+    const col = columns.find((c) => c.key === colKey);
+    if (col?.type === "status") {
+      const options = getColumnOptions(col, activeWorkspace);
+      const isDone = (v: string) => (options.find((o) => o.value === v)?.label ?? v).toLowerCase().includes("готов");
+      if (isDone(value) && !isDone(oldValue)) celebrateDone();
+    }
   }
 
   // ---- Selection handlers ----

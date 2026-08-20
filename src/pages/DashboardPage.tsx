@@ -1,23 +1,28 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
-import { ArrowUpRight, Briefcase, CalendarDays, Users, UserCog, Wallet } from "lucide-react";
+import { ArrowUpRight, Briefcase, CalendarDays, ClipboardCheck, Users, UserCog, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { StatusChart } from "@/components/dashboard/StatusChart";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useMultiPageRows } from "@/hooks/useMultiPageRows";
 import { useHistoryLog } from "@/hooks/useHistoryLog";
 import { usePermissions } from "@/hooks/usePermissions";
+import { isResponsibleForPage } from "@/utils/permissions";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { formatCurrency } from "@/utils/format";
 import { formatDate } from "@/utils/date";
+import { Link } from "react-router";
 
 export default function DashboardPage() {
   const { activeWorkspace, activeWorkspaceId, pages, members, isLoadingWorkspaceData } = useWorkspace();
   const permissions = usePermissions();
+  const { profile } = useAuth();
 
   // Only aggregate stats from pages the current viewer can actually open —
   // Owner sees everything, everyone else only their allowed pages. Without
@@ -31,13 +36,49 @@ export default function DashboardPage() {
   const clientsPage = visiblePages.find((p) => p.name.toLowerCase().includes("клиент"));
   const projectsPage = visiblePages.find((p) => p.name.toLowerCase().includes("проект"));
 
+  // Pages where I'M the assigned "Ответственный" — these get their own
+  // personal "мой прогресс" card below, regardless of what they're named.
+  const myResponsiblePages = useMemo(
+    () => (profile ? visiblePages.filter((p) => isResponsibleForPage(p, profile.uid)) : []),
+    [visiblePages, profile]
+  );
+
   const rowsByPage = useMultiPageRows(
     activeWorkspaceId,
-    [clientsPage?.id, projectsPage?.id].filter((id): id is string => Boolean(id))
+    [clientsPage?.id, projectsPage?.id, ...myResponsiblePages.map((p) => p.id)].filter(
+      (id): id is string => Boolean(id)
+    )
   );
 
   const clientRows = clientsPage ? rowsByPage[clientsPage.id] ?? [] : [];
   const projectRows = projectsPage ? rowsByPage[projectsPage.id] ?? [] : [];
+
+  const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
+
+  // Per-page "Готово" vs "Общий" breakdown for whatever pages I personally
+  // own as Ответственный — mirrors the same currency+status total logic the
+  // table itself uses (src/components/table/DataTable.tsx financialSummary),
+  // just recomputed per page here so each card is self-contained.
+  const myProgress = useMemo(() => {
+    return myResponsiblePages.map((page) => {
+      const priceCol = page.columns.find((c) => c.type === "currency");
+      const statusCol = page.columns.find((c) => c.type === "status");
+      const rows = rowsByPage[page.id] ?? [];
+      let grandTotal = 0;
+      let doneTotal = 0;
+      for (const row of rows) {
+        const raw = Number(row.cells[priceCol?.key ?? "price"] ?? 0) || 0;
+        grandTotal += raw;
+        if (statusCol) {
+          const rawStatus = String(row.cells[statusCol.key] ?? "");
+          const label = statusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
+          if (label.toLowerCase().includes("готов")) doneTotal += raw;
+        }
+      }
+      const percent = grandTotal > 0 ? Math.round((doneTotal / grandTotal) * 100) : 0;
+      return { page, doneTotal, grandTotal, percent, rowCount: rows.length };
+    });
+  }, [myResponsiblePages, rowsByPage, statusOptions]);
 
   const totalRevenue = useMemo(
     () => clientRows.reduce((sum, row) => sum + (Number(row.cells.amount) || 0), 0),
@@ -58,13 +99,12 @@ export default function DashboardPage() {
   const statusColumn = clientsPage?.columns.find((c) => c.key === "status");
   const statusDistribution = useMemo(() => {
     if (!statusColumn) return [];
-    const options = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
-    return options.map((opt) => ({
+    return statusOptions.map((opt) => ({
       name: opt.label,
       value: clientRows.filter((r) => r.cells.status === opt.value).length,
       color: opt.color,
     }));
-  }, [statusColumn, clientRows, activeWorkspace?.statusOptions]);
+  }, [statusColumn, clientRows, statusOptions]);
 
   // The history/audit log is Owner-only per firestore.rules — don't even
   // subscribe for anyone else, or every non-owner would hit a guaranteed
@@ -101,6 +141,50 @@ export default function DashboardPage() {
           <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
         </Button>
       </motion.div>
+
+      {myProgress.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="mb-6"
+        >
+          <p className="eyebrow mb-3 flex items-center gap-1.5 text-primary">
+            <ClipboardCheck className="h-3.5 w-3.5" /> Мой прогресс
+          </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {myProgress.map(({ page, doneTotal, grandTotal, percent, rowCount }) => (
+              <Card key={page.id} className="overflow-hidden">
+                <CardContent className="p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <Link to={`/page/${page.id}`} className="truncate text-sm font-medium hover:text-primary">
+                      {page.name}
+                    </Link>
+                    <span className="shrink-0 text-xs text-muted-foreground">{rowCount} строк</span>
+                  </div>
+                  <div className="mb-2 flex items-end justify-between">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Готово</p>
+                      <p className="text-xl font-light tabular-nums text-success">{formatCurrency(doneTotal)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Общий</p>
+                      <p className="text-xl font-light tabular-nums">{formatCurrency(grandTotal)}</p>
+                    </div>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-success transition-all"
+                      style={{ width: `${Math.min(100, percent)}%` }}
+                    />
+                  </div>
+                  <p className="mt-1.5 text-right text-xs font-medium text-muted-foreground">{percent}% готово</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Клиенты" value={String(clientRows.length)} icon={Users} color="248 79% 62%" delay={0} />

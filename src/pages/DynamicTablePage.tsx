@@ -18,6 +18,7 @@ import { useSubPages, useSubPageRows } from "@/hooks/useSubPageData";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
 import { ensurePriceColumn, togglePageVisibility } from "@/services/pageService";
+import { displayNameOf } from "@/utils/displayName";
 import type { PageIconName } from "@/types";
 
 export default function DynamicTablePage() {
@@ -245,7 +246,7 @@ export default function DynamicTablePage() {
                 canEdit={canEditData}
                 canEditStructure={permissions.canManagePage(page)}
                 userId={profile?.uid ?? ""}
-                userName={profile?.name ?? "Пользователь"}
+                userName={displayNameOf(profile)}
               />
             )}
           </div>
@@ -254,7 +255,7 @@ export default function DynamicTablePage() {
 
       {settingsOpen && <EditPageDialog page={page} onOpenChange={() => setSettingsOpen(false)} />}
       {permissions.canViewHistory && (
-        <HistoryPanel open={historyOpen} onOpenChange={setHistoryOpen} workspaceId={page.workspaceId} pageId={page.id} />
+        <HistoryPanel open={historyOpen} onOpenChange={setHistoryOpen} workspaceId={page.workspaceId} pageId={page.id} columns={page.columns} />
       )}
       <PageChatPanel open={chatOpen} onOpenChange={setChatOpen} workspaceId={page.workspaceId} pageId={page.id} pageName={page.name} />
     </div>

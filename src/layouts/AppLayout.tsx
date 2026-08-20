@@ -10,6 +10,7 @@ import { NicknamePrompt } from "@/components/common/NicknamePrompt";
 import { GlobalMessageToaster } from "@/components/common/GlobalMessageToaster";
 import { SimulationBanner } from "@/components/common/RoleSwitcher";
 import { AppBootScreen } from "@/components/common/AppBootScreen";
+import { ShortcutsHelpDialog } from "@/components/common/ShortcutsHelpDialog";
 import { Button } from "@/components/ui/button";
 import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorkspace";
 import { useAppBootstrap } from "@/hooks/useAppBootstrap";
@@ -78,6 +79,7 @@ export function AppLayout() {
     <div className="page-surface flex h-screen overflow-hidden bg-background">
       <NicknamePrompt />
       <GlobalMessageToaster />
+      <ShortcutsHelpDialog />
       {!isMobile && <Sidebar />}
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
