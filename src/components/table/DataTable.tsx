@@ -46,6 +46,7 @@ import {
   addColumn as addColumnServiceBase,
   renameColumn as renameColumnServiceBase,
   changeColumnType as changeColumnTypeServiceBase,
+  updateColumnStatusOptions as updateColumnStatusOptionsServiceBase,
   duplicateColumn as duplicateColumnServiceBase,
   deleteColumn as deleteColumnServiceBase,
 } from "@/services/pageService";
@@ -60,17 +61,21 @@ import {
   addSubPageColumn,
   renameSubPageColumn,
   changeSubPageColumnType,
+  updateSubPageColumnStatusOptions,
   duplicateSubPageColumn,
   deleteSubPageColumn,
 } from "@/services/subPageService";
 import { AddColumnDialog } from "@/components/table/AddColumnDialog";
+import { ManageOptionsDialog } from "@/components/table/ManageOptionsDialog";
 import { RowCommentsPanel } from "@/components/chat/RowCommentsPanel";
 import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
 import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { usePermissions } from "@/hooks/usePermissions";
+import { updateResponsibleOptions } from "@/services/workspaceService";
 import { formatCurrency, downloadCsv } from "@/utils";
-import { isOptionColumn } from "@/utils/columnOptions";
-import type { CellAddress, ColumnType, PageRow, SortState, WorkspacePage } from "@/types";
+import { getColumnOptions, isOptionColumn } from "@/utils/columnOptions";
+import type { CellAddress, ColumnType, PageRow, SortState, StatusOption, WorkspacePage } from "@/types";
 
 const DENSITY_ROW_HEIGHT: Record<"compact" | "default" | "comfortable", number> = {
   compact: 30,
@@ -130,6 +135,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string, type: ColumnType, statusOptions?: typeof columns[number]["statusOptions"]) =>
         changeSubPageColumnType(wsId, pId, subPageId, cols, colKey, type, statusOptions)
     : changeColumnTypeServiceBase;
+  const updateColumnStatusOptionsService = subPageId
+    ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string, statusOptions: StatusOption[]) =>
+        updateSubPageColumnStatusOptions(wsId, pId, subPageId, cols, colKey, statusOptions)
+    : updateColumnStatusOptionsServiceBase;
   const duplicateColumnService = subPageId
     ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string) => duplicateSubPageColumn(wsId, pId, subPageId, cols, colKey)
     : duplicateColumnServiceBase;
@@ -158,6 +167,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [density, setDensity] = useState<"compact" | "default" | "comfortable">("default");
   const [addColumnOpen, setAddColumnOpen] = useState(false);
+  const [manageOptionsColKey, setManageOptionsColKey] = useState<string | null>(null);
   const [commentRowId, setCommentRowId] = useState<string | null>(null);
   const [pinnedKeys, setPinnedKeys] = useState<string[]>(() => {
     try {
@@ -181,6 +191,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   >(null);
 
   const { activeWorkspace } = useWorkspace();
+  const permissions = usePermissions();
+  const isOwner = permissions.role === "owner";
   const responsibleOptions = activeWorkspace?.responsibleOptions ?? [];
 
   // Columns with the live drag preview AND the shared "Ответственный" list
@@ -926,6 +938,19 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     toast.success("Тип столбца изменён");
   }
 
+  const manageOptionsColumn = columns.find((c) => c.key === manageOptionsColKey) ?? null;
+
+  async function handleSaveColumnOptions(options: StatusOption[]) {
+    if (!manageOptionsColumn) return;
+    if (manageOptionsColumn.type === "responsible") {
+      // Shared, site-wide list — lives on the workspace doc, not this column.
+      await updateResponsibleOptions(workspaceId, options);
+    } else {
+      await updateColumnStatusOptionsService(workspaceId, page.id, columns, manageOptionsColumn.key, options);
+    }
+    toast.success("Варианты обновлены");
+  }
+
   async function handleDuplicateColumn(colKey: string) {
     const copy = await duplicateColumnService(workspaceId, page.id, columns, colKey);
     toast.success(`Столбец «${copy.label}» создан`);
@@ -1064,8 +1089,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       }
                       canReorder={canEdit}
                       canEditStructure={canEditStructure}
+                      canManageOptions={isOwner}
                       onRename={handleRenameColumn}
                       onChangeType={handleChangeColumnType}
+                      onManageOptions={setManageOptionsColKey}
                       onDuplicate={handleDuplicateColumn}
                       onDelete={handleDeleteColumn}
                     />
@@ -1218,6 +1245,21 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         existingColumns={columns}
         createColumn={addColumnService}
       />
+
+      {manageOptionsColumn && (
+        <ManageOptionsDialog
+          open={Boolean(manageOptionsColKey)}
+          onOpenChange={(o) => !o && setManageOptionsColKey(null)}
+          title={`Варианты: «${manageOptionsColumn.label}»`}
+          description={
+            manageOptionsColumn.type === "responsible"
+              ? "Общий список для всех столбцов «Ответственный» на сайте — изменения увидят все."
+              : "Варианты этого статуса видны только в этом столбце на этой странице."
+          }
+          options={getColumnOptions(manageOptionsColumn, activeWorkspace)}
+          onSave={handleSaveColumnOptions}
+        />
+      )}
 
       <RowCommentsPanel
         open={Boolean(commentRowId)}

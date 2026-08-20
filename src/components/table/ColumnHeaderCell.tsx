@@ -1,6 +1,6 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowDown, ArrowUp, Filter, GripVertical, Pin, PinOff } from "lucide-react";
+import { ArrowDown, ArrowUp, Filter, GripVertical, Palette, Pin, PinOff } from "lucide-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -12,6 +12,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { cn } from "@/utils/cn";
+import { isOptionColumn } from "@/utils/columnOptions";
 import type { ColumnType, PageColumn, SortState } from "@/types";
 
 const COLUMN_TYPE_LABELS: Record<ColumnType, string> = {
@@ -38,8 +39,11 @@ interface ColumnHeaderCellProps {
   stickyLeft?: number;
   canReorder: boolean;
   canEditStructure?: boolean;
+  /** Owner-only: shows "Изменить варианты" for status/responsible columns. */
+  canManageOptions?: boolean;
   onRename?: (colKey: string) => void;
   onChangeType?: (colKey: string, type: ColumnType) => void;
+  onManageOptions?: (colKey: string) => void;
   onDuplicate?: (colKey: string) => void;
   onDelete?: (colKey: string) => void;
 }
@@ -56,8 +60,10 @@ export function ColumnHeaderCell({
   stickyLeft,
   canReorder,
   canEditStructure,
+  canManageOptions,
   onRename,
   onChangeType,
+  onManageOptions,
   onDuplicate,
   onDelete,
 }: ColumnHeaderCellProps) {
@@ -149,6 +155,11 @@ export function ColumnHeaderCell({
               ))}
             </ContextMenuSubContent>
           </ContextMenuSub>
+          {canManageOptions && isOptionColumn(column.type) && (
+            <ContextMenuItem onClick={() => onManageOptions?.(column.key)}>
+              <Palette className="h-4 w-4" /> Изменить варианты
+            </ContextMenuItem>
+          )}
           <ContextMenuItem onClick={() => onDuplicate?.(column.key)}>Дублировать</ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem

@@ -372,6 +372,24 @@ export async function changeColumnType(
   await updatePageColumns(workspaceId, pageId, columns);
 }
 
+/**
+ * Updates just a "status" column's own option list (add/rename/recolor/
+ * remove values) without touching its type. Owner-only in the UI
+ * (src/components/table/ManageOptionsDialog.tsx) — kept separate from
+ * changeColumnType so editing existing statuses never risks flipping the
+ * column's type by mistake.
+ */
+export async function updateColumnStatusOptions(
+  workspaceId: string,
+  pageId: string,
+  existingColumns: PageColumn[],
+  columnKey: string,
+  statusOptions: StatusOption[]
+) {
+  const columns = existingColumns.map((c) => (c.key === columnKey ? { ...c, statusOptions } : c));
+  await updatePageColumns(workspaceId, pageId, columns);
+}
+
 export async function reorderPages(workspaceId: string, orderedIds: string[]) {
   if (!db) return;
   const batch = writeBatch(db);

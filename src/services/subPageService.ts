@@ -433,3 +433,16 @@ export async function changeSubPageColumnType(
   );
   await updateSubPageColumns(workspaceId, pageId, subPageId, columns);
 }
+
+/** Mirrors pageService's updateColumnStatusOptions for a subpage's nested columns. */
+export async function updateSubPageColumnStatusOptions(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string,
+  existingColumns: PageColumn[],
+  columnKey: string,
+  statusOptions: StatusOption[]
+) {
+  const columns = existingColumns.map((c) => (c.key === columnKey ? { ...c, statusOptions } : c));
+  await updateSubPageColumns(workspaceId, pageId, subPageId, columns);
+}
