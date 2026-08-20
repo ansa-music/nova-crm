@@ -846,10 +846,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const cells: Record<string, string | number | null> = {};
     columns.forEach((c) => (cells[c.key] = ""));
     const newRow = await addRowService(workspaceId, page.id, cells, rows.length);
+    let liveId = newRow.id;
     pushCommand({
-      undo: () => deleteRowService(workspaceId, page.id, newRow.id),
-      redo: () => {
-        addRowService(workspaceId, page.id, cells, rows.length);
+      undo: () => deleteRowService(workspaceId, page.id, liveId),
+      redo: async () => {
+        const restored = await addRowService(workspaceId, page.id, cells, rows.length);
+        liveId = restored.id;
       },
     });
     requestAnimationFrame(() => {
@@ -877,12 +879,17 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (!rowId) return;
     const row = rows.find((r) => r.id === rowId);
     if (!row) return;
-    await deleteRowService(workspaceId, page.id, rowId);
+    // Recreating a deleted row always gets a brand-new id from Firestore —
+    // this holder tracks whichever id is currently "live" so repeated
+    // undo/redo toggles keep targeting the right doc instead of a stale one.
+    let liveId = rowId;
+    await deleteRowService(workspaceId, page.id, liveId);
     pushCommand({
-      undo: () => {
-        addRowService(workspaceId, page.id, row.cells, row.order);
+      undo: async () => {
+        const restored = await addRowService(workspaceId, page.id, row.cells, row.order);
+        liveId = restored.id;
       },
-      redo: () => deleteRowService(workspaceId, page.id, rowId),
+      redo: () => deleteRowService(workspaceId, page.id, liveId),
     });
   }
 
@@ -897,9 +904,26 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   async function handleDeleteSelected() {
     if (!window.confirm(`Удалить выбранные строки (${selectedRowIds.size})?`)) return;
-    await Promise.all(Array.from(selectedRowIds).map((id) => deleteRowService(workspaceId, page.id, id)));
+    const deletedRows = rows.filter((r) => selectedRowIds.has(r.id));
+    // liveIds[i] tracks whichever id currently exists for deletedRows[i] —
+    // recreating a row on undo always gets a fresh Firestore-generated id,
+    // so a naive redo() referencing the original id would target a doc that
+    // no longer exists after the first undo/redo cycle.
+    const liveIds = deletedRows.map((r) => r.id);
+    await Promise.all(liveIds.map((id) => deleteRowService(workspaceId, page.id, id)));
     setSelectedRowIds(new Set());
     toast.success("Строки удалены");
+    pushCommand({
+      undo: async () => {
+        const restored = await Promise.all(
+          deletedRows.map((r) => addRowService(workspaceId, page.id, r.cells, r.order))
+        );
+        restored.forEach((r, i) => (liveIds[i] = r.id));
+      },
+      redo: async () => {
+        await Promise.all(liveIds.map((id) => deleteRowService(workspaceId, page.id, id)));
+      },
+    });
   }
 
   function handleExportCsv() {
@@ -957,8 +981,24 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const current = columns.find((c) => c.key === colKey);
     if (!current) return;
     if (!window.confirm(`Удалить столбец «${current.label}»? Данные в нём будут скрыты.`)) return;
+    const originalIndex = columns.findIndex((c) => c.key === colKey);
     await deleteColumnService(workspaceId, page.id, columns, colKey);
     toast.success("Столбец удалён");
+    pushCommand({
+      undo: async () => {
+        // Re-insert at its original position (columns here no longer
+        // includes it) and reassign order 0..n-1, same as the rest of the
+        // column-mutation services do.
+        const restored = [...columns.filter((c) => c.key !== colKey)];
+        restored.splice(originalIndex, 0, current);
+        await updatePageColumns(
+          workspaceId,
+          page.id,
+          restored.map((c, i) => ({ ...c, order: i }))
+        );
+      },
+      redo: () => deleteColumnService(workspaceId, page.id, columns, colKey),
+    });
   }
 
   // Financial summary bar: shown when the page has at least one currency

@@ -100,6 +100,15 @@ export async function setActiveRole(workspaceId: string, uid: string, activeRole
   await setDoc(paths.member(workspaceId, uid), { activeRole }, { merge: true });
 }
 
+/** Toggles a page in/out of this member's OWN "hidden from my sidebar" list — purely personal, never affects access. */
+export async function toggleHiddenPage(workspaceId: string, uid: string, pageId: string, hide: boolean, currentHiddenPageIds: string[]) {
+  if (!db) return;
+  const hiddenPageIds = hide
+    ? Array.from(new Set([...currentHiddenPageIds, pageId]))
+    : currentHiddenPageIds.filter((id) => id !== pageId);
+  await setDoc(paths.member(workspaceId, uid), { hiddenPageIds }, { merge: true });
+}
+
 export async function removeMember(workspaceId: string, uid: string) {
   if (!db) return;
   await deleteDoc(paths.member(workspaceId, uid));

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink } from "react-router";
-import { Copy, MoreHorizontal, Pencil, Settings2, Trash2 } from "lucide-react";
+import { Copy, EyeOff, MoreHorizontal, Pencil, Settings2, Trash2 } from "lucide-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -22,9 +22,21 @@ interface PageNavItemProps {
   nextOrder: number;
   onEdit: (page: WorkspacePage) => void;
   collapsed?: boolean;
+  /** Is this page currently on MY OWN "hidden from my sidebar" list? Purely personal — never affects real access. */
+  isHidden?: boolean;
+  onToggleHidden?: (pageId: string, hide: boolean) => void;
 }
 
-export function PageNavItem({ page, canManage, canDelete, nextOrder, onEdit, collapsed }: PageNavItemProps) {
+export function PageNavItem({
+  page,
+  canManage,
+  canDelete,
+  nextOrder,
+  onEdit,
+  collapsed,
+  isHidden,
+  onToggleHidden,
+}: PageNavItemProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [draftName, setDraftName] = useState(page.name);
   const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid;
@@ -106,7 +118,18 @@ export function PageNavItem({ page, canManage, canDelete, nextOrder, onEdit, col
   );
 
   if (!canManage) {
-    return <div className="flex items-center">{content}</div>;
+    return (
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div className="flex items-center">{content}</div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={() => onToggleHidden?.(page.id, !isHidden)}>
+            <EyeOff className="h-4 w-4" /> {isHidden ? "Показать у себя" : "Скрыть у себя"}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
   }
 
   return (
@@ -134,6 +157,9 @@ export function PageNavItem({ page, canManage, canDelete, nextOrder, onEdit, col
         </ContextMenuItem>
         <ContextMenuItem onClick={() => onEdit(page)}>
           <Settings2 className="h-4 w-4" /> Настройки страницы
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => onToggleHidden?.(page.id, !isHidden)}>
+          <EyeOff className="h-4 w-4" /> {isHidden ? "Показать у себя" : "Скрыть у себя"}
         </ContextMenuItem>
         <ContextMenuItem onClick={handleDuplicate}>
           <Copy className="h-4 w-4" /> Дублировать

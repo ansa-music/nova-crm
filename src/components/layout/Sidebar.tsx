@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink } from "react-router";
-import { ChevronLeft, ChevronRight, LayoutDashboard, LogOut, Megaphone, MessageCircle, MessageSquare, Plus, Settings, User, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight, EyeOff, LayoutDashboard, LogOut, Megaphone, MessageCircle, MessageSquare, Plus, Settings, User, Users } from "lucide-react";
 import { motion } from "framer-motion";
 import {
   DropdownMenu,
@@ -20,22 +20,35 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { useInboxSummary } from "@/hooks/useInboxSummary";
 import { usePermissions } from "@/hooks/usePermissions";
 import { signOutUser } from "@/firebase/auth";
-import { setActiveRole } from "@/services/memberService";
+import { setActiveRole, toggleHiddenPage } from "@/services/memberService";
 import { cn } from "@/utils/cn";
 import { useUiStore } from "@/store/uiStore";
 import type { WorkspacePage } from "@/types";
 
 export function Sidebar({ mobile }: { mobile?: boolean }) {
   const { profile } = useAuth();
-  const { pages, activeWorkspaceId } = useWorkspace();
+  const { pages, activeWorkspaceId, members } = useWorkspace();
   const { workspaceChatUnread, privateUnreadTotal } = useInboxSummary(activeWorkspaceId, profile?.uid ?? null);
   const permissions = usePermissions();
   const collapsed = useUiStore((s) => s.sidebarCollapsed) && !mobile;
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const [createPageOpen, setCreatePageOpen] = useState(false);
   const [editingPage, setEditingPage] = useState<WorkspacePage | null>(null);
+  const [showHiddenPages, setShowHiddenPages] = useState(false);
 
-  const visiblePages = pages.filter((p) => permissions.canAccessPage(p));
+  const myMembership = members.find((m) => m.uid === profile?.uid);
+  const hiddenPageIds = myMembership?.hiddenPageIds ?? [];
+
+  const accessiblePages = pages.filter((p) => permissions.canAccessPage(p));
+  const hiddenCount = accessiblePages.filter((p) => hiddenPageIds.includes(p.id)).length;
+  const visiblePages = showHiddenPages
+    ? accessiblePages
+    : accessiblePages.filter((p) => !hiddenPageIds.includes(p.id));
+
+  async function handleToggleHiddenPage(pageId: string, hide: boolean) {
+    if (!activeWorkspaceId || !profile) return;
+    await toggleHiddenPage(activeWorkspaceId, profile.uid, pageId, hide, hiddenPageIds);
+  }
 
   return (
     <div
@@ -225,10 +238,24 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               nextOrder={pages.length}
               onEdit={setEditingPage}
               collapsed={collapsed}
+              isHidden={hiddenPageIds.includes(page.id)}
+              onToggleHidden={handleToggleHiddenPage}
             />
           ))}
           {visiblePages.length === 0 && !collapsed && (
             <p className="px-2 text-xs text-muted-foreground">Пока нет доступных страниц</p>
+          )}
+          {!collapsed && hiddenCount > 0 && (
+            <button
+              onClick={() => setShowHiddenPages((v) => !v)}
+              className={cn(
+                "mt-1 flex items-center gap-1.5 rounded-lg px-2 py-1 font-mono text-[11px] uppercase tracking-wide",
+                showHiddenPages ? "text-primary" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <EyeOff className="h-3 w-3" />
+              {showHiddenPages ? "Скрыть скрытые" : `Показать скрытые (${hiddenCount})`}
+            </button>
           )}
           {collapsed && permissions.canCreatePages && (
             <button

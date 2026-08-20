@@ -51,6 +51,17 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
     () => members.filter((m) => m.status === "active" && m.role !== "owner"),
     [members]
   );
+  // The responsible-person picker is the one place the Owner SHOULD be
+  // selectable — being Owner already grants full access to every page, but
+  // an Owner may still want the explicit "Ответственный" badge/role on a
+  // page they personally run day-to-day. Every other picker on this screen
+  // (allowedUsers/editableUsers) intentionally excludes the Owner since
+  // those grants are meaningless for an account that already has full
+  // access — so this stays a separate list rather than widening otherMembers.
+  const responsibleCandidates = useMemo(
+    () => members.filter((m) => m.status === "active"),
+    [members]
+  );
   const filteredMembers = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return otherMembers;
@@ -178,9 +189,10 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Не назначен</SelectItem>
-                    {otherMembers.map((m) => (
+                    {responsibleCandidates.map((m) => (
                       <SelectItem key={m.uid} value={m.uid}>
                         {displayNameOf(m)} ({m.email})
+                        {m.role === "owner" && " · Овнер"}
                       </SelectItem>
                     ))}
                   </SelectContent>

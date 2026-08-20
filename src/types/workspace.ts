@@ -45,6 +45,15 @@ export interface WorkspaceMember {
   /** Self-reported heartbeat timestamp, refreshed periodically while the app is open. Drives the online/away/offline indicator. */
   lastActiveAt?: number;
   /**
+   * Purely personal, client-display preference: page ids this member has
+   * chosen to hide from their OWN sidebar. Never affects anyone else's
+   * access or visibility — an Owner still has full real access to a page
+   * they've hidden for themselves, it's just tucked away behind "Показать
+   * скрытые" in the sidebar. Self-writable (see the member self-service
+   * rule in firestore.rules) since it carries no security weight.
+   */
+  hiddenPageIds?: string[];
+  /**
    * Optional simulated role for testing/UX purposes ONLY — see
    * "Переключение режима привилегий". This is a self-writable, client-
    * visible field and MUST NEVER be trusted by Firestore Rules or any
