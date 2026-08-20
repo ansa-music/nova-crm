@@ -692,12 +692,37 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // through a ref pointing at the latest closure.
   const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
   handleKeyDownRef.current = function handleKeyDown(e: KeyboardEvent) {
+      const isCtrl = e.ctrlKey || e.metaKey;
+
+      // Undo/redo is handled FIRST and separately from every other shortcut
+      // below, on purpose: everything else requires an active cell AND
+      // focus to still be physically inside the table's DOM (see the gate
+      // further down), but by the time someone wants to undo a delete,
+      // focus has very often already moved away — a confirm() dialog just
+      // closed, a context-menu item was just clicked, a toolbar button has
+      // focus, or no cell was ever selected yet on this page load. Gating
+      // undo behind "is a cell currently selected" made Ctrl+Z silently do
+      // nothing in exactly the moment people reach for it most. The only
+      // thing that should still block it is genuinely typing in some
+      // unrelated text field (chat, a dialog's input, etc) — there, the
+      // browser's own native undo for that field is what should run.
+      if (isCtrl && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) {
+        if (editingCellRef.current) return; // a cell's own text input has its own native undo
+        const active = document.activeElement as HTMLElement | null;
+        const tag = (active?.tagName ?? "").toLowerCase();
+        const isForeignTextField = tag === "input" || tag === "textarea" || Boolean(active?.isContentEditable);
+        if (isForeignTextField) return;
+        e.preventDefault();
+        if (e.key.toLowerCase() === "z" && !e.shiftKey) undo();
+        else redo();
+        return;
+      }
+
       if (editingCellRef.current) return;
       if (containerRef.current && !containerRef.current.contains(document.activeElement)) {
         if (document.activeElement !== document.body) return;
       }
       if (!activeCell) return;
-      const isCtrl = e.ctrlKey || e.metaKey;
 
       if (isCtrl && e.key.toLowerCase() === "c") {
         e.preventDefault();
@@ -707,16 +732,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       if (isCtrl && e.key.toLowerCase() === "v") {
         e.preventDefault();
         handlePaste();
-        return;
-      }
-      if (isCtrl && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        undo();
-        return;
-      }
-      if (isCtrl && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) {
-        e.preventDefault();
-        redo();
         return;
       }
       if (e.key === "Delete" || e.key === "Backspace") {
