@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { History, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { useHistoryLog } from "@/hooks/useHistoryLog";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -9,6 +11,7 @@ import { timeAgo } from "@/utils/date";
 import type { HistoryEntry } from "@/types";
 
 const ACTION_ICON = { create: Plus, update: Pencil, delete: Trash2, restore: RotateCcw } as const;
+const PAGE_STEP = 10;
 
 interface HistoryPanelProps {
   open: boolean;
@@ -21,6 +24,14 @@ export function HistoryPanel({ open, onOpenChange, workspaceId, pageId }: Histor
   const { entries } = useHistoryLog(workspaceId, pageId);
   const permissions = usePermissions();
   const { profile } = useAuth();
+  // Resets to the last-10 view every time the panel is (re)opened or the
+  // page changes, rather than staying expanded from a previous visit.
+  const [visibleCount, setVisibleCount] = useState(PAGE_STEP);
+  const visibleEntries = entries.slice(0, visibleCount);
+
+  useEffect(() => {
+    if (open) setVisibleCount(PAGE_STEP);
+  }, [open, pageId]);
 
   async function handleRestore(entry: HistoryEntry) {
     if (!entry.pageId || !entry.rowId || !entry.field) return;
@@ -50,7 +61,7 @@ export function HistoryPanel({ open, onOpenChange, workspaceId, pageId }: Histor
         </SheetHeader>
         <div className="mt-4 flex flex-col gap-1 overflow-y-auto scrollbar-thin" style={{ maxHeight: "calc(100vh - 6rem)" }}>
           {entries.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">История пуста</p>}
-          {entries.map((entry) => {
+          {visibleEntries.map((entry) => {
             const Icon = ACTION_ICON[entry.action];
             return (
               <div key={entry.id} className="flex items-start gap-3 rounded-lg border border-transparent px-2 py-2.5 hover:border-border hover:bg-accent/30">
@@ -91,6 +102,17 @@ export function HistoryPanel({ open, onOpenChange, workspaceId, pageId }: Histor
             );
           })}
         </div>
+
+        {entries.length > visibleCount && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2 w-full"
+            onClick={() => setVisibleCount((c) => c + PAGE_STEP)}
+          >
+            Показать ещё {Math.min(PAGE_STEP, entries.length - visibleCount)}
+          </Button>
+        )}
       </SheetContent>
     </Sheet>
   );

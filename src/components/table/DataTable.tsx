@@ -177,7 +177,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   });
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [pageIndex, setPageIndex] = useState(0);
-  const [pageSize, setPageSize] = useState(25);
+  // Default to showing every row the page actually has — pagination exists
+  // for people who WANT to chunk a big table, not as a hidden cap that
+  // silently hides the last few rows (e.g. 26 rows defaulting to a 25 page
+  // size). Virtualized rendering below means "Все" costs nothing extra.
+  const [pageSize, setPageSize] = useState(Infinity);
   const [resizePreview, setResizePreview] = useState<
     | { type: "col"; colKey: string; width: number }
     | { type: "row"; rowId: string; height: number }
@@ -310,7 +314,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   // ---- Pagination (disabled while grouped) ----
   const paginatedRows = useMemo(() => {
-    if (groups) return processedRows;
+    if (groups || !Number.isFinite(pageSize)) return processedRows;
     const start = pageIndex * pageSize;
     return processedRows.slice(start, start + pageSize);
   }, [processedRows, pageIndex, pageSize, groups]);
@@ -375,14 +379,20 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   async function undo() {
     const cmd = undoStack.current.pop();
-    if (!cmd) return;
+    if (!cmd) {
+      toast.info("Нечего отменять");
+      return;
+    }
     await cmd.undo();
     redoStack.current.push(cmd);
   }
 
   async function redo() {
     const cmd = redoStack.current.pop();
-    if (!cmd) return;
+    if (!cmd) {
+      toast.info("Нечего вернуть");
+      return;
+    }
     await cmd.redo();
     undoStack.current.push(cmd);
   }

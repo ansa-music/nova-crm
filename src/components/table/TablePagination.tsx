@@ -10,12 +10,12 @@ interface TablePaginationProps {
   onPageSizeChange: (size: number) => void;
 }
 
-const PAGE_SIZES = [10, 25, 50, 100];
+const PAGE_SIZES = [10, 25, 50, 100, Infinity];
 
 export function TablePagination({ page, pageSize, total, onPageChange, onPageSizeChange }: TablePaginationProps) {
-  const pageCount = Math.max(1, Math.ceil(total / pageSize));
-  const from = total === 0 ? 0 : page * pageSize + 1;
-  const to = Math.min(total, (page + 1) * pageSize);
+  const pageCount = Number.isFinite(pageSize) ? Math.max(1, Math.ceil(total / pageSize)) : 1;
+  const from = total === 0 ? 0 : Number.isFinite(pageSize) ? page * pageSize + 1 : 1;
+  const to = Number.isFinite(pageSize) ? Math.min(total, (page + 1) * pageSize) : total;
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-card/60 px-4 py-2.5 text-sm text-muted-foreground">
@@ -27,8 +27,8 @@ export function TablePagination({ page, pageSize, total, onPageChange, onPageSiz
           </SelectTrigger>
           <SelectContent>
             {PAGE_SIZES.map((size) => (
-              <SelectItem key={size} value={String(size)}>
-                {size}
+              <SelectItem key={String(size)} value={String(size)}>
+                {Number.isFinite(size) ? size : "Все"}
               </SelectItem>
             ))}
           </SelectContent>
