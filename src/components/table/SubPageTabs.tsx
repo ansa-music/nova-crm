@@ -42,6 +42,8 @@ import {
   renameSubPage,
   reorderSubPages,
 } from "@/services/subPageService";
+import { snapshotSubPage, restoreSubPageSnapshot } from "@/services/pageSnapshotService";
+import { pushUndoCommand } from "@/utils/undoStore";
 import type { PageIconName, SubPage, WorkspacePage } from "@/types";
 
 interface SubPageTabsProps {
@@ -116,9 +118,14 @@ export function SubPageTabs({
 
   async function handleDelete(sub: SubPage) {
     if (!window.confirm(`Удалить вкладку «${sub.name}» вместе со всеми данными? Это необратимо.`)) return;
+    const snapshot = await snapshotSubPage(workspaceId, page.id, sub.id);
     await deleteSubPage(workspaceId, page.id, sub.id);
     if (activeSubPageId === sub.id) onSelect(null);
     toast.success("Вкладка удалена");
+    pushUndoCommand({
+      undo: () => restoreSubPageSnapshot(workspaceId, page.id, sub.id, snapshot),
+      redo: () => deleteSubPage(workspaceId, page.id, sub.id),
+    });
   }
 
   async function confirmDuplicate() {

@@ -11,6 +11,8 @@ import {
 import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { deletePage, duplicatePage, renamePage } from "@/services/pageService";
+import { snapshotPage, restorePageSnapshot } from "@/services/pageSnapshotService";
+import { pushUndoCommand } from "@/utils/undoStore";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { cn } from "@/utils/cn";
 import type { PageIconName, WorkspacePage } from "@/types";
@@ -79,8 +81,16 @@ export function PageNavItem({
 
   async function handleDelete() {
     if (!window.confirm(`Удалить страницу «${page.name}»? Это действие необратимо.`)) return;
+    // Snapshot everything BEFORE deleting — deletePage is a hard delete
+    // (page doc + rows + subpages + their rows, all gone), so without this
+    // there'd be nothing left to restore from on Ctrl+Z.
+    const snapshot = await snapshotPage(page.workspaceId, page.id);
     await deletePage(page.workspaceId, page.id);
     toast.success("Страница удалена");
+    pushUndoCommand({
+      undo: () => restorePageSnapshot(page.workspaceId, page.id, snapshot),
+      redo: () => deletePage(page.workspaceId, page.id),
+    });
   }
 
   const content = isRenaming ? (

@@ -74,6 +74,7 @@ import { updateResponsibleOptions, updateStatusOptions } from "@/services/worksp
 import { formatCurrency, downloadCsv } from "@/utils";
 import { getColumnOptions, isOptionColumn, DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { celebrateDone } from "@/utils/confetti";
+import { pushUndoCommand } from "@/utils/undoStore";
 import type { CellAddress, ColumnType, PageRow, SortState, StatusOption, WorkspacePage } from "@/types";
 
 const DENSITY_ROW_HEIGHT: Record<"compact" | "default" | "comfortable", number> = {
@@ -93,8 +94,6 @@ interface DataTableProps {
   /** When set, every row/column mutation targets this subpage's nested table instead of the page's own. */
   subPageId?: string;
 }
-
-type Command = { undo: () => void | Promise<void>; redo: () => void | Promise<void> };
 
 export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId }: DataTableProps) {
   const columns = useMemo(() => [...page.columns].sort((a, b) => a.order - b.order), [page.columns]);
@@ -226,8 +225,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     | { type: "row"; rowId: string; startPos: number; startSize: number; lastValue: number }
     | null
   >(null);
-  const undoStack = useRef<Command[]>([]);
-  const redoStack = useRef<Command[]>([]);
 
   useEffect(() => {
     editingCellRef.current = editingCell;
@@ -371,33 +368,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     [getSelectionBounds, rowIds, columns.length]
   );
 
-  // ---- Undo/redo command stack ----
-  function pushCommand(cmd: Command) {
-    undoStack.current.push(cmd);
-    if (undoStack.current.length > 100) undoStack.current.shift();
-    redoStack.current = [];
-  }
-
-  async function undo() {
-    const cmd = undoStack.current.pop();
-    if (!cmd) {
-      toast.info("Нечего отменять");
-      return;
-    }
-    await cmd.undo();
-    redoStack.current.push(cmd);
-  }
-
-  async function redo() {
-    const cmd = redoStack.current.pop();
-    if (!cmd) {
-      toast.info("Нечего вернуть");
-      return;
-    }
-    await cmd.redo();
-    undoStack.current.push(cmd);
-  }
-
+  // ---- Undo/redo: pushes into the GLOBAL stack (src/utils/undoStore.ts),
+  // not a local one — so undoing survives navigating away from this exact
+  // table (e.g. right after a page-level delete elsewhere), and Ctrl+Z
+  // itself is handled by a single app-wide listener (GlobalUndoHotkeys),
+  // not duplicated here.
+  const pushCommand = pushUndoCommand;
   // ---- Editing ----
   const startEditing = useCallback(
     (rowId: string, colKey: string, initialValue?: string) => {
@@ -694,29 +670,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   handleKeyDownRef.current = function handleKeyDown(e: KeyboardEvent) {
       const isCtrl = e.ctrlKey || e.metaKey;
 
-      // Undo/redo is handled FIRST and separately from every other shortcut
-      // below, on purpose: everything else requires an active cell AND
-      // focus to still be physically inside the table's DOM (see the gate
-      // further down), but by the time someone wants to undo a delete,
-      // focus has very often already moved away — a confirm() dialog just
-      // closed, a context-menu item was just clicked, a toolbar button has
-      // focus, or no cell was ever selected yet on this page load. Gating
-      // undo behind "is a cell currently selected" made Ctrl+Z silently do
-      // nothing in exactly the moment people reach for it most. The only
-      // thing that should still block it is genuinely typing in some
-      // unrelated text field (chat, a dialog's input, etc) — there, the
-      // browser's own native undo for that field is what should run.
-      if (isCtrl && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) {
-        if (editingCellRef.current) return; // a cell's own text input has its own native undo
-        const active = document.activeElement as HTMLElement | null;
-        const tag = (active?.tagName ?? "").toLowerCase();
-        const isForeignTextField = tag === "input" || tag === "textarea" || Boolean(active?.isContentEditable);
-        if (isForeignTextField) return;
-        e.preventDefault();
-        if (e.key.toLowerCase() === "z" && !e.shiftKey) undo();
-        else redo();
-        return;
-      }
+      // Ctrl+Z/Ctrl+Y are handled by a single, app-wide listener now
+      // (GlobalUndoHotkeys, mounted in AppLayout) — not here. That listener
+      // also uses e.code instead of e.key so it isn't silently broken by
+      // Cyrillic/non-Latin keyboard layouts (see its own comment).
 
       if (editingCellRef.current) return;
       if (containerRef.current && !containerRef.current.contains(document.activeElement)) {
@@ -724,12 +681,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       }
       if (!activeCell) return;
 
-      if (isCtrl && e.key.toLowerCase() === "c") {
+      if (isCtrl && e.code === "KeyC") {
         e.preventDefault();
         handleCopy();
         return;
       }
-      if (isCtrl && e.key.toLowerCase() === "v") {
+      if (isCtrl && e.code === "KeyV") {
         e.preventDefault();
         handlePaste();
         return;

@@ -11,6 +11,7 @@ import { GlobalMessageToaster } from "@/components/common/GlobalMessageToaster";
 import { SimulationBanner } from "@/components/common/RoleSwitcher";
 import { AppBootScreen } from "@/components/common/AppBootScreen";
 import { ShortcutsHelpDialog } from "@/components/common/ShortcutsHelpDialog";
+import { GlobalUndoHotkeys } from "@/components/common/GlobalUndoHotkeys";
 import { Button } from "@/components/ui/button";
 import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorkspace";
 import { useAppBootstrap } from "@/hooks/useAppBootstrap";
@@ -80,6 +81,7 @@ export function AppLayout() {
       <NicknamePrompt />
       <GlobalMessageToaster />
       <ShortcutsHelpDialog />
+      <GlobalUndoHotkeys />
       {!isMobile && <Sidebar />}
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
