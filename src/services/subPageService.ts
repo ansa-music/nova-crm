@@ -358,7 +358,7 @@ export async function addSubPageColumn(
   pageId: string,
   subPageId: string,
   existingColumns: PageColumn[],
-  input: { key: string; label: string; type: PageColumn["type"]; statusOptions?: StatusOption[] }
+  input: { key: string; label: string; type: PageColumn["type"]; statusOptions?: StatusOption[]; customFieldId?: string }
 ): Promise<PageColumn> {
   if (!db) throw new Error("Firebase не настроен");
   const newColumn: PageColumn = {
@@ -369,6 +369,7 @@ export async function addSubPageColumn(
     width: 160,
     order: existingColumns.length,
     statusOptions: input.statusOptions,
+    customFieldId: input.customFieldId,
   };
   const columns = [...existingColumns, stripUndefined(newColumn)];
   await updateSubPageColumns(workspaceId, pageId, subPageId, columns);
@@ -426,10 +427,11 @@ export async function changeSubPageColumnType(
   existingColumns: PageColumn[],
   columnKey: string,
   newType: PageColumn["type"],
-  statusOptions?: StatusOption[]
+  statusOptions?: StatusOption[],
+  customFieldId?: string
 ) {
   const columns = existingColumns.map((c) =>
-    c.key === columnKey ? stripUndefined({ ...c, type: newType, statusOptions }) : c
+    c.key === columnKey ? stripUndefined({ ...c, type: newType, statusOptions, customFieldId }) : c
   );
   await updateSubPageColumns(workspaceId, pageId, subPageId, columns);
 }

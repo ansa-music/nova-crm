@@ -14,6 +14,8 @@ import {
   Loader2,
   MousePointerSquareDashed,
   Palette,
+  Pencil,
+  Plus,
   Redo2,
   ShieldCheck,
   Trash2,
@@ -36,7 +38,18 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { updateUserPassword, updateUserProfile } from "@/firebase/auth";
 import { updateUserDoc } from "@/services/authService";
-import { deleteWorkspace, updateResponsibleOptions, updateStatusOptions, updateWorkspace, updateAccentColor, updateDashboardPages } from "@/services/workspaceService";
+import {
+  deleteWorkspace,
+  updateResponsibleOptions,
+  updateStatusOptions,
+  updateWorkspace,
+  updateAccentColor,
+  updateDashboardPages,
+  addCustomField,
+  renameCustomField,
+  updateCustomFieldOptions,
+  deleteCustomField,
+} from "@/services/workspaceService";
 import { downloadWorkspaceBackup } from "@/services/backupService";
 import { getAuthErrorMessage } from "@/utils/firebaseErrors";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
@@ -195,11 +208,22 @@ export default function SettingsPage() {
     }
   }
 
-  // ---- Общие списки "Ответственных" и "Статусов" — используются всеми
-  // столбцами соответствующего типа на любой странице/подстранице сайта.
+  // ---- Общие списки "Ответственных", "Статусов" и Owner-кастомных полей —
+  // используются всеми столбцами соответствующего типа на любой
+  // странице/подстранице сайта.
   const responsibleOptions = activeWorkspace?.responsibleOptions ?? [];
   const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
-  const [manageOptionsKind, setManageOptionsKind] = useState<"responsible" | "status" | null>(null);
+  const customFields = activeWorkspace?.customFields ?? [];
+  // "responsible" | "status" | "custom:<fieldId>" | null
+  const [manageOptionsKind, setManageOptionsKind] = useState<string | null>(null);
+  const [isCreatingField, setIsCreatingField] = useState(false);
+  const [newFieldName, setNewFieldName] = useState("");
+
+  function activeCustomField() {
+    if (!manageOptionsKind?.startsWith("custom:")) return null;
+    const id = manageOptionsKind.slice(7);
+    return customFields.find((f) => f.id === id) ?? null;
+  }
 
   async function handleSaveSharedOptions(next: StatusOption[]) {
     if (!activeWorkspace) return;
@@ -207,7 +231,34 @@ export default function SettingsPage() {
       await updateResponsibleOptions(activeWorkspace.id, next);
     } else if (manageOptionsKind === "status") {
       await updateStatusOptions(activeWorkspace.id, next);
+    } else {
+      const field = activeCustomField();
+      if (field) await updateCustomFieldOptions(activeWorkspace.id, customFields, field.id, next);
     }
+  }
+
+  async function handleCreateCustomField() {
+    if (!activeWorkspace || !newFieldName.trim()) return;
+    try {
+      await addCustomField(activeWorkspace.id, customFields, newFieldName.trim());
+      toast.success(`Поле «${newFieldName.trim()}» создано`);
+      setNewFieldName("");
+      setIsCreatingField(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось создать поле");
+    }
+  }
+
+  async function handleRenameCustomField(fieldId: string, currentName: string) {
+    const name = window.prompt("Новое название поля:", currentName)?.trim();
+    if (!name || !activeWorkspace) return;
+    await renameCustomField(activeWorkspace.id, customFields, fieldId, name);
+  }
+
+  async function handleDeleteCustomField(fieldId: string, name: string) {
+    if (!activeWorkspace) return;
+    if (!window.confirm(`Удалить поле «${name}»? Столбцы, которые его используют, останутся без вариантов.`)) return;
+    await deleteCustomField(activeWorkspace.id, customFields, fieldId);
   }
 
   return (
@@ -378,12 +429,97 @@ export default function SettingsPage() {
             </Card>
           )}
 
+          {permissions.canManageWorkspace && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Кастомные поля</CardTitle>
+                <CardDescription>
+                  Свои типы столбцов вроде «Приоритет» или «Источник» — тот же принцип, что «Статус» и
+                  «Ответственный»: один общий список вариантов на весь сайт, но название и набор
+                  значений придумываете вы сами.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                {customFields.length === 0 && (
+                  <p className="text-sm text-muted-foreground">Пока нет ни одного кастомного поля.</p>
+                )}
+                {customFields.map((field) => (
+                  <div key={field.id} className="flex items-center justify-between rounded-lg border border-border p-3">
+                    <div>
+                      <p className="text-sm font-medium">{field.name}</p>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {field.options.length === 0 ? (
+                          <span className="text-xs text-muted-foreground">Нет вариантов</span>
+                        ) : (
+                          field.options.map((opt) => (
+                            <StatusBadge key={opt.value} value={opt.value} options={field.options} />
+                          ))
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 gap-1.5">
+                      <Button variant="outline" size="sm" onClick={() => setManageOptionsKind(`custom:${field.id}`)}>
+                        Варианты
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => handleRenameCustomField(field.id, field.name)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => handleDeleteCustomField(field.id, field.name)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+
+                {isCreatingField ? (
+                  <div className="flex items-end gap-2">
+                    <div className="flex flex-1 flex-col gap-1.5">
+                      <Label>Название поля</Label>
+                      <Input
+                        autoFocus
+                        value={newFieldName}
+                        onChange={(e) => setNewFieldName(e.target.value)}
+                        placeholder="Например, Приоритет"
+                        onKeyDown={(e) => e.key === "Enter" && handleCreateCustomField()}
+                      />
+                    </div>
+                    <Button onClick={handleCreateCustomField}>Создать</Button>
+                    <Button variant="outline" onClick={() => setIsCreatingField(false)}>
+                      Отмена
+                    </Button>
+                  </div>
+                ) : (
+                  <Button variant="outline" size="sm" className="w-fit gap-1.5" onClick={() => setIsCreatingField(true)}>
+                    <Plus className="h-3.5 w-3.5" /> Новое поле
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           <ManageOptionsDialog
             open={manageOptionsKind !== null}
             onOpenChange={(o) => !o && setManageOptionsKind(null)}
-            title={manageOptionsKind === "status" ? "Варианты статуса" : "Варианты «Ответственный»"}
+            title={
+              manageOptionsKind === "status"
+                ? "Варианты статуса"
+                : manageOptionsKind === "responsible"
+                  ? "Варианты «Ответственный»"
+                  : `Варианты «${activeCustomField()?.name ?? ""}»`
+            }
             description="Изменения увидят все, кто пользуется сайтом."
-            options={manageOptionsKind === "status" ? statusOptions : responsibleOptions}
+            options={
+              manageOptionsKind === "status"
+                ? statusOptions
+                : manageOptionsKind === "responsible"
+                  ? responsibleOptions
+                  : activeCustomField()?.options ?? []
+            }
             onSave={handleSaveSharedOptions}
           />
 

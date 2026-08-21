@@ -1,6 +1,20 @@
 import type { Role } from "@/types/role";
 import type { StatusOption } from "@/types/page";
 
+/**
+ * An Owner-defined custom option field — the same idea as the built-in
+ * "Статус"/"Ответственный" (one shared list, one badge+dropdown UI), but
+ * for whatever the Owner wants to call it: "Приоритет", "Источник",
+ * "Отдел", anything. A PageColumn of type "custom" points at one of these
+ * via `customFieldId`; the field's own `options` list is what actually
+ * populates the dropdown (see src/utils/columnOptions.ts).
+ */
+export interface CustomFieldDef {
+  id: string;
+  name: string;
+  options: StatusOption[];
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -41,6 +55,8 @@ export interface Workspace {
    */
   dashboardClientsPageId?: string;
   dashboardProjectsPageId?: string;
+  /** Owner-defined custom option fields — see CustomFieldDef above. */
+  customFields?: CustomFieldDef[];
 }
 
 export type MemberStatus = "active" | "invited";

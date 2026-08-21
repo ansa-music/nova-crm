@@ -1,4 +1,4 @@
-export type ColumnType = "text" | "number" | "currency" | "status" | "responsible" | "date" | "email" | "phone";
+export type ColumnType = "text" | "number" | "currency" | "status" | "responsible" | "custom" | "date" | "email" | "phone";
 
 export interface StatusOption {
   value: string;
@@ -23,6 +23,13 @@ export interface PageColumn {
    * `src/utils/columnOptions.ts`.
    */
   statusOptions?: StatusOption[];
+  /**
+   * Only meaningful for type "custom" — which of the workspace's
+   * Owner-defined custom fields (`Workspace.customFields`) this column
+   * shows. Same shared-list pattern as "responsible": the options live on
+   * the workspace, not the column.
+   */
+  customFieldId?: string;
 }
 
 export type PageIconName =

@@ -91,28 +91,31 @@ export default function DashboardPage() {
     });
   }, [myResponsiblePages, rowsByPage, statusOptions]);
 
-  const totalRevenue = useMemo(
-    () => clientRows.reduce((sum, row) => sum + (Number(row.cells.amount) || 0), 0),
-    [clientRows]
-  );
+  const clientAmountColumn = clientsPage?.columns.find((c) => c.type === "currency");
+
+  const totalRevenue = useMemo(() => {
+    if (!clientAmountColumn) return 0;
+    return clientRows.reduce((sum, row) => sum + (Number(row.cells[clientAmountColumn.key]) || 0), 0);
+  }, [clientRows, clientAmountColumn]);
 
   const activeEmployeesCount = members.filter((m) => m.status === "active").length;
 
   const revenueByMonth = useMemo(() => {
+    if (!clientAmountColumn) return [];
     const buckets = new Map<string, number>();
     clientRows.forEach((row) => {
       const label = formatDate(row.createdAt, "LLL yyyy");
-      buckets.set(label, (buckets.get(label) ?? 0) + (Number(row.cells.amount) || 0));
+      buckets.set(label, (buckets.get(label) ?? 0) + (Number(row.cells[clientAmountColumn.key]) || 0));
     });
     return Array.from(buckets.entries()).map(([label, value]) => ({ label, value }));
-  }, [clientRows]);
+  }, [clientRows, clientAmountColumn]);
 
-  const statusColumn = clientsPage?.columns.find((c) => c.key === "status");
+  const statusColumn = clientsPage?.columns.find((c) => c.type === "status");
   const statusDistribution = useMemo(() => {
     if (!statusColumn) return [];
     return statusOptions.map((opt) => ({
       name: opt.label,
-      value: clientRows.filter((r) => r.cells.status === opt.value).length,
+      value: clientRows.filter((r) => r.cells[statusColumn.key] === opt.value).length,
       color: opt.color,
     }));
   }, [statusColumn, clientRows, statusOptions]);

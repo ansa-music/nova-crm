@@ -72,7 +72,7 @@ import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
 import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
-import { updateResponsibleOptions, updateStatusOptions } from "@/services/workspaceService";
+import { updateResponsibleOptions, updateStatusOptions, updateCustomFieldOptions } from "@/services/workspaceService";
 import { formatCurrency, downloadCsv } from "@/utils";
 import { getColumnOptions, isOptionColumn, DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { celebrateDone } from "@/utils/confetti";
@@ -132,8 +132,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         renameSubPageColumn(wsId, pId, subPageId, cols, colKey, newLabel)
     : renameColumnServiceBase;
   const changeColumnTypeService = subPageId
-    ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string, type: ColumnType, statusOptions?: typeof columns[number]["statusOptions"]) =>
-        changeSubPageColumnType(wsId, pId, subPageId, cols, colKey, type, statusOptions)
+    ? (
+        wsId: string,
+        pId: string,
+        cols: typeof page.columns,
+        colKey: string,
+        type: ColumnType,
+        statusOptions?: typeof columns[number]["statusOptions"],
+        customFieldId?: string
+      ) => changeSubPageColumnType(wsId, pId, subPageId, cols, colKey, type, statusOptions, customFieldId)
     : changeColumnTypeServiceBase;
   const duplicateColumnService = subPageId
     ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string) => duplicateSubPageColumn(wsId, pId, subPageId, cols, colKey)
@@ -207,6 +214,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const isOwner = permissions.role === "owner";
   const responsibleOptions = activeWorkspace?.responsibleOptions ?? [];
   const sharedStatusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
+  const customFields = activeWorkspace?.customFields ?? [];
 
   // Columns with the live drag preview AND the shared "Ответственный" list
   // overlaid, used only for rendering/exporting/grouping — selection math,
@@ -223,11 +231,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         next = { ...next, statusOptions: responsibleOptions };
       } else if (c.type === "status") {
         next = { ...next, statusOptions: sharedStatusOptions };
+      } else if (c.type === "custom") {
+        const options = customFields.find((f) => f.id === c.customFieldId)?.options ?? [];
+        next = { ...next, statusOptions: options };
       }
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [columns, resizePreview, responsibleOptions, sharedStatusOptions]);
+  }, [columns, resizePreview, responsibleOptions, sharedStatusOptions, customFields]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const isSelectingRef = useRef(false);
@@ -419,6 +430,23 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         userName,
       });
       pendingWrites.confirm(rowId, colKey, version);
+
+      // Auto-fill the FIRST column of the table (whatever it's called —
+      // "Название" or anything else, order 0) — the very first time it goes
+      // from empty to non-empty, if there's a "Дата" column on this table
+      // AND it's still empty, stamp it with today's date. Only ever fires
+      // once per row: the moment the date column already holds something
+      // (auto-filled or hand-picked), this never touches it again.
+      const isFirstColumn = columns[0]?.key === colKey;
+      if (isFirstColumn && !oldValue.trim() && newValue.trim()) {
+        const dateCol = columns.find((c) => c.type === "date");
+        const row = rows.find((r) => r.id === rowId);
+        const currentDateValue = dateCol ? row?.cells[dateCol.key] : undefined;
+        const dateIsEmpty = currentDateValue === undefined || currentDateValue === null || currentDateValue === "";
+        if (dateCol && dateIsEmpty) {
+          await persistCellEdit(rowId, dateCol.key, "", String(Date.now()));
+        }
+      }
     } catch (error) {
       pendingWrites.fail(rowId, colKey, version);
       toast.error("Не удалось сохранить значение", {
@@ -955,13 +983,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     toast.success("Столбец переименован");
   }
 
-  async function handleChangeColumnType(colKey: string, type: ColumnType) {
+  async function handleChangeColumnType(colKey: string, type: ColumnType, customFieldId?: string) {
     const current = columns.find((c) => c.key === colKey);
-    if (!current || current.type === type) return;
-    // Neither "status" nor "responsible" store their own options anymore —
-    // both read a shared, workspace-wide list — so there's never anything
-    // to carry over into the column doc itself.
-    await changeColumnTypeService(workspaceId, page.id, columns, colKey, type, undefined);
+    if (!current || (current.type === type && current.customFieldId === customFieldId)) return;
+    // Neither "status", "responsible", nor "custom" store their own options
+    // anymore — all three read a shared, workspace-wide list — so there's
+    // never anything to carry over into the column doc itself.
+    await changeColumnTypeService(workspaceId, page.id, columns, colKey, type, undefined, customFieldId);
     toast.success("Тип столбца изменён");
   }
 
@@ -969,12 +997,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   async function handleSaveColumnOptions(options: StatusOption[]) {
     if (!manageOptionsColumn) return;
-    // Both option-based column types are shared, site-wide lists that live
-    // on the workspace doc — never on the individual column.
+    // All three option-based column types are shared, site-wide lists that
+    // live on the workspace doc — never on the individual column.
     if (manageOptionsColumn.type === "responsible") {
       await updateResponsibleOptions(workspaceId, options);
     } else if (manageOptionsColumn.type === "status") {
       await updateStatusOptions(workspaceId, options);
+    } else if (manageOptionsColumn.type === "custom" && manageOptionsColumn.customFieldId) {
+      await updateCustomFieldOptions(workspaceId, customFields, manageOptionsColumn.customFieldId, options);
     }
     toast.success("Варианты обновлены");
   }
@@ -1330,7 +1360,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           description={
             manageOptionsColumn.type === "responsible"
               ? "Общий список для всех столбцов «Ответственный» на сайте — изменения увидят все."
-              : "Общий список для всех столбцов «Статус» на сайте — изменения увидят все."
+              : manageOptionsColumn.type === "custom"
+                ? `Общий список для всех столбцов «${customFields.find((f) => f.id === manageOptionsColumn.customFieldId)?.name ?? manageOptionsColumn.label}» на сайте — изменения увидят все.`
+                : "Общий список для всех столбцов «Статус» на сайте — изменения увидят все."
           }
           options={getColumnOptions(manageOptionsColumn, activeWorkspace)}
           onSave={handleSaveColumnOptions}

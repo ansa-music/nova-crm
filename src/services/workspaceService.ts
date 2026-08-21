@@ -3,7 +3,7 @@ import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { addOwnWorkspaceId } from "@/services/authService";
-import type { StatusOption, Workspace } from "@/types";
+import type { CustomFieldDef, StatusOption, Workspace } from "@/types";
 
 export interface CreateWorkspaceInput {
   name: string;
@@ -82,6 +82,35 @@ export async function updateDashboardPages(
     patch.dashboardProjectsPageId = (input.projectsPageId ?? deleteField()) as string;
   }
   await updateWorkspace(workspaceId, patch);
+}
+
+/** Creates a new Owner-defined custom option field with an empty list, and returns its generated id. */
+export async function addCustomField(workspaceId: string, currentFields: CustomFieldDef[], name: string) {
+  const id = generateId("field");
+  const next = [...currentFields, { id, name: name.trim(), options: [] }];
+  await updateWorkspace(workspaceId, { customFields: next });
+  return id;
+}
+
+export async function renameCustomField(workspaceId: string, currentFields: CustomFieldDef[], fieldId: string, name: string) {
+  const next = currentFields.map((f) => (f.id === fieldId ? { ...f, name: name.trim() } : f));
+  await updateWorkspace(workspaceId, { customFields: next });
+}
+
+export async function updateCustomFieldOptions(
+  workspaceId: string,
+  currentFields: CustomFieldDef[],
+  fieldId: string,
+  options: StatusOption[]
+) {
+  const next = currentFields.map((f) => (f.id === fieldId ? { ...f, options } : f));
+  await updateWorkspace(workspaceId, { customFields: next });
+}
+
+/** Removing a field doesn't touch any column that still references it — those columns just show an empty option list until repointed to another field/type. */
+export async function deleteCustomField(workspaceId: string, currentFields: CustomFieldDef[], fieldId: string) {
+  const next = currentFields.filter((f) => f.id !== fieldId);
+  await updateWorkspace(workspaceId, { customFields: next });
 }
 
 /**

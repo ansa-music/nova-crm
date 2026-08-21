@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -11,8 +11,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/components/ui/sonner";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { addCustomField } from "@/services/workspaceService";
+import { buildColumnTypeChoices, decodeColumnTypeValue, encodeColumnTypeValue } from "@/utils/columnOptions";
 import type { addColumn } from "@/services/pageService";
 import type { ColumnType, PageColumn } from "@/types";
 
@@ -35,18 +38,7 @@ interface AddColumnDialogProps {
   onCreated?: (column: PageColumn) => void;
 }
 
-const COLUMN_TYPE_LABELS: Record<ColumnType, string> = {
-  text: "Текст",
-  number: "Число",
-  currency: "Валюта",
-  status: "Статус",
-  responsible: "Ответственный",
-  date: "Дата",
-  email: "Email",
-  phone: "Телефон",
-};
-
-const COLUMN_TYPES: ColumnType[] = ["text", "number", "currency", "status", "responsible", "date", "email", "phone"];
+const NEW_CUSTOM_FIELD_VALUE = "__new_custom_field__";
 
 function slugify(label: string, existingKeys: Set<string>): string {
   const base =
@@ -73,9 +65,34 @@ export function AddColumnDialog({
   createColumn,
   onCreated,
 }: AddColumnDialogProps) {
+  const { activeWorkspace } = useWorkspace();
+  const customFields = activeWorkspace?.customFields ?? [];
+  const typeChoices = buildColumnTypeChoices(customFields);
+
   const [label, setLabel] = useState("");
   const [type, setType] = useState<ColumnType>("text");
+  const [customFieldId, setCustomFieldId] = useState<string | undefined>(undefined);
   const [isSaving, setIsSaving] = useState(false);
+
+  async function handleTypeSelect(v: string) {
+    if (v === NEW_CUSTOM_FIELD_VALUE) {
+      const name = window.prompt("Название нового кастомного поля (например, «Приоритет»):")?.trim();
+      if (!name) return;
+      if (!activeWorkspace) return;
+      try {
+        const id = await addCustomField(activeWorkspace.id, customFields, name);
+        setType("custom");
+        setCustomFieldId(id);
+        toast.success(`Поле «${name}» создано`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Не удалось создать поле");
+      }
+      return;
+    }
+    const decoded = decodeColumnTypeValue(v);
+    setType(decoded.type);
+    setCustomFieldId(decoded.customFieldId);
+  }
 
   async function handleCreate() {
     if (!label.trim()) {
@@ -90,15 +107,17 @@ export function AddColumnDialog({
         key,
         label: label.trim(),
         type,
-        // Neither "status" nor "responsible" columns store their own
-        // options anymore — both read a shared, workspace-wide list (see
-        // src/utils/columnOptions.ts), managed by the Owner in Настройки.
+        // Neither "status", "responsible", nor "custom" columns store their
+        // own options anymore — all three read a shared, workspace-wide
+        // list (see src/utils/columnOptions.ts), managed by the Owner.
         statusOptions: undefined,
+        customFieldId,
       });
       toast.success(`Столбец «${column.label}» добавлен`);
       onCreated?.(column);
       setLabel("");
       setType("text");
+      setCustomFieldId(undefined);
       onOpenChange(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось добавить столбец");
@@ -131,22 +150,28 @@ export function AddColumnDialog({
 
           <div className="flex flex-col gap-1.5">
             <Label>Тип</Label>
-            <Select value={type} onValueChange={(v) => setType(v as ColumnType)}>
+            <Select value={encodeColumnTypeValue(type, customFieldId)} onValueChange={handleTypeSelect}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {COLUMN_TYPES.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {COLUMN_TYPE_LABELS[t]}
+                {typeChoices.map((choice) => (
+                  <SelectItem key={choice.value} value={choice.value}>
+                    {choice.label}
                   </SelectItem>
                 ))}
+                <SelectSeparator />
+                <SelectItem value={NEW_CUSTOM_FIELD_VALUE}>
+                  <span className="flex items-center gap-1.5 text-primary">
+                    <Plus className="h-3.5 w-3.5" /> Новое кастомное поле…
+                  </span>
+                </SelectItem>
               </SelectContent>
             </Select>
-            {(type === "responsible" || type === "status") && (
+            {(type === "responsible" || type === "status" || type === "custom") && (
               <p className="text-xs text-muted-foreground">
-                Варианты для этого столбца общие для всего сайта — их добавляет Овнер в
-                Настройках → Workspace → «{type === "responsible" ? "Ответственные" : "Статусы"}».
+                Варианты для этого столбца общие для всего сайта — их добавляет Овнер в Настройках →
+                Workspace → «{type === "responsible" ? "Ответственные" : type === "status" ? "Статусы" : "Кастомные поля"}».
               </p>
             )}
           </div>

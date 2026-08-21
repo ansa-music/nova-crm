@@ -1,7 +1,12 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { CalendarDays } from "lucide-react";
 import { StatusBadge } from "@/components/table/StatusBadge";
+import { DateCalendar } from "@/components/table/DateCalendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatCurrency } from "@/utils/format";
+import { formatDate } from "@/utils/date";
+import { isOptionColumn } from "@/utils/columnOptions";
 import { cn } from "@/utils/cn";
 import type { PageColumn } from "@/types";
 
@@ -41,6 +46,7 @@ export function TableCell({
   stickyLeft,
 }: TableCellProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
@@ -56,7 +62,7 @@ export function TableCell({
   const isNegative = isNumeric && stringValue !== "" && Number(stringValue) < 0;
 
   function renderDisplay() {
-    if (column.type === "status" || column.type === "responsible") {
+    if (isOptionColumn(column.type)) {
       return <StatusBadge value={stringValue} options={column.statusOptions ?? []} />;
     }
     if (column.type === "currency" && stringValue) {
@@ -64,6 +70,9 @@ export function TableCell({
     }
     if (column.type === "number" && stringValue) {
       return <span className={cn("tabular-nums", isNegative && "font-medium text-destructive")}>{stringValue}</span>;
+    }
+    if (column.type === "date" && stringValue) {
+      return <span className="truncate">{formatDate(Number(stringValue), "d MMM yyyy")}</span>;
     }
     return <span className="truncate">{stringValue}</span>;
   }
@@ -88,7 +97,7 @@ export function TableCell({
       onDoubleClick={onDoubleClick}
       data-col={column.key}
     >
-      {column.type === "status" || column.type === "responsible" ? (
+      {isOptionColumn(column.type) ? (
         <Select
           value={stringValue || undefined}
           onValueChange={(v) => onStatusChange(v === "__clear__" ? "" : v)}
@@ -108,6 +117,36 @@ export function TableCell({
             </SelectItem>
           </SelectContent>
         </Select>
+      ) : column.type === "date" ? (
+        <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              disabled={!canEdit}
+              className="flex h-full w-full items-center gap-1.5 px-2.5 text-left text-sm disabled:cursor-default"
+            >
+              <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              {stringValue ? (
+                renderDisplay()
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-2" align="start">
+            <DateCalendar
+              value={stringValue ? Number(stringValue) : null}
+              onChange={(millis) => {
+                onStatusChange(String(millis));
+                setDatePickerOpen(false);
+              }}
+              onClear={() => {
+                onStatusChange("");
+                setDatePickerOpen(false);
+              }}
+            />
+          </PopoverContent>
+        </Popover>
       ) : isEditing ? (
         <input
           ref={inputRef}

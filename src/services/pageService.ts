@@ -307,7 +307,7 @@ export async function addColumn(
   workspaceId: string,
   pageId: string,
   existingColumns: PageColumn[],
-  input: { key: string; label: string; type: PageColumn["type"]; statusOptions?: StatusOption[] }
+  input: { key: string; label: string; type: PageColumn["type"]; statusOptions?: StatusOption[]; customFieldId?: string }
 ): Promise<PageColumn> {
   if (!db) throw new Error("Firebase не настроен");
   const newColumn: PageColumn = {
@@ -318,6 +318,7 @@ export async function addColumn(
     width: 160,
     order: existingColumns.length,
     statusOptions: input.statusOptions,
+    customFieldId: input.customFieldId,
   };
   const columns = [...existingColumns, stripUndefined(newColumn)];
   await updatePageColumns(workspaceId, pageId, columns);
@@ -364,10 +365,11 @@ export async function changeColumnType(
   existingColumns: PageColumn[],
   columnKey: string,
   newType: PageColumn["type"],
-  statusOptions?: StatusOption[]
+  statusOptions?: StatusOption[],
+  customFieldId?: string
 ) {
   const columns = existingColumns.map((c) =>
-    c.key === columnKey ? stripUndefined({ ...c, type: newType, statusOptions }) : c
+    c.key === columnKey ? stripUndefined({ ...c, type: newType, statusOptions, customFieldId }) : c
   );
   await updatePageColumns(workspaceId, pageId, columns);
 }

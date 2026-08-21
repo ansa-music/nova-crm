@@ -1,6 +1,6 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowDown, ArrowUp, Filter, GripVertical, Palette, Pin, PinOff } from "lucide-react";
+import { ArrowDown, ArrowUp, Filter, GripVertical, Palette, Pin, PinOff, Plus } from "lucide-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -12,20 +12,11 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { cn } from "@/utils/cn";
-import { isOptionColumn } from "@/utils/columnOptions";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { addCustomField } from "@/services/workspaceService";
+import { toast } from "@/components/ui/sonner";
+import { buildColumnTypeChoices, isOptionColumn } from "@/utils/columnOptions";
 import type { ColumnType, PageColumn, SortState } from "@/types";
-
-const COLUMN_TYPE_LABELS: Record<ColumnType, string> = {
-  text: "Текст",
-  number: "Число",
-  currency: "Валюта",
-  status: "Статус",
-  responsible: "Ответственный",
-  date: "Дата",
-  email: "Email",
-  phone: "Телефон",
-};
-const COLUMN_TYPES: ColumnType[] = ["text", "number", "currency", "status", "responsible", "date", "email", "phone"];
 
 interface ColumnHeaderCellProps {
   column: PageColumn;
@@ -39,10 +30,10 @@ interface ColumnHeaderCellProps {
   stickyLeft?: number;
   canReorder: boolean;
   canEditStructure?: boolean;
-  /** Owner-only: shows "Изменить варианты" for status/responsible columns. */
+  /** Owner-only: shows "Изменить варианты" for status/responsible/custom columns. */
   canManageOptions?: boolean;
   onRename?: (colKey: string) => void;
-  onChangeType?: (colKey: string, type: ColumnType) => void;
+  onChangeType?: (colKey: string, type: ColumnType, customFieldId?: string) => void;
   onManageOptions?: (colKey: string) => void;
   onDuplicate?: (colKey: string) => void;
   onDelete?: (colKey: string) => void;
@@ -71,6 +62,22 @@ export function ColumnHeaderCell({
     id: column.id,
     disabled: !canReorder,
   });
+
+  const { activeWorkspace } = useWorkspace();
+  const customFields = activeWorkspace?.customFields ?? [];
+  const typeChoices = buildColumnTypeChoices(customFields);
+
+  async function handleCreateCustomField() {
+    const name = window.prompt("Название нового кастомного поля (например, «Приоритет»):")?.trim();
+    if (!name || !activeWorkspace) return;
+    try {
+      const id = await addCustomField(activeWorkspace.id, customFields, name);
+      onChangeType?.(column.key, "custom", id);
+      toast.success(`Поле «${name}» создано`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось создать поле");
+    }
+  }
 
   const isSorted = sortState.colKey === column.key;
 
@@ -147,12 +154,24 @@ export function ColumnHeaderCell({
           <ContextMenuSub>
             <ContextMenuSubTrigger>Изменить тип</ContextMenuSubTrigger>
             <ContextMenuSubContent>
-              {COLUMN_TYPES.map((t) => (
-                <ContextMenuItem key={t} onClick={() => onChangeType?.(column.key, t)}>
-                  {COLUMN_TYPE_LABELS[t]}
-                  {column.type === t && " ✓"}
-                </ContextMenuItem>
-              ))}
+              {typeChoices.map((choice) => {
+                const isCurrent =
+                  column.type === choice.type &&
+                  (choice.type !== "custom" || column.customFieldId === choice.customFieldId);
+                return (
+                  <ContextMenuItem
+                    key={choice.value}
+                    onClick={() => onChangeType?.(column.key, choice.type, choice.customFieldId)}
+                  >
+                    {choice.label}
+                    {isCurrent && " ✓"}
+                  </ContextMenuItem>
+                );
+              })}
+              <ContextMenuSeparator />
+              <ContextMenuItem onClick={handleCreateCustomField}>
+                <Plus className="h-3.5 w-3.5" /> Новое кастомное поле…
+              </ContextMenuItem>
             </ContextMenuSubContent>
           </ContextMenuSub>
           {canManageOptions && isOptionColumn(column.type) && (
