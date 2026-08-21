@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/sonner";
@@ -250,10 +250,13 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
                     key={m.uid}
                     className="flex items-center gap-3 rounded-lg border border-border p-2.5 transition-colors hover:bg-accent/40"
                   >
-                    <Avatar className="h-8 w-8 shrink-0">
-                      <AvatarImage src={m.photoURL ?? undefined} />
-                      <AvatarFallback>{displayNameOf(m)[0]?.toUpperCase()}</AvatarFallback>
-                    </Avatar>
+                    <MemberAvatar
+                      id={m.uid}
+                      name={m.name}
+                      nickname={m.nickname}
+                      photoURL={m.photoURL}
+                      className="h-8 w-8 shrink-0"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{displayNameOf(m)}</p>
                       <p className="truncate text-xs text-muted-foreground">{m.email}</p>

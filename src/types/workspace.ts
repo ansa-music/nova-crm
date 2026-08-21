@@ -25,6 +25,22 @@ export interface Workspace {
    * «Статусы», Owner-only.
    */
   statusOptions?: StatusOption[];
+  /**
+   * Overrides the product's default vermilion accent (--primary/--ring)
+   * with an Owner-chosen preset. An HSL triplet ("221 83% 58%"), applied at
+   * runtime by AccentColorSync — never baked into index.css, so every
+   * other workspace keeps the default until its own Owner picks one.
+   */
+  accentColor?: string;
+  /**
+   * Which page's rows feed the Dashboard's revenue chart / status
+   * breakdown. Before this existed the Dashboard guessed by matching page
+   * names containing "клиент"/"проект", which broke the moment a page was
+   * renamed to anything else — Owner now picks explicitly from Настройки
+   * or right on the Dashboard itself.
+   */
+  dashboardClientsPageId?: string;
+  dashboardProjectsPageId?: string;
 }
 
 export type MemberStatus = "active" | "invited";

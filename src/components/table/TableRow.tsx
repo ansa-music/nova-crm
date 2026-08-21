@@ -84,7 +84,7 @@ export function TableRow({
     <tr
       ref={setNodeRef}
       style={{ height: rowHeight, transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
-      className="group/row"
+      className="group/row hover:bg-muted/30"
       onContextMenu={() => onContextMenuOpen(row.id)}
     >
       <td

@@ -1,8 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowUpRight, Briefcase, CalendarDays, ClipboardCheck, Users, UserCog, Wallet } from "lucide-react";
+import { ArrowUpRight, Briefcase, CalendarDays, ClipboardCheck, Settings2, Users, UserCog, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { StatusChart } from "@/components/dashboard/StatusChart";
@@ -15,8 +18,10 @@ import { useHistoryLog } from "@/hooks/useHistoryLog";
 import { usePermissions } from "@/hooks/usePermissions";
 import { isResponsibleForPage } from "@/utils/permissions";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
+import { updateDashboardPages } from "@/services/workspaceService";
 import { formatCurrency } from "@/utils/format";
 import { formatDate } from "@/utils/date";
+import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
 import { Link } from "react-router";
 
 export default function DashboardPage() {
@@ -33,8 +38,14 @@ export default function DashboardPage() {
     [pages, permissions]
   );
 
-  const clientsPage = visiblePages.find((p) => p.name.toLowerCase().includes("клиент"));
-  const projectsPage = visiblePages.find((p) => p.name.toLowerCase().includes("проект"));
+  const clientsPage =
+    visiblePages.find((p) => p.id === activeWorkspace?.dashboardClientsPageId) ??
+    // Falls back to the old name-guessing heuristic only until an Owner
+    // explicitly picks a page — see the "Таблица для дашборда" picker below.
+    visiblePages.find((p) => p.name.toLowerCase().includes("клиент"));
+  const projectsPage =
+    visiblePages.find((p) => p.id === activeWorkspace?.dashboardProjectsPageId) ??
+    visiblePages.find((p) => p.name.toLowerCase().includes("проект"));
 
   // Pages where I'M the assigned "Ответственный" — these get their own
   // personal "мой прогресс" card below, regardless of what they're named.
@@ -136,10 +147,20 @@ export default function DashboardPage() {
             Сводка по команде и продажам на {formatDate(Date.now(), "d MMMM")}
           </p>
         </div>
-        <Button variant="outline" className="w-fit gap-2">
-          <CalendarDays className="h-4 w-4" /> Сегодня
-          <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
-        </Button>
+        <div className="flex items-center gap-2">
+          {permissions.canManageWorkspace && (
+            <DashboardSourcePicker
+              workspaceId={activeWorkspaceId ?? ""}
+              pages={visiblePages}
+              clientsPageId={activeWorkspace?.dashboardClientsPageId}
+              projectsPageId={activeWorkspace?.dashboardProjectsPageId}
+            />
+          )}
+          <Button variant="outline" className="w-fit gap-2">
+            <CalendarDays className="h-4 w-4" /> Сегодня
+            <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+          </Button>
+        </div>
       </motion.div>
 
       {myProgress.length > 0 && (
@@ -154,43 +175,25 @@ export default function DashboardPage() {
           </p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {myProgress.map(({ page, doneTotal, grandTotal, percent, rowCount }) => (
-              <Card key={page.id} className="overflow-hidden">
-                <CardContent className="p-4">
-                  <div className="mb-3 flex items-center justify-between">
-                    <Link to={`/page/${page.id}`} className="truncate text-sm font-medium hover:text-primary">
-                      {page.name}
-                    </Link>
-                    <span className="shrink-0 text-xs text-muted-foreground">{rowCount} строк</span>
-                  </div>
-                  <div className="mb-2 flex items-end justify-between">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Готово</p>
-                      <p className="text-xl font-light tabular-nums text-success">{formatCurrency(doneTotal)}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Общий</p>
-                      <p className="text-xl font-light tabular-nums">{formatCurrency(grandTotal)}</p>
-                    </div>
-                  </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-success transition-all"
-                      style={{ width: `${Math.min(100, percent)}%` }}
-                    />
-                  </div>
-                  <p className="mt-1.5 text-right text-xs font-medium text-muted-foreground">{percent}% готово</p>
-                </CardContent>
-              </Card>
+              <MyProgressCard
+                key={page.id}
+                pageId={page.id}
+                pageName={page.name}
+                doneTotal={doneTotal}
+                grandTotal={grandTotal}
+                percent={percent}
+                rowCount={rowCount}
+              />
             ))}
           </div>
         </motion.div>
       )}
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Клиенты" value={String(clientRows.length)} icon={Users} color="248 79% 62%" delay={0} />
-        <StatCard label="Доход" value={formatCurrency(totalRevenue)} icon={Wallet} color="158 64% 40%" delay={0.05} />
-        <StatCard label="Проекты" value={String(projectRows.length)} icon={Briefcase} color="275 72% 57%" delay={0.1} />
-        <StatCard label="Сотрудники" value={String(activeEmployeesCount)} icon={UserCog} color="196 82% 46%" delay={0.15} />
+        <StatCard label="Клиенты" value={String(clientRows.length)} animatedValue={clientRows.length} formatAnimatedValue={(n) => String(Math.round(n))} icon={Users} color="248 79% 62%" delay={0} />
+        <StatCard label="Доход" value={formatCurrency(totalRevenue)} animatedValue={totalRevenue} formatAnimatedValue={(n) => formatCurrency(n)} icon={Wallet} color="158 64% 40%" delay={0.05} />
+        <StatCard label="Проекты" value={String(projectRows.length)} animatedValue={projectRows.length} formatAnimatedValue={(n) => String(Math.round(n))} icon={Briefcase} color="275 72% 57%" delay={0.1} />
+        <StatCard label="Сотрудники" value={String(activeEmployeesCount)} animatedValue={activeEmployeesCount} formatAnimatedValue={(n) => String(Math.round(n))} icon={UserCog} color="196 82% 46%" delay={0.15} />
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -202,5 +205,124 @@ export default function DashboardPage() {
 
       {permissions.canViewHistory && <RecentActivity entries={historyEntries} />}
     </div>
+  );
+}
+
+function DashboardSourcePicker({
+  workspaceId,
+  pages,
+  clientsPageId,
+  projectsPageId,
+}: {
+  workspaceId: string;
+  pages: { id: string; name: string }[];
+  clientsPageId?: string;
+  projectsPageId?: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="icon" title="Таблица для дашборда">
+          <Settings2 className="h-4 w-4" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72">
+        <p className="mb-3 text-sm font-medium">Таблица для дашборда</p>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-xs text-muted-foreground">Клиенты / доход / статусы</Label>
+            <Select
+              value={clientsPageId ?? "__auto__"}
+              onValueChange={(v) => updateDashboardPages(workspaceId, { clientsPageId: v === "__auto__" ? null : v })}
+            >
+              <SelectTrigger className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__auto__">Определять по названию</SelectItem>
+                {pages.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-xs text-muted-foreground">Проекты</Label>
+            <Select
+              value={projectsPageId ?? "__auto__"}
+              onValueChange={(v) => updateDashboardPages(workspaceId, { projectsPageId: v === "__auto__" ? null : v })}
+            >
+              <SelectTrigger className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__auto__">Определять по названию</SelectItem>
+                {pages.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function MyProgressCard({
+  pageId,
+  pageName,
+  doneTotal,
+  grandTotal,
+  percent,
+  rowCount,
+}: {
+  pageId: string;
+  pageName: string;
+  doneTotal: number;
+  grandTotal: number;
+  percent: number;
+  rowCount: number;
+}) {
+  const animatedDone = useAnimatedNumber(doneTotal);
+  const animatedTotal = useAnimatedNumber(grandTotal);
+  const animatedPercent = useAnimatedNumber(percent);
+
+  return (
+    <Card className="overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card">
+      <CardContent className="p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <Link to={`/page/${pageId}`} className="truncate text-sm font-medium hover:text-primary">
+            {pageName}
+          </Link>
+          <span className="shrink-0 text-xs text-muted-foreground">{rowCount} строк</span>
+        </div>
+        <div className="mb-2 flex items-end justify-between">
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Готово</p>
+            <p className="text-xl font-light tabular-nums text-success">{formatCurrency(animatedDone)}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Общий</p>
+            <p className="text-xl font-light tabular-nums">{formatCurrency(animatedTotal)}</p>
+          </div>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-success transition-all"
+            style={{ width: `${Math.min(100, animatedPercent)}%` }}
+          />
+        </div>
+        <p className="mt-1.5 text-right text-xs font-medium text-muted-foreground">
+          {Math.round(animatedPercent)}% готово
+        </p>
+      </CardContent>
+    </Card>
   );
 }

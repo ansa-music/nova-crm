@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 export type PendingCellState = "idle" | "saving" | "saved" | "error";
 type CellValue = string | number | null;
@@ -46,5 +46,7 @@ export function usePendingCellWrites() {
     return pending[key(rowId, field)]?.value;
   }, [pending]);
 
-  return { begin, confirm, fail, resolve, state, retryValue };
+  const hasSavingCell = useMemo(() => Object.values(pending).some((c) => c.state === "saving"), [pending]);
+
+  return { begin, confirm, fail, resolve, state, retryValue, hasSavingCell };
 }

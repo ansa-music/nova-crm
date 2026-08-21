@@ -4,7 +4,7 @@ import { displayNameOf } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
 import { cn } from "@/utils/cn";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -128,10 +128,7 @@ export default function UsersPage() {
           <CardContent className="flex flex-col gap-2">
             {joinRequests.map((request) => (
               <div key={request.uid} className="flex items-center gap-3 rounded-lg border border-border p-3">
-                <Avatar className="h-8 w-8">
-                  <AvatarImage src={request.photoURL ?? undefined} />
-                  <AvatarFallback>{request.name[0]?.toUpperCase()}</AvatarFallback>
-                </Avatar>
+                <MemberAvatar id={request.uid} name={request.name} photoURL={request.photoURL} className="h-8 w-8" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{request.name}</p>
                   <p className="truncate text-xs text-muted-foreground">{request.email}</p>
@@ -166,10 +163,13 @@ export default function UsersPage() {
             <Card key={member.uid || member.email}>
               <div className="flex items-center gap-3 p-4">
                 <div className="relative shrink-0">
-                  <Avatar className="h-9 w-9">
-                    <AvatarImage src={member.photoURL ?? undefined} />
-                    <AvatarFallback>{displayNameOf(member)[0]?.toUpperCase()}</AvatarFallback>
-                  </Avatar>
+                  <MemberAvatar
+                    id={member.uid}
+                    name={member.name}
+                    nickname={member.nickname}
+                    photoURL={member.photoURL}
+                    className="h-9 w-9"
+                  />
                   {member.status === "active" && (
                     <span
                       className={cn(

@@ -20,6 +20,8 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { Inbox, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -159,7 +161,19 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const [searchQuery, setSearchQuery] = useState("");
   const [groupByKey, setGroupByKey] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const [density, setDensity] = useState<"compact" | "default" | "comfortable">("default");
+  const [density, setDensity] = useState<"compact" | "default" | "comfortable">(() => {
+    // Persisted across visits/reloads (per-browser) — was previously reset
+    // to "default" every time you opened a table, even if you'd just set
+    // it to "compact" a moment ago.
+    if (typeof window === "undefined") return "default";
+    const saved = window.localStorage.getItem("nova-crm:table-density");
+    return saved === "compact" || saved === "default" || saved === "comfortable" ? saved : "default";
+  });
+
+  function handleDensityChange(next: "compact" | "default" | "comfortable") {
+    setDensity(next);
+    window.localStorage.setItem("nova-crm:table-density", next);
+  }
   const [addColumnOpen, setAddColumnOpen] = useState(false);
   const [manageOptionsColKey, setManageOptionsColKey] = useState<string | null>(null);
   const [commentRowId, setCommentRowId] = useState<string | null>(null);
@@ -1068,8 +1082,18 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   const pinnedOrder = displayColumns.filter((c) => pinnedKeys.includes(c.key));
 
+  const isSaving = pendingWrites.hasSavingCell;
+
   return (
     <div className="flex h-full flex-col bg-card/50">
+      {/* A thin top progress bar while any cell write is in flight — same
+          idea as YouTube/GitHub, so "is it saving?" is visible at a glance
+          instead of only in the small per-cell dot. */}
+      <div className="relative h-0.5 shrink-0 overflow-hidden bg-transparent">
+        {isSaving && (
+          <div className="absolute inset-y-0 left-0 w-1/3 animate-[saving-bar_1.1s_ease-in-out_infinite] rounded-full bg-primary" />
+        )}
+      </div>
       <TableToolbar
         columns={columns}
         searchQuery={searchQuery}
@@ -1080,7 +1104,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         groupByKey={groupByKey}
         onGroupByChange={setGroupByKey}
         density={density}
-        onDensityChange={setDensity}
+        onDensityChange={handleDensityChange}
         onAddRow={handleAddRow}
         onExportCsv={handleExportCsv}
         canEdit={canEdit}
@@ -1178,8 +1202,28 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                   )}
                   {processedRows.length === 0 && (
                     <tr>
-                      <td colSpan={columns.length + 1} className="py-16 text-center text-sm text-muted-foreground">
-                        Нет данных для отображения
+                      <td colSpan={columns.length + 1} className="py-16">
+                        <div className="flex flex-col items-center gap-3 text-center">
+                          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                            <Inbox className="h-5 w-5" />
+                          </span>
+                          {rows.length === 0 ? (
+                            <>
+                              <p className="text-sm font-medium">Здесь пока пусто</p>
+                              <p className="text-xs text-muted-foreground">Добавьте первую строку, чтобы начать</p>
+                              {canEdit && (
+                                <Button size="sm" className="mt-1 gap-1.5" onClick={handleAddRow}>
+                                  <Plus className="h-3.5 w-3.5" /> Добавить строку
+                                </Button>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-sm font-medium">Ничего не найдено</p>
+                              <p className="text-xs text-muted-foreground">Попробуйте изменить поиск или фильтры</p>
+                            </>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )}

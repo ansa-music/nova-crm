@@ -1,6 +1,6 @@
 // PATH: src/layouts/AppLayout.tsx  (REPLACES EXISTING)
 import { useState } from "react";
-import { Outlet } from "react-router";
+import { Outlet, useLocation } from "react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import { Building2, Lock, Plus } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -12,6 +12,7 @@ import { SimulationBanner } from "@/components/common/RoleSwitcher";
 import { AppBootScreen } from "@/components/common/AppBootScreen";
 import { ShortcutsHelpDialog } from "@/components/common/ShortcutsHelpDialog";
 import { GlobalUndoHotkeys } from "@/components/common/GlobalUndoHotkeys";
+import { AccentColorSync } from "@/components/common/AccentColorSync";
 import { Button } from "@/components/ui/button";
 import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorkspace";
 import { useAppBootstrap } from "@/hooks/useAppBootstrap";
@@ -25,6 +26,7 @@ export function AppLayout() {
   // progress while a boot screen is on-screen.
   useActiveWorkspaceDataBootstrap();
   usePresenceHeartbeat();
+  const location = useLocation();
 
   const { phase } = useAppBootstrap();
   const { activeWorkspace } = useWorkspace();
@@ -82,6 +84,7 @@ export function AppLayout() {
       <GlobalMessageToaster />
       <ShortcutsHelpDialog />
       <GlobalUndoHotkeys />
+      <AccentColorSync />
       {!isMobile && <Sidebar />}
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
@@ -89,10 +92,11 @@ export function AppLayout() {
         <main className="flex-1 overflow-y-auto scrollbar-thin">
           <AnimatePresence mode="wait">
             <motion.div
-              key={activeWorkspace.id}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.2 }}
+              key={location.pathname}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
               className="h-full"
             >
               <Outlet />

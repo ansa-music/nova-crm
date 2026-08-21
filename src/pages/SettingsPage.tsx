@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   Archive,
+  Check,
   Columns3,
   Download,
   EyeOff,
@@ -35,10 +36,12 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { updateUserPassword, updateUserProfile } from "@/firebase/auth";
 import { updateUserDoc } from "@/services/authService";
-import { deleteWorkspace, updateResponsibleOptions, updateStatusOptions, updateWorkspace } from "@/services/workspaceService";
+import { deleteWorkspace, updateResponsibleOptions, updateStatusOptions, updateWorkspace, updateAccentColor, updateDashboardPages } from "@/services/workspaceService";
 import { downloadWorkspaceBackup } from "@/services/backupService";
 import { getAuthErrorMessage } from "@/utils/firebaseErrors";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
+import { ACCENT_PRESETS } from "@/components/common/AccentColorSync";
+import { cn } from "@/utils/cn";
 import type { StatusOption } from "@/types";
 
 const FEATURE_ITEMS = [
@@ -383,6 +386,35 @@ export default function SettingsPage() {
             options={manageOptionsKind === "status" ? statusOptions : responsibleOptions}
             onSave={handleSaveSharedOptions}
           />
+
+          {permissions.canManageWorkspace && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Оформление</CardTitle>
+                <CardDescription>Акцентный цвет сайта — виден всем, кто пользуется этим workspace.</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-3">
+                {ACCENT_PRESETS.map((preset) => {
+                  const isActive = (activeWorkspace?.accentColor ?? ACCENT_PRESETS[0].value) === preset.value;
+                  return (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      title={preset.label}
+                      onClick={() => activeWorkspace && updateAccentColor(activeWorkspace.id, preset.value)}
+                      className={cn(
+                        "flex h-10 w-10 items-center justify-center rounded-full ring-offset-2 ring-offset-background transition-all hover:scale-105",
+                        isActive && "ring-2 ring-foreground"
+                      )}
+                      style={{ backgroundColor: `hsl(${preset.value})` }}
+                    >
+                      {isActive && <Check className="h-4 w-4 text-white drop-shadow" />}
+                    </button>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
 
           {permissions.canManageWorkspace && (
             <Card>

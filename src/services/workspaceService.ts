@@ -1,4 +1,4 @@
-import { deleteDoc, DocumentData, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { deleteDoc, deleteField, DocumentData, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -64,6 +64,24 @@ export async function updateResponsibleOptions(workspaceId: string, options: Sta
 /** Same idea as updateResponsibleOptions, for the shared "Статус" list. */
 export async function updateStatusOptions(workspaceId: string, options: StatusOption[]) {
   await updateWorkspace(workspaceId, { statusOptions: options });
+}
+
+export async function updateAccentColor(workspaceId: string, accentColor: string | null) {
+  await updateWorkspace(workspaceId, { accentColor: (accentColor ?? deleteField()) as string });
+}
+
+export async function updateDashboardPages(
+  workspaceId: string,
+  input: { clientsPageId?: string | null; projectsPageId?: string | null }
+) {
+  const patch: Partial<Workspace> = {};
+  if (input.clientsPageId !== undefined) {
+    patch.dashboardClientsPageId = (input.clientsPageId ?? deleteField()) as string;
+  }
+  if (input.projectsPageId !== undefined) {
+    patch.dashboardProjectsPageId = (input.projectsPageId ?? deleteField()) as string;
+  }
+  await updateWorkspace(workspaceId, patch);
 }
 
 /**

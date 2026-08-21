@@ -9,7 +9,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { WorkspaceSwitcher } from "@/components/layout/WorkspaceSwitcher";
 import { PageNavItem } from "@/components/pagesnav/PageNavItem";
@@ -343,10 +344,21 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               collapsed && "justify-center px-0"
             )}
           >
-            <Avatar className="h-7 w-7">
-              <AvatarImage src={profile?.photoURL ?? undefined} />
-              <AvatarFallback>{profile?.name?.[0]?.toUpperCase() ?? <User className="h-3.5 w-3.5" />}</AvatarFallback>
-            </Avatar>
+            {profile ? (
+              <MemberAvatar
+                id={profile.uid}
+                name={profile.name}
+                nickname={profile.nickname}
+                photoURL={profile.photoURL}
+                className="h-7 w-7"
+              />
+            ) : (
+              <Avatar className="h-7 w-7">
+                <AvatarFallback>
+                  <User className="h-3.5 w-3.5" />
+                </AvatarFallback>
+              </Avatar>
+            )}
             {!collapsed && (
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{profile?.name}</p>
