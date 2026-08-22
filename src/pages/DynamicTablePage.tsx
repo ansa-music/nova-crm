@@ -44,10 +44,20 @@ export default function DynamicTablePage() {
     activeSubPageId
   );
 
-  // Reset the active tab whenever navigating to a different page entirely.
+  // Reset the active tab whenever navigating to a different page entirely
+  // — and apply that page's own "opens by default" tab (defaultSubPageId)
+  // exactly once per visit, as soon as real page data has loaded. Guarded
+  // by the ref (not just [pageId]) because `page` is a fresh object on
+  // every Firestore snapshot, so this effect re-runs on unrelated field
+  // changes too — without the guard it would keep yanking someone back to
+  // the default tab every time the page doc updates for any reason.
+  const appliedDefaultForPageRef = useRef<string | null>(null);
   useEffect(() => {
-    setActiveSubPageId(null);
-  }, [pageId]);
+    if (!page) return;
+    if (appliedDefaultForPageRef.current === pageId) return;
+    appliedDefaultForPageRef.current = pageId ?? null;
+    setActiveSubPageId(page.defaultSubPageId ?? null);
+  }, [pageId, page]);
 
   const rows = activeSubPageId ? subPageRows : pageRows;
   const rowsLoading = activeSubPageId ? subPageRowsLoading : pageRowsLoading;
@@ -177,16 +187,14 @@ export default function DynamicTablePage() {
         <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setChatOpen(true)}>
           <MessageSquare className="h-3.5 w-3.5" /> Чат страницы
         </Button>
-        {activeSubPage && (
-          <Button
-            variant={statsOpen ? "default" : "outline"}
-            size="sm"
-            className="gap-1.5"
-            onClick={() => setStatsOpen((v) => !v)}
-          >
-            <BarChart3 className="h-3.5 w-3.5" /> {statsOpen ? "Скрыть статистику" : "Показать статистику"}
-          </Button>
-        )}
+        <Button
+          variant={statsOpen ? "default" : "outline"}
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setStatsOpen((v) => !v)}
+        >
+          <BarChart3 className="h-3.5 w-3.5" /> {statsOpen ? "Скрыть статистику" : "Показать статистику"}
+        </Button>
         {canUsePersonalSpace && (
           <Button
             variant={personalSpaceOpen ? "default" : "outline"}
@@ -230,7 +238,7 @@ export default function DynamicTablePage() {
             userId={profile?.uid ?? ""}
           />
 
-          {activeSubPage && statsOpen && <SubPageStats columns={activeSubPage.columns} rows={subPageRows} />}
+          {statsOpen && <SubPageStats columns={activeSubPage ? activeSubPage.columns : page.columns} rows={rows} />}
 
           <div className="flex-1 overflow-hidden">
             {rowsLoading ? (

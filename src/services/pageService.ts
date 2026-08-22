@@ -1,5 +1,6 @@
 import {
   deleteDoc,
+  deleteField,
   getDocs,
   onSnapshot,
   orderBy,
@@ -182,6 +183,16 @@ export async function createPageForCurrentRole(
 export async function renamePage(workspaceId: string, pageId: string, name: string) {
   if (!db) return;
   await setDoc(paths.page(workspaceId, pageId), { name, updatedAt: Date.now() }, { merge: true });
+}
+
+/** Sets which tab (a subpage id, or null for "Основная") opens by default whenever anyone navigates to this page. */
+export async function setDefaultSubPage(workspaceId: string, pageId: string, subPageId: string | null) {
+  if (!db) return;
+  await setDoc(
+    paths.page(workspaceId, pageId),
+    { defaultSubPageId: (subPageId ?? deleteField()) as string, updatedAt: Date.now() },
+    { merge: true }
+  );
 }
 
 export async function updatePageAppearance(

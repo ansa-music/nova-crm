@@ -13,7 +13,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Archive, ArchiveRestore, ArrowRightCircle, Copy, GripVertical, Plus, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowRightCircle, Copy, GripVertical, Plus, Star, Trash2 } from "lucide-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -42,6 +42,7 @@ import {
   renameSubPage,
   reorderSubPages,
 } from "@/services/subPageService";
+import { setDefaultSubPage } from "@/services/pageService";
 import { snapshotSubPage, restoreSubPageSnapshot } from "@/services/pageSnapshotService";
 import { pushUndoCommand } from "@/utils/undoStore";
 import type { PageIconName, SubPage, WorkspacePage } from "@/types";
@@ -158,19 +159,42 @@ export function SubPageTabs({
     reorderSubPages(workspaceId, page.id, reordered.map((s) => s.id));
   }
 
+  const isDefaultMain = !page.defaultSubPageId;
+
+  async function handleSetDefault(subPageId: string | null) {
+    await setDefaultSubPage(workspaceId, page.id, subPageId);
+    toast.success(subPageId ? "Эта вкладка теперь открывается по умолчанию" : "«Основная» теперь открывается по умолчанию");
+  }
+
+  const mainTab = (
+    <button
+      onClick={() => onSelect(null)}
+      className={cn(
+        "shrink-0 flex items-center gap-1 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
+        activeSubPageId === null
+          ? "border-primary/50 bg-primary/10 text-primary"
+          : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+      )}
+    >
+      {isDefaultMain && <Star className="h-3 w-3 fill-current" />}
+      Основная
+    </button>
+  );
+
   return (
     <div className="flex items-center gap-1.5 border-b border-border bg-muted/10 px-3 py-2">
-      <button
-        onClick={() => onSelect(null)}
-        className={cn(
-          "shrink-0 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
-          activeSubPageId === null
-            ? "border-primary/50 bg-primary/10 text-primary"
-            : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
-        )}
-      >
-        Основная
-      </button>
+      {canManage ? (
+        <ContextMenu>
+          <ContextMenuTrigger asChild>{mainTab}</ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem onClick={() => handleSetDefault(null)} disabled={isDefaultMain}>
+              <Star className="h-3.5 w-3.5" /> Сделать открываемой по умолчанию
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+      ) : (
+        mainTab
+      )}
 
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <SortableContext items={visible.map((s) => s.id)} strategy={horizontalListSortingStrategy}>
@@ -181,6 +205,7 @@ export function SubPageTabs({
                 sub={sub}
                 active={activeSubPageId === sub.id}
                 canManage={canManage}
+                isDefault={page.defaultSubPageId === sub.id}
                 onSelect={() => onSelect(sub.id)}
                 onRename={() => handleRename(sub)}
                 onDuplicate={() => {
@@ -190,6 +215,7 @@ export function SubPageTabs({
                 onNextMonth={() => handleNextMonth(sub)}
                 onArchiveToggle={() => handleArchiveToggle(sub)}
                 onDelete={() => handleDelete(sub)}
+                onSetDefault={() => handleSetDefault(sub.id)}
               />
             ))}
           </div>
@@ -276,24 +302,28 @@ interface SortableTabProps {
   sub: SubPage;
   active: boolean;
   canManage: boolean;
+  isDefault: boolean;
   onSelect: () => void;
   onRename: () => void;
   onDuplicate: () => void;
   onNextMonth: () => void;
   onArchiveToggle: () => void;
   onDelete: () => void;
+  onSetDefault: () => void;
 }
 
 function SortableTab({
   sub,
   active,
   canManage,
+  isDefault,
   onSelect,
   onRename,
   onDuplicate,
   onNextMonth,
   onArchiveToggle,
   onDelete,
+  onSetDefault,
 }: SortableTabProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: sub.id });
   const Icon = PAGE_ICON_MAP[sub.icon] ?? PAGE_ICON_MAP.LayoutGrid;
@@ -315,6 +345,7 @@ function SortableTab({
           <GripVertical className="h-3 w-3" />
         </span>
       )}
+      {isDefault && <Star className="h-3 w-3 shrink-0 fill-current" />}
       <span style={{ color: `hsl(${sub.color})` }}>
         <Icon className="h-3.5 w-3.5" />
       </span>
@@ -329,6 +360,9 @@ function SortableTab({
       <ContextMenuTrigger asChild>{tab}</ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onClick={onRename}>Переименовать</ContextMenuItem>
+        <ContextMenuItem onClick={onSetDefault} disabled={isDefault}>
+          <Star className="h-3.5 w-3.5" /> Сделать открываемой по умолчанию
+        </ContextMenuItem>
         <ContextMenuItem onClick={onDuplicate}>
           <Copy className="h-3.5 w-3.5" /> Дублировать
         </ContextMenuItem>

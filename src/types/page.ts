@@ -85,6 +85,13 @@ export interface WorkspacePage {
   visibility?: "public" | "private";
   /** Uids explicitly allowed into this page's Personal Space (Reports/Finance/Notes), beyond the Owner and responsibleUserId who always have it. */
   personalZoneAllowedUsers?: string[];
+  /**
+   * Which tab opens by default when someone navigates to this page —
+   * a subpage id, or undefined/null for "Основная" (the page's own main
+   * table). Set from the tab bar itself ("Сделать открываемой по
+   * умолчанию") by whoever can manage the page.
+   */
+  defaultSubPageId?: string | null;
   columns: PageColumn[];
   createdAt: number;
   updatedAt: number;

@@ -328,7 +328,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       const raw = String(row.cells[groupByKey] ?? "");
       const label =
         col && isOptionColumn(col.type) ? col.statusOptions?.find((o) => o.value === raw)?.label ?? raw : raw;
-      const key = label || "__empty__";
+      // Was `label || "__empty__"` — that sentinel string is truthy, so
+      // GroupHeaderRow's own `label || "Без значения"` fallback never
+      // triggered and the raw internal placeholder leaked into the UI as a
+      // literal group header. Empty string works fine as a Map key on its
+      // own; no sentinel needed.
+      const key = label;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(row);
     });
