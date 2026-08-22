@@ -195,6 +195,26 @@ export async function setDefaultSubPage(workspaceId: string, pageId: string, sub
   );
 }
 
+/** Personal monthly revenue target — purely a motivational number for the page's own responsible person. */
+export async function setPageMonthlyGoal(workspaceId: string, pageId: string, goal: number | null) {
+  if (!db) return;
+  await setDoc(
+    paths.page(workspaceId, pageId),
+    { monthlyGoal: (goal ?? deleteField()) as number, updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
+/** Per-page accent override, scoped only to this page's own view — see WorkspacePage.accentColor. */
+export async function setPageAccentColor(workspaceId: string, pageId: string, color: string | null) {
+  if (!db) return;
+  await setDoc(
+    paths.page(workspaceId, pageId),
+    { accentColor: (color ?? deleteField()) as string, updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
 export async function updatePageAppearance(
   workspaceId: string,
   pageId: string,

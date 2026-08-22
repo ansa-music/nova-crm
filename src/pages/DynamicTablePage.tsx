@@ -158,7 +158,10 @@ export default function DynamicTablePage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div
+      className="flex h-full flex-col"
+      style={page.accentColor ? ({ "--primary": page.accentColor, "--ring": page.accentColor } as React.CSSProperties) : undefined}
+    >
       <div className="flex items-center gap-2 border-b border-border px-6 py-4">
         <span
           className="flex h-8 w-8 items-center justify-center rounded-lg"

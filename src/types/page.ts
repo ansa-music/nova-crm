@@ -92,6 +92,21 @@ export interface WorkspacePage {
    * умолчанию") by whoever can manage the page.
    */
   defaultSubPageId?: string | null;
+  /**
+   * Personal monthly revenue target for whoever is responsible for this
+   * page — purely a personal-motivation number shown as a progress bar on
+   * their own Dashboard landing, editable by them or the Owner. Not used
+   * anywhere else (grouping, filtering, aggregates).
+   */
+  monthlyGoal?: number;
+  /**
+   * Per-page accent color override (same HSL-triplet convention as the
+   * site-wide Workspace.accentColor) — scoped ONLY to this page's own
+   * view, so a manager can make "their" page feel distinct without
+   * touching the site-wide accent everyone else sees. Settable by the
+   * page's responsible person or the Owner.
+   */
+  accentColor?: string;
   columns: PageColumn[];
   createdAt: number;
   updatedAt: number;

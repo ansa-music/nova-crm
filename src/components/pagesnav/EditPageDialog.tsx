@@ -19,9 +19,12 @@ import { toast } from "@/components/ui/sonner";
 import { IconPicker } from "@/components/common/IconPicker";
 import { ColorPicker } from "@/components/common/ColorPicker";
 import { displayNameOf } from "@/utils/displayName";
+import { cn } from "@/utils/cn";
+import { ACCENT_PRESETS } from "@/components/common/AccentColorSync";
 import {
   renamePage,
   setPageResponsible,
+  setPageAccentColor,
   updatePageAppearance,
   updatePageEditableUsers,
   updatePagePermissions,
@@ -41,6 +44,7 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
   const [name, setName] = useState(page?.name ?? "");
   const [icon, setIcon] = useState<PageIconName>(page?.icon ?? "LayoutGrid");
   const [color, setColor] = useState(page?.color ?? "243 75% 59%");
+  const [accentColor, setAccentColor] = useState<string | undefined>(page?.accentColor);
   const [allowedUsers, setAllowedUsers] = useState<string[]>(page?.allowedUsers ?? []);
   const [editableUsers, setEditableUsers] = useState<string[]>(page?.editableUsers ?? []);
   const [responsibleUserId, setResponsibleUserId] = useState<string>(page?.responsibleUserId ?? "");
@@ -124,6 +128,9 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
         if (icon !== page.icon || color !== page.color) {
           await updatePageAppearance(page.workspaceId, page.id, { icon, color });
         }
+        if (accentColor !== page.accentColor) {
+          await setPageAccentColor(page.workspaceId, page.id, accentColor ?? null);
+        }
         await updatePagePermissions(page.workspaceId, page.id, allowedUsers);
         await updatePageEditableUsers(page.workspaceId, page.id, editableUsers);
       }
@@ -172,6 +179,41 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
               <Label>Иконка</Label>
               <IconPicker value={icon} onChange={canEdit ? setIcon : () => {}} color={color} />
             </div>
+
+            {canEdit && (
+              <div className="flex flex-col gap-1.5 border-t border-border pt-4">
+                <Label>Акцент страницы</Label>
+                <p className="text-xs text-muted-foreground">
+                  Только для этой страницы — общий акцент сайта настраивает Овнер в Настройках.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    title="Как на сайте"
+                    onClick={() => setAccentColor(undefined)}
+                    className={cn(
+                      "flex h-8 w-8 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40 text-[10px] text-muted-foreground transition-transform hover:scale-105",
+                      !accentColor && "border-foreground text-foreground"
+                    )}
+                  >
+                    ×
+                  </button>
+                  {ACCENT_PRESETS.map((preset) => (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      title={preset.label}
+                      onClick={() => setAccentColor(preset.value)}
+                      className={cn(
+                        "flex h-8 w-8 items-center justify-center rounded-full ring-offset-2 ring-offset-background transition-transform hover:scale-105",
+                        accentColor === preset.value && "ring-2 ring-foreground"
+                      )}
+                      style={{ backgroundColor: `hsl(${preset.value})` }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
 
             {canAssignResponsible && (
               <div className="flex flex-col gap-1.5 border-t border-border pt-4">

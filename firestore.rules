@@ -400,6 +400,24 @@ service cloud.firestore {
       }
 
       // -----------------------------------------------------------------
+      // Leaderboard — a privacy-preserving aggregate, NOT the row data
+      // itself. Every member can read every entry (that's the point: it
+      // lets managers compare totals without ever getting read access to
+      // each other's actual pages/rows). Writing an entry is restricted to
+      // whoever is ACTUALLY that page's responsibleUserId (verified
+      // against the real page doc, not just self-declared in the payload)
+      // or the Owner — so nobody can post fake numbers under another
+      // page's id.
+      // -----------------------------------------------------------------
+      match /leaderboard/{pageId} {
+        allow read: if isMember(workspaceId);
+        allow write: if isMember(workspaceId) &&
+          (isOwner(workspaceId) ||
+            get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId))
+              .data.get('responsibleUserId', null) == request.auth.uid);
+      }
+
+      // -----------------------------------------------------------------
       // Announcements — any member may read; only Owner/Admin may post,
       // edit, pin, archive, or delete.
       // -----------------------------------------------------------------

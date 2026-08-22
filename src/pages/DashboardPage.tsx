@@ -1,8 +1,21 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowUpRight, Briefcase, CalendarDays, ClipboardCheck, Settings2, Users, UserCog, Wallet } from "lucide-react";
+import {
+  ArrowUpRight,
+  Briefcase,
+  CalendarDays,
+  ClipboardCheck,
+  Download,
+  Pencil,
+  Settings2,
+  Trophy,
+  Users,
+  UserCog,
+  Wallet,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -10,19 +23,29 @@ import { StatCard } from "@/components/dashboard/StatCard";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { StatusChart } from "@/components/dashboard/StatusChart";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
+import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useMultiPageRows } from "@/hooks/useMultiPageRows";
 import { useHistoryLog } from "@/hooks/useHistoryLog";
+import { useLeaderboard } from "@/hooks/useLeaderboard";
 import { usePermissions } from "@/hooks/usePermissions";
 import { isResponsibleForPage } from "@/utils/permissions";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { updateDashboardPages } from "@/services/workspaceService";
+import { setPageMonthlyGoal } from "@/services/pageService";
+import { updateLeaderboardEntry } from "@/services/leaderboardService";
+import { downloadCsv } from "@/utils/csv";
 import { formatCurrency } from "@/utils/format";
-import { formatDate } from "@/utils/date";
+import { formatDate, timeAgo } from "@/utils/date";
 import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
 import { Link } from "react-router";
+import type { LeaderboardEntry, PageColumn, PageRow, WorkspacePage } from "@/types";
+
+function cn(...classes: (string | boolean | undefined)[]) {
+  return classes.filter(Boolean).join(" ");
+}
 
 export default function DashboardPage() {
   const { activeWorkspace, activeWorkspaceId, pages, members, isLoadingWorkspaceData } = useWorkspace();
@@ -53,6 +76,11 @@ export default function DashboardPage() {
     () => (profile ? visiblePages.filter((p) => isResponsibleForPage(p, profile.uid)) : []),
     [visiblePages, profile]
   );
+
+  // Manager (and Viewer, though they'd rarely have a page) get a personal
+  // landing instead of company-wide numbers they have no access to anyway —
+  // Owner/Admin keep the full picture.
+  const isPersonalLanding = permissions.role !== "owner" && permissions.role !== "admin";
 
   const rowsByPage = useMultiPageRows(
     activeWorkspaceId,
@@ -87,9 +115,31 @@ export default function DashboardPage() {
         }
       }
       const percent = grandTotal > 0 ? Math.round((doneTotal / grandTotal) * 100) : 0;
-      return { page, doneTotal, grandTotal, percent, rowCount: rows.length };
+      return { page, doneTotal, grandTotal, percent, rowCount: rows.length, columns: page.columns, rows };
     });
   }, [myResponsiblePages, rowsByPage, statusOptions]);
+
+  // Keep my own leaderboard entry (entries) fresh as a side effect of
+  // simply looking at my own numbers — see src/services/leaderboardService.ts
+  // for why there's no server-side job doing this instead.
+  useEffect(() => {
+    if (!activeWorkspaceId || !profile) return;
+    myProgress.forEach(({ page, doneTotal, grandTotal, percent }) => {
+      updateLeaderboardEntry(activeWorkspaceId, {
+        pageId: page.id,
+        pageName: page.name,
+        responsibleUserId: profile.uid,
+        doneTotal,
+        grandTotal,
+        percent,
+      }).catch(() => {
+        /* best-effort — a leaderboard hiccup should never break the dashboard itself */
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myProgress, activeWorkspaceId, profile?.uid]);
+
+  const leaderboardEntries = useLeaderboard(activeWorkspaceId);
 
   const clientAmountColumn = clientsPage?.columns.find((c) => c.type === "currency");
 
@@ -138,18 +188,24 @@ export default function DashboardPage() {
     );
   }
 
-  return (
-    <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="eyebrow mb-2 text-primary">Рабочее пространство</p>
-          <h1 className="text-3xl font-light tracking-tight sm:text-[2rem]">
-            С возвращением{activeWorkspace ? `, ${activeWorkspace.name}` : ""} <span aria-hidden="true">👋</span>
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Сводка по команде и продажам на {formatDate(Date.now(), "d MMMM")}
-          </p>
-        </div>
+  const heroGreeting = (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
+    >
+      <div>
+        <p className="eyebrow mb-2 text-primary">{isPersonalLanding ? "Моё рабочее пространство" : "Рабочее пространство"}</p>
+        <h1 className="text-3xl font-light tracking-tight sm:text-[2rem]">
+          С возвращением{profile ? `, ${profile.nickname || profile.name}` : ""} <span aria-hidden="true">👋</span>
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {isPersonalLanding
+            ? `Ваш прогресс на ${formatDate(Date.now(), "d MMMM")}`
+            : `Сводка по команде и продажам на ${formatDate(Date.now(), "d MMMM")}`}
+        </p>
+      </div>
+      {!isPersonalLanding && (
         <div className="flex items-center gap-2">
           {permissions.canManageWorkspace && (
             <DashboardSourcePicker
@@ -164,7 +220,42 @@ export default function DashboardPage() {
             <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
           </Button>
         </div>
-      </motion.div>
+      )}
+    </motion.div>
+  );
+
+  // ---- Manager (and below): personal landing only — their own page(s),
+  // no company-wide numbers they don't have access to anyway. ----
+  if (isPersonalLanding) {
+    return (
+      <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
+        {heroGreeting}
+
+        {myProgress.length === 0 ? (
+          <Card className="p-8 text-center">
+            <p className="text-sm text-muted-foreground">
+              Вы пока не назначены Ответственным ни за одну страницу — как только вас назначат, здесь появится
+              ваш личный прогресс.
+            </p>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <div className="flex flex-col gap-4 lg:col-span-2">
+              {myProgress.map((p) => (
+                <MyProgressCard key={p.page.id} {...p} workspaceId={activeWorkspaceId ?? ""} large />
+              ))}
+            </div>
+            <LeaderboardWidget entries={leaderboardEntries} members={members} myUid={profile?.uid} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ---- Owner/Admin: full company-wide dashboard ----
+  return (
+    <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
+      {heroGreeting}
 
       {myProgress.length > 0 && (
         <motion.div
@@ -177,16 +268,8 @@ export default function DashboardPage() {
             <ClipboardCheck className="h-3.5 w-3.5" /> Мой прогресс
           </p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {myProgress.map(({ page, doneTotal, grandTotal, percent, rowCount }) => (
-              <MyProgressCard
-                key={page.id}
-                pageId={page.id}
-                pageName={page.name}
-                doneTotal={doneTotal}
-                grandTotal={grandTotal}
-                percent={percent}
-                rowCount={rowCount}
-              />
+            {myProgress.map((p) => (
+              <MyProgressCard key={p.page.id} {...p} workspaceId={activeWorkspaceId ?? ""} />
             ))}
           </div>
         </motion.div>
@@ -203,7 +286,10 @@ export default function DashboardPage() {
         <div className="lg:col-span-2">
           <RevenueChart data={revenueByMonth} />
         </div>
-        <StatusChart title="Статусы клиентов" data={statusDistribution} />
+        <div className="flex flex-col gap-4">
+          <StatusChart title="Статусы клиентов" data={statusDistribution} />
+          <LeaderboardWidget entries={leaderboardEntries} members={members} myUid={profile?.uid} />
+        </div>
       </div>
 
       {permissions.canViewHistory && <RecentActivity entries={historyEntries} />}
@@ -279,41 +365,69 @@ function DashboardSourcePicker({
 }
 
 function MyProgressCard({
-  pageId,
-  pageName,
+  workspaceId,
+  page,
   doneTotal,
   grandTotal,
   percent,
   rowCount,
+  columns,
+  rows,
+  large,
 }: {
-  pageId: string;
-  pageName: string;
+  workspaceId: string;
+  page: WorkspacePage;
   doneTotal: number;
   grandTotal: number;
   percent: number;
   rowCount: number;
+  columns: PageColumn[];
+  rows: PageRow[];
+  large?: boolean;
 }) {
   const animatedDone = useAnimatedNumber(doneTotal);
   const animatedTotal = useAnimatedNumber(grandTotal);
   const animatedPercent = useAnimatedNumber(percent);
 
+  const [editingGoal, setEditingGoal] = useState(false);
+  const [goalInput, setGoalInput] = useState(String(page.monthlyGoal ?? ""));
+  const goal = page.monthlyGoal ?? 0;
+  const goalPercent = goal > 0 ? Math.min(100, Math.round((doneTotal / goal) * 100)) : null;
+
+  async function saveGoal() {
+    const value = Number(goalInput);
+    await setPageMonthlyGoal(workspaceId, page.id, Number.isFinite(value) && value > 0 ? value : null);
+    setEditingGoal(false);
+  }
+
+  function handleExport() {
+    const header = columns.map((c) => c.label);
+    const lines = rows.map((row) => columns.map((c) => String(row.cells[c.key] ?? "")));
+    downloadCsv(`${page.name}.csv`, header, lines);
+  }
+
   return (
     <Card className="overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card">
-      <CardContent className="p-4">
+      <CardContent className={large ? "p-6" : "p-4"}>
         <div className="mb-3 flex items-center justify-between">
-          <Link to={`/page/${pageId}`} className="truncate text-sm font-medium hover:text-primary">
-            {pageName}
+          <Link to={`/page/${page.id}`} className={large ? "truncate text-lg font-medium hover:text-primary" : "truncate text-sm font-medium hover:text-primary"}>
+            {page.name}
           </Link>
-          <span className="shrink-0 text-xs text-muted-foreground">{rowCount} строк</span>
+          <div className="flex shrink-0 items-center gap-1">
+            <span className="text-xs text-muted-foreground">{rowCount} строк</span>
+            <Button variant="ghost" size="icon" className="h-6 w-6" title="Скачать мой отчёт (CSV)" onClick={handleExport}>
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
         <div className="mb-2 flex items-end justify-between">
           <div>
             <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Готово</p>
-            <p className="text-xl font-light tabular-nums text-success">{formatCurrency(animatedDone)}</p>
+            <p className={cn(large ? "text-2xl" : "text-xl", "font-light tabular-nums text-success")}>{formatCurrency(animatedDone)}</p>
           </div>
           <div className="text-right">
             <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Общий</p>
-            <p className="text-xl font-light tabular-nums">{formatCurrency(animatedTotal)}</p>
+            <p className={cn(large ? "text-2xl" : "text-xl", "font-light tabular-nums")}>{formatCurrency(animatedTotal)}</p>
           </div>
         </div>
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
@@ -325,6 +439,104 @@ function MyProgressCard({
         <p className="mt-1.5 text-right text-xs font-medium text-muted-foreground">
           {Math.round(animatedPercent)}% готово
         </p>
+
+        <div className="mt-3 border-t border-border pt-3">
+          {editingGoal ? (
+            <div className="flex items-center gap-2">
+              <Input
+                autoFocus
+                type="number"
+                value={goalInput}
+                onChange={(e) => setGoalInput(e.target.value)}
+                placeholder="Например, 200000"
+                className="h-8"
+                onKeyDown={(e) => e.key === "Enter" && saveGoal()}
+              />
+              <Button size="sm" className="h-8" onClick={saveGoal}>
+                Сохранить
+              </Button>
+            </div>
+          ) : (
+            <button
+              className="flex w-full items-center justify-between text-left"
+              onClick={() => {
+                setGoalInput(String(page.monthlyGoal ?? ""));
+                setEditingGoal(true);
+              }}
+            >
+              {goal > 0 ? (
+                <>
+                  <span className="text-xs text-muted-foreground">
+                    План: <span className="font-medium text-foreground">{formatCurrency(goal)}</span>
+                  </span>
+                  <span className="flex items-center gap-1 text-xs font-medium text-primary">
+                    {goalPercent}% от плана <Pencil className="h-3 w-3" />
+                  </span>
+                </>
+              ) : (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                  <Pencil className="h-3 w-3" /> Поставить личный план на месяц
+                </span>
+              )}
+            </button>
+          )}
+          {goal > 0 && !editingGoal && (
+            <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${goalPercent}%` }} />
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function LeaderboardWidget({
+  entries,
+  members,
+  myUid,
+}: {
+  entries: LeaderboardEntry[];
+  members: { uid: string; name?: string; nickname?: string; photoURL?: string | null; lastActiveAt?: number }[];
+  myUid?: string;
+}) {
+  const ranked = useMemo(() => [...entries].sort((a, b) => b.percent - a.percent || b.doneTotal - a.doneTotal), [entries]);
+
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <p className="eyebrow mb-3 flex items-center gap-1.5 text-primary">
+          <Trophy className="h-3.5 w-3.5" /> Рейтинг
+        </p>
+        {ranked.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Пока нет ни одной страницы с назначенным Ответственным.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {ranked.map((entry, i) => {
+              const member = members.find((m) => m.uid === entry.responsibleUserId);
+              return (
+                <div key={entry.pageId} className="flex items-center gap-2.5">
+                  <span className="w-4 shrink-0 text-center text-xs font-mono text-muted-foreground">{i + 1}</span>
+                  <MemberAvatar
+                    id={entry.responsibleUserId}
+                    name={member?.name}
+                    nickname={member?.nickname}
+                    photoURL={member?.photoURL}
+                    className={cn("h-7 w-7 shrink-0", entry.responsibleUserId === myUid && "ring-2 ring-primary")}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium">{entry.pageName}</p>
+                    <p className="truncate text-[11px] text-muted-foreground">
+                      {member ? (member.nickname || member.name) : "—"}
+                      {member?.lastActiveAt ? ` · был(а) ${timeAgo(member.lastActiveAt)}` : ""}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-sm font-semibold tabular-nums text-primary">{entry.percent}%</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
