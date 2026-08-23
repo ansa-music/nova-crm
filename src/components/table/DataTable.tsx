@@ -68,6 +68,7 @@ import {
 import { AddColumnDialog } from "@/components/table/AddColumnDialog";
 import { ManageOptionsDialog } from "@/components/table/ManageOptionsDialog";
 import { RowCommentsPanel } from "@/components/chat/RowCommentsPanel";
+import { RowCardSheet } from "@/components/table/RowCardSheet";
 import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
 import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -76,7 +77,7 @@ import { updateResponsibleOptions, updateStatusOptions, updateCustomFieldOptions
 import { formatCurrency, downloadCsv } from "@/utils";
 import { getColumnOptions, isOptionColumn, DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { celebrateDone } from "@/utils/confetti";
-import { pushUndoCommand } from "@/utils/undoStore";
+import { pushUndoCommand, undo as undoLastCommand } from "@/utils/undoStore";
 import type { CellAddress, ColumnType, PageRow, SortState, StatusOption, WorkspacePage } from "@/types";
 
 const DENSITY_ROW_HEIGHT: Record<"compact" | "default" | "comfortable", number> = {
@@ -183,6 +184,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
   const [addColumnOpen, setAddColumnOpen] = useState(false);
   const [manageOptionsColKey, setManageOptionsColKey] = useState<string | null>(null);
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const [commentRowId, setCommentRowId] = useState<string | null>(null);
   const [pinnedKeys, setPinnedKeys] = useState<string[]>(() => {
     try {
@@ -625,20 +627,49 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     navigator.clipboard?.writeText(matrix.map((l) => l.join("\t")).join("\n")).catch(() => {});
   }
 
-  function applyMatrixPaste(matrix: string[][]) {
+  async function applyMatrixPaste(matrix: string[][]) {
     if (!canEdit || !activeCell || matrix.length === 0) return;
     const startRowIdx = rowIds.indexOf(activeCell.rowId);
     const startColIdx = columns.findIndex((c) => c.key === activeCell.colKey);
     if (startRowIdx === -1) return;
+
+    // Smart-paste guardrails: warn (don't block) when the pasted block's
+    // shape doesn't match what's actually there, and auto-create any extra
+    // rows needed instead of silently dropping data past the table's
+    // current last row — pasting a big block used to just truncate
+    // whatever didn't fit, with no indication anything was lost.
+    const pastedCols = Math.max(...matrix.map((line) => line.length));
+    const availableCols = columns.length - startColIdx;
+    if (pastedCols > availableCols) {
+      toast.info(`Вставлено ${availableCols} из ${pastedCols} столбцов — правее столбцов не нашлось`);
+    }
+
+    const missingRows = startRowIdx + matrix.length - rowIds.length;
+    let effectiveRowIds = rowIds;
+    if (missingRows > 0) {
+      if (!window.confirm(`Вставка требует ещё ${missingRows} строк(и) — создать их?`)) {
+        matrix = matrix.slice(0, rowIds.length - startRowIdx);
+      } else {
+        const newIds: string[] = [];
+        for (let i = 0; i < missingRows; i++) {
+          const cells: Record<string, string | number | null> = {};
+          columns.forEach((c) => (cells[c.key] = ""));
+          const newRow = await addRowService(workspaceId, page.id, cells, rows.length + i);
+          newIds.push(newRow.id);
+        }
+        effectiveRowIds = [...rowIds, ...newIds];
+      }
+    }
+
     matrix.forEach((line, ri) => {
-      const rowId = rowIds[startRowIdx + ri];
+      const rowId = effectiveRowIds[startRowIdx + ri];
       if (!rowId) return;
       const row = rows.find((r) => r.id === rowId);
-      if (!row) return;
+      const isNewlyCreatedRow = !row;
       line.forEach((val, ci) => {
         const col = displayColumns[startColIdx + ci];
         if (!col) return;
-        const oldValue = String(row.cells[col.key] ?? "");
+        const oldValue = isNewlyCreatedRow ? "" : String(row!.cells[col.key] ?? "");
         let newValue = val;
         if (isOptionColumn(col.type)) {
           const match = col.statusOptions?.find((o) => o.label.toLowerCase() === val.trim().toLowerCase());
@@ -657,7 +688,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   async function handlePaste() {
     if (clipboardRef.current) {
-      applyMatrixPaste(clipboardRef.current.matrix);
+      await applyMatrixPaste(clipboardRef.current.matrix);
       return;
     }
     try {
@@ -665,7 +696,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       if (!text) return;
       const lines = text.replace(/\r/g, "").split("\n");
       if (lines[lines.length - 1] === "") lines.pop();
-      applyMatrixPaste(lines.map((l) => l.split("\t")));
+      await applyMatrixPaste(lines.map((l) => l.split("\t")));
     } catch {
       // clipboard read denied — ignore
     }
@@ -707,6 +738,43 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setActiveCell(next);
     if (!extend) setRangeAnchor(next);
     else if (!rangeAnchor) setRangeAnchor(activeCell);
+  }
+
+  // Tab at the very last column wraps to the first column of the NEXT row
+  // (spreadsheet convention) — and if that's also the last row, creates a
+  // fresh empty one first, mirroring Enter's same auto-create-row behavior
+  // in moveActiveAfterCommit above. Without this, Tab-ing through a wide
+  // table just got stuck at the last cell of the last row.
+  async function handleTabForward() {
+    if (!activeCell) return;
+    const rIdx = rowIds.indexOf(activeCell.rowId);
+    const cIdx = columns.findIndex((c) => c.key === activeCell.colKey);
+    if (cIdx !== columns.length - 1) {
+      moveSelection("right", false);
+      return;
+    }
+    if (rIdx !== rowIds.length - 1) {
+      const next = { rowId: rowIds[rIdx + 1], colKey: columns[0].key };
+      setActiveCell(next);
+      setRangeAnchor(next);
+      return;
+    }
+    if (!canEdit) return;
+    const cells: Record<string, string | number | null> = {};
+    columns.forEach((c) => (cells[c.key] = ""));
+    const newRow = await addRowService(workspaceId, page.id, cells, rows.length);
+    pushCommand({
+      undo: () => deleteRowService(workspaceId, page.id, newRow.id),
+      redo: () => {
+        addRowService(workspaceId, page.id, cells, rows.length);
+      },
+    });
+    const nextAddr = { rowId: newRow.id, colKey: columns[0].key };
+    requestAnimationFrame(() => {
+      setActiveCell(nextAddr);
+      setRangeAnchor(nextAddr);
+      containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight });
+    });
   }
 
   // The handler closes over lots of per-render state (activeCell, columns,
@@ -770,11 +838,21 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       }
       if (e.key === "Tab") {
         e.preventDefault();
-        moveSelection(e.shiftKey ? "left" : "right", false);
+        if (e.shiftKey) moveSelection("left", false);
+        else handleTabForward();
         return;
       }
       if (!isCtrl && !e.altKey && e.key.length === 1) {
         const col = columns.find((c) => c.key === activeCell.colKey);
+        if (col && isOptionColumn(col.type)) {
+          // Quick-pick: typing a letter on a status/responsible/custom cell
+          // jumps straight to the first option whose label starts with it —
+          // no need to open the dropdown just to pick something short.
+          const options = getColumnOptions(col, activeWorkspace);
+          const match = options.find((o) => o.label.toLowerCase().startsWith(e.key.toLowerCase()));
+          if (match) handleStatusChange(activeCell.rowId, col.key, match.value);
+          return;
+        }
         if (col && col.type !== "status") startEditing(activeCell.rowId, activeCell.colKey, e.key);
       }
   };
@@ -931,6 +1009,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       },
       redo: () => deleteRowService(workspaceId, page.id, liveId),
     });
+    toast("Строка удалена", { action: { label: "Отменить", onClick: () => undoLastCommand() } });
   }
 
   function toggleRowChecked(rowId: string) {
@@ -952,7 +1031,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const liveIds = deletedRows.map((r) => r.id);
     await Promise.all(liveIds.map((id) => deleteRowService(workspaceId, page.id, id)));
     setSelectedRowIds(new Set());
-    toast.success("Строки удалены");
+    toast("Строки удалены", { action: { label: "Отменить", onClick: () => undoLastCommand() } });
     pushCommand({
       undo: async () => {
         const restored = await Promise.all(
@@ -1025,7 +1104,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (!window.confirm(`Удалить столбец «${current.label}»? Данные в нём будут скрыты.`)) return;
     const originalIndex = columns.findIndex((c) => c.key === colKey);
     await deleteColumnService(workspaceId, page.id, columns, colKey);
-    toast.success("Столбец удалён");
+    toast("Столбец удалён", { action: { label: "Отменить", onClick: () => undoLastCommand() } });
     pushCommand({
       undo: async () => {
         // Re-insert at its original position (columns here no longer
@@ -1111,6 +1190,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onRowNumberMouseDown={(rowId) => handleRowNumberMouseDown(rowId)}
         onRowResizeStart={handleRowResizeStart}
         onContextMenuOpen={handleContextMenuOpen}
+        onExpandRow={setExpandedRowId}
       />
     );
   }
@@ -1380,6 +1460,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         workspaceId={workspaceId}
         pageId={page.id}
         rowId={commentRowId}
+      />
+
+      <RowCardSheet
+        open={Boolean(expandedRowId)}
+        onOpenChange={(o) => !o && setExpandedRowId(null)}
+        columns={displayColumns}
+        row={rows.find((r) => r.id === expandedRowId) ?? null}
       />
     </div>
   );

@@ -523,44 +523,58 @@ function LeaderboardWidget({
   myUid,
 }: {
   entries: LeaderboardEntry[];
-  members: { uid: string; name?: string; nickname?: string; photoURL?: string | null; lastActiveAt?: number }[];
+  members: { uid: string; name?: string; nickname?: string; photoURL?: string | null; lastActiveAt?: number; status: string; role: string }[];
   myUid?: string;
 }) {
-  const ranked = useMemo(() => [...entries].sort((a, b) => b.percent - a.percent || b.doneTotal - a.doneTotal), [entries]);
+  // Ranked by total sum "Готово" (not %) — a small page fully done
+  // shouldn't outrank someone who closed 5x more in absolute terms. Every
+  // active member appears, even at 0 with no page yet, so this reads as
+  // the whole team's board, not just a list of whoever has data so far. A
+  // person responsible for more than one page has their totals summed
+  // into one row.
+  const ranked = useMemo(() => {
+    return members
+      .filter((m) => m.status === "active")
+      .map((member) => {
+        const myEntries = entries.filter((e) => e.responsibleUserId === member.uid);
+        const doneTotal = myEntries.reduce((sum, e) => sum + e.doneTotal, 0);
+        const grandTotal = myEntries.reduce((sum, e) => sum + e.grandTotal, 0);
+        const pageNames = myEntries.map((e) => e.pageName);
+        return { member, doneTotal, grandTotal, pageNames };
+      })
+      .sort((a, b) => b.doneTotal - a.doneTotal);
+  }, [entries, members]);
 
   return (
     <Card>
       <CardContent className="p-4">
         <p className="eyebrow mb-3 flex items-center gap-1.5 text-primary">
-          <Trophy className="h-3.5 w-3.5" /> Рейтинг
+          <Trophy className="h-3.5 w-3.5" /> Рейтинг по сумме «Готово»
         </p>
         {ranked.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Пока нет ни одной страницы с назначенным Ответственным.</p>
+          <p className="text-xs text-muted-foreground">В команде пока нет активных участников.</p>
         ) : (
           <div className="flex flex-col gap-3">
-            {ranked.map((entry, i) => {
-              const member = members.find((m) => m.uid === entry.responsibleUserId);
-              return (
-                <div key={entry.pageId} className="flex items-center gap-2.5">
-                  <span className="w-4 shrink-0 text-center text-xs font-mono text-muted-foreground">{i + 1}</span>
-                  <MemberAvatar
-                    id={entry.responsibleUserId}
-                    name={member?.name}
-                    nickname={member?.nickname}
-                    photoURL={member?.photoURL}
-                    className={cn("h-7 w-7 shrink-0", entry.responsibleUserId === myUid && "ring-2 ring-primary")}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-medium">{entry.pageName}</p>
-                    <p className="truncate text-[11px] text-muted-foreground">
-                      {member ? (member.nickname || member.name) : "—"}
-                      {member?.lastActiveAt ? ` · был(а) ${timeAgo(member.lastActiveAt)}` : ""}
-                    </p>
-                  </div>
-                  <span className="shrink-0 text-sm font-semibold tabular-nums text-primary">{entry.percent}%</span>
+            {ranked.map(({ member, doneTotal, pageNames }, i) => (
+              <div key={member.uid} className="flex items-center gap-2.5">
+                <span className="w-4 shrink-0 text-center text-xs font-mono text-muted-foreground">{i + 1}</span>
+                <MemberAvatar
+                  id={member.uid}
+                  name={member.name}
+                  nickname={member.nickname}
+                  photoURL={member.photoURL}
+                  className={cn("h-7 w-7 shrink-0", member.uid === myUid && "ring-2 ring-primary")}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium">{member.nickname || member.name || "—"}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">
+                    {pageNames.length > 0 ? pageNames.join(", ") : "нет страницы"}
+                    {member.lastActiveAt ? ` · был(а) ${timeAgo(member.lastActiveAt)}` : ""}
+                  </p>
                 </div>
-              );
-            })}
+                <span className="shrink-0 text-sm font-semibold tabular-nums text-primary">{formatCurrency(doneTotal)}</span>
+              </div>
+            ))}
           </div>
         )}
       </CardContent>

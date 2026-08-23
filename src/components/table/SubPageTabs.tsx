@@ -44,7 +44,7 @@ import {
 } from "@/services/subPageService";
 import { setDefaultSubPage } from "@/services/pageService";
 import { snapshotSubPage, restoreSubPageSnapshot } from "@/services/pageSnapshotService";
-import { pushUndoCommand } from "@/utils/undoStore";
+import { pushUndoCommand, undo } from "@/utils/undoStore";
 import type { PageIconName, SubPage, WorkspacePage } from "@/types";
 
 interface SubPageTabsProps {
@@ -122,7 +122,7 @@ export function SubPageTabs({
     const snapshot = await snapshotSubPage(workspaceId, page.id, sub.id);
     await deleteSubPage(workspaceId, page.id, sub.id);
     if (activeSubPageId === sub.id) onSelect(null);
-    toast.success("Вкладка удалена");
+    toast("Вкладка удалена", { action: { label: "Отменить", onClick: () => undo() } });
     pushUndoCommand({
       undo: () => restoreSubPageSnapshot(workspaceId, page.id, sub.id, snapshot),
       redo: () => deleteSubPage(workspaceId, page.id, sub.id),

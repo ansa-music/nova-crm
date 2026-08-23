@@ -12,7 +12,7 @@ import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { deletePage, duplicatePage, renamePage } from "@/services/pageService";
 import { snapshotPage, restorePageSnapshot } from "@/services/pageSnapshotService";
-import { pushUndoCommand } from "@/utils/undoStore";
+import { pushUndoCommand, undo } from "@/utils/undoStore";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { cn } from "@/utils/cn";
 import type { PageIconName, WorkspacePage } from "@/types";
@@ -86,7 +86,7 @@ export function PageNavItem({
     // there'd be nothing left to restore from on Ctrl+Z.
     const snapshot = await snapshotPage(page.workspaceId, page.id);
     await deletePage(page.workspaceId, page.id);
-    toast.success("Страница удалена");
+    toast("Страница удалена", { action: { label: "Отменить", onClick: () => undo() } });
     pushUndoCommand({
       undo: () => restorePageSnapshot(page.workspaceId, page.id, snapshot),
       redo: () => deletePage(page.workspaceId, page.id),

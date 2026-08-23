@@ -1,10 +1,11 @@
 // PATH: src/layouts/AppLayout.tsx  (REPLACES EXISTING)
-import { useState } from "react";
-import { Outlet, useLocation } from "react-router";
+import { useState, useEffect } from "react";
+import { Outlet, useLocation, useNavigate } from "react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import { Building2, Lock, Plus } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import { Maximize2 } from "lucide-react";
 import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog";
 import { NicknamePrompt } from "@/components/common/NicknamePrompt";
 import { GlobalMessageToaster } from "@/components/common/GlobalMessageToaster";
@@ -19,6 +20,7 @@ import { useAppBootstrap } from "@/hooks/useAppBootstrap";
 import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
 import { useAuth } from "@/hooks/useAuth";
 import { useIsMobile } from "@/hooks/useMediaQuery";
+import { useUiStore } from "@/store/uiStore";
 import { isWorkspaceAdmin } from "@/utils/adminAccess";
 
 export function AppLayout() {
@@ -27,14 +29,47 @@ export function AppLayout() {
   useActiveWorkspaceDataBootstrap();
   usePresenceHeartbeat();
   const location = useLocation();
+  const navigate = useNavigate();
+
+  // "Продолжить с того места": on a genuinely fresh load of the app (this
+  // effect has an empty dep array, so it runs exactly once per real page
+  // load — NOT on every client-side navigation back to "/", which is what
+  // clicking "Дашборд" in the sidebar does). If the person was last looking
+  // at a table page, jump straight back instead of always showing the
+  // Dashboard first.
+  useEffect(() => {
+    if (location.pathname !== "/") return;
+    try {
+      const lastPageId = window.localStorage.getItem("nova-crm:last-page-id");
+      if (lastPageId) navigate(`/page/${lastPageId}`, { replace: true });
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const { phase } = useAppBootstrap();
   const { activeWorkspace } = useWorkspace();
   const { profile } = useAuth();
   const isMobile = useIsMobile();
   const [createOpen, setCreateOpen] = useState(false);
+  const tableFullscreen = useUiStore((s) => s.tableFullscreen);
+  const setTableFullscreen = useUiStore((s) => s.setTableFullscreen);
+  // Only actually hides chrome on a table page — the setting can stay on
+  // (persisted) without leaving every OTHER page in the app chrome-less too.
+  const isOnTablePage = location.pathname.startsWith("/page/");
+  const isFullscreen = tableFullscreen && isOnTablePage;
 
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setTableFullscreen(false);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [isFullscreen, setTableFullscreen]);
 
   // Any not-yet-resolved phase renders the shared boot screen. Crucially this
   // includes "workspace-data": members (=> role) and pages (=> access) must
@@ -85,10 +120,19 @@ export function AppLayout() {
       <ShortcutsHelpDialog />
       <GlobalUndoHotkeys />
       <AccentColorSync />
-      {!isMobile && <Sidebar />}
+      {!isMobile && !isFullscreen && <Sidebar />}
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar />
-        <SimulationBanner />
+        {!isFullscreen && <Topbar />}
+        {!isFullscreen && <SimulationBanner />}
+        {isFullscreen && (
+          <button
+            onClick={() => setTableFullscreen(false)}
+            title="Показать меню (Esc)"
+            className="fixed left-3 top-3 z-50 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card/90 text-muted-foreground shadow-popover backdrop-blur transition-colors hover:text-foreground"
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
+          </button>
+        )}
         <main className="flex-1 overflow-y-auto scrollbar-thin">
           <AnimatePresence mode="wait">
             <motion.div

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
-import { BarChart3, Eye, EyeOff, History, Lock, MessageSquare, Settings2, User } from "lucide-react";
+import { BarChart3, Eye, EyeOff, History, Lock, Maximize2, MessageSquare, Settings2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/table/DataTable";
@@ -19,6 +19,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
 import { ensurePriceColumn, togglePageVisibility } from "@/services/pageService";
 import { displayNameOf } from "@/utils/displayName";
+import { useUiStore } from "@/store/uiStore";
 import type { PageIconName } from "@/types";
 
 export default function DynamicTablePage() {
@@ -26,6 +27,7 @@ export default function DynamicTablePage() {
   const { activeWorkspaceId, pages, members } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
+  const setTableFullscreen = useUiStore((s) => s.setTableFullscreen);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -58,6 +60,19 @@ export default function DynamicTablePage() {
     appliedDefaultForPageRef.current = pageId ?? null;
     setActiveSubPageId(page.defaultSubPageId ?? null);
   }, [pageId, page]);
+
+  // "Продолжить с того места" — remembers the last table page you had open
+  // so reopening/reloading the site can jump straight back to it (see the
+  // once-only redirect in AppLayout.tsx) instead of always landing on the
+  // Dashboard. Purely a browser-local convenience, not synced anywhere.
+  useEffect(() => {
+    if (!pageId) return;
+    try {
+      window.localStorage.setItem("nova-crm:last-page-id", pageId);
+    } catch {
+      /* localStorage can throw in private-browsing edge cases — not worth failing over */
+    }
+  }, [pageId]);
 
   const rows = activeSubPageId ? subPageRows : pageRows;
   const rowsLoading = activeSubPageId ? subPageRowsLoading : pageRowsLoading;
@@ -197,6 +212,15 @@ export default function DynamicTablePage() {
           onClick={() => setStatsOpen((v) => !v)}
         >
           <BarChart3 className="h-3.5 w-3.5" /> {statsOpen ? "Скрыть статистику" : "Показать статистику"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          title="Развернуть таблицу на весь экран"
+          onClick={() => setTableFullscreen(true)}
+        >
+          <Maximize2 className="h-3.5 w-3.5" /> На весь экран
         </Button>
         {canUsePersonalSpace && (
           <Button

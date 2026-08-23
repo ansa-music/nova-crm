@@ -33,6 +33,7 @@ interface TableRowProps {
   onRowNumberMouseDown: (rowId: string, e: React.MouseEvent) => void;
   onRowResizeStart: (rowId: string, e: React.MouseEvent) => void;
   onContextMenuOpen: (rowId: string) => void;
+  onExpandRow: (rowId: string) => void;
 }
 
 export function TableRow({
@@ -60,6 +61,7 @@ export function TableRow({
   onRowNumberMouseDown,
   onRowResizeStart,
   onContextMenuOpen,
+  onExpandRow,
 }: TableRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.id,
@@ -80,15 +82,30 @@ export function TableRow({
   // with the actual data for attention.
   const isNew = Date.now() - row.createdAt < 24 * 60 * 60 * 1000;
 
+  // Tints the WHOLE row a faint wash of its own status color — lets you
+  // spot "which rows are done / overdue" scanning the sheet at a glance,
+  // not just by reading the small badge in one cell.
+  const statusColumn = columns.find((c) => c.type === "status");
+  const statusValue = statusColumn ? String(row.cells[statusColumn.key] ?? "") : "";
+  const statusOption = statusColumn?.statusOptions?.find((o) => o.value === statusValue);
+
   return (
     <tr
       ref={setNodeRef}
-      style={{ height: rowHeight, transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
+      style={{
+        height: rowHeight,
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+        backgroundColor: statusOption ? `hsl(${statusOption.color} / 0.05)` : undefined,
+      }}
       className="group/row hover:bg-muted/30"
       onContextMenu={() => onContextMenuOpen(row.id)}
     >
       <td
         onMouseDown={(e) => onRowNumberMouseDown(row.id, e)}
+        onDoubleClick={() => onExpandRow(row.id)}
+        title="Двойной клик — открыть строку карточкой"
         className={cn(
           "sticky left-0 z-20 select-none border-b border-r border-border bg-muted/60 text-center text-xs text-muted-foreground",
           isRowFullySelected && "bg-primary/10 font-medium text-primary"
