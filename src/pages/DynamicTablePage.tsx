@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
-import { BarChart3, Eye, EyeOff, History, Lock, Maximize2, MessageSquare, Settings2, User } from "lucide-react";
+import { BarChart3, Eye, EyeOff, History, Lock, Maximize2, MessageSquare, MoreHorizontal, Settings2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/table/DataTable";
 import { SubPageTabs } from "@/components/table/SubPageTabs";
@@ -189,59 +197,74 @@ export default function DynamicTablePage() {
           <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Только просмотр</span>
         )}
         <div className="flex-1" />
-        {isResponsible && (
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleToggleVisibility}>
-            {page.hiddenByResponsible ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" onClick={() => setChatOpen(true)}>
+              <MessageSquare className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Чат страницы</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" onClick={() => setTableFullscreen(true)}>
+              <Maximize2 className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>На весь экран</TooltipContent>
+        </Tooltip>
+
+        {/* Everything else lives behind one menu instead of a wall of
+            text buttons — up to 5 of these could show at once for an
+            Owner viewing their own page, which crowded the header badly.
+            Frequency-of-use decided what stayed outside: chat + fullscreen
+            get used far more often per session than stats/history/settings. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="relative">
+              <MoreHorizontal className="h-4 w-4" />
+              {(statsOpen || personalSpaceOpen) && (
+                <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-primary" />
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {isResponsible && (
+              <DropdownMenuItem onClick={handleToggleVisibility}>
+                {page.hiddenByResponsible ? (
+                  <>
+                    <EyeOff className="h-4 w-4 text-destructive" /> Скрыто от других — показать
+                  </>
+                ) : (
+                  <>
+                    <Eye className="h-4 w-4" /> Видно другим — скрыть
+                  </>
+                )}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onClick={() => setStatsOpen((v) => !v)}>
+              <BarChart3 className="h-4 w-4" /> {statsOpen ? "Скрыть статистику" : "Показать статистику"}
+            </DropdownMenuItem>
+            {canUsePersonalSpace && (
+              <DropdownMenuItem onClick={() => setPersonalSpaceOpen((v) => !v)}>
+                <User className="h-4 w-4" /> Личное пространство
+              </DropdownMenuItem>
+            )}
+            {permissions.canViewHistory && (
+              <DropdownMenuItem onClick={() => setHistoryOpen(true)}>
+                <History className="h-4 w-4" /> История
+              </DropdownMenuItem>
+            )}
+            {(permissions.canManagePage(page) || permissions.canAssignResponsible) && (
               <>
-                <EyeOff className="h-3.5 w-3.5 text-destructive" /> Скрыто от других
-              </>
-            ) : (
-              <>
-                <Eye className="h-3.5 w-3.5" /> Видно другим
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
+                  <Settings2 className="h-4 w-4" /> Настройки страницы
+                </DropdownMenuItem>
               </>
             )}
-          </Button>
-        )}
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setChatOpen(true)}>
-          <MessageSquare className="h-3.5 w-3.5" /> Чат страницы
-        </Button>
-        <Button
-          variant={statsOpen ? "default" : "outline"}
-          size="sm"
-          className="gap-1.5"
-          onClick={() => setStatsOpen((v) => !v)}
-        >
-          <BarChart3 className="h-3.5 w-3.5" /> {statsOpen ? "Скрыть статистику" : "Показать статистику"}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          title="Развернуть таблицу на весь экран"
-          onClick={() => setTableFullscreen(true)}
-        >
-          <Maximize2 className="h-3.5 w-3.5" /> На весь экран
-        </Button>
-        {canUsePersonalSpace && (
-          <Button
-            variant={personalSpaceOpen ? "default" : "outline"}
-            size="sm"
-            className="gap-1.5"
-            onClick={() => setPersonalSpaceOpen((v) => !v)}
-          >
-            <User className="h-3.5 w-3.5" /> Личное пространство
-          </Button>
-        )}
-        {permissions.canViewHistory && (
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setHistoryOpen(true)}>
-            <History className="h-3.5 w-3.5" /> История
-          </Button>
-        )}
-        {(permissions.canManagePage(page) || permissions.canAssignResponsible) && (
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setSettingsOpen(true)}>
-            <Settings2 className="h-3.5 w-3.5" /> Настройки
-          </Button>
-        )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {personalSpaceOpen ? (
