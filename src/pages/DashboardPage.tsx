@@ -28,6 +28,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useMultiPageRows } from "@/hooks/useMultiPageRows";
+import { useMultiPageSubPages } from "@/hooks/useMultiPageSubPages";
+import { useMultiSubPageRows } from "@/hooks/useMultiSubPageRows";
 import { useHistoryLog } from "@/hooks/useHistoryLog";
 import { useLeaderboard } from "@/hooks/useLeaderboard";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -89,6 +91,23 @@ export default function DashboardPage() {
     )
   );
 
+  // Each manager's actual work usually lives inside a SPECIFIC tab (subpage)
+  // of their page — whichever one they've marked "открывается по умолчанию"
+  // (defaultSubPageId) — not in the page's own top-level "Основная" table.
+  // Reading only page.columns/rowsByPage[page.id] here made the dashboard
+  // show 0 for everyone whose real numbers live in a tab. Fetch each
+  // responsible page's subpage list so we can resolve that default tab's
+  // OWN columns/rows instead.
+  const subPagesByPage = useMultiPageSubPages(activeWorkspaceId, myResponsiblePages.map((p) => p.id));
+  const defaultSubPagePairs = useMemo(
+    () =>
+      myResponsiblePages
+        .filter((p) => p.defaultSubPageId)
+        .map((p) => ({ pageId: p.id, subPageId: p.defaultSubPageId as string })),
+    [myResponsiblePages]
+  );
+  const rowsBySubPage = useMultiSubPageRows(activeWorkspaceId, defaultSubPagePairs);
+
   const clientRows = clientsPage ? rowsByPage[clientsPage.id] ?? [] : [];
   const projectRows = projectsPage ? rowsByPage[projectsPage.id] ?? [] : [];
 
@@ -97,12 +116,19 @@ export default function DashboardPage() {
   // Per-page "Готово" vs "Общий" breakdown for whatever pages I personally
   // own as Ответственный — mirrors the same currency+status total logic the
   // table itself uses (src/components/table/DataTable.tsx financialSummary),
-  // just recomputed per page here so each card is self-contained.
+  // just recomputed per page here so each card is self-contained. Sources
+  // from the page's default tab (see above) when one is set, otherwise
+  // falls back to the page's own top-level table exactly as before.
   const myProgress = useMemo(() => {
     return myResponsiblePages.map((page) => {
-      const priceCol = page.columns.find((c) => c.type === "currency");
-      const statusCol = page.columns.find((c) => c.type === "status");
-      const rows = rowsByPage[page.id] ?? [];
+      const defaultSubPage = page.defaultSubPageId
+        ? subPagesByPage[page.id]?.find((s) => s.id === page.defaultSubPageId)
+        : undefined;
+      const columns = defaultSubPage ? defaultSubPage.columns : page.columns;
+      const rows = defaultSubPage ? rowsBySubPage[defaultSubPage.id] ?? [] : rowsByPage[page.id] ?? [];
+
+      const priceCol = columns.find((c) => c.type === "currency");
+      const statusCol = columns.find((c) => c.type === "status");
       let grandTotal = 0;
       let doneTotal = 0;
       for (const row of rows) {
@@ -115,9 +141,9 @@ export default function DashboardPage() {
         }
       }
       const percent = grandTotal > 0 ? Math.round((doneTotal / grandTotal) * 100) : 0;
-      return { page, doneTotal, grandTotal, percent, rowCount: rows.length, columns: page.columns, rows };
+      return { page, doneTotal, grandTotal, percent, rowCount: rows.length, columns, rows };
     });
-  }, [myResponsiblePages, rowsByPage, statusOptions]);
+  }, [myResponsiblePages, rowsByPage, subPagesByPage, rowsBySubPage, statusOptions]);
 
   // Keep my own leaderboard entry (entries) fresh as a side effect of
   // simply looking at my own numbers — see src/services/leaderboardService.ts
