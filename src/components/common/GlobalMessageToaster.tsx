@@ -15,19 +15,27 @@ export function GlobalMessageToaster() {
   const navigate = useNavigate();
 
   const seenConversationTimestamps = useRef<Map<string, number>>(new Map());
-  const isFirstRun = useRef(true);
 
   useEffect(() => {
-    // Don't toast for the very first snapshot on load — only for messages
-    // that arrive AFTER the app is already open and watching.
-    if (isFirstRun.current) {
-      conversations.forEach((c) => seenConversationTimestamps.current.set(c.id, c.lastMessageAt));
-      isFirstRun.current = false;
-      return;
-    }
-
     for (const c of conversations) {
-      const previouslySeenAt = seenConversationTimestamps.current.get(c.id) ?? 0;
+      // First time THIS conversation is seen in the session — record its
+      // current timestamp as the baseline and move on, don't toast.
+      //
+      // The bug this fixes: `conversations` starts as an empty array while
+      // Firestore's subscription is still loading, so the very first
+      // effect run had nothing in it. A global "isFirstRun" flag consumed
+      // by that empty run meant the SECOND run — the one with the actual
+      // data — was treated as "not first" anymore, so every already-read
+      // conversation looked "new" (baseline of 0) and got toasted again on
+      // every single page load/reopen. Keying the baseline per conversation
+      // id instead of by call order fixes that regardless of how many
+      // empty/intermediate renders happen before real data settles.
+      if (!seenConversationTimestamps.current.has(c.id)) {
+        seenConversationTimestamps.current.set(c.id, c.lastMessageAt);
+        continue;
+      }
+
+      const previouslySeenAt = seenConversationTimestamps.current.get(c.id)!;
       const isNew = c.lastMessageAt > previouslySeenAt;
       seenConversationTimestamps.current.set(c.id, c.lastMessageAt);
       if (!isNew || c.lastMessageFromUid === profile?.uid) continue;

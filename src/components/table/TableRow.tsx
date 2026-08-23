@@ -82,23 +82,10 @@ export function TableRow({
   // with the actual data for attention.
   const isNew = Date.now() - row.createdAt < 24 * 60 * 60 * 1000;
 
-  // Tints the WHOLE row a faint wash of its own status color — lets you
-  // spot "which rows are done / overdue" scanning the sheet at a glance,
-  // not just by reading the small badge in one cell.
-  const statusColumn = columns.find((c) => c.type === "status");
-  const statusValue = statusColumn ? String(row.cells[statusColumn.key] ?? "") : "";
-  const statusOption = statusColumn?.statusOptions?.find((o) => o.value === statusValue);
-
   return (
     <tr
       ref={setNodeRef}
-      style={{
-        height: rowHeight,
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.5 : 1,
-        backgroundColor: statusOption ? `hsl(${statusOption.color} / 0.05)` : undefined,
-      }}
+      style={{ height: rowHeight, transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
       className="group/row hover:bg-muted/30"
       onContextMenu={() => onContextMenuOpen(row.id)}
     >
