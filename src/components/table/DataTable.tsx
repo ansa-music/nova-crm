@@ -411,7 +411,19 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     (rowId: string, colKey: string, initialValue?: string) => {
       if (!canEdit) return;
       const col = columns.find((c) => c.key === colKey);
-      if (!col || col.type === "status") return;
+      // Status/Responsible/custom-field columns are dropdown-only (see
+      // TableCell.tsx) — they must NEVER enter text-editing mode. This used
+      // to only check `col.type === "status"`, so double-clicking a
+      // "Ответственный" or any custom-field cell silently set editingCell
+      // anyway. TableCell still rendered the dropdown fine (isOptionColumn
+      // is checked before isEditing there), so nothing looked wrong — but
+      // editingCellRef stayed truthy with no visible input to blur it,
+      // which SILENTLY DISABLED EVERY KEYBOARD SHORTCUT on the whole page
+      // (arrows, Tab, Ctrl+C/V, Delete, Enter — the global handler's very
+      // first line bails out whenever editingCellRef is set) until the
+      // person happened to click some other cell. This is almost certainly
+      // what made the table feel broadly "broken" rather than one glitch.
+      if (!col || isOptionColumn(col.type)) return;
       const row = rows.find((r) => r.id === rowId);
       if (!row) return;
       setEditingCell({ rowId, colKey });
@@ -487,7 +499,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         setActiveCell(nextAddr);
         setRangeAnchor(nextAddr);
         const col = columns.find((c) => c.key === nextAddr.colKey);
-        if (col && col.type !== "status") {
+        if (col && !isOptionColumn(col.type)) {
           setEditingCell(nextAddr);
           setEditValue("");
         }
@@ -510,7 +522,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     // deliberately only move the selection, matching normal spreadsheet feel.
     if (direction === "down" && canEdit) {
       const col = columns.find((c) => c.key === next.colKey);
-      if (col && col.type !== "status") {
+      if (col && !isOptionColumn(col.type)) {
         const row = rows.find((r) => r.id === next.rowId);
         setEditingCell(next);
         setEditValue(String(row?.cells[next.colKey] ?? ""));
@@ -853,7 +865,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           if (match) handleStatusChange(activeCell.rowId, col.key, match.value);
           return;
         }
-        if (col && col.type !== "status") startEditing(activeCell.rowId, activeCell.colKey, e.key);
+        if (col) startEditing(activeCell.rowId, activeCell.colKey, e.key);
       }
   };
 
@@ -975,8 +987,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     requestAnimationFrame(() => {
       setActiveCell({ rowId: newRow.id, colKey: columns[0].key });
       setRangeAnchor({ rowId: newRow.id, colKey: columns[0].key });
-      setEditingCell({ rowId: newRow.id, colKey: columns[0].key });
-      setEditValue("");
+      if (!isOptionColumn(columns[0].type)) {
+        setEditingCell({ rowId: newRow.id, colKey: columns[0].key });
+        setEditValue("");
+      }
       containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight });
     });
   }
