@@ -498,7 +498,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       // first line bails out whenever editingCellRef is set) until the
       // person happened to click some other cell. This is almost certainly
       // what made the table feel broadly "broken" rather than one glitch.
-      if (!col || isOptionColumn(col.type)) return;
+      if (!col || isOptionColumn(col.type) || col.type === "date") return;
       const row = rows.find((r) => r.id === rowId);
       if (!row) return;
       setEditingCell({ rowId, colKey });
