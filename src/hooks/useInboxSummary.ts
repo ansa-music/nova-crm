@@ -1,30 +1,40 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { paths } from "@/firebase/firestore";
-import { subscribeToChat } from "@/services/chatService";
-import { subscribeToMyConversations, subscribeToReadMarkers } from "@/services/inboxService";
+import { fetchChat } from "@/services/chatService";
+import { fetchMyConversations, fetchReadMarkers } from "@/services/inboxService";
+import { usePolledData } from "@/hooks/usePolledData";
 import type { ChatMessage, PrivateChatMeta } from "@/types";
 
-export function useInboxSummary(workspaceId: string | null, uid: string | null) {
-  const [workspaceMessages, setWorkspaceMessages] = useState<ChatMessage[]>([]);
-  const [conversations, setConversations] = useState<PrivateChatMeta[]>([]);
-  const [readMarkers, setReadMarkers] = useState<Record<string, number>>({});
+export function useInboxSummary(
+  workspaceId: string | null,
+  uid: string | null,
+  opts: { enabled?: boolean; includeWorkspaceChat?: boolean } = {}
+) {
+  const enabled = opts.enabled !== false;
+  const includeWorkspaceChat = opts.includeWorkspaceChat === true;
+  const active = Boolean(enabled && workspaceId && uid);
 
-  useEffect(() => {
-    if (!workspaceId || !uid) {
-      setWorkspaceMessages([]);
-      setConversations([]);
-      setReadMarkers({});
-      return;
-    }
-    const unsubMessages = subscribeToChat(paths.workspaceChat(workspaceId), setWorkspaceMessages);
-    const unsubConversations = subscribeToMyConversations(workspaceId, uid, setConversations);
-    const unsubMarkers = subscribeToReadMarkers(workspaceId, uid, setReadMarkers);
-    return () => {
-      unsubMessages();
-      unsubConversations();
-      unsubMarkers();
-    };
-  }, [workspaceId, uid]);
+  const { data } = usePolledData(
+    active,
+    async () => {
+      const ws = workspaceId as string;
+      const user = uid as string;
+      const [workspaceMessages, conversations, readMarkers] = await Promise.all([
+        includeWorkspaceChat ? fetchChat(paths.workspaceChat(ws)) : Promise.resolve([] as ChatMessage[]),
+        fetchMyConversations(ws, user),
+        fetchReadMarkers(ws, user),
+      ]);
+      return { workspaceMessages, conversations, readMarkers };
+    },
+    {
+      workspaceMessages: [] as ChatMessage[],
+      conversations: [] as PrivateChatMeta[],
+      readMarkers: {} as Record<string, number>,
+    },
+    [workspaceId, uid, includeWorkspaceChat]
+  );
+
+  const { workspaceMessages, conversations, readMarkers } = data;
 
   const workspaceChatUnread = useMemo(() => {
     const lastRead = readMarkers["workspaceChat"] ?? 0;

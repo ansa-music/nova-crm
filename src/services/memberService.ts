@@ -5,29 +5,39 @@ import { generateId } from "@/utils/id";
 import { addOwnWorkspaceId } from "@/services/authService";
 import type { Role, WorkspaceMember } from "@/types";
 
-export function subscribeToMembers(
+function sortMembers(members: WorkspaceMember[]) {
+  return members.sort((a, b) => a.invitedAt - b.invitedAt);
+}
+
+export async function fetchMembers(workspaceId: string): Promise<WorkspaceMember[]> {
+  const snapshot = await getDocs(paths.members(workspaceId));
+  return sortMembers(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as WorkspaceMember));
+}
+
+/**
+ * Live listener for THIS user's membership only (role, hidden pages, simulation).
+ * Does not listen to the rest of the members collection — presence heartbeats
+ * on other docs would otherwise fan out a billed snapshot to every client.
+ */
+export function subscribeToOwnMember(
   workspaceId: string,
-  onData: (members: WorkspaceMember[]) => void,
+  uid: string,
+  onData: (member: WorkspaceMember | null) => void,
   onError?: (error: import("firebase/firestore").FirestoreError) => void
 ) {
   let cancelled = false;
   let emittedOnce = false;
 
   const unsubscribe = onSnapshot(
-    paths.members(workspaceId),
+    paths.member(workspaceId, uid),
     (snapshot) => {
       if (cancelled) return;
-      const members = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as WorkspaceMember);
-
-      // Never treat an empty CACHE snapshot as "you are not a member".
-      // First phone open often gets cache=[] before the server list arrives;
-      // emitting that made DynamicTablePage show «Вы не участник…» until reload.
-      if (snapshot.metadata.fromCache && members.length === 0 && !emittedOnce) {
+      // Same race as the old collection listener: a missing cache doc is not "not a member".
+      if (snapshot.metadata.fromCache && !snapshot.exists() && !emittedOnce) {
         return;
       }
-
       emittedOnce = true;
-      onData(members.sort((a, b) => a.invitedAt - b.invitedAt));
+      onData(snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as unknown as WorkspaceMember) : null);
     },
     withErrorReporting(onError)
   );
@@ -36,6 +46,17 @@ export function subscribeToMembers(
     cancelled = true;
     unsubscribe();
   };
+}
+
+export function mergeOwnMember(members: WorkspaceMember[], own: WorkspaceMember | null): WorkspaceMember[] {
+  if (!own) return members;
+  const idx = members.findIndex(
+    (m) => (own.uid && m.uid === own.uid) || (own.email && m.email?.trim().toLowerCase() === own.email.trim().toLowerCase())
+  );
+  if (idx === -1) return sortMembers([...members, own]);
+  const next = members.slice();
+  next[idx] = { ...next[idx], ...own };
+  return next;
 }
 
 /** Creates a pending invite, keyed temporarily by email until the user signs in. */

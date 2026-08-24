@@ -1,32 +1,14 @@
-import { useEffect, useState } from "react";
-import { subscribeToAnnouncements } from "@/services/announcementService";
+import { fetchAnnouncements } from "@/services/announcementService";
+import { usePolledData } from "@/hooks/usePolledData";
 import type { Announcement } from "@/types";
 
 export function useAnnouncements(workspaceId: string | null) {
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data: announcements, isLoading, reload } = usePolledData<Announcement[]>(
+    Boolean(workspaceId),
+    () => fetchAnnouncements(workspaceId as string),
+    [],
+    [workspaceId]
+  );
 
-  useEffect(() => {
-    if (!workspaceId) {
-      setAnnouncements([]);
-      setIsLoading(false);
-      return;
-    }
-    setIsLoading(true);
-    const unsubscribe = subscribeToAnnouncements(
-      workspaceId,
-      (data) => {
-        setAnnouncements(data);
-        setIsLoading(false);
-      },
-      (error) => {
-        console.error("subscribeToAnnouncements denied:", error.code, error.message);
-        setAnnouncements([]);
-        setIsLoading(false);
-      }
-    );
-    return unsubscribe;
-  }, [workspaceId]);
-
-  return { announcements, isLoading };
+  return { announcements, isLoading, reload };
 }

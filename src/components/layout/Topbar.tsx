@@ -31,7 +31,7 @@ export function Topbar({ title }: { title?: string }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const { profile } = useAuth();
   const { activeWorkspaceId } = useWorkspace();
-  const { notifications, unreadCount } = useNotifications(activeWorkspaceId, profile?.uid ?? null);
+  const { notifications, unreadCount, reload } = useNotifications(activeWorkspaceId, profile?.uid ?? null);
 
   return (
     <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-1.5 border-b border-primary/25 bg-background/90 px-3 sm:px-4">
@@ -70,7 +70,10 @@ export function Topbar({ title }: { title?: string }) {
 
       <DropdownMenu
         onOpenChange={(open) => {
-          if (open && activeWorkspaceId) markAllNotificationsRead(activeWorkspaceId, notifications);
+          if (open) {
+            void reload();
+            if (activeWorkspaceId) markAllNotificationsRead(activeWorkspaceId, notifications);
+          }
         }}
       >
         <DropdownMenuTrigger asChild>

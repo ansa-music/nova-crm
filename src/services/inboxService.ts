@@ -1,6 +1,6 @@
-import { onSnapshot, query, setDoc, where } from "firebase/firestore";
+import { getDocs, query, setDoc, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths, withErrorReporting } from "@/firebase/firestore";
+import { paths } from "@/firebase/firestore";
 import { normalizeTimestamp } from "@/utils/date";
 import type { PrivateChatMeta, ReadMarker } from "@/types";
 
@@ -24,24 +24,13 @@ export async function upsertPrivateChatMeta(
   await setDoc(paths.privateChatMeta(workspaceId, chatId), meta, { merge: true });
 }
 
-export function subscribeToMyConversations(
-  workspaceId: string,
-  uid: string,
-  onData: (conversations: PrivateChatMeta[]) => void,
-  onError?: (error: import("firebase/firestore").FirestoreError) => void
-) {
+export async function fetchMyConversations(workspaceId: string, uid: string): Promise<PrivateChatMeta[]> {
   const q = query(paths.privateChats(workspaceId), where("participants", "array-contains", uid));
-  return onSnapshot(
-    q,
-    (snapshot) => {
-      const items = snapshot.docs
-        .map((d) => ({ id: d.id, ...d.data() }) as unknown as PrivateChatMeta)
-        .map((c) => ({ ...c, lastMessageAt: normalizeTimestamp(c.lastMessageAt) }))
-        .sort((a, b) => b.lastMessageAt - a.lastMessageAt);
-      onData(items);
-    },
-    withErrorReporting(onError)
-  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs
+    .map((d) => ({ id: d.id, ...d.data() }) as unknown as PrivateChatMeta)
+    .map((c) => ({ ...c, lastMessageAt: normalizeTimestamp(c.lastMessageAt) }))
+    .sort((a, b) => b.lastMessageAt - a.lastMessageAt);
 }
 
 /** context is "workspaceChat" or `private:${chatId}` */
@@ -52,23 +41,13 @@ export async function markContextRead(workspaceId: string, uid: string, context:
   await setDoc(paths.readMarker(workspaceId, id), marker, { merge: true });
 }
 
-export function subscribeToReadMarkers(
-  workspaceId: string,
-  uid: string,
-  onData: (markers: Record<string, number>) => void,
-  onError?: (error: import("firebase/firestore").FirestoreError) => void
-) {
+export async function fetchReadMarkers(workspaceId: string, uid: string): Promise<Record<string, number>> {
   const q = query(paths.readMarkers(workspaceId), where("uid", "==", uid));
-  return onSnapshot(
-    q,
-    (snapshot) => {
-      const map: Record<string, number> = {};
-      snapshot.docs.forEach((d) => {
-        const data = d.data() as ReadMarker;
-        map[data.context] = normalizeTimestamp(data.lastReadAt);
-      });
-      onData(map);
-    },
-    withErrorReporting(onError)
-  );
+  const snapshot = await getDocs(q);
+  const map: Record<string, number> = {};
+  snapshot.docs.forEach((d) => {
+    const data = d.data() as ReadMarker;
+    map[data.context] = normalizeTimestamp(data.lastReadAt);
+  });
+  return map;
 }

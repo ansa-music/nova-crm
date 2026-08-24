@@ -45,16 +45,24 @@ export default function DynamicTablePage() {
   const [personalSpaceOpen, setPersonalSpaceOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [activeSubPageId, setActiveSubPageId] = useState<string | null>(null);
+  const [tabsReady, setTabsReady] = useState(false);
+  const appliedDefaultForPageRef = useRef<string | null>(null);
 
   const page = pages.find((p) => p.id === pageId);
   const hasAccess = permissions.isResolved && Boolean(page && permissions.canAccessPage(page));
-  const { rows: pageRows, isLoading: pageRowsLoading } = usePageRows(activeWorkspaceId, hasAccess && page ? page.id : null);
   const { subPages } = useSubPages(activeWorkspaceId, hasAccess && page ? page.id : null);
   const activeSubPage = subPages.find((s) => s.id === activeSubPageId) ?? null;
+  const tabScopeReady = tabsReady && appliedDefaultForPageRef.current === pageId;
+  const listenMainRows = Boolean(hasAccess && page && tabScopeReady && !activeSubPageId);
+  const listenSubRows = Boolean(hasAccess && page && tabScopeReady && activeSubPageId);
+  const { rows: pageRows, isLoading: pageRowsLoading } = usePageRows(
+    activeWorkspaceId,
+    listenMainRows && page ? page.id : null
+  );
   const { rows: subPageRows, isLoading: subPageRowsLoading } = useSubPageRows(
     activeWorkspaceId,
-    hasAccess && page ? page.id : null,
-    activeSubPageId
+    listenSubRows && page ? page.id : null,
+    listenSubRows ? activeSubPageId : null
   );
 
   // Reset the active tab whenever navigating to a different page entirely
@@ -64,12 +72,18 @@ export default function DynamicTablePage() {
   // every Firestore snapshot, so this effect re-runs on unrelated field
   // changes too — without the guard it would keep yanking someone back to
   // the default tab every time the page doc updates for any reason.
-  const appliedDefaultForPageRef = useRef<string | null>(null);
+  useEffect(() => {
+    appliedDefaultForPageRef.current = null;
+    setTabsReady(false);
+    setActiveSubPageId(null);
+  }, [pageId]);
+
   useEffect(() => {
     if (!page) return;
     if (appliedDefaultForPageRef.current === pageId) return;
     appliedDefaultForPageRef.current = pageId ?? null;
     setActiveSubPageId(page.defaultSubPageId ?? null);
+    setTabsReady(true);
   }, [pageId, page]);
 
   // "Продолжить с того места" — remembers the last table page you had open
@@ -87,7 +101,7 @@ export default function DynamicTablePage() {
   }, [pageId, profile?.uid]);
 
   const rows = activeSubPageId ? subPageRows : pageRows;
-  const rowsLoading = activeSubPageId ? subPageRowsLoading : pageRowsLoading;
+  const rowsLoading = !tabsReady || (activeSubPageId ? subPageRowsLoading : pageRowsLoading);
 
   // Retrofit: pages created before "Цена" / "Диск" became standard columns
   // don't have them. If an Owner/Admin opens such a page, silently add

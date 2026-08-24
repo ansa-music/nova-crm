@@ -1,6 +1,6 @@
-import { getDoc, setDoc } from "firebase/firestore";
+import { getDoc, getDocs, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths, subscribe, subscribeToDoc } from "@/firebase/firestore";
+import { paths, subscribeToDoc } from "@/firebase/firestore";
 import type { JoinRequest, Role, Workspace, WorkspaceMember } from "@/types";
 
 /** Minimal public info shown on the /join/:workspaceId page before the person is a member. */
@@ -50,17 +50,12 @@ export function subscribeToOwnJoinRequest(
 }
 
 /** Owner-only: list of everyone currently waiting to be let in. */
-export function subscribeToJoinRequests(
-  workspaceId: string,
-  onData: (requests: JoinRequest[]) => void
-) {
-  return subscribe<JoinRequest>(paths.joinRequests(workspaceId), (requests) =>
-    onData(
-      requests
-        .filter((r) => r.status === "pending")
-        .sort((a, b) => a.requestedAt - b.requestedAt)
-    )
-  );
+export async function fetchJoinRequests(workspaceId: string): Promise<JoinRequest[]> {
+  const snap = await getDocs(paths.joinRequests(workspaceId));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }) as unknown as JoinRequest)
+    .filter((r) => r.status === "pending")
+    .sort((a, b) => a.requestedAt - b.requestedAt);
 }
 
 /**

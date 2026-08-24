@@ -13,11 +13,11 @@ import { InviteMemberForm } from "@/components/members/InviteMemberForm";
 import { RoleSelect } from "@/components/members/RoleSelect";
 import { changeMemberRole, removeMember, resendInvite } from "@/services/memberService";
 import { toggleUserPageAccess } from "@/services/pageService";
-import { approveJoinRequest, rejectJoinRequest, subscribeToJoinRequests } from "@/services/joinRequestService";
+import { approveJoinRequest, rejectJoinRequest, fetchJoinRequests } from "@/services/joinRequestService";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { timeAgo } from "@/utils/date";
 import { useAuth } from "@/hooks/useAuth";
-import { useWorkspace } from "@/hooks/useWorkspace";
+import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { JoinRequest, PageIconName } from "@/types";
 
@@ -31,7 +31,26 @@ export default function UsersPage() {
 
   useEffect(() => {
     if (!activeWorkspaceId || !permissions.canManageWorkspace) return;
-    return subscribeToJoinRequests(activeWorkspaceId, setJoinRequests);
+    let cancelled = false;
+    async function load() {
+      try {
+        const [requests] = await Promise.all([
+          fetchJoinRequests(activeWorkspaceId!),
+          refreshWorkspaceMembers(activeWorkspaceId!),
+        ]);
+        if (!cancelled) setJoinRequests(requests);
+      } catch (error) {
+        console.error("UsersPage poll failed:", error);
+      }
+    }
+    void load();
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, [activeWorkspaceId, permissions.canManageWorkspace]);
 
   if (!permissions.canManageWorkspace) {
@@ -58,6 +77,8 @@ export default function UsersPage() {
   async function handleApproveRequest(request: JoinRequest) {
     try {
       await approveJoinRequest(activeWorkspaceId!, request, "viewer", profile?.uid ?? "");
+      await refreshWorkspaceMembers(activeWorkspaceId!);
+      setJoinRequests(await fetchJoinRequests(activeWorkspaceId!));
       toast.success(`${request.name} добавлен(а) в workspace как Viewer`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось одобрить заявку");
@@ -66,22 +87,26 @@ export default function UsersPage() {
 
   async function handleRejectRequest(uid: string) {
     await rejectJoinRequest(activeWorkspaceId!, uid);
+    setJoinRequests(await fetchJoinRequests(activeWorkspaceId!));
     toast.success("Заявка отклонена");
   }
 
   async function handleRoleChange(uid: string, role: Parameters<typeof changeMemberRole>[2]) {
     await changeMemberRole(activeWorkspaceId!, uid, role);
+    await refreshWorkspaceMembers(activeWorkspaceId!);
     toast.success("Роль обновлена");
   }
 
   async function handleRemove(uid: string, name: string) {
     if (!window.confirm(`Убрать ${name} из workspace? Он потеряет доступ ко всем страницам.`)) return;
     await removeMember(activeWorkspaceId!, uid);
+    await refreshWorkspaceMembers(activeWorkspaceId!);
     toast.success("Пользователь удалён");
   }
 
   async function handleResend(email: string) {
     await resendInvite(activeWorkspaceId!, email);
+    await refreshWorkspaceMembers(activeWorkspaceId!);
     toast.success("Приглашение обновлено");
   }
 

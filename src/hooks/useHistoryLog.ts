@@ -1,24 +1,16 @@
-import { useEffect, useState } from "react";
-import { subscribeToHistory } from "@/services/historyService";
+import { fetchHistory } from "@/services/historyService";
+import { usePolledData } from "@/hooks/usePolledData";
 import type { HistoryEntry } from "@/types";
 
 export function useHistoryLog(workspaceId: string | null, pageId?: string) {
-  const [entries, setEntries] = useState<HistoryEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data, isLoading } = usePolledData<HistoryEntry[]>(
+    Boolean(workspaceId),
+    () => fetchHistory(workspaceId as string),
+    [],
+    [workspaceId]
+  );
 
-  useEffect(() => {
-    if (!workspaceId) {
-      setEntries([]);
-      setIsLoading(false);
-      return;
-    }
-    setIsLoading(true);
-    const unsubscribe = subscribeToHistory(workspaceId, (data) => {
-      setEntries(pageId ? data.filter((e) => e.pageId === pageId) : data);
-      setIsLoading(false);
-    });
-    return unsubscribe;
-  }, [workspaceId, pageId]);
+  const entries = pageId ? data.filter((e) => e.pageId === pageId) : data;
 
   return { entries, isLoading };
 }

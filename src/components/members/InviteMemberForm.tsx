@@ -8,6 +8,7 @@ import { toast } from "@/components/ui/sonner";
 import { RoleSelect } from "@/components/members/RoleSelect";
 import { inviteSchema, type InviteFormValues } from "@/utils/validation";
 import { inviteMember } from "@/services/memberService";
+import { refreshWorkspaceMembers } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
 
 export function InviteMemberForm({ workspaceId }: { workspaceId: string }) {
@@ -24,6 +25,7 @@ export function InviteMemberForm({ workspaceId }: { workspaceId: string }) {
     setIsSubmitting(true);
     try {
       await inviteMember(workspaceId, values.email, values.role, profile.uid);
+      await refreshWorkspaceMembers(workspaceId);
       toast.success(`Приглашение для ${values.email} создано`);
       form.reset({ email: "", role: "manager" });
     } catch (error) {

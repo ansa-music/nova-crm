@@ -30,7 +30,7 @@ import type { WorkspacePage } from "@/types";
 export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?: () => void }) {
   const { profile } = useAuth();
   const { pages, activeWorkspaceId, members } = useWorkspace();
-  const { workspaceChatUnread, privateUnreadTotal } = useInboxSummary(activeWorkspaceId, profile?.uid ?? null);
+  const { workspaceChatUnread, privateUnreadTotal } = useInboxSummary(activeWorkspaceId, profile?.uid ?? null, { includeWorkspaceChat: false });
   const permissions = usePermissions();
   const pinnedCollapsed = useUiStore((s) => s.sidebarCollapsed) && !mobile;
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);

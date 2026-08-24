@@ -26,7 +26,7 @@ interface HistoryPanelProps {
 }
 
 export function HistoryPanel({ open, onOpenChange, workspaceId, pageId, columns = [] }: HistoryPanelProps) {
-  const { entries } = useHistoryLog(workspaceId, pageId);
+  const { entries } = useHistoryLog(open ? workspaceId : null, pageId);
   const permissions = usePermissions();
   const { profile } = useAuth();
   const { activeWorkspace } = useWorkspace();

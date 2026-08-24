@@ -3,6 +3,7 @@ import {
   DocumentData,
   deleteDoc,
   doc,
+  getDocs,
   onSnapshot,
   serverTimestamp,
   setDoc,
@@ -47,6 +48,18 @@ export function subscribeToChat(
 
 function orderKey(m: ChatMessage & { serverOrderAt?: unknown }): number {
   return m.serverOrderAt ? normalizeTimestamp(m.serverOrderAt) : m.createdAt;
+}
+
+function mapChatDocs(docs: { id: string; data: () => DocumentData }[]): ChatMessage[] {
+  const items = docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as ChatMessage & { serverOrderAt?: unknown });
+  items.forEach((m) => (m.createdAt = normalizeTimestamp(m.createdAt)));
+  items.sort((a, b) => orderKey(a) - orderKey(b));
+  return items;
+}
+
+export async function fetchChat(ref: CollectionReference<DocumentData>): Promise<ChatMessage[]> {
+  const snapshot = await getDocs(ref);
+  return mapChatDocs(snapshot.docs);
 }
 
 export interface SendMessageInput {

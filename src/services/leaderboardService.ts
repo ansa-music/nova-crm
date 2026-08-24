@@ -1,4 +1,4 @@
-import { onSnapshot, setDoc } from "firebase/firestore";
+import { getDocs, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import type { LeaderboardEntry } from "@/types";
@@ -16,9 +16,8 @@ export async function updateLeaderboardEntry(workspaceId: string, entry: Omit<Le
   await setDoc(paths.leaderboardEntry(workspaceId, entry.pageId), { ...entry, updatedAt: Date.now() });
 }
 
-export function subscribeToLeaderboard(workspaceId: string, callback: (entries: LeaderboardEntry[]) => void) {
-  if (!db) return () => {};
-  return onSnapshot(paths.leaderboard(workspaceId), (snap) => {
-    callback(snap.docs.map((d) => d.data() as LeaderboardEntry));
-  });
+export async function fetchLeaderboard(workspaceId: string): Promise<LeaderboardEntry[]> {
+  if (!db) return [];
+  const snap = await getDocs(paths.leaderboard(workspaceId));
+  return snap.docs.map((d) => d.data() as LeaderboardEntry);
 }

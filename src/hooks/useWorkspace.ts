@@ -1,7 +1,7 @@
 // PATH: src/hooks/useWorkspace.ts  (REPLACES EXISTING)
 import { useEffect, useRef } from "react";
 import { subscribeToUserWorkspaces } from "@/services/workspaceService";
-import { subscribeToMembers } from "@/services/memberService";
+import { fetchMembers, mergeOwnMember, subscribeToOwnMember } from "@/services/memberService";
 import { subscribeToPages } from "@/services/pageService";
 import { useAuthStore } from "@/store/authStore";
 import { useBootstrapStore } from "@/store/bootstrapStore";
@@ -121,22 +121,43 @@ export function useActiveWorkspaceDataBootstrap() {
       maybeDone();
     }, 10000);
 
-    const unsubMembers = subscribeToMembers(
-      activeWorkspaceId,
-      (members) => {
+    // Full roster is a one-shot read (presence lastActiveAt lives on these docs).
+    // Live listener is only the current user's member doc — needed for access/role.
+    let roster: import("@/types").WorkspaceMember[] = [];
+    let ownMember: import("@/types").WorkspaceMember | null = null;
+    function publishMembers() {
+      setMembers(mergeOwnMember(roster, ownMember));
+    }
+
+    void fetchMembers(activeWorkspaceId)
+      .then((list) => {
         if (generation !== generationRef.current) return;
-        setMembers(members);
-        setMembersLoadState("ready");
-        membersLoaded = true;
-        maybeDone();
-      },
-      (error) => {
+        roster = list;
+        publishMembers();
+      })
+      .catch((error) => {
         if (generation !== generationRef.current) return;
-        console.error(`subscribeToMembers denied for workspace ${activeWorkspaceId}:`, error.code, error.message);
-        // permission-denied / empty is not a finished membership check —
-        // keep membersLoadState loading until hangTimer marks unconfirmed.
-      }
-    );
+        console.error(`fetchMembers failed for workspace ${activeWorkspaceId}:`, error);
+      });
+
+    const unsubMembers = uid
+      ? subscribeToOwnMember(
+          activeWorkspaceId,
+          uid,
+          (own) => {
+            if (generation !== generationRef.current) return;
+            ownMember = own;
+            publishMembers();
+            setMembersLoadState("ready");
+            membersLoaded = true;
+            maybeDone();
+          },
+          (error) => {
+            if (generation !== generationRef.current) return;
+            console.error(`subscribeToOwnMember denied for workspace ${activeWorkspaceId}:`, error.code, error.message);
+          }
+        )
+      : () => {};
 
     const unsubPages = subscribeToPages(
       activeWorkspaceId,
@@ -199,4 +220,11 @@ export function useWorkspace() {
     isLoadingWorkspaceData,
     membersLoadState,
   };
+}
+
+export async function refreshWorkspaceMembers(workspaceId: string) {
+  const list = await fetchMembers(workspaceId);
+  const uid = useAuthStore.getState().firebaseUser?.uid;
+  const own = useWorkspaceStore.getState().members.find((m) => m.uid === uid) ?? null;
+  useWorkspaceStore.getState().setMembers(mergeOwnMember(list, own));
 }

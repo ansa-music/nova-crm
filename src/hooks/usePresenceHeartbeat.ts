@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { updatePresenceHeartbeat } from "@/services/authService";
 import { useAuth } from "@/hooks/useAuth";
 
-const HEARTBEAT_INTERVAL_MS = 45 * 1000;
+const HEARTBEAT_INTERVAL_MS = 3 * 60 * 1000;
 
 /** Mount once near the app root (inside AppLayout). Keeps this user's presence fresh across all their workspaces. */
 export function usePresenceHeartbeat() {

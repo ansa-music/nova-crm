@@ -24,7 +24,7 @@ const PRIORITY_STYLES: Record<AnnouncementPriority, { label: string; badge: stri
 export default function AnnouncementsPage() {
   const { activeWorkspaceId } = useWorkspace();
   const permissions = usePermissions();
-  const { announcements } = useAnnouncements(activeWorkspaceId);
+  const { announcements, reload } = useAnnouncements(activeWorkspaceId);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Announcement | null>(null);
   const [search, setSearch] = useState("");
@@ -45,14 +45,17 @@ export default function AnnouncementsPage() {
 
   async function handleTogglePin(a: Announcement) {
     await togglePinAnnouncement(activeWorkspaceId!, a.id, !a.pinned);
+    void reload();
   }
   async function handleArchive(a: Announcement) {
     await archiveAnnouncement(activeWorkspaceId!, a.id, !a.isArchived);
+    void reload();
     toast.success(a.isArchived ? "Объявление восстановлено" : "Объявление в архиве");
   }
   async function handleDelete(a: Announcement) {
     if (!window.confirm(`Удалить объявление «${a.title}»?`)) return;
     await deleteAnnouncement(activeWorkspaceId!, a.id);
+    void reload();
     toast.success("Объявление удалено");
   }
 
@@ -160,7 +163,14 @@ export default function AnnouncementsPage() {
         </div>
       </div>
 
-      <AnnouncementDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} />
+      <AnnouncementDialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) void reload();
+        }}
+        editing={editing}
+      />
     </div>
   );
 }

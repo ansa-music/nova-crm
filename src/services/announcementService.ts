@@ -1,35 +1,26 @@
-import { deleteDoc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { deleteDoc, getDocs, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths, withErrorReporting } from "@/firebase/firestore";
+import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { normalizeTimestamp } from "@/utils/date";
 import type { Announcement, AnnouncementPriority } from "@/types";
 
-export function subscribeToAnnouncements(
-  workspaceId: string,
-  onData: (announcements: Announcement[]) => void,
-  onError?: (error: import("firebase/firestore").FirestoreError) => void
-) {
-  // No orderBy() in the query: it would silently exclude the announcement
-  // already created before this fix (no serverOrderAt field yet). Sorted
-  // client-side instead, preferring the server-authoritative order and
-  // falling back to the plain client timestamp for older documents.
-  return onSnapshot(
-    paths.announcements(workspaceId),
-    (snapshot) => {
-      const items = snapshot.docs.map(
-        (d) => ({ id: d.id, ...d.data() }) as unknown as Announcement & { serverOrderAt?: unknown }
-      );
-      items.forEach((a) => (a.createdAt = normalizeTimestamp(a.createdAt)));
-      items.sort((a, b) => {
-        const keyA = a.serverOrderAt ? normalizeTimestamp(a.serverOrderAt) : a.createdAt;
-        const keyB = b.serverOrderAt ? normalizeTimestamp(b.serverOrderAt) : b.createdAt;
-        return keyB - keyA;
-      });
-      onData(items);
-    },
-    withErrorReporting(onError)
+function mapAnnouncements(docs: { id: string; data: () => import("firebase/firestore").DocumentData }[]): Announcement[] {
+  const items = docs.map(
+    (d) => ({ id: d.id, ...d.data() }) as unknown as Announcement & { serverOrderAt?: unknown }
   );
+  items.forEach((a) => (a.createdAt = normalizeTimestamp(a.createdAt)));
+  items.sort((a, b) => {
+    const keyA = a.serverOrderAt ? normalizeTimestamp(a.serverOrderAt) : a.createdAt;
+    const keyB = b.serverOrderAt ? normalizeTimestamp(b.serverOrderAt) : b.createdAt;
+    return keyB - keyA;
+  });
+  return items;
+}
+
+export async function fetchAnnouncements(workspaceId: string): Promise<Announcement[]> {
+  const snapshot = await getDocs(paths.announcements(workspaceId));
+  return mapAnnouncements(snapshot.docs);
 }
 
 export interface CreateAnnouncementInput {
