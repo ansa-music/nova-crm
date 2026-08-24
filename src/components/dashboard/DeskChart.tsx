@@ -29,7 +29,7 @@ function GlassTooltip({
   if (!active || !payload?.length) return null;
   const row = payload[0].payload;
   return (
-    <div className="rounded-sm border border-primary/40 bg-card px-3 py-2 shadow-[0_0_24px_hsl(var(--primary)/0.28)] ">
+    <div className="rounded-xl border border-border bg-card px-3 py-2 shadow-sm">
       <p className="text-[12px] font-medium text-foreground">{row.person || row.name}</p>
       <p className="text-[11px] text-muted-foreground">{row.name}</p>
       <p className="mt-1 font-mono text-[12px] tabular text-primary">{formatCurrency(row.doneTotal)}</p>
@@ -74,7 +74,7 @@ export function DeskChart({ data, activeId, onHover, onSelect }: DeskChartProps)
   );
 
   return (
-    <Card className="desk-chart hud-frame lift-card overflow-hidden border-primary/25 bg-card/92  ">
+    <Card className="desk-chart overflow-hidden rounded-2xl border-border bg-card">
       <CardHeader className="pb-2">
         <p className="eyebrow text-primary">Диаграмма</p>
         <CardTitle className="text-base font-medium">Готово по столам</CardTitle>
@@ -128,7 +128,6 @@ export function DeskChart({ data, activeId, onHover, onSelect }: DeskChartProps)
                       stroke={focused ? "hsl(var(--primary))" : "transparent"}
                       strokeWidth={focused ? 1.5 : 0}
                       style={{
-                        filter: focused ? "drop-shadow(0 0 10px hsl(var(--primary) / 0.7))" : undefined,
                         cursor: "pointer",
                       }}
                     />
@@ -162,7 +161,7 @@ function GoalTooltip({
   if (!active || !payload?.length) return null;
   const item = payload[0];
   return (
-    <div className="rounded-sm border border-primary/40 bg-card px-3 py-2 text-[12px] shadow-[0_0_24px_hsl(var(--primary)/0.28)] ">
+    <div className="rounded-xl border border-border bg-card px-3 py-2 text-[12px] shadow-sm">
       <p className="text-muted-foreground">{item.name}</p>
       <p className="font-mono tabular text-primary">{formatCurrency(item.value)}</p>
     </div>
@@ -177,7 +176,7 @@ export function GoalVsDoneChart({ doneTotal, goal }: GoalVsDoneChartProps) {
   const percent = goal > 0 ? Math.min(100, Math.round((doneTotal / goal) * 100)) : 0;
 
   return (
-    <Card className="desk-chart hud-frame lift-card overflow-hidden border-primary/25 bg-card/92 ">
+    <Card className="desk-chart overflow-hidden rounded-2xl border-border bg-card">
       <CardHeader className="pb-2">
         <p className="eyebrow text-primary">Цель</p>
         <CardTitle className="text-base font-medium">Готово и цель на месяц</CardTitle>

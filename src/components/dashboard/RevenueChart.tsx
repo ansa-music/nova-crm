@@ -17,7 +17,7 @@ function GlassTooltip({
 }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-sm border border-primary/40 bg-card px-3 py-2 text-[12px] shadow-[0_0_24px_hsl(var(--primary)/0.28)] ">
+    <div className="rounded-xl border border-border bg-card px-3 py-2 text-[12px] shadow-sm">
       <p className="text-muted-foreground">{label}</p>
       <p className="font-mono tabular text-primary">{formatCurrency(payload[0].value)}</p>
     </div>
@@ -26,7 +26,7 @@ function GlassTooltip({
 
 export function RevenueChart({ data }: RevenueChartProps) {
   return (
-    <Card className="desk-chart hud-frame lift-card overflow-hidden border-primary/25 bg-card/92 ">
+    <Card className="desk-chart overflow-hidden rounded-2xl border-border bg-card">
       <CardHeader className="pb-2">
         <p className="eyebrow text-primary">С листа</p>
         <CardTitle className="text-base font-medium">По датам с листа</CardTitle>
@@ -53,7 +53,7 @@ export function RevenueChart({ data }: RevenueChartProps) {
               isAnimationActive={!window.matchMedia("(prefers-reduced-motion: reduce)").matches}
               animationDuration={800}
               stroke="hsl(var(--primary))"
-              strokeWidth={2.25}
+              strokeWidth={2}
               fill="url(#orderDateGradient)"
               activeDot={{ r: 5, fill: "hsl(var(--primary))", stroke: "hsl(var(--background))", strokeWidth: 2 }}
             />

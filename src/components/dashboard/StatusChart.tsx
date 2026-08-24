@@ -23,7 +23,7 @@ function GlassTooltip({
   if (!active || !payload?.length) return null;
   const item = payload[0];
   return (
-    <div className="rounded-sm border border-primary/40 bg-card px-3 py-2 text-[12px] shadow-[0_0_24px_hsl(var(--primary)/0.28)] ">
+    <div className="rounded-xl border border-border bg-card px-3 py-2 text-[12px] shadow-sm">
       <p className="font-medium text-foreground">{item.name}</p>
       <p className="font-mono tabular text-primary">{item.value}</p>
     </div>
@@ -49,9 +49,8 @@ function ActiveSlice(props: {
       startAngle={startAngle}
       endAngle={endAngle}
       fill={fill}
-      stroke="hsl(var(--primary))"
-      strokeWidth={1.25}
-      style={{ filter: "drop-shadow(0 0 12px hsl(var(--primary) / 0.55))" }}
+      stroke="hsl(var(--border))"
+      strokeWidth={1}
     />
   );
 }
@@ -63,7 +62,7 @@ export function StatusChart({ title, data }: StatusChartProps) {
   const total = visible.reduce((sum, d) => sum + d.value, 0);
 
   return (
-    <Card className="desk-chart hud-frame lift-card overflow-hidden border-primary/25 bg-card/92 ">
+    <Card className="desk-chart overflow-hidden rounded-2xl border-border bg-card">
       <CardHeader className="pb-2">
         <p className="eyebrow text-primary">Как идут статусы</p>
         <CardTitle className="text-base font-medium">{title}</CardTitle>
@@ -113,7 +112,7 @@ export function StatusChart({ title, data }: StatusChartProps) {
                   >
                     <span
                       className="h-1.5 w-1.5 rounded-full"
-                      style={{ background: sliceFill(entry.color), boxShadow: "0 0 8px hsl(var(--primary) / 0.35)" }}
+                      style={{ background: sliceFill(entry.color) }}
                     />
                     {entry.name}
                     <span className="font-mono tabular">{entry.value}</span>
