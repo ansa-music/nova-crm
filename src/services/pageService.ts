@@ -9,6 +9,7 @@ import {
   setDoc,
   where,
   writeBatch,
+  type FirestoreError,
   type Query,
 } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
@@ -55,20 +56,19 @@ export function stripUndefined<T>(value: T): T {
  * Owner: unfiltered collection query only (isOwner does not depend on
  * resource.data, so the live list is allowed).
  *
- * Non-owner: never start with unfiltered. Live rules still evaluate
- * canAccessPage on LIST, so that query is always permission-denied and
- * toasts «Нет доступа к части данных». Instead run two scoped live queries
- * and merge by page id:
+ * Other members: try the same unfiltered list first so every member gets
+ * desk covers (live rules `allow read: if isMember` on pages). If that is
+ * permission-denied / failed-precondition (older canAccessPage list rules),
+ * silently fall back to two scoped queries and merge by page id:
  *   1) where("responsibleUserId","==",uid) — own desk even if not in allowedUsers
  *   2) where("allowedUsers","array-contains",uid) — shared desks
- * Emit after each snapshot so the own desk appears without waiting for the
- * other query. Skip a query that is permission-denied / failed-precondition
- * and still emit the other; toast only if both fail.
+ * Never keep unfiltered AND the fallbacks attached. Do not toast if the
+ * fallback produces a list. Toast only if both scoped queries fail.
  */
 export function subscribeToPages(
   workspaceId: string,
   onData: (pages: WorkspacePage[]) => void,
-  onError?: (error: import("firebase/firestore").FirestoreError) => void,
+  onError?: (error: FirestoreError) => void,
   currentUserUid?: string,
   isOwnerOfWorkspace?: boolean
 ) {
@@ -101,7 +101,11 @@ export function subscribeToPages(
     emit(pages);
   };
 
-  if (isOwnerOfWorkspace) {
+  const clearListeners = () => {
+    unsubscribers.splice(0).forEach((u) => u());
+  };
+
+  const attachUnfiltered = (onListDenied?: (error: FirestoreError) => void) => {
     unsubscribers.push(
       onSnapshot(
         query(paths.pages(workspaceId)),
@@ -110,11 +114,21 @@ export function subscribeToPages(
           handleSnapPages(snapshot.metadata.fromCache, pages);
         },
         (error) => {
-          if (!cancelled) report(error);
+          if (cancelled) return;
+          if (
+            onListDenied &&
+            (error.code === "permission-denied" || error.code === "failed-precondition")
+          ) {
+            onListDenied(error);
+            return;
+          }
+          report(error);
         }
       )
     );
-  } else if (currentUserUid) {
+  };
+
+  const attachScopedFallbacks = (uid: string) => {
     const responsibleById = new Map<string, WorkspacePage>();
     const allowedById = new Map<string, WorkspacePage>();
     let responsibleFailed = false;
@@ -160,7 +174,7 @@ export function subscribeToPages(
     };
 
     attachScoped(
-      query(paths.pages(workspaceId), where("responsibleUserId", "==", currentUserUid)),
+      query(paths.pages(workspaceId), where("responsibleUserId", "==", uid)),
       responsibleById,
       () => {
         responsibleFailed = true;
@@ -168,13 +182,23 @@ export function subscribeToPages(
       () => allowedFailed
     );
     attachScoped(
-      query(paths.pages(workspaceId), where("allowedUsers", "array-contains", currentUserUid)),
+      query(paths.pages(workspaceId), where("allowedUsers", "array-contains", uid)),
       allowedById,
       () => {
         allowedFailed = true;
       },
       () => responsibleFailed
     );
+  };
+
+  if (isOwnerOfWorkspace) {
+    attachUnfiltered();
+  } else if (currentUserUid) {
+    attachUnfiltered(() => {
+      // Unfiltered list denied — drop it and keep only the two scoped queries.
+      clearListeners();
+      attachScopedFallbacks(currentUserUid);
+    });
   }
 
   return () => {

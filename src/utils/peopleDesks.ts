@@ -109,7 +109,10 @@ export function splitStudioDesks(
   for (const page of pages) {
     const own = Boolean(uid && page.responsibleUserId === uid);
     const canOpen = own || opts.isOwner || opts.canAccess(page);
-    if (canOpen && (!page.hiddenByResponsible || own || opts.isOwner)) openable.push(page);
+    // Main grid = desks this person can open that are not hidden from studio.
+    // Own desk stays here even if they hid it. Owner/others open hidden desks
+    // from «Скрытые столы», not mixed into available covers.
+    if (canOpen && (!page.hiddenByResponsible || own)) openable.push(page);
     else hidden.push(page);
   }
   return { openable, hidden };

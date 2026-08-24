@@ -96,16 +96,19 @@ export default function DesksPage() {
         </div>
       </header>
 
-      {filtered.length === 0 ? (
-        <EmptyState className="rounded-2xl border border-primary/25 bg-card py-16" title={query ? "Нет таких столов" : "Пока нет столов"} />
-      ) : (
+      {filtered.length > 0 ? (
         <DeskCoverGrid
           pages={filtered}
           members={members}
           ownerUid={ownerUid}
           onOpen={(page) => navigate(`/page/${page.id}`)}
         />
-      )}
+      ) : query.trim() || hidden.length === 0 ? (
+        <EmptyState
+          className="rounded-2xl border border-primary/25 bg-card py-16"
+          title={query.trim() ? "Нет таких столов" : "Пока нет столов"}
+        />
+      ) : null}
 
       <Sheet open={hiddenOpen} onOpenChange={setHiddenOpen}>
         <SheetContent side="right" className="flex w-full max-w-md flex-col overflow-y-auto p-0">
