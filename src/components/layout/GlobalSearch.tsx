@@ -61,7 +61,8 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
 
   const destinations: CommandItem[] = useMemo(() => {
     const list: CommandItem[] = [
-      { id: "dash", kind: "go", label: "Главная", hint: "Твой стол", href: "/", icon: LayoutDashboard },
+      { id: "home", kind: "go", label: "Главная", hint: "Твой стол", href: "/", icon: LayoutDashboard },
+      { id: "dash", kind: "go", label: "Дашборд", href: "/dashboard", icon: LayoutDashboard },
       { id: "people", kind: "go", label: "Люди", href: "/people", icon: Users },
       { id: "ann", kind: "go", label: "Объявления", href: "/announcements", icon: Megaphone },
       { id: "chat", kind: "go", label: "Чат workspace", href: "/chat", icon: MessageSquare },

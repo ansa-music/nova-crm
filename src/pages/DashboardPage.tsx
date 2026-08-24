@@ -16,13 +16,10 @@ import { useNavigate } from "react-router";
 export default function DashboardPage() {
   const permissions = usePermissions();
   const { profile } = useAuth();
-  const { groups, studioPages, isLoadingWorkspaceData, ownerUid } = usePeopleDesks();
+  const { myDesk, isLoadingWorkspaceData, ownerUid } = usePeopleDesks();
   const [studioOpen, setStudioOpen] = useState(false);
   const [createPageOpen, setCreatePageOpen] = useState(false);
   const navigate = useNavigate();
-
-  const mine = groups.find((g) => g.uid === profile?.uid) ?? null;
-  const myDesk = mine?.pages[0] ?? studioPages.find((p) => p.responsibleUserId === profile?.uid) ?? null;
 
   if (isLoadingWorkspaceData) {
     return (
@@ -38,12 +35,12 @@ export default function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-3xl p-5 sm:p-8">
-      <p className="eyebrow mb-2 text-primary">Главная</p>
+      <p className="eyebrow mb-2 text-primary">Дашборд</p>
       <h1 className="font-serif text-[1.85rem] font-medium tracking-[-0.03em] sm:text-[2.2rem]">
         {hello}
         {who ? `, ${who}` : ""}
       </h1>
-      <p className="mt-1 mb-6 text-sm text-muted-foreground">Твой стол. Остальные — в «Столы» и «Люди».</p>
+      <p className="mt-1 mb-6 text-sm text-muted-foreground">Обзор студии. Стол — на Главной, остальные — в «Столы» и «Люди».</p>
 
       <div className="mb-6 flex flex-wrap gap-2">
         <Button variant="outline" className="min-h-11 gap-1.5 rounded-full" onClick={() => navigate("/desks")}>

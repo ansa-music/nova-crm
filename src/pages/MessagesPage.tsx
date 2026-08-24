@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { MessageCircle, Search, UserPlus } from "lucide-react";
+import { useNavigate, useParams } from "react-router";
+import { CheckCheck, MessageCircle, Search, UserPlus } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,29 +13,32 @@ import {
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
-import { usePrivateChat, privateChatId } from "@/hooks/usePrivateChat";
+import { usePrivateChat } from "@/hooks/usePrivateChat";
 import { useInboxSummary } from "@/hooks/useInboxSummary";
 import { paths } from "@/firebase/firestore";
 import { deleteChatMessage, editChatMessage, sendChatMessage } from "@/services/chatService";
-import { upsertPrivateChatMeta, markContextRead } from "@/services/inboxService";
+import { upsertPrivateChatMeta, markPrivateConversationRead } from "@/services/inboxService";
 import { displayNameOf } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
-import { timeAgo } from "@/utils/date";
+import { formatMessageWrittenAt } from "@/utils/date";
 import { cn } from "@/utils/cn";
 import type { ChatMessage } from "@/types";
 
 export default function MessagesPage() {
+  const { peerUid } = useParams<{ peerUid: string }>();
+  const navigate = useNavigate();
   const { activeWorkspaceId, members } = useWorkspace();
   const { profile } = useAuth();
-  const [selectedUid, setSelectedUid] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const { conversations } = useInboxSummary(activeWorkspaceId, profile?.uid ?? null);
+  const { conversations, markReadLocal } = useInboxSummary(activeWorkspaceId, profile?.uid ?? null);
+
+  const selectedUid = peerUid && profile && peerUid !== profile.uid ? peerUid : null;
 
   const otherMembers = useMemo(
     () => members.filter((m) => m.status === "active" && m.uid !== profile?.uid),
     [members, profile?.uid]
   );
-  const memberByUid = useMemo(() => new Map(otherMembers.map((m) => [m.uid, m])), [otherMembers]);
+  const memberByUid = useMemo(() => new Map(members.map((m) => [m.uid, m])), [members]);
 
   const filteredConversations = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -55,36 +59,49 @@ export default function MessagesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [otherMembers, search, conversations]);
 
-  const { messages } = usePrivateChat(activeWorkspaceId, profile?.uid ?? null, selectedUid);
-  const selectedMember = otherMembers.find((m) => m.uid === selectedUid) ?? null;
+  const { messages, chatId } = usePrivateChat(activeWorkspaceId, profile?.uid ?? null, selectedUid);
+  const selectedMember = selectedUid ? (memberByUid.get(selectedUid) ?? null) : null;
+  const openMeta = chatId ? conversations.find((c) => c.id === chatId) : undefined;
+  const threadUnread = Boolean(openMeta?.unread);
 
-  // Mark this conversation read whenever it's open and messages update.
+  function openThread(uid: string) {
+    navigate(`/messages/${uid}`);
+  }
+
+  async function markThreadRead(otherUid: string, id: string) {
+    if (!activeWorkspaceId || !profile?.uid) return;
+    markReadLocal(`private:${id}`);
+    await markPrivateConversationRead(activeWorkspaceId, profile.uid, otherUid, id);
+  }
+
+  // Auto-mark on open using existing readMarkers. Button still shows while unread.
   useEffect(() => {
-    if (!activeWorkspaceId || !profile?.uid || !selectedUid) return;
-    markContextRead(activeWorkspaceId, profile.uid, `private:${privateChatId(profile.uid, selectedUid)}`);
-  }, [activeWorkspaceId, profile?.uid, selectedUid, messages.length]);
+    if (!activeWorkspaceId || !profile?.uid || !selectedUid || !chatId) return;
+    void markPrivateConversationRead(activeWorkspaceId, profile.uid, selectedUid, chatId);
+  }, [activeWorkspaceId, profile?.uid, selectedUid, chatId, messages.length]);
 
   if (!activeWorkspaceId || !profile) return null;
 
-  const chatId = selectedUid ? privateChatId(profile.uid, selectedUid) : null;
-  const chatRef = chatId ? paths.privateChatMessages(activeWorkspaceId, chatId) : null;
+  const workspaceId = activeWorkspaceId;
+  const me = profile;
+  const chatRef = chatId ? paths.privateChatMessages(workspaceId, chatId) : null;
 
-  async function handleSend(text: string, replyTo: ChatMessage | null) {
+  async function handleSend(text: string, replyTo: ChatMessage | null, _mentioned: string[]) {
     if (!chatRef || !chatId || !selectedUid) return;
     await sendChatMessage(chatRef, {
-      authorUid: profile!.uid,
-      authorName: profile!.nickname || profile!.name,
-      authorPhotoURL: profile!.photoURL,
+      authorUid: me.uid,
+      authorName: me.nickname || me.name,
+      authorPhotoURL: me.photoURL,
       text,
       replyTo,
     });
     await upsertPrivateChatMeta(
-      activeWorkspaceId!,
+      workspaceId,
       chatId,
-      [profile!.uid, selectedUid].sort() as [string, string],
+      [me.uid, selectedUid].sort() as [string, string],
       text,
-      profile!.uid,
-      profile!.nickname || profile!.name
+      me.uid,
+      me.nickname || me.name
     );
   }
 
@@ -102,7 +119,7 @@ export default function MessagesPage() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="max-h-64 overflow-y-auto">
                 {otherMembers.map((m) => (
-                  <DropdownMenuItem key={m.uid} onClick={() => setSelectedUid(m.uid)}>
+                  <DropdownMenuItem key={m.uid} onClick={() => openThread(m.uid)}>
                     {displayNameOf(m)}
                   </DropdownMenuItem>
                 ))}
@@ -116,11 +133,12 @@ export default function MessagesPage() {
         </div>
         <div className="flex-1 overflow-y-auto scrollbar-thin">
           {filteredConversations.map((c) => {
-            if (!c.otherMember) return null;
+            const name = c.otherMember ? displayNameOf(c.otherMember) : c.otherUid;
             return (
               <button
                 key={c.id}
-                onClick={() => setSelectedUid(c.otherUid)}
+                type="button"
+                onClick={() => openThread(c.otherUid)}
                 className={cn(
                   "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-accent/40",
                   selectedUid === c.otherUid && "bg-accent/60"
@@ -128,29 +146,44 @@ export default function MessagesPage() {
               >
                 <div className="relative shrink-0">
                   <Avatar className="h-9 w-9">
-                    <AvatarImage src={c.otherMember.photoURL ?? undefined} />
-                    <AvatarFallback>{displayNameOf(c.otherMember)[0]?.toUpperCase()}</AvatarFallback>
+                    <AvatarImage src={c.otherMember?.photoURL ?? undefined} />
+                    <AvatarFallback>{name[0]?.toUpperCase()}</AvatarFallback>
                   </Avatar>
-                  <span
-                    className={cn(
-                      "absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card",
-                      PRESENCE_DOT_COLOR[getPresenceStatus(c.otherMember.lastActiveAt)]
-                    )}
-                  />
+                  {c.otherMember && (
+                    <span
+                      className={cn(
+                        "absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card",
+                        PRESENCE_DOT_COLOR[getPresenceStatus(c.otherMember.lastActiveAt)]
+                      )}
+                    />
+                  )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-1">
-                    <p className={cn("truncate text-sm", c.unread ? "font-semibold" : "font-medium")}>
-                      {displayNameOf(c.otherMember)}
-                    </p>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo(c.lastMessageAt)}</span>
+                    <p className={cn("truncate text-sm", c.unread ? "font-semibold" : "font-medium")}>{name}</p>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {formatMessageWrittenAt(c.lastMessageAt, { compact: true })}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between gap-1">
                     <p className={cn("truncate text-xs", c.unread ? "font-medium text-foreground" : "text-muted-foreground")}>
                       {c.lastMessageFromUid === profile.uid ? "Вы: " : ""}
                       {c.lastMessageText}
                     </p>
-                    {c.unread && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />}
+                    {c.unread && (
+                      <span
+                        role="button"
+                        title="Прочитано"
+                        className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary-foreground"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          void markThreadRead(c.otherUid, c.id);
+                        }}
+                      >
+                        Прочитано
+                      </span>
+                    )}
                   </div>
                 </div>
               </button>
@@ -165,7 +198,8 @@ export default function MessagesPage() {
               {filteredNewContacts.map((m) => (
                 <button
                   key={m.uid}
-                  onClick={() => setSelectedUid(m.uid)}
+                  type="button"
+                  onClick={() => openThread(m.uid)}
                   className={cn(
                     "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-accent/40",
                     selectedUid === m.uid && "bg-accent/60"
@@ -191,22 +225,38 @@ export default function MessagesPage() {
       </div>
 
       <div className="flex-1 overflow-hidden">
-        {selectedMember ? (
+        {selectedUid ? (
           <div className="flex h-full flex-col">
             <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
               <Avatar className="h-8 w-8">
-                <AvatarImage src={selectedMember.photoURL ?? undefined} />
-                <AvatarFallback>{displayNameOf(selectedMember)[0]?.toUpperCase()}</AvatarFallback>
+                <AvatarImage src={selectedMember?.photoURL ?? undefined} />
+                <AvatarFallback>
+                  {(selectedMember ? displayNameOf(selectedMember) : selectedUid)[0]?.toUpperCase()}
+                </AvatarFallback>
               </Avatar>
-              <div>
-                <p className="text-sm font-medium leading-tight">{displayNameOf(selectedMember)}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium leading-tight">
+                  {selectedMember ? displayNameOf(selectedMember) : "Диалог"}
+                </p>
                 <p className="text-xs leading-tight text-muted-foreground">
-                  {PRESENCE_LABEL[getPresenceStatus(selectedMember.lastActiveAt)]}
+                  {selectedMember ? PRESENCE_LABEL[getPresenceStatus(selectedMember.lastActiveAt)] : "Открыт по ссылке"}
                 </p>
               </div>
+              {threadUnread && chatId && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="min-h-9 shrink-0 gap-1.5"
+                  onClick={() => void markThreadRead(selectedUid, chatId)}
+                >
+                  <CheckCheck className="h-3.5 w-3.5" />
+                  Прочитано
+                </Button>
+              )}
             </div>
             <div className="flex-1 overflow-hidden">
               <ChatPanel
+                key={chatId ?? selectedUid}
                 messages={messages}
                 currentUid={profile.uid}
                 onSend={handleSend}
@@ -216,7 +266,11 @@ export default function MessagesPage() {
                 onDelete={async (id) => {
                   if (chatRef) await deleteChatMessage(chatRef, id);
                 }}
-                emptyMessage={`Напишите первое сообщение — ${displayNameOf(selectedMember)}`}
+                emptyMessage={
+                  selectedMember
+                    ? `Напишите первое сообщение — ${displayNameOf(selectedMember)}`
+                    : "Напишите первое сообщение"
+                }
               />
             </div>
           </div>

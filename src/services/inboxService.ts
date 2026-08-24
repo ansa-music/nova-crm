@@ -3,6 +3,8 @@ import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { normalizeTimestamp } from "@/utils/date";
 import type { PrivateChatMeta, ReadMarker } from "@/types";
+import { pingInboxChanged } from "@/utils/inboxEvents";
+import { fetchMyNotifications, markNotificationRead } from "@/services/notificationService";
 
 export async function upsertPrivateChatMeta(
   workspaceId: string,
@@ -39,6 +41,29 @@ export async function markContextRead(workspaceId: string, uid: string, context:
   const id = `${uid}_${context.replace(/[^a-zA-Z0-9:_-]/g, "")}`;
   const marker: ReadMarker = { id, uid, context, lastReadAt: Date.now() };
   await setDoc(paths.readMarker(workspaceId, id), marker, { merge: true });
+  pingInboxChanged();
+}
+
+/** Marks the private thread read (existing readMarkers) and matching bell rows (read: true). */
+export async function markPrivateConversationRead(
+  workspaceId: string,
+  uid: string,
+  peerUid: string,
+  chatId: string
+) {
+  await markContextRead(workspaceId, uid, `private:${chatId}`);
+  const href = `/messages/${peerUid}`;
+  const notifs = await fetchMyNotifications(workspaceId, uid);
+  const related = notifs.filter((n) => {
+    if (n.read) return false;
+    if (typeof n.href === "string" && n.href.startsWith("/messages/") && n.href === href) return true;
+    if (n.fromUid === peerUid && !n.relatedAnnouncementId && !n.pageId) return true;
+    return false;
+  });
+  for (const n of related) {
+    await markNotificationRead(workspaceId, n.id);
+  }
+  pingInboxChanged();
 }
 
 export async function fetchReadMarkers(workspaceId: string, uid: string): Promise<Record<string, number>> {

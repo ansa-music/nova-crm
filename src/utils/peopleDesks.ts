@@ -54,3 +54,9 @@ export function resolvedCoverUrl(
   if (ownerUid && page?.responsibleUserId === ownerUid) return OWNER_FALLBACK_COVER;
   return DESK_FALLBACK_COVER;
 }
+
+export function findMyDesk(uid: string | null | undefined, groups: PersonDeskGroup[], studioPages: WorkspacePage[]) {
+  if (!uid) return null;
+  const mine = groups.find((g) => g.uid === uid) ?? null;
+  return mine?.pages[0] ?? studioPages.find((p) => p.responsibleUserId === uid) ?? null;
+}

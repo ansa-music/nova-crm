@@ -23,13 +23,14 @@ function notificationHref(n: Notification): string | null {
   if (typeof n.href === "string" && n.href.startsWith("/")) return n.href;
   if (n.relatedAnnouncementId) return "/announcements";
   if (typeof n.pageId === "string" && n.pageId) return "/page/" + n.pageId;
-  return null;
+  if (n.fromUid) return `/messages/${n.fromUid}`;
+  return "/messages";
 }
 
 export function NotificationBell({ className }: { className?: string }) {
   const { profile } = useAuth();
   const { activeWorkspaceId } = useWorkspace();
-  const { notifications, unreadCount, reload } = useNotifications(activeWorkspaceId, profile?.uid ?? null);
+  const { notifications, unreadCount, reload, markReadLocal } = useNotifications(activeWorkspaceId, profile?.uid ?? null);
   const navigate = useNavigate();
 
   return (
@@ -70,7 +71,10 @@ export function NotificationBell({ className }: { className?: string }) {
               <button
                 key={n.id}
                 onClick={() => {
-                  if (activeWorkspaceId && !n.read) void markNotificationRead(activeWorkspaceId, n.id);
+                  if (activeWorkspaceId && !n.read) {
+                    markReadLocal(n.id);
+                    void markNotificationRead(activeWorkspaceId, n.id);
+                  }
                   const dest = notificationHref(n);
                   if (dest) navigate(dest);
                 }}

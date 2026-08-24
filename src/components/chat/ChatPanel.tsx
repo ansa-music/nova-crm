@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/utils/cn";
-import { formatDate } from "@/utils/date";
+import { formatMessageWrittenAt } from "@/utils/date";
 import type { ChatMessage } from "@/types";
 
 const EMOJI = ["😀", "😂", "❤️", "👍", "👎", "🎉", "🔥", "😢", "😮", "🙏", "👏", "✅"];
@@ -188,7 +188,7 @@ export function ChatPanel({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">
                     <span className="text-sm font-medium">{m.authorName}</span>
-                    <span className="text-[10px] text-muted-foreground">{formatDate(m.createdAt, "HH:mm")}</span>
+                    <span className="text-[10px] text-muted-foreground">{formatMessageWrittenAt(m.createdAt)}</span>
                     {m.editedAt && !m.deleted && (
                       <span className="text-[10px] text-muted-foreground">(изменено)</span>
                     )}

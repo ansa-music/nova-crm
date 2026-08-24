@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from "react";
-import { NavLink, useNavigate } from "react-router";
+import { NavLink, useLocation, useNavigate } from "react-router";
 import {
   ChevronLeft,
   ChevronRight,
   Keyboard,
+  Home,
   LayoutDashboard,
   LayoutGrid,
   LogOut,
@@ -40,6 +41,21 @@ import { setActiveRole } from "@/services/memberService";
 import { cn } from "@/utils/cn";
 import { useUiStore } from "@/store/uiStore";
 import { THEME_OPTIONS } from "@/components/layout/ThemeToggle";
+import { usePeopleDesks } from "@/hooks/usePeopleDesks";
+
+
+function navActiveClass(active: boolean, collapsed?: boolean) {
+  if (collapsed) {
+    return cn(
+      "flex h-11 w-11 items-center justify-center rounded-xl",
+      active ? "bg-[hsl(24_16%_16%)] text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
+    );
+  }
+  return cn(
+    "flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[14px] font-medium",
+    active ? "bg-[hsl(24_16%_16%)] text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
+  );
+}
 
 function AppNavLink({
   to,
@@ -47,26 +63,21 @@ function AppNavLink({
   icon: Icon,
   children,
   onNavigate,
+  forceActive,
 }: {
   to: string;
   end?: boolean;
   icon: LucideIcon;
   children: ReactNode;
   onNavigate?: () => void;
+  forceActive?: boolean;
 }) {
   return (
     <NavLink
       to={to}
       end={end}
       onClick={() => onNavigate?.()}
-      className={({ isActive }) =>
-        cn(
-          "flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[14px] font-medium",
-          isActive
-            ? "bg-[hsl(24_16%_16%)] text-foreground"
-            : "text-sidebar-foreground hover:bg-sidebar-accent/80"
-        )
-      }
+      className={({ isActive }) => navActiveClass(forceActive ?? isActive)}
     >
       <Icon className="h-4 w-4 shrink-0" />
       <span className="truncate">{children}</span>
@@ -78,6 +89,8 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   const { profile } = useAuth();
   const { members, activeWorkspaceId, workspaces, activeWorkspace, setActiveWorkspaceId } = useWorkspace();
   const permissions = usePermissions();
+  const { myDesk } = usePeopleDesks();
+  const location = useLocation();
   const navigate = useNavigate();
   const pinnedCollapsed = useUiStore((s) => s.sidebarCollapsed) && !mobile;
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
@@ -89,8 +102,10 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   const setTheme = useUiStore((s) => s.setTheme);
 
   const myMembership = members.find((m) => m.uid === profile?.uid);
+  const homeTo = myDesk ? `/page/${myDesk.id}` : "/";
+  const homeActive = location.pathname === "/" || Boolean(myDesk && location.pathname === `/page/${myDesk.id}`);
   function goHome() {
-    navigate("/");
+    navigate(homeTo);
     onNavigate?.();
   }
 
@@ -128,17 +143,14 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
             <nav className="mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
               {collapsed ? (
                 <>
+                  <NavLink to={homeTo} title="Главная" onClick={() => { navigate(homeTo); onNavigate?.(); }} className={navActiveClass(homeActive, true)}>
+                    <Home className="h-4 w-4" />
+                  </NavLink>
                   <NavLink
-                    to="/"
-                    end
-                    title="Главная"
-                    onClick={() => { navigate("/"); onNavigate?.(); }}
-                    className={({ isActive }) =>
-                      cn(
-                        "flex h-11 w-11 items-center justify-center rounded-xl",
-                        isActive ? "bg-[hsl(24_16%_16%)] text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
-                      )
-                    }
+                    to="/dashboard"
+                    title="Дашборд"
+                    onClick={() => onNavigate?.()}
+                    className={({ isActive }) => navActiveClass(isActive, true)}
                   >
                     <LayoutDashboard className="h-4 w-4" />
                   </NavLink>
@@ -146,12 +158,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                     to="/desks"
                     title="Столы"
                     onClick={() => onNavigate?.()}
-                    className={({ isActive }) =>
-                      cn(
-                        "flex h-11 w-11 items-center justify-center rounded-xl",
-                        isActive ? "bg-[hsl(24_16%_16%)] text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
-                      )
-                    }
+                    className={({ isActive }) => navActiveClass(isActive, true)}
                   >
                     <LayoutGrid className="h-4 w-4" />
                   </NavLink>
@@ -159,20 +166,18 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                     to="/people"
                     title="Люди"
                     onClick={() => onNavigate?.()}
-                    className={({ isActive }) =>
-                      cn(
-                        "flex h-11 w-11 items-center justify-center rounded-xl",
-                        isActive ? "bg-[hsl(24_16%_16%)] text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
-                      )
-                    }
+                    className={({ isActive }) => navActiveClass(isActive, true)}
                   >
                     <UsersRound className="h-4 w-4" />
                   </NavLink>
                 </>
               ) : (
                 <>
-                  <AppNavLink to="/" end icon={LayoutDashboard} onNavigate={() => { navigate("/"); onNavigate?.(); }}>
+                  <AppNavLink to={homeTo} icon={Home} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                     Главная
+                  </AppNavLink>
+                  <AppNavLink to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
+                    Дашборд
                   </AppNavLink>
                   <AppNavLink to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
                     Столы
@@ -186,8 +191,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
           )}
           {mobile && (
             <nav className="mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
-              <AppNavLink to="/" end icon={LayoutDashboard} onNavigate={() => { navigate("/"); onNavigate?.(); }}>
+              <AppNavLink to={homeTo} icon={Home} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                 Главная
+              </AppNavLink>
+              <AppNavLink to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
+                Дашборд
               </AppNavLink>
               <AppNavLink to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
                 Столы

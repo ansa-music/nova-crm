@@ -12,6 +12,7 @@ import { useWorkspaceListBootstrap } from "@/hooks/useWorkspace";
 import { useAppBootstrap } from "@/hooks/useAppBootstrap";
 
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
+const HomePage = lazy(() => import("@/pages/HomePage"));
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const DynamicTablePage = lazy(() => import("@/pages/DynamicTablePage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
@@ -94,7 +95,8 @@ function AppShell() {
               </RequireAuth>
             }
           >
-            <Route index element={<DashboardPage />} />
+            <Route index element={<HomePage />} />
+            <Route path="dashboard" element={<DashboardPage />} />
             <Route path="desks" element={<DesksPage />} />
             <Route path="people" element={<PeoplePage />} />
             <Route path="page/:pageId" element={<DynamicTablePage />} />
@@ -102,6 +104,7 @@ function AppShell() {
             <Route path="announcements" element={<AnnouncementsPage />} />
             <Route path="chat" element={<WorkspaceChatPage />} />
             <Route path="messages" element={<MessagesPage />} />
+            <Route path="messages/:peerUid" element={<MessagesPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<NotFoundPage />} />

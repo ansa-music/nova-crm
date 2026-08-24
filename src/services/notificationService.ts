@@ -4,6 +4,7 @@ import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { normalizeTimestamp } from "@/utils/date";
 import type { Notification, NotificationTargetKind, Role, WorkspaceMember, WorkspacePage } from "@/types";
+import { pingInboxChanged } from "@/utils/inboxEvents";
 
 export interface SendNotificationInput {
   workspaceId: string;
@@ -18,6 +19,8 @@ export interface SendNotificationInput {
   selectedUids?: string[];
   /** Required when target === "role" */
   role?: Role;
+  href?: string | null;
+  pageId?: string | null;
 }
 
 /** Resolves the target picker's choice down to a concrete list of member uids to notify. */
@@ -64,10 +67,13 @@ export async function sendNotification(input: SendNotificationInput, targetUids:
       read: false,
       createdAt: Date.now(),
       relatedAnnouncementId: input.relatedAnnouncementId ?? null,
+      href: input.href ?? null,
+      pageId: input.pageId ?? null,
     };
     batch.set(paths.notification(input.workspaceId, id), { ...notification, serverOrderAt: serverTimestamp() });
   }
   await batch.commit();
+  pingInboxChanged();
 }
 
 function mapNotifications(docs: { id: string; data: () => import("firebase/firestore").DocumentData }[]): Notification[] {
@@ -86,6 +92,7 @@ export async function fetchMyNotifications(workspaceId: string, uid: string): Pr
 export async function markNotificationRead(workspaceId: string, id: string) {
   if (!db) return;
   await setDoc(paths.notification(workspaceId, id), { read: true }, { merge: true });
+  pingInboxChanged();
 }
 
 export async function markAllNotificationsRead(workspaceId: string, notifications: Notification[]) {
@@ -95,6 +102,7 @@ export async function markAllNotificationsRead(workspaceId: string, notification
   const batch = writeBatch(db);
   unread.forEach((n) => batch.set(paths.notification(workspaceId, n.id), { read: true }, { merge: true }));
   await batch.commit();
+  pingInboxChanged();
 }
 
 /** Pings each @mentioned person with a lightweight notification. Never blocks/breaks sending the chat message itself if it fails. */
@@ -103,7 +111,8 @@ export async function notifyMentions(
   fromUid: string,
   fromName: string,
   mentionedUids: string[],
-  context: string
+  context: string,
+  href = "/chat"
 ) {
   const targets = mentionedUids.filter((uid) => uid !== fromUid);
   if (targets.length === 0) return;
@@ -117,6 +126,7 @@ export async function notifyMentions(
         fromUid,
         fromName,
         target: "selected",
+        href,
       },
       targets
     );

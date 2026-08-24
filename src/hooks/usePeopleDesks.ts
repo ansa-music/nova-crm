@@ -4,7 +4,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useUiStore } from "@/store/uiStore";
 import { isResponsibleForPage } from "@/utils/permissions";
-import { groupDesksByPerson, type PersonDeskGroup } from "@/utils/peopleDesks";
+import { findMyDesk, groupDesksByPerson, type PersonDeskGroup } from "@/utils/peopleDesks";
 
 /** `syncPersonSelection` is only for Люди. Never treat selected person as ACL. */
 export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSelection?: boolean } = {}) {
@@ -48,6 +48,8 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
     groups.find((g) => g.key === selectedPersonKey) ?? groups[0] ?? null;
 
   const ownerUid = members.find((m) => m.role === "owner")?.uid ?? null;
+  const myDesk = findMyDesk(profile?.uid, groups, studioPages);
+
 
   return {
     groups,
@@ -57,6 +59,7 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
     isPersonalLanding,
     isLoadingWorkspaceData,
     ownerUid,
+    myDesk,
     selectPerson: setSelectedPersonKey,
   };
 }

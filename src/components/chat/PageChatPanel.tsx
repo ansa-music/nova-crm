@@ -55,7 +55,7 @@ export function PageChatPanel({ open, onOpenChange, workspaceId, pageId, pageNam
                 text,
                 replyTo,
               });
-              await notifyMentions(workspaceId, profile.uid, profile.nickname || profile.name, mentionedUids, text);
+              await notifyMentions(workspaceId, profile.uid, profile.nickname || profile.name, mentionedUids, text, `/page/${pageId}`);
             }}
             onEdit={(id, text) => editChatMessage(chatRef, id, text)}
             onDelete={(id) => deleteChatMessage(chatRef, id)}

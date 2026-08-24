@@ -1,8 +1,9 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { paths } from "@/firebase/firestore";
 import { fetchChat } from "@/services/chatService";
 import { fetchMyConversations, fetchReadMarkers } from "@/services/inboxService";
 import { usePolledData } from "@/hooks/usePolledData";
+import { INBOX_CHANGED_EVENT } from "@/utils/inboxEvents";
 import type { ChatMessage, PrivateChatMeta } from "@/types";
 
 export function useInboxSummary(
@@ -13,8 +14,9 @@ export function useInboxSummary(
   const enabled = opts.enabled !== false;
   const includeWorkspaceChat = opts.includeWorkspaceChat === true;
   const active = Boolean(enabled && workspaceId && uid);
+  const [optimisticReads, setOptimisticReads] = useState<Record<string, number>>({});
 
-  const { data } = usePolledData(
+  const { data, reload } = usePolledData(
     active,
     async () => {
       const ws = workspaceId as string;
@@ -34,24 +36,51 @@ export function useInboxSummary(
     [workspaceId, uid, includeWorkspaceChat]
   );
 
+  useEffect(() => {
+    setOptimisticReads({});
+  }, [workspaceId, uid]);
+
+  useEffect(() => {
+    function onChanged() {
+      void reload();
+    }
+    window.addEventListener(INBOX_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(INBOX_CHANGED_EVENT, onChanged);
+  }, [reload]);
+
   const { workspaceMessages, conversations, readMarkers } = data;
 
+  const mergedReads = useMemo(
+    () => ({ ...readMarkers, ...optimisticReads }),
+    [readMarkers, optimisticReads]
+  );
+
   const workspaceChatUnread = useMemo(() => {
-    const lastRead = readMarkers["workspaceChat"] ?? 0;
+    const lastRead = mergedReads["workspaceChat"] ?? 0;
     return workspaceMessages.filter((m) => m.authorUid !== uid && m.createdAt > lastRead && !m.deleted).length;
-  }, [workspaceMessages, readMarkers, uid]);
+  }, [workspaceMessages, mergedReads, uid]);
 
   const conversationsWithUnread = useMemo(
     () =>
       conversations.map((c) => {
-        const lastRead = readMarkers[`private:${c.id}`] ?? 0;
+        const lastRead = mergedReads[`private:${c.id}`] ?? 0;
         const unread = c.lastMessageFromUid !== uid && c.lastMessageAt > lastRead;
         return { ...c, unread };
       }),
-    [conversations, readMarkers, uid]
+    [conversations, mergedReads, uid]
   );
 
   const privateUnreadTotal = conversationsWithUnread.filter((c) => c.unread).length;
 
-  return { workspaceChatUnread, conversations: conversationsWithUnread, privateUnreadTotal };
+  function markReadLocal(context: string) {
+    setOptimisticReads((prev) => ({ ...prev, [context]: Date.now() }));
+  }
+
+  return {
+    workspaceChatUnread,
+    conversations: conversationsWithUnread,
+    privateUnreadTotal,
+    reload,
+    markReadLocal,
+  };
 }

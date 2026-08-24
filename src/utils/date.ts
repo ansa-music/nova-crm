@@ -59,3 +59,17 @@ export function greetingByHour(hour: number): string {
   if (hour >= 12 && hour < 17) return "Добрый день";
   return "Добрый вечер";
 }
+
+/** Absolute write time in Asia/Almaty — used on chat bubbles and inbox previews. */
+export function formatMessageWrittenAt(timestamp: number, opts: { compact?: boolean } = {}): string {
+  const ms = toMillis(timestamp);
+  if (!Number.isFinite(ms) || ms <= 0) return "";
+  const sameDay = ymdInTimeZone(ms) === ymdInTimeZone(Date.now());
+  return new Intl.DateTimeFormat("ru-RU", {
+    timeZone: USER_TIMEZONE,
+    day: sameDay && opts.compact ? undefined : "numeric",
+    month: sameDay && opts.compact ? undefined : "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(ms));
+}
