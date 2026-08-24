@@ -96,10 +96,17 @@ export default function DashboardPage() {
 
   const leaderboardEntries = useMemo(() => {
     const byPage = new Map<string, LeaderboardEntry>();
+    // Shared /leaderboard is readable by every member, including for desks
+    // this viewer cannot open (hiddenByResponsible). Live row overlay is
+    // only the pages in this view — empty live rows must not wipe those
+    // shared «Готово» totals.
     for (const entry of polledLeaderboard) byPage.set(entry.pageId, entry);
     for (const desk of deskProgress) {
       const uid = desk.page.responsibleUserId;
       if (!uid) continue;
+      const existing = byPage.get(desk.page.id);
+      const liveEmpty = desk.rowCount === 0 && desk.doneTotal === 0 && desk.grandTotal === 0;
+      if (liveEmpty && existing) continue;
       byPage.set(desk.page.id, {
         pageId: desk.page.id,
         pageName: desk.page.name,
