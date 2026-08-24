@@ -34,7 +34,6 @@ import {
 } from "@/components/ui/context-menu";
 import { ColumnHeaderCell } from "@/components/table/ColumnHeaderCell";
 import { TableRow, ROW_GUTTER_WIDTH } from "@/components/table/TableRow";
-import { ROW_FILES_COLUMN_WIDTH } from "@/components/table/RowFilesCell";
 import { GroupHeaderRow } from "@/components/table/GroupHeaderRow";
 import { TableToolbar } from "@/components/table/TableToolbar";
 import { KanbanView } from "@/components/table/KanbanView";
@@ -81,6 +80,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { updateResponsibleOptions, updateStatusOptions, updateCustomFieldOptions } from "@/services/workspaceService";
 import { formatCurrency, downloadCsv } from "@/utils";
 import { getColumnOptions, isOptionColumn, DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
+import { isHttpUrl } from "@/utils/httpUrl";
 import { celebrateDone } from "@/utils/confetti";
 import { pushUndoCommand, undo as undoLastCommand } from "@/utils/undoStore";
 import type { CellAddress, ColumnType, PageRow, SortState, StatusOption, WorkspacePage } from "@/types";
@@ -325,7 +325,17 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setPageIndex(0);
   }, [page.id]);
 
-  const rowHeight = DENSITY_ROW_HEIGHT[density];
+  const [coarsePointer, setCoarsePointer] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(pointer: coarse)");
+    const apply = () => setCoarsePointer(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+  const rowHeight = coarsePointer
+    ? Math.max(48, DENSITY_ROW_HEIGHT[density])
+    : DENSITY_ROW_HEIGHT[density];
 
   // ---- Filtering + search + sort ----
   const processedRows = useMemo(() => {
@@ -490,9 +500,16 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   );
 
   async function persistCellEdit(rowId: string, colKey: string, oldValue: string, newValue: string) {
+    const col = columns.find((c) => c.key === colKey);
+    if (col?.type === "url") {
+      newValue = newValue.trim();
+      if (newValue && !isHttpUrl(newValue)) {
+        toast.error("Нужна ссылка http(s) — Google Drive, Яндекс Диск или любая https");
+        return;
+      }
+    }
     const version = pendingWrites.begin(rowId, colKey, newValue);
     try {
-      const col = columns.find((c) => c.key === colKey);
       await updateRowCell({
         workspaceId,
         pageId: page.id,
@@ -593,7 +610,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       const { rowId, colKey } = editingCell;
       const row = rows.find((r) => r.id === rowId);
       const oldValue = String(row?.cells[colKey] ?? "");
-      const newValue = editValue;
+      const col = columns.find((c) => c.key === colKey);
+      let newValue = editValue;
+      if (col?.type === "url") {
+        newValue = editValue.trim();
+        if (newValue && !isHttpUrl(newValue)) {
+          toast.error("Нужна ссылка http(s) — Google Drive, Яндекс Диск или любая https");
+          return;
+        }
+      }
       setEditingCell(null);
       if (oldValue !== newValue) {
         persistCellEdit(rowId, colKey, oldValue, newValue);
@@ -1265,12 +1290,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onContextMenuOpen={handleContextMenuOpen}
         onExpandRow={setExpandedRowId}
         isExpanded={expandedRowId === row.id}
-        attachmentTarget={{
-          workspaceId,
-          pageId: page.id,
-          rowId: row.id,
-          subPageId,
-        }}
       />
     );
   }
@@ -1324,7 +1343,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       ) : (
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <div ref={containerRef} tabIndex={0} className="relative flex-1 overflow-auto bg-background outline-none">
-          <table className="table-instrument border-collapse" style={{ tableLayout: "fixed" }}>
+          <table className="table-instrument w-full border-collapse" style={{ tableLayout: "fixed" }}>
             <thead className="sticky top-0 z-20">
               <tr>
                 <th
@@ -1360,12 +1379,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                     />
                   ))}
                 </SortableContext>
-                <th
-                  className="sticky top-0 z-20 border-b border-border/50 bg-background px-2 text-left text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground"
-                  style={{ width: ROW_FILES_COLUMN_WIDTH, minWidth: ROW_FILES_COLUMN_WIDTH }}
-                >
-                  Файлы
-                </th>
               </tr>
             </thead>
             <ContextMenu>
@@ -1379,7 +1392,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                           <GroupHeaderRow
                             label={label}
                             count={groupRows.length}
-                            colSpan={columns.length + 1}
+                            colSpan={columns.length}
                             collapsed={collapsed}
                             color={groups.col?.statusOptions?.find((o) => o.label === label)?.color}
                             onToggle={() =>
@@ -1399,7 +1412,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                     <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
                       {paddingTop > 0 && (
                         <tr>
-                          <td colSpan={columns.length + 2} style={{ height: paddingTop }} />
+                          <td colSpan={columns.length + 1} style={{ height: paddingTop }} />
                         </tr>
                       )}
                       {virtualItems.map((virtualRow) => {
@@ -1409,14 +1422,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       })}
                       {paddingBottom > 0 && (
                         <tr>
-                          <td colSpan={columns.length + 2} style={{ height: paddingBottom }} />
+                          <td colSpan={columns.length + 1} style={{ height: paddingBottom }} />
                         </tr>
                       )}
                     </SortableContext>
                   )}
                   {processedRows.length === 0 && (
                     <tr>
-                      <td colSpan={columns.length + 2}>
+                      <td colSpan={columns.length + 1}>
                         {rows.length === 0 ? (
                           <EmptyState
                             eyebrow="Новая таблица"
@@ -1566,12 +1579,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onOpenChange={(o) => !o && setExpandedRowId(null)}
         columns={displayColumns}
         row={rows.find((r) => r.id === expandedRowId) ?? null}
-        canEdit={canEdit}
-        attachmentTarget={
-          expandedRowId
-            ? { workspaceId, pageId: page.id, rowId: expandedRowId, subPageId }
-            : null
-        }
       />
 
       <BulkActionBar

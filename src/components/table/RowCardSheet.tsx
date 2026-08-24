@@ -2,11 +2,11 @@ import { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { StatusBadge } from "@/components/table/StatusBadge";
-import { RowAttachmentsPanel } from "@/components/table/RowFilesCell";
+import { DiskLinkChip } from "@/components/table/DiskLinkChip";
 import { formatCurrency } from "@/utils/format";
 import { formatDate } from "@/utils/date";
 import { isOptionColumn } from "@/utils/columnOptions";
-import type { RowAttachmentTarget } from "@/services/rowAttachmentService";
+import { parseHttpUrl } from "@/utils/httpUrl";
 import type { PageColumn, PageRow } from "@/types";
 
 export function rowCardLayoutId(rowId: string) {
@@ -18,8 +18,6 @@ interface RowCardSheetProps {
   onOpenChange: (open: boolean) => void;
   columns: PageColumn[];
   row: PageRow | null;
-  canEdit?: boolean;
-  attachmentTarget?: RowAttachmentTarget | null;
 }
 
 function isTitleColumn(col: PageColumn) {
@@ -31,8 +29,6 @@ export function RowCardSheet({
   onOpenChange,
   columns,
   row,
-  canEdit = false,
-  attachmentTarget = null,
 }: RowCardSheetProps) {
   useEffect(() => {
     if (!open) return;
@@ -63,10 +59,14 @@ export function RowCardSheet({
     const stringValue = raw === null || raw === undefined ? "" : String(raw);
     if (isOptionColumn(col.type)) {
       return stringValue ? (
-        <StatusBadge value={stringValue} options={col.statusOptions ?? []} className="w-fit" />
+        <StatusBadge value={stringValue} options={col.statusOptions ?? []} showTick={col.type === "status"} className="w-fit" />
       ) : (
         <span className="text-sm text-muted-foreground">—</span>
       );
+    }
+    if (col.type === "url") {
+      const href = parseHttpUrl(stringValue);
+      return href ? <DiskLinkChip href={href.href} /> : <span className="text-sm text-muted-foreground">—</span>;
     }
     if (col.type === "currency" && stringValue) {
       return <span className="display text-xl tabular">{formatCurrency(Number(stringValue))}</span>;
@@ -97,7 +97,7 @@ export function RowCardSheet({
               layoutId={rowCardLayoutId(record.id)}
               role="dialog"
               aria-modal="true"
-              className="hud-frame glass-float pointer-events-auto flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-md"
+              className="hud-frame glass-float pointer-events-auto flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-md"
               transition={{ type: "spring", stiffness: 400, damping: 30 }}
             >
               <div className="border-b border-white/10 px-6 py-6 text-left">
@@ -109,7 +109,7 @@ export function RowCardSheet({
                   <button
                     type="button"
                     onClick={() => onOpenChange(false)}
-                    className="rounded-md p-1 text-muted-foreground transition-opacity hover:text-foreground"
+                    className="rounded-md p-2 text-muted-foreground transition-opacity hover:text-foreground"
                   >
                     <X className="h-4 w-4" />
                     <span className="sr-only">Закрыть</span>
@@ -125,29 +125,20 @@ export function RowCardSheet({
                   )}
                 </div>
               </div>
-              <div className="grid min-h-0 flex-1 overflow-hidden md:grid-cols-[1fr_280px]">
-                <div className="flex flex-col gap-5 overflow-y-auto px-6 py-5 scrollbar-thin">
-                  {rest.length > 0 && (
-                    <div>
-                      <p className="eyebrow mb-3">Поля</p>
-                      <div className="flex flex-col">
-                        {rest.map((col) => (
-                          <div key={col.id} className="flex items-start justify-between gap-4 border-t border-border/50 py-3">
-                            <p className="shrink-0 pt-0.5 text-[12px] text-muted-foreground">{col.label}</p>
-                            <div className="min-w-0 text-right">{renderValue(col)}</div>
-                          </div>
-                        ))}
-                      </div>
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-5 scrollbar-thin">
+                {rest.length > 0 && (
+                  <div>
+                    <p className="eyebrow mb-3">Поля</p>
+                    <div className="flex flex-col">
+                      {rest.map((col) => (
+                        <div key={col.id} className="flex items-start justify-between gap-4 border-t border-border/50 py-3">
+                          <p className="shrink-0 pt-0.5 text-[12px] text-muted-foreground">{col.label}</p>
+                          <div className="min-w-0 text-right">{renderValue(col)}</div>
+                        </div>
+                      ))}
                     </div>
-                  )}
-                </div>
-                <div className="border-t border-white/10 px-5 py-5 md:border-l md:border-t-0 overflow-y-auto scrollbar-thin">
-                  <RowAttachmentsPanel
-                    attachments={record.attachments}
-                    target={attachmentTarget}
-                    canEdit={canEdit}
-                  />
-                </div>
+                  </div>
+                )}
               </div>
             </motion.div>
           </div>

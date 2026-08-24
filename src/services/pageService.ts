@@ -342,8 +342,12 @@ export async function updatePageColumns(workspaceId: string, pageId: string, col
  * were created before it became a standard column. No-ops if a currency
  * column already exists.
  */
-export async function ensurePriceColumn(workspaceId: string, pageId: string, existingColumns: PageColumn[]) {
-  if (existingColumns.some((c) => c.type === "currency")) return;
+export async function ensurePriceColumn(
+  workspaceId: string,
+  pageId: string,
+  existingColumns: PageColumn[]
+): Promise<PageColumn[]> {
+  if (existingColumns.some((c) => c.type === "currency")) return existingColumns;
   const noteIndex = existingColumns.findIndex(
     (c) => c.key === "note" || c.label.toLowerCase().includes("примечан")
   );
@@ -362,6 +366,41 @@ export async function ensurePriceColumn(workspaceId: string, pageId: string, exi
   ];
   const columns = withoutOrder.map((c, i) => ({ ...c, order: i }));
   await updatePageColumns(workspaceId, pageId, columns);
+  return columns;
+}
+
+/**
+ * Guarantees a page has a "Диск" (url) column for Drive/Yandex (and any
+ * http(s)) links. Inserts before a note-like column when present. No-ops
+ * if a url column already exists. Never touches row cells or attachments.
+ */
+export async function ensureDiskColumn(
+  workspaceId: string,
+  pageId: string,
+  existingColumns: PageColumn[]
+): Promise<PageColumn[]> {
+  if (existingColumns.some((c) => c.type === "url")) return existingColumns;
+  const existingKeys = new Set(existingColumns.map((c) => c.key));
+  const key = existingKeys.has("disk") ? "disk_url" : "disk";
+  const noteIndex = existingColumns.findIndex(
+    (c) => c.key === "note" || c.label.toLowerCase().includes("примечан")
+  );
+  const diskColumn: PageColumn = {
+    id: generateId("col"),
+    key,
+    label: "Диск",
+    type: "url",
+    width: 132,
+    order: 0,
+  };
+  const withoutOrder = noteIndex === -1 ? [...existingColumns, diskColumn] : [
+    ...existingColumns.slice(0, noteIndex),
+    diskColumn,
+    ...existingColumns.slice(noteIndex),
+  ];
+  const columns = withoutOrder.map((c, i) => ({ ...c, order: i }));
+  await updatePageColumns(workspaceId, pageId, columns);
+  return columns;
 }
 
 export async function addColumn(
@@ -376,7 +415,7 @@ export async function addColumn(
     key: input.key,
     label: input.label,
     type: input.type,
-    width: 160,
+    width: input.type === "url" ? 132 : 160,
     order: existingColumns.length,
     statusOptions: input.statusOptions,
     customFieldId: input.customFieldId,

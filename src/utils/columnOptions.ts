@@ -45,6 +45,7 @@ export const BASE_COLUMN_TYPE_LABELS: Record<Exclude<ColumnType, "custom">, stri
   date: "Дата",
   email: "Email",
   phone: "Телефон",
+  url: "Ссылка",
 };
 
 export interface ColumnTypeChoice {
@@ -56,7 +57,7 @@ export interface ColumnTypeChoice {
 }
 
 /**
- * Builds the full list shown in "Тип столбца" — the 8 built-in types plus
+ * Builds the full list shown in "Тип столбца" — the built-in types plus
  * one entry per Owner-defined custom field (see CustomFieldDef), so a
  * custom field behaves exactly like a first-class column type once
  * created. Used by both AddColumnDialog and ColumnHeaderCell so the two

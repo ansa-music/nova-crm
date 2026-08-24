@@ -32,7 +32,7 @@ interface KanbanViewProps {
 
 export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChange }: KanbanViewProps) {
   const options = statusColumn.statusOptions ?? [];
-  const titleColKey = columns.find((c) => !isOptionColumn(c.type) && c.type !== "date")?.key;
+  const titleColKey = columns.find((c) => !isOptionColumn(c.type) && c.type !== "date" && c.type !== "url")?.key;
   const currencyCol = columns.find((c) => c.type === "currency");
   const responsibleCol = columns.find((c) => c.type === "responsible");
 

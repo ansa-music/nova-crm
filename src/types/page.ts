@@ -1,4 +1,4 @@
-export type ColumnType = "text" | "number" | "currency" | "status" | "responsible" | "custom" | "date" | "email" | "phone";
+export type ColumnType = "text" | "number" | "currency" | "status" | "responsible" | "custom" | "date" | "email" | "phone" | "url";
 
 export interface StatusOption {
   value: string;

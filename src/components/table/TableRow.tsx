@@ -3,9 +3,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
 import { GripVertical } from "lucide-react";
 import { TableCell } from "@/components/table/TableCell";
-import { RowFilesCell } from "@/components/table/RowFilesCell";
 import { rowCardLayoutId } from "@/components/table/RowCardSheet";
-import type { RowAttachmentTarget } from "@/services/rowAttachmentService";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/utils/cn";
 import type { CellAddress, PageColumn, PageRow } from "@/types";
@@ -39,7 +37,6 @@ interface TableRowProps {
   onContextMenuOpen: (rowId: string) => void;
   onExpandRow: (rowId: string) => void;
   isExpanded?: boolean;
-  attachmentTarget: RowAttachmentTarget;
 }
 
 export function TableRow({
@@ -69,7 +66,6 @@ export function TableRow({
   onContextMenuOpen,
   onExpandRow,
   isExpanded,
-  attachmentTarget,
 }: TableRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.id,
@@ -85,16 +81,13 @@ export function TableRow({
       cumulativeLeft += c.width;
     });
 
-  // A quiet "new" marker — no extra reads needed, createdAt is already on
-  // every row. Just a thin accent bar, not a badge, so it doesn't compete
-  // with the actual data for attention.
   const isNew = Date.now() - row.createdAt < 24 * 60 * 60 * 1000;
 
   return (
     <tr
       ref={setNodeRef}
       style={{ height: rowHeight, transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
-      className="group/row"
+      className="group/row table-data-row"
       onContextMenu={() => onContextMenuOpen(row.id)}
     >
       <td
@@ -136,7 +129,7 @@ export function TableRow({
             checked={isChecked}
             onCheckedChange={() => onToggleChecked(row.id)}
             onClick={(e) => e.stopPropagation()}
-            className={cn("absolute", !isChecked && "hidden group-hover/row:flex")}
+            className={cn("absolute h-4 w-4 max-md:h-5 max-md:w-5", !isChecked && "hidden group-hover/row:flex")}
           />
           <div
             onMouseDown={(e) => {
@@ -173,11 +166,6 @@ export function TableRow({
           />
         );
       })}
-      <RowFilesCell
-        attachments={row.attachments}
-        target={attachmentTarget}
-        canEdit={canEdit}
-      />
     </tr>
   );
 }

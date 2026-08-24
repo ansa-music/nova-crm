@@ -47,6 +47,7 @@ export async function seedDefaultWorkspacePages(workspaceId: string, createdBy: 
       col("amount", "Сумма", "currency", 130),
       col("status", "Статус", "status", 140, CLIENT_STATUS),
       col("price", "Цена", "currency", 140),
+      col("disk", "Диск", "url", 132),
       col("note", "Примечание", "text", 220),
     ],
   });
@@ -65,6 +66,7 @@ export async function seedDefaultWorkspacePages(workspaceId: string, createdBy: 
       col("deadline", "Дедлайн", "date", 140),
       col("status", "Статус", "status", 150, PROJECT_STATUS),
       col("budget", "Бюджет", "currency", 130),
+      col("disk", "Диск", "url", 132),
     ],
   });
 
@@ -85,6 +87,7 @@ export async function seedDefaultWorkspacePages(workspaceId: string, createdBy: 
         { value: "expense", label: "Расход", color: "0 72% 51%" },
       ]),
       col("date", "Дата", "date", 140),
+      col("disk", "Диск", "url", 132),
     ],
   });
 
@@ -102,6 +105,7 @@ export async function seedDefaultWorkspacePages(workspaceId: string, createdBy: 
       col("email", "Email", "email", 200),
       col("phone", "Телефон", "phone", 150),
       col("status", "Статус", "status", 140, EMPLOYEE_STATUS),
+      col("disk", "Диск", "url", 132),
     ],
   });
 

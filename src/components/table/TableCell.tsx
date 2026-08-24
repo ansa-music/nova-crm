@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { CalendarDays } from "lucide-react";
 import { StatusBadge } from "@/components/table/StatusBadge";
+import { DiskLinkChip } from "@/components/table/DiskLinkChip";
 import { DateCalendar } from "@/components/table/DateCalendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatCurrency } from "@/utils/format";
 import { formatDate } from "@/utils/date";
 import { isOptionColumn } from "@/utils/columnOptions";
+import { parseHttpUrl } from "@/utils/httpUrl";
 import { cn } from "@/utils/cn";
 import type { PageColumn } from "@/types";
 
@@ -60,10 +62,11 @@ export function TableCell({
   // A little built-in conditional formatting: negative numbers/amounts read
   // as red, same convention as any spreadsheet — no per-column setup needed.
   const isNegative = isNumeric && stringValue !== "" && Number(stringValue) < 0;
+  const diskUrl = column.type === "url" ? parseHttpUrl(stringValue) : null;
 
   function renderDisplay() {
     if (isOptionColumn(column.type)) {
-      return <StatusBadge value={stringValue} options={column.statusOptions ?? []} />;
+      return <StatusBadge value={stringValue} options={column.statusOptions ?? []} showTick={column.type === "status"} />;
     }
     if (column.type === "currency" && stringValue) {
       return <span className={cn("tabular-nums", isNegative && "font-medium text-destructive")}>{formatCurrency(Number(stringValue))}</span>;
@@ -73,6 +76,15 @@ export function TableCell({
     }
     if (column.type === "date" && stringValue) {
       return <span className="truncate">{formatDate(Number(stringValue), "d MMM yyyy")}</span>;
+    }
+    if (column.type === "url") {
+      if (diskUrl) return <DiskLinkChip href={diskUrl.href} />;
+      if (stringValue) return <span className="truncate text-[11px] text-muted-foreground">{stringValue}</span>;
+      return (
+        <span className="truncate text-[11px] text-muted-foreground/75">
+          {canEdit ? "вставить ссылку" : "—"}
+        </span>
+      );
     }
     return <span className="truncate">{stringValue}</span>;
   }
@@ -103,13 +115,13 @@ export function TableCell({
           onValueChange={(v) => onStatusChange(v === "__clear__" ? "" : v)}
           disabled={!canEdit}
         >
-          <SelectTrigger className="h-full w-full rounded-none border-0 bg-transparent px-2 shadow-none focus:ring-0">
+          <SelectTrigger className="table-status-trigger h-full min-h-[32px] w-full rounded-none border-0 bg-transparent px-2 shadow-none focus:ring-0">
             <SelectValue placeholder="">{renderDisplay()}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {(column.statusOptions ?? []).map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
-                <StatusBadge value={opt.value} options={column.statusOptions ?? []} />
+                <StatusBadge value={opt.value} options={column.statusOptions ?? []} showTick={column.type === "status"} />
               </SelectItem>
             ))}
             <SelectItem value="__clear__" className="text-muted-foreground">
@@ -123,7 +135,7 @@ export function TableCell({
             <button
               type="button"
               disabled={!canEdit}
-              className="flex h-full w-full items-center gap-1.5 px-2.5 text-left text-sm disabled:cursor-default"
+              className="flex h-full min-h-[32px] w-full items-center gap-1.5 px-2.5 text-left text-sm disabled:cursor-default"
             >
               <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               {stringValue ? (
@@ -151,6 +163,7 @@ export function TableCell({
         <input
           ref={inputRef}
           value={editValue}
+          placeholder={column.type === "url" ? "https://drive.google.com/…" : undefined}
           onChange={(e) => onEditValueChange(e.target.value)}
           onBlur={() => onCommitEdit("none")}
           onKeyDown={(e) => {
@@ -173,10 +186,13 @@ export function TableCell({
       ) : (
         <div
           className={cn(
-            "flex h-full w-full items-center px-2.5 text-sm leading-none",
+            "flex h-full min-h-[32px] w-full items-center px-2.5 text-sm leading-none",
             isNumeric && "justify-end tabular-nums"
           )}
-          title={stringValue}
+          title={column.type === "url" ? (diskUrl?.href ?? "") : stringValue}
+          onClick={() => {
+            if (column.type === "url" && canEdit && !diskUrl) onDoubleClick();
+          }}
         >
           {renderDisplay()}
         </div>

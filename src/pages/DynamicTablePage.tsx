@@ -26,7 +26,7 @@ import { usePageRows } from "@/hooks/usePageRows";
 import { useSubPages, useSubPageRows } from "@/hooks/useSubPageData";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
-import { ensurePriceColumn, togglePageVisibility } from "@/services/pageService";
+import { ensureDiskColumn, ensurePriceColumn, togglePageVisibility } from "@/services/pageService";
 import { displayNameOf } from "@/utils/displayName";
 import { useUiStore } from "@/store/uiStore";
 import { recordRecentPage } from "@/hooks/useUserPageNav";
@@ -89,18 +89,26 @@ export default function DynamicTablePage() {
   const rows = activeSubPageId ? subPageRows : pageRows;
   const rowsLoading = activeSubPageId ? subPageRowsLoading : pageRowsLoading;
 
-  // Retrofit: pages created before "Цена" became a standard column don't
-  // have one. If an Owner/Admin opens such a page, silently add it once
-  // (no-ops server-side if a currency column already exists).
-  const priceMigrationRan = useRef<Set<string>>(new Set());
+  // Retrofit: pages created before "Цена" / "Диск" became standard columns
+  // don't have them. If an Owner/Admin opens such a page, silently add
+  // once. Chained so both writes see the latest column list. Never wipes cells.
+  const standardColumnMigrationRan = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!page || !hasAccess || !permissions.canManagePage(page)) return;
-    if (priceMigrationRan.current.has(page.id)) return;
-    if (page.columns.some((c) => c.type === "currency")) return;
-    priceMigrationRan.current.add(page.id);
-    ensurePriceColumn(page.workspaceId, page.id, page.columns).catch((err) =>
-      console.error("Не удалось добавить колонку «Цена»:", err)
-    );
+    if (standardColumnMigrationRan.current.has(page.id)) return;
+    const needsPrice = !page.columns.some((c) => c.type === "currency");
+    const needsDisk = !page.columns.some((c) => c.type === "url");
+    if (!needsPrice && !needsDisk) return;
+    standardColumnMigrationRan.current.add(page.id);
+    void (async () => {
+      try {
+        let cols = page.columns;
+        cols = await ensurePriceColumn(page.workspaceId, page.id, cols);
+        await ensureDiskColumn(page.workspaceId, page.id, cols);
+      } catch (err) {
+        console.error("Не удалось добавить стандартные колонки:", err);
+      }
+    })();
   }, [page, hasAccess, permissions.canManagePage]);
 
   // 1. Still resolving user -> role -> workspace -> pages. Never render a
