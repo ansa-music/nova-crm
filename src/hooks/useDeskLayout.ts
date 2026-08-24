@@ -2,13 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 
 export interface DeskLayout {
   showLeaderboard: boolean;
-  showDeadlines: boolean;
   showProgress: boolean;
 }
 
 const DEFAULT_LAYOUT: DeskLayout = {
   showLeaderboard: true,
-  showDeadlines: true,
   showProgress: true,
 };
 
@@ -25,7 +23,6 @@ function readLayout(uid: string): DeskLayout {
     const parsed = JSON.parse(raw) as Partial<DeskLayout>;
     return {
       showLeaderboard: parsed.showLeaderboard !== false,
-      showDeadlines: parsed.showDeadlines !== false,
       showProgress: parsed.showProgress !== false,
     };
   } catch {

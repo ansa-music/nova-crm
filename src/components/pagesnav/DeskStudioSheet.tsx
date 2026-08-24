@@ -220,13 +220,6 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
               />
             </label>
             <label className="flex items-center justify-between gap-3 rounded-lg border border-border/70 px-3 py-2.5">
-              <span className="text-sm">Блок «Сроки»</span>
-              <Switch
-                checked={layout.showDeadlines}
-                onCheckedChange={(v) => setLayout({ showDeadlines: v })}
-              />
-            </label>
-            <label className="flex items-center justify-between gap-3 rounded-lg border border-border/70 px-3 py-2.5">
               <span className="text-sm">Карточка прогресса</span>
               <Switch
                 checked={layout.showProgress}
