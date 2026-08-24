@@ -653,3 +653,9 @@
   top: 0;
   background-color: hsl(var(--background));
 }
+
+/* iOS: Radix scroll-lock must not freeze the sheet or leak clicks through the overlay. */
+body[data-scroll-locked],
+html body[data-scroll-locked] {
+  pointer-events: auto !important;
+}

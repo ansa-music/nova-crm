@@ -481,6 +481,7 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
           options={statusOptions}
           onSave={handleSaveStatuses}
           canEdit={permissions.canManageStatusVariants}
+          ensureDone
         />
     </>
   );

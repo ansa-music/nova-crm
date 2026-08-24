@@ -29,6 +29,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { ensureDiskColumn, ensurePriceColumn, togglePageVisibility } from "@/services/pageService";
 import { displayNameOf } from "@/utils/displayName";
 import { useUiStore } from "@/store/uiStore";
+import { cn } from "@/utils/cn";
 import { recordRecentPage } from "@/hooks/useUserPageNav";
 import type { PageIconName } from "@/types";
 
@@ -38,6 +39,7 @@ export default function DynamicTablePage() {
   const permissions = usePermissions();
   const { profile } = useAuth();
   const setTableFullscreen = useUiStore((s) => s.setTableFullscreen);
+  const tableImmersive = useUiStore((s) => s.tableImmersive);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -220,7 +222,7 @@ export default function DynamicTablePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="page-header">
+      <div className={cn("page-header", tableImmersive && "max-md:hidden")}>
         <span
           className="relative flex h-8 w-8 items-center justify-center rounded-lg"
           style={{ backgroundColor: `hsl(${page.color} / 0.15)`, color: `hsl(${page.color})` }}

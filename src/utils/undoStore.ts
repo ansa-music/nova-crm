@@ -23,7 +23,7 @@ const redoStack: UndoCommand[] = [];
 
 export function pushUndoCommand(cmd: UndoCommand) {
   undoStack.push(cmd);
-  if (undoStack.length > 100) undoStack.shift();
+  if (undoStack.length > 20) undoStack.shift();
   redoStack.length = 0;
 }
 

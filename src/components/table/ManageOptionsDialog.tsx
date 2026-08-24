@@ -36,6 +36,7 @@ interface ManageOptionsDialogProps {
   onSave: (options: StatusOption[]) => Promise<void>;
   /** Owner-only editing. When false the sheet is read-only (or should not be opened). */
   canEdit?: boolean;
+  ensureDone?: boolean;
 }
 
 export function ManageOptionsDialog({
@@ -46,31 +47,29 @@ export function ManageOptionsDialog({
   options,
   onSave,
   canEdit = true,
+  ensureDone = false,
 }: ManageOptionsDialogProps) {
   const [draft, setDraft] = useState<StatusOption[]>(() => ensureDoneStatus(options.length ? options : DEFAULT_STATUS_OPTIONS));
   const [isSaving, setIsSaving] = useState(false);
+  const shown = open && canEdit;
 
   useEffect(() => {
-    if (!open) {
+    if (!shown) {
       releaseBodyScrollLock();
       return;
     }
-    setDraft(ensureDoneStatus(options.length ? options : DEFAULT_STATUS_OPTIONS));
-    // only re-seed when the sheet opens
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+    const next = ensureDone
+      ? ensureDoneStatus(options.length ? options : DEFAULT_STATUS_OPTIONS)
+      : (options.length ? options : []);
+    setDraft(next);
+  }, [shown, options, ensureDone]);
 
   useEffect(() => {
-    if (!open || options.length === 0) return;
-    setDraft((prev) => (prev.length === 0 ? ensureDoneStatus(options) : prev));
-  }, [open, options]);
-
-  useEffect(() => {
-    if (!open) return;
+    if (!shown) return;
     return () => {
       releaseBodyScrollLock();
     };
-  }, [open]);
+  }, [shown]);
 
   function close() {
     onOpenChange(false);
@@ -121,7 +120,7 @@ export function ManageOptionsDialog({
       .filter((o) => o.label.length > 0);
     setIsSaving(true);
     try {
-      await onSave(ensureDoneStatus(cleaned));
+      await onSave(ensureDone ? ensureDoneStatus(cleaned) : cleaned);
       close();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось сохранить");
@@ -132,8 +131,8 @@ export function ManageOptionsDialog({
 
   return (
     <Dialog
-      modal={false}
-      open={open}
+      modal
+      open={shown}
       onOpenChange={(next) => {
         if (!next) close();
         else onOpenChange(true);
@@ -143,14 +142,12 @@ export function ManageOptionsDialog({
         <DialogOverlay
           className="pointer-events-auto"
           onPointerDown={(e) => {
-            e.preventDefault();
-            close();
+            if (e.target === e.currentTarget) close();
           }}
         />
         <DialogPrimitive.Content
           onPointerDownOutside={(e) => {
-            e.preventDefault();
-            close();
+            if (e.target === e.currentTarget) close();
           }}
           onEscapeKeyDown={() => close()}
           onCloseAutoFocus={(e) => e.preventDefault()}

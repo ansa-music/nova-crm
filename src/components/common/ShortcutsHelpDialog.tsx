@@ -26,6 +26,8 @@ const GROUPS: ShortcutGroup[] = [
       { keys: ["Shift", "↑↓←→"], label: "Выделить диапазон ячеек" },
       { keys: ["Tab"], label: "Перейти к следующей ячейке" },
       { keys: ["Enter"], label: "Начать редактирование ячейки" },
+      { keys: ["F2"], label: "Редактировать ячейку" },
+      { keys: ["Home", "End"], label: "К первому/последнему столбцу строки" },
     ],
   },
   {
@@ -36,6 +38,10 @@ const GROUPS: ShortcutGroup[] = [
       { keys: ["Delete"], label: "Очистить выделенные ячейки" },
       { keys: ["Ctrl", "Z"], label: "Отменить последнее действие" },
       { keys: ["Ctrl", "Y"], label: "Вернуть отменённое действие" },
+      { keys: ["Ctrl", "D"], label: "Заполнить вниз из ячейки сверху" },
+      { keys: ["Ctrl", "Enter"], label: "Добавить строку" },
+      { keys: ["Ctrl", "Shift", "Enter"], label: "Вставить строку сверху" },
+      { keys: ["Ctrl", "Space"], label: "Выделить столбец" },
     ],
   },
 ];

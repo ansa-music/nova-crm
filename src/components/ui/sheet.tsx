@@ -16,7 +16,7 @@ export const SheetOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-[200] bg-black/60 pointer-events-auto data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-280",
+      "fixed inset-0 z-[200] bg-black/60 pointer-events-auto touch-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-280",
       "backdrop-blur-none",
       className
     )}
@@ -26,7 +26,7 @@ export const SheetOverlay = React.forwardRef<
 SheetOverlay.displayName = "SheetOverlay";
 
 const sheetVariants = cva(
-  "fixed gap-4 border-border p-5 shadow-popover pointer-events-auto",
+  "fixed gap-4 border-border p-5 shadow-popover pointer-events-auto overscroll-contain",
   {
     variants: {
       side: {
@@ -50,10 +50,16 @@ export const SheetContent = React.forwardRef<
 >(({ side = "left", className, children, ...props }, ref) => (
   <SheetPortal>
     <SheetOverlay />
-    <DialogPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
+    <DialogPrimitive.Content
+        ref={ref}
+        className={cn(sheetVariants({ side }), className)}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        {...props}
+      >
       {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-md opacity-60 transition-opacity hover:opacity-100">
+      <DialogPrimitive.Close className="absolute right-4 top-4 z-20 rounded-md opacity-60 transition-opacity hover:opacity-100">
         <X className="h-4 w-4" />
+        <span className="sr-only">Закрыть</span>
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </SheetPortal>

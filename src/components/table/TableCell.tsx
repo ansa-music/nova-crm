@@ -31,6 +31,7 @@ interface TableCellProps {
   onUndoLast?: () => void;
   stickyLeft?: number;
   isLastSticky?: boolean;
+  isExpanded?: boolean;
 }
 
 export function TableCell({
@@ -52,9 +53,11 @@ export function TableCell({
   onUndoLast,
   stickyLeft,
   isLastSticky,
+  isExpanded,
 }: TableCellProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
@@ -63,10 +66,15 @@ export function TableCell({
     }
   }, [isEditing]);
 
+  useEffect(() => {
+    if (!isActive) setExpanded(false);
+  }, [isActive]);
+
   const isNumeric = column.type === "number" || column.type === "currency";
   const stringValue = value === null || value === undefined ? "" : String(value);
   const isNegative = isNumeric && stringValue !== "" && Number(stringValue) < 0;
   const diskUrl = column.type === "url" ? parseHttpUrl(stringValue) : null;
+  const showFull = expanded || Boolean(isExpanded);
 
   function renderDisplay() {
     if (isOptionColumn(column.type)) {
@@ -104,14 +112,23 @@ export function TableCell({
           </span>
         );
       }
-      if (stringValue) return <span className="truncate text-[11px] text-muted-foreground">{stringValue}</span>;
+      if (stringValue)
+        return (
+          <span className="line-clamp-2 text-[11px] leading-snug text-destructive/80" title="Нужна ссылка http(s)">
+            не ссылка http(s)
+          </span>
+        );
       return (
         <span className="truncate text-xs text-muted-foreground/80 sm:text-[11px]">
           {canEdit ? "вставить ссылку" : "—"}
         </span>
       );
     }
-    return <span className="line-clamp-2 whitespace-normal break-words leading-snug">{stringValue}</span>;
+    return (
+      <span className={cn(isExpanded ? "whitespace-normal break-words leading-snug" : "line-clamp-2 whitespace-normal break-words leading-snug")}>
+        {stringValue}
+      </span>
+    );
   }
 
   return (
@@ -203,6 +220,7 @@ export function TableCell({
           </PopoverContent>
         </Popover>
       ) : isEditing ? (
+        <span className="relative block h-full">
         <input
           ref={inputRef}
           type="text"
@@ -241,6 +259,7 @@ export function TableCell({
               : undefined
           }
           onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || e.key === "Process") return;
             if (e.key === "Enter") {
               e.preventDefault();
               onCommitEdit("down");
@@ -249,6 +268,7 @@ export function TableCell({
               onCommitEdit(e.shiftKey ? "left" : "right");
             } else if (e.key === "Escape") {
               e.preventDefault();
+              if (datePickerOpen) { setDatePickerOpen(false); return; }
               onCancelEdit();
             } else if ((e.ctrlKey || e.metaKey) && e.code === "KeyZ") {
               e.preventDefault();
@@ -263,18 +283,30 @@ export function TableCell({
           }}
           className={cn(
             "h-full min-h-11 w-full border-0 bg-background px-2.5 text-sm outline-none ring-1 ring-inset ring-primary sm:min-h-0",
-            isNumeric && "text-right tabular-nums"
+            isNumeric && "text-right tabular-nums",
+            column.type === "url" && editValue.trim() && !parseHttpUrl(editValue) && "pb-3"
           )}
         />
+        {column.type === "url" && editValue.trim() && !parseHttpUrl(editValue) && (
+          <span className="pointer-events-none absolute bottom-0.5 left-2 right-2 truncate text-[10px] text-destructive">
+            Нужна ссылка http(s)
+          </span>
+        )}
+        </span>
       ) : (
         <div
           className={cn(
             "flex h-full min-h-11 w-full items-center px-2.5 text-sm leading-snug sm:min-h-[32px]",
-            isNumeric && "justify-end tabular-nums"
+            isNumeric && "justify-end tabular-nums",
+            showFull && "absolute inset-0 z-30 items-start bg-card py-1.5 shadow-md"
           )}
           title={column.type === "url" ? (diskUrl?.href ?? "") : stringValue}
+          onClick={() => {
+            if (!isActive) return;
+            if (stringValue.length > 36) setExpanded((v) => !v);
+          }}
         >
-          {renderDisplay()}
+          {showFull ? <span className="whitespace-pre-wrap break-words text-sm">{stringValue}</span> : renderDisplay()}
         </div>
       )}
     </td>

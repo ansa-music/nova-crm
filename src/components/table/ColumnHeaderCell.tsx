@@ -51,6 +51,8 @@ interface ColumnHeaderCellProps {
   onDuplicate?: (colKey: string) => void;
   onDelete?: (colKey: string) => void;
   onToggleHidden?: (colKey: string) => void;
+  onSelectColumn?: (colKey: string, extend: boolean) => void;
+  isColumnSelected?: boolean;
 }
 
 export function ColumnHeaderCell({
@@ -74,6 +76,8 @@ export function ColumnHeaderCell({
   onDuplicate,
   onDelete,
   onToggleHidden,
+  onSelectColumn,
+  isColumnSelected,
 }: ColumnHeaderCellProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: column.id,
@@ -119,7 +123,8 @@ export function ColumnHeaderCell({
           className={cn(
             "group sticky top-0 z-[21] border-b border-r border-border/50 bg-background px-1 text-left font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground",
             stickyLeft !== undefined && "table-sticky-col z-[31] bg-background",
-            isLastSticky && "table-sticky-edge"
+            isLastSticky && "table-sticky-edge",
+            isColumnSelected && "bg-primary/10"
           )}
         >
           <div className="flex h-11 items-center gap-1 sm:h-9">
@@ -135,7 +140,17 @@ export function ColumnHeaderCell({
             )}
             <button
               type="button"
-              onClick={() => onSort(column.key)}
+              onClick={(e) => {
+                if (e.ctrlKey || e.metaKey) {
+                  e.preventDefault();
+                  onSelectColumn?.(column.key, e.shiftKey);
+                  return;
+                }
+                onSort(column.key);
+              }}
+              onMouseDown={(e) => {
+                if (e.ctrlKey || e.metaKey) e.preventDefault();
+              }}
               className="flex min-h-11 min-w-0 flex-1 items-center gap-1 truncate py-1.5 text-left hover:text-foreground active:translate-y-px active:scale-[0.99] motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 sm:min-h-0 sm:py-0"
             >
               <span className="truncate">{column.label}</span>
@@ -250,6 +265,7 @@ export function ColumnHeaderCell({
         </th>
       </ContextMenuTrigger>
       <ContextMenuContent>
+          <ContextMenuItem onClick={() => onSelectColumn?.(column.key, false)}>Выделить столбец</ContextMenuItem>
           <ContextMenuItem onClick={() => onTogglePin(column.key)}>{pinLabel}</ContextMenuItem>
           {canEditStructure && (
             <>

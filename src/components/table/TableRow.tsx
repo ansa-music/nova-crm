@@ -1,7 +1,7 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
-import { useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { Check, Copy, GripVertical, MoreHorizontal, Trash2 } from "lucide-react";
 import { TableCell } from "@/components/table/TableCell";
 import { rowCardLayoutId } from "@/components/table/RowCardSheet";
@@ -53,9 +53,13 @@ interface TableRowProps {
   coarsePointer?: boolean;
   statusTint?: string;
   onMarkDone?: (rowId: string) => void;
+  onInsertRowAbove?: (rowId: string) => void;
+  onInsertRowBelow?: (rowId: string) => void;
+  onCopyRow?: (rowId: string) => void;
+  expandedColKey?: string | null;
 }
 
-export function TableRow({
+function TableRowInner({
   row,
   rowNumber,
   columns,
@@ -90,6 +94,10 @@ export function TableRow({
   coarsePointer,
   statusTint,
   onMarkDone,
+  onInsertRowAbove,
+  onInsertRowBelow,
+  onCopyRow,
+  expandedColKey,
 }: TableRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.id,
@@ -211,6 +219,15 @@ export function TableRow({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
+              <DropdownMenuItem onClick={() => onInsertRowAbove?.(row.id)} disabled={!canEdit}>
+                Вставить строку выше
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onInsertRowBelow?.(row.id)} disabled={!canEdit}>
+                Вставить строку ниже
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onCopyRow?.(row.id)}>
+                Копировать строку
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onDuplicateRow?.(row.id)} disabled={!canEdit}>
                 Дублировать
               </DropdownMenuItem>
@@ -262,6 +279,7 @@ export function TableRow({
             onMarkDone={column.type === "status" ? () => onMarkDone?.(row.id) : undefined}
             stickyLeft={stickyLeft}
             isLastSticky={column.key === lastStickyKey}
+            isExpanded={expandedColKey === column.key}
           />
         );
       })}
@@ -299,5 +317,53 @@ export function TableRow({
     </tr>
   );
 }
+
+function addrOnRow(addr: CellAddress | null, rowId: string) {
+  return addr?.rowId === rowId;
+}
+
+function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
+  if (prev.row.id !== next.row.id) return false;
+  if (prev.row.updatedAt !== next.row.updatedAt || prev.row.cells !== next.row.cells) {
+    const keys = new Set([...Object.keys(prev.row.cells), ...Object.keys(next.row.cells)]);
+    for (const key of keys) {
+      if (prev.row.cells[key] !== next.row.cells[key]) return false;
+    }
+  }
+  if (
+    prev.rowNumber !== next.rowNumber ||
+    prev.columns !== next.columns ||
+    prev.rowHeight !== next.rowHeight ||
+    prev.canEdit !== next.canEdit ||
+    prev.canReorder !== next.canReorder ||
+    prev.isRowFullySelected !== next.isRowFullySelected ||
+    prev.isChecked !== next.isChecked ||
+    prev.pinnedKeys !== next.pinnedKeys ||
+    prev.diskUrl !== next.diskUrl ||
+    prev.isExpanded !== next.isExpanded ||
+    prev.coarsePointer !== next.coarsePointer ||
+    prev.statusTint !== next.statusTint ||
+    prev.expandedColKey !== next.expandedColKey
+  ) {
+    return false;
+  }
+  const prevActive = addrOnRow(prev.activeCell, prev.row.id);
+  const nextActive = addrOnRow(next.activeCell, next.row.id);
+  if (prevActive !== nextActive) return false;
+  if (nextActive && (prev.activeCell?.colKey !== next.activeCell?.colKey)) return false;
+  const prevEditing = addrOnRow(prev.editingCell, prev.row.id);
+  const nextEditing = addrOnRow(next.editingCell, next.row.id);
+  if (prevEditing !== nextEditing) return false;
+  if (nextEditing && (prev.editingCell?.colKey !== next.editingCell?.colKey || prev.editValue !== next.editValue)) {
+    return false;
+  }
+  for (const col of next.columns) {
+    const id = `${next.row.id}:${col.key}`;
+    if (prev.rangeCells.has(id) !== next.rangeCells.has(id)) return false;
+  }
+  return true;
+}
+
+export const TableRow = memo(TableRowInner, tableRowEqual);
 
 export { ROW_GUTTER_WIDTH };

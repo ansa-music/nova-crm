@@ -79,6 +79,7 @@ import { RowCommentsPanel } from "@/components/chat/RowCommentsPanel";
 import { RowCardSheet } from "@/components/table/RowCardSheet";
 import { BulkActionBar } from "@/components/table/BulkActionBar";
 import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
+import { useUiStore } from "@/store/uiStore";
 import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -358,6 +359,18 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     ? Math.max(52, DENSITY_ROW_HEIGHT[density])
     : Math.max(48, DENSITY_ROW_HEIGHT[density]);
 
+  const setTableImmersive = useUiStore((s) => s.setTableImmersive);
+  const [gridFocused, setGridFocused] = useState(false);
+  const [expandedTextCell, setExpandedTextCell] = useState<CellAddress | null>(null);
+  useEffect(() => {
+    if (!coarsePointer) {
+      setTableImmersive(false);
+      return;
+    }
+    setTableImmersive(gridFocused || Boolean(activeCell) || Boolean(editingCell));
+    return () => setTableImmersive(false);
+  }, [coarsePointer, gridFocused, activeCell, editingCell, setTableImmersive]);
+
   // ---- Filtering + search + sort ----
   const processedRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -455,11 +468,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const allOrderedRowIds = useMemo(() => [...rows].sort((a, b) => a.order - b.order).map((r) => r.id), [rows]);
 
   // ---- Virtualized rendering (flat, non-grouped view only) ----
+  const shouldVirtualize = !groups && paginatedRows.length > 80;
   const rowVirtualizer = useVirtualizer({
     count: paginatedRows.length,
     getScrollElement: () => containerRef.current,
     estimateSize: (index) => paginatedRows[index]?.height ?? rowHeight,
     overscan: 10,
+    enabled: shouldVirtualize,
   });
 
   useEffect(() => {
@@ -593,6 +608,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       pendingWrites.fail(rowId, colKey, version);
       toast.error("Не удалось сохранить значение", {
         description: "Текст остался на месте. Повторите сохранение.",
+        action: {
+          label: "Повторить",
+          onClick: () => {
+            void persistCellEdit(rowId, colKey, oldValue, newValue);
+          },
+        },
       });
       throw error;
     }
@@ -749,6 +770,22 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const row = rows.find((r) => r.id === rowId);
     const raw = String(row?.cells[colKey] ?? "");
     if (isUrl && parseHttpUrl(raw)) return;
+    const already = activeCell?.rowId === rowId && activeCell?.colKey === colKey && !e.shiftKey;
+    const longText = raw.length > 42 && col?.type !== "number" && col?.type !== "currency";
+    if (coarsePointer && !isSelectLike && !isUrl) {
+      if (already) {
+        if (longText && !(expandedTextCell?.rowId === rowId && expandedTextCell?.colKey === colKey)) {
+          setExpandedTextCell({ rowId, colKey });
+          return;
+        }
+        startEditing(rowId, colKey);
+        return;
+      }
+      return;
+    }
+    if (already && longText && !(expandedTextCell?.rowId === rowId && expandedTextCell?.colKey === colKey)) {
+      setExpandedTextCell({ rowId, colKey });
+    }
     startEditing(rowId, colKey);
   }
 
@@ -988,6 +1025,100 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // filters, etc). Rather than re-attaching a window listener on every
   // render, we keep the DOM listener mounted once and always dispatch
   // through a ref pointing at the latest closure.
+
+  function fillDown() {
+    if (!canEdit || !activeCell) return;
+    const bounds = getSelectionBounds();
+    if (bounds && bounds.rowEnd > bounds.rowStart) {
+      for (let c = bounds.colStart; c <= bounds.colEnd; c++) {
+        const col = displayColumns[c];
+        if (!col) continue;
+        const srcRow = rows.find((r) => r.id === rowIds[bounds.rowStart]);
+        const src = String(srcRow?.cells[col.key] ?? "");
+        for (let r = bounds.rowStart + 1; r <= bounds.rowEnd; r++) {
+          const destId = rowIds[r];
+          const dest = rows.find((rr) => rr.id === destId);
+          const old = String(dest?.cells[col.key] ?? "");
+          if (old !== src) {
+            persistCellEdit(destId, col.key, old, src);
+            pushCommand({
+              undo: () => persistCellEdit(destId, col.key, src, old),
+              redo: () => persistCellEdit(destId, col.key, old, src),
+            });
+          }
+        }
+      }
+      return;
+    }
+    const rIdx = rowIds.indexOf(activeCell.rowId);
+    if (rIdx <= 0) return;
+    const above = rows.find((r) => r.id === rowIds[rIdx - 1]);
+    const cur = rows.find((r) => r.id === activeCell.rowId);
+    const src = String(above?.cells[activeCell.colKey] ?? "");
+    const old = String(cur?.cells[activeCell.colKey] ?? "");
+    if (src === old) return;
+    persistCellEdit(activeCell.rowId, activeCell.colKey, old, src);
+    pushCommand({
+      undo: () => persistCellEdit(activeCell.rowId, activeCell.colKey, src, old),
+      redo: () => persistCellEdit(activeCell.rowId, activeCell.colKey, old, src),
+    });
+  }
+
+  async function insertRowRelative(anchorId: string, where: "above" | "below") {
+    if (!canEdit) return;
+    const ordered = [...rows].sort((a, b) => a.order - b.order);
+    const idx = ordered.findIndex((r) => r.id === anchorId);
+    if (idx < 0) {
+      await handleAddRow();
+      return;
+    }
+    const prev = where === "above" ? ordered[idx - 1] : ordered[idx];
+    const next = where === "above" ? ordered[idx] : ordered[idx + 1];
+    let order: number;
+    if (prev && next) order = (prev.order + next.order) / 2;
+    else if (next) order = next.order - 1;
+    else if (prev) order = prev.order + 1;
+    else order = 0;
+    const cells: Record<string, string | number | null> = {};
+    columns.forEach((c) => (cells[c.key] = ""));
+    const newRow = await addRowService(workspaceId, page.id, cells, order);
+    pendingScrollRowIdRef.current = newRow.id;
+    pushCommand({
+      undo: () => deleteRowService(workspaceId, page.id, newRow.id),
+      redo: async () => { await addRowService(workspaceId, page.id, cells, order); },
+    });
+    setActiveCell({ rowId: newRow.id, colKey: columns[0]?.key ?? "" });
+  }
+
+  function handleCopyRow(rowId?: string | null) {
+    const id = rowId ?? contextRowIdRef.current ?? activeCell?.rowId;
+    if (!id) return;
+    const idx = rowIds.indexOf(id);
+    if (idx < 0) return;
+    const matrix = buildMatrixFromBounds({
+      rowStart: idx,
+      rowEnd: idx,
+      colStart: 0,
+      colEnd: Math.max(0, displayColumns.length - 1),
+    });
+    clipboardRef.current = { matrix };
+    const text = matrix.map((line) => line.join("\t")).join("\n");
+    navigator.clipboard?.writeText(text).catch(() => {});
+    toast.success("Строка скопирована");
+  }
+
+  function selectColumn(colKey: string, extend: boolean) {
+    if (rowIds.length === 0) return;
+    const first = rowIds[0];
+    const last = rowIds[rowIds.length - 1];
+    if (extend && rangeAnchor) {
+      setActiveCell({ rowId: last, colKey });
+      return;
+    }
+    setRangeAnchor({ rowId: first, colKey });
+    setActiveCell({ rowId: last, colKey });
+  }
+
   const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
   handleKeyDownRef.current = function handleKeyDown(e: KeyboardEvent) {
       const isCtrl = e.ctrlKey || e.metaKey;
@@ -997,6 +1128,28 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       // also uses e.code instead of e.key so it isn't silently broken by
       // Cyrillic/non-Latin keyboard layouts (see its own comment).
 
+      const arrowCode =
+        e.code === "ArrowUp" ? "up" : e.code === "ArrowDown" ? "down" : e.code === "ArrowLeft" ? "left" : e.code === "ArrowRight" ? "right" : null;
+      if ((e.isComposing || e.key === "Process") && !editingCellRef.current) {
+        if (arrowCode) e.preventDefault();
+        return;
+      }
+      if (e.isComposing || e.key === "Process") return;
+      if (e.key === "Escape" && !editingCellRef.current) {
+        const pop = document.querySelector("[data-radix-popper-content-wrapper], [role=listbox], [data-radix-select-content]");
+        if (pop) return;
+        if (filterPopover) {
+          e.preventDefault();
+          setFilterPopover(null);
+          return;
+        }
+        if (activeCell) {
+          e.preventDefault();
+          setActiveCell(null);
+          setRangeAnchor(null);
+        }
+        return;
+      }
       if (editingCellRef.current) return;
       const target = e.target as HTMLElement | null;
       if (target?.closest("input, textarea, [contenteditable=true]")) return;
@@ -1020,6 +1173,27 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         void handleDuplicateRowById(activeCell.rowId);
         return;
       }
+      if (isCtrl && !e.shiftKey && e.code === "KeyD") {
+        e.preventDefault();
+        void fillDown();
+        return;
+      }
+      if (isCtrl && (e.code === "Enter" || e.key === "Enter")) {
+        e.preventDefault();
+        if (e.shiftKey) void insertRowRelative(activeCell.rowId, "above");
+        else void handleAddRow();
+        return;
+      }
+      if (isCtrl && e.code === "Space") {
+        e.preventDefault();
+        selectColumn(activeCell.colKey, e.shiftKey);
+        return;
+      }
+      if (!isCtrl && e.shiftKey && e.code === "Space") {
+        e.preventDefault();
+        handleRowNumberMouseDown(activeCell.rowId);
+        return;
+      }
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
         clearSelectedCells();
@@ -1030,24 +1204,30 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         startEditing(activeCell.rowId, activeCell.colKey);
         return;
       }
-      if (e.key === "ArrowUp") {
+      if (arrowCode || e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
-        moveSelection("up", e.shiftKey);
+        const dir = arrowCode ?? (e.key === "ArrowUp" ? "up" : e.key === "ArrowDown" ? "down" : e.key === "ArrowLeft" ? "left" : "right");
+        moveSelection(dir, e.shiftKey);
         return;
       }
-      if (e.key === "ArrowDown") {
+      if (e.key === "Home") {
         e.preventDefault();
-        moveSelection("down", e.shiftKey);
+        const first = displayColumns[0]?.key;
+        if (first) {
+          const next = { rowId: activeCell.rowId, colKey: first };
+          setActiveCell(next);
+          if (!e.shiftKey) setRangeAnchor(next);
+        }
         return;
       }
-      if (e.key === "ArrowLeft") {
+      if (e.key === "End") {
         e.preventDefault();
-        moveSelection("left", e.shiftKey);
-        return;
-      }
-      if (e.key === "ArrowRight") {
-        e.preventDefault();
-        moveSelection("right", e.shiftKey);
+        const last = displayColumns[displayColumns.length - 1]?.key;
+        if (last) {
+          const next = { rowId: activeCell.rowId, colKey: last };
+          setActiveCell(next);
+          if (!e.shiftKey) setRangeAnchor(next);
+        }
         return;
       }
       if (e.key === "Tab") {
@@ -1075,8 +1255,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     function dispatch(e: KeyboardEvent) {
       handleKeyDownRef.current(e);
     }
-    window.addEventListener("keydown", dispatch);
-    return () => window.removeEventListener("keydown", dispatch);
+    window.addEventListener("keydown", dispatch, true);
+    return () => window.removeEventListener("keydown", dispatch, true);
   }, []);
 
   // ---- Resize ----
@@ -1524,10 +1704,31 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     return sums;
   }, [columns, processedRows, sharedStatusOptions]);
 
-  const virtualItems = rowVirtualizer.getVirtualItems();
-  const totalSize = rowVirtualizer.getTotalSize();
-  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
-  const paddingBottom = virtualItems.length > 0 ? totalSize - virtualItems[virtualItems.length - 1].end : 0;
+  const selectionNumericSum = useMemo(() => {
+    const bounds = getSelectionBounds();
+    if (!bounds) return null;
+    let sum = 0;
+    let count = 0;
+    for (let r = bounds.rowStart; r <= bounds.rowEnd; r++) {
+      const row = paginatedRows[r];
+      if (!row) continue;
+      for (let c = bounds.colStart; c <= bounds.colEnd; c++) {
+        const col = displayColumns[c];
+        if (!col || !isSummableColumn(col.type)) continue;
+        const n = Number(String(row.cells[col.key] ?? "").replace(/\s/g, "").replace(",", "."));
+        if (!Number.isFinite(n)) continue;
+        sum += n;
+        count += 1;
+      }
+    }
+    return count > 1 ? sum : null;
+  }, [getSelectionBounds, paginatedRows, displayColumns]);
+
+  const virtualItems = shouldVirtualize ? rowVirtualizer.getVirtualItems() : [];
+  const totalSize = shouldVirtualize ? rowVirtualizer.getTotalSize() : 0;
+  const paddingTop = shouldVirtualize && virtualItems.length > 0 ? virtualItems[0].start : 0;
+  const paddingBottom =
+    shouldVirtualize && virtualItems.length > 0 ? totalSize - virtualItems[virtualItems.length - 1].end : 0;
 
   function renderRow(row: PageRow, index: number) {
     const effectiveRowHeight =
@@ -1552,7 +1753,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         activeCell={activeCell}
         rangeCells={rangeCells}
         editingCell={editingCell}
-        editValue={editValue}
+        editValue={editingCell?.rowId === row.id ? editValue : ""}
         canEdit={canEdit}
         canReorder={canReorderRows}
         isRowFullySelected={isRowFullySelected(row.id)}
@@ -1586,6 +1787,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           })()
         }
         onMarkDone={() => markRowDone(row.id)}
+        onInsertRowAbove={(id) => void insertRowRelative(id, "above")}
+        onInsertRowBelow={(id) => void insertRowRelative(id, "below")}
+        onCopyRow={(id) => handleCopyRow(id)}
+        expandedColKey={expandedTextCell?.rowId === row.id ? expandedTextCell.colKey : null}
       />
     );
   }
@@ -1667,7 +1872,22 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       ) : (
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <div className="relative min-h-0 flex-1">
-        <div ref={containerRef} tabIndex={0} className="table-grid-scroll absolute inset-0 overflow-auto overscroll-contain bg-background outline-none scrollbar-thin">
+        <div
+          ref={containerRef}
+          tabIndex={0}
+          onFocus={() => setGridFocused(true)}
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setGridFocused(false);
+          }}
+          onPaste={(e) => {
+            if (editingCellRef.current) return;
+            const text = e.clipboardData.getData("text/plain");
+            if (!text || (!text.includes("\t") && !text.includes("\n"))) return;
+            e.preventDefault();
+            void applyMatrixPaste(parseClipboardMatrix(text));
+          }}
+          className="table-grid-scroll absolute inset-0 overflow-auto overscroll-contain bg-background outline-none scrollbar-thin"
+        >
           <table className="table-instrument w-max min-w-full border-separate border-spacing-0" style={{ tableLayout: "fixed" }}>
             <thead className="sticky top-0 z-30 bg-background">
               <tr>
@@ -1715,6 +1935,17 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       onManageOptions={canManageVariants ? setManageOptionsColKey : undefined}
                       onDuplicate={handleDuplicateColumn}
                       onDelete={handleDeleteColumn}
+                      onSelectColumn={selectColumn}
+                      isColumnSelected={
+                        Boolean(
+                          getSelectionBounds() &&
+                            rowIds.length > 0 &&
+                            getSelectionBounds()!.rowStart === 0 &&
+                            getSelectionBounds()!.rowEnd === rowIds.length - 1 &&
+                            getSelectionBounds()!.colStart === displayColumns.findIndex((c) => c.key === column.key) &&
+                            getSelectionBounds()!.colEnd === displayColumns.findIndex((c) => c.key === column.key)
+                        )
+                      }
                     />
                   ))}
                 </SortableContext>
@@ -1754,10 +1985,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                           <td colSpan={columns.length + 1} style={{ height: paddingTop }} />
                         </tr>
                       )}
-                      {virtualItems.map((virtualRow) => {
-                        const row = paginatedRows[virtualRow.index];
+                      {(shouldVirtualize ? virtualItems.map((virtualRow) => virtualRow.index) : paginatedRows.map((_, i) => i)).map((index) => {
+                        const row = paginatedRows[index];
                         if (!row) return null;
-                        return renderRow(row, virtualRow.index);
+                        return renderRow(row, index);
                       })}
                       {paddingBottom > 0 && (
                         <tr>
@@ -1796,9 +2027,24 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                 <ContextMenuItem onClick={handlePaste} disabled={!canEdit}>
                   Вставить <ContextMenuShortcut>Ctrl+V</ContextMenuShortcut>
                 </ContextMenuItem>
+                <ContextMenuItem onClick={() => handleCopyRow()}>
+                  Копировать строку
+                </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem onClick={handleDuplicateRow} disabled={!canEdit}>
                   Дублировать строку <ContextMenuShortcut>Ctrl+Shift+D</ContextMenuShortcut>
+                </ContextMenuItem>
+                <ContextMenuItem
+                  onClick={() => void insertRowRelative(contextRowIdRef.current ?? activeCell?.rowId ?? "", "above")}
+                  disabled={!canEdit}
+                >
+                  Вставить строку сверху <ContextMenuShortcut>Ctrl+Shift+Enter</ContextMenuShortcut>
+                </ContextMenuItem>
+                <ContextMenuItem
+                  onClick={() => void insertRowRelative(contextRowIdRef.current ?? activeCell?.rowId ?? "", "below")}
+                  disabled={!canEdit}
+                >
+                  Вставить строку снизу <ContextMenuShortcut>Ctrl+Enter</ContextMenuShortcut>
                 </ContextMenuItem>
                 <ContextMenuItem onClick={() => handleCopyDiskUrl()}>
                   Копировать ссылку Диск
@@ -1821,7 +2067,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                     style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}
                     title="Строк в фильтре"
                   >
-                    {processedRows.length}
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span>{processedRows.length}</span>
+                      {selectionNumericSum != null && (
+                        <span className="text-[10px] text-primary" title="Сумма выделенных чисел">
+                          Σ {formatNumber(selectionNumericSum)}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   {displayColumns.map((column) => {
                     const tot = columnTotals[column.key];
@@ -1986,6 +2239,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         }
         onSave={handleSaveColumnOptions}
         canEdit={canManageVariants}
+        ensureDone={manageOptionsColumn?.type === "status"}
       />
 
       <RowCommentsPanel
