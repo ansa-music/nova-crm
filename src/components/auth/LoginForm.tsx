@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { deskEase, gsap, useGSAP } from "@/lib/gsap";
@@ -13,7 +13,15 @@ import {
   type LoginFormValues,
   type SignupFormValues,
 } from "@/utils/validation";
-import { signInWithEmail, signInWithGoogle, signUpWithEmail } from "@/firebase/auth";
+import {
+  completeGoogleRedirectIfNeeded,
+  isIgnorableGoogleAuthError,
+  shouldUseRedirectSignIn,
+  signInWithEmail,
+  signInWithGoogle,
+  signUpWithEmail,
+  wasGoogleRedirectPending,
+} from "@/firebase/auth";
 import { getAuthErrorMessage } from "@/utils/firebaseErrors";
 import { isFirebaseConfigured } from "@/firebase/firebase";
 
@@ -46,7 +54,26 @@ const fieldClass =
 export function LoginForm() {
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(() => wasGoogleRedirectPending());
+
+  useEffect(() => {
+    let cancelled = false;
+    const pending = wasGoogleRedirectPending();
+    if (pending) setIsGoogleLoading(true);
+    completeGoogleRedirectIfNeeded()
+      .catch((error) => {
+        if (cancelled) return;
+        // Returning from Google on iPhone used to toast «Окно входа было закрыто».
+        if (isIgnorableGoogleAuthError(error) || pending) return;
+        toast.error(getAuthErrorMessage(error));
+      })
+      .finally(() => {
+        if (!cancelled) setIsGoogleLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loginForm = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -87,6 +114,9 @@ export function LoginForm() {
     try {
       await signInWithGoogle();
     } catch (error) {
+      // Desktop popup-closed is a real cancel and should toast. Redirect return
+      // on iPhone must not show «Окно входа было закрыто».
+      if (shouldUseRedirectSignIn() && isIgnorableGoogleAuthError(error)) return;
       toast.error(getAuthErrorMessage(error));
     } finally {
       setIsGoogleLoading(false);

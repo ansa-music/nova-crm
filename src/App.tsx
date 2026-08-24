@@ -39,8 +39,8 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   if (phase === "auth" || phase === "profile") return <AppBootScreen phase={phase} />;
 
   if (!isAuthenticated) {
-    // Remember the intended destination (e.g. /join/:workspaceId or a deep
-    // /page/:pageId link) so LoginPage can restore it after sign-in.
+    // Only Firebase Auth (no currentUser) may send someone to /login.
+    // permission-denied and membership false are NOT unauthenticated.
     return <Navigate to="/login" state={{ from: location.pathname + location.search }} replace />;
   }
   return <>{children}</>;

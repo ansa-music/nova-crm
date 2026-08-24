@@ -1,5 +1,11 @@
 import { type FirebaseApp, initializeApp, getApps } from "firebase/app";
-import { type Auth, getAuth } from "firebase/auth";
+import {
+  type Auth,
+  getAuth,
+  initializeAuth,
+  browserLocalPersistence,
+  browserPopupRedirectResolver,
+} from "firebase/auth";
 import { type Firestore, initializeFirestore } from "firebase/firestore";
 import { type FirebaseStorage, getStorage } from "firebase/storage";
 import { getAnalytics, isSupported, type Analytics } from "firebase/analytics";
@@ -23,7 +29,22 @@ export const isFirebaseConfigured = true;
 
 export const app: FirebaseApp = getApps().length ? getApps()[0]! : initializeApp(firebaseConfig);
 
-export const auth: Auth = getAuth(app);
+function createAuth(firebaseApp: FirebaseApp): Auth {
+  try {
+    // localStorage persistence survives iOS Chrome/Safari IndexedDB drops that
+    // otherwise made onAuthStateChanged fire null and dumped people on /login.
+    return initializeAuth(firebaseApp, {
+      persistence: browserLocalPersistence,
+      popupRedirectResolver: browserPopupRedirectResolver,
+    });
+  } catch {
+    const existing = getAuth(firebaseApp);
+    void existing.setPersistence(browserLocalPersistence);
+    return existing;
+  }
+}
+
+export const auth: Auth = createAuth(app);
 
 // long-polling auto-detection avoids issues behind corporate proxies / ad-blockers
 export const db: Firestore = initializeFirestore(app, {

@@ -7,6 +7,9 @@ const MESSAGES: Record<string, string> = {
   "auth/email-already-in-use": "Этот email уже зарегистрирован",
   "auth/weak-password": "Пароль слишком простой",
   "auth/popup-closed-by-user": "Окно входа было закрыто",
+  "auth/cancelled-popup-request": "Повторный вход уже выполняется",
+  "auth/redirect-cancelled-by-user": "Вход через Google отменён",
+  "auth/popup-blocked": "Браузер заблокировал окно входа — разрешите всплывающие окна",
   "auth/network-request-failed": "Проблема с сетью, попробуйте снова",
   "auth/too-many-requests": "Слишком много попыток, попробуйте позже",
 };

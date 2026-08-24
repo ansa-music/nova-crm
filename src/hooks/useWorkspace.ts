@@ -155,6 +155,10 @@ export function useActiveWorkspaceDataBootstrap() {
           (error) => {
             if (generation !== generationRef.current) return;
             console.error(`subscribeToOwnMember denied for workspace ${activeWorkspaceId}:`, error.code, error.message);
+            // permission-denied ≠ signed out and ≠ "not a member". Keep boot moving.
+            setMembersLoadState("unconfirmed");
+            membersLoaded = true;
+            maybeDone();
           }
         )
       : () => {};
@@ -170,7 +174,7 @@ export function useActiveWorkspaceDataBootstrap() {
       (error) => {
         if (generation !== generationRef.current) return;
         console.error(`subscribeToPages denied for workspace ${activeWorkspaceId}:`, error.code, error.message);
-        setPages([]);
+        // Keep last pages. A denied list must not look like logout / wipe data.
         pagesLoaded = true;
         maybeDone();
       },

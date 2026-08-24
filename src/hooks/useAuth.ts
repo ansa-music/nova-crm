@@ -1,6 +1,10 @@
 // PATH: src/hooks/useAuth.ts  (REPLACES EXISTING)
 import { useEffect, useRef } from "react";
-import { subscribeToAuthChanges } from "@/firebase/auth";
+import {
+  completeGoogleRedirectIfNeeded,
+  isIgnorableGoogleAuthError,
+  subscribeToAuthChanges,
+} from "@/firebase/auth";
 import { auth } from "@/firebase/firebase";
 import { ensureUserProfile, syncNicknameToMemberships } from "@/services/authService";
 import { claimPendingInvites } from "@/services/memberService";
@@ -25,6 +29,8 @@ export function useAuthBootstrap() {
     } = useBootstrapStore.getState();
 
     let authCallbackSettled = false;
+    let initialAuthReady = false;
+    let lastAppliedUid: string | null | undefined;
 
     function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
       return new Promise((resolve, reject) => {
@@ -42,44 +48,24 @@ export function useAuthBootstrap() {
       });
     }
 
-    // Phone IndexedDB / hanging getIdToken used to leave AppBootScreen on
-    // «Проверяем вход…» forever. Unstick after 8s using whatever Auth already knows.
-    const authHangTimer = window.setTimeout(() => {
-      if (authCallbackSettled) return;
-      authCallbackSettled = true;
-      const current = auth?.currentUser ?? null;
-      setFirebaseUser(current);
-      setAuthResolved(true);
-      if (!current) {
-        setProfile(null);
-        setProfileResolved(true);
-        setLoading(false);
-        return;
-      }
-      ensureUserProfile(current)
-        .then((profile) => {
-          setProfile(profile);
-          setProfileResolved(true);
-        })
-        .catch(() => {
-          setProfileResolved(true);
-        })
-        .finally(() => setLoading(false));
-    }, 8000);
-
-    const unsubscribe = subscribeToAuthChanges(async (user) => {
+    async function applyUser(user: import("firebase/auth").User | null) {
+      const uid = user?.uid ?? null;
+      const isSameUser = lastAppliedUid === uid && authCallbackSettled;
+      lastAppliedUid = uid;
       authCallbackSettled = true;
       window.clearTimeout(authHangTimer);
+      window.clearTimeout(authGiveUpTimer);
+
       unsubscribeProfileRef.current?.();
       unsubscribeProfileRef.current = null;
 
-      // Every auth transition (sign-in, sign-out, account switch) restarts the
-      // downstream boot sequence. Without this, a logout->login cycle would
-      // briefly report "ready" using the PREVIOUS account's resolved flags.
-      resetBootstrap();
+      if (!isSameUser) {
+        // Every *real* auth transition restarts downstream boot. Skip when
+        // persistence just finished restoring the same account — that used to
+        // flash /login after a premature null from IndexedDB.
+        resetBootstrap();
+      }
 
-      // Resolve auth immediately so the boot screen cannot stick on «Проверяем вход…»
-      // while getIdToken hangs on a slow mobile network.
       setFirebaseUser(user);
       setAuthResolved(true);
 
@@ -95,12 +81,18 @@ export function useAuthBootstrap() {
         if (user) {
           const profile = await ensureUserProfile(user);
           setProfile(profile);
-          // The profile is now known — downstream phases may proceed.
           setProfileResolved(true);
 
-          unsubscribeProfileRef.current = subscribeToDoc<AppUser>(paths.user(user.uid), (liveProfile) => {
-            if (liveProfile) setProfile(liveProfile);
-          });
+          unsubscribeProfileRef.current = subscribeToDoc<AppUser>(
+            paths.user(user.uid),
+            (liveProfile) => {
+              if (liveProfile) setProfile(liveProfile);
+            },
+            (error) => {
+              // A denied profile read must not sign the user out.
+              console.error("users/{uid} listener failed:", error.code, error.message);
+            }
+          );
 
           try {
             await claimPendingInvites(user.uid, profile.email, profile.name, profile.photoURL, profile.nickname);
@@ -119,8 +111,7 @@ export function useAuthBootstrap() {
         }
       } catch (error) {
         console.error("Auth bootstrap failed:", error);
-        // Still mark resolved: a hard failure must surface a real error state,
-        // never an infinite skeleton the user can only escape by reloading.
+        // Keep firebaseUser. permission-denied / missing profile must never signOut.
         setProfileResolved(true);
         toast.error("Не удалось загрузить профиль", {
           description: error instanceof Error ? error.message : "Попробуйте обновить страницу.",
@@ -128,10 +119,57 @@ export function useAuthBootstrap() {
       } finally {
         setLoading(false);
       }
+    }
+
+    // Unstick boot only if Auth already has a user. A null currentUser here is
+    // often iOS IndexedDB still restoring — treating it as signed-out sent
+    // people to /login. After 15s we accept whatever Auth reports.
+    const authHangTimer = window.setTimeout(() => {
+      if (authCallbackSettled) return;
+      const current = auth?.currentUser ?? null;
+      if (!current && !initialAuthReady) return;
+      void applyUser(current);
+    }, 8000);
+
+    const authGiveUpTimer = window.setTimeout(() => {
+      if (authCallbackSettled) return;
+      initialAuthReady = true;
+      void applyUser(auth?.currentUser ?? null);
+    }, 15000);
+
+    void (async () => {
+      try {
+        if (auth) {
+          await Promise.all([
+            auth.authStateReady(),
+            completeGoogleRedirectIfNeeded().catch((error) => {
+              if (!isIgnorableGoogleAuthError(error)) {
+                console.error("getRedirectResult failed:", error);
+              }
+              return null;
+            }),
+          ]);
+        }
+      } catch (error) {
+        console.error("authStateReady failed:", error);
+      }
+      initialAuthReady = true;
+      if (!authCallbackSettled) {
+        void applyUser(auth?.currentUser ?? null);
+      }
+    })();
+
+    const unsubscribe = subscribeToAuthChanges((user) => {
+      // Ignore the premature null that fires before persistence (or a Google
+      // redirect) has restored the session. That null used to mark
+      // authResolved and RequireAuth dumped the user on /login.
+      if (!user && !initialAuthReady && !authCallbackSettled) return;
+      void applyUser(user);
     });
 
     return () => {
       window.clearTimeout(authHangTimer);
+      window.clearTimeout(authGiveUpTimer);
       unsubscribeProfileRef.current?.();
       unsubscribe();
     };

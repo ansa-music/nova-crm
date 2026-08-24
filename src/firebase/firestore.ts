@@ -26,12 +26,14 @@ let permissionHintShown = false;
  * of this project, so surface it once, clearly, instead of a silent failure.
  */
 function reportFirestoreError(error: FirestoreError) {
+  // A single denied read (pages list, viewRequests, member doc, …) must never
+  // sign the user out or send them to /login. Auth stays until they tap Выйти.
   if (error.code === "permission-denied" && !permissionHintShown) {
     permissionHintShown = true;
-    toast.error("Firestore отклонил запрос (permission-denied)", {
+    toast.error("Нет доступа к части данных", {
       description:
-        "Похоже, firestore.rules ещё не задеплоены в проект. Выполните: firebase deploy --only firestore:rules,storage — подробности в README.",
-      duration: 10000,
+        "Один запрос отклонён правилами Firestore. Сессия сохранена — обновите страницу или попросите доступ.",
+      duration: 8000,
     });
   }
 }
