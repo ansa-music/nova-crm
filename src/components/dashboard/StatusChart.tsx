@@ -23,7 +23,7 @@ function GlassTooltip({
   if (!active || !payload?.length) return null;
   const item = payload[0];
   return (
-    <div className="rounded-xl border border-white/12 bg-[#121826]/92 px-3 py-2 text-[12px] shadow-[0_0_24px_hsl(var(--primary)/0.28)] backdrop-blur-xl">
+    <div className="rounded-sm border border-primary/40 bg-card px-3 py-2 text-[12px] shadow-[0_0_24px_hsl(var(--primary)/0.28)] ">
       <p className="font-medium text-foreground">{item.name}</p>
       <p className="font-mono tabular text-primary">{item.value}</p>
     </div>
@@ -63,7 +63,7 @@ export function StatusChart({ title, data }: StatusChartProps) {
   const total = visible.reduce((sum, d) => sum + d.value, 0);
 
   return (
-    <Card className="desk-chart hud-frame lift-card overflow-hidden border-primary/25 bg-card/55 backdrop-blur-xl">
+    <Card className="desk-chart hud-frame lift-card overflow-hidden border-primary/25 bg-card/92 ">
       <CardHeader className="pb-2">
         <p className="eyebrow text-primary">Как идут статусы</p>
         <CardTitle className="text-base font-medium">{title}</CardTitle>

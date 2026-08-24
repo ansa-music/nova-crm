@@ -83,7 +83,7 @@ export function AppLayout() {
   // never as a flash while it was still loading.
   if (phase === "no-workspace" || !activeWorkspace) {
     return (
-      <div className="page-surface flex h-screen flex-col items-center justify-center gap-5 bg-background px-4 text-center">
+      <div className="cyber-grid flex h-screen flex-col items-center justify-center gap-5 bg-background px-4 text-center">
         <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-card text-primary">
           {canCreateWorkspace ? <Building2 className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
         </div>
@@ -125,14 +125,14 @@ export function AppLayout() {
       <GoChordHotkeys />
       <AccentColorSync />
       {!isMobile && !isFullscreen && <Sidebar />}
-      <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${isFullscreen ? "" : "rounded-[22px] border border-border/60 bg-card/25 backdrop-blur-sm"}`}>
+      <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${isFullscreen ? "" : "rounded-md border border-primary/35 bg-card/90"}`}>
         {!isFullscreen && <Topbar />}
         {!isFullscreen && <SimulationBanner />}
         {isFullscreen && (
           <button
             onClick={() => setTableFullscreen(false)}
             title="Показать меню (Esc)"
-            className="fixed left-3 top-3 z-50 flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card/90 text-muted-foreground backdrop-blur transition-colors hover:text-foreground"
+            className="fixed left-3 top-3 z-50 flex h-9 w-9 items-center justify-center rounded-sm border border-primary/40 bg-card text-muted-foreground transition-colors hover:text-foreground"
           >
             <Maximize2 className="h-3.5 w-3.5" />
           </button>

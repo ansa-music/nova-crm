@@ -40,7 +40,7 @@ export interface Workspace {
    */
   statusOptions?: StatusOption[];
   /**
-   * Overrides the product's default vermilion accent (--primary/--ring)
+   * Overrides the product's default cyan accent (--primary/--ring)
    * with an Owner-chosen preset. An HSL triplet ("221 83% 58%"), applied at
    * runtime by AccentColorSync — never baked into index.css, so every
    * other workspace keeps the default until its own Owner picks one.

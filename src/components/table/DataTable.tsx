@@ -1328,7 +1328,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
             <thead className="sticky top-0 z-20">
               <tr>
                 <th
-                  className="sticky left-0 top-0 z-30 border-b border-r border-border/50 bg-background/90 backdrop-blur-md"
+                  className="sticky left-0 top-0 z-30 border-b border-r border-border/50 bg-background"
                   style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}
                 />
                 <SortableContext items={displayColumns.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
@@ -1361,7 +1361,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                   ))}
                 </SortableContext>
                 <th
-                  className="sticky top-0 z-20 border-b border-border/50 bg-background/90 px-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground backdrop-blur-md"
+                  className="sticky top-0 z-20 border-b border-border/50 bg-background px-2 text-left text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground"
                   style={{ width: ROW_FILES_COLUMN_WIDTH, minWidth: ROW_FILES_COLUMN_WIDTH }}
                 >
                   Файлы

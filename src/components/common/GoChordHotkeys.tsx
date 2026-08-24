@@ -93,7 +93,7 @@ export function GoChordHotkeys() {
   if (!armed) return null;
 
   return (
-    <div className="pointer-events-none fixed bottom-6 left-1/2 z-[80] -translate-x-1/2 rounded-md border border-border/80 bg-card/90 px-3 py-1.5 font-mono text-[12px] text-muted-foreground shadow-lg backdrop-blur">
+    <div className="pointer-events-none fixed bottom-6 left-1/2 z-[80] -translate-x-1/2 rounded-md border border-border/80 bg-card/90 px-3 py-1.5 font-mono text-[12px] text-muted-foreground shadow-lg ">
       G …
     </div>
   );

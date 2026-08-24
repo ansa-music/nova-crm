@@ -207,7 +207,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                 >
                   <MessageSquare className="h-4 w-4 shrink-0" />
                   {workspaceChatUnread > 0 && (
-                    <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
+                    <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-sm bg-secondary" />
                   )}
                 </NavLink>
               </TooltipTrigger>
@@ -226,7 +226,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               <MessageSquare className="h-4 w-4 shrink-0" />
               Чат Workspace
               {workspaceChatUnread > 0 && (
-                <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-sm bg-secondary px-1 text-[10px] font-semibold text-primary-foreground">
                   {workspaceChatUnread > 9 ? "9+" : workspaceChatUnread}
                 </span>
               )}
@@ -249,7 +249,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                 >
                   <MessageCircle className="h-4 w-4 shrink-0" />
                   {privateUnreadTotal > 0 && (
-                    <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
+                    <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-sm bg-secondary" />
                   )}
                 </NavLink>
               </TooltipTrigger>
@@ -268,7 +268,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               <MessageCircle className="h-4 w-4 shrink-0" />
               Личные сообщения
               {privateUnreadTotal > 0 && (
-                <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-sm bg-secondary px-1 text-[10px] font-semibold text-primary-foreground">
                   {privateUnreadTotal > 9 ? "9+" : privateUnreadTotal}
                 </span>
               )}
@@ -483,7 +483,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
           type="button"
           onClick={toggleSidebar}
           title={pinnedCollapsed ? "Закрепить меню" : "Свернуть в рейку"}
-          className="absolute -right-2.5 top-[3.4rem] flex h-6 w-6 items-center justify-center rounded-full border border-border/80 bg-card/90 text-muted-foreground backdrop-blur hover:text-foreground"
+          className="absolute -right-2.5 top-[3.4rem] flex h-6 w-6 items-center justify-center rounded-sm border border-border/80 bg-card/90 text-muted-foreground hover:text-foreground"
         >
           {pinnedCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
         </motion.button>

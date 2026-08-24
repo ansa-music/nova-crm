@@ -21,6 +21,7 @@ export function AppBootScreen({ phase }: { phase: BootstrapPhase }) {
   useGSAP(
     () => {
       if (!rootRef.current) return;
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
       gsap.fromTo(
         rootRef.current.querySelector(".boot-card"),
         { opacity: 0, y: 8 },
@@ -33,6 +34,10 @@ export function AppBootScreen({ phase }: { phase: BootstrapPhase }) {
   useGSAP(
     () => {
       if (!barRef.current) return;
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        barRef.current.style.width = `${progress}%`;
+        return;
+      }
       gsap.to(barRef.current, { width: `${progress}%`, duration: 0.28, ease: deskEase });
     },
     { scope: rootRef, dependencies: [progress] }
@@ -41,12 +46,12 @@ export function AppBootScreen({ phase }: { phase: BootstrapPhase }) {
   return (
     <div
       ref={rootRef}
-      className="cyber-grid page-surface flex h-screen w-full flex-col items-center justify-center gap-8 bg-background"
+      className="cyber-grid flex h-screen w-full flex-col items-center justify-center gap-8 bg-background"
       role="status"
       aria-live="polite"
       aria-busy="true"
     >
-      <div className="boot-card hud-frame neon-pulse flex w-full max-w-[360px] flex-col items-center gap-6 rounded-lg border border-primary/30 bg-card/80 px-8 py-10">
+      <div className="boot-card hud-frame neon-pulse flex w-full max-w-[360px] flex-col items-center gap-6 rounded-md border border-primary/45 bg-card/95 px-8 py-10">
         <BrandMark />
         <div className="h-px w-40 overflow-hidden bg-border">
           <div ref={barRef} className="h-full bg-primary shadow-[0_0_18px_hsl(var(--primary))]" style={{ width: "12%" }} />

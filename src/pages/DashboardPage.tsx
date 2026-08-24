@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Download, Pencil, Settings2 } from "lucide-react";
 import { deskEase, gsap, useGSAP } from "@/lib/gsap";
 import { Button } from "@/components/ui/button";
@@ -303,22 +303,9 @@ export default function DashboardPage() {
     (d) => d.openCount > 0 || (d.grandTotal > 0 && d.percent < 100)
   );
 
-  function onTodayMove(e: MouseEvent<HTMLElement>) {
-    const el = e.currentTarget;
-    const r = el.getBoundingClientRect();
-    const x = ((e.clientX - r.left) / r.width - 0.5) * 4;
-    const y = ((e.clientY - r.top) / r.height - 0.5) * 2;
-    el.style.transform = `translate(${x}px, ${y}px)`;
-  }
-
   const todayCard = (
     <section
       className="today-card hud-frame neon-pulse desk-home mb-6 p-6 sm:p-7"
-      onMouseMove={onTodayMove}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = "translate(0, 0)";
-      }}
-      style={{ transition: "transform 260ms cubic-bezier(0.22, 1, 0.36, 1)" }}
     >
       <div className="relative z-[1] flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
@@ -417,7 +404,7 @@ export default function DashboardPage() {
                 goal={myProgress.reduce((sum, p) => sum + (p.page.monthlyGoal ?? 0), 0)}
               />
             ) : (
-              <div className="desk-chart lift-card flex items-center rounded-[20px] border border-border/60 bg-card/55 px-6 py-8 text-sm text-muted-foreground backdrop-blur-xl">
+              <div className="desk-chart lift-card flex items-center hud-frame rounded-md border border-primary/40 bg-card/92 px-6 py-8 text-sm text-muted-foreground">
                 Поставь цель на месяц в настройках стола — здесь появится сравнение с «Готово».
               </div>
             )}
@@ -691,7 +678,7 @@ function MyProgressCard({
   }
 
   return (
-    <Card className="lift-card overflow-hidden border-border/70 bg-card/60 backdrop-blur-xl">
+    <Card className="hud-frame lift-card overflow-hidden border-primary/35 bg-card/92">
       <CardContent className={large ? "p-6" : "p-4"}>
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -830,7 +817,7 @@ function LeaderboardWidget({
   }, [entries, members]);
 
   return (
-    <Card className={featured ? "lift-card h-full border-border/70 bg-card/60 backdrop-blur-xl" : "lift-card border-border/70 bg-card/60 backdrop-blur-xl"}>
+    <Card className={featured ? "hud-frame lift-card h-full border-primary/35 bg-card/92" : "hud-frame lift-card border-primary/35 bg-card/92"}>
       <CardContent className={featured ? "p-5 sm:p-6" : "p-4"}>
         <p className="eyebrow mb-1 text-primary">Как ведут дело</p>
         <p className={cn(featured ? "mb-4 text-base font-medium" : "mb-3 text-sm font-medium")}>рейтинг по сумме «Готово»</p>

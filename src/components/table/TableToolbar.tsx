@@ -63,7 +63,7 @@ export function TableToolbar({
   onViewModeChange,
 }: TableToolbarProps) {
   return (
-    <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-border/70 bg-card/50 px-4 py-2 backdrop-blur-xl">
+    <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-border/70 bg-card/90 px-4 py-2">
       <div className="relative w-full sm:w-64">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input

@@ -29,7 +29,7 @@ function GlassTooltip({
   if (!active || !payload?.length) return null;
   const row = payload[0].payload;
   return (
-    <div className="rounded-xl border border-white/12 bg-[#121826]/92 px-3 py-2 shadow-[0_0_24px_hsl(var(--primary)/0.28)] backdrop-blur-xl">
+    <div className="rounded-sm border border-primary/40 bg-card px-3 py-2 shadow-[0_0_24px_hsl(var(--primary)/0.28)] ">
       <p className="text-[12px] font-medium text-foreground">{row.person || row.name}</p>
       <p className="text-[11px] text-muted-foreground">{row.name}</p>
       <p className="mt-1 font-mono text-[12px] tabular text-primary">{formatCurrency(row.doneTotal)}</p>
@@ -74,7 +74,7 @@ export function DeskChart({ data, activeId, onHover, onSelect }: DeskChartProps)
   );
 
   return (
-    <Card className="desk-chart hud-frame lift-card overflow-hidden border-primary/25 bg-card/55 backdrop-blur-xl neon-pulse">
+    <Card className="desk-chart hud-frame lift-card overflow-hidden border-primary/25 bg-card/92  ">
       <CardHeader className="pb-2">
         <p className="eyebrow text-primary">Диаграмма</p>
         <CardTitle className="text-base font-medium">Готово по столам</CardTitle>
@@ -109,7 +109,7 @@ export function DeskChart({ data, activeId, onHover, onSelect }: DeskChartProps)
               <Tooltip cursor={{ fill: "hsl(var(--primary) / 0.06)" }} content={<GlassTooltip />} />
               <Bar
                 dataKey="doneTotal"
-                radius={[8, 8, 4, 4]}
+                radius={[2, 2, 0, 0]}
                 maxBarSize={48}
                 cursor="pointer"
                 isAnimationActive={!window.matchMedia("(prefers-reduced-motion: reduce)").matches}
@@ -162,7 +162,7 @@ function GoalTooltip({
   if (!active || !payload?.length) return null;
   const item = payload[0];
   return (
-    <div className="rounded-xl border border-white/12 bg-[#121826]/92 px-3 py-2 text-[12px] shadow-[0_0_24px_hsl(var(--primary)/0.28)] backdrop-blur-xl">
+    <div className="rounded-sm border border-primary/40 bg-card px-3 py-2 text-[12px] shadow-[0_0_24px_hsl(var(--primary)/0.28)] ">
       <p className="text-muted-foreground">{item.name}</p>
       <p className="font-mono tabular text-primary">{formatCurrency(item.value)}</p>
     </div>
@@ -177,7 +177,7 @@ export function GoalVsDoneChart({ doneTotal, goal }: GoalVsDoneChartProps) {
   const percent = goal > 0 ? Math.min(100, Math.round((doneTotal / goal) * 100)) : 0;
 
   return (
-    <Card className="desk-chart hud-frame lift-card overflow-hidden border-primary/25 bg-card/55 backdrop-blur-xl">
+    <Card className="desk-chart hud-frame lift-card overflow-hidden border-primary/25 bg-card/92 ">
       <CardHeader className="pb-2">
         <p className="eyebrow text-primary">Цель</p>
         <CardTitle className="text-base font-medium">Готово и цель на месяц</CardTitle>
@@ -195,7 +195,7 @@ export function GoalVsDoneChart({ doneTotal, goal }: GoalVsDoneChartProps) {
               tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
             />
             <Tooltip cursor={{ fill: "hsl(var(--primary) / 0.06)" }} content={<GoalTooltip />} />
-            <Bar dataKey="value" radius={[0, 8, 8, 0]} maxBarSize={28} cursor="pointer">
+            <Bar dataKey="value" radius={[0, 2, 2, 0]} maxBarSize={28} cursor="pointer">
               {data.map((entry) => (
                 <Cell key={entry.name} fill={entry.fill} />
               ))}

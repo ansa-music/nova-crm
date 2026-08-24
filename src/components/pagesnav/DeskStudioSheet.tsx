@@ -236,7 +236,7 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
           </section>
         </div>
 
-        <div className="sticky bottom-0 border-t border-border bg-card/95 px-5 py-4 backdrop-blur">
+        <div className="sticky bottom-0 border-t border-border bg-card/95 px-5 py-4 ">
           <Button className="w-full" onClick={() => void saveAppearance()} disabled={isSaving || !canEdit}>
             {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
             Сохранить стол

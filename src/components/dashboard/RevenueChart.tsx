@@ -17,7 +17,7 @@ function GlassTooltip({
 }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-xl border border-white/12 bg-[#121826]/92 px-3 py-2 text-[12px] shadow-[0_0_24px_hsl(var(--primary)/0.28)] backdrop-blur-xl">
+    <div className="rounded-sm border border-primary/40 bg-card px-3 py-2 text-[12px] shadow-[0_0_24px_hsl(var(--primary)/0.28)] ">
       <p className="text-muted-foreground">{label}</p>
       <p className="font-mono tabular text-primary">{formatCurrency(payload[0].value)}</p>
     </div>
@@ -26,7 +26,7 @@ function GlassTooltip({
 
 export function RevenueChart({ data }: RevenueChartProps) {
   return (
-    <Card className="desk-chart hud-frame lift-card overflow-hidden border-primary/25 bg-card/55 backdrop-blur-xl">
+    <Card className="desk-chart hud-frame lift-card overflow-hidden border-primary/25 bg-card/92 ">
       <CardHeader className="pb-2">
         <p className="eyebrow text-primary">С листа</p>
         <CardTitle className="text-base font-medium">По дате заказа с листа</CardTitle>

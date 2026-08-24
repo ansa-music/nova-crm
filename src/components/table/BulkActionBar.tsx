@@ -14,7 +14,7 @@ export function BulkActionBar({
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-5 z-30 flex justify-center px-4">
-      <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-border/70 bg-card/80 px-2 py-1.5 shadow-[0_12px_40px_-18px_hsl(var(--primary)/0.5)] backdrop-blur-xl">
+      <div className="pointer-events-auto flex items-center gap-3 rounded-sm border border-primary/40 bg-card px-2 py-1.5 shadow-[0_12px_40px_-18px_hsl(var(--primary)/0.5)] ">
         <span className="pl-3 font-mono text-[11px] tabular text-muted-foreground">{count} выбрано</span>
         <Button variant="destructive" size="sm" className="h-10 rounded-full px-3 sm:h-8" onClick={onDelete}>
           <Trash2 className="h-3.5 w-3.5" />

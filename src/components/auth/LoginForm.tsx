@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { deskEase, gsap, useGSAP } from "@/lib/gsap";
-import { useMagnetic } from "@/hooks/useMagnetic";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,12 +41,7 @@ function GoogleIcon() {
 }
 
 const fieldClass =
-  "h-10 rounded-md border border-input bg-background/60 px-3 font-sans tracking-normal placeholder:font-sans placeholder:text-muted-foreground/80";
-
-function MagneticButton(props: React.ComponentProps<typeof Button>) {
-  const ref = useMagnetic<HTMLButtonElement>();
-  return <Button ref={ref} {...props} />;
-}
+  "h-10 rounded-sm border border-input bg-background px-3 font-sans tracking-normal placeholder:font-sans placeholder:text-muted-foreground";
 
 export function LoginForm() {
   const [mode, setMode] = useState<"login" | "signup">("login");
@@ -102,6 +96,7 @@ export function LoginForm() {
   const rootRef = useRef<HTMLDivElement>(null);
   useGSAP(() => {
     if (!rootRef.current) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     gsap.fromTo(rootRef.current, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.36, ease: deskEase });
   }, { scope: rootRef });
 
@@ -110,21 +105,21 @@ export function LoginForm() {
       <h1 className="display text-[1.85rem] leading-[1.2] sm:text-[2rem]">
         {mode === "login" ? "Вход в архив" : "Создать аккаунт"}
       </h1>
-      <p className="mt-3 text-[15px] leading-6 text-foreground/70">
+      <p className="mt-3 text-[15px] leading-6 text-muted-foreground">
         {mode === "login"
           ? "Вернитесь к столу — клиенты, сделки и команда в одном архиве"
           : "Начните управлять командой и клиентами за пару минут"}
       </p>
 
       {!isFirebaseConfigured && (
-        <div className="mt-6 rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-warning-foreground">
+        <div className="mt-6 rounded-sm border border-secondary/50 bg-secondary/10 p-3 text-xs text-foreground">
           Firebase не настроен. Заполните <code>.env.local</code> данными вашего проекта —
           подробности в README.
         </div>
       )}
 
       <div className="mt-8 flex flex-col gap-4">
-        <MagneticButton
+        <Button
           variant="outline"
           className="h-10 w-full"
           onClick={handleGoogle}
@@ -132,7 +127,7 @@ export function LoginForm() {
         >
           {isGoogleLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}
           Продолжить с Google
-        </MagneticButton>
+        </Button>
 
         <div className="flex items-center gap-3">
           <div className="h-px flex-1 bg-border" />
@@ -155,7 +150,7 @@ export function LoginForm() {
                 {...loginForm.register("email")}
               />
               {loginForm.formState.errors.email && (
-                <p className="text-xs text-destructive">{loginForm.formState.errors.email.message}</p>
+                <p className="text-xs text-secondary">{loginForm.formState.errors.email.message}</p>
               )}
             </div>
             <div className="flex flex-col gap-1.5">
@@ -171,13 +166,13 @@ export function LoginForm() {
                 {...loginForm.register("password")}
               />
               {loginForm.formState.errors.password && (
-                <p className="text-xs text-destructive">{loginForm.formState.errors.password.message}</p>
+                <p className="text-xs text-secondary">{loginForm.formState.errors.password.message}</p>
               )}
             </div>
-            <MagneticButton type="submit" className="mt-1 h-10 w-full" disabled={isSubmitting || !isFirebaseConfigured}>
+            <Button type="submit" className="mt-1 h-10 w-full" disabled={isSubmitting || !isFirebaseConfigured}>
               {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
               Войти
-            </MagneticButton>
+            </Button>
           </form>
         ) : (
           <form onSubmit={signupForm.handleSubmit(handleSignup)} className="flex flex-col gap-4">
@@ -187,7 +182,7 @@ export function LoginForm() {
               </Label>
               <Input id="name" autoComplete="name" placeholder="Ваше имя" className={fieldClass} {...signupForm.register("name")} />
               {signupForm.formState.errors.name && (
-                <p className="text-xs text-destructive">{signupForm.formState.errors.name.message}</p>
+                <p className="text-xs text-secondary">{signupForm.formState.errors.name.message}</p>
               )}
             </div>
             <div className="flex flex-col gap-1.5">
@@ -203,7 +198,7 @@ export function LoginForm() {
                 {...signupForm.register("email")}
               />
               {signupForm.formState.errors.email && (
-                <p className="text-xs text-destructive">{signupForm.formState.errors.email.message}</p>
+                <p className="text-xs text-secondary">{signupForm.formState.errors.email.message}</p>
               )}
             </div>
             <div className="flex flex-col gap-1.5">
@@ -219,7 +214,7 @@ export function LoginForm() {
                 {...signupForm.register("password")}
               />
               {signupForm.formState.errors.password && (
-                <p className="text-xs text-destructive">{signupForm.formState.errors.password.message}</p>
+                <p className="text-xs text-secondary">{signupForm.formState.errors.password.message}</p>
               )}
             </div>
             <div className="flex flex-col gap-1.5">
@@ -235,18 +230,18 @@ export function LoginForm() {
                 {...signupForm.register("confirmPassword")}
               />
               {signupForm.formState.errors.confirmPassword && (
-                <p className="text-xs text-destructive">{signupForm.formState.errors.confirmPassword.message}</p>
+                <p className="text-xs text-secondary">{signupForm.formState.errors.confirmPassword.message}</p>
               )}
             </div>
-            <MagneticButton type="submit" className="mt-1 h-10 w-full" disabled={isSubmitting || !isFirebaseConfigured}>
+            <Button type="submit" className="mt-1 h-10 w-full" disabled={isSubmitting || !isFirebaseConfigured}>
               {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
               Создать аккаунт
-            </MagneticButton>
+            </Button>
           </form>
         )}
       </div>
 
-      <p className="mt-6 text-center text-sm text-foreground/65">
+      <p className="mt-6 text-center text-sm text-muted-foreground">
         {mode === "login" ? "Ещё нет аккаунта?" : "Уже есть аккаунт?"}{" "}
         <button
           type="button"

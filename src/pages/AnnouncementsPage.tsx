@@ -18,7 +18,7 @@ import type { Announcement, AnnouncementPriority } from "@/types";
 const PRIORITY_STYLES: Record<AnnouncementPriority, { label: string; badge: string; border: string }> = {
   normal: { label: "Обычный", badge: "bg-muted text-muted-foreground", border: "border-border" },
   important: { label: "Важный", badge: "bg-amber-500/15 text-amber-500", border: "border-amber-500/30" },
-  urgent: { label: "Срочный", badge: "bg-red-500/15 text-red-500", border: "border-red-500/40" },
+  urgent: { label: "Срочный", badge: "bg-secondary/20 text-secondary", border: "border-secondary/50" },
 };
 
 export default function AnnouncementsPage() {
@@ -96,7 +96,7 @@ export default function AnnouncementsPage() {
           {filtered.map((a) => {
             const style = PRIORITY_STYLES[a.priority];
             return (
-              <Card key={a.id} className={cn("glass-panel border", style.border)}>
+              <Card key={a.id} className={cn("hud-frame glass-panel border", style.border)}>
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
                     <Avatar className="h-9 w-9 shrink-0">
@@ -105,7 +105,7 @@ export default function AnnouncementsPage() {
                     </Avatar>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        {a.pinned && <Pin className="h-3.5 w-3.5 shrink-0 fill-primary text-primary" />}
+                        {a.pinned && <Pin className="h-3.5 w-3.5 shrink-0 fill-secondary text-secondary" />}
                         <h3 className="font-semibold">{a.title}</h3>
                         <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", style.badge)}>
                           {style.label}
@@ -119,7 +119,7 @@ export default function AnnouncementsPage() {
                     {permissions.canManageAnnouncements && (
                       <div className="flex shrink-0 gap-1">
                         <Button variant="ghost" size="icon" className="h-7 w-7" title="Закрепить" onClick={() => handleTogglePin(a)}>
-                          <Pin className={cn("h-3.5 w-3.5", a.pinned && "fill-primary text-primary")} />
+                          <Pin className={cn("h-3.5 w-3.5", a.pinned && "fill-secondary text-secondary")} />
                         </Button>
                         <Button
                           variant="ghost"

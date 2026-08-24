@@ -26,6 +26,7 @@ export function RecentActivity({ entries }: { entries: HistoryEntry[] }) {
   const ref = useRef<HTMLDivElement>(null);
   useGSAP(
     () => {
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
       const nodes = ref.current?.querySelectorAll(".feed-item");
       if (!nodes?.length) return;
       gsap.fromTo(nodes, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.28, stagger: 0.04, ease: deskEase });
@@ -34,7 +35,7 @@ export function RecentActivity({ entries }: { entries: HistoryEntry[] }) {
   );
 
   return (
-    <div ref={ref} className="desk-cluster lift-card p-5">
+    <div ref={ref} className="desk-cluster hud-frame lift-card p-5">
       <p className="eyebrow mb-1 text-primary">Лента</p>
       <p className="section mb-4">Что менялось</p>
       {entries.length === 0 && (

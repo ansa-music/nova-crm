@@ -16,7 +16,7 @@ export const PopoverContent = React.forwardRef<
       align={align}
       sideOffset={sideOffset}
       className={cn(
-        "glass-float animate-glass-pop z-50 w-72 rounded-xl p-4 text-popover-foreground outline-none",
+        "glass-float animate-glass-pop z-50 w-72 rounded-md p-4 text-popover-foreground outline-none",
         className
       )}
       {...props}

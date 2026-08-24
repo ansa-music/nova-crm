@@ -156,7 +156,7 @@ export function GlobalSearch() {
           if (!v) setQuery("");
         }}
       >
-        <DialogContent className="glass-float top-[18%] max-w-xl translate-y-0 gap-0 overflow-hidden rounded-[22px] p-0">
+        <DialogContent className="glass-float top-[18%] max-w-xl translate-y-0 gap-0 overflow-hidden rounded-md p-0">
           <DialogTitle className="sr-only">Командный центр</DialogTitle>
           <div className="border-b border-border/60 px-3 py-3">
             <div className="flex items-center gap-2">

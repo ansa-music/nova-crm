@@ -85,7 +85,7 @@ export function RowCardSheet({
             type="button"
             aria-label="Закрыть"
             key="row-card-backdrop"
-            className="fixed inset-0 z-50 bg-background/50 backdrop-blur-xl"
+            className="fixed inset-0 z-50 bg-background/70 backdrop-blur-[10px]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -97,7 +97,7 @@ export function RowCardSheet({
               layoutId={rowCardLayoutId(record.id)}
               role="dialog"
               aria-modal="true"
-              className="glass-float pointer-events-auto flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-[24px]"
+              className="hud-frame glass-float pointer-events-auto flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-md"
               transition={{ type: "spring", stiffness: 400, damping: 30 }}
             >
               <div className="border-b border-white/10 px-6 py-6 text-left">

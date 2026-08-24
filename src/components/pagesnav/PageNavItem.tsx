@@ -59,7 +59,7 @@ export function PageNavItem({
         }
       >
         <Icon className="h-4 w-4" style={{ color: `hsl(${page.color})` }} />
-        {isPinned && <span className="absolute right-0.5 top-0.5 h-1 w-1 rounded-full bg-primary" />}
+        {isPinned && <span className="absolute right-0.5 top-0.5 h-1 w-1 rounded-sm bg-secondary" />}
       </NavLink>
     );
     return (
@@ -142,7 +142,7 @@ export function PageNavItem({
         <Icon className="h-4 w-4" />
       </span>
       <span className="flex-1 truncate">{page.name}</span>
-      {isPinned && <Pin className="h-3 w-3 shrink-0 fill-current text-primary" />}
+      {isPinned && <Pin className="h-3 w-3 shrink-0 fill-current text-secondary" />}
     </NavLink>
   );
 
@@ -162,7 +162,7 @@ export function PageNavItem({
               className="absolute right-1 hidden h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground group-hover/item:flex"
               title={isPinned ? "Открепить" : "Закрепить у себя"}
             >
-              <Pin className={cn("h-3.5 w-3.5", isPinned && "fill-current text-primary")} />
+              <Pin className={cn("h-3.5 w-3.5", isPinned && "fill-current text-secondary")} />
             </button>
           </div>
         </ContextMenuTrigger>
@@ -195,7 +195,7 @@ export function PageNavItem({
                 className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
                 title={isPinned ? "Открепить" : "Закрепить у себя"}
               >
-                <Pin className={cn("h-3.5 w-3.5", isPinned && "fill-current text-primary")} />
+                <Pin className={cn("h-3.5 w-3.5", isPinned && "fill-current text-secondary")} />
               </button>
               <button
                 onClick={(e) => {
