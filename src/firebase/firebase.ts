@@ -10,14 +10,24 @@ import { type Firestore, initializeFirestore } from "firebase/firestore";
 import { type FirebaseStorage, getStorage } from "firebase/storage";
 import { getAnalytics, isSupported, type Analytics } from "firebase/analytics";
 
-// Your web app's Firebase configuration.
-// Firebase web API keys are not secret — access is controlled by Firestore/Storage
-// security rules (see firestore.rules) — so committing a working default here is
-// safe. Values can still be overridden per-environment via .env.local (VITE_FIREBASE_*)
-// without touching this file, e.g. to point a staging build at a different project.
+/**
+ * iPhone Safari/Chrome block third-party storage. If authDomain is
+ * *.firebaseapp.com while the app is on *.web.app, Google redirect and the
+ * auth iframe fail. Always use the page's own Hosting hostname.
+ */
+function resolveAuthDomain(): string {
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host.endsWith(".web.app") || host.endsWith(".firebaseapp.com")) {
+      return host;
+    }
+  }
+  return import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "nurba-6e70d.web.app";
+}
+
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDvcnG_bcSt0ODT-hsbxRjamxSzIlnvvCc",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "nurba-6e70d.firebaseapp.com",
+  authDomain: resolveAuthDomain(),
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "nurba-6e70d",
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "nurba-6e70d.firebasestorage.app",
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "890276594199",
@@ -31,8 +41,6 @@ export const app: FirebaseApp = getApps().length ? getApps()[0]! : initializeApp
 
 function createAuth(firebaseApp: FirebaseApp): Auth {
   try {
-    // localStorage persistence survives iOS Chrome/Safari IndexedDB drops that
-    // otherwise made onAuthStateChanged fire null and dumped people on /login.
     return initializeAuth(firebaseApp, {
       persistence: browserLocalPersistence,
       popupRedirectResolver: browserPopupRedirectResolver,
@@ -46,15 +54,12 @@ function createAuth(firebaseApp: FirebaseApp): Auth {
 
 export const auth: Auth = createAuth(app);
 
-// long-polling auto-detection avoids issues behind corporate proxies / ad-blockers
 export const db: Firestore = initializeFirestore(app, {
   experimentalAutoDetectLongPolling: true,
 });
 
 export const storage: FirebaseStorage = getStorage(app);
 
-// Analytics only works in a real browser context (not SSR, not every environment
-// supports it, e.g. Safari private mode) — guard with isSupported().
 export let analytics: Analytics | null = null;
 if (typeof window !== "undefined") {
   isSupported()
@@ -62,6 +67,6 @@ if (typeof window !== "undefined") {
       if (supported) analytics = getAnalytics(app);
     })
     .catch(() => {
-      /* analytics unsupported in this environment — ignore */
+      /* analytics unsupported */
     });
 }

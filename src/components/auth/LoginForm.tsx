@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type BaseSyntheticEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { deskEase, gsap, useGSAP } from "@/lib/gsap";
@@ -15,6 +15,7 @@ import {
 } from "@/utils/validation";
 import {
   completeGoogleRedirectIfNeeded,
+  getGoogleRedirectError,
   isIgnorableGoogleAuthError,
   shouldUseRedirectSignIn,
   signInWithEmail,
@@ -22,7 +23,7 @@ import {
   signUpWithEmail,
   wasGoogleRedirectPending,
 } from "@/firebase/auth";
-import { getAuthErrorMessage } from "@/utils/firebaseErrors";
+import { getAuthErrorMessage, getEmailAuthErrorMessage } from "@/utils/firebaseErrors";
 import { isFirebaseConfigured } from "@/firebase/firebase";
 
 function GoogleIcon() {
@@ -51,21 +52,32 @@ function GoogleIcon() {
 const fieldClass =
   "h-10 rounded-sm border border-input bg-background px-3 font-sans tracking-normal placeholder:font-sans placeholder:text-muted-foreground";
 
+function readFormValue(form: HTMLFormElement | undefined, name: string, fallback: string) {
+  if (!form) return fallback;
+  const raw = new FormData(form).get(name);
+  return typeof raw === "string" && raw.length > 0 ? raw : fallback;
+}
+
 export function LoginForm() {
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(() => wasGoogleRedirectPending());
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const pending = wasGoogleRedirectPending();
     if (pending) setIsGoogleLoading(true);
     completeGoogleRedirectIfNeeded()
-      .catch((error) => {
+      .then(() => {
         if (cancelled) return;
-        // Returning from Google on iPhone used to toast «Окно входа было закрыто».
-        if (isIgnorableGoogleAuthError(error) || pending) return;
-        toast.error(getAuthErrorMessage(error));
+        const redirectError = getGoogleRedirectError();
+        // Only surface a real Google redirect failure. Never «окно закрыто».
+        if (pending && redirectError && !isIgnorableGoogleAuthError(redirectError)) {
+          const message = getAuthErrorMessage(redirectError);
+          setFormError(message);
+          toast.error(message);
+        }
       })
       .finally(() => {
         if (!cancelled) setIsGoogleLoading(false);
@@ -85,25 +97,38 @@ export function LoginForm() {
     defaultValues: { name: "", email: "", password: "", confirmPassword: "" },
   });
 
-  async function handleLogin(values: LoginFormValues) {
+  async function handleLogin(values: LoginFormValues, event?: BaseSyntheticEvent) {
+    const form = event?.target instanceof HTMLFormElement ? event.target : undefined;
+    const email = readFormValue(form, "email", values.email).trim();
+    const password = readFormValue(form, "password", values.password);
     setIsSubmitting(true);
+    setFormError(null);
     try {
-      await signInWithEmail(values.email, values.password);
+      await signInWithEmail(email, password);
       toast.success("С возвращением!");
     } catch (error) {
-      toast.error(getAuthErrorMessage(error));
+      const message = getEmailAuthErrorMessage(error);
+      setFormError(message);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  async function handleSignup(values: SignupFormValues) {
+  async function handleSignup(values: SignupFormValues, event?: BaseSyntheticEvent) {
+    const form = event?.target instanceof HTMLFormElement ? event.target : undefined;
+    const name = readFormValue(form, "name", values.name).trim();
+    const email = readFormValue(form, "email", values.email).trim();
+    const password = readFormValue(form, "password", values.password);
     setIsSubmitting(true);
+    setFormError(null);
     try {
-      await signUpWithEmail(values.email, values.password, values.name);
+      await signUpWithEmail(email, password, name);
       toast.success("Аккаунт создан!");
     } catch (error) {
-      toast.error(getAuthErrorMessage(error));
+      const message = getEmailAuthErrorMessage(error);
+      setFormError(message);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -111,15 +136,21 @@ export function LoginForm() {
 
   async function handleGoogle() {
     setIsGoogleLoading(true);
+    setFormError(null);
     try {
-      await signInWithGoogle();
+      const user = await signInWithGoogle();
+      if (!user && shouldUseRedirectSignIn()) {
+        return;
+      }
     } catch (error) {
-      // Desktop popup-closed is a real cancel and should toast. Redirect return
-      // on iPhone must not show «Окно входа было закрыто».
-      if (shouldUseRedirectSignIn() && isIgnorableGoogleAuthError(error)) return;
-      toast.error(getAuthErrorMessage(error));
+      if (shouldUseRedirectSignIn() && isIgnorableGoogleAuthError(error)) {
+        return;
+      }
+      const message = getAuthErrorMessage(error);
+      setFormError(message);
+      toast.error(message);
     } finally {
-      setIsGoogleLoading(false);
+      if (!wasGoogleRedirectPending()) setIsGoogleLoading(false);
     }
   }
 
@@ -145,6 +176,12 @@ export function LoginForm() {
         <div className="mt-6 rounded-sm border border-secondary/50 bg-secondary/10 p-3 text-xs text-foreground">
           Firebase не настроен. Заполните <code>.env.local</code> данными вашего проекта —
           подробности в README.
+        </div>
+      )}
+
+      {formError && (
+        <div className="mt-6 rounded-sm border border-secondary/50 bg-secondary/10 p-3 text-sm text-foreground">
+          {formError}
         </div>
       )}
 
@@ -174,7 +211,11 @@ export function LoginForm() {
               <Input
                 id="email"
                 type="email"
+                inputMode="email"
                 autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 placeholder="you@company.com"
                 className={fieldClass}
                 {...loginForm.register("email")}
@@ -222,7 +263,11 @@ export function LoginForm() {
               <Input
                 id="signup-email"
                 type="email"
+                inputMode="email"
                 autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 placeholder="you@company.com"
                 className={fieldClass}
                 {...signupForm.register("email")}
@@ -276,7 +321,10 @@ export function LoginForm() {
         <button
           type="button"
           className="font-medium text-primary transition-colors hover:text-primary/80"
-          onClick={() => setMode(mode === "login" ? "signup" : "login")}
+          onClick={() => {
+            setFormError(null);
+            setMode(mode === "login" ? "signup" : "login");
+          }}
         >
           {mode === "login" ? "Создать аккаунт" : "Войти"}
         </button>

@@ -2,8 +2,8 @@
 import { useEffect, useRef } from "react";
 import {
   completeGoogleRedirectIfNeeded,
-  isIgnorableGoogleAuthError,
   subscribeToAuthChanges,
+  wasGoogleRedirectPending,
 } from "@/firebase/auth";
 import { auth } from "@/firebase/firebase";
 import { ensureUserProfile, syncNicknameToMemberships } from "@/services/authService";
@@ -49,6 +49,13 @@ export function useAuthBootstrap() {
     }
 
     async function applyUser(user: import("firebase/auth").User | null) {
+      if (!user && auth?.currentUser) {
+        user = auth.currentUser;
+      }
+      if (!user && wasGoogleRedirectPending()) {
+        return;
+      }
+
       const uid = user?.uid ?? null;
       const isSameUser = lastAppliedUid === uid && authCallbackSettled;
       lastAppliedUid = uid;
@@ -60,9 +67,6 @@ export function useAuthBootstrap() {
       unsubscribeProfileRef.current = null;
 
       if (!isSameUser) {
-        // Every *real* auth transition restarts downstream boot. Skip when
-        // persistence just finished restoring the same account — that used to
-        // flash /login after a premature null from IndexedDB.
         resetBootstrap();
       }
 
@@ -89,7 +93,6 @@ export function useAuthBootstrap() {
               if (liveProfile) setProfile(liveProfile);
             },
             (error) => {
-              // A denied profile read must not sign the user out.
               console.error("users/{uid} listener failed:", error.code, error.message);
             }
           );
@@ -111,7 +114,6 @@ export function useAuthBootstrap() {
         }
       } catch (error) {
         console.error("Auth bootstrap failed:", error);
-        // Keep firebaseUser. permission-denied / missing profile must never signOut.
         setProfileResolved(true);
         toast.error("Не удалось загрузить профиль", {
           description: error instanceof Error ? error.message : "Попробуйте обновить страницу.",
@@ -121,9 +123,6 @@ export function useAuthBootstrap() {
       }
     }
 
-    // Unstick boot only if Auth already has a user. A null currentUser here is
-    // often iOS IndexedDB still restoring — treating it as signed-out sent
-    // people to /login. After 15s we accept whatever Auth reports.
     const authHangTimer = window.setTimeout(() => {
       if (authCallbackSettled) return;
       const current = auth?.currentUser ?? null;
@@ -140,19 +139,21 @@ export function useAuthBootstrap() {
     void (async () => {
       try {
         if (auth) {
-          await Promise.all([
-            auth.authStateReady(),
-            completeGoogleRedirectIfNeeded().catch((error) => {
-              if (!isIgnorableGoogleAuthError(error)) {
-                console.error("getRedirectResult failed:", error);
-              }
-              return null;
-            }),
-          ]);
+          await auth.authStateReady();
         }
       } catch (error) {
         console.error("authStateReady failed:", error);
       }
+
+      const pendingGoogle = wasGoogleRedirectPending();
+      const redirectPromise = completeGoogleRedirectIfNeeded();
+
+      if (pendingGoogle && !auth?.currentUser) {
+        await redirectPromise;
+      } else {
+        void redirectPromise;
+      }
+
       initialAuthReady = true;
       if (!authCallbackSettled) {
         void applyUser(auth?.currentUser ?? null);
@@ -160,10 +161,13 @@ export function useAuthBootstrap() {
     })();
 
     const unsubscribe = subscribeToAuthChanges((user) => {
-      // Ignore the premature null that fires before persistence (or a Google
-      // redirect) has restored the session. That null used to mark
-      // authResolved and RequireAuth dumped the user on /login.
-      if (!user && !initialAuthReady && !authCallbackSettled) return;
+      if (!user && auth?.currentUser) {
+        void applyUser(auth.currentUser);
+        return;
+      }
+      if (!user && (wasGoogleRedirectPending() || (!initialAuthReady && !authCallbackSettled))) {
+        return;
+      }
       void applyUser(user);
     });
 

@@ -1,5 +1,6 @@
 import {
   GoogleAuthProvider,
+  browserPopupRedirectResolver,
   createUserWithEmailAndPassword,
   getRedirectResult,
   onAuthStateChanged,
@@ -14,10 +15,16 @@ import {
 import { auth } from "@/firebase/firebase";
 
 const GOOGLE_REDIRECT_FLAG = "nova-crm:google-redirect";
+const REDIRECT_FLAG_MAX_AGE_MS = 10 * 60 * 1000;
+const REDIRECT_RESULT_TIMEOUT_MS = 6000;
 
 function requireAuth() {
   if (!auth) throw new Error("Firebase не настроен: заполните .env.local");
   return auth;
+}
+
+function authErrorCode(error: unknown): string | undefined {
+  return (error as { code?: string })?.code;
 }
 
 /** iOS/Android, coarse pointer, or a small viewport — popups get killed there. */
@@ -40,7 +47,7 @@ function googleProvider() {
 }
 
 export function isIgnorableGoogleAuthError(error: unknown): boolean {
-  const code = (error as { code?: string })?.code;
+  const code = authErrorCode(error);
   return (
     code === "auth/popup-closed-by-user" ||
     code === "auth/cancelled-popup-request" ||
@@ -50,77 +57,169 @@ export function isIgnorableGoogleAuthError(error: unknown): boolean {
   );
 }
 
-export async function signInWithGoogle() {
-  const authInstance = requireAuth();
-  if (shouldUseRedirectSignIn()) {
-    try {
-      sessionStorage.setItem(GOOGLE_REDIRECT_FLAG, "1");
-    } catch {
-      /* private mode */
-    }
-    try {
-      await signInWithRedirect(authInstance, googleProvider());
-      return null;
-    } catch (error) {
-      try {
-        sessionStorage.removeItem(GOOGLE_REDIRECT_FLAG);
-      } catch {
-        /* ignore */
-      }
-      throw error;
-    }
+function writeRedirectFlag() {
+  const payload = String(Date.now());
+  try {
+    sessionStorage.setItem(GOOGLE_REDIRECT_FLAG, payload);
+  } catch {
+    /* private mode */
   }
-  const result = await signInWithPopup(authInstance, googleProvider());
-  return result.user;
+  try {
+    localStorage.setItem(GOOGLE_REDIRECT_FLAG, payload);
+  } catch {
+    /* private mode */
+  }
 }
 
-let redirectResultPromise: Promise<User | null> | null = null;
-
-/**
- * Completes a mobile Google redirect. Must run on every load (login and
- * bootstrap) so a return from Google is never treated as «окно закрыто».
- */
-export function completeGoogleRedirectIfNeeded(): Promise<User | null> {
-  if (!auth) return Promise.resolve(null);
-  if (!redirectResultPromise) {
-    redirectResultPromise = getRedirectResult(auth)
-      .then((result) => result?.user ?? null)
-      .catch((error: unknown) => {
-        if (isIgnorableGoogleAuthError(error)) return null;
-        throw error;
-      })
-      .finally(() => {
-        try {
-          sessionStorage.removeItem(GOOGLE_REDIRECT_FLAG);
-        } catch {
-          /* ignore */
-        }
-      });
+function clearRedirectFlag() {
+  try {
+    sessionStorage.removeItem(GOOGLE_REDIRECT_FLAG);
+  } catch {
+    /* ignore */
   }
-  return redirectResultPromise;
+  try {
+    localStorage.removeItem(GOOGLE_REDIRECT_FLAG);
+  } catch {
+    /* ignore */
+  }
+}
+
+function flagLooksPending(raw: string | null): boolean {
+  if (!raw) return false;
+  const ts = Number(raw);
+  if (!Number.isFinite(ts)) return true;
+  return Date.now() - ts < REDIRECT_FLAG_MAX_AGE_MS;
 }
 
 export function wasGoogleRedirectPending(): boolean {
   try {
-    return sessionStorage.getItem(GOOGLE_REDIRECT_FLAG) === "1";
+    if (flagLooksPending(sessionStorage.getItem(GOOGLE_REDIRECT_FLAG))) return true;
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (flagLooksPending(localStorage.getItem(GOOGLE_REDIRECT_FLAG))) return true;
+  } catch {
+    /* ignore */
+  }
+  try {
+    return Object.keys(sessionStorage).some((key) => key.includes("pendingRedirect"));
   } catch {
     return false;
   }
 }
 
+export async function signInWithGoogle() {
+  const authInstance = requireAuth();
+  if (shouldUseRedirectSignIn()) {
+    writeRedirectFlag();
+    try {
+      await signInWithRedirect(authInstance, googleProvider(), browserPopupRedirectResolver);
+      return null;
+    } catch (error) {
+      clearRedirectFlag();
+      throw error;
+    }
+  }
+  const result = await signInWithPopup(authInstance, googleProvider(), browserPopupRedirectResolver);
+  return result.user;
+}
+
+let redirectResultPromise: Promise<User | null> | null = null;
+let lastGoogleRedirectError: unknown = null;
+
+export function getGoogleRedirectError(): unknown {
+  return lastGoogleRedirectError;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(Object.assign(new Error("redirect-timeout"), { code: "auth/network-request-failed" }));
+    }, ms);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        window.clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
+/**
+ * Completes a mobile Google redirect. Never throws: a hung/failed
+ * getRedirectResult must not block the email+password form.
+ */
+export function completeGoogleRedirectIfNeeded(): Promise<User | null> {
+  if (!auth) return Promise.resolve(null);
+  if (!redirectResultPromise) {
+    redirectResultPromise = (async () => {
+      lastGoogleRedirectError = null;
+      try {
+        const result = await withTimeout(
+          getRedirectResult(auth, browserPopupRedirectResolver),
+          REDIRECT_RESULT_TIMEOUT_MS
+        );
+        return result?.user ?? null;
+      } catch (error: unknown) {
+        if (!isIgnorableGoogleAuthError(error)) {
+          lastGoogleRedirectError = error;
+          console.error("getRedirectResult failed:", error);
+        }
+        return null;
+      } finally {
+        clearRedirectFlag();
+      }
+    })();
+  }
+  return redirectResultPromise;
+}
+
+async function waitBriefly(ms: number) {
+  await new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 export async function signUpWithEmail(email: string, password: string, name: string) {
-  const credential = await createUserWithEmailAndPassword(requireAuth(), email, password);
+  const authInstance = requireAuth();
+  try {
+    await authInstance.authStateReady();
+  } catch {
+    /* continue */
+  }
+  const credential = await createUserWithEmailAndPassword(authInstance, email.trim(), password);
   await updateProfile(credential.user, { displayName: name });
   return credential.user;
 }
 
 export async function signInWithEmail(email: string, password: string) {
-  const credential = await signInWithEmailAndPassword(requireAuth(), email, password);
-  return credential.user;
+  const authInstance = requireAuth();
+  try {
+    await authInstance.authStateReady();
+  } catch {
+    /* continue */
+  }
+  const trimmed = email.trim();
+  try {
+    const credential = await signInWithEmailAndPassword(authInstance, trimmed, password);
+    return credential.user;
+  } catch (error) {
+    const code = authErrorCode(error);
+    if (code === "auth/redirect-operation-pending" || code === "auth/cancelled-popup-request") {
+      await waitBriefly(600);
+      const credential = await signInWithEmailAndPassword(authInstance, trimmed, password);
+      return credential.user;
+    }
+    throw error;
+  }
 }
 
 /** Explicit user logout only. Never call this from a Firestore permission error. */
 export async function signOutUser() {
+  clearRedirectFlag();
   await signOut(requireAuth());
 }
 
