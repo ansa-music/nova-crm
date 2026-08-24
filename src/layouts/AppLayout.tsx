@@ -121,7 +121,7 @@ export function AppLayout() {
             <Maximize2 className="h-3.5 w-3.5" />
           </button>
         )}
-        <main className="flex-1 overflow-y-auto scrollbar-thin">
+        <main className={`flex min-h-0 flex-1 flex-col ${isOnTablePage ? "overflow-hidden" : "overflow-y-auto"} scrollbar-thin`}>
           <PageShell>
             <Outlet />
           </PageShell>

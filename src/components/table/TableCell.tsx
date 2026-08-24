@@ -135,7 +135,7 @@ export function TableCell({
           onValueChange={(v) => onStatusChange(v === "__clear__" ? "" : v)}
           disabled={!canEdit}
         >
-          <SelectTrigger className="table-status-trigger h-full min-h-[40px] w-full rounded-none border-0 bg-transparent px-2 shadow-none focus:ring-0 sm:min-h-[32px] [&>svg]:hidden">
+          <SelectTrigger className="table-status-trigger h-full min-h-11 w-full rounded-none border-0 bg-transparent px-2 shadow-none focus:ring-0 sm:min-h-[32px] [&>svg]:hidden">
             <SelectValue placeholder="">{renderDisplay()}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -155,7 +155,7 @@ export function TableCell({
             <button
               type="button"
               disabled={!canEdit}
-              className="flex h-full min-h-[40px] w-full items-center gap-1.5 px-2.5 text-left text-sm disabled:cursor-default sm:min-h-[32px]"
+              className="flex h-full min-h-11 w-full items-center gap-1.5 px-2.5 text-left text-sm disabled:cursor-default sm:min-h-[32px]"
             >
               <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               {stringValue ? renderDisplay() : <span className="text-muted-foreground">—</span>}
@@ -226,14 +226,14 @@ export function TableCell({
             }
           }}
           className={cn(
-            "h-full min-h-[40px] w-full border-0 bg-background px-2.5 text-sm outline-none ring-1 ring-inset ring-primary sm:min-h-0",
+            "h-full min-h-11 w-full border-0 bg-background px-2.5 text-sm outline-none ring-1 ring-inset ring-primary sm:min-h-0",
             isNumeric && "text-right tabular-nums"
           )}
         />
       ) : (
         <div
           className={cn(
-            "flex h-full min-h-[40px] w-full items-center px-2.5 text-sm leading-none sm:min-h-[32px]",
+            "flex h-full min-h-11 w-full items-center px-2.5 text-sm leading-none sm:min-h-[32px]",
             isNumeric && "justify-end tabular-nums"
           )}
           title={column.type === "url" ? (diskUrl?.href ?? "") : stringValue}

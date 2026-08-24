@@ -641,3 +641,15 @@
 .table-instrument th {
   border-color: hsl(var(--border) / 0.85);
 }
+
+.table-grid-scroll {
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
+.table-instrument thead th {
+  position: sticky;
+  top: 0;
+  background-color: hsl(var(--background));
+}

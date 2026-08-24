@@ -224,7 +224,7 @@ export function ColumnHeaderCell({
               e.stopPropagation();
               onResizeStart(column.key, e);
             }}
-            className="absolute -right-1 top-0 z-10 h-full w-2.5 cursor-col-resize touch-none"
+            className="absolute -right-1.5 top-0 z-10 h-full w-4 cursor-col-resize touch-none sm:w-2.5"
             title="Ширина столбца"
           >
             <span className="absolute right-[3px] top-1.5 h-[calc(100%-12px)] w-px bg-border opacity-0 group-hover:opacity-100 hover:bg-primary" />

@@ -25,11 +25,20 @@ export const DEFAULT_STATUS_OPTIONS: StatusOption[] = [
  * list or DEFAULT_STATUS_OPTIONS (includes Готово).
  * Responsible and custom fields stay workspace-wide (Owner).
  */
+export function ensureDoneStatus(options: StatusOption[]): StatusOption[] {
+  if (options.some((o) => isDoneStatusLabel(o.label) || o.value === "done")) return options;
+  const done = DEFAULT_STATUS_OPTIONS.find((o) => o.value === "done");
+  return done ? [...options, done] : options;
+}
+
 export function getColumnOptions(column: PageColumn, workspace: Workspace | null | undefined): StatusOption[] {
   if (column.type === "responsible") return workspace?.responsibleOptions ?? [];
   if (column.type === "status") {
-    if (column.statusOptions && column.statusOptions.length > 0) return column.statusOptions;
-    return workspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
+    const raw =
+      column.statusOptions && column.statusOptions.length > 0
+        ? column.statusOptions
+        : (workspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS);
+    return ensureDoneStatus(raw);
   }
   if (column.type === "custom") {
     return workspace?.customFields?.find((f) => f.id === column.customFieldId)?.options ?? [];

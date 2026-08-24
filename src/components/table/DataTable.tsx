@@ -662,32 +662,28 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   function handleCellMouseDown(rowId: string, colKey: string, e: React.MouseEvent) {
     const col = columns.find((c) => c.key === colKey);
     const isUrl = col?.type === "url";
-    // Don't preventDefault on URL cells — iOS/Android need the tap to reach
-    // the text input so paste works. File pickers are never opened here.
-    if (!isUrl) e.preventDefault();
+    const isSelectLike = Boolean(col && (isOptionColumn(col.type) || col.type === "date"));
+    // URL / status / date need the native tap (paste, select, calendar).
+    // Text cells preventDefault so the grid keeps keyboard focus for arrows.
+    if (!isUrl && !isSelectLike) e.preventDefault();
+    containerRef.current?.focus({ preventScroll: true });
     if (editingCellRef.current && (editingCellRef.current.rowId !== rowId || editingCellRef.current.colKey !== colKey)) {
-      // Switching to a different cell while one is being edited must persist
-      // the in-progress value first — it must never be silently discarded.
       handleCommitEdit("none");
     }
     const addr = { rowId, colKey };
     if (e.shiftKey && activeCell) {
       setActiveCell(addr);
-    } else {
-      setRangeAnchor(addr);
-      setActiveCell(addr);
-      isSelectingRef.current = !isUrl;
-    }
-    const alreadyActive = !e.shiftKey && activeCell?.rowId === rowId && activeCell?.colKey === colKey;
-    if (isUrl && canEdit) {
-      const row = rows.find((r) => r.id === rowId);
-      const raw = String(row?.cells[colKey] ?? "");
-      if (!parseHttpUrl(raw) || alreadyActive) startEditing(rowId, colKey);
       return;
     }
-    if (alreadyActive && canEdit && col && !isOptionColumn(col.type) && col.type !== "date") {
-      startEditing(rowId, colKey);
-    }
+    setRangeAnchor(addr);
+    setActiveCell(addr);
+    isSelectingRef.current = !isUrl && !isSelectLike && e.button === 0;
+    if (!canEdit || !col) return;
+    if (isSelectLike) return;
+    const row = rows.find((r) => r.id === rowId);
+    const raw = String(row?.cells[colKey] ?? "");
+    if (isUrl && parseHttpUrl(raw)) return;
+    startEditing(rowId, colKey);
   }
 
   function handleCellMouseEnter(rowId: string, colKey: string) {
@@ -837,10 +833,21 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   // ---- Keyboard navigation ----
+  function revealCell(rowId: string, colKey: string, rowIndex: number) {
+    if (!groupByKey) rowVirtualizer.scrollToIndex(Math.max(0, rowIndex), { align: "auto" });
+    requestAnimationFrame(() => {
+      const cell = containerRef.current?.querySelector(
+        `tr[data-row-id="${rowId}"] td[data-col="${colKey}"]`
+      );
+      (cell as HTMLElement | null)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+  }
+
   function moveSelection(direction: "up" | "down" | "left" | "right", extend: boolean) {
     if (!activeCell) return;
     const rIdx = rowIds.indexOf(activeCell.rowId);
     const cIdx = columns.findIndex((c) => c.key === activeCell.colKey);
+    if (rIdx === -1 || cIdx === -1) return;
     let nr = rIdx;
     let nc = cIdx;
     if (direction === "up") nr = Math.max(0, rIdx - 1);
@@ -851,6 +858,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setActiveCell(next);
     if (!extend) setRangeAnchor(next);
     else if (!rangeAnchor) setRangeAnchor(activeCell);
+    revealCell(next.rowId, next.colKey, nr);
   }
 
   // Tab at the very last column wraps to the first column of the NEXT row
@@ -870,6 +878,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       const next = { rowId: rowIds[rIdx + 1], colKey: columns[0].key };
       setActiveCell(next);
       setRangeAnchor(next);
+      revealCell(next.rowId, next.colKey, rIdx + 1);
       return;
     }
     if (!canEdit) return;
@@ -904,8 +913,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       // Cyrillic/non-Latin keyboard layouts (see its own comment).
 
       if (editingCellRef.current) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("input, textarea, [contenteditable=true]")) return;
       if (containerRef.current && !containerRef.current.contains(document.activeElement)) {
-        if (document.activeElement !== document.body) return;
+        if (document.activeElement !== document.body && document.activeElement !== containerRef.current) return;
       }
       if (!activeCell) return;
 
@@ -1076,6 +1087,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   // ---- Row-level actions ----
   async function handleAddRow() {
+    setSearchQuery("");
+    setPageIndex(0);
     const cells: Record<string, string | number | null> = {};
     columns.forEach((c) => (cells[c.key] = ""));
     const newRow = await addRowService(workspaceId, page.id, cells, rows.length);
@@ -1381,7 +1394,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   return (
     <LayoutGroup>
-    <div className="relative flex h-full flex-col bg-background">
+    <div className="relative flex h-full min-h-0 flex-col bg-background">
       {/* A thin top progress bar while any cell write is in flight — same
           idea as YouTube/GitHub, so "is it saving?" is visible at a glance
           instead of only in the small per-cell dot. */}
@@ -1426,9 +1439,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       ) : (
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <div className="relative min-h-0 flex-1">
-        <div ref={containerRef} tabIndex={0} className="absolute inset-0 overflow-auto overscroll-contain bg-background outline-none scrollbar-thin">
+        <div ref={containerRef} tabIndex={0} className="table-grid-scroll absolute inset-0 overflow-auto overscroll-contain bg-background outline-none scrollbar-thin">
           <table className="table-instrument w-max min-w-full border-separate border-spacing-0" style={{ tableLayout: "fixed" }}>
-            <thead className="sticky top-0 z-30">
+            <thead className="sticky top-0 z-30 bg-background">
               <tr>
                 <th
                   className="table-sticky-col sticky left-0 top-0 z-40 border-b border-r border-border/50 bg-background"
@@ -1512,19 +1525,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                         </tr>
                       )}
                     </SortableContext>
-                  )}
-                  {canEdit && processedRows.length > 0 && (
-                    <tr>
-                      <td colSpan={displayColumns.length + 1} className="border-b border-border/35 p-0">
-                        <button
-                          type="button"
-                          onClick={handleAddRow}
-                          className="flex h-11 w-full items-center gap-2 px-3 text-left text-sm text-muted-foreground hover:bg-muted/70 hover:text-foreground sm:h-10"
-                        >
-                          <Plus className="h-3.5 w-3.5" /> Добавить строку
-                        </button>
-                      </td>
-                    </tr>
                   )}
                   {processedRows.length === 0 && (
                     <tr>
@@ -1658,6 +1658,16 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         )}
         </div>
       </DndContext>
+      )}
+
+      {canEdit && viewMode === "table" && processedRows.length > 0 && (
+        <button
+          type="button"
+          onClick={() => void handleAddRow()}
+          className="flex h-11 shrink-0 items-center gap-2 border-t border-border/50 bg-background px-3 text-left text-sm text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+        >
+          <Plus className="h-3.5 w-3.5" /> Добавить строку
+        </button>
       )}
 
       {!groups && viewMode === "table" && (

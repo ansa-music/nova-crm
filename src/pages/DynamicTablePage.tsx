@@ -219,7 +219,7 @@ export default function DynamicTablePage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className="page-header">
         <span
           className="relative flex h-8 w-8 items-center justify-center rounded-lg"
@@ -343,7 +343,7 @@ export default function DynamicTablePage() {
 
           {statsOpen && <SubPageStats columns={activeSubPage ? activeSubPage.columns : page.columns} rows={rows} />}
 
-          <div className="flex-1 overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {rowsLoading ? (
               <div className="p-4">
                 <div className="overflow-hidden rounded-[16px] border border-border/60">

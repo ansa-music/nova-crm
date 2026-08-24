@@ -26,7 +26,7 @@ export function PageShell({ children }: { children: ReactNode }) {
   );
 
   return (
-    <div ref={ref} className="h-full origin-top">
+    <div ref={ref} className="flex h-full min-h-0 flex-col origin-top">
       {children}
     </div>
   );

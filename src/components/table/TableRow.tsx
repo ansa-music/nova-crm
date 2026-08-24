@@ -92,6 +92,7 @@ export function TableRow({
         transition: isDragging ? transition : undefined,
         opacity: isDragging ? 0.5 : 1,
       }}
+      data-row-id={row.id}
       className={cn(
         "group/row table-data-row",
         (isRowFullySelected || isChecked) && "table-data-row-selected",
