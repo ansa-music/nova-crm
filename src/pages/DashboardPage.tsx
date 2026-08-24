@@ -195,7 +195,7 @@ export default function DashboardPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="min-h-11 rounded-full border-white/25 bg-white/10 px-4 text-[hsl(36_40%_96%)] hover:bg-white/16 hover:text-[hsl(36_40%_96%)]"
+                  className="min-h-11 rounded-full border-white/25 bg-white/10 px-4 text-white hover:bg-white/16 hover:text-white"
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -209,7 +209,7 @@ export default function DashboardPage() {
             ) : (
               <div />
             )}
-            <p className="font-serif text-[1.65rem] font-medium tracking-[-0.03em] text-[hsl(36_40%_96%)] sm:text-[2.15rem]">
+            <p className="font-serif text-[1.65rem] font-medium tracking-[-0.03em] text-white sm:text-[2.15rem]">
               {myDesk.name}
             </p>
           </div>

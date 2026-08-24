@@ -74,10 +74,10 @@ export default function DesksPage() {
                 <DeskCoverStrip coverUrl={resolvedCoverUrl(page, ownerUid)} name={page.name} ratio="thumb" />
                 <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
                 <span className="absolute inset-x-0 bottom-0 z-[1] p-4">
-                  <span className="block truncate font-serif text-[1.05rem] font-medium tracking-[-0.02em] text-[hsl(36_40%_96%)]">
+                  <span className="block truncate font-serif text-[1.05rem] font-medium tracking-[-0.02em] text-white">
                     {page.name}
                   </span>
-                  {who ? <span className="block truncate text-[12px] text-[hsl(36_30%_82%)]">{who}</span> : null}
+                  {who ? <span className="block truncate text-[12px] text-white/75">{who}</span> : null}
                 </span>
               </button>
             );

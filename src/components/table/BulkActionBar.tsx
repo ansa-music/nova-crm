@@ -27,7 +27,7 @@ export function BulkActionBar({
   if (count <= 0) return null;
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-5 z-30 flex justify-center px-4 pb-[env(safe-area-inset-bottom)]">
+    <div className="bulk-action-bar pointer-events-none absolute inset-x-0 bottom-5 z-30 flex justify-center px-4 pb-[env(safe-area-inset-bottom)]">
       <div className="pointer-events-auto flex items-center gap-2 rounded-sm border border-primary/40 bg-card px-2 py-1.5 shadow-[0_12px_40px_-18px_hsl(var(--primary)/0.5)]">
         <span className="pl-2 font-mono text-[11px] tabular text-muted-foreground">{count} выбрано</span>
         {canEdit && onSetStatus && statusOptions && statusOptions.length > 0 && (

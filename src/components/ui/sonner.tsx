@@ -1,11 +1,9 @@
 import { Toaster as Sonner } from "sonner";
-import { useUiStore } from "@/store/uiStore";
 
 export function Toaster() {
-  const theme = useUiStore((s) => s.theme);
   return (
     <Sonner
-      theme={theme === "system" ? "system" : theme}
+      theme="dark"
       className="toaster group"
       position="bottom-right"
       toastOptions={{

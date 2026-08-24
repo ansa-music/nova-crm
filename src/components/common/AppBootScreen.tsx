@@ -51,10 +51,10 @@ export function AppBootScreen({ phase }: { phase: BootstrapPhase }) {
       aria-live="polite"
       aria-busy="true"
     >
-      <div className="boot-card hud-frame neon-pulse flex w-full max-w-[360px] flex-col items-center gap-6 rounded-md border border-primary/45 bg-card/95 px-8 py-10">
+      <div className="boot-card flex w-full max-w-[360px] flex-col items-center gap-6 rounded-md border border-primary/35 bg-card/95 px-8 py-10">
         <BrandMark />
         <div className="h-px w-40 overflow-hidden bg-border">
-          <div ref={barRef} className="h-full bg-primary shadow-[0_0_18px_hsl(var(--primary))]" style={{ width: "12%" }} />
+          <div ref={barRef} className="h-full bg-primary" style={{ width: "12%" }} />
         </div>
         <p className="eyebrow">{PHASE_LABEL[phase] ?? "Загрузка…"}</p>
       </div>

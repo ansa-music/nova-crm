@@ -41,7 +41,7 @@ export interface Workspace {
   statusOptions?: StatusOption[];
   /**
    * Optional desk marker (--desk-accent), an HSL triplet. Chrome stays
-   * bronze from index.css; AccentColorSync never writes --primary/--ring.
+   * neon cyan from index.css; AccentColorSync never writes --primary/--ring.
    */
   accentColor?: string;
   /**

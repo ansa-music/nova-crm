@@ -4,49 +4,50 @@
 
 @layer base {
   /*
-    Design tokens — Nova studio:
-    walnut #1C1612, ivory foreground, bronze/gold primary.
-    Bronze hairlines. Light mode is warm paper, not cool gray.
+    Design tokens — Nova neon:
+    always dark navy #070C18, cool off-white text, neon cyan primary #70EAFF.
+    Workspace accentColor writes --desk-accent only, never --primary.
   */
-  :root {
-    --background: 36 38% 96%;
-    --foreground: 24 20% 14%;
+  :root,
+  .dark {
+    --background: 222 55% 6%;
+    --foreground: 210 22% 94%;
 
-    --card: 36 40% 98%;
-    --card-foreground: 24 20% 14%;
+    --card: 222 48% 8%;
+    --card-foreground: 210 22% 94%;
 
-    --popover: 36 42% 99%;
-    --popover-foreground: 24 20% 14%;
+    --popover: 222 50% 7%;
+    --popover-foreground: 210 22% 94%;
 
-    --primary: 32 42% 36%;
-    --primary-foreground: 36 40% 98%;
+    --primary: 189 100% 72%;
+    --primary-foreground: 222 55% 8%;
 
-    --secondary: 18 32% 42%;
-    --secondary-foreground: 36 40% 98%;
+    --secondary: 200 38% 28%;
+    --secondary-foreground: 210 22% 94%;
 
-    --muted: 34 24% 91%;
-    --muted-foreground: 24 12% 38%;
+    --muted: 222 32% 12%;
+    --muted-foreground: 210 14% 68%;
 
-    --accent: 34 28% 90%;
-    --accent-foreground: 32 40% 28%;
+    --accent: 222 36% 13%;
+    --accent-foreground: 189 80% 78%;
 
-    --destructive: 8 62% 44%;
+    --destructive: 8 72% 52%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 150 32% 32%;
+    --success: 150 48% 46%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 38 70% 38%;
-    --warning-foreground: 24 20% 14%;
+    --warning: 42 88% 56%;
+    --warning-foreground: 222 55% 8%;
 
-    --border: 32 20% 80%;
-    --input: 32 20% 80%;
-    --ring: 32 42% 36%;
+    --border: 189 45% 18%;
+    --input: 189 35% 16%;
+    --ring: 189 100% 72%;
 
-    --sidebar: 36 30% 94%;
-    --sidebar-foreground: 24 12% 34%;
-    --sidebar-border: 32 18% 82%;
-    --sidebar-accent: 34 24% 90%;
+    --sidebar: 222 55% 6%;
+    --sidebar-foreground: 210 16% 72%;
+    --sidebar-border: 189 40% 16%;
+    --sidebar-accent: 222 40% 12%;
 
     --radius: 0.25rem;
     --os-radius: 8px;
@@ -55,49 +56,7 @@
     --duration: 260ms;
     --duration-slow: 320ms;
     --hud-blur: 10px;
-    --desk-accent: 32 42% 36%;
-  }
-
-  .dark {
-    --background: 24 22% 9%; /* #1C1612 walnut */
-    --foreground: 36 40% 92%; /* ivory */
-
-    --card: 24 18% 12%;
-    --card-foreground: 36 40% 92%;
-
-    --popover: 24 20% 11%;
-    --popover-foreground: 36 40% 92%;
-
-    --primary: 36 47% 60%; /* bronze / gold */
-    --primary-foreground: 24 30% 10%;
-
-    --secondary: 22 32% 48%;
-    --secondary-foreground: 36 40% 94%;
-
-    --muted: 24 14% 16%;
-    --muted-foreground: 32 16% 72%;
-
-    --accent: 24 14% 16%;
-    --accent-foreground: 36 50% 78%;
-
-    --destructive: 8 62% 48%;
-    --destructive-foreground: 36 40% 96%;
-
-    --success: 150 32% 42%;
-    --success-foreground: 36 40% 96%;
-
-    --warning: 38 70% 52%;
-    --warning-foreground: 24 30% 10%;
-
-    --border: 32 24% 22%; /* bronze hairline */
-    --input: 24 16% 18%;
-    --ring: 36 47% 60%;
-
-    --sidebar: 24 22% 9%;
-    --sidebar-foreground: 32 16% 74%;
-    --sidebar-border: 32 22% 20%;
-    --sidebar-accent: 24 16% 14%;
-    --desk-accent: 36 47% 60%;
+    --desk-accent: 189 100% 72%;
   }
 
   * {
@@ -109,6 +68,7 @@
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     font-optical-sizing: auto;
+    color-scheme: dark;
     background: hsl(var(--background));
   }
 
@@ -117,10 +77,7 @@
     font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
     font-optical-sizing: auto;
     letter-spacing: -0.011em;
-  }
-
-  .dark body {
-    background-color: #1c1612;
+    background-color: #070c18;
   }
 
   /* HUD toys off site-wide (cyber-grid overlay + scanlines). Phone kill-switch remains. */
@@ -136,8 +93,8 @@
   }
 
   ::selection {
-    background: hsl(var(--primary) / 0.88);
-    color: hsl(var(--primary-foreground));
+    background: hsl(var(--primary) / 0.28);
+    color: hsl(var(--foreground));
   }
 
   :focus-visible {
@@ -195,14 +152,14 @@
     -webkit-backdrop-filter: blur(10px);
     box-shadow:
       0 0 0 1px hsl(var(--primary) / 0.12),
-      0 0 22px -10px hsl(var(--primary) / 0.55);
+      0 0 16px -12px hsl(var(--primary) / 0.28);
     transition: box-shadow var(--duration) var(--ease-out), border-color var(--duration) var(--ease-out);
   }
   .desk-cluster:hover {
     border-color: hsl(var(--primary) / 0.62);
     box-shadow:
-      0 0 0 1px hsl(var(--primary) / 0.28),
-      0 0 28px hsl(var(--primary) / 0.22);
+      0 0 0 1px hsl(var(--primary) / 0.22),
+      0 0 18px hsl(var(--primary) / 0.12);
   }
 
   .desk-metric {
@@ -274,7 +231,7 @@
     transition: background-color var(--duration) var(--ease-out);
   }
   .table-instrument tbody tr:hover td {
-    background-color: hsl(var(--muted) / 0.65);
+    background-color: hsl(var(--primary) / 0.08);
   }
 
   .page-header {
@@ -291,14 +248,16 @@
     box-shadow: none;
   }
   .glass {
-    @apply border bg-card text-foreground;
-    border-color: hsl(var(--primary) / 0.35);
+    @apply border text-foreground;
+    background: hsl(var(--card) / 0.92);
+    border-color: hsl(var(--primary) / 0.28);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
   }
   .glass-panel {
-    @apply border bg-card;
-    border-color: hsl(var(--primary) / 0.32);
+    @apply border;
+    background: hsl(var(--card) / 0.92);
+    border-color: hsl(var(--primary) / 0.28);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
   }
@@ -399,27 +358,12 @@
     position: relative;
   }
   .hud-frame::before {
-    content: "";
-    pointer-events: none;
-    position: absolute;
-    inset: 5px;
-    z-index: 3;
-    background:
-      linear-gradient(to right, hsl(var(--primary)) 12px, transparent 12px) top left / 100% 1px no-repeat,
-      linear-gradient(to bottom, hsl(var(--primary)) 12px, transparent 12px) top left / 1px 100% no-repeat,
-      linear-gradient(to left, hsl(var(--secondary)) 12px, transparent 12px) top right / 100% 1px no-repeat,
-      linear-gradient(to bottom, hsl(var(--secondary)) 12px, transparent 12px) top right / 1px 100% no-repeat,
-      linear-gradient(to right, hsl(var(--secondary)) 12px, transparent 12px) bottom left / 100% 1px no-repeat,
-      linear-gradient(to top, hsl(var(--secondary)) 12px, transparent 12px) bottom left / 1px 100% no-repeat,
-      linear-gradient(to left, hsl(var(--primary)) 12px, transparent 12px) bottom right / 100% 1px no-repeat,
-      linear-gradient(to top, hsl(var(--primary)) 12px, transparent 12px) bottom right / 1px 100% no-repeat;
-    filter:
-      drop-shadow(0 0 4px hsl(var(--primary) / 0.85))
-      drop-shadow(0 0 6px hsl(var(--secondary) / 0.4));
+    content: none;
+    display: none;
   }
 
   .neon-pulse {
-    animation: neon-pulse 3.6s ease-in-out infinite;
+    animation: none;
   }
   @keyframes neon-pulse {
     0%, 100% {
@@ -546,11 +490,11 @@
 
 .desk-cover-placeholder {
   background:
-    linear-gradient(165deg, hsl(32 18% 88%) 0%, hsl(36 28% 92%) 42%, hsl(32 16% 84%) 100%);
+    linear-gradient(165deg, hsl(222 40% 16%) 0%, hsl(222 55% 8%) 55%, hsl(222 58% 5%) 100%);
 }
 .dark .desk-cover-placeholder {
   background:
-    linear-gradient(165deg, hsl(28 16% 18%) 0%, hsl(24 22% 11%) 55%, hsl(22 18% 9%) 100%);
+    linear-gradient(165deg, hsl(222 40% 16%) 0%, hsl(222 55% 8%) 55%, hsl(222 58% 5%) 100%);
 }
 
 .status-pill {
@@ -573,14 +517,15 @@
 .table-instrument tfoot td {
   overflow: visible;
   white-space: normal;
+  background-color: hsl(var(--background));
 }
 .table-sticky-edge {
-  box-shadow: 8px 0 12px -10px hsl(24 24% 10% / 0.35);
+  box-shadow: 8px 0 12px -10px hsl(222 55% 4% / 0.55);
 }
 
 .table-instrument tbody tr.table-data-row-selected td,
 .table-instrument tbody tr.table-data-row-active td {
-  background-color: color-mix(in srgb, hsl(var(--primary)) 10%, hsl(var(--background)));
+  background-color: color-mix(in srgb, hsl(var(--primary)) 12%, hsl(var(--background)));
 }
 .table-instrument tbody td.table-sticky-col,
 .table-instrument thead th.table-sticky-col,
@@ -589,16 +534,16 @@
 }
 .table-instrument tbody tr.table-data-row-selected td.table-sticky-col,
 .table-instrument tbody tr.table-data-row-active td.table-sticky-col {
-  background-color: color-mix(in srgb, hsl(var(--primary)) 10%, hsl(var(--background)));
+  background-color: color-mix(in srgb, hsl(var(--primary)) 12%, hsl(var(--background)));
 }
 
 @media (hover: hover) and (pointer: fine) {
   .table-instrument tbody tr.table-data-row:hover td {
-    background-color: hsl(var(--muted));
+    background-color: hsl(var(--primary) / 0.08);
     box-shadow: none;
   }
   .table-instrument tbody tr.table-data-row:hover td.table-sticky-col {
-    background-color: hsl(var(--muted));
+    background-color: color-mix(in srgb, hsl(var(--primary)) 8%, hsl(var(--background)));
   }
   .status-pill {
     box-shadow: none;
@@ -658,6 +603,31 @@
   position: sticky;
   top: 0;
   background-color: hsl(var(--background));
+}
+
+
+.table-totals-bar {
+  flex-shrink: 0;
+  border-top: 1px solid hsl(var(--primary) / 0.28);
+  background: hsl(var(--background));
+  padding: 0.7rem 1rem max(0.85rem, env(safe-area-inset-bottom, 0px));
+}
+.table-totals-sum {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+@media (min-width: 640px) {
+  .table-totals-sum {
+    font-size: 24px;
+  }
+}
+.has-table-totals .bulk-action-bar {
+  bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
 }
 
 /* iOS: Radix scroll-lock must not freeze the sheet or leak clicks through the overlay. */

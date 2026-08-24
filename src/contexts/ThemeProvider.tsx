@@ -1,31 +1,12 @@
 import { useEffect } from "react";
-import { useUiStore } from "@/store/uiStore";
 
-function applyTheme(theme: "light" | "dark") {
-  const root = document.documentElement;
-  root.classList.toggle("dark", theme === "dark");
-}
-
-/** Watches the persisted theme preference (and system preference, when 'system')
- *  and keeps the `dark` class on <html> in sync. Mount once near the app root. */
+/** Always navy. Light/cream is not a site look — chrome stays dark. */
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const theme = useUiStore((s) => s.theme);
-
   useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-
-    function sync() {
-      if (theme === "system") {
-        applyTheme(media.matches ? "dark" : "light");
-      } else {
-        applyTheme(theme);
-      }
-    }
-
-    sync();
-    media.addEventListener("change", sync);
-    return () => media.removeEventListener("change", sync);
-  }, [theme]);
+    const root = document.documentElement;
+    root.classList.add("dark");
+    root.style.colorScheme = "dark";
+  }, []);
 
   return <>{children}</>;
 }

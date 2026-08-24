@@ -48,12 +48,12 @@ function navActiveClass(active: boolean, collapsed?: boolean) {
   if (collapsed) {
     return cn(
       "flex h-11 w-11 items-center justify-center rounded-xl",
-      active ? "bg-[hsl(24_16%_16%)] text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
+      active ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
     );
   }
   return cn(
     "flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[14px] font-medium",
-    active ? "bg-[hsl(24_16%_16%)] text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
+    active ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
   );
 }
 

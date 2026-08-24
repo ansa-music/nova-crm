@@ -1774,6 +1774,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     return sums;
   }, [columns, processedRows, sharedStatusOptions]);
 
+  const grandTotals = useMemo(() => {
+    const currencyCol = columns.find((c) => c.type === "currency");
+    if (!currencyCol) return null;
+    const tot = columnTotals[currencyCol.key];
+    if (!tot) return { sum: 0, done: 0 };
+    return { sum: tot.sum, done: tot.done ?? 0 };
+  }, [columns, columnTotals]);
+
   const selectionNumericSum = useMemo(() => {
     const bounds = getSelectionBounds();
     if (!bounds) return null;
@@ -1891,7 +1899,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   return (
     <LayoutGroup>
-    <div className="relative flex h-full min-h-0 flex-col bg-background">
+    <div className={`relative flex h-full min-h-0 flex-col bg-background${grandTotals ? " has-table-totals" : ""}`}>
       {/* A thin top progress bar while any cell write is in flight — same
           idea as YouTube/GitHub, so "is it saving?" is visible at a glance
           instead of only in the small per-cell dot. */}
@@ -2135,7 +2143,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
               <tfoot className="sticky bottom-0 z-20 overflow-visible">
                 <tr className="border-t border-border/70 bg-background">
                   <td
-                    className="table-sticky-col sticky left-0 z-30 border-r border-border/50 bg-background px-1 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] text-center font-mono text-[11px] tabular text-muted-foreground"
+                    className="table-sticky-col sticky left-0 z-30 border-r border-border/50 bg-background px-1 py-2 text-center font-mono text-[11px] tabular text-muted-foreground"
                     style={{ width: gutterWidth, minWidth: gutterWidth }}
                     title="Строк в фильтре"
                   >
@@ -2157,7 +2165,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                     return (
                       <td
                         key={`total-${column.id}`}
-                        className={`overflow-visible whitespace-normal border-r border-border/35 px-2 py-2.5 pb-[max(0.6rem,env(safe-area-inset-bottom,0px))] text-right text-sm leading-tight tabular-nums ${
+                        className={`overflow-visible whitespace-normal border-r border-border/35 px-2 py-2 text-right text-sm leading-tight tabular-nums ${
                           stickyLeft !== undefined ? "table-sticky-col sticky z-[25] bg-background" : "bg-background"
                         } ${pinnedOrder.length && column.key === pinnedOrder[pinnedOrder.length - 1].key ? "table-sticky-edge" : ""}`}
                         style={{
@@ -2167,21 +2175,16 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                         }}
                       >
                         {column.type === "date" ? null : tot ? (
-                          <div className="flex min-w-0 flex-col items-end gap-0.5">
+                          <div className="flex min-w-0 flex-col items-end">
                             <span
-                              className="block max-w-full truncate font-medium"
+                              className="block max-w-full truncate text-[13px] font-semibold tabular-nums"
                               title={column.type === "currency" ? formatCurrency(tot.sum) : formatNumber(tot.sum)}
                             >
                               {column.type === "currency" ? formatCurrency(tot.sum) : formatNumber(tot.sum)}
                             </span>
-                            {tot.done !== undefined && (
-                              <span className="block max-w-full whitespace-normal break-words text-[10px] leading-tight text-success" title={`Готово ${formatCurrency(tot.done)}`}>
-                                Готово {formatCurrency(tot.done)}
-                              </span>
-                            )}
                           </div>
                         ) : column.key === displayColumns[0]?.key ? (
-                          <span className="block text-left text-[11px] text-muted-foreground">Итого</span>
+                          <span className="block text-left text-[12px] text-muted-foreground">Итого</span>
                         ) : null}
                       </td>
                     );
@@ -2253,6 +2256,21 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
             setPageIndex(0);
           }}
         />
+      )}
+
+      {grandTotals && (
+        <div className="table-totals-bar z-20">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="min-w-0">
+              <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Общий</p>
+              <p className="table-totals-sum text-foreground">{formatCurrency(grandTotals.sum)}</p>
+            </div>
+            <div className="min-w-0">
+              <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-success">Готово</p>
+              <p className="table-totals-sum text-success">{formatCurrency(grandTotals.done)}</p>
+            </div>
+          </div>
+        </div>
       )}
 
       <AddColumnDialog
