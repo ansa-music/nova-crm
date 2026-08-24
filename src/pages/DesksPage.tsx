@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { EyeOff, Search } from "lucide-react";
 import { useNavigate } from "react-router";
 import { EmptyState } from "@/components/common/EmptyState";
+import { DeskCoverGrid } from "@/components/dashboard/DeskCoverGrid";
 import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,6 @@ import { useViewRequests } from "@/hooks/useViewRequests";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { displayNameOf } from "@/utils/displayName";
 import { deskOwnerName, resolvedCoverUrl, splitStudioDesks } from "@/utils/peopleDesks";
-import { cn } from "@/utils/cn";
 import type { WorkspacePage } from "@/types";
 
 export default function DesksPage() {
@@ -99,30 +99,12 @@ export default function DesksPage() {
       {filtered.length === 0 ? (
         <EmptyState className="rounded-2xl border border-primary/25 bg-card py-16" title={query ? "Нет таких столов" : "Пока нет столов"} />
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((page) => {
-            const who = deskOwnerName(members, page);
-            return (
-              <button
-                key={page.id}
-                type="button"
-                onClick={() => navigate(`/page/${page.id}`)}
-                className={cn(
-                  "group relative overflow-hidden rounded-xl border border-primary/28 bg-card text-left transition-colors hover:border-primary/60 active:scale-[0.99]"
-                )}
-              >
-                <DeskCoverStrip coverUrl={resolvedCoverUrl(page, ownerUid)} name={page.name} ratio="thumb" />
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                <span className="absolute inset-x-0 bottom-0 z-[1] p-4">
-                  <span className="block truncate font-serif text-[1.05rem] font-medium tracking-[-0.02em] text-white">
-                    {page.name}
-                  </span>
-                  {who ? <span className="block truncate text-[12px] text-white/75">{who}</span> : null}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        <DeskCoverGrid
+          pages={filtered}
+          members={members}
+          ownerUid={ownerUid}
+          onOpen={(page) => navigate(`/page/${page.id}`)}
+        />
       )}
 
       <Sheet open={hiddenOpen} onOpenChange={setHiddenOpen}>

@@ -4,7 +4,13 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useUiStore } from "@/store/uiStore";
 import { isResponsibleForPage } from "@/utils/permissions";
-import { findMyDesk, groupAllPeople, groupDesksByPerson, type PersonDeskGroup } from "@/utils/peopleDesks";
+import {
+  coverGridPages,
+  findMyDesk,
+  groupAllPeople,
+  groupDesksByPerson,
+  type PersonDeskGroup,
+} from "@/utils/peopleDesks";
 
 /** `syncPersonSelection` is only for Люди. Never treat selected person as ACL. */
 export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSelection?: boolean } = {}) {
@@ -20,6 +26,7 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
   );
 
   const isPersonalLanding = permissions.role !== "owner" && permissions.role !== "admin";
+  const isOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
 
   const studioPages = useMemo(() => {
     if (isPersonalLanding && profile) {
@@ -31,6 +38,16 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
   const groups = useMemo(() => groupDesksByPerson(studioPages, members), [studioPages, members]);
   // People tab: every member, even if their desk is hidden / not in studioPages.
   const peopleGroups = useMemo(() => groupAllPeople(members, pages), [members, pages]);
+
+  const coverPages = useMemo(
+    () =>
+      coverGridPages(pages, {
+        uid: profile?.uid,
+        canAccess: permissions.canAccessPage,
+        isOwner,
+      }),
+    [pages, permissions, profile?.uid, isOwner]
+  );
 
   useEffect(() => {
     if (!syncPersonSelection) return;
@@ -59,6 +76,7 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
     activeGroup,
     studioPages,
     visiblePages,
+    coverPages,
     isPersonalLanding,
     isLoadingWorkspaceData,
     ownerUid,

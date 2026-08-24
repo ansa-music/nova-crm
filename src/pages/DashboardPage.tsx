@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { LayoutGrid, Settings2, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DeskCoverGrid } from "@/components/dashboard/DeskCoverGrid";
 import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { DeskChart, GoalVsDoneChart } from "@/components/dashboard/DeskChart";
 import { LeaderboardWidget } from "@/components/dashboard/LeaderboardWidget";
@@ -33,7 +34,7 @@ export default function DashboardPage() {
   const { activeWorkspace, activeWorkspaceId, members } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
-  const { myDesk, studioPages, isPersonalLanding, isLoadingWorkspaceData, ownerUid } = usePeopleDesks();
+  const { myDesk, studioPages, coverPages, isPersonalLanding, isLoadingWorkspaceData, ownerUid } = usePeopleDesks();
   const { layout: deskLayout } = useDeskLayout(profile?.uid);
   const [studioPageId, setStudioPageId] = useState<string | null>(null);
   const [createPageOpen, setCreatePageOpen] = useState(false);
@@ -229,6 +230,31 @@ export default function DashboardPage() {
             }
           />
         </div>
+      )}
+
+      {coverPages.length > 0 && (
+        <section className="mb-8">
+          <div className="mb-4 flex items-end justify-between gap-3">
+            <div>
+              <p className="eyebrow mb-1 text-primary">Studio</p>
+              <h2 className="font-serif text-[1.35rem] font-medium tracking-[-0.03em] sm:text-[1.55rem]">Все столы</h2>
+            </div>
+            <Button variant="outline" size="sm" className="min-h-11 gap-1.5 rounded-full" onClick={() => navigate("/desks")}>
+              <LayoutGrid className="h-3.5 w-3.5" />
+              Все столы
+            </Button>
+          </div>
+          <DeskCoverGrid
+            pages={coverPages}
+            members={members}
+            ownerUid={ownerUid}
+            highlightedId={highlightedDeskId}
+            onOpen={(page) => {
+              setHighlightedDeskId(page.id);
+              navigate(`/page/${page.id}`);
+            }}
+          />
+        </section>
       )}
 
       {showCharts && (

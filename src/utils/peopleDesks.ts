@@ -115,4 +115,15 @@ export function splitStudioDesks(
   return { openable, hidden };
 }
 
+/** Home / Dashboard cover grids: same as /desks main, hidden desks stay off. */
+export function coverGridPages(
+  pages: WorkspacePage[],
+  opts: {
+    uid?: string | null;
+    canAccess: (page: WorkspacePage) => boolean;
+    isOwner: boolean;
+  }
+): WorkspacePage[] {
+  return splitStudioDesks(pages, opts).openable.filter((page) => !page.hiddenByResponsible);
+}
 
