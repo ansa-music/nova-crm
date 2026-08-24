@@ -63,21 +63,21 @@ export function TableToolbar({
   onViewModeChange,
 }: TableToolbarProps) {
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card/40 px-4 py-2.5">
+    <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-border/80 bg-card/70 px-4 py-2 backdrop-blur-md">
       <div className="relative w-full sm:w-64">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="Поиск по таблице…"
-          className="h-8 rounded-full bg-background pl-8"
+          className="h-8 rounded-md bg-background pl-8"
         />
       </div>
 
       {viewMode === "table" && (
         <>
           <Select value={groupByKey ?? "__none__"} onValueChange={(v) => onGroupByChange(v === "__none__" ? null : v)}>
-            <SelectTrigger className="h-8 w-44 rounded-full">
+            <SelectTrigger className="h-8 w-44 rounded-md">
               <SelectValue placeholder="Группировка" />
             </SelectTrigger>
             <SelectContent>

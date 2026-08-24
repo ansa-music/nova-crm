@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/sonner";
 import {
   loginSchema,
@@ -38,6 +39,9 @@ function GoogleIcon() {
     </svg>
   );
 }
+
+const fieldClass =
+  "h-10 rounded-md border border-input bg-background/60 px-3 font-sans tracking-normal placeholder:font-sans placeholder:text-muted-foreground/80";
 
 export function LoginForm() {
   const [mode, setMode] = useState<"login" | "signup">("login");
@@ -91,136 +95,155 @@ export function LoginForm() {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: "easeOut" }}
-      className="w-full max-w-sm"
+      transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+      className="w-full"
     >
-      <p className="eyebrow mb-4 text-primary">Доступ</p>
-      <h1 className="mb-1 text-4xl font-light tracking-tight">
+      <h1 className="display text-[1.85rem] leading-[1.2] sm:text-[2rem]">
         {mode === "login" ? "Вход в архив" : "Создать аккаунт"}
       </h1>
-      <p className="mb-9 text-sm text-muted-foreground">
+      <p className="mt-3 text-[15px] leading-6 text-foreground/70">
         {mode === "login"
           ? "Войдите, чтобы продолжить работу в Nova CRM"
           : "Начните управлять командой и клиентами за пару минут"}
       </p>
 
       {!isFirebaseConfigured && (
-        <div className="mb-5 rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs text-warning-foreground">
+        <div className="mt-6 rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-warning-foreground">
           Firebase не настроен. Заполните <code>.env.local</code> данными вашего проекта —
           подробности в README.
         </div>
       )}
 
-      <Button
-        variant="outline"
-        className="mb-5 w-full rounded-lg"
-        onClick={handleGoogle}
-        disabled={isGoogleLoading || !isFirebaseConfigured}
-      >
-        {isGoogleLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}
-        Продолжить с Google
-      </Button>
+      <div className="mt-8 flex flex-col gap-4">
+        <Button
+          variant="outline"
+          className="h-10 w-full"
+          onClick={handleGoogle}
+          disabled={isGoogleLoading || !isFirebaseConfigured}
+        >
+          {isGoogleLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}
+          Продолжить с Google
+        </Button>
 
-      <div className="mb-6 flex items-center gap-3">
-        <div className="h-px flex-1 bg-border" />
-        <span className="eyebrow">или через email</span>
-        <div className="h-px flex-1 bg-border" />
+        <div className="flex items-center gap-3">
+          <div className="h-px flex-1 bg-border" />
+          <span className="eyebrow">или через email</span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+
+        {mode === "login" ? (
+          <form onSubmit={loginForm.handleSubmit(handleLogin)} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="email" className="eyebrow text-muted-foreground">
+                Email
+              </Label>
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                placeholder="you@company.com"
+                className={fieldClass}
+                {...loginForm.register("email")}
+              />
+              {loginForm.formState.errors.email && (
+                <p className="text-xs text-destructive">{loginForm.formState.errors.email.message}</p>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="password" className="eyebrow text-muted-foreground">
+                Пароль
+              </Label>
+              <Input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                placeholder="Введите пароль"
+                className={fieldClass}
+                {...loginForm.register("password")}
+              />
+              {loginForm.formState.errors.password && (
+                <p className="text-xs text-destructive">{loginForm.formState.errors.password.message}</p>
+              )}
+            </div>
+            <Button type="submit" className="mt-1 h-10 w-full" disabled={isSubmitting || !isFirebaseConfigured}>
+              {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Войти
+            </Button>
+          </form>
+        ) : (
+          <form onSubmit={signupForm.handleSubmit(handleSignup)} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="name" className="eyebrow text-muted-foreground">
+                Имя
+              </Label>
+              <Input id="name" autoComplete="name" placeholder="Ваше имя" className={fieldClass} {...signupForm.register("name")} />
+              {signupForm.formState.errors.name && (
+                <p className="text-xs text-destructive">{signupForm.formState.errors.name.message}</p>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="signup-email" className="eyebrow text-muted-foreground">
+                Email
+              </Label>
+              <Input
+                id="signup-email"
+                type="email"
+                autoComplete="email"
+                placeholder="you@company.com"
+                className={fieldClass}
+                {...signupForm.register("email")}
+              />
+              {signupForm.formState.errors.email && (
+                <p className="text-xs text-destructive">{signupForm.formState.errors.email.message}</p>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="signup-password" className="eyebrow text-muted-foreground">
+                Пароль
+              </Label>
+              <Input
+                id="signup-password"
+                type="password"
+                autoComplete="new-password"
+                placeholder="Придумайте пароль"
+                className={fieldClass}
+                {...signupForm.register("password")}
+              />
+              {signupForm.formState.errors.password && (
+                <p className="text-xs text-destructive">{signupForm.formState.errors.password.message}</p>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="confirm-password" className="eyebrow text-muted-foreground">
+                Подтверждение
+              </Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                autoComplete="new-password"
+                placeholder="Повторите пароль"
+                className={fieldClass}
+                {...signupForm.register("confirmPassword")}
+              />
+              {signupForm.formState.errors.confirmPassword && (
+                <p className="text-xs text-destructive">{signupForm.formState.errors.confirmPassword.message}</p>
+              )}
+            </div>
+            <Button type="submit" className="mt-1 h-10 w-full" disabled={isSubmitting || !isFirebaseConfigured}>
+              {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Создать аккаунт
+            </Button>
+          </form>
+        )}
       </div>
 
-      {mode === "login" ? (
-        <form onSubmit={loginForm.handleSubmit(handleLogin)} className="flex flex-col gap-5">
-          <div className="flex flex-col gap-1.5">
-            <Input
-              id="email"
-              type="email"
-              placeholder="you@company.com"
-              className="rounded-none border-0 border-b border-input bg-transparent px-0 focus-visible:ring-0 focus-visible:border-primary"
-              {...loginForm.register("email")}
-            />
-            {loginForm.formState.errors.email && (
-              <p className="text-xs text-destructive">{loginForm.formState.errors.email.message}</p>
-            )}
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Input
-              id="password"
-              type="password"
-              placeholder="••••••••"
-              className="rounded-none border-0 border-b border-input bg-transparent px-0 focus-visible:ring-0 focus-visible:border-primary"
-              {...loginForm.register("password")}
-            />
-            {loginForm.formState.errors.password && (
-              <p className="text-xs text-destructive">{loginForm.formState.errors.password.message}</p>
-            )}
-          </div>
-          <Button type="submit" className="mt-2 w-fit self-start" disabled={isSubmitting || !isFirebaseConfigured}>
-            {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-            Войти
-          </Button>
-        </form>
-      ) : (
-        <form onSubmit={signupForm.handleSubmit(handleSignup)} className="flex flex-col gap-5">
-          <div className="flex flex-col gap-1.5">
-            <Input
-              id="name"
-              placeholder="Ваше имя"
-              className="rounded-none border-0 border-b border-input bg-transparent px-0 focus-visible:ring-0 focus-visible:border-primary"
-              {...signupForm.register("name")}
-            />
-            {signupForm.formState.errors.name && (
-              <p className="text-xs text-destructive">{signupForm.formState.errors.name.message}</p>
-            )}
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Input
-              id="signup-email"
-              type="email"
-              placeholder="you@company.com"
-              className="rounded-none border-0 border-b border-input bg-transparent px-0 focus-visible:ring-0 focus-visible:border-primary"
-              {...signupForm.register("email")}
-            />
-            {signupForm.formState.errors.email && (
-              <p className="text-xs text-destructive">{signupForm.formState.errors.email.message}</p>
-            )}
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Input
-              id="signup-password"
-              type="password"
-              placeholder="••••••••"
-              className="rounded-none border-0 border-b border-input bg-transparent px-0 focus-visible:ring-0 focus-visible:border-primary"
-              {...signupForm.register("password")}
-            />
-            {signupForm.formState.errors.password && (
-              <p className="text-xs text-destructive">{signupForm.formState.errors.password.message}</p>
-            )}
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Input
-              id="confirm-password"
-              type="password"
-              placeholder="Подтвердите пароль"
-              className="rounded-none border-0 border-b border-input bg-transparent px-0 focus-visible:ring-0 focus-visible:border-primary"
-              {...signupForm.register("confirmPassword")}
-            />
-            {signupForm.formState.errors.confirmPassword && (
-              <p className="text-xs text-destructive">{signupForm.formState.errors.confirmPassword.message}</p>
-            )}
-          </div>
-          <Button type="submit" className="mt-2 w-fit self-start" disabled={isSubmitting || !isFirebaseConfigured}>
-            {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-            Создать аккаунт
-          </Button>
-        </form>
-      )}
-
-      <p className="mt-8 text-sm text-muted-foreground">
+      <p className="mt-6 text-center text-sm text-foreground/65">
         {mode === "login" ? "Ещё нет аккаунта?" : "Уже есть аккаунт?"}{" "}
         <button
           type="button"
-          className="font-medium text-primary hover:underline"
+          className="font-medium text-primary transition-colors hover:text-primary/80"
           onClick={() => setMode(mode === "login" ? "signup" : "login")}
         >
           {mode === "login" ? "Создать аккаунт" : "Войти"}

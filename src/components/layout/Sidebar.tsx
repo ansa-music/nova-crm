@@ -54,8 +54,8 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
   return (
     <div
       className={cn(
-        "relative flex h-full flex-col gap-4 border-r border-sidebar-border bg-sidebar px-2 py-3 text-sidebar-foreground",
-        collapsed ? "w-[68px] items-center" : "w-[236px]"
+        "relative flex h-full flex-col gap-3 border-r border-sidebar-border bg-sidebar px-2 py-3 text-sidebar-foreground",
+        collapsed ? "w-[64px] items-center" : "w-[232px]"
       )}
     >
       <WorkspaceSwitcher collapsed={collapsed} />
@@ -70,15 +70,15 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   end
                   className={({ isActive }) =>
                     cn(
-                      "flex items-center justify-center rounded-lg p-2 transition-colors",
-                      isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+                      "flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
+                      isActive ? "nav-link-active bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-foreground"
                     )
                   }
                 >
                   <LayoutDashboard className="h-4 w-4 shrink-0" />
                 </NavLink>
               </TooltipTrigger>
-              <TooltipContent side="right">Dashboard</TooltipContent>
+              <TooltipContent side="right">Дашборд</TooltipContent>
             </Tooltip>
           ) : (
             <NavLink
@@ -86,13 +86,13 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               end
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
-                  isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+                  "nav-link",
+                  isActive && "nav-link-active"
                 )
               }
             >
               <LayoutDashboard className="h-4 w-4 shrink-0" />
-              Dashboard
+              Дашборд
             </NavLink>
           )}
         </div>
@@ -105,8 +105,8 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   to="/announcements"
                   className={({ isActive }) =>
                     cn(
-                      "flex items-center justify-center rounded-lg p-2 transition-colors",
-                      isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+                      "flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
+                      isActive ? "nav-link-active bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-foreground"
                     )
                   }
                 >
@@ -120,8 +120,8 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               to="/announcements"
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
-                  isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+                  "nav-link",
+                  isActive && "nav-link-active"
                 )
               }
             >
@@ -139,14 +139,14 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   to="/chat"
                   className={({ isActive }) =>
                     cn(
-                      "relative flex items-center justify-center rounded-lg p-2 transition-colors",
-                      isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+                      "relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
+                      isActive ? "nav-link-active bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-foreground"
                     )
                   }
                 >
                   <MessageSquare className="h-4 w-4 shrink-0" />
                   {workspaceChatUnread > 0 && (
-                    <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-red-500" />
+                    <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
                   )}
                 </NavLink>
               </TooltipTrigger>
@@ -157,15 +157,15 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               to="/chat"
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
-                  isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+                  "nav-link",
+                  isActive && "nav-link-active"
                 )
               }
             >
               <MessageSquare className="h-4 w-4 shrink-0" />
               Чат Workspace
               {workspaceChatUnread > 0 && (
-                <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+                <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
                   {workspaceChatUnread > 9 ? "9+" : workspaceChatUnread}
                 </span>
               )}
@@ -181,14 +181,14 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   to="/messages"
                   className={({ isActive }) =>
                     cn(
-                      "relative flex items-center justify-center rounded-lg p-2 transition-colors",
-                      isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+                      "relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
+                      isActive ? "nav-link-active bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-foreground"
                     )
                   }
                 >
                   <MessageCircle className="h-4 w-4 shrink-0" />
                   {privateUnreadTotal > 0 && (
-                    <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-red-500" />
+                    <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
                   )}
                 </NavLink>
               </TooltipTrigger>
@@ -199,15 +199,15 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               to="/messages"
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
-                  isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+                  "nav-link",
+                  isActive && "nav-link-active"
                 )
               }
             >
               <MessageCircle className="h-4 w-4 shrink-0" />
               Личные сообщения
               {privateUnreadTotal > 0 && (
-                <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+                <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
                   {privateUnreadTotal > 9 ? "9+" : privateUnreadTotal}
                 </span>
               )}
@@ -309,8 +309,8 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   to="/settings"
                   className={({ isActive }) =>
                     cn(
-                      "flex items-center justify-center rounded-lg p-2 transition-colors",
-                      isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+                      "flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
+                      isActive ? "nav-link-active bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-foreground"
                     )
                   }
                 >
@@ -324,8 +324,8 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               to="/settings"
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
-                  isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+                  "nav-link",
+                  isActive && "nav-link-active"
                 )
               }
             >
@@ -340,7 +340,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
         <DropdownMenuTrigger asChild>
           <button
             className={cn(
-              "flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-sidebar-accent/60",
+              "flex min-h-9 items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors duration-200 hover:bg-sidebar-accent/80",
               collapsed && "justify-center px-0"
             )}
           >
@@ -398,8 +398,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
       {!mobile && (
         <motion.button
           onClick={toggleSidebar}
-          whileTap={{ scale: 0.9 }}
-          className="absolute -right-3 top-16 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-subtle hover:text-foreground"
+          className="absolute -right-3 top-[3.25rem] flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:text-foreground"
         >
           {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
         </motion.button>

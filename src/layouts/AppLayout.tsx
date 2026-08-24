@@ -65,7 +65,7 @@ export function AppLayout() {
   useEffect(() => {
     if (!isFullscreen) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setTableFullscreen(false);
+      if (e.code === "Escape") setTableFullscreen(false);
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
@@ -82,14 +82,15 @@ export function AppLayout() {
   // never as a flash while it was still loading.
   if (phase === "no-workspace" || !activeWorkspace) {
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background px-4 text-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-purple-500 text-white shadow-glow">
-          {canCreateWorkspace ? <Building2 className="h-6 w-6" /> : <Lock className="h-6 w-6" />}
+      <div className="page-surface flex h-screen flex-col items-center justify-center gap-5 bg-background px-4 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-card text-primary">
+          {canCreateWorkspace ? <Building2 className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
         </div>
         {canCreateWorkspace ? (
           <>
             <div>
-              <h1 className="text-lg font-semibold">Начните с создания workspace</h1>
+              <p className="eyebrow mb-2 text-primary">Workspace</p>
+              <h1 className="display text-2xl">Начните с создания workspace</h1>
               <p className="mt-1 max-w-sm text-sm text-muted-foreground">
                 Workspace — это отдельное рабочее пространство со своими страницами, участниками и
                 данными, например «Animation Studio» или «Finance».
@@ -102,7 +103,8 @@ export function AppLayout() {
           </>
         ) : (
           <div>
-            <h1 className="text-lg font-semibold">У вас пока нет доступа ни к одному workspace</h1>
+            <p className="eyebrow mb-2 text-primary">Доступ</p>
+            <h1 className="display text-2xl">Нет доступа к workspace</h1>
             <p className="mt-1 max-w-sm text-sm text-muted-foreground">
               Создание новых workspace ограничено. Попросите ссылку-приглашение у владельца
               нужного workspace — доступ откроется после его подтверждения.
@@ -128,7 +130,7 @@ export function AppLayout() {
           <button
             onClick={() => setTableFullscreen(false)}
             title="Показать меню (Esc)"
-            className="fixed left-3 top-3 z-50 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card/90 text-muted-foreground shadow-popover backdrop-blur transition-colors hover:text-foreground"
+            className="fixed left-3 top-3 z-50 flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card/90 text-muted-foreground backdrop-blur transition-colors hover:text-foreground"
           >
             <Maximize2 className="h-3.5 w-3.5" />
           </button>
@@ -139,8 +141,8 @@ export function AppLayout() {
               key={location.pathname}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
               className="h-full"
             >
               <Outlet />

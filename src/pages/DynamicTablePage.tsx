@@ -116,7 +116,7 @@ export default function DynamicTablePage() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
         <Lock className="h-8 w-8 text-muted-foreground" />
-        <p className="text-lg font-semibold">Вы не участник этого workspace</p>
+        <p className="page-title">Вы не участник этого workspace</p>
         <p className="max-w-sm text-sm text-muted-foreground">
           Попросите владельца добавить вас — после этого страница откроется без перезагрузки.
         </p>
@@ -131,7 +131,7 @@ export default function DynamicTablePage() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
         <Lock className="h-8 w-8 text-muted-foreground" />
-        <p className="text-lg font-semibold">Страница недоступна</p>
+        <p className="page-title">Страница недоступна</p>
         <p className="text-sm text-muted-foreground">
           Она удалена, либо у вас нет к ней доступа. Обратитесь к Owner workspace или к
           ответственному за страницу.
@@ -144,7 +144,7 @@ export default function DynamicTablePage() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
         <Lock className="h-8 w-8 text-muted-foreground" />
-        <p className="text-lg font-semibold">Нет доступа</p>
+        <p className="page-title">Нет доступа</p>
         <p className="text-sm text-muted-foreground">
           У вас нет доступа к этой странице. Обратитесь к Owner workspace, чтобы получить доступ.
         </p>
@@ -185,14 +185,14 @@ export default function DynamicTablePage() {
       className="flex h-full flex-col"
       style={page.accentColor ? ({ "--primary": page.accentColor, "--ring": page.accentColor } as React.CSSProperties) : undefined}
     >
-      <div className="flex items-center gap-2 border-b border-border px-6 py-4">
+      <div className="page-header">
         <span
           className="flex h-8 w-8 items-center justify-center rounded-lg"
           style={{ backgroundColor: `hsl(${page.color} / 0.15)`, color: `hsl(${page.color})` }}
         >
           <Icon className="h-4 w-4" />
         </span>
-        <h1 className="text-lg font-semibold">{page.name}</h1>
+        <h1 className="page-title">{page.name}</h1>
         {!canEditData && (
           <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Только просмотр</span>
         )}

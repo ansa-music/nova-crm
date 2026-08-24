@@ -51,8 +51,8 @@ export function PageNavItem({
             to={`/page/${page.id}`}
             className={({ isActive }) =>
               cn(
-                "flex items-center justify-center rounded-lg p-2 transition-colors",
-                isActive ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                "flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
+                isActive ? "nav-link-active bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
               )
             }
           >
@@ -100,8 +100,8 @@ export function PageNavItem({
       onChange={(e) => setDraftName(e.target.value)}
       onBlur={commitRename}
       onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-        if (e.key === "Escape") {
+        if (e.code === "Enter") e.currentTarget.blur();
+        if (e.code === "Escape") {
           setDraftName(page.name);
           setIsRenaming(false);
         }
@@ -113,10 +113,8 @@ export function PageNavItem({
       to={`/page/${page.id}`}
       className={({ isActive }) =>
         cn(
-          "group flex flex-1 items-center gap-2 truncate rounded-lg px-2 py-1.5 text-sm transition-colors",
-          isActive
-            ? "bg-sidebar-accent font-medium text-primary"
-            : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+          "nav-link flex-1 truncate",
+          isActive && "nav-link-active"
         )
       }
     >

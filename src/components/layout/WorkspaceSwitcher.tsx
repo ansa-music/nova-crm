@@ -53,7 +53,7 @@ export function WorkspaceSwitcher({ collapsed }: { collapsed?: boolean }) {
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64">
-          <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
+          <DropdownMenuLabel>Пространства</DropdownMenuLabel>
           {workspaces.map((ws) => {
             const Icon = PAGE_ICON_MAP[(ws.icon as PageIconName) ?? "Building2"] ?? PAGE_ICON_MAP.Building2;
             return (

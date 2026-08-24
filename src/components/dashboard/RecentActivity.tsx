@@ -13,10 +13,10 @@ const ACTION_ICON = {
 
 export function RecentActivity({ entries }: { entries: HistoryEntry[] }) {
   return (
-    <Card className="border-white/80 bg-card/90 shadow-card dark:border-border">
+    <Card className="bg-card/80">
       <CardHeader className="pb-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Журнал</p>
-        <CardTitle className="text-lg">Последние изменения</CardTitle>
+        <p className="eyebrow">Журнал</p>
+        <CardTitle>Последние изменения</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-1">
         {entries.length === 0 && (
@@ -29,8 +29,8 @@ export function RecentActivity({ entries }: { entries: HistoryEntry[] }) {
               key={entry.id}
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.03 }}
-              className="flex items-start gap-3 rounded-xl px-2 py-2 hover:bg-accent/50"
+              transition={{ delay: i * 0.03, duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+              className="flex items-start gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent/40"
             >
               <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
                 <Icon className="h-3 w-3" />

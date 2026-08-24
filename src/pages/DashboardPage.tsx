@@ -222,8 +222,8 @@ export default function DashboardPage() {
     >
       <div>
         <p className="eyebrow mb-2 text-primary">{isPersonalLanding ? "Моё рабочее пространство" : "Рабочее пространство"}</p>
-        <h1 className="text-3xl font-light tracking-tight sm:text-[2rem]">
-          С возвращением{profile ? `, ${profile.nickname || profile.name}` : ""} <span aria-hidden="true">👋</span>
+        <h1 className="display text-[1.85rem] sm:text-[2rem]">
+          С возвращением{profile ? `, ${profile.nickname || profile.name}` : ""}
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
           {isPersonalLanding
@@ -258,10 +258,11 @@ export default function DashboardPage() {
         {heroGreeting}
 
         {myProgress.length === 0 ? (
-          <Card className="p-8 text-center">
-            <p className="text-sm text-muted-foreground">
-              Вы пока не назначены Ответственным ни за одну страницу — как только вас назначат, здесь появится
-              ваш личный прогресс.
+          <Card className="p-10 text-center">
+            <p className="eyebrow mb-3 text-primary">Прогресс</p>
+            <p className="text-[15px] font-medium tracking-[-0.02em]">Пока нет страниц в ответственности</p>
+            <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
+              Как только вас назначат Ответственным, здесь появится личный прогресс.
             </p>
           </Card>
         ) : (
@@ -433,7 +434,7 @@ function MyProgressCard({
   }
 
   return (
-    <Card className="overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card">
+    <Card className="overflow-hidden bg-card/80">
       <CardContent className={large ? "p-6" : "p-4"}>
         <div className="mb-3 flex items-center justify-between">
           <Link to={`/page/${page.id}`} className={large ? "truncate text-lg font-medium hover:text-primary" : "truncate text-sm font-medium hover:text-primary"}>
@@ -448,15 +449,15 @@ function MyProgressCard({
         </div>
         <div className="mb-2 flex items-end justify-between">
           <div>
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Готово</p>
-            <p className={cn(large ? "text-2xl" : "text-xl", "font-light tabular-nums text-success")}>{formatCurrency(animatedDone)}</p>
+            <p className="eyebrow">Готово</p>
+            <p className={cn(large ? "text-2xl" : "text-xl", "display tabular text-success")}>{formatCurrency(animatedDone)}</p>
           </div>
           <div className="text-right">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Общий</p>
-            <p className={cn(large ? "text-2xl" : "text-xl", "font-light tabular-nums")}>{formatCurrency(animatedTotal)}</p>
+            <p className="eyebrow">Общий</p>
+            <p className={cn(large ? "text-2xl" : "text-xl", "display tabular")}>{formatCurrency(animatedTotal)}</p>
           </div>
         </div>
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div className="h-px w-full overflow-hidden bg-muted">
           <div
             className="h-full rounded-full bg-success transition-all"
             style={{ width: `${Math.min(100, animatedPercent)}%` }}
@@ -476,7 +477,7 @@ function MyProgressCard({
                 onChange={(e) => setGoalInput(e.target.value)}
                 placeholder="Например, 200000"
                 className="h-8"
-                onKeyDown={(e) => e.key === "Enter" && saveGoal()}
+                onKeyDown={(e) => e.code === "Enter" && saveGoal()}
               />
               <Button size="sm" className="h-8" onClick={saveGoal}>
                 Сохранить
@@ -557,7 +558,7 @@ function LeaderboardWidget({
           <div className="flex flex-col gap-3">
             {ranked.map(({ member, doneTotal, pageNames }, i) => (
               <div key={member.uid} className="flex items-center gap-2.5">
-                <span className="w-4 shrink-0 text-center text-xs font-mono text-muted-foreground">{i + 1}</span>
+                <span className="w-5 shrink-0 text-center font-mono text-[11px] tabular text-muted-foreground">{String(i + 1).padStart(2, "0")}</span>
                 <MemberAvatar
                   id={member.uid}
                   name={member.name}
@@ -572,7 +573,7 @@ function LeaderboardWidget({
                     {member.lastActiveAt ? ` · был(а) ${timeAgo(member.lastActiveAt)}` : ""}
                   </p>
                 </div>
-                <span className="shrink-0 text-sm font-semibold tabular-nums text-primary">{formatCurrency(doneTotal)}</span>
+                <span className="shrink-0 font-mono text-sm tabular text-primary">{formatCurrency(doneTotal)}</span>
               </div>
             ))}
           </div>

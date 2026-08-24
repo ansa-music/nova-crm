@@ -4,19 +4,16 @@
 
 @layer base {
   /*
-    Design tokens for the "Архив" look (see Nova_CRM_Redesign mockup):
-    warm near-black background, off-white "ink" text, a single vermilion
-    accent (#FF4A22) spent sparingly, hairline borders instead of shadows,
-    Inter for body text and IBM Plex Mono for eyebrows/labels/numbers.
-    Light mode keeps the same hue family (warm cream / same ink / same
-    accent) purely as a fallback for anyone who switches the toggle — the
-    product's actual identity is the dark palette below.
+    Design tokens — "Архив" identity, refined:
+    warm near-black, off-white ink, vermilion #FF4A22 spent sparingly,
+    hairline borders, Inter (optical sizes) + IBM Plex Mono eyebrows.
+    Light mode is a fallback; the product identity is the dark palette.
   */
   :root {
     --background: 36 22% 97%;
     --foreground: 30 15% 12%;
 
-    --card: 36 30% 99%;
+    --card: 36 28% 99%;
     --card-foreground: 30 15% 12%;
 
     --popover: 36 30% 99%;
@@ -25,13 +22,13 @@
     --primary: 13 100% 57%;
     --primary-foreground: 36 22% 98%;
 
-    --secondary: 36 18% 93%;
+    --secondary: 36 16% 94%;
     --secondary-foreground: 30 15% 12%;
 
-    --muted: 36 16% 93%;
+    --muted: 36 14% 93%;
     --muted-foreground: 30 8% 42%;
 
-    --accent: 36 20% 91%;
+    --accent: 36 16% 92%;
     --accent-foreground: 13 80% 40%;
 
     --destructive: 4 78% 50%;
@@ -43,57 +40,61 @@
     --warning: 38 85% 48%;
     --warning-foreground: 30 15% 12%;
 
-    --border: 36 15% 86%;
-    --input: 36 15% 86%;
+    --border: 36 12% 88%;
+    --input: 36 12% 88%;
     --ring: 13 100% 57%;
 
-    --sidebar: 36 22% 97%;
+    --sidebar: 36 18% 96%;
     --sidebar-foreground: 30 10% 35%;
-    --sidebar-border: 36 15% 86%;
-    --sidebar-accent: 36 18% 92%;
+    --sidebar-border: 36 12% 88%;
+    --sidebar-accent: 36 14% 92%;
 
-    --radius: 0.6rem;
+    --radius: 0.5rem;
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --duration-fast: 160ms;
+    --duration: 240ms;
+    --duration-slow: 320ms;
   }
 
   .dark {
-    --background: 36 14% 7%;
-    --foreground: 40 30% 90%;
+    --background: 30 12% 6.5%;
+    --foreground: 38 28% 92%;
 
-    --card: 30 13% 9%;
-    --card-foreground: 40 30% 90%;
+    --card: 30 11% 8.5%;
+    --card-foreground: 38 28% 92%;
 
-    --popover: 30 13% 9%;
-    --popover-foreground: 40 30% 90%;
+    --popover: 30 12% 8%;
+    --popover-foreground: 38 28% 92%;
 
     --primary: 13 100% 57%;
-    --primary-foreground: 36 14% 7%;
+    --primary-foreground: 30 12% 7%;
 
-    --secondary: 30 12% 13%;
-    --secondary-foreground: 40 30% 90%;
+    --secondary: 30 10% 12%;
+    --secondary-foreground: 38 28% 92%;
 
-    --muted: 30 11% 13%;
-    --muted-foreground: 37 8% 55%;
+    --muted: 30 9% 11.5%;
+    --muted-foreground: 34 10% 64%;
 
-    --accent: 36 12% 15%;
-    --accent-foreground: 40 30% 92%;
+    --accent: 30 10% 13.5%;
+    --accent-foreground: 38 24% 94%;
 
-    --destructive: 4 78% 58%;
+    --destructive: 4 72% 56%;
     --destructive-foreground: 36 14% 96%;
 
-    --success: 142 45% 45%;
+    --success: 142 42% 46%;
     --success-foreground: 0 0% 100%;
 
     --warning: 38 85% 55%;
     --warning-foreground: 36 14% 10%;
 
-    --border: 36 12% 17%;
-    --input: 36 12% 17%;
+    --border: 32 10% 15.5%;
+    --input: 32 10% 16%;
     --ring: 13 100% 57%;
 
-    --sidebar: 36 14% 7%;
-    --sidebar-foreground: 40 14% 67%;
-    --sidebar-border: 36 12% 15%;
-    --sidebar-accent: 30 12% 13%;
+    --sidebar: 30 12% 6.5%;
+    --sidebar-foreground: 36 10% 64%;
+    --sidebar-border: 32 10% 13%;
+    --sidebar-accent: 30 10% 11%;
   }
 
   * {
@@ -102,25 +103,83 @@
 
   html {
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-optical-sizing: auto;
   }
 
   body {
     @apply bg-background text-foreground;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-    background-image: radial-gradient(circle at 1px 1px, hsl(var(--foreground) / 0.035) 1px, transparent 0);
-    background-size: 22px 22px;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
+    font-optical-sizing: auto;
+    letter-spacing: -0.011em;
+    background-image:
+      radial-gradient(circle at 1px 1px, hsl(var(--foreground) / 0.03) 1px, transparent 0);
+    background-size: 24px 24px;
+  }
+
+  body::before {
+    content: "";
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    opacity: 0.035;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 
   ::selection {
-    background: hsl(var(--primary));
+    background: hsl(var(--primary) / 0.88);
     color: hsl(var(--primary-foreground));
   }
 
-  /* Small uppercase mono labels — eyebrows, section headers, table column
-     headers, filter chips. The recurring typographic "signature" of this
-     redesign, standing in for the mockup's IBM Plex Mono micro-labels. */
+  :focus-visible {
+    outline: none;
+  }
+
   .eyebrow {
-    @apply font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground;
+    @apply font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground;
+  }
+
+  .display {
+    @apply font-light tracking-[-0.035em];
+    font-optical-sizing: auto;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum", "cv02", "cv03", "cv11";
+  }
+}
+
+@layer components {
+  .nav-link {
+    @apply relative flex items-center gap-2 rounded-md px-2.5 py-[7px] text-[13px] font-medium text-sidebar-foreground transition-colors duration-200;
+  }
+  .nav-link:hover {
+    @apply bg-sidebar-accent/80 text-foreground;
+  }
+  .nav-link-active {
+    @apply bg-sidebar-accent text-foreground;
+  }
+  .nav-link-active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 1.5px;
+    border-radius: 1px;
+    background: hsl(var(--primary));
+  }
+
+  .page-header {
+    @apply flex items-center gap-2.5 border-b border-border/80 px-5 py-3 sm:px-6;
+  }
+
+  .page-title {
+    @apply text-[17px] font-medium tracking-[-0.02em];
   }
 }
 
@@ -129,13 +188,23 @@
     @apply bg-white/70 dark:bg-white/[0.03] backdrop-blur-xl border border-white/20 dark:border-white/10;
   }
   .glass-panel {
-    @apply bg-background/85 backdrop-blur-xl border border-border/60;
+    @apply bg-background/80 backdrop-blur-xl border border-border/70;
   }
   .page-surface {
-    background: radial-gradient(circle at 100% 0%, hsl(var(--primary) / 0.05), transparent 28rem);
+    background:
+      radial-gradient(ellipse 70% 50% at 100% -10%, hsl(var(--primary) / 0.07), transparent 42%),
+      radial-gradient(ellipse 40% 30% at 0% 100%, hsl(var(--primary) / 0.03), transparent 40%);
+  }
+  .hairline {
+    box-shadow: inset 0 0 0 1px hsl(var(--border) / 0.9);
+  }
+  .surface-card {
+    @apply border border-border/80 bg-card;
+    box-shadow: 0 1px 0 hsl(var(--foreground) / 0.03);
   }
   .scrollbar-thin {
     scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
   }
   .scrollbar-thin::-webkit-scrollbar {
     width: 8px;
@@ -156,10 +225,10 @@
     background: linear-gradient(
       90deg,
       transparent,
-      hsl(var(--foreground) / 0.06),
+      hsl(var(--foreground) / 0.05),
       transparent
     );
-    animation: shimmer 1.6s infinite;
+    animation: shimmer 1.8s infinite;
     background-size: 1000px 100%;
   }
   .no-select {

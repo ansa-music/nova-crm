@@ -9,10 +9,10 @@ interface StatusChartProps {
 export function StatusChart({ title, data }: StatusChartProps) {
   const hasData = data.some((d) => d.value > 0);
   return (
-    <Card className="border-white/80 bg-card/90 shadow-card dark:border-border">
+    <Card className="bg-card/80">
       <CardHeader className="pb-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Воронка</p>
-        <CardTitle className="text-lg">{title}</CardTitle>
+        <p className="eyebrow">Воронка</p>
+        <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent className="h-72">
         {hasData ? (
@@ -27,7 +27,7 @@ export function StatusChart({ title, data }: StatusChartProps) {
                 contentStyle={{
                   background: "hsl(var(--popover))",
                   border: "1px solid hsl(var(--border))",
-                  borderRadius: 8,
+                  borderRadius: 6,
                   fontSize: 13,
                 }}
               />

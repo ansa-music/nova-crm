@@ -7,7 +7,6 @@ import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
 interface StatCardProps {
   label: string;
   value: string;
-  /** When given, animates count-up/down from the previous render instead of jumping straight to `value`. */
   animatedValue?: number;
   formatAnimatedValue?: (n: number) => string;
   icon: LucideIcon;
@@ -34,22 +33,26 @@ export function StatCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, delay }}
+      transition={{ duration: 0.28, delay, ease: [0.16, 1, 0.3, 1] }}
     >
-      <Card className="group relative overflow-hidden border-t-2 bg-card/60 p-5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card" style={{ borderTopColor: `hsl(${color})` }}>
-        <div className="flex items-start justify-between">
+      <Card className="relative overflow-hidden bg-card/80 p-5">
+        <span
+          className="absolute inset-y-3 left-0 w-px rounded-full"
+          style={{ backgroundColor: `hsl(${color})` }}
+        />
+        <div className="flex items-start justify-between pl-2">
           <div>
             <p className="eyebrow">{label}</p>
-            <p className="mt-2 text-3xl font-light tracking-[-0.02em] tabular-nums">{displayValue}</p>
+            <p className="display mt-2 text-[1.75rem] leading-none tabular">{displayValue}</p>
             {trend && (
-              <p className={cn("mt-1 text-xs font-medium", trendUp ? "text-success" : "text-destructive")}>
+              <p className={cn("mt-2 text-xs", trendUp ? "text-success" : "text-destructive")}>
                 {trend}
               </p>
             )}
           </div>
-          <Icon className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:scale-110" />
+          <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </div>
       </Card>
     </motion.div>

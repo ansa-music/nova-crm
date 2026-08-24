@@ -34,7 +34,7 @@ export function Topbar({ title }: { title?: string }) {
   const { notifications, unreadCount } = useNotifications(activeWorkspaceId, profile?.uid ?? null);
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border/80 bg-background/90 px-4 backdrop-blur-xl sm:px-5">
+    <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-2 border-b border-border/70 bg-background/85 px-3 backdrop-blur-xl sm:px-4">
       {isMobile && (
         <>
           <Button variant="ghost" size="icon" onClick={() => setMobileNavOpen(true)}>
@@ -63,14 +63,14 @@ export function Topbar({ title }: { title?: string }) {
           <Button variant="ghost" size="icon" title="Уведомления" className="relative">
             <Bell className="h-4 w-4" />
             {unreadCount > 0 && (
-              <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-semibold text-white">
+              <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-0.5 font-mono text-[9px] font-semibold text-primary-foreground">
                 {unreadCount > 9 ? "9+" : unreadCount}
               </span>
             )}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-80 p-0">
-          <div className="border-b border-border px-3 py-2 text-sm font-semibold">Уведомления</div>
+          <div className="border-b border-border px-3 py-2"><p className="eyebrow">Уведомления</p></div>
           <div className="max-h-96 overflow-y-auto">
             {notifications.length === 0 ? (
               <div className="p-4 text-center text-sm text-muted-foreground">

@@ -20,7 +20,8 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Inbox, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
+import { EmptyState } from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -1229,7 +1230,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const isSaving = pendingWrites.hasSavingCell;
 
   return (
-    <div className="flex h-full flex-col bg-card/50">
+    <div className="flex h-full flex-col bg-background">
       {/* A thin top progress bar while any cell write is in flight — same
           idea as YouTube/GitHub, so "is it saving?" is visible at a glance
           instead of only in the small per-cell dot. */}
@@ -1358,28 +1359,27 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                   )}
                   {processedRows.length === 0 && (
                     <tr>
-                      <td colSpan={columns.length + 1} className="py-16">
-                        <div className="flex flex-col items-center gap-3 text-center">
-                          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                            <Inbox className="h-5 w-5" />
-                          </span>
-                          {rows.length === 0 ? (
-                            <>
-                              <p className="text-sm font-medium">Здесь пока пусто</p>
-                              <p className="text-xs text-muted-foreground">Добавьте первую строку, чтобы начать</p>
-                              {canEdit && (
-                                <Button size="sm" className="mt-1 gap-1.5" onClick={handleAddRow}>
+                      <td colSpan={columns.length + 1}>
+                        {rows.length === 0 ? (
+                          <EmptyState
+                            eyebrow="Таблица"
+                            title="Здесь пока пусто"
+                            description="Добавьте первую строку, чтобы начать работу."
+                            action={
+                              canEdit ? (
+                                <Button size="sm" className="gap-1.5" onClick={handleAddRow}>
                                   <Plus className="h-3.5 w-3.5" /> Добавить строку
                                 </Button>
-                              )}
-                            </>
-                          ) : (
-                            <>
-                              <p className="text-sm font-medium">Ничего не найдено</p>
-                              <p className="text-xs text-muted-foreground">Попробуйте изменить поиск или фильтры</p>
-                            </>
-                          )}
-                        </div>
+                              ) : undefined
+                            }
+                          />
+                        ) : (
+                          <EmptyState
+                            eyebrow="Поиск"
+                            title="Ничего не найдено"
+                            description="Попробуйте изменить запрос или сбросить фильтры."
+                          />
+                        )}
                       </td>
                     </tr>
                   )}

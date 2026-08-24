@@ -82,10 +82,21 @@ export default {
         xl: "calc(var(--radius) + 4px)",
       },
       boxShadow: {
-        subtle: "0 1px 2px 0 rgb(0 0 0 / 0.16)",
-        card: "0 2px 12px -4px rgb(0 0 0 / 0.4)",
-        popover: "0 12px 30px -8px rgb(0 0 0 / 0.55)",
-        glow: "0 0 0 1px hsl(var(--primary) / 0.25), 0 4px 20px -6px hsl(var(--primary) / 0.35)",
+        subtle: "0 1px 0 hsl(var(--foreground) / 0.04)",
+        card: "0 1px 0 hsl(var(--foreground) / 0.04)",
+        popover: "0 16px 40px -18px rgb(0 0 0 / 0.55), 0 0 0 1px hsl(var(--border))",
+        glow: "0 0 0 1px hsl(var(--primary) / 0.22)",
+      },
+      transitionTimingFunction: {
+        out: "cubic-bezier(0.16, 1, 0.3, 1)",
+      },
+      transitionDuration: {
+        240: "240ms",
+        280: "280ms",
+        320: "320ms",
+      },
+      fontSize: {
+        "2xs": ["0.625rem", { lineHeight: "0.875rem", letterSpacing: "0.16em" }],
       },
       keyframes: {
         "accordion-down": {

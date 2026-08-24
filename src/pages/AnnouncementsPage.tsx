@@ -58,11 +58,11 @@ export default function AnnouncementsPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-border px-6 py-4">
+      <div className="page-header">
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Megaphone className="h-4 w-4" />
         </span>
-        <h1 className="text-lg font-semibold">Объявления</h1>
+        <h1 className="page-title">Объявления</h1>
         <div className="flex-1" />
         {permissions.canManageAnnouncements && (
           <Button
@@ -153,7 +153,7 @@ export default function AnnouncementsPage() {
             );
           })}
           {filtered.length === 0 && (
-            <p className="py-12 text-center text-sm text-muted-foreground">
+            <p className="py-16 text-center text-sm text-muted-foreground">
               {tab === "archived" ? "В архиве пока пусто" : "Пока нет объявлений"}
             </p>
           )}

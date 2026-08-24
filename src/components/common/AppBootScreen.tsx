@@ -1,33 +1,44 @@
-// PATH: src/components/common/AppBootScreen.tsx  (NEW FILE)
-import { Skeleton } from "@/components/ui/skeleton";
+import { motion } from "framer-motion";
+import { BrandMark } from "@/components/common/BrandMark";
 import type { BootstrapPhase } from "@/hooks/useAppBootstrap";
 
 const PHASE_LABEL: Partial<Record<BootstrapPhase, string>> = {
-  auth: "Проверяем вход...",
-  profile: "Загружаем профиль...",
-  workspaces: "Открываем рабочее пространство...",
-  "workspace-data": "Загружаем страницы и доступы...",
+  auth: "Проверяем вход…",
+  profile: "Загружаем профиль…",
+  workspaces: "Открываем рабочее пространство…",
+  "workspace-data": "Загружаем страницы и доступы…",
 };
 
-/**
- * One shared boot screen for every pre-ready phase. Deliberately identical in
- * layout to the app shell skeleton so the transition to the real UI doesn't
- * jump — and it always says WHAT it's waiting on instead of showing a blank
- * screen the user can only escape with F5.
- */
+const PHASE_ORDER: BootstrapPhase[] = ["auth", "profile", "workspaces", "workspace-data"];
+
 export function AppBootScreen({ phase }: { phase: BootstrapPhase }) {
+  const step = Math.max(0, PHASE_ORDER.indexOf(phase));
+  const progress = ((step + 1) / PHASE_ORDER.length) * 100;
+
   return (
     <div
-      className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-background"
+      className="page-surface flex h-screen w-full flex-col items-center justify-center gap-8 bg-background"
       role="status"
       aria-live="polite"
       aria-busy="true"
     >
-      <div className="flex w-56 flex-col gap-3">
-        <Skeleton className="h-4 w-full" />
-        <Skeleton className="h-4 w-2/3" />
-      </div>
-      <p className="text-xs text-muted-foreground">{PHASE_LABEL[phase] ?? "Загрузка..."}</p>
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+        className="flex w-full max-w-[360px] flex-col items-center gap-6 rounded-lg border border-border/80 bg-card/80 px-8 py-10"
+      >
+        <BrandMark />
+        <div className="h-px w-40 overflow-hidden bg-border">
+          <motion.div
+            className="h-full bg-primary"
+            initial={{ width: "12%" }}
+            animate={{ width: `${progress}%` }}
+            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+          />
+        </div>
+        <p className="eyebrow">{PHASE_LABEL[phase] ?? "Загрузка…"}</p>
+      </motion.div>
     </div>
   );
 }
