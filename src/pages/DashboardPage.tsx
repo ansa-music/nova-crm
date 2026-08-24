@@ -86,7 +86,7 @@ export default function DashboardPage() {
           title="Пока нет столов"
           action={
             permissions.canCreatePages ? (
-              <Button size="sm" className="gap-1.5" onClick={() => setCreatePageOpen(true)}>
+              <Button size="sm" className="min-h-11 gap-1.5" onClick={() => setCreatePageOpen(true)}>
                 <Settings2 className="h-3.5 w-3.5" />
                 Настроить стол
               </Button>
@@ -104,13 +104,13 @@ export default function DashboardPage() {
               <DeskCoverStrip coverUrl={heroPage.coverUrl} name={heroPage.name} ratio="hero" />
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
             </button>
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] p-5 sm:p-7">
-              {permissions.canManagePage(heroPage) && (
-                <div className="pointer-events-auto mb-3">
+            <div className="pointer-events-none absolute inset-0 z-[1] flex flex-col justify-between p-4 sm:p-7">
+              {permissions.canManagePage(heroPage) ? (
+                <div className="pointer-events-auto self-start">
                   <Button
                     variant="outline"
                     size="sm"
-                    className="rounded-full border-white/25 bg-white/10 text-[hsl(36_40%_96%)] backdrop-blur-md hover:bg-white/16 hover:text-[hsl(36_40%_96%)]"
+                    className="min-h-11 rounded-full border-white/25 bg-white/10 px-4 text-[hsl(36_40%_96%)] hover:bg-white/16 hover:text-[hsl(36_40%_96%)]"
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -121,7 +121,10 @@ export default function DashboardPage() {
                     Настроить стол
                   </Button>
                 </div>
+              ) : (
+                <div />
               )}
+              <div>
               <p className="font-serif text-[1.65rem] font-medium tracking-[-0.03em] text-[hsl(36_40%_96%)] sm:text-[2.15rem]">
                 {heroWho} · {heroPage.name}
               </p>
@@ -132,7 +135,7 @@ export default function DashboardPage() {
                       key={page.id}
                       type="button"
                       className={cn(
-                        "rounded-full border px-2.5 py-1 text-[11px] font-medium text-[hsl(36_40%_96%)]",
+                        "min-h-11 rounded-full border px-3 py-1 text-[11px] font-medium text-[hsl(36_40%_96%)] sm:min-h-0 sm:py-1",
                         page.id === heroPage.id ? "border-white/50 bg-white/20" : "border-white/20 bg-black/20"
                       )}
                       onClick={(e) => {
@@ -146,6 +149,7 @@ export default function DashboardPage() {
                   ))}
                 </div>
               )}
+              </div>
             </div>
           </section>
 

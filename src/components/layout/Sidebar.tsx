@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import {
   ChevronLeft,
   ChevronRight,
   Keyboard,
+  LayoutDashboard,
+  LayoutGrid,
   LogOut,
   Megaphone,
   MessageCircle,
@@ -15,6 +17,7 @@ import {
   User,
   Users,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,11 +45,44 @@ import { personLabel, groupDeskSubtitle } from "@/utils/peopleDesks";
 import { useUiStore } from "@/store/uiStore";
 import { THEME_OPTIONS } from "@/components/layout/ThemeToggle";
 
+function AppNavLink({
+  to,
+  end,
+  icon: Icon,
+  children,
+  onNavigate,
+}: {
+  to: string;
+  end?: boolean;
+  icon: LucideIcon;
+  children: ReactNode;
+  onNavigate?: () => void;
+}) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      onClick={() => onNavigate?.()}
+      className={({ isActive }) =>
+        cn(
+          "flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[14px] font-medium",
+          isActive
+            ? "bg-[hsl(24_16%_16%)] text-foreground"
+            : "text-sidebar-foreground hover:bg-sidebar-accent/80"
+        )
+      }
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="truncate">{children}</span>
+    </NavLink>
+  );
+}
+
 export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?: () => void }) {
   const { profile } = useAuth();
   const { members, activeWorkspaceId, workspaces, activeWorkspace, setActiveWorkspaceId } = useWorkspace();
   const permissions = usePermissions();
-  const { groups, activeGroup, selectPerson } = usePeopleDesks();
+  const { groups, activeGroup, studioPages, selectPerson } = usePeopleDesks();
   const navigate = useNavigate();
   const location = useLocation();
   const pinnedCollapsed = useUiStore((s) => s.sidebarCollapsed) && !mobile;
@@ -74,6 +110,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
     onNavigate?.();
   }
 
+  function goHome() {
+    if (location.pathname !== "/") navigate("/");
+    onNavigate?.();
+  }
+
   return (
     <div
       className={cn(
@@ -91,17 +132,56 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
       >
         <div className={cn("mb-5 flex items-center", collapsed ? "justify-center" : "justify-between gap-2 pr-1")}>
           {collapsed ? (
-            <span className="wordmark text-lg">N</span>
+            <button type="button" onClick={goHome} className="wordmark text-lg" title="Главная">
+              N
+            </button>
           ) : (
-            <span className="flex min-w-0 items-center gap-2">
+            <button type="button" onClick={goHome} className="flex min-w-0 items-center gap-2" title="Главная">
               <span className="wordmark text-[22px] leading-none">NOVA</span>
               <span className="desk-accent-mark h-4 w-0.5 shrink-0 rounded-full" aria-hidden />
-            </span>
+            </button>
           )}
           {!collapsed && <NotificationBell />}
         </div>
 
-        {!collapsed && (
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-thin">
+          {mobile && (
+            <nav className="mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
+              <AppNavLink to="/" end icon={LayoutDashboard} onNavigate={onNavigate}>
+                Главная
+              </AppNavLink>
+              {studioPages.map((page) => (
+                <AppNavLink key={page.id} to={`/page/${page.id}`} icon={LayoutGrid} onNavigate={onNavigate}>
+                  {page.name}
+                </AppNavLink>
+              ))}
+              <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
+                Настройки
+              </AppNavLink>
+              <AppNavLink to="/messages" icon={MessageCircle} onNavigate={onNavigate}>
+                Сообщения
+              </AppNavLink>
+              <AppNavLink to="/chat" icon={MessageSquare} onNavigate={onNavigate}>
+                Чат
+              </AppNavLink>
+              {permissions.canManageWorkspace && (
+                <AppNavLink to="/users" icon={Users} onNavigate={onNavigate}>
+                  Пользователи
+                </AppNavLink>
+              )}
+              {permissions.canCreatePages && (
+                <button
+                  type="button"
+                  onClick={() => setCreatePageOpen(true)}
+                  className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[14px] font-medium text-sidebar-foreground hover:bg-sidebar-accent/80"
+                >
+                  <Plus className="h-4 w-4 shrink-0" />
+                  Новый стол
+                </button>
+              )}
+            </nav>
+          )}
+          {!collapsed && (
           <>
             <p className="mb-2 px-1 text-[13px] font-medium text-foreground">Люди</p>
             <label className="mb-3 flex h-9 items-center gap-2 rounded-full border border-border bg-card/80 px-3 text-[13px] text-muted-foreground">
@@ -116,7 +196,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
           </>
         )}
 
-        <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto scrollbar-thin">
+        <nav className="flex flex-col gap-0.5">
           {filtered.map((group) => {
             const name = personLabel(group.member) || (group.uid ? "Стол" : "Без ответственного");
             const desk = groupDeskSubtitle(group);
@@ -128,6 +208,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                 onClick={() => pickPerson(group.key)}
                 className={cn(
                   "flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors",
+                  mobile && "min-h-11",
                   selected ? "bg-[hsl(24_16%_16%)] text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80",
                   collapsed && "justify-center px-0"
                 )}
@@ -158,6 +239,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
             <p className="px-2 py-3 text-xs text-muted-foreground">Никого не нашлось</p>
           )}
         </nav>
+        </div>
 
         <div className={cn("mt-3 flex items-center border-t border-border pt-3", collapsed ? "justify-center" : "gap-1")}>
           <DropdownMenu>
@@ -165,7 +247,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               <button
                 type="button"
                 className={cn(
-                  "flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-xl px-1.5 py-1 text-left hover:bg-sidebar-accent/80",
+                  "flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl px-1.5 py-1 text-left hover:bg-sidebar-accent/80",
                   collapsed && "flex-none justify-center px-0"
                 )}
               >
@@ -209,6 +291,8 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <Plus className="h-4 w-4" /> Создать workspace
                 </DropdownMenuItem>
               )}
+              {!mobile && (
+                <>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
                 <NavLink to="/settings" onClick={() => onNavigate?.()}>
@@ -247,19 +331,31 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <Plus className="h-4 w-4" /> Новый стол
                 </DropdownMenuItem>
               )}
+                </>
+              )}
               <DropdownMenuSeparator />
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>Тема</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  {THEME_OPTIONS.map((opt) => (
-                    <DropdownMenuItem key={opt.value} onClick={() => setTheme(opt.value)}>
-                      <opt.icon className="h-4 w-4" />
-                      {opt.label}
-                      {theme === opt.value ? " ·" : ""}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
+              {mobile ? (
+                THEME_OPTIONS.map((opt) => (
+                  <DropdownMenuItem key={opt.value} onClick={() => setTheme(opt.value)}>
+                    <opt.icon className="h-4 w-4" />
+                    {opt.label}
+                    {theme === opt.value ? " ·" : ""}
+                  </DropdownMenuItem>
+                ))
+              ) : (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>Тема</DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {THEME_OPTIONS.map((opt) => (
+                      <DropdownMenuItem key={opt.value} onClick={() => setTheme(opt.value)}>
+                        <opt.icon className="h-4 w-4" />
+                        {opt.label}
+                        {theme === opt.value ? " ·" : ""}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              )}
               <DropdownMenuItem onClick={() => useUiStore.getState().setShortcutsHelpOpen(true)}>
                 <Keyboard className="h-4 w-4" /> Клавиши
               </DropdownMenuItem>
