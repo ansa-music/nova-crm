@@ -29,7 +29,7 @@ function GlassTooltip({
   if (!active || !payload?.length) return null;
   const row = payload[0].payload;
   return (
-    <div className="rounded-xl border border-border bg-card px-3 py-2 shadow-sm">
+    <div className="rounded-md border border-primary/35 bg-card px-3 py-2">
       <p className="text-[12px] font-medium text-foreground">{row.person || row.name}</p>
       <p className="text-[11px] text-muted-foreground">{row.name}</p>
       <p className="mt-1 font-mono text-[12px] tabular text-primary">{formatCurrency(row.doneTotal)}</p>
@@ -74,7 +74,7 @@ export function DeskChart({ data, activeId, onHover, onSelect }: DeskChartProps)
   );
 
   return (
-    <Card className="desk-chart overflow-hidden rounded-2xl border-border bg-card">
+    <Card className="desk-chart overflow-hidden rounded-xl border-primary/28 bg-card">
       <CardHeader className="pb-2">
         <p className="eyebrow text-primary">Диаграмма</p>
         <CardTitle className="text-base font-medium">Готово по столам</CardTitle>
@@ -102,7 +102,7 @@ export function DeskChart({ data, activeId, onHover, onSelect }: DeskChartProps)
                 tickLine={false}
                 axisLine={false}
                 interval={0}
-                tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                tick={{ fontSize: 11, fill: "hsl(210 22% 82%)" }}
                 tickFormatter={(v: string) => (v.length > 12 ? v.slice(0, 11) + "..." : v)}
               />
               <YAxis hide />
@@ -161,7 +161,7 @@ function GoalTooltip({
   if (!active || !payload?.length) return null;
   const item = payload[0];
   return (
-    <div className="rounded-xl border border-border bg-card px-3 py-2 text-[12px] shadow-sm">
+    <div className="rounded-md border border-primary/35 bg-card px-3 py-2 text-[12px]">
       <p className="text-muted-foreground">{item.name}</p>
       <p className="font-mono tabular text-primary">{formatCurrency(item.value)}</p>
     </div>
@@ -176,7 +176,7 @@ export function GoalVsDoneChart({ doneTotal, goal }: GoalVsDoneChartProps) {
   const percent = goal > 0 ? Math.min(100, Math.round((doneTotal / goal) * 100)) : 0;
 
   return (
-    <Card className="desk-chart overflow-hidden rounded-2xl border-border bg-card">
+    <Card className="desk-chart overflow-hidden rounded-xl border-primary/28 bg-card">
       <CardHeader className="pb-2">
         <p className="eyebrow text-primary">Цель</p>
         <CardTitle className="text-base font-medium">Готово и цель на месяц</CardTitle>
@@ -191,7 +191,7 @@ export function GoalVsDoneChart({ doneTotal, goal }: GoalVsDoneChartProps) {
               tickLine={false}
               axisLine={false}
               width={72}
-              tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+              tick={{ fontSize: 12, fill: "hsl(210 22% 82%)" }}
             />
             <Tooltip cursor={{ fill: "hsl(var(--primary) / 0.06)" }} content={<GoalTooltip />} />
             <Bar dataKey="value" radius={[0, 2, 2, 0]} maxBarSize={28} cursor="pointer">

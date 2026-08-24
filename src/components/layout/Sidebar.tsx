@@ -120,8 +120,8 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
     >
       <div
         className={cn(
-          "relative flex h-full min-h-0 flex-col bg-background text-sidebar-foreground",
-          mobile ? "w-full px-3 py-4" : cn("border-r border-border px-3 py-4", collapsed ? "w-[72px] items-center px-2" : "w-[248px]")
+          "relative flex h-full min-h-0 flex-col bg-background/95 text-sidebar-foreground",
+          mobile ? "w-full px-3 py-4" : cn("border-r border-primary/25 px-3 py-4", collapsed ? "w-[72px] items-center px-2" : "w-[248px]")
         )}
       >
         <div className={cn("mb-5 flex items-center", collapsed ? "justify-center" : "justify-between gap-2 pr-1")}>
@@ -231,7 +231,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
           )}
         </div>
 
-        <div className={cn("mt-3 flex items-center border-t border-border pt-3", collapsed ? "justify-center" : "gap-1")}>
+        <div className={cn("mt-3 flex items-center border-t border-primary/20 pt-3", collapsed ? "justify-center" : "gap-1")}>
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <button
@@ -362,7 +362,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
             type="button"
             onClick={toggleSidebar}
             title={pinnedCollapsed ? "Закрепить меню" : "Свернуть в рейку"}
-            className="absolute -right-2.5 top-[3.6rem] flex h-6 w-6 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground"
+            className="absolute -right-2.5 top-[3.6rem] flex h-6 w-6 items-center justify-center rounded-full border border-primary/40 bg-card text-primary hover:bg-primary/10 hover:text-primary"
           >
             {pinnedCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
           </button>

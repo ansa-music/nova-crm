@@ -8,7 +8,7 @@ interface IconPickerProps {
   color?: string;
 }
 
-export function IconPicker({ value, onChange, color = "243 75% 59%" }: IconPickerProps) {
+export function IconPicker({ value, onChange, color = "189 100% 72%" }: IconPickerProps) {
   return (
     <div className="grid grid-cols-5 gap-2">
       {PAGE_ICON_NAMES.map((name) => {

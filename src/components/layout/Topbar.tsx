@@ -13,7 +13,7 @@ export function Topbar({ title }: { title?: string }) {
   if (!isCompactNav) return null;
 
   return (
-    <header className={`sticky top-0 flex h-12 shrink-0 items-center gap-1.5 border-b border-border bg-background px-3 ${mobileNavOpen ? "z-[220]" : "z-30"}`}>
+    <header className={`sticky top-0 flex h-12 shrink-0 items-center gap-1.5 border-b border-primary/25 bg-background px-3 ${mobileNavOpen ? "z-[220]" : "z-30"}`}>
       <Button
         type="button"
         variant="ghost"
@@ -32,7 +32,7 @@ export function Topbar({ title }: { title?: string }) {
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
         <SheetContent
           side="left"
-          className="h-[100dvh] max-h-[100dvh] w-[min(20rem,88vw)] max-w-[20rem] overflow-hidden bg-background p-0 border-r border-border backdrop-blur-none"
+          className="h-[100dvh] max-h-[100dvh] w-[min(20rem,88vw)] max-w-[20rem] overflow-hidden bg-background p-0 border-r border-primary/25 backdrop-blur-none"
         >
           <Sidebar mobile onNavigate={() => setMobileNavOpen(false)} />
         </SheetContent>

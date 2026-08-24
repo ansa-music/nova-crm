@@ -118,7 +118,7 @@ export function TableToolbar({
   const searchExpanded = searchOpen || Boolean(searchQuery);
 
   return (
-    <div className="z-10 flex h-12 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border bg-card px-2 sm:h-auto sm:flex-wrap sm:gap-2 sm:overflow-visible sm:px-4 sm:py-2">
+    <div className="z-10 flex h-12 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-primary/25 bg-background px-2 sm:h-auto sm:flex-wrap sm:gap-2 sm:overflow-visible sm:px-4 sm:py-2">
       <div
         className={cn(
           "relative min-w-0",

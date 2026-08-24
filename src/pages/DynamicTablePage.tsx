@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/table/DataTable";
+import { TableChromeExit } from "@/components/table/TableChromeExit";
 import { SubPageTabs } from "@/components/table/SubPageTabs";
 import { SubPageStats } from "@/components/table/SubPageStats";
 import { EditPageDialog } from "@/components/pagesnav/EditPageDialog";
@@ -39,7 +40,10 @@ export default function DynamicTablePage() {
   const permissions = usePermissions();
   const { profile } = useAuth();
   const setTableFullscreen = useUiStore((s) => s.setTableFullscreen);
+  const setTableImmersive = useUiStore((s) => s.setTableImmersive);
+  const tableFullscreen = useUiStore((s) => s.tableFullscreen);
   const tableImmersive = useUiStore((s) => s.tableImmersive);
+  const chromeHidden = tableFullscreen || tableImmersive;
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -222,7 +226,8 @@ export default function DynamicTablePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className={cn("page-header", tableImmersive && "max-md:hidden")}>
+      {tableImmersive && !tableFullscreen ? <TableChromeExit label="Назад" /> : null}
+      <div className={cn("page-header", chromeHidden && "hidden")}>
         <span
           className="relative flex h-8 w-8 items-center justify-center rounded-lg"
           style={{ backgroundColor: `hsl(${page.color} / 0.15)`, color: `hsl(${page.color})` }}
@@ -247,7 +252,7 @@ export default function DynamicTablePage() {
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={() => setTableFullscreen(true)}>
+            <Button variant="ghost" size="icon" onClick={() => { setTableFullscreen(true); setTableImmersive(true); }}>
               <Maximize2 className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
@@ -333,7 +338,7 @@ export default function DynamicTablePage() {
         </div>
       ) : (
         <>
-          <div className={cn(tableImmersive && "max-md:hidden")}>
+          <div className={cn(chromeHidden && "hidden")}>
             <SubPageTabs
               workspaceId={page.workspaceId}
               page={page}
@@ -345,7 +350,7 @@ export default function DynamicTablePage() {
             />
           </div>
 
-          {statsOpen && !tableImmersive && <SubPageStats columns={activeSubPage ? activeSubPage.columns : page.columns} rows={rows} />}
+          {statsOpen && !chromeHidden && <SubPageStats columns={activeSubPage ? activeSubPage.columns : page.columns} rows={rows} />}
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {rowsLoading ? (

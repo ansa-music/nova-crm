@@ -2,11 +2,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { displayNameOf } from "@/utils/displayName";
 import { cn } from "@/utils/cn";
 
-// A small, muted-enough-for-dark-mode palette in the same hue family as the
-// rest of the redesign (warm, desaturated) — enough spread that adjacent
-// teammates rarely collide, without any single color reading as "the" brand
-// accent.
-const AVATAR_HUES = [217, 271, 12, 158, 38, 199, 322, 84];
+// Cool navy/cyan/teal hues so avatars sit in the neon chrome without purple or walnut.
+const AVATAR_HUES = [199, 189, 217, 164, 222, 175, 205, 152];
 
 /** Same id always maps to the same hue — no lookups, no storage needed. */
 function hueFromId(id: string): number {

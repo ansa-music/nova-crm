@@ -46,7 +46,7 @@ export function LeaderboardWidget({
   }, [entries, members]);
 
   return (
-    <Card className={cn("h-full overflow-hidden rounded-2xl border-border bg-card", featured && "min-h-[16rem]")}>
+    <Card className={cn("h-full overflow-hidden rounded-xl border-primary/28 bg-card", featured && "min-h-[16rem]")}>
       <CardContent className={featured ? "p-5 sm:p-6" : "p-5"}>
         <p className="eyebrow mb-1 text-primary">Как ведут дело</p>
         <p className={cn(featured ? "mb-4 font-serif text-lg font-medium tracking-[-0.02em]" : "mb-3 text-sm font-medium")}>

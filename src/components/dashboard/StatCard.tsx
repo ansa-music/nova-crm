@@ -22,7 +22,7 @@ export function StatCard({
   icon: Icon,
   trend,
   trendUp,
-  color = "13 100% 57%",
+  color = "189 100% 72%",
 }: StatCardProps) {
   const animated = useAnimatedNumber(animatedValue ?? 0);
   const displayValue =

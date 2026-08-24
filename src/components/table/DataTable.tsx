@@ -79,7 +79,6 @@ import { RowCommentsPanel } from "@/components/chat/RowCommentsPanel";
 import { RowCardSheet } from "@/components/table/RowCardSheet";
 import { BulkActionBar } from "@/components/table/BulkActionBar";
 import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
-import { useUiStore } from "@/store/uiStore";
 import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -421,17 +420,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     : Math.max(48, DENSITY_ROW_HEIGHT[density]);
   const gutterWidth = coarsePointer ? 48 : 56;
 
-  const setTableImmersive = useUiStore((s) => s.setTableImmersive);
   const [gridFocused, setGridFocused] = useState(false);
   const [expandedTextCell, setExpandedTextCell] = useState<CellAddress | null>(null);
-  useEffect(() => {
-    if (!coarsePointer) {
-      setTableImmersive(false);
-      return;
-    }
-    setTableImmersive(gridFocused || Boolean(activeCell) || Boolean(editingCell));
-    return () => setTableImmersive(false);
-  }, [coarsePointer, gridFocused, activeCell, editingCell, setTableImmersive]);
 
   // ---- Filtering + search + sort ----
   const processedRows = useMemo(() => {

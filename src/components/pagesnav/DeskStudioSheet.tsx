@@ -47,7 +47,7 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [name, setName] = useState("");
   const [icon, setIcon] = useState<PageIconName>("LayoutGrid");
-  const [color, setColor] = useState("243 75% 59%");
+  const [color, setColor] = useState("189 100% 72%");
   const [accentColor, setAccentColor] = useState<string | undefined>(undefined);
   const [goalInput, setGoalInput] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -59,7 +59,7 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
     if (!page || !open) return;
     setName(page.name);
     setIcon(page.icon ?? "LayoutGrid");
-    setColor(page.color ?? "243 75% 59%");
+    setColor(page.color ?? "189 100% 72%");
     setAccentColor(page.accentColor);
     setGoalInput(page.monthlyGoal ? String(page.monthlyGoal) : "");
   }, [page, open]);

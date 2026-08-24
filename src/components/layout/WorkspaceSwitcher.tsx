@@ -38,7 +38,7 @@ export function WorkspaceSwitcher({ collapsed }: { collapsed?: boolean }) {
           >
             <span
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white shadow-subtle"
-              style={{ backgroundColor: activeWorkspace ? `hsl(${activeWorkspace.color})` : "hsl(243 75% 59%)" }}
+              style={{ backgroundColor: activeWorkspace ? `hsl(${activeWorkspace.color})` : "hsl(189 100% 72%)" }}
             >
               <ActiveIcon className="h-4 w-4" />
             </span>

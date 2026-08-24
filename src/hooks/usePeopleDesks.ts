@@ -4,7 +4,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useUiStore } from "@/store/uiStore";
 import { isResponsibleForPage } from "@/utils/permissions";
-import { findMyDesk, groupDesksByPerson, type PersonDeskGroup } from "@/utils/peopleDesks";
+import { findMyDesk, groupAllPeople, groupDesksByPerson, type PersonDeskGroup } from "@/utils/peopleDesks";
 
 /** `syncPersonSelection` is only for Люди. Never treat selected person as ACL. */
 export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSelection?: boolean } = {}) {
@@ -29,20 +29,23 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
   }, [visiblePages, isPersonalLanding, profile]);
 
   const groups = useMemo(() => groupDesksByPerson(studioPages, members), [studioPages, members]);
+  // People tab: every member, even if their desk is hidden / not in studioPages.
+  const peopleGroups = useMemo(() => groupAllPeople(members, visiblePages), [members, visiblePages]);
 
   useEffect(() => {
     if (!syncPersonSelection) return;
-    if (groups.length === 0) {
+    const list = peopleGroups;
+    if (list.length === 0) {
       if (selectedPersonKey !== null) setSelectedPersonKey(null);
       return;
     }
-    if (selectedPersonKey && groups.some((g) => g.key === selectedPersonKey)) return;
-    if (profile && groups.some((g) => g.key === profile.uid)) {
+    if (selectedPersonKey && list.some((g) => g.key === selectedPersonKey)) return;
+    if (profile && list.some((g) => g.key === profile.uid)) {
       setSelectedPersonKey(profile.uid);
       return;
     }
-    setSelectedPersonKey(groups[0].key);
-  }, [groups, profile, selectedPersonKey, setSelectedPersonKey, syncPersonSelection]);
+    setSelectedPersonKey(list[0].key);
+  }, [peopleGroups, profile, selectedPersonKey, setSelectedPersonKey, syncPersonSelection]);
 
   const activeGroup: PersonDeskGroup | null =
     groups.find((g) => g.key === selectedPersonKey) ?? groups[0] ?? null;
@@ -53,6 +56,7 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
 
   return {
     groups,
+    peopleGroups,
     activeGroup,
     studioPages,
     visiblePages,

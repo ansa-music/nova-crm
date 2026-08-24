@@ -44,7 +44,7 @@ export default function DesksPage() {
           <h1 className="font-serif text-[1.85rem] font-medium tracking-[-0.03em] sm:text-[2.15rem]">Столы</h1>
           <p className="mt-1 text-sm text-muted-foreground">Открой стол по обложке.</p>
         </div>
-        <label className="flex h-11 w-full max-w-sm items-center gap-2 rounded-full border border-border bg-card/80 px-4 text-[13px] text-muted-foreground">
+        <label className="flex h-11 w-full max-w-sm items-center gap-2 rounded-full border border-primary/30 bg-card/80 px-4 text-[13px] text-muted-foreground">
           <Search className="h-3.5 w-3.5 shrink-0" />
           <input
             value={query}
@@ -68,7 +68,7 @@ export default function DesksPage() {
                 type="button"
                 onClick={() => navigate(`/page/${page.id}`)}
                 className={cn(
-                  "group relative overflow-hidden rounded-[1.35rem] border border-border bg-card text-left transition-colors hover:border-primary/40"
+                  "group relative overflow-hidden rounded-xl border border-primary/28 bg-card text-left transition-colors hover:border-primary/60 active:scale-[0.99]"
                 )}
               >
                 <DeskCoverStrip coverUrl={resolvedCoverUrl(page, ownerUid)} name={page.name} ratio="thumb" />

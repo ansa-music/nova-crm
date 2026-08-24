@@ -12,18 +12,18 @@ import { cn } from "@/utils/cn";
 
 export default function PeoplePage() {
   const navigate = useNavigate();
-  const { groups, isLoadingWorkspaceData, selectPerson } = usePeopleDesks({ syncPersonSelection: true });
+  const { peopleGroups, isLoadingWorkspaceData, selectPerson } = usePeopleDesks({ syncPersonSelection: true });
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return groups;
-    return groups.filter((g) => {
+    if (!q) return peopleGroups;
+    return peopleGroups.filter((g) => {
       const name = personLabel(g.member) || (g.uid ? "Стол" : "Без ответственного");
       const desk = groupDeskSubtitle(g);
       return name.toLowerCase().includes(q) || desk.toLowerCase().includes(q);
     });
-  }, [groups, query]);
+  }, [peopleGroups, query]);
 
   if (isLoadingWorkspaceData) {
     return (
@@ -42,7 +42,7 @@ export default function PeoplePage() {
         <p className="eyebrow mb-1 text-primary">Студия</p>
         <h1 className="font-serif text-[1.85rem] font-medium tracking-[-0.03em] sm:text-[2.15rem]">Люди</h1>
         <p className="mt-1 mb-5 text-sm text-muted-foreground">Лица команды. Нажми — откроется его стол.</p>
-        <label className="flex h-11 w-full items-center gap-2 rounded-full border border-border bg-card/80 px-4 text-[13px] text-muted-foreground">
+        <label className="flex h-11 w-full items-center gap-2 rounded-full border border-primary/30 bg-card/80 px-4 text-[13px] text-muted-foreground">
           <Search className="h-3.5 w-3.5 shrink-0" />
           <input
             value={query}
@@ -54,14 +54,15 @@ export default function PeoplePage() {
       </header>
 
       {filtered.length === 0 ? (
-        <EmptyState className="rounded-2xl border border-border bg-card py-16" title={query ? "Никого не нашлось" : "Пока никого нет"} />
+        <EmptyState className="rounded-2xl border border-primary/25 bg-card py-16" title={query ? "Никого не нашлось" : "Пока никого нет"} />
       ) : (
         <div className="flex flex-col gap-2">
           {filtered.map((group) => {
-            const coverPage = group.pages[0];
+            const coverPage = group.pages.find((p) => !p.hiddenByResponsible) ?? null;
             const name = personLabel(group.member) || (group.uid ? "Стол" : "Без ответственного");
             const desk = groupDeskSubtitle(group);
             const role = group.member?.role ? ROLE_LABELS[group.member.role] : null;
+            const hidden = Boolean(group.deskHidden);
             return (
               <button
                 key={group.key}
@@ -71,7 +72,8 @@ export default function PeoplePage() {
                   if (coverPage) navigate(`/page/${coverPage.id}`);
                 }}
                 className={cn(
-                  "flex min-h-16 w-full items-center gap-3 rounded-2xl border border-border bg-card px-3 py-3 text-left hover:border-primary/40"
+                  "flex min-h-16 w-full items-center gap-3 rounded-xl border border-primary/25 bg-card px-3 py-3 text-left transition-colors hover:border-primary/55 hover:bg-primary/[0.06] active:scale-[0.99]",
+                  hidden && "opacity-80"
                 )}
               >
                 {group.member ? (
@@ -90,7 +92,14 @@ export default function PeoplePage() {
                   </Avatar>
                 )}
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[15px] font-semibold text-foreground">{name}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="block truncate text-[15px] font-semibold text-foreground">{name}</span>
+                    {hidden ? (
+                      <span className="shrink-0 rounded-full border border-primary/25 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                        скрыт
+                      </span>
+                    ) : null}
+                  </span>
                   <span className="block truncate text-[12px] text-muted-foreground">
                     {[role, desk].filter(Boolean).join(" · ")}
                   </span>

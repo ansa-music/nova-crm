@@ -6,7 +6,6 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { PageShell } from "@/components/layout/PageShell";
 import { Topbar } from "@/components/layout/Topbar";
 import { GlobalSearch } from "@/components/layout/GlobalSearch";
-import { Maximize2 } from "lucide-react";
 import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog";
 import { NicknamePrompt } from "@/components/common/NicknamePrompt";
 import { GlobalMessageToaster } from "@/components/common/GlobalMessageToaster";
@@ -17,6 +16,7 @@ import { GlobalUndoHotkeys } from "@/components/common/GlobalUndoHotkeys";
 import { GoChordHotkeys } from "@/components/common/GoChordHotkeys";
 import { AccentColorSync } from "@/components/common/AccentColorSync";
 import { Button } from "@/components/ui/button";
+import { TableChromeExit } from "@/components/table/TableChromeExit";
 import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorkspace";
 import { useAppBootstrap } from "@/hooks/useAppBootstrap";
 import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
@@ -38,22 +38,28 @@ export function AppLayout() {
   const isCompactNav = useIsTablet();
   const [createOpen, setCreateOpen] = useState(false);
   const tableFullscreen = useUiStore((s) => s.tableFullscreen);
+  const tableImmersive = useUiStore((s) => s.tableImmersive);
   const setTableFullscreen = useUiStore((s) => s.setTableFullscreen);
+  const setTableImmersive = useUiStore((s) => s.setTableImmersive);
   // Only actually hides chrome on a table page — the setting can stay on
   // (persisted) without leaving every OTHER page in the app chrome-less too.
   const isOnTablePage = location.pathname.startsWith("/page/");
   const isFullscreen = tableFullscreen && isOnTablePage;
+  const chromeHidden = isOnTablePage && (tableFullscreen || tableImmersive);
 
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
 
   useEffect(() => {
-    if (!isFullscreen) return;
+    if (!chromeHidden) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.code === "Escape") setTableFullscreen(false);
+      if (e.code === "Escape") {
+        setTableFullscreen(false);
+        setTableImmersive(false);
+      }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [isFullscreen, setTableFullscreen]);
+  }, [chromeHidden, setTableFullscreen, setTableImmersive]);
 
   // Any not-yet-resolved phase renders the shared boot screen. Crucially this
   // includes "workspace-data": members (=> role) and pages (=> access) must
@@ -109,18 +115,10 @@ export function AppLayout() {
       <GoChordHotkeys />
       <AccentColorSync />
       {!isCompactNav && !isFullscreen && <Sidebar />}
-      <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${isFullscreen ? "" : "rounded-2xl border border-border bg-card/90"}`}>
+      <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${isFullscreen ? "" : "rounded-2xl border border-primary/25 bg-card/90"}`}>
         {!isFullscreen && <Topbar />}
         {!isFullscreen && <SimulationBanner />}
-        {isFullscreen && (
-          <button
-            onClick={() => setTableFullscreen(false)}
-            title="Показать меню (Esc)"
-            className="fixed left-3 top-3 z-50 flex h-9 w-9 items-center justify-center rounded-sm border border-border bg-card text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <Maximize2 className="h-3.5 w-3.5" />
-          </button>
-        )}
+        {isFullscreen && <TableChromeExit label="Свернуть" />}
         <main className={`flex min-h-0 flex-1 flex-col ${isOnTablePage ? "overflow-hidden" : "overflow-y-auto"} scrollbar-thin`}>
           <PageShell>
             <Outlet />

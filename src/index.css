@@ -26,7 +26,7 @@
     --secondary-foreground: 210 22% 94%;
 
     --muted: 222 32% 12%;
-    --muted-foreground: 210 14% 68%;
+    --muted-foreground: 210 16% 74%;
 
     --accent: 222 36% 13%;
     --accent-foreground: 189 80% 78%;
@@ -40,13 +40,13 @@
     --warning: 42 88% 56%;
     --warning-foreground: 222 55% 8%;
 
-    --border: 189 45% 18%;
-    --input: 189 35% 16%;
+    --border: 189 52% 22%;
+    --input: 189 40% 18%;
     --ring: 189 100% 72%;
 
     --sidebar: 222 55% 6%;
     --sidebar-foreground: 210 16% 72%;
-    --sidebar-border: 189 40% 16%;
+    --sidebar-border: 189 50% 20%;
     --sidebar-accent: 222 40% 12%;
 
     --radius: 0.25rem;
@@ -140,6 +140,7 @@
   }
   .nav-link-active {
     @apply bg-sidebar-accent text-foreground;
+    box-shadow: inset 2px 0 0 hsl(var(--primary));
   }
   .nav-link-active::before {
     content: none;
@@ -177,20 +178,16 @@
       transform var(--duration-fast) var(--ease-out);
   }
   .desk-row:hover {
-    background: hsl(var(--primary) / 0.1);
-    box-shadow:
-      inset 0 0 0 1px hsl(var(--primary) / 0.45),
-      0 0 18px hsl(var(--primary) / 0.28);
+    background: hsl(var(--primary) / 0.08);
+    box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.4);
   }
   .desk-row:active {
     transform: scale(0.992);
-    background: hsl(var(--primary) / 0.16);
+    background: hsl(var(--primary) / 0.14);
   }
   .desk-row-active {
-    background: hsl(var(--primary) / 0.14);
-    box-shadow:
-      inset 0 0 0 1px hsl(var(--primary) / 0.55),
-      0 0 22px hsl(var(--primary) / 0.38);
+    background: hsl(var(--primary) / 0.12);
+    box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.55);
   }
 
   .desk-card {
@@ -212,10 +209,8 @@
   @media (hover: hover) and (pointer: fine) {
     .desk-card:hover,
     .desk-card-active {
-      border-color: hsl(var(--primary));
-      box-shadow:
-        0 0 0 1px hsl(var(--primary) / 0.55),
-        0 0 22px hsl(var(--primary) / 0.22);
+      border-color: hsl(var(--primary) / 0.7);
+      box-shadow: 0 0 0 1px hsl(var(--primary) / 0.35);
     }
   }
 
@@ -235,7 +230,9 @@
   }
 
   .page-header {
-    @apply flex items-center gap-2.5 border-b border-border px-5 py-3 sm:px-6;
+    @apply flex items-center gap-2.5 border-b px-5 py-3 sm:px-6;
+    border-color: hsl(var(--primary) / 0.25);
+    background: #070c18;
   }
 
   .page-title {
@@ -272,9 +269,8 @@
     -webkit-backdrop-filter: blur(10px);
     border: 1px solid hsl(var(--primary) / 0.4);
     box-shadow:
-      0 0 0 1px hsl(var(--primary) / 0.12),
-      0 18px 40px -22px hsl(0 0% 0% / 0.7),
-      0 0 28px -12px hsl(var(--primary) / 0.35);
+      0 0 0 1px hsl(var(--primary) / 0.18),
+      0 18px 40px -22px hsl(0 0% 0% / 0.7);
   }
   @keyframes glass-pop {
     0% { opacity: 0; transform: translateY(6px) scale(0.98); }
@@ -380,39 +376,13 @@
   }
 
   .desk-pointer-glow {
-    pointer-events: none;
-    position: absolute;
-    z-index: 0;
-    width: 280px;
-    height: 280px;
-    margin-left: -140px;
-    margin-top: -140px;
-    border-radius: 999px;
-    background: radial-gradient(circle, hsl(var(--primary) / 0.16), hsl(var(--secondary) / 0.08) 38%, transparent 64%);
-    mix-blend-mode: screen;
-    transform: translate(-999px, -999px);
-    will-change: transform;
+    display: none;
   }
 }
 
 .desk-row::after {
-  content: "";
-  pointer-events: none;
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: 4px;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, hsl(var(--primary)), hsl(var(--secondary)), transparent);
-  opacity: 0;
-  transform: scaleX(0.45);
-  box-shadow: 0 0 8px hsl(var(--primary) / 0.8);
-  transition: opacity var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out);
-}
-.desk-row:hover::after,
-.desk-row-active::after {
-  opacity: 1;
-  transform: scaleX(1);
+  content: none;
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -455,6 +425,14 @@
   .neon-pulse {
     animation: none !important;
     box-shadow: none !important;
+  }
+  .desk-cluster,
+  .today-card,
+  .glass-float,
+  .status-pill {
+    box-shadow: none !important;
+    filter: none !important;
+    text-shadow: none !important;
   }
   .desk-pointer-glow {
     display: none !important;
@@ -507,7 +485,7 @@
 
 .table-sticky-col {
   position: sticky;
-  background-color: hsl(var(--background));
+  background-color: #070c18;
   background-clip: padding-box;
   isolation: isolate;
 }
@@ -525,25 +503,25 @@
 
 .table-instrument tbody tr.table-data-row-selected td,
 .table-instrument tbody tr.table-data-row-active td {
-  background-color: color-mix(in srgb, hsl(var(--primary)) 12%, hsl(var(--background)));
+  background-color: color-mix(in srgb, hsl(var(--primary)) 16%, #070c18);
 }
 .table-instrument tbody td.table-sticky-col,
 .table-instrument thead th.table-sticky-col,
 .table-instrument tfoot td.table-sticky-col {
-  background-color: hsl(var(--background));
+  background-color: #070c18;
 }
 .table-instrument tbody tr.table-data-row-selected td.table-sticky-col,
 .table-instrument tbody tr.table-data-row-active td.table-sticky-col {
-  background-color: color-mix(in srgb, hsl(var(--primary)) 12%, hsl(var(--background)));
+  background-color: color-mix(in srgb, hsl(var(--primary)) 16%, #070c18);
 }
 
 @media (hover: hover) and (pointer: fine) {
   .table-instrument tbody tr.table-data-row:hover td {
-    background-color: hsl(var(--primary) / 0.08);
+    background-color: hsl(var(--primary) / 0.1);
     box-shadow: none;
   }
   .table-instrument tbody tr.table-data-row:hover td.table-sticky-col {
-    background-color: color-mix(in srgb, hsl(var(--primary)) 8%, hsl(var(--background)));
+    background-color: color-mix(in srgb, hsl(var(--primary)) 10%, #070c18);
   }
   .status-pill {
     box-shadow: none;
@@ -602,28 +580,32 @@
 .table-instrument thead th {
   position: sticky;
   top: 0;
-  background-color: hsl(var(--background));
+  z-index: 24;
+  background-color: #070c18;
+  color: hsl(189 70% 82%);
+  box-shadow: 0 1px 0 hsl(var(--primary) / 0.4);
 }
 
 
 .table-totals-bar {
   flex-shrink: 0;
-  border-top: 1px solid hsl(var(--primary) / 0.28);
-  background: hsl(var(--background));
-  padding: 0.7rem 1rem max(0.85rem, env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid hsl(var(--primary) / 0.55);
+  background:
+    linear-gradient(180deg, hsl(var(--primary) / 0.14) 0%, #070c18 100%);
+  padding: 1rem 1.25rem max(1.1rem, env(safe-area-inset-bottom, 0px));
 }
 .table-totals-sum {
-  font-size: 22px;
+  font-size: 28px;
   font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: -0.03em;
+  line-height: 1.1;
+  letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 @media (min-width: 640px) {
   .table-totals-sum {
-    font-size: 24px;
+    font-size: 32px;
   }
 }
 .has-table-totals .bulk-action-bar {

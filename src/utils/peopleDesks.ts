@@ -10,6 +10,8 @@ export interface PersonDeskGroup {
   uid: string | null;
   member: WorkspaceMember | null;
   pages: WorkspacePage[];
+  /** True when this person's desk is hidden from others (or not openable). */
+  deskHidden?: boolean;
 }
 
 export function groupDesksByPerson(pages: WorkspacePage[], members: WorkspaceMember[]): PersonDeskGroup[] {
@@ -36,6 +38,30 @@ export function groupDesksByPerson(pages: WorkspacePage[], members: WorkspaceMem
     unassigned.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, "ru"));
     groups.push({ key: "__none__", uid: null, member: null, pages: unassigned });
   }
+  return groups;
+}
+
+
+/** Directory of every workspace member, even with no visible/openable desk. */
+export function groupAllPeople(members: WorkspaceMember[], visiblePages: WorkspacePage[]): PersonDeskGroup[] {
+  const byUid = new Map<string, WorkspacePage[]>();
+  for (const page of visiblePages) {
+    const uid = page.responsibleUserId;
+    if (!uid) continue;
+    const list = byUid.get(uid) ?? [];
+    list.push(page);
+    byUid.set(uid, list);
+  }
+  const groups: PersonDeskGroup[] = [];
+  for (const member of members) {
+    if (!member.uid) continue;
+    const list = (byUid.get(member.uid) ?? []).slice();
+    list.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, "ru"));
+    const hasOpenable = list.some((p) => !p.hiddenByResponsible);
+    const deskHidden = list.some((p) => p.hiddenByResponsible) ? !hasOpenable : list.length === 0;
+    groups.push({ key: member.uid, uid: member.uid, member, pages: list, deskHidden });
+  }
+  groups.sort((a, b) => personLabel(a.member).localeCompare(personLabel(b.member), "ru"));
   return groups;
 }
 

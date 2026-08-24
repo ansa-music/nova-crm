@@ -2,20 +2,19 @@ import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/utils/cn";
-import { useMagnetic } from "@/hooks/useMagnetic";
 
 const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-sm text-sm font-medium select-none touch-manipulation transition-[color,background-color,box-shadow,transform,opacity] duration-200 ease-out active:translate-y-px active:scale-[0.97] motion-reduce:transition-colors motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 disabled:active:translate-y-0 disabled:active:scale-100",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
-        destructive: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        outline: "border border-border bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground",
-        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
+        default: "bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80",
+        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive/80",
+        outline: "border border-primary/40 bg-transparent text-primary hover:bg-primary/10 hover:text-primary active:bg-primary/16",
+        secondary: "border border-primary/30 bg-primary/10 text-primary hover:bg-primary/16 active:bg-primary/22",
+        ghost: "text-foreground hover:bg-primary/10 hover:text-primary active:bg-primary/16",
         link: "text-primary underline-offset-4 hover:underline active:scale-100 active:translate-y-0",
-        glass: "border border-border bg-card/80 text-foreground hover:bg-card",
+        glass: "border border-primary/40 bg-card/80 text-foreground hover:bg-card hover:border-primary/55",
       },
       size: {
         default: "h-9 px-4 py-2",
@@ -40,17 +39,10 @@ export interface ButtonProps
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
-    const magneticRef = useMagnetic<HTMLButtonElement>();
-    const magnetic = variant === "default" || variant === "outline" || variant == null;
 
     return (
       <Comp
-        ref={(node) => {
-          const el = node as HTMLButtonElement | null;
-          if (magnetic) magneticRef.current = el;
-          if (typeof ref === "function") ref(el);
-          else if (ref) ref.current = el;
-        }}
+        ref={ref}
         className={cn(buttonVariants({ variant, size, className }))}
         {...props}
       />

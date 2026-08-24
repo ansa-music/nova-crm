@@ -56,7 +56,7 @@ export function MyProgressCard({
   }
 
   return (
-    <Card className="overflow-hidden rounded-2xl border-border bg-card">
+    <Card className="overflow-hidden rounded-xl border-primary/28 bg-card">
       <CardContent className={large ? "p-6" : "p-5"}>
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
