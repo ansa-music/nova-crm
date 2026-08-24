@@ -16,7 +16,8 @@ export const SheetOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-[100] bg-background/70 backdrop-blur-[10px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-280",
+      "fixed inset-0 z-[200] bg-black/60 pointer-events-auto data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-280",
+      "max-lg:backdrop-blur-none",
       className
     )}
     {...props}
@@ -25,13 +26,14 @@ export const SheetOverlay = React.forwardRef<
 SheetOverlay.displayName = "SheetOverlay";
 
 const sheetVariants = cva(
-  "fixed z-[120] gap-4 border-border bg-card p-5 shadow-popover hud-frame transition-all ease-out data-[state=closed]:duration-240 data-[state=open]:duration-300 data-[state=open]:fade-in-0 pointer-events-auto",
+  "fixed gap-4 border-border p-5 shadow-popover pointer-events-auto",
   {
     variants: {
       side: {
-        left: "inset-y-0 left-0 h-full w-3/4 max-w-xs border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left",
+        left:
+          "left-0 top-0 z-[210] h-[100dvh] min-h-[100svh] w-[min(18rem,88vw)] overflow-y-auto bg-background border-r data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left data-[state=closed]:duration-240 data-[state=open]:duration-300",
         right:
-          "inset-y-0 right-0 h-full w-3/4 max-w-xs border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right",
+          "inset-y-0 right-0 z-[210] h-[100dvh] min-h-[100svh] w-3/4 max-w-xs border-l bg-card hud-frame data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right data-[state=closed]:duration-240 data-[state=open]:duration-300",
       },
     },
     defaultVariants: { side: "left" },

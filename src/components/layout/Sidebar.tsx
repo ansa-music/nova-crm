@@ -27,7 +27,7 @@ import { useUiStore } from "@/store/uiStore";
 import { useUserPageNav } from "@/hooks/useUserPageNav";
 import type { WorkspacePage } from "@/types";
 
-export function Sidebar({ mobile }: { mobile?: boolean }) {
+export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?: () => void }) {
   const { profile } = useAuth();
   const { pages, activeWorkspaceId, members } = useWorkspace();
   const { workspaceChatUnread, privateUnreadTotal } = useInboxSummary(activeWorkspaceId, profile?.uid ?? null);
@@ -85,19 +85,19 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
   return (
     <div
       className={cn(
-        "relative z-40 h-full shrink-0",
+        "relative z-40 shrink-0",
         mobile
-          ? "mr-0 w-full"
-          : cn("mr-2 transition-[width] duration-280 ease-out", pinnedCollapsed ? "w-[68px]" : "w-[228px]")
+          ? "mr-0 h-[100dvh] w-full bg-background"
+          : cn("h-full mr-2 transition-[width] duration-280 ease-out", pinnedCollapsed ? "w-[68px]" : "w-[228px]")
       )}
     >
     <div
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
       className={cn(
-        "os-sidebar hud-frame relative flex h-full flex-col gap-2 px-1.5 py-2.5 text-sidebar-foreground",
+        "os-sidebar hud-frame relative flex flex-col gap-2 px-1.5 py-2.5 text-sidebar-foreground",
         "transition-[width,box-shadow] duration-280 ease-out",
-        mobile ? "w-full" : collapsed ? "w-[56px] items-center" : "w-[216px]",
+        mobile ? "h-[100dvh] w-full bg-background" : cn("h-full", collapsed ? "w-[56px] items-center" : "w-[216px]"),
         !mobile && pinnedCollapsed && hoverOpen && "absolute inset-y-0 left-0 z-50 w-[216px] shadow-[0_0_48px_-16px_hsl(var(--primary)/0.45)]"
       )}
     >
@@ -123,7 +123,14 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
         </button>
       )}
 
-      <nav className="flex flex-1 flex-col gap-3 overflow-y-auto scrollbar-thin">
+      <nav
+        className="flex flex-1 flex-col gap-3 overflow-y-auto scrollbar-thin"
+        onClick={(e) => {
+          if (!mobile || !onNavigate) return;
+          const target = e.target as HTMLElement | null;
+          if (target?.closest("a[href]")) onNavigate();
+        }}
+      >
         <div className="flex flex-col gap-0.5">
           {collapsed ? (
             <Tooltip>

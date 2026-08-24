@@ -54,9 +54,9 @@ export function Topbar({ title }: { title?: string }) {
           <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
             <SheetContent
               side="left"
-              className="flex h-full max-h-dvh w-72 max-w-[85vw] flex-col overflow-y-auto p-0"
+              className="p-0 border-r border-primary/40"
             >
-              <Sidebar mobile />
+              <Sidebar mobile onNavigate={() => setMobileNavOpen(false)} />
             </SheetContent>
           </Sheet>
         </>
