@@ -76,7 +76,7 @@ export function DeskCard({
                 ? `Готово ${formatCurrency(doneTotal)} · ${percent}%`
                 : openCount > 0
                   ? `${openCount} в деле`
-                  : "пока пусто"}
+                  : "Нет записей"}
             </p>
           </div>
         </div>

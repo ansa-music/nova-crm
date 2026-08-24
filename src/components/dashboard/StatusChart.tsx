@@ -124,7 +124,7 @@ export function StatusChart({ title, data }: StatusChartProps) {
             <p className="text-center font-mono text-[10px] tabular text-muted-foreground">{total} записей</p>
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Пока нет данных</div>
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Пока пусто</div>
         )}
       </CardContent>
     </Card>

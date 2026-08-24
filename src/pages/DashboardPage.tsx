@@ -15,6 +15,7 @@ import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { DeskCard } from "@/components/dashboard/DeskCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
+import { EmptyState } from "@/components/common/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -29,6 +30,7 @@ import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { updateDashboardPages } from "@/services/workspaceService";
 import { setPageMonthlyGoal } from "@/services/pageService";
 import { DeskStudioSheet } from "@/components/pagesnav/DeskStudioSheet";
+import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialog";
 import { useDeskLayout } from "@/hooks/useDeskLayout";
 import { updateLeaderboardEntry } from "@/services/leaderboardService";
 import { downloadCsv } from "@/utils/csv";
@@ -136,6 +138,7 @@ export default function DashboardPage() {
   const { profile } = useAuth();
   const { layout: deskLayout } = useDeskLayout(profile?.uid);
   const [studioPageId, setStudioPageId] = useState<string | null>(null);
+  const [createPageOpen, setCreatePageOpen] = useState(false);
   const studioPage = pages.find((p) => p.id === studioPageId) ?? null;
   const [highlightedDeskId, setHighlightedDeskId] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -430,12 +433,19 @@ export default function DashboardPage() {
         )}
         {myProgress.length === 0 ? (
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
-            <div className="desk-cluster desk-home px-8 py-14 text-center lg:col-span-3">
-              <p className="eyebrow mb-3 text-primary">Стол</p>
-              <p className="display text-[1.4rem]">Пока нет своего листа</p>
-              <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-                Когда появится — откроешь его здесь и поведёшь своё дело. Пока просто подожди.
-              </p>
+            <div className="desk-cluster desk-home lg:col-span-3">
+              <EmptyState
+                className="py-14"
+                title="Нет своего стола"
+                action={
+                  permissions.canCreatePages ? (
+                    <Button size="sm" className="gap-1.5" onClick={() => setCreatePageOpen(true)}>
+                      <Settings2 className="h-3.5 w-3.5" />
+                      Настроить стол
+                    </Button>
+                  ) : undefined
+                }
+              />
             </div>
             {showBoard && <div className="desk-home lg:col-span-2">{leaderboard}</div>}
           </div>
@@ -466,6 +476,7 @@ export default function DashboardPage() {
           }}
           uid={profile?.uid}
         />
+        <CreatePageDialog open={createPageOpen} onOpenChange={setCreatePageOpen} />
       </div>
     );
   }
@@ -504,9 +515,18 @@ export default function DashboardPage() {
           <span className="font-mono text-[11px] tabular text-muted-foreground">{deskProgress.length}</span>
         </div>
         {deskProgress.length === 0 ? (
-          <p className="rounded-xl border border-primary/25 bg-card/80 px-5 py-8 text-sm text-muted-foreground">
-            Пока нет листов.
-          </p>
+          <EmptyState
+            className="rounded-xl border border-primary/25 bg-card/80 py-10"
+            title="Пока нет столов"
+            action={
+              permissions.canCreatePages ? (
+                <Button size="sm" className="gap-1.5" onClick={() => setCreatePageOpen(true)}>
+                  <Settings2 className="h-3.5 w-3.5" />
+                  Настроить стол
+                </Button>
+              ) : undefined
+            }
+          />
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
             {deskProgress.map((desk) => {
@@ -549,6 +569,7 @@ export default function DashboardPage() {
         }}
         uid={profile?.uid}
       />
+      <CreatePageDialog open={createPageOpen} onOpenChange={setCreatePageOpen} />
     </div>
   );
 }

@@ -78,9 +78,10 @@ import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { updateResponsibleOptions, updateStatusOptions, updateCustomFieldOptions } from "@/services/workspaceService";
-import { formatCurrency, downloadCsv } from "@/utils";
+import { formatCurrency, formatNumber, downloadCsv } from "@/utils";
+import { isSummableColumn, sumNumericCells } from "@/utils/tableAggregates";
 import { getColumnOptions, isOptionColumn, DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
-import { isHttpUrl } from "@/utils/httpUrl";
+import { isHttpUrl, parseHttpUrl } from "@/utils/httpUrl";
 import { celebrateDone } from "@/utils/confetti";
 import { pushUndoCommand, undo as undoLastCommand } from "@/utils/undoStore";
 import type { CellAddress, ColumnType, PageRow, SortState, StatusOption, WorkspacePage } from "@/types";
@@ -655,7 +656,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   // ---- Selection handlers ----
   function handleCellMouseDown(rowId: string, colKey: string, e: React.MouseEvent) {
-    e.preventDefault();
+    const col = columns.find((c) => c.key === colKey);
+    const isUrl = col?.type === "url";
+    // Don't preventDefault on URL cells — iOS/Android need the tap to reach
+    // the text input so paste works. File pickers are never opened here.
+    if (!isUrl) e.preventDefault();
     if (editingCellRef.current && (editingCellRef.current.rowId !== rowId || editingCellRef.current.colKey !== colKey)) {
       // Switching to a different cell while one is being edited must persist
       // the in-progress value first — it must never be silently discarded.
@@ -667,7 +672,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     } else {
       setRangeAnchor(addr);
       setActiveCell(addr);
-      isSelectingRef.current = true;
+      isSelectingRef.current = !isUrl;
+    }
+    if (isUrl && canEdit) {
+      const row = rows.find((r) => r.id === rowId);
+      const raw = String(row?.cells[colKey] ?? "");
+      if (!parseHttpUrl(raw)) startEditing(rowId, colKey);
     }
   }
 
@@ -1220,28 +1230,29 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     });
   }
 
-  // Financial summary bar: shown when the page has at least one currency
-  // column. "Общий" is the grand total across every row; "Сумма" is the same
-  // total restricted to rows whose status column reads something like
-  // "Готово". Recomputes instantly as rows/cells change (plain useMemo, no
-  // extra Firestore round-trip).
-  const financialSummary = useMemo(() => {
-    const priceCol = columns.find((c) => c.type === "currency");
-    if (!priceCol) return null;
+  // Sticky footer totals: FILTERED/searched rows only. Currency and number
+  // columns sum; dates are notes and are never summed or marked overdue.
+  const columnTotals = useMemo(() => {
     const statusCol = columns.find((c) => c.type === "status");
-    let grandTotal = 0;
-    let doneTotal = 0;
-    for (const row of rows) {
-      const raw = Number(row.cells[priceCol.key] ?? 0) || 0;
-      grandTotal += raw;
-      if (statusCol) {
-        const rawStatus = String(row.cells[statusCol.key] ?? "");
-        const label = sharedStatusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
-        if (label.toLowerCase().includes("готов")) doneTotal += raw;
+    const sums: Record<string, { sum: number; done?: number }> = {};
+    for (const col of columns) {
+      if (!isSummableColumn(col.type)) continue;
+      const sum = sumNumericCells(processedRows, col.key);
+      let done: number | undefined;
+      if (col.type === "currency" && statusCol) {
+        done = 0;
+        for (const row of processedRows) {
+          const rawStatus = String(row.cells[statusCol.key] ?? "");
+          const label = sharedStatusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
+          if (label.toLowerCase().includes("готов")) {
+            done += sumNumericCells([row], col.key);
+          }
+        }
       }
+      sums[col.key] = { sum, done };
     }
-    return { priceCol, statusCol, grandTotal, doneTotal };
-  }, [columns, rows, sharedStatusOptions]);
+    return sums;
+  }, [columns, processedRows, sharedStatusOptions]);
 
   const virtualItems = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
@@ -1432,9 +1443,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       <td colSpan={columns.length + 1}>
                         {rows.length === 0 ? (
                           <EmptyState
-                            eyebrow="Новая таблица"
-                            title="Первая запись ещё впереди"
-                            description="Строка — это человек или сделка. Добавьте первую, и стол оживёт."
+                            className="py-12"
+                            title="Пока пусто"
                             action={
                               canEdit ? (
                                 <Button size="sm" className="gap-1.5" onClick={handleAddRow}>
@@ -1444,11 +1454,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                             }
                           />
                         ) : (
-                          <EmptyState
-                            eyebrow="Поиск"
-                            title="Ничего не найдено"
-                            description="Попробуйте изменить запрос или сбросить фильтры."
-                          />
+                          <EmptyState className="py-12" title="Ничего не найдено" />
                         )}
                       </td>
                     </tr>
@@ -1476,6 +1482,53 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                 </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>
+            {processedRows.length > 0 && (
+              <tfoot className="sticky bottom-0 z-20">
+                <tr className="border-t border-border/70 bg-background/95 backdrop-blur-sm">
+                  <td
+                    className="sticky left-0 z-30 border-r border-border/50 bg-background/95 px-1 py-2 text-center font-mono text-[11px] tabular text-muted-foreground"
+                    style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}
+                    title="Строк в фильтре"
+                  >
+                    {processedRows.length}
+                  </td>
+                  {displayColumns.map((column) => {
+                    const tot = columnTotals[column.key];
+                    const stickyLeft = pinnedKeys.includes(column.key)
+                      ? ROW_GUTTER_WIDTH +
+                        pinnedOrder.slice(0, pinnedOrder.findIndex((c) => c.key === column.key)).reduce((sum, c) => sum + c.width, 0)
+                      : undefined;
+                    return (
+                      <td
+                        key={`total-${column.id}`}
+                        className={`border-r border-border/35 px-2.5 py-2 text-right text-sm tabular-nums ${
+                          stickyLeft !== undefined ? "sticky z-[25] bg-background/95" : ""
+                        }`}
+                        style={{
+                          width: column.width,
+                          minWidth: column.width,
+                          maxWidth: column.width,
+                          left: stickyLeft,
+                        }}
+                      >
+                        {column.type === "date" ? null : tot ? (
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className="font-medium">
+                              {column.type === "currency" ? formatCurrency(tot.sum) : formatNumber(tot.sum)}
+                            </span>
+                            {tot.done !== undefined && (
+                              <span className="text-[10px] text-success">Готово {formatCurrency(tot.done)}</span>
+                            )}
+                          </div>
+                        ) : column.key === displayColumns[0]?.key ? (
+                          <span className="block text-left text-[11px] text-muted-foreground">Итого</span>
+                        ) : null}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tfoot>
+            )}
           </table>
 
           {filterPopover && (
@@ -1510,21 +1563,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           )}
         </div>
       </DndContext>
-      )}
-
-      {financialSummary && (
-        <div className="flex items-center gap-8 border-t border-border/70 bg-background px-5 py-2.5 text-sm">
-          <div>
-            <span className="eyebrow mr-2">Общий</span>
-            <span className="display text-lg tabular">{formatCurrency(financialSummary.grandTotal)}</span>
-          </div>
-          {financialSummary.statusCol && (
-            <div className="border-l border-border/60 pl-8">
-              <span className="eyebrow mr-2 text-success">Готово</span>
-              <span className="display text-lg tabular text-success">{formatCurrency(financialSummary.doneTotal)}</span>
-            </div>
-          )}
-        </div>
       )}
 
       {!groups && viewMode === "table" && (

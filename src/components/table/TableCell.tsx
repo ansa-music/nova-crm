@@ -81,7 +81,7 @@ export function TableCell({
       if (diskUrl) return <DiskLinkChip href={diskUrl.href} />;
       if (stringValue) return <span className="truncate text-[11px] text-muted-foreground">{stringValue}</span>;
       return (
-        <span className="truncate text-[11px] text-muted-foreground/75">
+        <span className="flex min-h-10 w-full items-center truncate text-xs text-muted-foreground/80 sm:min-h-0 sm:text-[11px]">
           {canEdit ? "вставить ссылку" : "—"}
         </span>
       );
@@ -164,12 +164,13 @@ export function TableCell({
           ref={inputRef}
           type="text"
           inputMode={column.type === "url" ? "url" : isNumeric ? "decimal" : "text"}
+          enterKeyHint={column.type === "url" ? "done" : undefined}
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
           value={editValue}
-          placeholder={column.type === "url" ? "https://drive.google.com/…" : undefined}
+          placeholder={column.type === "url" ? "https://…" : undefined}
           onChange={(e) => onEditValueChange(e.target.value)}
           onBlur={() => onCommitEdit("none")}
           onPaste={
@@ -210,6 +211,7 @@ export function TableCell({
           }}
           className={cn(
             "h-full w-full border-0 bg-background px-2.5 text-sm outline-none ring-2 ring-primary",
+            column.type === "url" && "min-h-10 sm:min-h-0",
             isNumeric && "text-right tabular-nums"
           )}
         />
@@ -217,6 +219,7 @@ export function TableCell({
         <div
           className={cn(
             "flex h-full min-h-[32px] w-full items-center px-2.5 text-sm leading-none",
+            column.type === "url" && "min-h-10 cursor-text sm:min-h-0",
             isNumeric && "justify-end tabular-nums"
           )}
           title={column.type === "url" ? (diskUrl?.href ?? "") : stringValue}

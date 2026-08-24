@@ -99,3 +99,19 @@ export function computePercentAggregates(totals: TableTotals): PercentAggregate[
     return { percent, doneMinor, totalMinor, remainingMinor: totalMinor - doneMinor };
   });
 }
+
+/** Sum a number/currency column. Dates are notes — never summed or treated as overdue. */
+export function sumNumericCells(rows: PageRow[], colKey: string): number {
+  let sum = 0;
+  for (const row of rows) {
+    const raw = row.cells[colKey];
+    if (raw === null || raw === undefined || raw === "") continue;
+    const n = typeof raw === "number" ? raw : Number(String(raw).replace(/\s/g, "").replace(",", "."));
+    if (Number.isFinite(n)) sum += n;
+  }
+  return sum;
+}
+
+export function isSummableColumn(type: PageColumn["type"]): boolean {
+  return type === "currency" || type === "number";
+}

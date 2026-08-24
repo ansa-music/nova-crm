@@ -29,7 +29,7 @@ export function RevenueChart({ data }: RevenueChartProps) {
     <Card className="desk-chart hud-frame lift-card overflow-hidden border-primary/25 bg-card/92 ">
       <CardHeader className="pb-2">
         <p className="eyebrow text-primary">С листа</p>
-        <CardTitle className="text-base font-medium">По дате заказа с листа</CardTitle>
+        <CardTitle className="text-base font-medium">По датам с листа</CardTitle>
       </CardHeader>
       <CardContent className="h-72 pl-0 pr-3">
         <ResponsiveContainer width="100%" height="100%">
