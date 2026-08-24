@@ -15,7 +15,7 @@ import { InviteMemberForm } from "@/components/members/InviteMemberForm";
 import { RoleSelect } from "@/components/members/RoleSelect";
 import { changeMemberRole, removeMember, resendInvite } from "@/services/memberService";
 import { toggleUserPageAccess } from "@/services/pageService";
-import { approveJoinRequest, rejectJoinRequest, fetchJoinRequests } from "@/services/joinRequestService";
+import { approveJoinRequest, rejectJoinRequest, fetchJoinRequests, DEFAULT_JOIN_ROLE } from "@/services/joinRequestService";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { timeAgo } from "@/utils/date";
 import { useAuth } from "@/hooks/useAuth";
@@ -36,7 +36,7 @@ export default function UsersPage() {
   }, []);
 
   useEffect(() => {
-    if (!activeWorkspaceId || !permissions.canManageWorkspace) return;
+    if (!activeWorkspaceId || !permissions.canManageUsers) return;
     let cancelled = false;
     async function load() {
       try {
@@ -57,9 +57,9 @@ export default function UsersPage() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [activeWorkspaceId, permissions.canManageWorkspace]);
+  }, [activeWorkspaceId, permissions.canManageUsers]);
 
-  if (!permissions.canManageWorkspace) {
+  if (!permissions.canManageUsers) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
         <ShieldCheck className="h-8 w-8 text-muted-foreground" />
@@ -82,10 +82,10 @@ export default function UsersPage() {
 
   async function handleApproveRequest(request: JoinRequest) {
     try {
-      await approveJoinRequest(activeWorkspaceId!, request, "viewer", profile?.uid ?? "");
+      await approveJoinRequest(activeWorkspaceId!, request, DEFAULT_JOIN_ROLE, profile?.uid ?? "");
       await refreshWorkspaceMembers(activeWorkspaceId!);
       setJoinRequests(await fetchJoinRequests(activeWorkspaceId!));
-      toast.success(`${request.name} добавлен(а) в workspace как Viewer`);
+      toast.success(`${request.name} добавлен(а) в workspace как Технар`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось одобрить заявку");
     }
@@ -162,7 +162,7 @@ export default function UsersPage() {
             <CardTitle className="flex items-center gap-2">
               <Link2 className="h-4 w-4" /> Заявки на вступление ({joinRequests.length})
             </CardTitle>
-            <CardDescription>При одобрении человек добавляется с ролью Viewer — роль и доступ к страницам настройте после.</CardDescription>
+            <CardDescription>При одобрении человек становится Технар и может создать один свой стол. Роль можно сменить после (Owner / Технар / Viewer).</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
             {joinRequests.map((request) => (

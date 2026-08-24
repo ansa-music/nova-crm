@@ -102,6 +102,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   const setTheme = useUiStore((s) => s.setTheme);
 
   const myMembership = members.find((m) => m.uid === profile?.uid);
+  const showUsersNav = permissions.canManageUsers;
   const homeTo = myDesk ? `/page/${myDesk.id}` : "/";
   const homeActive = location.pathname === "/" || Boolean(myDesk && location.pathname === `/page/${myDesk.id}`);
   function goHome() {
@@ -170,6 +171,16 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   >
                     <UsersRound className="h-4 w-4" />
                   </NavLink>
+                  {showUsersNav && (
+                    <NavLink
+                      to="/users"
+                      title="Пользователи"
+                      onClick={() => onNavigate?.()}
+                      className={({ isActive }) => navActiveClass(isActive, true)}
+                    >
+                      <Users className="h-4 w-4" />
+                    </NavLink>
+                  )}
                 </>
               ) : (
                 <>
@@ -185,6 +196,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
                     Люди
                   </AppNavLink>
+                  {showUsersNav && (
+                    <AppNavLink to="/users" icon={Users} onNavigate={onNavigate}>
+                      Пользователи
+                    </AppNavLink>
+                  )}
                 </>
               )}
             </nav>
@@ -212,7 +228,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               <AppNavLink to="/chat" icon={MessageSquare} onNavigate={onNavigate}>
                 Чат
               </AppNavLink>
-              {permissions.canManageWorkspace && (
+              {showUsersNav && (
                 <AppNavLink to="/users" icon={Users} onNavigate={onNavigate}>
                   Пользователи
                 </AppNavLink>
@@ -304,7 +320,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <MessageCircle className="h-4 w-4" /> Сообщения
                 </NavLink>
               </DropdownMenuItem>
-              {permissions.canManageWorkspace && (
+              {showUsersNav && (
                 <DropdownMenuItem asChild>
                   <NavLink to="/users" onClick={() => onNavigate?.()}>
                     <Users className="h-4 w-4" /> Пользователи

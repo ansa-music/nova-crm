@@ -19,6 +19,7 @@ import { IconPicker } from "@/components/common/IconPicker";
 import { ColorPicker, COLOR_PRESETS } from "@/components/common/ColorPicker";
 import { pageSchema, type PageFormValues } from "@/utils/validation";
 import { createPageForCurrentRole } from "@/services/pageService";
+import { managerHasReachedPageQuota } from "@/services/managerPageQuota";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -57,9 +58,11 @@ export function CreatePageDialog({ open, onOpenChange }: CreatePageDialogProps) 
     setAllowedUsers((prev) => (prev.includes(uid) ? prev.filter((u) => u !== uid) : [...prev, uid]));
   }
 
-  const ownedPages = pages.filter((p) => p.createdBy === profile?.uid && p.responsibleUserId === profile?.uid);
+  const ownedPages = pages.filter((p) => p.responsibleUserId === profile?.uid);
   const managerQuotaReached =
-    permissions.role === "manager" && !permissions.hasElevatedCreatePermission && ownedPages.length >= 1;
+    permissions.role === "manager" &&
+    !permissions.hasElevatedCreatePermission &&
+    managerHasReachedPageQuota(pages, profile?.uid ?? "");
 
   async function onSubmit(values: PageFormValues) {
     if (!profile || !activeWorkspaceId) return;

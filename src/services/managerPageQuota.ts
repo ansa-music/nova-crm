@@ -15,6 +15,23 @@ export interface CreateManagerPageInput {
   order: number;
 }
 
+/** Own desks = pages this uid is responsible for. Does not delete or rewrite existing pages. */
+export function countOwnDesks(
+  pages: Array<{ responsibleUserId?: string | null }>,
+  uid: string
+): number {
+  if (!uid) return 0;
+  return pages.filter((page) => page.responsibleUserId === uid).length;
+}
+
+/** A plain Технар may create until they already have one own desk. */
+export function managerHasReachedPageQuota(
+  pages: Array<{ responsibleUserId?: string | null }>,
+  uid: string
+): boolean {
+  return countOwnDesks(pages, uid) >= 1;
+}
+
 /**
  * Creates a Manager's single owned page and its one-time claim atomically.
  * Firestore Rules must require the claim and page to exist in the same write

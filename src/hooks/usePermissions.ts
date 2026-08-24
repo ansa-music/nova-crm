@@ -25,6 +25,7 @@ import {
   isResponsibleForPage,
 } from "@/utils/permissions";
 import { findOwnMembership } from "@/services/memberService";
+import { managerHasReachedPageQuota } from "@/services/managerPageQuota";
 import type { Role, WorkspacePage } from "@/types";
 
 /**
@@ -53,7 +54,7 @@ import type { Role, WorkspacePage } from "@/types";
  */
 export function usePermissions() {
   const { profile } = useAuth();
-  const { members, activeWorkspace, membersLoadState } = useWorkspace();
+  const { members, activeWorkspace, membersLoadState, pages } = useWorkspace();
   const { isReady } = useAppBootstrap();
 
   const uid = profile?.uid ?? "";
@@ -97,11 +98,19 @@ export function usePermissions() {
       hasMembership,
 
       canManageWorkspace: isResolved && canManageWorkspace(effectiveRole),
+      // Users admin follows the REAL owner, not RoleSwitcher preview — otherwise
+      // Owner can lose accept/roles UI while simulating Технар/Viewer.
+      canManageUsers: isResolved && (isOwnerOfWorkspace || realRole === "owner"),
       canManageStatusVariants: isResolved && canManageStatusVariants(effectiveRole),
       canInviteMembers: isResolved && canInviteMembers(effectiveRole),
       canChangeRoles: isResolved && canChangeRoles(effectiveRole),
       canRemoveMembers: isResolved && canRemoveMembers(effectiveRole),
-      canCreatePages: isResolved && canCreatePages(effectiveRole),
+      canCreatePages:
+        isResolved &&
+        canCreatePages(effectiveRole) &&
+        (effectiveRole === "owner" ||
+          effectiveRole === "admin" ||
+          (effectiveRole === "manager" && !managerHasReachedPageQuota(pages, uid))),
       canEditPageStructure: isResolved && canEditPageStructure(effectiveRole),
       canManagePagePermissions: isResolved && canManagePagePermissions(effectiveRole),
       canViewHistory: isResolved && canViewHistory(effectiveRole),
@@ -125,6 +134,6 @@ export function usePermissions() {
       canManagePage: (page: WorkspacePage) => isResolved && canManagePage(page, effectiveRole, uid),
       canDeletePage: (page: WorkspacePage) => isResolved && canDeletePage(page, effectiveRole, uid),
     }),
-    [effectiveRole, realRole, activeRole, isSimulating, uid, isResolved, hasMembership, isOwnerOfWorkspace, activeWorkspace?.ownerId]
+    [effectiveRole, realRole, activeRole, isSimulating, uid, isResolved, hasMembership, isOwnerOfWorkspace, activeWorkspace?.ownerId, pages]
   );
 }
