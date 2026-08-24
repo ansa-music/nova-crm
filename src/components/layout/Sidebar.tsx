@@ -42,6 +42,7 @@ import { cn } from "@/utils/cn";
 import { useUiStore } from "@/store/uiStore";
 import { THEME_OPTIONS } from "@/components/layout/ThemeToggle";
 import { usePeopleDesks } from "@/hooks/usePeopleDesks";
+import { useInboxSummary } from "@/hooks/useInboxSummary";
 
 
 function navActiveClass(active: boolean, collapsed?: boolean) {
@@ -64,6 +65,7 @@ function AppNavLink({
   children,
   onNavigate,
   forceActive,
+  badge,
 }: {
   to: string;
   end?: boolean;
@@ -71,6 +73,7 @@ function AppNavLink({
   children: ReactNode;
   onNavigate?: () => void;
   forceActive?: boolean;
+  badge?: number;
 }) {
   return (
     <NavLink
@@ -80,7 +83,12 @@ function AppNavLink({
       className={({ isActive }) => navActiveClass(forceActive ?? isActive)}
     >
       <Icon className="h-4 w-4 shrink-0" />
-      <span className="truncate">{children}</span>
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+      {badge ? (
+        <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
+          {badge > 9 ? "9+" : badge}
+        </span>
+      ) : null}
     </NavLink>
   );
 }
@@ -90,6 +98,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   const { members, activeWorkspaceId, workspaces, activeWorkspace, setActiveWorkspaceId } = useWorkspace();
   const permissions = usePermissions();
   const { myDesk } = usePeopleDesks();
+  const { privateUnreadTotal, workspaceChatUnread } = useInboxSummary(
+    activeWorkspaceId,
+    profile?.uid ?? null,
+    { includeWorkspaceChat: true }
+  );
   const location = useLocation();
   const navigate = useNavigate();
   const pinnedCollapsed = useUiStore((s) => s.sidebarCollapsed) && !mobile;
@@ -230,10 +243,10 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               <AppNavLink to="/announcements" icon={Megaphone} onNavigate={onNavigate}>
                 Объявления
               </AppNavLink>
-              <AppNavLink to="/messages" icon={MessageCircle} onNavigate={onNavigate}>
+              <AppNavLink to="/messages" icon={MessageCircle} onNavigate={onNavigate} badge={privateUnreadTotal}>
                 Сообщения
               </AppNavLink>
-              <AppNavLink to="/chat" icon={MessageSquare} onNavigate={onNavigate}>
+              <AppNavLink to="/chat" icon={MessageSquare} onNavigate={onNavigate} badge={workspaceChatUnread}>
                 Чат
               </AppNavLink>
               {showUsersNav && (
@@ -261,18 +274,23 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               <button
                 type="button"
                 className={cn(
-                  "flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl px-1.5 py-1 text-left hover:bg-sidebar-accent/80",
+                  "relative flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl px-1.5 py-1 text-left hover:bg-sidebar-accent/80",
                   collapsed && "flex-none justify-center px-0"
                 )}
               >
                 {profile ? (
-                  <MemberAvatar
-                    id={profile.uid}
-                    name={profile.name}
-                    nickname={profile.nickname}
-                    photoURL={profile.photoURL}
-                    className="h-8 w-8"
-                  />
+                  <span className="relative shrink-0">
+                    <MemberAvatar
+                      id={profile.uid}
+                      name={profile.name}
+                      nickname={profile.nickname}
+                      photoURL={profile.photoURL}
+                      className="h-8 w-8"
+                    />
+                    {privateUnreadTotal + workspaceChatUnread > 0 && (
+                      <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-primary" />
+                    )}
+                  </span>
                 ) : (
                   <Avatar className="h-8 w-8">
                     <AvatarFallback>
@@ -321,11 +339,13 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               <DropdownMenuItem asChild>
                 <NavLink to="/chat" onClick={() => onNavigate?.()}>
                   <MessageSquare className="h-4 w-4" /> Чат Workspace
+                  {workspaceChatUnread > 0 ? ` · ${workspaceChatUnread > 9 ? "9+" : workspaceChatUnread}` : ""}
                 </NavLink>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <NavLink to="/messages" onClick={() => onNavigate?.()}>
                   <MessageCircle className="h-4 w-4" /> Сообщения
+                  {privateUnreadTotal > 0 ? ` · ${privateUnreadTotal > 9 ? "9+" : privateUnreadTotal}` : ""}
                 </NavLink>
               </DropdownMenuItem>
               {showUsersNav && (
