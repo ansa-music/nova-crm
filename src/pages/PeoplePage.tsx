@@ -152,20 +152,25 @@ export default function PeoplePage() {
               );
             }
 
+            const pending = requestPage ? latestForPage(requestPage.id)?.status === "pending" : false;
             return (
               <div key={group.key} className={cn("overflow-hidden rounded-xl border border-primary/25 bg-card", hidden && "opacity-80")}>
-                <button
-                  type="button"
-                  className="flex min-h-16 w-full items-center gap-3 px-3 py-3 text-left"
-                  onClick={() => {
-                    selectPerson(group.key);
-                    if (!requestPage) return;
-                    if (latestForPage(requestPage.id)?.status === "pending") return;
-                    void sendRequest(requestPage);
-                  }}
-                >
-                  {body}
-                </button>
+                {pending || !requestPage ? (
+                  <div className="flex min-h-16 w-full items-center gap-3 px-3 py-3 text-left">
+                    {body}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="flex min-h-16 w-full items-center gap-3 px-3 py-3 text-left"
+                    onClick={() => {
+                      selectPerson(group.key);
+                      void sendRequest(requestPage);
+                    }}
+                  >
+                    {body}
+                  </button>
+                )}
                 {requestPage ? (
                   <div className="border-t border-primary/20 px-3 py-2">
                     <RequestDeskViewButton

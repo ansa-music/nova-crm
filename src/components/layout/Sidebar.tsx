@@ -127,16 +127,21 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
       >
         <div className={cn("mb-5 flex items-center", collapsed ? "justify-center" : "justify-between gap-2 pr-1")}>
           {collapsed ? (
-            <button type="button" onClick={goHome} className="wordmark text-lg" title="Главная">
-              N
-            </button>
+            <div className="flex flex-col items-center gap-2">
+              <button type="button" onClick={goHome} className="wordmark text-lg" title="Главная">
+                N
+              </button>
+              <NotificationBell />
+            </div>
           ) : (
-            <button type="button" onClick={goHome} className="flex min-w-0 items-center gap-2" title="Главная">
-              <span className="wordmark text-[22px] leading-none">NOVA</span>
-              <span className="desk-accent-mark h-4 w-0.5 shrink-0 rounded-full" aria-hidden />
-            </button>
+            <>
+              <button type="button" onClick={goHome} className="flex min-w-0 items-center gap-2" title="Главная">
+                <span className="wordmark text-[22px] leading-none">NOVA</span>
+                <span className="desk-accent-mark h-4 w-0.5 shrink-0 rounded-full" aria-hidden />
+              </button>
+              {!mobile && <NotificationBell />}
+            </>
           )}
-          {!collapsed && <NotificationBell />}
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-thin">
@@ -221,6 +226,9 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               </AppNavLink>
               <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
                 Настройки
+              </AppNavLink>
+              <AppNavLink to="/announcements" icon={Megaphone} onNavigate={onNavigate}>
+                Объявления
               </AppNavLink>
               <AppNavLink to="/messages" icon={MessageCircle} onNavigate={onNavigate}>
                 Сообщения

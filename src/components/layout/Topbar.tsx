@@ -3,6 +3,7 @@ import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { RoleSwitcher } from "@/components/common/RoleSwitcher";
+import { NotificationBell } from "@/components/layout/NotificationBell";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { useIsTablet } from "@/hooks/useMediaQuery";
 
@@ -39,6 +40,7 @@ export function Topbar({ title }: { title?: string }) {
       </Sheet>
       {title && <h1 className="truncate text-sm font-semibold">{title}</h1>}
       <div className="flex-1" />
+      <NotificationBell />
       <RoleSwitcher />
     </header>
   );
