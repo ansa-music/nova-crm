@@ -15,7 +15,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { PageColumn } from "@/types";
+import { cn } from "@/utils/cn";
+import type { PageColumn, StatusOption } from "@/types";
 
 interface TableToolbarProps {
   columns: PageColumn[];
@@ -32,9 +33,13 @@ interface TableToolbarProps {
   onAddColumn: () => void;
   onOpenSchema?: () => void;
   onManageStatuses?: () => void;
+  canManageStatuses?: boolean;
   selectedCount: number;
   onDeleteSelected: () => void;
   hasStatusColumn: boolean;
+  statusOptions?: StatusOption[];
+  statusFilter?: string | null;
+  onStatusFilterChange?: (value: string | null) => void;
   viewMode: "table" | "kanban";
   onViewModeChange: (mode: "table" | "kanban") => void;
 }
@@ -60,9 +65,13 @@ export function TableToolbar({
   onAddColumn,
   onOpenSchema,
   onManageStatuses,
+  canManageStatuses,
   selectedCount: _selectedCount,
   onDeleteSelected: _onDeleteSelected,
   hasStatusColumn,
+  statusOptions,
+  statusFilter,
+  onStatusFilterChange,
   viewMode,
   onViewModeChange,
 }: TableToolbarProps) {
@@ -114,6 +123,47 @@ export function TableToolbar({
           className="h-10 rounded-md bg-background pl-8 sm:h-8"
         />
       </div>
+
+      {hasStatusColumn && statusOptions && statusOptions.length > 0 && onStatusFilterChange && (
+        <div className="hidden min-w-0 max-w-full items-center gap-1 overflow-x-auto sm:flex">
+          <button
+            type="button"
+            onClick={() => onStatusFilterChange(null)}
+            className={cn(
+              "h-7 shrink-0 rounded-full border px-2.5 text-[11px] font-medium",
+              !statusFilter
+                ? "border-primary/40 bg-primary/12 text-primary"
+                : "border-border bg-background text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Все
+          </button>
+          {statusOptions.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onStatusFilterChange(statusFilter === opt.value ? null : opt.value)}
+              className={cn(
+                "h-7 shrink-0 rounded-full border px-2.5 text-[11px] font-medium",
+                statusFilter === opt.value
+                  ? "border-primary/40 bg-primary/12 text-primary"
+                  : "border-border bg-background text-muted-foreground hover:text-foreground"
+              )}
+              style={
+                statusFilter === opt.value
+                  ? {
+                      backgroundColor: `hsl(${opt.color} / 0.16)`,
+                      color: `hsl(${opt.color})`,
+                      borderColor: `hsl(${opt.color} / 0.28)`,
+                    }
+                  : undefined
+              }
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {viewMode === "table" && (
         <div className="hidden items-center gap-2 sm:flex">
@@ -182,9 +232,11 @@ export function TableToolbar({
           <Button variant="outline" size="sm" className="hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onOpenSchema ?? onAddColumn}>
             <SlidersHorizontal className="h-3.5 w-3.5" /> Столбцы
           </Button>
+          {canManageStatuses && (
           <Button variant="outline" size="sm" className="hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onManageStatuses}>
             <Palette className="h-3.5 w-3.5" /> Статусы
           </Button>
+          )}
           <Button variant="outline" size="sm" className="hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onAddColumn}>
             <Columns3 className="h-3.5 w-3.5" /> Столбец
           </Button>
@@ -202,6 +254,7 @@ export function TableToolbar({
           >
             <SlidersHorizontal className="h-4 w-4" />
           </Button>
+          {canManageStatuses && (
           <Button
             variant="outline"
             size="icon"
@@ -211,6 +264,7 @@ export function TableToolbar({
           >
             <Palette className="h-4 w-4" />
           </Button>
+          )}
         </>
       )}
 

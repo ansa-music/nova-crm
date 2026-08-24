@@ -227,6 +227,7 @@ export default function SettingsPage() {
 
   async function handleSaveSharedOptions(next: StatusOption[]) {
     if (!activeWorkspace) return;
+    if (!permissions.canManageWorkspace) throw new Error("Варианты меняет только Owner");
     if (manageOptionsKind === "responsible") {
       await updateResponsibleOptions(activeWorkspace.id, next);
     } else if (manageOptionsKind === "status") {

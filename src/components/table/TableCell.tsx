@@ -5,7 +5,7 @@ import { DiskLinkChip } from "@/components/table/DiskLinkChip";
 import { DateCalendar } from "@/components/table/DateCalendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { formatCurrency } from "@/utils/format";
+import { formatCurrency, formatNumber } from "@/utils/format";
 import { formatOrderDate } from "@/utils/date";
 import { isOptionColumn } from "@/utils/columnOptions";
 import { parseHttpUrl } from "@/utils/httpUrl";
@@ -27,6 +27,7 @@ interface TableCellProps {
   onCommitEdit: (direction?: "down" | "right" | "left" | "none") => void;
   onCancelEdit: () => void;
   onStatusChange: (value: string) => void;
+  onUndoLast?: () => void;
   stickyLeft?: number;
   isLastSticky?: boolean;
 }
@@ -46,6 +47,7 @@ export function TableCell({
   onCommitEdit,
   onCancelEdit,
   onStatusChange,
+  onUndoLast,
   stickyLeft,
   isLastSticky,
 }: TableCellProps) {
@@ -72,7 +74,9 @@ export function TableCell({
       return <span className={cn("tabular-nums", isNegative && "font-medium text-destructive")}>{formatCurrency(Number(stringValue))}</span>;
     }
     if (column.type === "number" && stringValue) {
-      return <span className={cn("tabular-nums", isNegative && "font-medium text-destructive")}>{stringValue}</span>;
+      const n = Number(String(stringValue).replace(/\s/g, "").replace(",", "."));
+      const shown = Number.isFinite(n) ? formatNumber(n) : stringValue;
+      return <span className={cn("tabular-nums", isNegative && "font-medium text-destructive")}>{shown}</span>;
     }
     if (column.type === "date" && stringValue) {
       return <span className="truncate">{formatOrderDate(Number(stringValue))}</span>;
@@ -223,6 +227,15 @@ export function TableCell({
             } else if (e.key === "Escape") {
               e.preventDefault();
               onCancelEdit();
+            } else if ((e.ctrlKey || e.metaKey) && e.code === "KeyZ") {
+              e.preventDefault();
+              e.stopPropagation();
+              if (editValue !== stringValue) {
+                onEditValueChange(stringValue);
+              } else {
+                onCancelEdit();
+                onUndoLast?.();
+              }
             }
           }}
           className={cn(

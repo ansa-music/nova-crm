@@ -36,6 +36,20 @@ service cloud.firestore {
       return isMember(workspaceId) && (myRole(workspaceId) == 'owner' || myRole(workspaceId) == 'admin');
     }
 
+
+    // Existing columns may change labels/width/order, but their statusOptions
+    // lists (status variants) are Owner-only. New columns may ship with a
+    // seeded list; editing that list later still requires Owner.
+    function columnStatusOptionsPreserved() {
+      let before = resource.data.get('columns', []);
+      let after = request.resource.data.get('columns', []);
+      return after.all(newCol,
+        before.filter(oldCol, oldCol.get('key', '') == newCol.get('key', '')).size() == 0 ||
+        before.filter(oldCol, oldCol.get('key', '') == newCol.get('key', ''))[0].get('statusOptions', [])
+          == newCol.get('statusOptions', [])
+      );
+    }
+
     function isResponsiblePage(workspaceId, pageData) {
       return isMember(workspaceId) && pageData.get('responsibleUserId', null) == request.auth.uid;
     }
@@ -247,7 +261,8 @@ service cloud.firestore {
         // apply to canAccessPage/the pages list query elsewhere in this file.
         allow update: if isMember(workspaceId)
           && resource.data.responsibleUserId == request.auth.uid
-          && !('responsibleUserId' in request.resource.data.diff(resource.data).affectedKeys());
+          && !('responsibleUserId' in request.resource.data.diff(resource.data).affectedKeys())
+          && columnStatusOptionsPreserved();
 
         // Admin (not Owner, who already has full rights above) may assign
         // or reassign who's responsible for this page — and only that field.
@@ -283,8 +298,11 @@ service cloud.firestore {
         match /subpages/{subPageId} {
           allow read: if isMember(workspaceId) &&
             canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
-          allow create, update, delete: if isMember(workspaceId) &&
+          allow create, delete: if isMember(workspaceId) &&
             canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
+          allow update: if isMember(workspaceId) &&
+            canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
+            (isOwner(workspaceId) || columnStatusOptionsPreserved());
 
           match /rows/{rowId} {
             allow read: if isMember(workspaceId) &&

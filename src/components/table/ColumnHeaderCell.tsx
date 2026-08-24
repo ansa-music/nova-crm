@@ -81,7 +81,8 @@ export function ColumnHeaderCell({
   const { activeWorkspace } = useWorkspace();
   const permissions = usePermissions();
   const canEditThisOptions =
-    Boolean(canManageOptions) && isOptionColumn(column.type) && (column.type === "status" || permissions.role === "owner");
+    Boolean(canManageOptions) && isOptionColumn(column.type) && permissions.role === "owner";
+  const pinLabel = isPinned ? "Открепить столбец" : "Закрепить столбец";
   const customFields = activeWorkspace?.customFields ?? [];
   const typeChoices = buildColumnTypeChoices(customFields);
 
@@ -163,6 +164,8 @@ export function ColumnHeaderCell({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => onTogglePin(column.key)}>{pinLabel}</DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => onRename?.(column.key)}>Переименовать</DropdownMenuItem>
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>Изменить тип</DropdownMenuSubTrigger>
@@ -231,8 +234,11 @@ export function ColumnHeaderCell({
           </div>
         </th>
       </ContextMenuTrigger>
-      {canEditStructure && (
-        <ContextMenuContent>
+      <ContextMenuContent>
+          <ContextMenuItem onClick={() => onTogglePin(column.key)}>{pinLabel}</ContextMenuItem>
+          {canEditStructure && (
+            <>
+          <ContextMenuSeparator />
           <ContextMenuItem onClick={() => onRename?.(column.key)}>Переименовать</ContextMenuItem>
           <ContextMenuSub>
             <ContextMenuSubTrigger>Изменить тип</ContextMenuSubTrigger>
@@ -276,8 +282,9 @@ export function ColumnHeaderCell({
           >
             Удалить столбец
           </ContextMenuItem>
+            </>
+          )}
         </ContextMenuContent>
-      )}
     </ContextMenu>
   );
 }

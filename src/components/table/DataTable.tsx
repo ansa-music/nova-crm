@@ -25,6 +25,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { LayoutGroup } from "framer-motion";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -85,8 +86,9 @@ import { updateResponsibleOptions, updateCustomFieldOptions } from "@/services/w
 import { formatCurrency, formatNumber, downloadCsv } from "@/utils";
 import { isSummableColumn, sumNumericCells } from "@/utils/tableAggregates";
 import { clampColumnWidth } from "@/utils/tableLayout";
-import { getColumnOptions, isOptionColumn, DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
+import { getColumnOptions, isDoneStatusLabel, isOptionColumn, DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { isHttpUrl, parseHttpUrl } from "@/utils/httpUrl";
+import { parseClipboardMatrix } from "@/utils/clipboardMatrix";
 import { celebrateDone } from "@/utils/confetti";
 import { pushUndoCommand, undo as undoLastCommand } from "@/utils/undoStore";
 import type { CellAddress, ColumnType, PageRow, SortState, StatusOption, WorkspacePage } from "@/types";
@@ -216,6 +218,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const [filters, setFilters] = useState<Record<string, Set<string>>>({});
   const [filterPopover, setFilterPopover] = useState<{ colKey: string; x: number; y: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [groupByKey, setGroupByKey] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [density, setDensity] = useState<"compact" | "default" | "comfortable">(() => {
@@ -305,6 +308,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const isSelectingRef = useRef(false);
   const editingCellRef = useRef<CellAddress | null>(null);
   const contextRowIdRef = useRef<string | null>(null);
+  const lastCheckedRowIdRef = useRef<string | null>(null);
   const clipboardRef = useRef<{ matrix: string[][] } | null>(null);
   const resizeStateRef = useRef<
     | { type: "col"; colKey: string; startPos: number; startSize: number; lastValue: number }
@@ -328,6 +332,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setSortState({ colKey: null, direction: null });
     setFilters({});
     setSearchQuery("");
+    setStatusFilter(null);
     setGroupByKey(null);
     setSelectedRowIds(new Set());
     setPageIndex(0);
@@ -360,6 +365,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           if (excluded.has(val)) return false;
         }
       }
+      if (statusFilter) {
+        const statusCol = columns.find((c) => c.type === "status");
+        if (statusCol && String(row.cells[statusCol.key] ?? "") !== statusFilter) return false;
+      }
       return true;
     });
 
@@ -380,13 +389,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       result = [...result].sort((a, b) => a.order - b.order);
     }
     return result;
-  }, [rows, columns, searchQuery, filters, sortState]);
+  }, [rows, columns, searchQuery, filters, sortState, statusFilter]);
 
   const canReorderRows =
     canEdit &&
     !sortState.colKey &&
     !groupByKey &&
     !searchQuery.trim() &&
+    !statusFilter &&
     Object.values(filters).every((s) => !s || s.size === 0);
 
   // ---- Grouping ----
@@ -441,16 +451,16 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const anchor = rangeAnchor ?? activeCell;
     const rAnchor = rowIds.indexOf(anchor.rowId);
     const rFocus = rowIds.indexOf(activeCell.rowId);
-    const cAnchor = columns.findIndex((c) => c.key === anchor.colKey);
-    const cFocus = columns.findIndex((c) => c.key === activeCell.colKey);
-    if (rAnchor === -1 || rFocus === -1) return null;
+    const cAnchor = displayColumns.findIndex((c) => c.key === anchor.colKey);
+    const cFocus = displayColumns.findIndex((c) => c.key === activeCell.colKey);
+    if (rAnchor === -1 || rFocus === -1 || cAnchor === -1 || cFocus === -1) return null;
     return {
       rowStart: Math.min(rAnchor, rFocus),
       rowEnd: Math.max(rAnchor, rFocus),
       colStart: Math.min(cAnchor, cFocus),
       colEnd: Math.max(cAnchor, cFocus),
     };
-  }, [activeCell, rangeAnchor, rowIds, columns]);
+  }, [activeCell, rangeAnchor, rowIds, displayColumns]);
 
   const rangeCells = useMemo(() => {
     const bounds = getSelectionBounds();
@@ -458,21 +468,21 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (!bounds) return set;
     for (let r = bounds.rowStart; r <= bounds.rowEnd; r++) {
       for (let c = bounds.colStart; c <= bounds.colEnd; c++) {
-        set.add(`${rowIds[r]}:${columns[c].key}`);
+        set.add(`${rowIds[r]}:${displayColumns[c].key}`);
       }
     }
     return set;
-  }, [getSelectionBounds, rowIds, columns]);
+  }, [getSelectionBounds, rowIds, displayColumns]);
 
   const isRowFullySelected = useCallback(
     (rowId: string) => {
       const bounds = getSelectionBounds();
       if (!bounds) return false;
-      if (bounds.colStart !== 0 || bounds.colEnd !== columns.length - 1) return false;
+      if (bounds.colStart !== 0 || bounds.colEnd !== displayColumns.length - 1) return false;
       const idx = rowIds.indexOf(rowId);
       return idx >= bounds.rowStart && idx <= bounds.rowEnd;
     },
-    [getSelectionBounds, rowIds, columns.length]
+    [getSelectionBounds, rowIds, displayColumns.length]
   );
 
   // ---- Undo/redo: pushes into the GLOBAL stack (src/utils/undoStore.ts),
@@ -559,13 +569,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   async function moveActiveAfterCommit(direction: "down" | "right" | "left" | "none") {
     if (direction === "none" || !activeCell) return;
+    const navCols = displayColumns;
     const rIdx = rowIds.indexOf(activeCell.rowId);
-    const cIdx = columns.findIndex((c) => c.key === activeCell.colKey);
+    const cIdx = navCols.findIndex((c) => c.key === activeCell.colKey);
 
-    // Enter on the last row: auto-create a fresh empty row and jump straight
-    // into editing the same column on it — matches Google Sheets/Airtable's
-    // "just keep typing" flow instead of getting stuck on the last row.
-    if (direction === "down" && rIdx === rowIds.length - 1) {
+    async function createRowAndGo(colKey: string) {
       if (!canEdit) return;
       const cells: Record<string, string | number | null> = {};
       columns.forEach((c) => (cells[c.key] = ""));
@@ -576,26 +584,53 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           addRowService(workspaceId, page.id, cells, rows.length);
         },
       });
-      const nextAddr = { rowId: newRow.id, colKey: activeCell.colKey };
+      const nextAddr = { rowId: newRow.id, colKey };
       requestAnimationFrame(() => {
         setActiveCell(nextAddr);
         setRangeAnchor(nextAddr);
-        const col = columns.find((c) => c.key === nextAddr.colKey);
-        if (col && !isOptionColumn(col.type)) {
+        const col = navCols.find((c) => c.key === nextAddr.colKey);
+        if (col && !isOptionColumn(col.type) && col.type !== "date") {
           setEditingCell(nextAddr);
           setEditValue("");
         }
         containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight });
       });
+    }
+
+    // Enter on the last row: auto-create a fresh empty row and jump straight
+    // into editing the same column on it — matches Google Sheets/Airtable's
+    // "just keep typing" flow instead of getting stuck on the last row.
+    if (direction === "down" && rIdx === rowIds.length - 1) {
+      await createRowAndGo(activeCell.colKey);
+      return;
+    }
+
+    if (direction === "right" && cIdx >= navCols.length - 1 && rIdx === rowIds.length - 1) {
+      await createRowAndGo(navCols[0]?.key ?? activeCell.colKey);
       return;
     }
 
     let nr = rIdx;
-    let nc = cIdx;
+    let nc = Math.max(0, cIdx);
     if (direction === "down") nr = Math.min(rowIds.length - 1, rIdx + 1);
-    if (direction === "right") nc = Math.min(columns.length - 1, cIdx + 1);
-    if (direction === "left") nc = Math.max(0, cIdx - 1);
-    const next = { rowId: rowIds[nr], colKey: columns[nc].key };
+    if (direction === "right") {
+      if (cIdx >= navCols.length - 1) {
+        nr = Math.min(rowIds.length - 1, rIdx + 1);
+        nc = 0;
+      } else {
+        nc = cIdx + 1;
+      }
+    }
+    if (direction === "left") {
+      if (cIdx <= 0) {
+        if (rIdx <= 0) return;
+        nr = rIdx - 1;
+        nc = navCols.length - 1;
+      } else {
+        nc = cIdx - 1;
+      }
+    }
+    const next = { rowId: rowIds[nr], colKey: navCols[nc].key };
     setActiveCell(next);
     setRangeAnchor(next);
 
@@ -690,9 +725,17 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (isSelectingRef.current) setActiveCell({ rowId, colKey });
   }
 
-  function handleRowNumberMouseDown(rowId: string) {
-    setRangeAnchor({ rowId, colKey: columns[0].key });
-    setActiveCell({ rowId, colKey: columns[columns.length - 1].key });
+  function handleRowNumberMouseDown(rowId: string, e?: React.MouseEvent) {
+    if (e?.shiftKey) {
+      toggleRowChecked(rowId, true);
+    } else {
+      lastCheckedRowIdRef.current = rowId;
+      setSelectedRowIds(new Set([rowId]));
+    }
+    const first = displayColumns[0]?.key ?? columns[0].key;
+    const last = displayColumns[displayColumns.length - 1]?.key ?? columns[columns.length - 1].key;
+    setRangeAnchor({ rowId, colKey: first });
+    setActiveCell({ rowId, colKey: last });
   }
 
   useEffect(() => {
@@ -738,17 +781,29 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   async function applyMatrixPaste(matrix: string[][]) {
     if (!canEdit || !activeCell || matrix.length === 0) return;
+    const bounds = getSelectionBounds();
+    const single = matrix.length === 1 && matrix[0].length === 1;
+    if (single && bounds && (bounds.rowEnd > bounds.rowStart || bounds.colEnd > bounds.colStart)) {
+      const val = matrix[0][0];
+      const filled: string[][] = [];
+      for (let r = bounds.rowStart; r <= bounds.rowEnd; r++) {
+        filled.push(Array.from({ length: bounds.colEnd - bounds.colStart + 1 }, () => val));
+      }
+      matrix = filled;
+      const startRowIdxFill = bounds.rowStart;
+      const startColIdxFill = bounds.colStart;
+      await applyMatrixPasteAt(matrix, startRowIdxFill, startColIdxFill);
+      return;
+    }
     const startRowIdx = rowIds.indexOf(activeCell.rowId);
-    const startColIdx = columns.findIndex((c) => c.key === activeCell.colKey);
-    if (startRowIdx === -1) return;
+    const startColIdx = displayColumns.findIndex((c) => c.key === activeCell.colKey);
+    if (startRowIdx === -1 || startColIdx === -1) return;
+    await applyMatrixPasteAt(matrix, startRowIdx, startColIdx);
+  }
 
-    // Smart-paste guardrails: warn (don't block) when the pasted block's
-    // shape doesn't match what's actually there, and auto-create any extra
-    // rows needed instead of silently dropping data past the table's
-    // current last row — pasting a big block used to just truncate
-    // whatever didn't fit, with no indication anything was lost.
+  async function applyMatrixPasteAt(matrix: string[][], startRowIdx: number, startColIdx: number) {
     const pastedCols = Math.max(...matrix.map((line) => line.length));
-    const availableCols = columns.length - startColIdx;
+    const availableCols = displayColumns.length - startColIdx;
     if (pastedCols > availableCols) {
       toast.info(`Вставлено ${availableCols} из ${pastedCols} столбцов — правее столбцов не нашлось`);
     }
@@ -803,9 +858,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     try {
       const text = await navigator.clipboard.readText();
       if (!text) return;
-      const lines = text.replace(/\r/g, "").split("\n");
-      if (lines[lines.length - 1] === "") lines.pop();
-      await applyMatrixPaste(lines.map((l) => l.split("\t")));
+      await applyMatrixPaste(parseClipboardMatrix(text));
     } catch {
       // clipboard read denied — ignore
     }
@@ -819,7 +872,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       const row = rows.find((rr) => rr.id === rowIds[r]);
       if (!row) continue;
       for (let c = bounds.colStart; c <= bounds.colEnd; c++) {
-        const col = columns[c];
+        const col = displayColumns[c];
+        if (!col) continue;
         const oldValue = String(row.cells[col.key] ?? "");
         if (oldValue) {
           persistCellEdit(row.id, col.key, oldValue, "");
@@ -846,15 +900,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   function moveSelection(direction: "up" | "down" | "left" | "right", extend: boolean) {
     if (!activeCell) return;
     const rIdx = rowIds.indexOf(activeCell.rowId);
-    const cIdx = columns.findIndex((c) => c.key === activeCell.colKey);
+    const cIdx = displayColumns.findIndex((c) => c.key === activeCell.colKey);
     if (rIdx === -1 || cIdx === -1) return;
     let nr = rIdx;
     let nc = cIdx;
     if (direction === "up") nr = Math.max(0, rIdx - 1);
     if (direction === "down") nr = Math.min(rowIds.length - 1, rIdx + 1);
     if (direction === "left") nc = Math.max(0, cIdx - 1);
-    if (direction === "right") nc = Math.min(columns.length - 1, cIdx + 1);
-    const next = { rowId: rowIds[nr], colKey: columns[nc].key };
+    if (direction === "right") nc = Math.min(displayColumns.length - 1, cIdx + 1);
+    const next = { rowId: rowIds[nr], colKey: displayColumns[nc].key };
     setActiveCell(next);
     if (!extend) setRangeAnchor(next);
     else if (!rangeAnchor) setRangeAnchor(activeCell);
@@ -869,13 +923,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   async function handleTabForward() {
     if (!activeCell) return;
     const rIdx = rowIds.indexOf(activeCell.rowId);
-    const cIdx = columns.findIndex((c) => c.key === activeCell.colKey);
-    if (cIdx !== columns.length - 1) {
+    const cIdx = displayColumns.findIndex((c) => c.key === activeCell.colKey);
+    if (cIdx !== displayColumns.length - 1) {
       moveSelection("right", false);
       return;
     }
     if (rIdx !== rowIds.length - 1) {
-      const next = { rowId: rowIds[rIdx + 1], colKey: columns[0].key };
+      const next = { rowId: rowIds[rIdx + 1], colKey: displayColumns[0].key };
       setActiveCell(next);
       setRangeAnchor(next);
       revealCell(next.rowId, next.colKey, rIdx + 1);
@@ -891,7 +945,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         addRowService(workspaceId, page.id, cells, rows.length);
       },
     });
-    const nextAddr = { rowId: newRow.id, colKey: columns[0].key };
+    const nextAddr = { rowId: newRow.id, colKey: displayColumns[0]?.key ?? columns[0].key };
     requestAnimationFrame(() => {
       setActiveCell(nextAddr);
       setRangeAnchor(nextAddr);
@@ -928,6 +982,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       if (isCtrl && e.code === "KeyV") {
         e.preventDefault();
         handlePaste();
+        return;
+      }
+      if (isCtrl && e.shiftKey && e.code === "KeyD") {
+        e.preventDefault();
+        void handleDuplicateRowById(activeCell.rowId);
         return;
       }
       if (e.key === "Delete" || e.key === "Backspace") {
@@ -1058,6 +1117,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   function togglePin(colKey: string) {
+    const first = displayColumns[0]?.key;
+    if (colKey === first) return;
     setPinnedKeys((prev) => (prev.includes(colKey) ? prev.filter((k) => k !== colKey) : [...prev, colKey]));
   }
 
@@ -1115,11 +1176,53 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     contextRowIdRef.current = rowId;
   }
 
-  async function handleDuplicateRow() {
-    const rowId = contextRowIdRef.current;
+  async function handleDuplicateRowById(rowId: string | null | undefined) {
+    if (!rowId || !canEdit) return;
     const row = rows.find((r) => r.id === rowId);
     if (!row) return;
-    await duplicateRowService(workspaceId, page.id, row, rows.length);
+    const copy = await duplicateRowService(workspaceId, page.id, row, rows.length);
+    if (!copy) return;
+    let liveId = copy.id;
+    pushCommand({
+      undo: () => deleteRowService(workspaceId, page.id, liveId),
+      redo: async () => {
+        const restored = await duplicateRowService(workspaceId, page.id, row, rows.length);
+        if (restored) liveId = restored.id;
+      },
+    });
+    toast.success("Строка скопирована");
+  }
+
+  async function handleDuplicateRow() {
+    await handleDuplicateRowById(contextRowIdRef.current);
+  }
+
+  async function handleDeleteRowById(rowId: string | null | undefined) {
+    if (!rowId) return;
+    contextRowIdRef.current = rowId;
+    await handleDeleteRow();
+  }
+
+  function handleCopyDiskUrl(rowId?: string | null) {
+    const id = rowId ?? contextRowIdRef.current;
+    const row = rows.find((r) => r.id === id);
+    const diskCol = displayColumns.find((c) => c.type === "url");
+    const parsed = diskCol && row ? parseHttpUrl(String(row.cells[diskCol.key] ?? "")) : null;
+    if (!parsed) {
+      toast.info("В строке нет ссылки на Диск");
+      return;
+    }
+    navigator.clipboard?.writeText(parsed.href).then(
+      () => toast.success("Ссылка на Диск скопирована"),
+      () => toast.error("Не удалось скопировать ссылку")
+    );
+  }
+
+  function rowDiskUrl(rowId: string): string | null {
+    const row = rows.find((r) => r.id === rowId);
+    const diskCol = displayColumns.find((c) => c.type === "url");
+    if (!row || !diskCol) return null;
+    return parseHttpUrl(String(row.cells[diskCol.key] ?? ""))?.href ?? null;
   }
 
   async function handleDeleteRow() {
@@ -1142,12 +1245,57 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     toast("Строка удалена", { action: { label: "Отменить", onClick: () => undoLastCommand() } });
   }
 
-  function toggleRowChecked(rowId: string) {
+  function toggleRowChecked(rowId: string, shiftKey = false) {
     setSelectedRowIds((prev) => {
       const next = new Set(prev);
+      if (shiftKey && lastCheckedRowIdRef.current) {
+        const a = rowIds.indexOf(lastCheckedRowIdRef.current);
+        const b = rowIds.indexOf(rowId);
+        if (a !== -1 && b !== -1) {
+          const lo = Math.min(a, b);
+          const hi = Math.max(a, b);
+          for (let i = lo; i <= hi; i++) next.add(rowIds[i]);
+          lastCheckedRowIdRef.current = rowId;
+          return next;
+        }
+      }
       if (next.has(rowId)) next.delete(rowId);
       else next.add(rowId);
+      lastCheckedRowIdRef.current = rowId;
       return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    const ids = paginatedRows.map((r) => r.id);
+    setSelectedRowIds((prev) => {
+      const allOn = ids.length > 0 && ids.every((id) => prev.has(id));
+      return allOn ? new Set() : new Set(ids);
+    });
+  }
+
+  function handleBulkStatus(value: string) {
+    const statusCol = displayColumns.find((c) => c.type === "status");
+    if (!statusCol || !canEdit) return;
+    const changes: { rowId: string; oldValue: string }[] = [];
+    selectedRowIds.forEach((id) => {
+      const row = rows.find((r) => r.id === id);
+      if (!row) return;
+      const oldValue = String(row.cells[statusCol.key] ?? "");
+      if (oldValue === value) return;
+      changes.push({ rowId: id, oldValue });
+      persistCellEdit(id, statusCol.key, oldValue, value);
+    });
+    if (changes.length === 0) return;
+    const opt = statusCol.statusOptions?.find((o) => o.value === value);
+    if (opt && isDoneStatusLabel(opt.label)) celebrateDone();
+    pushCommand({
+      undo: async () => {
+        await Promise.all(changes.map((c) => persistCellEdit(c.rowId, statusCol.key, value, c.oldValue)));
+      },
+      redo: async () => {
+        await Promise.all(changes.map((c) => persistCellEdit(c.rowId, statusCol.key, c.oldValue, value)));
+      },
     });
   }
 
@@ -1212,6 +1360,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   async function handleSaveColumnOptions(options: StatusOption[]) {
     if (!manageOptionsColumn) return;
     if (manageOptionsColumn.type === "status") {
+      if (!permissions.canManageStatusVariants) throw new Error("Варианты статуса меняет только Owner");
       await updateColumnStatusOptions(workspaceId, page.id, columns, manageOptionsColumn.key, options);
     } else if (manageOptionsColumn.type === "responsible") {
       if (!isOwner) throw new Error("Список ответственных меняет только Owner");
@@ -1224,6 +1373,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   async function handleManageStatuses() {
+    if (!permissions.canManageStatusVariants) return;
     let statusCol = columns.find((c) => c.type === "status");
     if (!statusCol) {
       const keys = new Set(columns.map((c) => c.key));
@@ -1360,10 +1510,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onCommitEdit={handleCommitEdit}
         onCancelEdit={() => setEditingCell(null)}
         onStatusChange={handleStatusChange}
-        onRowNumberMouseDown={(rowId) => handleRowNumberMouseDown(rowId)}
+        onRowNumberMouseDown={(rowId, e) => handleRowNumberMouseDown(rowId, e)}
         onRowResizeStart={handleRowResizeStart}
         onContextMenuOpen={handleContextMenuOpen}
         onExpandRow={setExpandedRowId}
+        onDuplicateRow={(id) => void handleDuplicateRowById(id)}
+        onDeleteRow={(id) => void handleDeleteRowById(id)}
+        onCopyDiskUrl={(id) => handleCopyDiskUrl(id)}
+        diskUrl={rowDiskUrl(row.id)}
+        onUndoLast={() => void undoLastCommand()}
         isExpanded={expandedRowId === row.id}
       />
     );
@@ -1421,9 +1576,16 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onAddColumn={() => setAddColumnOpen(true)}
         onOpenSchema={() => setSchemaOpen(true)}
         onManageStatuses={() => void handleManageStatuses()}
-        selectedCount={0}
+        canManageStatuses={permissions.canManageStatusVariants}
+        selectedCount={selectedRowIds.size}
         onDeleteSelected={handleDeleteSelected}
         hasStatusColumn={Boolean(kanbanStatusColumn)}
+        statusOptions={kanbanStatusColumn?.statusOptions}
+        statusFilter={statusFilter}
+        onStatusFilterChange={(v) => {
+          setStatusFilter(v);
+          setPageIndex(0);
+        }}
         viewMode={viewMode}
         onViewModeChange={handleViewModeChange}
       />
@@ -1446,7 +1608,18 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                 <th
                   className="table-sticky-col sticky left-0 top-0 z-40 border-b border-r border-border/50 bg-background"
                   style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}
-                />
+                >
+                  <div className="flex h-11 items-center justify-center sm:h-9">
+                    <Checkbox
+                      checked={paginatedRows.length > 0 && paginatedRows.every((r) => selectedRowIds.has(r.id))}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        toggleSelectAllVisible();
+                      }}
+                      aria-label="Выбрать все строки"
+                    />
+                  </div>
+                </th>
                 <SortableContext items={displayColumns.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
                   {displayColumns.map((column) => (
                     <ColumnHeaderCell
@@ -1468,7 +1641,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       isLastSticky={pinnedOrder.length > 0 && column.key === pinnedOrder[pinnedOrder.length - 1].key}
                       canReorder={canEdit}
                       canEditStructure={canEditStructure}
-                      canManageOptions={canEditStructure}
+                      canManageOptions={permissions.canManageStatusVariants}
                       onToggleHidden={canEditStructure ? handleToggleHiddenColumn : undefined}
                       onRename={handleRenameColumn}
                       onChangeType={handleChangeColumnType}
@@ -1558,7 +1731,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                 </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem onClick={handleDuplicateRow} disabled={!canEdit}>
-                  Дублировать строку
+                  Дублировать строку <ContextMenuShortcut>Ctrl+Shift+D</ContextMenuShortcut>
+                </ContextMenuItem>
+                <ContextMenuItem onClick={() => handleCopyDiskUrl()}>
+                  Копировать ссылку Диск
                 </ContextMenuItem>
                 {!subPageId && (
                   <ContextMenuItem onClick={() => setCommentRowId(contextRowIdRef.current)}>
@@ -1719,12 +1895,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                 setSchemaOpen(false);
                 void handleManageStatuses();
               }}
+              canManageStatuses={permissions.canManageStatusVariants}
             />
           </div>
         </SheetContent>
       </Sheet>
 
-      {manageOptionsColumn && (
+      {manageOptionsColumn && permissions.canManageStatusVariants && (
         <ManageOptionsDialog
           open={Boolean(manageOptionsColKey)}
           onOpenChange={(o) => !o && setManageOptionsColKey(null)}
@@ -1760,6 +1937,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         count={selectedRowIds.size}
         onDelete={handleDeleteSelected}
         onClear={() => setSelectedRowIds(new Set())}
+        canEdit={canEdit}
+        statusOptions={kanbanStatusColumn?.statusOptions}
+        onSetStatus={handleBulkStatus}
       />
     </div>
     </LayoutGroup>

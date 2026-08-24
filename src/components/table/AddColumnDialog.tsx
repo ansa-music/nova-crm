@@ -167,7 +167,7 @@ export function AddColumnDialog({
             </Select>
             {type === "status" && (
               <p className="text-xs text-muted-foreground">
-                Статусы (включая «Готово») можно добавить кнопкой «Статусы» над таблицей.
+                Список вариантов статуса (включая «Готово») меняет только Owner.
               </p>
             )}
             {(type === "responsible" || type === "custom") && (

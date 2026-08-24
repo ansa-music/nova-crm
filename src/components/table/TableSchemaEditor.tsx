@@ -14,6 +14,7 @@ interface TableSchemaEditorProps {
   onMoveColumn: (colKey: string, direction: -1 | 1) => void;
   onDeleteColumn: (colKey: string) => void;
   onManageStatuses: () => void;
+  canManageStatuses?: boolean;
 }
 
 export function TableSchemaEditor({
@@ -26,6 +27,7 @@ export function TableSchemaEditor({
   onMoveColumn,
   onDeleteColumn,
   onManageStatuses,
+  canManageStatuses = false,
 }: TableSchemaEditorProps) {
   const ordered = [...columns].sort((a, b) => a.order - b.order);
 
@@ -114,10 +116,10 @@ export function TableSchemaEditor({
           <div>
             <p className="text-sm font-medium">Статусы</p>
             <p className="text-xs text-muted-foreground">
-              Варианты столбца «Статус», включая «Готово». Добавляются сразу на этот стол.
+              Варианты столбца «Статус», включая «Готово». Меняет только Owner workspace.
             </p>
           </div>
-          {canEdit && (
+          {canManageStatuses && (
             <Button variant="outline" size="sm" className="h-8 shrink-0 gap-1.5" onClick={onManageStatuses}>
               <Plus className="h-3.5 w-3.5" /> Статус
             </Button>
@@ -125,12 +127,12 @@ export function TableSchemaEditor({
         </div>
         <div className="flex flex-wrap gap-1.5">
           {statusOptions.length === 0 ? (
-            <span className="text-xs text-muted-foreground">Пока нет статусов — нажмите «Статус».</span>
+            <span className="text-xs text-muted-foreground">Пока нет статусов.</span>
           ) : (
             statusOptions.map((opt) => <StatusBadge key={opt.value} value={opt.value} options={statusOptions} />)
           )}
         </div>
-        {canEdit && (
+        {canManageStatuses && (
           <Button variant="ghost" size="sm" className="h-8 w-fit gap-1.5 text-muted-foreground" onClick={onManageStatuses}>
             <Palette className="h-3.5 w-3.5" /> Изменить варианты
           </Button>

@@ -478,10 +478,9 @@ export async function changeColumnType(
 
 /**
  * Updates just a "status" column's own option list (add/rename/recolor/
- * remove values) without touching its type. Owner-only in the UI
- * (src/components/table/ManageOptionsDialog.tsx) — kept separate from
- * changeColumnType so editing existing statuses never risks flipping the
- * column's type by mistake.
+ * remove values) without touching its type. Owner-only: UI hides this from
+ * Технар/manager/viewer, and Firestore rejects non-owner statusOptions diffs
+ * on existing columns (columnStatusOptionsPreserved).
  */
 export async function updateColumnStatusOptions(
   workspaceId: string,

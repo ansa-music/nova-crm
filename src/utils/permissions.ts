@@ -26,6 +26,11 @@ export function canManageWorkspace(role: Role): boolean {
   return role === "owner";
 }
 
+/** Status/select option lists (add/edit/delete/reorder «Готово» etc.) — Owner only. */
+export function canManageStatusVariants(role: Role): boolean {
+  return role === "owner";
+}
+
 export function canInviteMembers(role: Role): boolean {
   return role === "owner";
 }

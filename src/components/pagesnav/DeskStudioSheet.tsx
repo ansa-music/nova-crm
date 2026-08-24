@@ -130,7 +130,7 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
   }
 
   async function handleSaveStatuses(options: StatusOption[]) {
-    if (!page || !canEditPreview) return;
+    if (!page || !permissions.canManageStatusVariants) return;
     const target = columns.find((c) => c.type === "status");
     if (!target) {
       const keys = new Set(columns.map((c) => c.key));
@@ -413,6 +413,7 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
               onMoveColumn={(key, dir) => void handleMoveColumn(key, dir)}
               onDeleteColumn={(key) => void handleDeleteColumn(key)}
               onManageStatuses={() => setStatusDialogOpen(true)}
+              canManageStatuses={permissions.canManageStatusVariants}
             />
           </section>
 
@@ -463,7 +464,7 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
           createColumn={addColumn}
         />
         <ManageOptionsDialog
-          open={statusDialogOpen}
+          open={statusDialogOpen && permissions.canManageStatusVariants}
           onOpenChange={setStatusDialogOpen}
           title="Статусы стола"
           description="Список для столбца «Статус» на этом столе. «Готово» — для дашборда и итогов."

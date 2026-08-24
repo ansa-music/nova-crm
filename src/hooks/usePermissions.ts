@@ -15,6 +15,7 @@ import {
   canManageAnnouncements,
   canManagePage,
   canManagePagePermissions,
+  canManageStatusVariants,
   canManageWorkspace,
   canRemoveMembers,
   canRestoreHistory,
@@ -96,6 +97,7 @@ export function usePermissions() {
       hasMembership,
 
       canManageWorkspace: isResolved && canManageWorkspace(effectiveRole),
+      canManageStatusVariants: isResolved && canManageStatusVariants(effectiveRole),
       canInviteMembers: isResolved && canInviteMembers(effectiveRole),
       canChangeRoles: isResolved && canChangeRoles(effectiveRole),
       canRemoveMembers: isResolved && canRemoveMembers(effectiveRole),

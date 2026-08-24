@@ -1,14 +1,21 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
-import { GripVertical } from "lucide-react";
+import { Copy, GripVertical, MoreHorizontal, Trash2 } from "lucide-react";
 import { TableCell } from "@/components/table/TableCell";
 import { rowCardLayoutId } from "@/components/table/RowCardSheet";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/utils/cn";
 import type { CellAddress, PageColumn, PageRow } from "@/types";
 
-const ROW_GUTTER_WIDTH = 56;
+const ROW_GUTTER_WIDTH = 72;
 
 interface TableRowProps {
   row: PageRow;
@@ -24,7 +31,7 @@ interface TableRowProps {
   isRowFullySelected: boolean;
   isChecked: boolean;
   pinnedKeys: string[];
-  onToggleChecked: (rowId: string) => void;
+  onToggleChecked: (rowId: string, shiftKey?: boolean) => void;
   onCellMouseDown: (rowId: string, colKey: string, e: React.MouseEvent) => void;
   onCellMouseEnter: (rowId: string, colKey: string) => void;
   onCellStartEdit: (rowId: string, colKey: string) => void;
@@ -36,6 +43,11 @@ interface TableRowProps {
   onRowResizeStart: (rowId: string, e: React.MouseEvent) => void;
   onContextMenuOpen: (rowId: string) => void;
   onExpandRow: (rowId: string) => void;
+  onDuplicateRow?: (rowId: string) => void;
+  onDeleteRow?: (rowId: string) => void;
+  onCopyDiskUrl?: (rowId: string) => void;
+  diskUrl?: string | null;
+  onUndoLast?: () => void;
   isExpanded?: boolean;
 }
 
@@ -65,6 +77,11 @@ export function TableRow({
   onRowResizeStart,
   onContextMenuOpen,
   onExpandRow,
+  onDuplicateRow,
+  onDeleteRow,
+  onCopyDiskUrl,
+  diskUrl,
+  onUndoLast,
   isExpanded,
 }: TableRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -111,7 +128,7 @@ export function TableRow({
         )}
         style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}
       >
-        <div className="relative flex h-full w-full items-center justify-center gap-1">
+        <div className="relative flex h-full w-full items-center justify-center gap-0.5 px-0.5">
           {!isExpanded && (
             <motion.div
               layoutId={rowCardLayoutId(row.id)}
@@ -133,15 +150,45 @@ export function TableRow({
           >
             <GripVertical className="h-3.5 w-3.5" />
           </button>
-          <span className="flex h-4 w-4 items-center justify-center group-hover/row:hidden">
-            {isChecked ? null : rowNumber}
-          </span>
           <Checkbox
             checked={isChecked}
-            onCheckedChange={() => onToggleChecked(row.id)}
-            onClick={(e) => e.stopPropagation()}
-            className={cn("absolute h-4 w-4 max-md:h-5 max-md:w-5", !isChecked && "hidden group-hover/row:flex")}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onToggleChecked(row.id, e.shiftKey);
+            }}
+            className={cn("h-4 w-4 max-md:h-5 max-md:w-5", !isChecked && "opacity-0 group-hover/row:opacity-100")}
           />
+          <span className="flex min-w-[1.1rem] items-center justify-center text-[11px]">{rowNumber}</span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="hidden rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground group-hover/row:inline-flex"
+                title="Действия со строкой"
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onClick={() => onDuplicateRow?.(row.id)} disabled={!canEdit}>
+                Дублировать
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onCopyDiskUrl?.(row.id)} disabled={!diskUrl}>
+                <Copy className="h-3.5 w-3.5" /> Копировать ссылку Диск
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => onDeleteRow?.(row.id)}
+                disabled={!canEdit}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Удалить
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <div
             onMouseDown={(e) => {
               e.stopPropagation();
@@ -172,6 +219,7 @@ export function TableRow({
             onEditValueChange={onEditValueChange}
             onCommitEdit={onCommitEdit}
             onCancelEdit={onCancelEdit}
+            onUndoLast={onUndoLast}
             onStatusChange={(v) => onStatusChange(row.id, column.key, v)}
             stickyLeft={stickyLeft}
             isLastSticky={column.key === lastStickyKey}
