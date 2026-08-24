@@ -134,6 +134,62 @@ function isEmptyGroupLabel(label: string): boolean {
   return label.trim() === "";
 }
 
+function sortStorageKey(viewKey: string) {
+  return `nova-crm:table-sort:${viewKey}`;
+}
+
+function readPersistedSortState(viewKey: string): SortState {
+  if (typeof window === "undefined") return { colKey: null, direction: null };
+  try {
+    const raw = window.localStorage.getItem(sortStorageKey(viewKey));
+    if (!raw) return { colKey: null, direction: null };
+    const parsed = JSON.parse(raw) as Partial<SortState>;
+    if (
+      typeof parsed.colKey === "string" &&
+      parsed.colKey &&
+      (parsed.direction === "asc" || parsed.direction === "desc")
+    ) {
+      return { colKey: parsed.colKey, direction: parsed.direction };
+    }
+  } catch {
+    // fall through to createdAt default
+  }
+  return { colKey: null, direction: null };
+}
+
+/** Ledger key: row creation time. Never updatedAt, never Date.now() fallback. */
+function rowCreatedAtMs(row: PageRow): number {
+  const value = row.createdAt as unknown;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value && typeof value === "object") {
+    const ts = value as { toMillis?: () => number; seconds?: number };
+    if (typeof ts.toMillis === "function") {
+      const n = ts.toMillis();
+      if (Number.isFinite(n)) return n;
+    }
+    if (typeof ts.seconds === "number" && Number.isFinite(ts.seconds)) return ts.seconds * 1000;
+  }
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  if (typeof row.order === "number" && Number.isFinite(row.order)) return row.order;
+  return 0;
+}
+
+function compareRowsByCreatedAt(a: PageRow, b: PageRow): number {
+  const delta = rowCreatedAtMs(a) - rowCreatedAtMs(b);
+  if (delta !== 0) return delta;
+  return a.id.localeCompare(b.id);
+}
+
+function compareColumnsBySchema(a: { order: number }, b: { order: number }, ai: number, bi: number): number {
+  const ao = typeof a.order === "number" && Number.isFinite(a.order) ? a.order : ai;
+  const bo = typeof b.order === "number" && Number.isFinite(b.order) ? b.order : bi;
+  if (ao !== bo) return ao - bo;
+  return ai - bi;
+}
+
 interface DataTableProps {
   workspaceId: string;
   page: WorkspacePage;
@@ -147,7 +203,15 @@ interface DataTableProps {
 }
 
 export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId }: DataTableProps) {
-  const columns = useMemo(() => [...page.columns].sort((a, b) => a.order - b.order), [page.columns]);
+  const columns = useMemo(
+    () =>
+      page.columns
+        .map((column, index) => ({ column, index }))
+        .sort((a, b) => compareColumnsBySchema(a.column, b.column, a.index, b.index))
+        .map(({ column }) => column),
+    [page.columns]
+  );
+  const tableViewKey = subPageId ?? page.id;
 
   // Branch every row/column mutation between the page's own table and a
   // subpage's nested one, based on whether subPageId is set. Every call
@@ -215,7 +279,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   useUnsavedGuard(Boolean(editingCell));
   const pendingWrites = usePendingCellWrites();
   const [editValue, setEditValue] = useState("");
-  const [sortState, setSortState] = useState<SortState>({ colKey: null, direction: null });
+  const [sortState, setSortState] = useState<SortState>(() => readPersistedSortState(tableViewKey));
   const [filters, setFilters] = useState<Record<string, Set<string>>>({});
   const [filterPopover, setFilterPopover] = useState<{ colKey: string; x: number; y: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -335,14 +399,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setActiveCell(null);
     setRangeAnchor(null);
     setEditingCell(null);
-    setSortState({ colKey: null, direction: null });
+    setSortState(readPersistedSortState(tableViewKey));
     setFilters({});
     setSearchQuery("");
     setStatusFilter(null);
     setGroupByKey(null);
     setSelectedRowIds(new Set());
     setPageIndex(0);
-  }, [page.id]);
+  }, [page.id, tableViewKey]);
 
   const [coarsePointer, setCoarsePointer] = useState(false);
   useEffect(() => {
@@ -410,23 +474,21 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         const aEmpty = isEmptySortValue(av, col?.type);
         const bEmpty = isEmptySortValue(bv, col?.type);
         if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
-        if (aEmpty && bEmpty) return 0;
-        return compareFilledValues(av, bv, col?.type, dir);
+        if (aEmpty && bEmpty) return compareRowsByCreatedAt(a, b);
+        const cmp = compareFilledValues(av, bv, col?.type, dir);
+        if (cmp !== 0) return cmp;
+        return compareRowsByCreatedAt(a, b);
       });
     } else {
-      result = [...result].sort((a, b) => a.order - b.order);
+      result = [...result].sort(compareRowsByCreatedAt);
     }
     return result;
   }, [rows, columns, searchQuery, filters, sortState, statusFilter, activeWorkspace]);
 
-  const canReorderRows =
-    canEdit &&
-    !coarsePointer &&
-    !sortState.colKey &&
-    !groupByKey &&
-    !searchQuery.trim() &&
-    !statusFilter &&
-    Object.values(filters).every((s) => !s || s.size === 0);
+  // Visual order is createdAt (or an explicit header sort), not `order`.
+  // Dragging would rewrite `order` without moving rows — and status/cell
+  // edits must not reshuffle the ledger.
+  const canReorderRows = false;
 
   // ---- Grouping ----
   const groups = useMemo(() => {
@@ -464,7 +526,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }, [processedRows, pageIndex, pageSize, groups]);
 
   const rowIds = useMemo(() => paginatedRows.map((r) => r.id), [paginatedRows]);
-  const allOrderedRowIds = useMemo(() => [...rows].sort((a, b) => a.order - b.order).map((r) => r.id), [rows]);
+  const allOrderedRowIds = useMemo(() => [...rows].sort(compareRowsByCreatedAt).map((r) => r.id), [rows]);
 
   // ---- Virtualized rendering (flat, non-grouped view only) ----
   const shouldVirtualize = !groups && paginatedRows.length > 80;
@@ -1344,10 +1406,16 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   // ---- Sort / filter / pin ----
   function handleSort(colKey: string) {
-    setSortState((prev) => ({
-      colKey,
-      direction: prev.colKey === colKey && prev.direction === "asc" ? "desc" : "asc",
-    }));
+    setSortState((prev) => {
+      const next: SortState =
+        prev.colKey !== colKey
+          ? { colKey, direction: "asc" }
+          : prev.direction === "asc"
+            ? { colKey, direction: "desc" }
+            : { colKey: null, direction: null };
+      localStorage.setItem(sortStorageKey(tableViewKey), JSON.stringify(next));
+      return next;
+    });
   }
 
   function handleFilterClick(colKey: string, e: React.MouseEvent) {
@@ -1929,7 +1997,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                           : undefined
                       }
                       isLastSticky={pinnedOrder.length > 0 && column.key === pinnedOrder[pinnedOrder.length - 1].key}
-                      canReorder={canEdit && !coarsePointer}
+                      canReorder={canEdit && !coarsePointer && !editingCell}
                       compactChrome={coarsePointer}
                       canEditStructure={canEditStructure}
                       canManageOptions={canManageVariants}
