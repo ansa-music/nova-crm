@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { subscribeToSubPages, subscribeToSubPageRows } from "@/services/subPageService";
-import type { PageRow, SubPage } from "@/types";
+import { subscribeToSubPages } from "@/services/subPageService";
+import { useSyncedTableRows } from "@/hooks/usePageRows";
+import type { SubPage } from "@/types";
 
 export function useSubPages(workspaceId: string | null, pageId: string | null) {
   const [subPages, setSubPages] = useState<SubPage[]>([]);
@@ -24,22 +25,5 @@ export function useSubPages(workspaceId: string | null, pageId: string | null) {
 }
 
 export function useSubPageRows(workspaceId: string | null, pageId: string | null, subPageId: string | null) {
-  const [rows, setRows] = useState<PageRow[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    if (!workspaceId || !pageId || !subPageId) {
-      setRows([]);
-      setIsLoading(false);
-      return;
-    }
-    setIsLoading(true);
-    const unsubscribe = subscribeToSubPageRows(workspaceId, pageId, subPageId, (data) => {
-      setRows(data);
-      setIsLoading(false);
-    });
-    return unsubscribe;
-  }, [workspaceId, pageId, subPageId]);
-
-  return { rows, isLoading };
+  return useSyncedTableRows(workspaceId, subPageId ? pageId : null, subPageId);
 }

@@ -3,6 +3,7 @@ import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { ROW_FILES_BUCKET, supabase } from "@/lib/supabase";
 import type { RowAttachment } from "@/types";
+import { mirrorPatchAttachments } from "@/services/rowRecordsService";
 
 export const MAX_ROW_FILE_BYTES = 10 * 1024 * 1024;
 
@@ -61,6 +62,7 @@ function rowRef(target: RowAttachmentTarget) {
 export async function setRowAttachments(target: RowAttachmentTarget, attachments: RowAttachment[]) {
   if (!db) throw new Error("Firebase не настроен");
   await setDoc(rowRef(target), { attachments }, { merge: true });
+  mirrorPatchAttachments(target.rowId, attachments);
 }
 
 export async function uploadRowFiles(

@@ -12,3 +12,5 @@ export const ROW_FILES_BUCKET = "row-files";
 export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
+
+export const ROW_RECORDS_TABLE = "row_records";

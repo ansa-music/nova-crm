@@ -13,6 +13,14 @@ import { paths, subscribe, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { stripUndefined } from "@/services/pageService";
 import type { PageColumn, PageIconName, PageRow, StatusOption, SubPage } from "@/types";
+import {
+  mirrorDeleteRow,
+  mirrorDeleteRowsForSubPage,
+  mirrorPatchRowCells,
+  mirrorPatchRowCellsBulk,
+  mirrorReorderRows,
+  mirrorUpsertRow,
+} from "@/services/rowRecordsService";
 
 // ---------------------------------------------------------------------------
 // Subpages themselves (the tabs)
@@ -146,6 +154,7 @@ export async function deleteSubPage(workspaceId: string, pageId: string, subPage
   rowsSnap.docs.forEach((d) => batch.delete(d.ref));
   batch.delete(paths.subPage(workspaceId, pageId, subPageId));
   await batch.commit();
+  mirrorDeleteRowsForSubPage(pageId, subPageId);
 }
 
 export async function reorderSubPages(workspaceId: string, pageId: string, orderedIds: string[]) {
@@ -267,6 +276,7 @@ export async function addSubPageRow(
   const id = generateId("row");
   const row: PageRow = { id, pageId: subPageId, cells, order, createdAt: Date.now(), updatedAt: Date.now() };
   await setDoc(paths.subPageRow(workspaceId, pageId, subPageId, id), row);
+  mirrorUpsertRow(workspaceId, pageId, subPageId, row);
   return row;
 }
 
@@ -284,6 +294,7 @@ export async function updateSubPageRowCell(
     { cells: { [field]: newValue }, updatedAt: Date.now() },
     { merge: true }
   );
+  mirrorPatchRowCells(rowId, field, newValue);
 }
 
 export async function updateSubPageRowCellsBulk(
@@ -299,6 +310,7 @@ export async function updateSubPageRowCellsBulk(
     { cells: patch, updatedAt: Date.now() },
     { merge: true }
   );
+  mirrorPatchRowCellsBulk(rowId, patch);
 }
 
 export async function updateSubPageRowHeight(
@@ -315,6 +327,7 @@ export async function updateSubPageRowHeight(
 export async function deleteSubPageRow(workspaceId: string, pageId: string, subPageId: string, rowId: string) {
   if (!db) return;
   await deleteDoc(paths.subPageRow(workspaceId, pageId, subPageId, rowId));
+  mirrorDeleteRow(rowId);
 }
 
 export async function duplicateSubPageRow(
@@ -326,13 +339,16 @@ export async function duplicateSubPageRow(
 ) {
   if (!db) return;
   const id = generateId("row");
-  await setDoc(paths.subPageRow(workspaceId, pageId, subPageId, id), {
+  const copy: PageRow = {
     ...row,
     id,
     order,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-  });
+  };
+  await setDoc(paths.subPageRow(workspaceId, pageId, subPageId, id), copy);
+  mirrorUpsertRow(workspaceId, pageId, subPageId, copy);
+  return copy;
 }
 
 export async function reorderSubPageRows(
@@ -347,6 +363,7 @@ export async function reorderSubPageRows(
     batch.set(paths.subPageRow(workspaceId, pageId, subPageId, rowId), { order: index }, { merge: true });
   });
   await batch.commit();
+  mirrorReorderRows(orderedRowIds);
 }
 
 // ---------------------------------------------------------------------------

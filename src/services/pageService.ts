@@ -14,6 +14,14 @@ import { paths, subscribe, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { logChange } from "@/services/historyService";
 import type { PageColumn, PageIconName, PageRow, StatusOption, WorkspacePage } from "@/types";
+import {
+  mirrorDeleteRow,
+  mirrorDeleteRowsForPage,
+  mirrorPatchRowCells,
+  mirrorPatchRowCellsBulk,
+  mirrorReorderRows,
+  mirrorUpsertRow,
+} from "@/services/rowRecordsService";
 
 // ---------------------------------------------------------------------------
 // Убирает поля со значением undefined перед записью в Firestore
@@ -453,6 +461,8 @@ export async function deletePage(workspaceId: string, pageId: string) {
     refsToDelete.slice(i, i + CHUNK_SIZE).forEach((ref) => batch.delete(ref));
     await batch.commit();
   }
+  // User deleted the page: drop matching row_records copies only.
+  mirrorDeleteRowsForPage(pageId);
 }
 
 export async function duplicatePage(workspaceId: string, page: WorkspacePage, newOrder: number) {
@@ -500,6 +510,7 @@ export async function addRow(
   const id = generateId("row");
   const row: PageRow = { id, pageId, cells, order, createdAt: Date.now(), updatedAt: Date.now() };
   await setDoc(paths.row(workspaceId, pageId, id), row);
+  mirrorUpsertRow(workspaceId, pageId, null, row);
   return row;
 }
 
@@ -524,6 +535,7 @@ export async function updateRowCell(ctx: UpdateCellContext) {
     { cells: { [ctx.field]: ctx.newValue }, updatedAt: Date.now() },
     { merge: true }
   );
+  mirrorPatchRowCells(ctx.rowId, ctx.field, ctx.newValue);
   if (ctx.oldValue !== ctx.newValue) {
     await logChange({
       workspaceId: ctx.workspaceId,
@@ -553,6 +565,7 @@ export async function updateRowCellsBulk(
     { cells: patch, updatedAt: Date.now() },
     { merge: true }
   );
+  mirrorPatchRowCellsBulk(rowId, patch);
 }
 
 export async function updateRowHeight(
@@ -568,18 +581,22 @@ export async function updateRowHeight(
 export async function deleteRow(workspaceId: string, pageId: string, rowId: string) {
   if (!db) return;
   await deleteDoc(paths.row(workspaceId, pageId, rowId));
+  mirrorDeleteRow(rowId);
 }
 
 export async function duplicateRow(workspaceId: string, pageId: string, row: PageRow, order: number) {
   if (!db) return;
   const id = generateId("row");
-  await setDoc(paths.row(workspaceId, pageId, id), {
+  const copy: PageRow = {
     ...row,
     id,
     order,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-  });
+  };
+  await setDoc(paths.row(workspaceId, pageId, id), copy);
+  mirrorUpsertRow(workspaceId, pageId, null, copy);
+  return copy;
 }
 
 export async function reorderRows(workspaceId: string, pageId: string, orderedRowIds: string[]) {
@@ -589,4 +606,5 @@ export async function reorderRows(workspaceId: string, pageId: string, orderedRo
     batch.set(paths.row(workspaceId, pageId, rowId), { order: index }, { merge: true });
   });
   await batch.commit();
+  mirrorReorderRows(orderedRowIds);
 }
