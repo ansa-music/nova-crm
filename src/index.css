@@ -519,3 +519,27 @@
     height: 100%;
   }
 }
+
+
+/* Calm HUD on phones / touch — scanlines, perspective grid, neon pulse,
+   pointer glow and magnetic hover make the UI feel frantic. Desktop HUD stays. */
+@media (max-width: 767px), (hover: none), (pointer: coarse) {
+  .dark body::before,
+  .dark body::after {
+    content: none !important;
+    display: none !important;
+    background: none !important;
+    transform: none !important;
+  }
+  .neon-pulse {
+    animation: none !important;
+    box-shadow: none !important;
+  }
+  .desk-pointer-glow {
+    display: none !important;
+  }
+  .desk-row:hover,
+  .desk-row:active {
+    transform: none;
+  }
+}

@@ -223,6 +223,28 @@ export async function setPageAccentColor(workspaceId: string, pageId: string, co
   );
 }
 
+/** Desk cover on the dashboard. Merge-only; never deletes the page document. Pass null to clear fields. */
+export async function setPageCover(
+  workspaceId: string,
+  pageId: string,
+  cover: { coverUrl: string; coverPath: string } | null
+) {
+  if (!db) return;
+  if (cover) {
+    await setDoc(
+      paths.page(workspaceId, pageId),
+      { coverUrl: cover.coverUrl, coverPath: cover.coverPath, updatedAt: Date.now() },
+      { merge: true }
+    );
+    return;
+  }
+  await setDoc(
+    paths.page(workspaceId, pageId),
+    { coverUrl: deleteField(), coverPath: deleteField(), updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
 export async function updatePageAppearance(
   workspaceId: string,
   pageId: string,

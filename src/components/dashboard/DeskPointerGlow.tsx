@@ -8,7 +8,13 @@ export function DeskPointerGlow() {
     const glow = glowRef.current;
     const host = glow?.parentElement;
     if (!glow || !host) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (
+      window.matchMedia(
+        "(prefers-reduced-motion: reduce), (hover: none), (pointer: coarse), (max-width: 767px)"
+      ).matches
+    ) {
+      return;
+    }
 
     function onMove(e: MouseEvent) {
       const node = glow;

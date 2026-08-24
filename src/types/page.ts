@@ -107,6 +107,12 @@ export interface WorkspacePage {
    * page's responsible person or the Owner.
    */
   accentColor?: string;
+  /**
+   * Optional dashboard cover photo for this desk (not a row attachment).
+   * Stored in Supabase `row-files` under `{workspaceId}/covers/{pageId}/…`.
+   */
+  coverUrl?: string;
+  coverPath?: string;
   columns: PageColumn[];
   createdAt: number;
   updatedAt: number;

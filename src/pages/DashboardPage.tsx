@@ -11,6 +11,7 @@ import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { StatusChart } from "@/components/dashboard/StatusChart";
 import { DeskChart, GoalVsDoneChart } from "@/components/dashboard/DeskChart";
 import { DeskPointerGlow } from "@/components/dashboard/DeskPointerGlow";
+import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -133,7 +134,8 @@ export default function DashboardPage() {
   const permissions = usePermissions();
   const { profile } = useAuth();
   const { layout: deskLayout } = useDeskLayout(profile?.uid);
-  const [studioPage, setStudioPage] = useState<WorkspacePage | null>(null);
+  const [studioPageId, setStudioPageId] = useState<string | null>(null);
+  const studioPage = pages.find((p) => p.id === studioPageId) ?? null;
   const [highlightedDeskId, setHighlightedDeskId] = useState<string | null>(null);
   const navigate = useNavigate();
 
@@ -320,7 +322,7 @@ export default function DashboardPage() {
           </p>
         </div>
         {isPersonalLanding && myDesk && (
-          <Button variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={() => setStudioPage(myDesk)}>
+          <Button variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={() => setStudioPageId(myDesk.id)}>
             <Settings2 className="h-3.5 w-3.5" />
             Настроить стол
           </Button>
@@ -431,7 +433,7 @@ export default function DashboardPage() {
                       {...p}
                       workspaceId={activeWorkspaceId ?? ""}
                       large
-                      onCustomize={permissions.canManagePage(p.page) ? () => setStudioPage(p.page) : undefined}
+                      onCustomize={permissions.canManagePage(p.page) ? () => setStudioPageId(p.page.id) : undefined}
                     />
                   </div>
                 ))}
@@ -444,7 +446,7 @@ export default function DashboardPage() {
           page={studioPage}
           open={Boolean(studioPage)}
           onOpenChange={(open) => {
-            if (!open) setStudioPage(null);
+            if (!open) setStudioPageId(null);
           }}
           uid={profile?.uid}
         />
@@ -504,6 +506,12 @@ export default function DashboardPage() {
                   onMouseEnter={() => setHighlightedDeskId(desk.page.id)}
                   onMouseLeave={() => setHighlightedDeskId(null)}
                 >
+                  <DeskCoverStrip
+                    coverUrl={desk.page.coverUrl}
+                    name={desk.page.name}
+                    compact
+                    className="-mx-4 -mt-4 mb-1 sm:-mx-5"
+                  />
                   <div className="flex min-w-0 items-center gap-3 sm:flex-1">
                     {empty ? (
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-[10px] text-muted-foreground">
@@ -547,6 +555,20 @@ export default function DashboardPage() {
                   <p className="hidden w-36 shrink-0 text-right text-[11px] text-muted-foreground sm:block">
                     {member?.lastActiveAt ? `заходил ${timeAgo(member.lastActiveAt)}` : " "}
                   </p>
+                  {permissions.canManagePage(desk.page) && (
+                    <button
+                      type="button"
+                      title="Настроить стол"
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-primary/30 text-muted-foreground hover:text-primary"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setStudioPageId(desk.page.id);
+                      }}
+                    >
+                      <Settings2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </Link>
               );
             })}
@@ -562,6 +584,14 @@ export default function DashboardPage() {
         </div>
       )}
 
+      <DeskStudioSheet
+        page={studioPage}
+        open={Boolean(studioPage)}
+        onOpenChange={(open) => {
+          if (!open) setStudioPageId(null);
+        }}
+        uid={profile?.uid}
+      />
     </div>
   );
 }
@@ -679,6 +709,7 @@ function MyProgressCard({
 
   return (
     <Card className="hud-frame lift-card overflow-hidden border-primary/35 bg-card/92">
+      <DeskCoverStrip coverUrl={page.coverUrl} name={page.name} />
       <CardContent className={large ? "p-6" : "p-4"}>
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">

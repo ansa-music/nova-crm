@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Loader2, Palette } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ImagePlus, Loader2, Palette, Trash2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,8 @@ import {
   setPageMonthlyGoal,
   updatePageAppearance,
 } from "@/services/pageService";
+import { removeDeskCover, uploadDeskCover } from "@/services/deskCoverService";
+import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { useDeskLayout } from "@/hooks/useDeskLayout";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { PageIconName, WorkspacePage } from "@/types";
@@ -36,6 +38,9 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
   const [accentColor, setAccentColor] = useState<string | undefined>(undefined);
   const [goalInput, setGoalInput] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [coverBusy, setCoverBusy] = useState(false);
+  const [coverDrag, setCoverDrag] = useState(false);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!page || !open) return;
@@ -78,6 +83,32 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
       toast.error(error instanceof Error ? error.message : "Не удалось сохранить стол");
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function applyCoverFile(file: File | undefined) {
+    if (!page || !canEdit || !file || coverBusy) return;
+    setCoverBusy(true);
+    try {
+      await uploadDeskCover(page.workspaceId, page.id, file, page.coverPath);
+      toast.success("Обложка стола обновлена");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось загрузить обложку");
+    } finally {
+      setCoverBusy(false);
+    }
+  }
+
+  async function clearCover() {
+    if (!page || !canEdit || coverBusy) return;
+    setCoverBusy(true);
+    try {
+      await removeDeskCover(page.workspaceId, page.id, page.coverPath);
+      toast.success("Обложка убрана");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось убрать обложку");
+    } finally {
+      setCoverBusy(false);
     }
   }
 
@@ -181,6 +212,70 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
               >
                 Дело
               </span>
+            </div>
+          </section>
+
+          <section className="flex flex-col gap-3 border-t border-border pt-6">
+            <div>
+              <p className="text-sm font-medium">Обложка стола</p>
+              <p className="text-xs text-muted-foreground">
+                Фото на домашнем экране. Это оформление стола, не файлы заказа.
+              </p>
+            </div>
+            <div
+              className={cn(
+                "overflow-hidden rounded-lg border border-primary/35 bg-card/80",
+                coverDrag && canEdit && "ring-1 ring-primary"
+              )}
+              onDragOver={(e) => {
+                if (!canEdit) return;
+                e.preventDefault();
+                setCoverDrag(true);
+              }}
+              onDragLeave={() => setCoverDrag(false)}
+              onDrop={(e) => {
+                if (!canEdit) return;
+                e.preventDefault();
+                setCoverDrag(false);
+                void applyCoverFile(e.dataTransfer.files?.[0]);
+              }}
+            >
+              <DeskCoverStrip coverUrl={page.coverUrl} name={name.trim() || page.name} />
+              <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
+                <button
+                  type="button"
+                  disabled={!canEdit || coverBusy}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/40 px-2.5 text-[12px] text-primary hover:bg-primary/10 disabled:opacity-50"
+                  onClick={() => coverInputRef.current?.click()}
+                >
+                  {coverBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+                  {page.coverUrl ? "Заменить" : "Загрузить"}
+                </button>
+                {page.coverUrl ? (
+                  <button
+                    type="button"
+                    disabled={!canEdit || coverBusy}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[12px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+                    onClick={() => void clearCover()}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Убрать
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground">jpeg / png / webp, до 10 МБ. Можно перетащить сюда.</span>
+                )}
+                <input
+                  ref={coverInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    void applyCoverFile(file);
+                  }}
+                />
+              </div>
             </div>
           </section>
 

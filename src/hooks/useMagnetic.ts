@@ -1,14 +1,21 @@
 import { useEffect, useRef } from "react";
 import { deskEase, gsap } from "@/lib/gsap";
 
-/** Gentle magnetic pull on chrome buttons. Skips prefers-reduced-motion. */
+function skipMagneticMotion() {
+  if (typeof window === "undefined") return true;
+  return window.matchMedia(
+    "(prefers-reduced-motion: reduce), (hover: none), (pointer: coarse), (max-width: 767px)"
+  ).matches;
+}
+
+/** Gentle magnetic pull on chrome buttons. Skips reduced-motion, phones, and touch. */
 export function useMagnetic<T extends HTMLElement = HTMLElement>() {
   const ref = useRef<T>(null);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (skipMagneticMotion()) return;
 
     function onMove(e: globalThis.MouseEvent) {
       const node = el as T;
