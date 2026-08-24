@@ -1,9 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowUpRight,
   Briefcase,
-  CalendarDays,
   ClipboardCheck,
   Download,
   Pencil,
@@ -13,6 +10,7 @@ import {
   UserCog,
   Wallet,
 } from "lucide-react";
+import { deskEase, gsap, useGSAP } from "@/lib/gsap";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -201,6 +199,47 @@ export default function DashboardPage() {
   // permission-denied on their very first Dashboard load.
   const { entries: historyEntries } = useHistoryLog(permissions.canViewHistory ? activeWorkspaceId : null);
 
+
+  const openClientCount = useMemo(() => {
+    if (!statusColumn) return 0;
+    return clientRows.filter((r) => {
+      const raw = String(r.cells[statusColumn.key] ?? "");
+      const label = statusOptions.find((o) => o.value === raw)?.label ?? raw;
+      return !label.toLowerCase().includes("готов");
+    }).length;
+  }, [clientRows, statusColumn, statusOptions]);
+
+  const attentionItems = useMemo(() => {
+    const items: { label: string; detail: string; href: string }[] = [];
+    myProgress.forEach((p) => {
+      if (p.grandTotal > 0 && p.percent < 100) {
+        items.push({
+          label: p.page.name,
+          detail: `${p.percent}% готово · ещё ${formatCurrency(p.grandTotal - p.doneTotal)}`,
+          href: `/page/${p.page.id}`,
+        });
+      }
+    });
+    if (clientsPage && openClientCount > 0) {
+      items.push({
+        label: clientsPage.name,
+        detail: `${openClientCount} записей ещё не в «Готово»`,
+        href: `/page/${clientsPage.id}`,
+      });
+    }
+    return items.slice(0, 5);
+  }, [myProgress, clientsPage, openClientCount]);
+
+  const deskRef = useRef<HTMLDivElement>(null);
+  useGSAP(
+    () => {
+      const nodes = deskRef.current?.querySelectorAll(".desk-metric, .desk-attention");
+      if (!nodes?.length) return;
+      gsap.fromTo(nodes, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.32, stagger: 0.05, ease: deskEase });
+    },
+    { scope: deskRef, dependencies: [isLoadingWorkspaceData] }
+  );
+
   if (isLoadingWorkspaceData) {
     return (
       <div className="p-6">
@@ -214,99 +253,133 @@ export default function DashboardPage() {
     );
   }
 
-  const heroGreeting = (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
-    >
+
+  const dateLine = formatDate(Date.now(), "d MMMM");
+  const name = profile ? profile.nickname || profile.name : "";
+
+  const greeting = (
+    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <p className="eyebrow mb-2 text-primary">{isPersonalLanding ? "Моё рабочее пространство" : "Рабочее пространство"}</p>
-        <h1 className="display text-[1.85rem] sm:text-[2rem]">
-          С возвращением{profile ? `, ${profile.nickname || profile.name}` : ""}
+        <p className="eyebrow mb-2 text-primary">Сегодня · {dateLine}</p>
+        <h1 className="display text-[1.9rem] leading-[1.15] sm:text-[2.15rem]">
+          {name ? `Добрый день, ${name}` : "Добрый день"}
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
           {isPersonalLanding
-            ? `Ваш прогресс на ${formatDate(Date.now(), "d MMMM")}`
-            : `Сводка по команде и продажам на ${formatDate(Date.now(), "d MMMM")}`}
+            ? "Стол на сегодня: ваш прогресс и то, что ещё требует внимания."
+            : "Стол на сегодня — не виджеты, а то, что требует внимания, и как движется работа."}
         </p>
       </div>
-      {!isPersonalLanding && (
-        <div className="flex items-center gap-2">
-          {permissions.canManageWorkspace && (
-            <DashboardSourcePicker
-              workspaceId={activeWorkspaceId ?? ""}
-              pages={visiblePages}
-              clientsPageId={activeWorkspace?.dashboardClientsPageId}
-              projectsPageId={activeWorkspace?.dashboardProjectsPageId}
-            />
-          )}
-          <Button variant="outline" className="w-fit gap-2">
-            <CalendarDays className="h-4 w-4" /> Сегодня
-            <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
-          </Button>
-        </div>
+      {!isPersonalLanding && permissions.canManageWorkspace && (
+        <DashboardSourcePicker
+          workspaceId={activeWorkspaceId ?? ""}
+          pages={visiblePages}
+          clientsPageId={activeWorkspace?.dashboardClientsPageId}
+          projectsPageId={activeWorkspace?.dashboardProjectsPageId}
+        />
       )}
-    </motion.div>
+    </div>
   );
 
-  // ---- Manager (and below): personal landing only — their own page(s),
-  // no company-wide numbers they don't have access to anyway. ----
   if (isPersonalLanding) {
     return (
-      <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
-        {heroGreeting}
-
+      <div ref={deskRef} className="mx-auto max-w-5xl p-4 sm:p-6 lg:p-8">
+        {greeting}
         {myProgress.length === 0 ? (
-          <Card className="p-10 text-center">
-            <p className="eyebrow mb-3 text-primary">Прогресс</p>
-            <p className="text-[15px] font-medium tracking-[-0.02em]">Пока нет страниц в ответственности</p>
-            <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
+          <div className="desk-cluster px-8 py-16 text-center">
+            <p className="eyebrow mb-3 text-primary">Стол</p>
+            <p className="display text-[1.4rem]">Пока нет страниц в ответственности</p>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
               Как только вас назначат Ответственным, здесь появится личный прогресс.
             </p>
-          </Card>
+          </div>
         ) : (
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            <div className="flex flex-col gap-4 lg:col-span-2">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
+            <div className="flex flex-col gap-4 lg:col-span-3">
+              {attentionItems.length > 0 && (
+                <div className="desk-cluster desk-attention p-5">
+                  <p className="eyebrow mb-3 text-primary">Что требует внимания</p>
+                  <div className="flex flex-col">
+                    {attentionItems.map((item) => (
+                      <Link
+                        key={item.href + item.detail}
+                        to={item.href}
+                        className="flex items-baseline justify-between gap-3 border-t border-border/60 py-2.5 first:border-t-0 first:pt-0"
+                      >
+                        <span className="truncate text-sm font-medium">{item.label}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">{item.detail}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
               {myProgress.map((p) => (
                 <MyProgressCard key={p.page.id} {...p} workspaceId={activeWorkspaceId ?? ""} large />
               ))}
             </div>
-            <LeaderboardWidget entries={leaderboardEntries} members={members} myUid={profile?.uid} />
+            <div className="lg:col-span-2">
+              <LeaderboardWidget entries={leaderboardEntries} members={members} myUid={profile?.uid} />
+            </div>
           </div>
         )}
       </div>
     );
   }
 
-  // ---- Owner/Admin: full company-wide dashboard ----
   return (
-    <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
-      {heroGreeting}
+    <div ref={deskRef} className="mx-auto max-w-6xl p-4 sm:p-6 lg:p-8">
+      {greeting}
 
-      {myProgress.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-          className="mb-6"
-        >
-          <p className="eyebrow mb-3 flex items-center gap-1.5 text-primary">
-            <ClipboardCheck className="h-3.5 w-3.5" /> Мой прогресс
-          </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {myProgress.map((p) => (
-              <MyProgressCard key={p.page.id} {...p} workspaceId={activeWorkspaceId ?? ""} />
-            ))}
+      <div className="desk-cluster mb-6">
+        <div className="grid grid-cols-2 divide-x divide-border/60 lg:grid-cols-4">
+          <StatCard label="Клиенты" value={String(clientRows.length)} animatedValue={clientRows.length} formatAnimatedValue={(n) => String(Math.round(n))} icon={Users} color="248 79% 62%" />
+          <StatCard label="Доход" value={formatCurrency(totalRevenue)} animatedValue={totalRevenue} formatAnimatedValue={(n) => formatCurrency(n)} icon={Wallet} color="158 64% 40%" />
+          <StatCard label="Проекты" value={String(projectRows.length)} animatedValue={projectRows.length} formatAnimatedValue={(n) => String(Math.round(n))} icon={Briefcase} color="275 72% 57%" />
+          <StatCard label="Команда" value={String(activeEmployeesCount)} animatedValue={activeEmployeesCount} formatAnimatedValue={(n) => String(Math.round(n))} icon={UserCog} color="196 82% 46%" />
+        </div>
+        <div className="grid grid-cols-1 divide-y divide-border/60 border-t border-border/60 lg:grid-cols-5 lg:divide-x lg:divide-y-0">
+          <div className="desk-attention p-5 lg:col-span-3">
+            <p className="eyebrow mb-3 text-primary">Что требует внимания</p>
+            {attentionItems.length === 0 ? (
+              <p className="text-sm text-muted-foreground">На столе спокойно — открытых хвостов нет.</p>
+            ) : (
+              <div className="flex flex-col">
+                {attentionItems.map((item) => (
+                  <Link
+                    key={item.href + item.detail}
+                    to={item.href}
+                    className="flex items-baseline justify-between gap-3 border-t border-border/50 py-2.5 first:border-t-0 first:pt-0 hover:text-primary"
+                  >
+                    <span className="truncate text-sm font-medium">{item.label}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{item.detail}</span>
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
-        </motion.div>
-      )}
-
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Клиенты" value={String(clientRows.length)} animatedValue={clientRows.length} formatAnimatedValue={(n) => String(Math.round(n))} icon={Users} color="248 79% 62%" delay={0} />
-        <StatCard label="Доход" value={formatCurrency(totalRevenue)} animatedValue={totalRevenue} formatAnimatedValue={(n) => formatCurrency(n)} icon={Wallet} color="158 64% 40%" delay={0.05} />
-        <StatCard label="Проекты" value={String(projectRows.length)} animatedValue={projectRows.length} formatAnimatedValue={(n) => String(Math.round(n))} icon={Briefcase} color="275 72% 57%" delay={0.1} />
-        <StatCard label="Сотрудники" value={String(activeEmployeesCount)} animatedValue={activeEmployeesCount} formatAnimatedValue={(n) => String(Math.round(n))} icon={UserCog} color="196 82% 46%" delay={0.15} />
+          <div className="p-5 lg:col-span-2">
+            <p className="eyebrow mb-3 flex items-center gap-1.5 text-primary">
+              <ClipboardCheck className="h-3.5 w-3.5" /> Прогресс
+            </p>
+            {myProgress.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Нет страниц в вашей ответственности.</p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {myProgress.map((p) => (
+                  <Link key={p.page.id} to={`/page/${p.page.id}`} className="block">
+                    <div className="mb-1 flex items-baseline justify-between gap-2">
+                      <span className="truncate text-sm font-medium">{p.page.name}</span>
+                      <span className="font-mono text-[11px] tabular text-muted-foreground">{p.percent}%</span>
+                    </div>
+                    <div className="h-px overflow-hidden bg-muted">
+                      <div className="h-full bg-success" style={{ width: `${Math.min(100, p.percent)}%` }} />
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -434,7 +507,7 @@ function MyProgressCard({
   }
 
   return (
-    <Card className="overflow-hidden bg-card/80">
+    <Card className="overflow-hidden border-border/70 bg-card/70">
       <CardContent className={large ? "p-6" : "p-4"}>
         <div className="mb-3 flex items-center justify-between">
           <Link to={`/page/${page.id}`} className={large ? "truncate text-lg font-medium hover:text-primary" : "truncate text-sm font-medium hover:text-primary"}>

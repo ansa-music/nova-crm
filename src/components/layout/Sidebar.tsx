@@ -54,13 +54,33 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
   return (
     <div
       className={cn(
-        "relative flex h-full flex-col gap-3 border-r border-sidebar-border bg-sidebar px-2 py-3 text-sidebar-foreground",
-        collapsed ? "w-[64px] items-center" : "w-[232px]"
+        "relative flex h-full flex-col gap-2 border-r border-sidebar-border bg-sidebar px-1.5 py-2.5 text-sidebar-foreground",
+        collapsed ? "w-[56px] items-center" : "w-[216px]"
       )}
     >
       <WorkspaceSwitcher collapsed={collapsed} />
 
-      <nav className="flex flex-1 flex-col gap-4 overflow-y-auto scrollbar-thin">
+      {!collapsed ? (
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event("nova:command-palette"))}
+          className="flex h-8 items-center gap-2 rounded-md border border-sidebar-border/80 bg-background/40 px-2 text-[12px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+        >
+          <span className="flex-1 truncate text-left">Найти или перейти…</span>
+          <kbd className="rounded border border-border px-1 py-px font-mono text-[9px] tracking-wide">Ctrl K</kbd>
+        </button>
+      ) : (
+        <button
+          type="button"
+          title="Командная строка (Ctrl K)"
+          onClick={() => window.dispatchEvent(new Event("nova:command-palette"))}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+        >
+          <span className="font-mono text-[10px]">K</span>
+        </button>
+      )}
+
+      <nav className="flex flex-1 flex-col gap-3 overflow-y-auto scrollbar-thin">
         <div className="flex flex-col gap-0.5">
           {collapsed ? (
             <Tooltip>
@@ -218,7 +238,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
         <div className="flex flex-col gap-0.5">
           {!collapsed && (
             <div className="flex items-center justify-between px-2 pb-1">
-              <span className="eyebrow px-2">Страницы</span>
+              <span className="eyebrow px-2">Пространства</span>
               {permissions.canCreatePages && (
                 <button
                   onClick={() => setCreatePageOpen(true)}

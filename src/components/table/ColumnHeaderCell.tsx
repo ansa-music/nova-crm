@@ -95,8 +95,8 @@ export function ColumnHeaderCell({
             opacity: isDragging ? 0.6 : 1,
           }}
           className={cn(
-            "group relative border-b border-r border-border bg-muted/50 px-1 text-left font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground backdrop-blur-sm",
-            stickyLeft !== undefined && "sticky z-20 bg-muted"
+            "group relative border-b border-r border-border/50 bg-background/90 px-1 text-left font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground backdrop-blur-md",
+            stickyLeft !== undefined && "sticky z-20 bg-background/95"
           )}
         >
           <div className="flex h-9 items-center gap-1">

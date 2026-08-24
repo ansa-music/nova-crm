@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { motion } from "framer-motion";
+import { deskEase, gsap, useGSAP } from "@/lib/gsap";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -93,19 +93,20 @@ export function LoginForm() {
     }
   }
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  useGSAP(() => {
+    if (!rootRef.current) return;
+    gsap.fromTo(rootRef.current, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.36, ease: deskEase });
+  }, { scope: rootRef });
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-      className="w-full"
-    >
+    <div ref={rootRef} className="w-full">
       <h1 className="display text-[1.85rem] leading-[1.2] sm:text-[2rem]">
         {mode === "login" ? "Вход в архив" : "Создать аккаунт"}
       </h1>
       <p className="mt-3 text-[15px] leading-6 text-foreground/70">
         {mode === "login"
-          ? "Войдите, чтобы продолжить работу в Nova CRM"
+          ? "Вернитесь к столу — клиенты, сделки и команда в одном архиве"
           : "Начните управлять командой и клиентами за пару минут"}
       </p>
 
@@ -249,6 +250,6 @@ export function LoginForm() {
           {mode === "login" ? "Создать аккаунт" : "Войти"}
         </button>
       </p>
-    </motion.div>
+    </div>
   );
 }

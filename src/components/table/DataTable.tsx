@@ -1273,11 +1273,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       ) : (
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <div ref={containerRef} tabIndex={0} className="relative flex-1 overflow-auto bg-background outline-none">
-          <table className="border-collapse" style={{ tableLayout: "fixed" }}>
+          <table className="table-instrument border-collapse" style={{ tableLayout: "fixed" }}>
             <thead className="sticky top-0 z-20">
               <tr>
                 <th
-                  className="sticky left-0 top-0 z-30 border-b border-r border-border bg-muted/80"
+                  className="sticky left-0 top-0 z-30 border-b border-r border-border/50 bg-background/90 backdrop-blur-md"
                   style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}
                 />
                 <SortableContext items={displayColumns.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
@@ -1362,9 +1362,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       <td colSpan={columns.length + 1}>
                         {rows.length === 0 ? (
                           <EmptyState
-                            eyebrow="Таблица"
-                            title="Здесь пока пусто"
-                            description="Добавьте первую строку, чтобы начать работу."
+                            eyebrow="Новая таблица"
+                            title="Первая запись ещё впереди"
+                            description="Строка — это человек или сделка. Добавьте первую, и стол оживёт."
                             action={
                               canEdit ? (
                                 <Button size="sm" className="gap-1.5" onClick={handleAddRow}>
@@ -1443,15 +1443,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       )}
 
       {financialSummary && (
-        <div className="flex items-center gap-6 border-t border-border bg-muted/30 px-4 py-2.5 text-sm">
+        <div className="flex items-center gap-8 border-t border-border/70 bg-background px-5 py-2.5 text-sm">
           <div>
-            <span className="mr-2 text-xs text-muted-foreground">Общий:</span>
-            <span className="font-semibold">{formatCurrency(financialSummary.grandTotal)}</span>
+            <span className="eyebrow mr-2">Общий</span>
+            <span className="display text-lg tabular">{formatCurrency(financialSummary.grandTotal)}</span>
           </div>
           {financialSummary.statusCol && (
-            <div className="border-l border-border pl-6">
-              <span className="mr-2 text-xs text-emerald-500">Сумма (Готово):</span>
-              <span className="font-semibold text-emerald-500">{formatCurrency(financialSummary.doneTotal)}</span>
+            <div className="border-l border-border/60 pl-8">
+              <span className="eyebrow mr-2 text-success">Готово</span>
+              <span className="display text-lg tabular text-success">{formatCurrency(financialSummary.doneTotal)}</span>
             </div>
           )}
         </div>

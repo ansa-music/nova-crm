@@ -7,10 +7,10 @@ interface RevenueChartProps {
 
 export function RevenueChart({ data }: RevenueChartProps) {
   return (
-    <Card className="bg-card/80">
+    <Card className="border-border/70 bg-card/70">
       <CardHeader className="pb-2">
         <p className="eyebrow">Динамика</p>
-        <CardTitle>Доход по месяцам</CardTitle>
+        <CardTitle className="text-base font-medium">Доход по месяцам</CardTitle>
       </CardHeader>
       <CardContent className="h-72 pl-0">
         <ResponsiveContainer width="100%" height="100%">

@@ -15,11 +15,12 @@ export function EmptyState({
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col items-center gap-3 px-6 py-16 text-center", className)}>
+    <div className={cn("flex flex-col items-center gap-3 px-8 py-20 text-center", className)}>
+      <div className="mb-1 h-px w-10 bg-primary/70" />
       {eyebrow && <p className="eyebrow text-primary">{eyebrow}</p>}
-      <p className="text-[15px] font-medium tracking-[-0.02em]">{title}</p>
-      {description && <p className="max-w-sm text-sm text-muted-foreground">{description}</p>}
-      {action && <div className="mt-1">{action}</div>}
+      <p className="display text-[1.35rem] tracking-[-0.03em]">{title}</p>
+      {description && <p className="max-w-sm text-sm leading-6 text-muted-foreground">{description}</p>}
+      {action && <div className="mt-2">{action}</div>}
     </div>
   );
 }

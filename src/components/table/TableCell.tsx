@@ -80,7 +80,7 @@ export function TableCell({
   return (
     <td
       className={cn(
-        "relative select-none border-b border-r border-border/70 p-0 align-middle transition-colors",
+        "relative select-none border-b border-r border-border/45 p-0 align-middle transition-colors",
         stickyLeft !== undefined && "sticky z-[15] bg-background",
         isInRange && !isEditing && "bg-primary/[0.07]",
         isActive && !isEditing && "outline outline-2 outline-primary -outline-offset-1 z-10"

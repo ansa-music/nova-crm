@@ -9,10 +9,10 @@ interface StatusChartProps {
 export function StatusChart({ title, data }: StatusChartProps) {
   const hasData = data.some((d) => d.value > 0);
   return (
-    <Card className="bg-card/80">
+    <Card className="border-border/70 bg-card/70">
       <CardHeader className="pb-2">
         <p className="eyebrow">Воронка</p>
-        <CardTitle>{title}</CardTitle>
+        <CardTitle className="text-base font-medium">{title}</CardTitle>
       </CardHeader>
       <CardContent className="h-72">
         {hasData ? (

@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import { History, Pencil, Plus, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { timeAgo } from "@/utils/date";
@@ -16,20 +15,17 @@ export function RecentActivity({ entries }: { entries: HistoryEntry[] }) {
     <Card className="bg-card/80">
       <CardHeader className="pb-2">
         <p className="eyebrow">Журнал</p>
-        <CardTitle>Последние изменения</CardTitle>
+        <CardTitle className="text-base font-medium">Недавняя активность</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-1">
         {entries.length === 0 && (
           <p className="py-6 text-center text-sm text-muted-foreground">Изменений пока нет</p>
         )}
-        {entries.slice(0, 8).map((entry, i) => {
+        {entries.slice(0, 5).map((entry) => {
           const Icon = ACTION_ICON[entry.action];
           return (
-            <motion.div
+            <div
               key={entry.id}
-              initial={{ opacity: 0, x: -8 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.03, duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
               className="flex items-start gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent/40"
             >
               <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
@@ -46,7 +42,7 @@ export function RecentActivity({ entries }: { entries: HistoryEntry[] }) {
                 </p>
                 <p className="text-xs text-muted-foreground">{timeAgo(entry.timestamp)}</p>
               </div>
-            </motion.div>
+            </div>
           );
         })}
       </CardContent>
