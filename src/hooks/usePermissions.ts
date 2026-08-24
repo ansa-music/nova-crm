@@ -112,12 +112,19 @@ export function usePermissions() {
       /** Owner/Admin create pages freely; a plain Manager is limited to one owned page (see managerPageQuota.ts). */
       hasElevatedCreatePermission: isResolved && (effectiveRole === "owner" || effectiveRole === "admin"),
 
-      canAccessPage: (page: WorkspacePage) => isResolved && canAccessPage(page, effectiveRole, uid),
+      /** Workspace doc owner — true even if the members roster has a stale invite stub. */
+      isWorkspaceOwner: isOwnerOfWorkspace,
+
+      canAccessPage: (page: WorkspacePage) => {
+        if (!isResolved || !uid) return false;
+        if (isOwnerOfWorkspace || isResponsibleForPage(page, uid)) return true;
+        return canAccessPage(page, effectiveRole, uid, activeWorkspace?.ownerId);
+      },
       canEditPageData: (page: WorkspacePage) => isResolved && canEditPageData(page, effectiveRole, uid),
-      isResponsibleForPage: (page: WorkspacePage) => isResolved && isResponsibleForPage(page, uid),
+      isResponsibleForPage: (page: WorkspacePage) => Boolean(uid) && isResponsibleForPage(page, uid),
       canManagePage: (page: WorkspacePage) => isResolved && canManagePage(page, effectiveRole, uid),
       canDeletePage: (page: WorkspacePage) => isResolved && canDeletePage(page, effectiveRole, uid),
     }),
-    [effectiveRole, realRole, activeRole, isSimulating, uid, isResolved, hasMembership]
+    [effectiveRole, realRole, activeRole, isSimulating, uid, isResolved, hasMembership, isOwnerOfWorkspace, activeWorkspace?.ownerId]
   );
 }

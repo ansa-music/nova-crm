@@ -80,8 +80,13 @@ export function resolvedCoverUrl(
   return DESK_FALLBACK_COVER;
 }
 
-export function findMyDesk(uid: string | null | undefined, groups: PersonDeskGroup[], studioPages: WorkspacePage[]) {
+export function findMyDesk(uid: string | null | undefined, groups: PersonDeskGroup[], pages: WorkspacePage[]) {
   if (!uid) return null;
-  const mine = groups.find((g) => g.uid === uid) ?? null;
-  return mine?.pages[0] ?? studioPages.find((p) => p.responsibleUserId === uid) ?? null;
+  // Prefer the page this person is responsible for, even if canAccessPage
+  // filtered it out of studio groups (hidden desk / stale ACL).
+  return (
+    pages.find((p) => p.responsibleUserId === uid) ??
+    groups.find((g) => g.uid === uid)?.pages[0] ??
+    null
+  );
 }

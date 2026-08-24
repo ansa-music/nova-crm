@@ -34,8 +34,9 @@ export default function DesksPage() {
     const hiddenPages: WorkspacePage[] = [];
     for (const page of pages) {
       const own = Boolean(profile?.uid && page.responsibleUserId === profile.uid);
-      const canOpen = permissions.canAccessPage(page);
-      if (canOpen && (!page.hiddenByResponsible || own)) openablePages.push(page);
+      const ownerUser = Boolean(permissions.isWorkspaceOwner || permissions.realRole === "owner");
+      const canOpen = own || ownerUser || permissions.canAccessPage(page);
+      if (canOpen && (!page.hiddenByResponsible || own || ownerUser)) openablePages.push(page);
       else if (page.hiddenByResponsible || !canOpen) hiddenPages.push(page);
     }
     return { openable: openablePages, hidden: hiddenPages };

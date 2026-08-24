@@ -58,7 +58,11 @@ export default function DynamicTablePage() {
   const appliedDefaultForPageRef = useRef<string | null>(null);
 
   const page = pages.find((p) => p.id === pageId);
-  const hasAccess = permissions.isResolved && Boolean(page && permissions.canAccessPage(page));
+  const isOwnDesk = Boolean(page && permissions.uid && page.responsibleUserId === permissions.uid);
+  const isWorkspaceOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  // Responsible person and workspace Owner must never hit the hidden-desk lock.
+  const hasAccess =
+    permissions.isResolved && Boolean(page && (isOwnDesk || isWorkspaceOwner || permissions.canAccessPage(page)));
   const { subPages } = useSubPages(activeWorkspaceId, hasAccess && page ? page.id : null);
   const activeSubPage = subPages.find((s) => s.id === activeSubPageId) ?? null;
   const tabScopeReady = tabsReady && appliedDefaultForPageRef.current === pageId;
@@ -171,9 +175,9 @@ export default function DynamicTablePage() {
     );
   }
 
-  // 3. Resolved and a member, but the page genuinely isn't in our visible
-  //    set. For a non-owner the pages query is filtered by allowedUsers, so
-  //    "not in the list" and "no access" are the same fact.
+  // 3. Resolved and a member, but this page id is not in the workspace list.
+  //    Pages are listed for every member (covers); missing here means deleted
+  //    or a load miss — not "hidden desk". Own desk is found by id above.
   if (!page) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
@@ -196,7 +200,7 @@ export default function DynamicTablePage() {
         <p className="max-w-sm text-sm text-muted-foreground">
           «{page.name}» можно смотреть после разрешения ответственного. Данные листа не открываются.
         </p>
-        {toUid ? (
+        {toUid && toUid !== permissions.uid ? (
           <div className="w-full max-w-xs">
             <RequestDeskViewButton
               page={page}

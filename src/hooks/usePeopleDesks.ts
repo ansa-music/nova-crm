@@ -51,7 +51,7 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
     groups.find((g) => g.key === selectedPersonKey) ?? groups[0] ?? null;
 
   const ownerUid = members.find((m) => m.role === "owner")?.uid ?? null;
-  const myDesk = findMyDesk(profile?.uid, groups, studioPages);
+  const myDesk = findMyDesk(profile?.uid, groups, pages);
 
 
   return {

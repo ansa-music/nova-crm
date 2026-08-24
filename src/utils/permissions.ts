@@ -83,11 +83,22 @@ export function canSendNotifications(role: Role): boolean {
   return role === "owner";
 }
 
-/** Whether a given user (role + uid) may open a specific workspace page at all. */
-export function canAccessPage(page: WorkspacePage, role: Role, uid: string): boolean {
+/**
+ * Whether a given user may open a specific workspace page at all.
+ * Owner (role or workspace.ownerId) always. The responsible person always —
+ * hiddenByResponsible / view-requests must never lock them out of their own desk.
+ */
+export function canAccessPage(
+  page: WorkspacePage,
+  role: Role,
+  uid: string,
+  workspaceOwnerId?: string | null
+): boolean {
+  if (!uid) return false;
+  if (workspaceOwnerId && uid === workspaceOwnerId) return true;
   if (role === "owner") return true;
   if (isResponsibleForPage(page, uid)) return true;
-  return Boolean(uid && page.allowedUsers?.includes(uid));
+  return Boolean(page.allowedUsers?.includes(uid));
 }
 
 /**
@@ -104,7 +115,7 @@ export function canEditPageData(page: WorkspacePage, role: Role, uid: string): b
 }
 
 export function isResponsibleForPage(page: WorkspacePage, uid: string): boolean {
-  return Boolean(page.responsibleUserId) && page.responsibleUserId === uid;
+  return Boolean(uid) && page.responsibleUserId === uid;
 }
 
 /**

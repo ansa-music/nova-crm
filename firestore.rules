@@ -67,10 +67,11 @@ service cloud.firestore {
             && request.auth.uid in pageData.get('personalZoneAllowedUsers', []));
     }
 
-    // Owner sees/manages every page unconditionally. Anyone else needs their
-    // uid explicitly present in the page's allowedUsers list.
+    // Owner: every page. Responsible person: their own desk even if hidden
+    // or missing from allowedUsers. Everyone else: explicit allowedUsers grant.
     function canAccessPage(workspaceId, pageData) {
       return isOwner(workspaceId) ||
+        isResponsiblePage(workspaceId, pageData) ||
         (isMember(workspaceId) && request.auth.uid in pageData.get('allowedUsers', []));
     }
 

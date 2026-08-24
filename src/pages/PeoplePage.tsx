@@ -5,6 +5,7 @@ import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/hooks/useAuth";
 import { usePeopleDesks } from "@/hooks/usePeopleDesks";
 import { usePermissions } from "@/hooks/usePermissions";
 import { groupDeskSubtitle, personLabel } from "@/utils/peopleDesks";
@@ -13,6 +14,7 @@ import { cn } from "@/utils/cn";
 
 export default function PeoplePage() {
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const { peopleGroups, isLoadingWorkspaceData, selectPerson } = usePeopleDesks({ syncPersonSelection: true });
   const permissions = usePermissions();
   const [query, setQuery] = useState("");
@@ -60,7 +62,9 @@ export default function PeoplePage() {
       ) : (
         <div className="flex flex-col gap-2">
           {filtered.map((group) => {
-            const coverPage = group.pages.find((p) => permissions.canAccessPage(p)) ?? null;
+            const coverPage =
+              group.pages.find((p) => permissions.canAccessPage(p)) ??
+              (profile?.uid && group.uid === profile.uid ? group.pages[0] ?? null : null);
             const name = personLabel(group.member) || (group.uid ? "Стол" : "Без ответственного");
             const desk = groupDeskSubtitle(group);
             const role = group.member?.role ? ROLE_LABELS[group.member.role] : null;
