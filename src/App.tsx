@@ -11,6 +11,7 @@ import { useAuthBootstrap } from "@/hooks/useAuth";
 import { useWorkspaceListBootstrap } from "@/hooks/useWorkspace";
 import { useAppBootstrap } from "@/hooks/useAppBootstrap";
 import { wasGoogleRedirectPending } from "@/firebase/auth";
+import { joinPathAfterLogin, rememberJoinIntentFromPath } from "@/utils/joinIntent";
 
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
 const HomePage = lazy(() => import("@/pages/HomePage"));
@@ -43,6 +44,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
     // Only Firebase Auth (no currentUser) may send someone to /login.
     // permission-denied and membership false are NOT unauthenticated.
     if (wasGoogleRedirectPending()) return <AppBootScreen phase="auth" />;
+    rememberJoinIntentFromPath(location.pathname);
     return <Navigate to="/login" state={{ from: location.pathname + location.search }} replace />;
   }
   return <>{children}</>;
@@ -56,7 +58,7 @@ function RedirectIfAuthed({ children }: { children: React.ReactNode }) {
 
   if (isAuthenticated) {
     const from = (location.state as { from?: string } | null)?.from;
-    return <Navigate to={from && from !== "/login" ? from : "/"} replace />;
+    return <Navigate to={joinPathAfterLogin(from)} replace />;
   }
   return <>{children}</>;
 }
