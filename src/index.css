@@ -183,6 +183,13 @@
     @apply min-w-0 px-5 py-4;
   }
 
+  .desk-row {
+    @apply flex flex-wrap items-center gap-3 border-t border-border/60 px-5 py-3.5;
+  }
+  .desk-row:hover {
+    @apply bg-accent/25;
+  }
+
   .command-item {
     @apply flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors duration-200;
   }

@@ -1,15 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Briefcase,
-  ClipboardCheck,
-  Download,
-  Pencil,
-  Settings2,
-  Trophy,
-  Users,
-  UserCog,
-  Wallet,
-} from "lucide-react";
+import { ArrowRight, Download, Pencil, Settings2 } from "lucide-react";
 import { deskEase, gsap, useGSAP } from "@/lib/gsap";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { StatCard } from "@/components/dashboard/StatCard";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { StatusChart } from "@/components/dashboard/StatusChart";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
@@ -41,10 +30,58 @@ import { formatCurrency } from "@/utils/format";
 import { formatDate, timeAgo } from "@/utils/date";
 import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
 import { Link } from "react-router";
-import type { LeaderboardEntry, PageColumn, PageRow, WorkspacePage } from "@/types";
+import type { LeaderboardEntry, PageColumn, PageRow, StatusOption, SubPage, WorkspacePage } from "@/types";
 
 function cn(...classes: (string | boolean | undefined)[]) {
   return classes.filter(Boolean).join(" ");
+}
+
+function personLabel(member?: { name?: string; nickname?: string } | null) {
+  if (!member) return "";
+  return member.nickname || member.name || "";
+}
+
+interface PageProgress {
+  page: WorkspacePage;
+  doneTotal: number;
+  grandTotal: number;
+  percent: number;
+  rowCount: number;
+  openCount: number;
+  columns: PageColumn[];
+  rows: PageRow[];
+}
+
+function progressForPage(
+  page: WorkspacePage,
+  subPagesByPage: Record<string, SubPage[]>,
+  rowsBySubPage: Record<string, PageRow[]>,
+  rowsByPage: Record<string, PageRow[]>,
+  statusOptions: StatusOption[]
+): PageProgress {
+  const defaultSubPage = page.defaultSubPageId
+    ? subPagesByPage[page.id]?.find((s) => s.id === page.defaultSubPageId)
+    : undefined;
+  const columns = defaultSubPage ? defaultSubPage.columns : page.columns;
+  const rows = defaultSubPage ? rowsBySubPage[defaultSubPage.id] ?? [] : rowsByPage[page.id] ?? [];
+
+  const priceCol = columns.find((c) => c.type === "currency");
+  const statusCol = columns.find((c) => c.type === "status");
+  let grandTotal = 0;
+  let doneTotal = 0;
+  let openCount = 0;
+  for (const row of rows) {
+    const raw = Number(row.cells[priceCol?.key ?? "price"] ?? 0) || 0;
+    grandTotal += raw;
+    if (statusCol) {
+      const rawStatus = String(row.cells[statusCol.key] ?? "");
+      const label = statusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
+      if (label.toLowerCase().includes("готов")) doneTotal += raw;
+      else openCount += 1;
+    }
+  }
+  const percent = grandTotal > 0 ? Math.round((doneTotal / grandTotal) * 100) : 0;
+  return { page, doneTotal, grandTotal, percent, rowCount: rows.length, openCount, columns, rows };
 }
 
 export default function DashboardPage() {
@@ -52,10 +89,6 @@ export default function DashboardPage() {
   const permissions = usePermissions();
   const { profile } = useAuth();
 
-  // Only aggregate stats from pages the current viewer can actually open —
-  // Owner sees everything, everyone else only their allowed pages. Without
-  // this filter, a regular member's Dashboard would leak revenue/client
-  // counts pulled from pages they have no access to.
   const visiblePages = useMemo(
     () => pages.filter((p) => permissions.canAccessPage(p)),
     [pages, permissions]
@@ -63,89 +96,51 @@ export default function DashboardPage() {
 
   const clientsPage =
     visiblePages.find((p) => p.id === activeWorkspace?.dashboardClientsPageId) ??
-    // Falls back to the old name-guessing heuristic only until an Owner
-    // explicitly picks a page — see the "Таблица для дашборда" picker below.
     visiblePages.find((p) => p.name.toLowerCase().includes("клиент"));
   const projectsPage =
     visiblePages.find((p) => p.id === activeWorkspace?.dashboardProjectsPageId) ??
     visiblePages.find((p) => p.name.toLowerCase().includes("проект"));
 
-  // Pages where I'M the assigned "Ответственный" — these get their own
-  // personal "мой прогресс" card below, regardless of what they're named.
-  const myResponsiblePages = useMemo(
-    () => (profile ? visiblePages.filter((p) => isResponsibleForPage(p, profile.uid)) : []),
-    [visiblePages, profile]
-  );
-
-  // Manager (and Viewer, though they'd rarely have a page) get a personal
-  // landing instead of company-wide numbers they have no access to anyway —
-  // Owner/Admin keep the full picture.
   const isPersonalLanding = permissions.role !== "owner" && permissions.role !== "admin";
 
-  const rowsByPage = useMultiPageRows(
-    activeWorkspaceId,
-    [clientsPage?.id, projectsPage?.id, ...myResponsiblePages.map((p) => p.id)].filter(
-      (id): id is string => Boolean(id)
-    )
-  );
+  // Owner/admin check-in needs progress for EVERY visible desk, not only
+  // pages the current person runs. Personal landing still uses the same
+  // default-tab resolution (defaultSubPageId).
+  const progressPageIds = useMemo(() => visiblePages.map((p) => p.id), [visiblePages]);
+  const rowPageIds = useMemo(() => {
+    const ids = new Set(progressPageIds);
+    if (clientsPage?.id) ids.add(clientsPage.id);
+    if (projectsPage?.id) ids.add(projectsPage.id);
+    return Array.from(ids);
+  }, [progressPageIds, clientsPage?.id, projectsPage?.id]);
 
-  // Each manager's actual work usually lives inside a SPECIFIC tab (subpage)
-  // of their page — whichever one they've marked "открывается по умолчанию"
-  // (defaultSubPageId) — not in the page's own top-level "Основная" table.
-  // Reading only page.columns/rowsByPage[page.id] here made the dashboard
-  // show 0 for everyone whose real numbers live in a tab. Fetch each
-  // responsible page's subpage list so we can resolve that default tab's
-  // OWN columns/rows instead.
-  const subPagesByPage = useMultiPageSubPages(activeWorkspaceId, myResponsiblePages.map((p) => p.id));
+  const rowsByPage = useMultiPageRows(activeWorkspaceId, rowPageIds);
+  const subPagesByPage = useMultiPageSubPages(activeWorkspaceId, progressPageIds);
   const defaultSubPagePairs = useMemo(
     () =>
-      myResponsiblePages
+      visiblePages
         .filter((p) => p.defaultSubPageId)
         .map((p) => ({ pageId: p.id, subPageId: p.defaultSubPageId as string })),
-    [myResponsiblePages]
+    [visiblePages]
   );
   const rowsBySubPage = useMultiSubPageRows(activeWorkspaceId, defaultSubPagePairs);
 
   const clientRows = clientsPage ? rowsByPage[clientsPage.id] ?? [] : [];
-  const projectRows = projectsPage ? rowsByPage[projectsPage.id] ?? [] : [];
-
   const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
 
-  // Per-page "Готово" vs "Общий" breakdown for whatever pages I personally
-  // own as Ответственный — mirrors the same currency+status total logic the
-  // table itself uses (src/components/table/DataTable.tsx financialSummary),
-  // just recomputed per page here so each card is self-contained. Sources
-  // from the page's default tab (see above) when one is set, otherwise
-  // falls back to the page's own top-level table exactly as before.
-  const myProgress = useMemo(() => {
-    return myResponsiblePages.map((page) => {
-      const defaultSubPage = page.defaultSubPageId
-        ? subPagesByPage[page.id]?.find((s) => s.id === page.defaultSubPageId)
-        : undefined;
-      const columns = defaultSubPage ? defaultSubPage.columns : page.columns;
-      const rows = defaultSubPage ? rowsBySubPage[defaultSubPage.id] ?? [] : rowsByPage[page.id] ?? [];
+  const deskProgress = useMemo(
+    () =>
+      visiblePages.map((page) =>
+        progressForPage(page, subPagesByPage, rowsBySubPage, rowsByPage, statusOptions)
+      ),
+    [visiblePages, subPagesByPage, rowsBySubPage, rowsByPage, statusOptions]
+  );
 
-      const priceCol = columns.find((c) => c.type === "currency");
-      const statusCol = columns.find((c) => c.type === "status");
-      let grandTotal = 0;
-      let doneTotal = 0;
-      for (const row of rows) {
-        const raw = Number(row.cells[priceCol?.key ?? "price"] ?? 0) || 0;
-        grandTotal += raw;
-        if (statusCol) {
-          const rawStatus = String(row.cells[statusCol.key] ?? "");
-          const label = statusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
-          if (label.toLowerCase().includes("готов")) doneTotal += raw;
-        }
-      }
-      const percent = grandTotal > 0 ? Math.round((doneTotal / grandTotal) * 100) : 0;
-      return { page, doneTotal, grandTotal, percent, rowCount: rows.length, columns, rows };
-    });
-  }, [myResponsiblePages, rowsByPage, subPagesByPage, rowsBySubPage, statusOptions]);
+  const myProgress = useMemo(
+    () => (profile ? deskProgress.filter((p) => isResponsibleForPage(p.page, profile.uid)) : []),
+    [deskProgress, profile]
+  );
 
-  // Keep my own leaderboard entry (entries) fresh as a side effect of
-  // simply looking at my own numbers — see src/services/leaderboardService.ts
-  // for why there's no server-side job doing this instead.
   useEffect(() => {
     if (!activeWorkspaceId || !profile) return;
     myProgress.forEach(({ page, doneTotal, grandTotal, percent }) => {
@@ -167,13 +162,6 @@ export default function DashboardPage() {
 
   const clientAmountColumn = clientsPage?.columns.find((c) => c.type === "currency");
 
-  const totalRevenue = useMemo(() => {
-    if (!clientAmountColumn) return 0;
-    return clientRows.reduce((sum, row) => sum + (Number(row.cells[clientAmountColumn.key]) || 0), 0);
-  }, [clientRows, clientAmountColumn]);
-
-  const activeEmployeesCount = members.filter((m) => m.status === "active").length;
-
   const revenueByMonth = useMemo(() => {
     if (!clientAmountColumn) return [];
     const buckets = new Map<string, number>();
@@ -194,46 +182,36 @@ export default function DashboardPage() {
     }));
   }, [statusColumn, clientRows, statusOptions]);
 
-  // The history/audit log is Owner-only per firestore.rules — don't even
-  // subscribe for anyone else, or every non-owner would hit a guaranteed
-  // permission-denied on their very first Dashboard load.
   const { entries: historyEntries } = useHistoryLog(permissions.canViewHistory ? activeWorkspaceId : null);
-
-
-  const openClientCount = useMemo(() => {
-    if (!statusColumn) return 0;
-    return clientRows.filter((r) => {
-      const raw = String(r.cells[statusColumn.key] ?? "");
-      const label = statusOptions.find((o) => o.value === raw)?.label ?? raw;
-      return !label.toLowerCase().includes("готов");
-    }).length;
-  }, [clientRows, statusColumn, statusOptions]);
 
   const attentionItems = useMemo(() => {
     const items: { label: string; detail: string; href: string }[] = [];
-    myProgress.forEach((p) => {
-      if (p.grandTotal > 0 && p.percent < 100) {
-        items.push({
-          label: p.page.name,
-          detail: `${p.percent}% готово · ещё ${formatCurrency(p.grandTotal - p.doneTotal)}`,
-          href: `/page/${p.page.id}`,
-        });
-      }
-    });
-    if (clientsPage && openClientCount > 0) {
+    const source = isPersonalLanding ? myProgress : deskProgress;
+    source.forEach((p) => {
+      const unfinished = (p.grandTotal > 0 && p.percent < 100) || p.openCount > 0;
+      if (!unfinished) return;
+      const member = members.find((m) => m.uid === p.page.responsibleUserId);
+      const who = personLabel(member);
+      const remaining = p.grandTotal - p.doneTotal;
+      const detail =
+        p.grandTotal > 0 && p.percent < 100
+          ? `${p.percent}% готово · в деле ещё ${formatCurrency(remaining)}`
+          : p.openCount > 0
+            ? `${p.openCount} записей ещё в деле`
+            : "дело не закрыто";
       items.push({
-        label: clientsPage.name,
-        detail: `${openClientCount} записей ещё не в «Готово»`,
-        href: `/page/${clientsPage.id}`,
+        label: isPersonalLanding ? p.page.name : who ? `${who} · ${p.page.name}` : p.page.name,
+        detail,
+        href: `/page/${p.page.id}`,
       });
-    }
-    return items.slice(0, 5);
-  }, [myProgress, clientsPage, openClientCount]);
+    });
+    return items.slice(0, 6);
+  }, [deskProgress, myProgress, isPersonalLanding, members]);
 
   const deskRef = useRef<HTMLDivElement>(null);
   useGSAP(
     () => {
-      const nodes = deskRef.current?.querySelectorAll(".desk-metric, .desk-attention");
+      const nodes = deskRef.current?.querySelectorAll(".desk-row, .desk-attention, .desk-home");
       if (!nodes?.length) return;
       gsap.fromTo(nodes, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.32, stagger: 0.05, ease: deskEase });
     },
@@ -244,15 +222,14 @@ export default function DashboardPage() {
     return (
       <div className="p-6">
         <Skeleton className="mb-6 h-8 w-64" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="flex flex-col gap-3">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-28" />
+            <Skeleton key={i} className="h-16" />
           ))}
         </div>
       </div>
     );
   }
-
 
   const dateLine = formatDate(Date.now(), "d MMMM");
   const name = profile ? profile.nickname || profile.name : "";
@@ -260,14 +237,16 @@ export default function DashboardPage() {
   const greeting = (
     <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <p className="eyebrow mb-2 text-primary">Сегодня · {dateLine}</p>
+        <p className="eyebrow mb-2 text-primary">
+          {isPersonalLanding ? `Это твоё дело · ${dateLine}` : `Проверка столов · ${dateLine}`}
+        </p>
         <h1 className="display text-[1.9rem] leading-[1.15] sm:text-[2.15rem]">
-          {name ? `Добрый день, ${name}` : "Добрый день"}
+          {name ? (isPersonalLanding ? `Привет, ${name}` : `Добрый день, ${name}`) : isPersonalLanding ? "Привет" : "Добрый день"}
         </h1>
         <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
           {isPersonalLanding
-            ? "Стол на сегодня: ваш прогресс и то, что ещё требует внимания."
-            : "Стол на сегодня — не виджеты, а то, что требует внимания, и как движется работа."}
+            ? "Открой свой лист, поставь цель и смотри, как идёт дело — рядом с другими людьми на своих столах."
+            : "У каждого листа свой человек. Ты заходишь посмотреть, как идёт дело."}
         </p>
       </div>
       {!isPersonalLanding && permissions.canManageWorkspace && (
@@ -281,24 +260,41 @@ export default function DashboardPage() {
     </div>
   );
 
+  const leaderboard = (
+    <LeaderboardWidget
+      entries={leaderboardEntries}
+      members={members}
+      myUid={profile?.uid}
+      featured={isPersonalLanding}
+    />
+  );
+
   if (isPersonalLanding) {
     return (
       <div ref={deskRef} className="mx-auto max-w-5xl p-4 sm:p-6 lg:p-8">
         {greeting}
         {myProgress.length === 0 ? (
-          <div className="desk-cluster px-8 py-16 text-center">
-            <p className="eyebrow mb-3 text-primary">Стол</p>
-            <p className="display text-[1.4rem]">Пока нет страниц в ответственности</p>
-            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-              Как только вас назначат Ответственным, здесь появится личный прогресс.
-            </p>
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
+            <div className="desk-cluster desk-home px-8 py-14 text-center lg:col-span-3">
+              <p className="eyebrow mb-3 text-primary">Стол</p>
+              <p className="display text-[1.4rem]">Пока нет своего листа</p>
+              <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
+                Когда появится — откроешь его здесь и поведёшь своё дело. Пока просто подожди.
+              </p>
+            </div>
+            <div className="desk-home lg:col-span-2">{leaderboard}</div>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
             <div className="flex flex-col gap-4 lg:col-span-3">
+              {myProgress.map((p) => (
+                <div key={p.page.id} className="desk-home">
+                  <MyProgressCard {...p} workspaceId={activeWorkspaceId ?? ""} large />
+                </div>
+              ))}
               {attentionItems.length > 0 && (
                 <div className="desk-cluster desk-attention p-5">
-                  <p className="eyebrow mb-3 text-primary">Что требует внимания</p>
+                  <p className="eyebrow mb-3 text-primary">Ещё в деле</p>
                   <div className="flex flex-col">
                     {attentionItems.map((item) => (
                       <Link
@@ -313,86 +309,124 @@ export default function DashboardPage() {
                   </div>
                 </div>
               )}
-              {myProgress.map((p) => (
-                <MyProgressCard key={p.page.id} {...p} workspaceId={activeWorkspaceId ?? ""} large />
-              ))}
             </div>
-            <div className="lg:col-span-2">
-              <LeaderboardWidget entries={leaderboardEntries} members={members} myUid={profile?.uid} />
-            </div>
+            <div className="desk-home lg:col-span-2">{leaderboard}</div>
           </div>
         )}
       </div>
     );
   }
 
+  const showCharts = revenueByMonth.length > 0 || statusDistribution.some((d) => d.value > 0);
+
   return (
     <div ref={deskRef} className="mx-auto max-w-6xl p-4 sm:p-6 lg:p-8">
       {greeting}
 
       <div className="desk-cluster mb-6">
-        <div className="grid grid-cols-2 divide-x divide-border/60 lg:grid-cols-4">
-          <StatCard label="Клиенты" value={String(clientRows.length)} animatedValue={clientRows.length} formatAnimatedValue={(n) => String(Math.round(n))} icon={Users} color="248 79% 62%" />
-          <StatCard label="Доход" value={formatCurrency(totalRevenue)} animatedValue={totalRevenue} formatAnimatedValue={(n) => formatCurrency(n)} icon={Wallet} color="158 64% 40%" />
-          <StatCard label="Проекты" value={String(projectRows.length)} animatedValue={projectRows.length} formatAnimatedValue={(n) => String(Math.round(n))} icon={Briefcase} color="275 72% 57%" />
-          <StatCard label="Команда" value={String(activeEmployeesCount)} animatedValue={activeEmployeesCount} formatAnimatedValue={(n) => String(Math.round(n))} icon={UserCog} color="196 82% 46%" />
-        </div>
-        <div className="grid grid-cols-1 divide-y divide-border/60 border-t border-border/60 lg:grid-cols-5 lg:divide-x lg:divide-y-0">
-          <div className="desk-attention p-5 lg:col-span-3">
-            <p className="eyebrow mb-3 text-primary">Что требует внимания</p>
-            {attentionItems.length === 0 ? (
-              <p className="text-sm text-muted-foreground">На столе спокойно — открытых хвостов нет.</p>
-            ) : (
-              <div className="flex flex-col">
-                {attentionItems.map((item) => (
-                  <Link
-                    key={item.href + item.detail}
-                    to={item.href}
-                    className="flex items-baseline justify-between gap-3 border-t border-border/50 py-2.5 first:border-t-0 first:pt-0 hover:text-primary"
-                  >
-                    <span className="truncate text-sm font-medium">{item.label}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{item.detail}</span>
-                  </Link>
-                ))}
-              </div>
-            )}
+        <div className="flex items-baseline justify-between gap-3 px-5 py-4">
+          <div>
+            <p className="eyebrow text-primary">Столы</p>
+            <p className="mt-1 text-sm text-muted-foreground">Лист и человек, который ведёт на нём своё дело.</p>
           </div>
-          <div className="p-5 lg:col-span-2">
-            <p className="eyebrow mb-3 flex items-center gap-1.5 text-primary">
-              <ClipboardCheck className="h-3.5 w-3.5" /> Прогресс
-            </p>
-            {myProgress.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Нет страниц в вашей ответственности.</p>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {myProgress.map((p) => (
-                  <Link key={p.page.id} to={`/page/${p.page.id}`} className="block">
-                    <div className="mb-1 flex items-baseline justify-between gap-2">
-                      <span className="truncate text-sm font-medium">{p.page.name}</span>
-                      <span className="font-mono text-[11px] tabular text-muted-foreground">{p.percent}%</span>
-                    </div>
-                    <div className="h-px overflow-hidden bg-muted">
-                      <div className="h-full bg-success" style={{ width: `${Math.min(100, p.percent)}%` }} />
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
+          <span className="font-mono text-[11px] tabular text-muted-foreground">{deskProgress.length}</span>
         </div>
+        {deskProgress.length === 0 ? (
+          <p className="border-t border-border/60 px-5 py-8 text-sm text-muted-foreground">Пока нет листов.</p>
+        ) : (
+          <div>
+            {deskProgress.map((desk) => {
+              const member = members.find((m) => m.uid === desk.page.responsibleUserId);
+              const who = personLabel(member);
+              const empty = !desk.page.responsibleUserId || !member;
+              return (
+                <div key={desk.page.id} className="desk-row">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    {empty ? (
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-[10px] text-muted-foreground">
+                        —
+                      </div>
+                    ) : (
+                      <MemberAvatar
+                        id={member.uid}
+                        name={member.name}
+                        nickname={member.nickname}
+                        photoURL={member.photoURL}
+                        className="h-9 w-9 shrink-0"
+                      />
+                    )}
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{empty ? "пока без человека" : who}</p>
+                      <Link to={`/page/${desk.page.id}`} className="truncate text-[13px] text-muted-foreground hover:text-primary">
+                        {desk.page.name}
+                      </Link>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-end gap-5 sm:gap-7">
+                    <div className="text-right">
+                      <p className="eyebrow">Готово</p>
+                      <p className="font-mono text-sm tabular text-success">{formatCurrency(desk.doneTotal)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="eyebrow">Общий</p>
+                      <p className="font-mono text-sm tabular">{formatCurrency(desk.grandTotal)}</p>
+                    </div>
+                    <div className="w-12 text-right">
+                      <p className="eyebrow">%</p>
+                      <p className="font-mono text-sm tabular">{desk.percent}</p>
+                    </div>
+                    <p className="hidden w-36 text-right text-[11px] text-muted-foreground sm:block">
+                      {member?.lastActiveAt ? `заходил ${timeAgo(member.lastActiveAt)}` : " "}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <RevenueChart data={revenueByMonth} />
+      <div className="mb-6 grid grid-cols-1 gap-5 lg:grid-cols-5">
+        <div className="desk-cluster desk-attention p-5 lg:col-span-3">
+          <p className="eyebrow mb-3 text-primary">Ещё в деле</p>
+          {attentionItems.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Все столы закрыли своё дело — спокойно.</p>
+          ) : (
+            <div className="flex flex-col">
+              {attentionItems.map((item) => (
+                <Link
+                  key={item.href + item.detail}
+                  to={item.href}
+                  className="flex items-baseline justify-between gap-3 border-t border-border/50 py-2.5 first:border-t-0 first:pt-0 hover:text-primary"
+                >
+                  <span className="truncate text-sm font-medium">{item.label}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{item.detail}</span>
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="flex flex-col gap-4">
-          <StatusChart title="Статусы клиентов" data={statusDistribution} />
-          <LeaderboardWidget entries={leaderboardEntries} members={members} myUid={profile?.uid} />
-        </div>
+        <div className="lg:col-span-2">{leaderboard}</div>
       </div>
 
-      {permissions.canViewHistory && <RecentActivity entries={historyEntries} />}
+      {showCharts && (
+        <div className="mb-8 opacity-80">
+          <p className="eyebrow mb-3 text-muted-foreground">Цифры с листа — не главное</p>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <RevenueChart data={revenueByMonth} />
+            </div>
+            <StatusChart title="Статусы" data={statusDistribution} />
+          </div>
+        </div>
+      )}
+
+      {permissions.canViewHistory && (
+        <div>
+          <p className="eyebrow mb-3 text-muted-foreground">Что менялось</p>
+          <RecentActivity entries={historyEntries} />
+        </div>
+      )}
     </div>
   );
 }
@@ -413,15 +447,15 @@ function DashboardSourcePicker({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="icon" title="Таблица для дашборда">
+        <Button variant="outline" size="icon" title="Откуда брать цифры с листа">
           <Settings2 className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72">
-        <p className="mb-3 text-sm font-medium">Таблица для дашборда</p>
+        <p className="mb-3 text-sm font-medium">Цифры с листа</p>
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs text-muted-foreground">Клиенты / доход / статусы</Label>
+            <Label className="text-xs text-muted-foreground">Доход / статусы</Label>
             <Select
               value={clientsPageId ?? "__auto__"}
               onValueChange={(v) => updateDashboardPages(workspaceId, { clientsPageId: v === "__auto__" ? null : v })}
@@ -440,7 +474,7 @@ function DashboardSourcePicker({
             </Select>
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs text-muted-foreground">Проекты</Label>
+            <Label className="text-xs text-muted-foreground">Второй лист</Label>
             <Select
               value={projectsPageId ?? "__auto__"}
               onValueChange={(v) => updateDashboardPages(workspaceId, { projectsPageId: v === "__auto__" ? null : v })}
@@ -509,15 +543,28 @@ function MyProgressCard({
   return (
     <Card className="overflow-hidden border-border/70 bg-card/70">
       <CardContent className={large ? "p-6" : "p-4"}>
-        <div className="mb-3 flex items-center justify-between">
-          <Link to={`/page/${page.id}`} className={large ? "truncate text-lg font-medium hover:text-primary" : "truncate text-sm font-medium hover:text-primary"}>
-            {page.name}
-          </Link>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="eyebrow mb-1 text-primary">Мой стол</p>
+            <Link
+              to={`/page/${page.id}`}
+              className={large ? "truncate text-lg font-medium hover:text-primary" : "truncate text-sm font-medium hover:text-primary"}
+            >
+              {page.name}
+            </Link>
+            <p className="mt-0.5 text-xs text-muted-foreground">{rowCount} записей</p>
+          </div>
           <div className="flex shrink-0 items-center gap-1">
-            <span className="text-xs text-muted-foreground">{rowCount} строк</span>
-            <Button variant="ghost" size="icon" className="h-6 w-6" title="Скачать мой отчёт (CSV)" onClick={handleExport}>
+            <Button variant="ghost" size="icon" className="h-8 w-8" title="Скачать мой отчёт (CSV)" onClick={handleExport}>
               <Download className="h-3.5 w-3.5" />
             </Button>
+            {large && (
+              <Button asChild size="sm" className="h-8">
+                <Link to={`/page/${page.id}`}>
+                  Открыть лист <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
         <div className="mb-2 flex items-end justify-between">
@@ -536,11 +583,10 @@ function MyProgressCard({
             style={{ width: `${Math.min(100, animatedPercent)}%` }}
           />
         </div>
-        <p className="mt-1.5 text-right text-xs font-medium text-muted-foreground">
-          {Math.round(animatedPercent)}% готово
-        </p>
+        <p className="mt-1.5 text-right text-xs font-medium text-muted-foreground">{Math.round(animatedPercent)}% готово</p>
 
-        <div className="mt-3 border-t border-border pt-3">
+        <div className="mt-4 rounded-md border border-border/70 bg-muted/30 p-3">
+          <p className="eyebrow mb-2 text-primary">Моя цель</p>
           {editingGoal ? (
             <div className="flex items-center gap-2">
               <Input
@@ -549,10 +595,10 @@ function MyProgressCard({
                 value={goalInput}
                 onChange={(e) => setGoalInput(e.target.value)}
                 placeholder="Например, 200000"
-                className="h-8"
+                className="h-9"
                 onKeyDown={(e) => e.code === "Enter" && saveGoal()}
               />
-              <Button size="sm" className="h-8" onClick={saveGoal}>
+              <Button size="sm" className="h-9" onClick={saveGoal}>
                 Сохранить
               </Button>
             </div>
@@ -566,22 +612,23 @@ function MyProgressCard({
             >
               {goal > 0 ? (
                 <>
-                  <span className="text-xs text-muted-foreground">
-                    План: <span className="font-medium text-foreground">{formatCurrency(goal)}</span>
+                  <span className="text-sm">
+                    <span className="text-muted-foreground">На месяц: </span>
+                    <span className="font-medium">{formatCurrency(goal)}</span>
                   </span>
                   <span className="flex items-center gap-1 text-xs font-medium text-primary">
-                    {goalPercent}% от плана <Pencil className="h-3 w-3" />
+                    {goalPercent}% <Pencil className="h-3 w-3" />
                   </span>
                 </>
               ) : (
-                <span className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-                  <Pencil className="h-3 w-3" /> Поставить личный план на месяц
+                <span className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+                  <Pencil className="h-3.5 w-3.5" /> Поставить свою цель на месяц
                 </span>
               )}
             </button>
           )}
           {goal > 0 && !editingGoal && (
-            <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted">
+            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${goalPercent}%` }} />
             </div>
           )}
@@ -595,16 +642,24 @@ function LeaderboardWidget({
   entries,
   members,
   myUid,
+  featured,
 }: {
   entries: LeaderboardEntry[];
-  members: { uid: string; name?: string; nickname?: string; photoURL?: string | null; lastActiveAt?: number; status: string; role: string }[];
+  members: {
+    uid: string;
+    name?: string;
+    nickname?: string;
+    photoURL?: string | null;
+    lastActiveAt?: number;
+    status: string;
+    role: string;
+  }[];
   myUid?: string;
+  featured?: boolean;
 }) {
-  // Ranked by total sum "Готово" (not %) — a small page fully done
-  // shouldn't outrank someone who closed 5x more in absolute terms. Every
-  // active member appears, even at 0 with no page yet, so this reads as
-  // the whole team's board, not just a list of whoever has data so far. A
-  // person responsible for more than one page has their totals summed
+  // Ranked by total sum «Готово» (not %). A small list fully done shouldn't
+  // outrank someone who closed more in absolute terms. Every active person
+  // appears, even at 0 with no list yet. Several lists for one person sum
   // into one row.
   const ranked = useMemo(() => {
     return members
@@ -620,35 +675,50 @@ function LeaderboardWidget({
   }, [entries, members]);
 
   return (
-    <Card>
-      <CardContent className="p-4">
-        <p className="eyebrow mb-3 flex items-center gap-1.5 text-primary">
-          <Trophy className="h-3.5 w-3.5" /> Рейтинг по сумме «Готово»
-        </p>
+    <Card className={featured ? "h-full border-border/70 bg-card/70" : "border-border/70 bg-card/70"}>
+      <CardContent className={featured ? "p-5 sm:p-6" : "p-4"}>
+        <p className="eyebrow mb-1 text-primary">Как ведут дело</p>
+        <p className={cn(featured ? "mb-4 text-base font-medium" : "mb-3 text-sm font-medium")}>рейтинг по сумме «Готово»</p>
         {ranked.length === 0 ? (
-          <p className="text-xs text-muted-foreground">В команде пока нет активных участников.</p>
+          <p className="text-xs text-muted-foreground">Пока никого нет на столах.</p>
         ) : (
-          <div className="flex flex-col gap-3">
-            {ranked.map(({ member, doneTotal, pageNames }, i) => (
-              <div key={member.uid} className="flex items-center gap-2.5">
-                <span className="w-5 shrink-0 text-center font-mono text-[11px] tabular text-muted-foreground">{String(i + 1).padStart(2, "0")}</span>
-                <MemberAvatar
-                  id={member.uid}
-                  name={member.name}
-                  nickname={member.nickname}
-                  photoURL={member.photoURL}
-                  className={cn("h-7 w-7 shrink-0", member.uid === myUid && "ring-2 ring-primary")}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-medium">{member.nickname || member.name || "—"}</p>
-                  <p className="truncate text-[11px] text-muted-foreground">
-                    {pageNames.length > 0 ? pageNames.join(", ") : "нет страницы"}
-                    {member.lastActiveAt ? ` · был(а) ${timeAgo(member.lastActiveAt)}` : ""}
-                  </p>
+          <div className="flex flex-col gap-1">
+            {ranked.map(({ member, doneTotal, pageNames }, i) => {
+              const mine = member.uid === myUid;
+              return (
+                <div
+                  key={member.uid}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-md px-2 py-2",
+                    mine && "bg-primary/10 ring-1 ring-primary/40"
+                  )}
+                >
+                  <span className="w-5 shrink-0 text-center font-mono text-[11px] tabular text-muted-foreground">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <MemberAvatar
+                    id={member.uid}
+                    name={member.name}
+                    nickname={member.nickname}
+                    photoURL={member.photoURL}
+                    className={cn("h-8 w-8 shrink-0", mine && "ring-2 ring-primary")}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className={cn("truncate text-sm font-medium", mine && "text-primary")}>
+                      {personLabel(member) || "—"}
+                      {mine ? " · ты" : ""}
+                    </p>
+                    <p className="truncate text-[11px] text-muted-foreground">
+                      {pageNames.length > 0 ? pageNames.join(", ") : "нет листа"}
+                      {member.lastActiveAt ? ` · заходил ${timeAgo(member.lastActiveAt)}` : ""}
+                    </p>
+                  </div>
+                  <span className={cn("shrink-0 font-mono tabular", featured ? "text-base" : "text-sm", mine ? "text-primary" : "text-foreground")}>
+                    {formatCurrency(doneTotal)}
+                  </span>
                 </div>
-                <span className="shrink-0 font-mono text-sm tabular text-primary">{formatCurrency(doneTotal)}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </CardContent>
