@@ -89,36 +89,77 @@ export default function UsersPage() {
     try {
       await approveJoinRequest(activeWorkspaceId!, request, DEFAULT_JOIN_ROLE, profile?.uid ?? "");
       await refreshWorkspaceMembers(activeWorkspaceId!);
-      setJoinRequests(await fetchJoinRequests(activeWorkspaceId!));
       toast.success(`${request.name} добавлен(а) в workspace как Технар`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось одобрить заявку");
+    } finally {
+      try {
+        setJoinRequests(await fetchJoinRequests(activeWorkspaceId!));
+      } catch {
+        setJoinRequests((prev) => prev.filter((r) => r.uid !== request.uid));
+      }
     }
   }
 
   async function handleRejectRequest(uid: string) {
-    await rejectJoinRequest(activeWorkspaceId!, uid);
-    setJoinRequests(await fetchJoinRequests(activeWorkspaceId!));
-    toast.success("Заявка отклонена");
+    try {
+      await rejectJoinRequest(activeWorkspaceId!, uid);
+      toast.success("Заявка отклонена");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось отклонить заявку");
+    } finally {
+      try {
+        setJoinRequests(await fetchJoinRequests(activeWorkspaceId!));
+      } catch {
+        setJoinRequests((prev) => prev.filter((r) => r.uid !== uid));
+      }
+    }
   }
 
   async function handleRoleChange(uid: string, role: Parameters<typeof changeMemberRole>[2]) {
-    await changeMemberRole(activeWorkspaceId!, uid, role);
-    await refreshWorkspaceMembers(activeWorkspaceId!);
-    toast.success("Роль обновлена");
+    const id = uid.trim();
+    if (!id) {
+      toast.error("Нельзя сменить роль: у записи нет id");
+      return;
+    }
+    try {
+      await changeMemberRole(activeWorkspaceId!, id, role);
+      await refreshWorkspaceMembers(activeWorkspaceId!);
+      toast.success("Роль обновлена");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сменить роль");
+    }
   }
 
   async function handleRemove(uid: string, name: string) {
+    const id = uid.trim();
+    if (!id) {
+      toast.error("Нельзя удалить: у записи нет id");
+      return;
+    }
     if (!window.confirm(`Убрать ${name} из workspace? Он потеряет доступ ко всем страницам.`)) return;
-    await removeMember(activeWorkspaceId!, uid);
-    await refreshWorkspaceMembers(activeWorkspaceId!);
-    toast.success("Пользователь удалён");
+    try {
+      await removeMember(activeWorkspaceId!, id);
+      await refreshWorkspaceMembers(activeWorkspaceId!);
+      toast.success("Пользователь удалён");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось удалить пользователя");
+    }
   }
 
   async function handleResend(email: string) {
-    await resendInvite(activeWorkspaceId!, email);
-    await refreshWorkspaceMembers(activeWorkspaceId!);
-    toast.success("Приглашение обновлено");
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) {
+      toast.error("Нет email для повторного приглашения");
+      return;
+    }
+    try {
+      await resendInvite(activeWorkspaceId!, normalized);
+      await refreshWorkspaceMembers(activeWorkspaceId!);
+      toast.success("Приглашение обновлено");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось обновить приглашение");
+    }
   }
 
   async function handleTogglePageAccess(uid: string, pageId: string, checked: boolean) {
