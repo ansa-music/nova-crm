@@ -2064,7 +2064,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
               </ContextMenuContent>
             </ContextMenu>
             {processedRows.length > 0 && (
-              <tfoot className="sticky bottom-0 z-20">
+              <tfoot className="sticky bottom-0 z-20 overflow-visible">
                 <tr className="border-t border-border/70 bg-background">
                   <td
                     className="table-sticky-col sticky left-0 z-30 border-r border-border/50 bg-background px-1 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] text-center font-mono text-[11px] tabular text-muted-foreground"
@@ -2089,7 +2089,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                     return (
                       <td
                         key={`total-${column.id}`}
-                        className={`overflow-visible whitespace-normal border-r border-border/35 px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] text-right text-sm tabular-nums ${
+                        className={`overflow-visible whitespace-normal border-r border-border/35 px-2 py-2.5 pb-[max(0.6rem,env(safe-area-inset-bottom,0px))] text-right text-sm leading-tight tabular-nums ${
                           stickyLeft !== undefined ? "table-sticky-col sticky z-[25] bg-background" : "bg-background"
                         } ${pinnedOrder.length && column.key === pinnedOrder[pinnedOrder.length - 1].key ? "table-sticky-edge" : ""}`}
                         style={{
@@ -2107,7 +2107,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                               {column.type === "currency" ? formatCurrency(tot.sum) : formatNumber(tot.sum)}
                             </span>
                             {tot.done !== undefined && (
-                              <span className="block max-w-full truncate text-[10px] text-success" title={`Готово ${formatCurrency(tot.done)}`}>
+                              <span className="block max-w-full whitespace-normal break-words text-[10px] leading-tight text-success" title={`Готово ${formatCurrency(tot.done)}`}>
                                 Готово {formatCurrency(tot.done)}
                               </span>
                             )}

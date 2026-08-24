@@ -137,7 +137,7 @@ export function TableCell({
     <td
       className={cn(
         "relative min-w-0 overflow-hidden select-none border-b border-r border-border/35 p-0 align-middle",
-        stickyLeft !== undefined && "table-sticky-col sticky z-[20] bg-background",
+        stickyLeft !== undefined && "table-sticky-col sticky z-[22] isolate bg-background",
         isLastSticky && "table-sticky-edge",
         isInRange && !isEditing && "bg-primary/[0.07]",
         isActive && !isEditing && "z-10 shadow-[inset_0_0_0_2px_hsl(var(--primary)/0.7)]"

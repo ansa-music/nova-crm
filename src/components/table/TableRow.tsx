@@ -1,8 +1,8 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
-import { memo, useRef, useState } from "react";
-import { Check, Copy, GripVertical, MoreHorizontal, Trash2 } from "lucide-react";
+import { memo } from "react";
+import { Copy, GripVertical, MoreHorizontal, Trash2 } from "lucide-react";
 import { TableCell } from "@/components/table/TableCell";
 import { rowCardLayoutId } from "@/components/table/RowCardSheet";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -117,21 +117,58 @@ function TableRowInner({
   const lastStickyKey = pinnedCols.length ? pinnedCols[pinnedCols.length - 1].key : null;
 
   const isNew = Date.now() - row.createdAt < 24 * 60 * 60 * 1000;
-  const touchX = useRef<number | null>(null);
-  const [swipe, setSwipe] = useState(0);
+
+  const rowMenu = (
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground",
+                  coarsePointer ? "inline-flex" : "hidden group-hover/row:inline-flex"
+                )}
+                title="Действия со строкой"
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="z-[240]">
+              <DropdownMenuItem onClick={() => onInsertRowAbove?.(row.id)} disabled={!canEdit}>
+                Вставить строку выше
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onInsertRowBelow?.(row.id)} disabled={!canEdit}>
+                Вставить строку ниже
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onCopyRow?.(row.id)}>
+                Копировать строку
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onDuplicateRow?.(row.id)} disabled={!canEdit}>
+                Дублировать
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onCopyDiskUrl?.(row.id)} disabled={!diskUrl}>
+                <Copy className="h-3.5 w-3.5" /> Копировать ссылку Диск
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => onDeleteRow?.(row.id)}
+                disabled={!canEdit}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Удалить
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+  );
 
   return (
     <tr
       ref={setNodeRef}
       style={{
         height: rowHeight,
-        transform: isDragging
-          ? CSS.Transform.toString(transform)
-          : swipe
-            ? `translateX(${swipe}px)`
-            : undefined,
-        transition: isDragging ? transition : swipe ? "transform 160ms ease" : undefined,
-        willChange: isDragging || swipe ? "transform" : undefined,
+        transform: isDragging ? CSS.Transform.toString(transform) : undefined,
+        transition: isDragging ? transition : undefined,
         opacity: isDragging ? 0.5 : 1,
         backgroundColor: statusTint ? `hsl(${statusTint} / 0.08)` : undefined,
       }}
@@ -142,30 +179,6 @@ function TableRowInner({
         activeCell?.rowId === row.id && "table-data-row-active"
       )}
       onContextMenu={() => onContextMenuOpen(row.id)}
-      onTouchStart={
-        coarsePointer && canEdit
-          ? (e) => {
-              touchX.current = e.touches[0]?.clientX ?? null;
-            }
-          : undefined
-      }
-      onTouchMove={
-        coarsePointer && canEdit
-          ? (e) => {
-              if (touchX.current == null) return;
-              const dx = e.touches[0].clientX - touchX.current;
-              setSwipe(Math.max(-148, Math.min(0, dx)));
-            }
-          : undefined
-      }
-      onTouchEnd={
-        coarsePointer && canEdit
-          ? () => {
-              touchX.current = null;
-              setSwipe((s) => (s < -64 ? -148 : 0));
-            }
-          : undefined
-      }
     >
       <td
         onMouseDown={(e) => onRowNumberMouseDown(row.id, e)}
@@ -209,49 +222,10 @@ function TableRowInner({
               e.stopPropagation();
               onToggleChecked(row.id, e.shiftKey);
             }}
-            className={cn("h-4 w-4 max-md:h-5 max-md:w-5", !isChecked && !coarsePointer && "opacity-0 group-hover/row:opacity-100")}
+            className={cn("h-4 w-4 max-md:h-5 max-md:w-5", coarsePointer && !isChecked && "hidden", !isChecked && !coarsePointer && "opacity-0 group-hover/row:opacity-100")}
           />
           <span className="flex min-w-[1.1rem] items-center justify-center text-[11px]">{rowNumber}</span>
-          {!coarsePointer && (
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="hidden rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground group-hover/row:inline-flex"
-                title="Действия со строкой"
-                onClick={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                <MoreHorizontal className="h-3.5 w-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="z-[80]">
-              <DropdownMenuItem onClick={() => onInsertRowAbove?.(row.id)} disabled={!canEdit}>
-                Вставить строку выше
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onInsertRowBelow?.(row.id)} disabled={!canEdit}>
-                Вставить строку ниже
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onCopyRow?.(row.id)}>
-                Копировать строку
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onDuplicateRow?.(row.id)} disabled={!canEdit}>
-                Дублировать
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onCopyDiskUrl?.(row.id)} disabled={!diskUrl}>
-                <Copy className="h-3.5 w-3.5" /> Копировать ссылку Диск
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => onDeleteRow?.(row.id)}
-                disabled={!canEdit}
-                className="text-destructive focus:text-destructive"
-              >
-                <Trash2 className="h-3.5 w-3.5" /> Удалить
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          )}
+          {rowMenu}
           <div
             onMouseDown={(e) => {
               e.stopPropagation();
@@ -288,84 +262,9 @@ function TableRowInner({
             stickyLeft={stickyLeft}
             isLastSticky={column.key === lastStickyKey}
             isExpanded={expandedColKey === column.key}
-            trailing={
-              coarsePointer && column.key === columns[0]?.key ? (
-                <div className="absolute right-0.5 top-1/2 z-10 -translate-y-1/2">
-                  <DropdownMenu modal={false}>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-background/90 text-muted-foreground"
-                        title="Действия со строкой"
-                        onClick={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.stopPropagation()}
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="z-[80]">
-                      <DropdownMenuItem onClick={() => onInsertRowAbove?.(row.id)} disabled={!canEdit}>
-                        Вставить строку выше
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => onInsertRowBelow?.(row.id)} disabled={!canEdit}>
-                        Вставить строку ниже
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => onCopyRow?.(row.id)}>
-                        Копировать строку
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => onDuplicateRow?.(row.id)} disabled={!canEdit}>
-                        Дублировать
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => onCopyDiskUrl?.(row.id)} disabled={!diskUrl}>
-                        <Copy className="h-3.5 w-3.5" /> Копировать ссылку Диск
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onClick={() => onDeleteRow?.(row.id)}
-                        disabled={!canEdit}
-                        className="text-destructive focus:text-destructive"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" /> Удалить
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              ) : undefined
-            }
           />
         );
       })}
-      {coarsePointer && canEdit && (
-        <td className="w-0 border-0 p-0">
-          <div
-            className="absolute right-0 top-0 z-20 flex h-full overflow-hidden rounded-l-md"
-            style={{ width: 148, transform: `translateX(${148 + swipe}px)` }}
-          >
-            <button
-              type="button"
-              className="flex h-full flex-1 items-center justify-center bg-emerald-600 px-2 text-[11px] font-medium text-white"
-              onClick={(e) => {
-                e.stopPropagation();
-                onMarkDone?.(row.id);
-                setSwipe(0);
-              }}
-            >
-              <Check className="mr-1 h-3.5 w-3.5" /> Готово
-            </button>
-            <button
-              type="button"
-              className="flex h-full flex-1 items-center justify-center bg-destructive px-2 text-[11px] font-medium text-white"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDeleteRow?.(row.id);
-                setSwipe(0);
-              }}
-            >
-              <Trash2 className="mr-1 h-3.5 w-3.5" /> Удалить
-            </button>
-          </div>
-        </td>
-      )}
     </tr>
   );
 }
