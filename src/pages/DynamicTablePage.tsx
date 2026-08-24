@@ -219,28 +219,22 @@ export default function DynamicTablePage() {
   }
 
   return (
-    <div
-      className="flex h-full flex-col"
-      style={page.accentColor ? ({ "--primary": page.accentColor, "--ring": page.accentColor } as React.CSSProperties) : undefined}
-    >
+    <div className="flex h-full flex-col">
       <div className="page-header">
         <span
-          className="flex h-8 w-8 items-center justify-center rounded-lg"
+          className="relative flex h-8 w-8 items-center justify-center rounded-lg"
           style={{ backgroundColor: `hsl(${page.color} / 0.15)`, color: `hsl(${page.color})` }}
         >
           <Icon className="h-4 w-4" />
+          {page.accentColor ? (
+            <span className="absolute bottom-0 left-1 right-1 h-0.5 rounded-full" style={{ backgroundColor: `hsl(${page.accentColor})` }} />
+          ) : null}
         </span>
         <h1 className="page-title">{page.name}</h1>
         {!canEditData && (
           <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Только просмотр</span>
         )}
         <div className="flex-1" />
-        {permissions.canManagePage(page) && (
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setDeskStudioOpen(true)}>
-            <Settings2 className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Настроить стол</span>
-          </Button>
-        )}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="ghost" size="icon" onClick={() => setChatOpen(true)}>

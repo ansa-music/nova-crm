@@ -1,133 +1,44 @@
 import { useState } from "react";
-import { Bell, Keyboard, Menu } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { RoleSwitcher } from "@/components/common/RoleSwitcher";
-import { GlobalSearch } from "@/components/layout/GlobalSearch";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { useIsTablet } from "@/hooks/useMediaQuery";
-import { useAuth } from "@/hooks/useAuth";
-import { useWorkspace } from "@/hooks/useWorkspace";
-import { useNotifications } from "@/hooks/useNotifications";
-import { markAllNotificationsRead, markNotificationRead } from "@/services/notificationService";
-import { timeAgo } from "@/utils/date";
-import { cn } from "@/utils/cn";
-import { useUiStore } from "@/store/uiStore";
-
-const PRIORITY_DOT: Record<string, string> = {
-  normal: "bg-muted-foreground",
-  important: "bg-secondary",
-  urgent: "bg-secondary",
-};
 
 export function Topbar({ title }: { title?: string }) {
   const isCompactNav = useIsTablet();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const { profile } = useAuth();
-  const { activeWorkspaceId } = useWorkspace();
-  const { notifications, unreadCount, reload } = useNotifications(activeWorkspaceId, profile?.uid ?? null);
+
+  if (!isCompactNav) return null;
 
   return (
-    <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-1.5 border-b border-primary/25 bg-background/90 px-3 sm:px-4">
-      {isCompactNav && (
-        <>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="min-h-10 min-w-10"
-            title="Меню"
-            aria-label="Меню"
-            onClick={(e) => {
-              e.stopPropagation();
-              setMobileNavOpen(true);
-            }}
-          >
-            <Menu className="h-4 w-4" />
-          </Button>
-          <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-            <SheetContent
-              side="left"
-              className="p-0 border-r border-primary/40"
-            >
-              <Sidebar mobile onNavigate={() => setMobileNavOpen(false)} />
-            </SheetContent>
-          </Sheet>
-        </>
-      )}
-
-      {title && <h1 className="hidden shrink-0 text-sm font-semibold sm:block">{title}</h1>}
-
-      <div className="flex-1">
-        <GlobalSearch />
-      </div>
-
-      <DropdownMenu
-        onOpenChange={(open) => {
-          if (open) {
-            void reload();
-            if (activeWorkspaceId) markAllNotificationsRead(activeWorkspaceId, notifications);
-          }
-        }}
-      >
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" title="Уведомления" className="relative">
-            <Bell className="h-4 w-4" />
-            {unreadCount > 0 && (
-              <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-0.5 font-mono text-[9px] font-semibold text-primary-foreground">
-                {unreadCount > 9 ? "9+" : unreadCount}
-              </span>
-            )}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-80 p-0">
-          <div className="border-b border-border px-3 py-2"><p className="eyebrow">Уведомления</p></div>
-          <div className="max-h-96 overflow-y-auto">
-            {notifications.length === 0 ? (
-              <div className="p-4 text-center text-sm text-muted-foreground">
-                У вас пока нет новых уведомлений
-              </div>
-            ) : (
-              notifications.map((n) => (
-                <button
-                  key={n.id}
-                  onClick={() => activeWorkspaceId && !n.read && markNotificationRead(activeWorkspaceId, n.id)}
-                  className={cn(
-                    "flex w-full items-start gap-2 border-b border-border px-3 py-2.5 text-left transition-colors last:border-0 hover:bg-accent/40",
-                    !n.read && "bg-accent/20"
-                  )}
-                >
-                  <span className={cn("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", PRIORITY_DOT[n.priority])} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{n.title}</p>
-                    <p className="line-clamp-2 text-xs text-muted-foreground">{n.body}</p>
-                    <p className="mt-0.5 text-[10px] text-muted-foreground">
-                      {n.fromName} · {timeAgo(n.createdAt)}
-                    </p>
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <RoleSwitcher />
+    <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-1.5 border-b border-border bg-background px-3">
       <Button
+        type="button"
         variant="ghost"
         size="icon"
-        title="Горячие клавиши (?)"
-        onClick={() => useUiStore.getState().setShortcutsHelpOpen(true)}
+        className="min-h-10 min-w-10"
+        title="Меню"
+        aria-label="Меню"
+        onClick={(e) => {
+          e.stopPropagation();
+          setMobileNavOpen(true);
+        }}
       >
-        <Keyboard className="h-4 w-4" />
+        <Menu className="h-4 w-4" />
       </Button>
-      <ThemeToggle />
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent
+          side="left"
+          className="h-[100dvh] max-h-[100dvh] w-[min(20rem,88vw)] max-w-[20rem] overflow-hidden bg-background p-0 border-r border-border backdrop-blur-none"
+        >
+          <Sidebar mobile onNavigate={() => setMobileNavOpen(false)} />
+        </SheetContent>
+      </Sheet>
+      {title && <h1 className="truncate text-sm font-semibold">{title}</h1>}
+      <div className="flex-1" />
+      <RoleSwitcher />
     </header>
   );
 }

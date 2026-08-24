@@ -527,7 +527,7 @@ export default function SettingsPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Оформление</CardTitle>
-                <CardDescription>Акцентный цвет сайта — виден всем, кто пользуется этим workspace.</CardDescription>
+                <CardDescription>Цвет метки стола — маленький маркер, не перекрашивает кнопки и таблицу.</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-wrap gap-3">
                 {ACCENT_PRESETS.map((preset) => {

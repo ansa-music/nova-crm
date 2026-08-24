@@ -1,4 +1,4 @@
-import { Download, Plus, Search, Rows3, Columns3, Table2, Kanban } from "lucide-react";
+import { Download, Plus, Search, Rows3, Columns3, Table2, Kanban, MoreHorizontal } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,6 +12,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { PageColumn } from "@/types";
@@ -31,7 +32,6 @@ interface TableToolbarProps {
   onAddColumn: () => void;
   selectedCount: number;
   onDeleteSelected: () => void;
-  /** Only pages with a "Статус" column can switch to the kanban view — otherwise there's nothing to group by. */
   hasStatusColumn: boolean;
   viewMode: "table" | "kanban";
   onViewModeChange: (mode: "table" | "kanban") => void;
@@ -62,9 +62,46 @@ export function TableToolbar({
   viewMode,
   onViewModeChange,
 }: TableToolbarProps) {
+  const extraMenu = (
+    <>
+      {viewMode === "table" && (
+        <>
+          {columns.map((c) => (
+            <DropdownMenuItem key={c.id} onClick={() => onGroupByChange(c.key)}>
+              Группировать: {c.label}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuItem onClick={() => onGroupByChange(null)}>Без группировки</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {(Object.keys(DENSITY_LABELS) as TableToolbarProps["density"][]).map((d) => (
+            <DropdownMenuItem key={d} onClick={() => onDensityChange(d)}>
+              {DENSITY_LABELS[d]}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+        </>
+      )}
+      {hasStatusColumn && (
+        <>
+          <DropdownMenuItem onClick={() => onViewModeChange("table")}>Таблица</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onViewModeChange("kanban")}>Канбан</DropdownMenuItem>
+          <DropdownMenuSeparator />
+        </>
+      )}
+      <DropdownMenuItem onClick={onExportCsv}>
+        <Download className="h-3.5 w-3.5" /> CSV
+      </DropdownMenuItem>
+      {canEditStructure && (
+        <DropdownMenuItem onClick={onAddColumn}>
+          <Columns3 className="h-3.5 w-3.5" /> Столбец
+        </DropdownMenuItem>
+      )}
+    </>
+  );
+
   return (
-    <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-border/70 bg-card/90 px-4 py-2">
-      <div className="relative w-full sm:w-64">
+    <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-card px-3 py-2 sm:flex-wrap sm:px-4">
+      <div className="relative min-w-0 flex-1 sm:w-64 sm:flex-none">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={searchQuery}
@@ -75,9 +112,9 @@ export function TableToolbar({
       </div>
 
       {viewMode === "table" && (
-        <>
+        <div className="hidden items-center gap-2 sm:flex">
           <Select value={groupByKey ?? "__none__"} onValueChange={(v) => onGroupByChange(v === "__none__" ? null : v)}>
-            <SelectTrigger className="h-10 w-44 rounded-md sm:h-8">
+            <SelectTrigger className="h-8 w-44 rounded-md">
               <SelectValue placeholder="Группировка" />
             </SelectTrigger>
             <SelectContent>
@@ -92,7 +129,7 @@ export function TableToolbar({
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-10 gap-1.5 bg-background sm:h-8">
+              <Button variant="outline" size="sm" className="h-8 gap-1.5 bg-background">
                 <Rows3 className="h-3.5 w-3.5" /> {DENSITY_LABELS[density]}
               </Button>
             </DropdownMenuTrigger>
@@ -104,15 +141,15 @@ export function TableToolbar({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-        </>
+        </div>
       )}
 
       {hasStatusColumn && (
-        <div className="flex items-center gap-0.5 rounded-full border border-border bg-background p-0.5">
+        <div className="hidden items-center gap-0.5 rounded-full border border-border bg-background p-0.5 sm:flex">
           <Button
             variant={viewMode === "table" ? "secondary" : "ghost"}
             size="sm"
-            className="h-10 min-w-10 gap-1.5 rounded-full px-2.5 sm:h-7 sm:min-w-0"
+            className="h-7 min-w-0 gap-1.5 rounded-full px-2.5"
             onClick={() => onViewModeChange("table")}
             title="Таблица"
           >
@@ -121,7 +158,7 @@ export function TableToolbar({
           <Button
             variant={viewMode === "kanban" ? "secondary" : "ghost"}
             size="sm"
-            className="h-10 min-w-10 gap-1.5 rounded-full px-2.5 sm:h-7 sm:min-w-0"
+            className="h-7 min-w-0 gap-1.5 rounded-full px-2.5"
             onClick={() => onViewModeChange("kanban")}
             title="Канбан"
           >
@@ -130,21 +167,31 @@ export function TableToolbar({
         </div>
       )}
 
-      <div className="flex-1" />
+      <div className="hidden flex-1 sm:block" />
 
-      <Button variant="outline" size="sm" className="h-10 gap-1.5 bg-background sm:h-8" onClick={onExportCsv}>
+      <Button variant="outline" size="sm" className="hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onExportCsv}>
         <Download className="h-3.5 w-3.5" /> CSV
       </Button>
 
       {canEditStructure && (
-        <Button variant="outline" size="sm" className="h-10 gap-1.5 bg-background sm:h-8" onClick={onAddColumn}>
+        <Button variant="outline" size="sm" className="hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onAddColumn}>
           <Columns3 className="h-3.5 w-3.5" /> Столбец
         </Button>
       )}
 
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="icon" className="h-10 w-10 shrink-0 sm:hidden" title="Ещё">
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">{extraMenu}</DropdownMenuContent>
+      </DropdownMenu>
+
       {canEdit && (
-        <Button size="sm" className="h-10 gap-1.5 sm:h-8" onClick={onAddRow}>
-          <Plus className="h-3.5 w-3.5" /> Строка
+        <Button size="sm" className="h-10 shrink-0 gap-1.5 sm:h-8" onClick={onAddRow}>
+          <Plus className="h-3.5 w-3.5" />
+          <span className="hidden xs:inline sm:inline">Строка</span>
         </Button>
       )}
     </div>

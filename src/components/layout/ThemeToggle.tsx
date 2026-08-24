@@ -8,7 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useUiStore, type ThemeMode } from "@/store/uiStore";
 
-const OPTIONS: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
+export const THEME_OPTIONS: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
   { value: "light", label: "Светлая", icon: Sun },
   { value: "dark", label: "Тёмная", icon: Moon },
   { value: "system", label: "Системная", icon: Laptop },
@@ -17,7 +17,7 @@ const OPTIONS: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
 export function ThemeToggle() {
   const theme = useUiStore((s) => s.theme);
   const setTheme = useUiStore((s) => s.setTheme);
-  const CurrentIcon = OPTIONS.find((o) => o.value === theme)?.icon ?? Sun;
+  const CurrentIcon = THEME_OPTIONS.find((o) => o.value === theme)?.icon ?? Sun;
 
   return (
     <DropdownMenu>
@@ -27,7 +27,7 @@ export function ThemeToggle() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        {OPTIONS.map((opt) => (
+        {THEME_OPTIONS.map((opt) => (
           <DropdownMenuItem key={opt.value} onClick={() => setTheme(opt.value)}>
             <opt.icon className="h-4 w-4" />
             {opt.label}

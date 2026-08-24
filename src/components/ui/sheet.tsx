@@ -31,7 +31,7 @@ const sheetVariants = cva(
     variants: {
       side: {
         left:
-          "left-0 top-0 bottom-0 z-[210] h-auto w-[min(18rem,85vw)] max-w-[18rem] overflow-y-auto bg-background border-r data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left data-[state=closed]:duration-240 data-[state=open]:duration-300",
+          "left-0 top-0 z-[210] h-[100dvh] max-h-[100dvh] w-[min(18rem,85vw)] max-w-[18rem] overflow-y-auto bg-background border-r data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left data-[state=closed]:duration-240 data-[state=open]:duration-300",
         right:
           "right-0 top-0 bottom-0 z-[210] h-auto w-[min(24rem,85vw)] max-w-md border-l bg-card hud-frame data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right data-[state=closed]:duration-240 data-[state=open]:duration-300",
       },

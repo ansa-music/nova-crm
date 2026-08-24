@@ -40,10 +40,8 @@ export interface Workspace {
    */
   statusOptions?: StatusOption[];
   /**
-   * Overrides the product's default cyan accent (--primary/--ring)
-   * with an Owner-chosen preset. An HSL triplet ("221 83% 58%"), applied at
-   * runtime by AccentColorSync — never baked into index.css, so every
-   * other workspace keeps the default until its own Owner picks one.
+   * Optional desk marker (--desk-accent), an HSL triplet. Chrome stays
+   * bronze from index.css; AccentColorSync never writes --primary/--ring.
    */
   accentColor?: string;
   /**

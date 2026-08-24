@@ -55,6 +55,7 @@
     --duration: 260ms;
     --duration-slow: 320ms;
     --hud-blur: 10px;
+    --desk-accent: 32 42% 36%;
   }
 
   .dark {
@@ -96,6 +97,7 @@
     --sidebar-foreground: 32 16% 74%;
     --sidebar-border: 32 22% 20%;
     --sidebar-accent: 24 16% 14%;
+    --desk-accent: 36 47% 60%;
   }
 
   * {
@@ -140,9 +142,7 @@
 
   :focus-visible {
     outline: none;
-    box-shadow:
-      0 0 0 1px hsl(var(--primary) / 0.85),
-      0 0 16px hsl(var(--primary) / 0.4);
+    box-shadow: 0 0 0 1px hsl(var(--ring));
   }
 
   .eyebrow {
@@ -182,20 +182,10 @@
     @apply bg-sidebar-accent/80 text-foreground;
   }
   .nav-link-active {
-    @apply text-foreground;
-    text-shadow: 0 0 14px hsl(var(--primary) / 0.7);
+    @apply bg-sidebar-accent text-foreground;
   }
   .nav-link-active::before {
-    content: "";
-    position: absolute;
-    left: 5px;
-    top: 7px;
-    bottom: 7px;
-    width: 2px;
-    background: hsl(var(--primary));
-    box-shadow:
-      0 0 8px hsl(var(--primary) / 0.95),
-      0 0 16px hsl(var(--primary) / 0.55);
+    content: none;
   }
 
   .desk-cluster {
@@ -284,7 +274,7 @@
     transition: background-color var(--duration) var(--ease-out);
   }
   .table-instrument tbody tr:hover td {
-    background-color: hsl(var(--primary) / 0.06);
+    background-color: hsl(var(--muted) / 0.65);
   }
 
   .page-header {
@@ -298,10 +288,7 @@
 
 @layer utilities {
   .glow-primary {
-    box-shadow:
-      0 0 0 1px hsl(var(--primary) / 0.45),
-      0 0 16px hsl(var(--primary) / 0.42),
-      0 0 32px hsl(var(--primary) / 0.18);
+    box-shadow: none;
   }
   .glass {
     @apply border bg-card text-foreground;
@@ -317,13 +304,8 @@
   }
   .os-sidebar {
     border-radius: var(--os-radius);
-    background: hsl(var(--sidebar) / 0.94);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border: 1px solid hsl(var(--primary) / 0.4);
-    box-shadow:
-      0 0 0 1px hsl(var(--primary) / 0.12),
-      0 0 24px -12px hsl(var(--primary) / 0.5);
+    background: hsl(var(--sidebar));
+    border: 1px solid hsl(var(--border));
   }
   .glass-float {
     background: hsl(var(--popover) / 0.96);
@@ -584,19 +566,16 @@
 
 @media (hover: hover) and (pointer: fine) {
   .table-instrument tbody tr.table-data-row:hover td {
-    background-color: hsl(var(--primary) / 0.07);
-    box-shadow: inset 0 -1.5px 0 hsl(var(--primary) / 0.88);
+    background-color: hsl(var(--muted));
+    box-shadow: none;
   }
   .status-pill {
-    box-shadow:
-      0 1px 0 hsl(0 0% 100% / 0.05),
-      0 0 0 1px hsl(var(--primary) / 0.06);
-    transition: transform 160ms var(--ease-out), filter 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+    box-shadow: none;
+    filter: none;
   }
   .status-pill:hover {
-    transform: translateY(-1px);
-    filter: brightness(1.08);
-    box-shadow: 0 0 10px hsl(var(--primary) / 0.22);
+    filter: none;
+    box-shadow: none;
   }
   .status-pill:active {
     transform: translateY(0) scale(0.98);
@@ -619,4 +598,21 @@
   .table-status-trigger {
     min-height: 44px;
   }
+}
+
+.wordmark {
+  font-family: Fraunces, "Iowan Old Style", Palatino, Georgia, serif;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: hsl(var(--primary));
+}
+.desk-accent-mark {
+  background: hsl(var(--desk-accent));
+}
+.table-instrument {
+  color: hsl(var(--foreground));
+}
+.table-instrument td,
+.table-instrument th {
+  border-color: hsl(var(--border) / 0.85);
 }

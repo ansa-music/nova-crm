@@ -123,14 +123,14 @@ export function AppLayout() {
       <GoChordHotkeys />
       <AccentColorSync />
       {!isCompactNav && !isFullscreen && <Sidebar />}
-      <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${isFullscreen ? "" : "rounded-md border border-primary/35 bg-card/90"}`}>
+      <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${isFullscreen ? "" : "rounded-2xl border border-border bg-card/90"}`}>
         {!isFullscreen && <Topbar />}
         {!isFullscreen && <SimulationBanner />}
         {isFullscreen && (
           <button
             onClick={() => setTableFullscreen(false)}
             title="Показать меню (Esc)"
-            className="fixed left-3 top-3 z-50 flex h-9 w-9 items-center justify-center rounded-sm border border-primary/40 bg-card text-muted-foreground transition-colors hover:text-foreground"
+            className="fixed left-3 top-3 z-50 flex h-9 w-9 items-center justify-center rounded-sm border border-border bg-card text-muted-foreground transition-colors hover:text-foreground"
           >
             <Maximize2 className="h-3.5 w-3.5" />
           </button>

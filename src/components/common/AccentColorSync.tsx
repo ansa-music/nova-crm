@@ -10,19 +10,19 @@ export const ACCENT_PRESETS = [
   { label: "Малина", value: "340 82% 62%" },
 ] as const;
 
-/** Mount once near the app root. Resets to the default (index.css value) whenever no workspace override is set. */
+/** Mount once near the app root. Workspace accent is a marker only — chrome stays bronze. */
 export function AccentColorSync() {
   const { activeWorkspace } = useWorkspace();
 
   useEffect(() => {
     const root = document.documentElement;
     if (activeWorkspace?.accentColor) {
-      root.style.setProperty("--primary", activeWorkspace.accentColor);
-      root.style.setProperty("--ring", activeWorkspace.accentColor);
+      root.style.setProperty("--desk-accent", activeWorkspace.accentColor);
     } else {
-      root.style.removeProperty("--primary");
-      root.style.removeProperty("--ring");
+      root.style.removeProperty("--desk-accent");
     }
+    root.style.removeProperty("--primary");
+    root.style.removeProperty("--ring");
   }, [activeWorkspace?.accentColor]);
 
   return null;

@@ -11,6 +11,13 @@ export default {
     },
     extend: {
       fontFamily: {
+        serif: [
+          "Fraunces",
+          "Iowan Old Style",
+          "Palatino",
+          "Georgia",
+          "serif",
+        ],
         sans: [
           "Inter",
           "-apple-system",
