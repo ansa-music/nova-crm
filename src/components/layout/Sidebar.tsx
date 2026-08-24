@@ -5,7 +5,6 @@ import {
   ChevronRight,
   Keyboard,
   LayoutDashboard,
-  LayoutGrid,
   LogOut,
   Megaphone,
   MessageCircle,
@@ -82,7 +81,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   const { profile } = useAuth();
   const { members, activeWorkspaceId, workspaces, activeWorkspace, setActiveWorkspaceId } = useWorkspace();
   const permissions = usePermissions();
-  const { groups, activeGroup, studioPages, selectPerson } = usePeopleDesks();
+  const { groups, activeGroup, selectPerson } = usePeopleDesks();
   const navigate = useNavigate();
   const location = useLocation();
   const pinnedCollapsed = useUiStore((s) => s.sidebarCollapsed) && !mobile;
@@ -150,11 +149,6 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               <AppNavLink to="/" end icon={LayoutDashboard} onNavigate={onNavigate}>
                 Главная
               </AppNavLink>
-              {studioPages.map((page) => (
-                <AppNavLink key={page.id} to={`/page/${page.id}`} icon={LayoutGrid} onNavigate={onNavigate}>
-                  {page.name}
-                </AppNavLink>
-              ))}
               <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
                 Настройки
               </AppNavLink>
