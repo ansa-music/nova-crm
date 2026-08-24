@@ -21,6 +21,7 @@ import { TableChromeExit } from "@/components/table/TableChromeExit";
 import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorkspace";
 import { useAppBootstrap } from "@/hooks/useAppBootstrap";
 import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
+import { useOpenApprovedDesk } from "@/hooks/useOpenApprovedDesk";
 import { useAuth } from "@/hooks/useAuth";
 import { useIsTablet } from "@/hooks/useMediaQuery";
 import { useUiStore } from "@/store/uiStore";
@@ -38,6 +39,7 @@ export function AppLayout() {
   // progress while a boot screen is on-screen.
   useActiveWorkspaceDataBootstrap();
   usePresenceHeartbeat();
+  useOpenApprovedDesk();
   const location = useLocation();
 
   const { phase } = useAppBootstrap();
