@@ -45,6 +45,8 @@ export function usePeopleDesks() {
   const activeGroup: PersonDeskGroup | null =
     groups.find((g) => g.key === selectedPersonKey) ?? groups[0] ?? null;
 
+  const ownerUid = members.find((m) => m.role === "owner")?.uid ?? null;
+
   return {
     groups,
     activeGroup,
@@ -52,6 +54,7 @@ export function usePeopleDesks() {
     visiblePages,
     isPersonalLanding,
     isLoadingWorkspaceData,
+    ownerUid,
     selectPerson: setSelectedPersonKey,
   };
 }

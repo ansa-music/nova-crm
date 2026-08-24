@@ -191,7 +191,7 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
                   <UserX className="h-3 w-3" /> Убрать у всех
                 </Button>
                 <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => onlyRole("manager")}>
-                  Только Manager
+                  Только технари
                 </Button>
                 <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => onlyRole("viewer")}>
                   Только Viewer

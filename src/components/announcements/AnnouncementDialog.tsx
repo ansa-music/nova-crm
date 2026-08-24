@@ -177,7 +177,7 @@ export function AnnouncementDialog({ open, onOpenChange, editing }: Announcement
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="admin">Только Admin</SelectItem>
-                        <SelectItem value="manager">Только Manager</SelectItem>
+                        <SelectItem value="manager">Только технари</SelectItem>
                         <SelectItem value="viewer">Только Viewer</SelectItem>
                       </SelectContent>
                     </Select>

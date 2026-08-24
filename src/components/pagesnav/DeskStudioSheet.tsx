@@ -4,7 +4,6 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/sonner";
 import { IconPicker } from "@/components/common/IconPicker";
 import { ColorPicker } from "@/components/common/ColorPicker";
@@ -18,7 +17,6 @@ import {
 } from "@/services/pageService";
 import { removeDeskCover, uploadDeskCover } from "@/services/deskCoverService";
 import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
-import { useDeskLayout } from "@/hooks/useDeskLayout";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { PageIconName, WorkspacePage } from "@/types";
 
@@ -31,7 +29,6 @@ interface DeskStudioSheetProps {
 
 export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioSheetProps) {
   const permissions = usePermissions();
-  const { layout, setLayout } = useDeskLayout(uid ?? permissions.uid);
   const [name, setName] = useState("");
   const [icon, setIcon] = useState<PageIconName>("LayoutGrid");
   const [color, setColor] = useState("243 75% 59%");
@@ -300,35 +297,6 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
             />
           </section>
 
-          <section className="flex flex-col gap-3 border-t border-border pt-6">
-            <div>
-              <p className="text-sm font-medium">Что висит на столе</p>
-              <p className="text-xs text-muted-foreground">
-                Только твой домашний экран. Список «Столы» у овнера не трогаем.
-              </p>
-            </div>
-            <label className="flex items-center justify-between gap-3 rounded-lg border border-border/70 px-3 py-2.5">
-              <span className="text-sm">Рейтинг «Как ведут дело»</span>
-              <Switch
-                checked={layout.showLeaderboard}
-                onCheckedChange={(v) => setLayout({ showLeaderboard: v })}
-              />
-            </label>
-            <label className="flex items-center justify-between gap-3 rounded-lg border border-border/70 px-3 py-2.5">
-              <span className="text-sm">Карточка прогресса</span>
-              <Switch
-                checked={layout.showProgress}
-                onCheckedChange={(v) => setLayout({ showProgress: v })}
-              />
-            </label>
-            <label className="flex items-center justify-between gap-3 rounded-lg border border-border/70 px-3 py-2.5">
-              <span className="text-sm">Диаграмма стола</span>
-              <Switch
-                checked={layout.showCharts}
-                onCheckedChange={(v) => setLayout({ showCharts: v })}
-              />
-            </label>
-          </section>
         </div>
 
         <div className="sticky bottom-0 border-t border-border bg-card/95 px-5 py-4 ">

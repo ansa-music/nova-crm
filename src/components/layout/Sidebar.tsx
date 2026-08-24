@@ -15,6 +15,7 @@ import {
   Settings,
   User,
   Users,
+  UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -22,13 +23,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
+import { RoleSwitcher } from "@/components/common/RoleSwitcher";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialog";
 import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog";
@@ -110,7 +109,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   }
 
   function goHome() {
-    if (location.pathname !== "/") navigate("/");
+    navigate("/");
     onNavigate?.();
   }
 
@@ -144,10 +143,36 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-thin">
+          {!mobile && (
+            <nav className="mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Люди">
+              {collapsed ? (
+                <NavLink
+                  to="/people"
+                  title="Люди"
+                  onClick={() => onNavigate?.()}
+                  className={({ isActive }) =>
+                    cn(
+                      "flex h-11 w-11 items-center justify-center rounded-xl",
+                      isActive ? "bg-[hsl(24_16%_16%)] text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
+                    )
+                  }
+                >
+                  <UsersRound className="h-4 w-4" />
+                </NavLink>
+              ) : (
+                <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
+                  Люди
+                </AppNavLink>
+              )}
+            </nav>
+          )}
           {mobile && (
             <nav className="mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
-              <AppNavLink to="/" end icon={LayoutDashboard} onNavigate={onNavigate}>
+              <AppNavLink to="/" end icon={LayoutDashboard} onNavigate={() => { navigate("/"); onNavigate?.(); }}>
                 Главная
+              </AppNavLink>
+              <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
+                Люди
               </AppNavLink>
               <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
                 Настройки
@@ -290,11 +315,6 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
                 <NavLink to="/settings" onClick={() => onNavigate?.()}>
-                  <User className="h-4 w-4" /> Профиль
-                </NavLink>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <NavLink to="/settings" onClick={() => onNavigate?.()}>
                   <Settings className="h-4 w-4" /> Настройки
                 </NavLink>
               </DropdownMenuItem>
@@ -328,28 +348,21 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                 </>
               )}
               <DropdownMenuSeparator />
-              {mobile ? (
-                THEME_OPTIONS.map((opt) => (
-                  <DropdownMenuItem key={opt.value} onClick={() => setTheme(opt.value)}>
-                    <opt.icon className="h-4 w-4" />
-                    {opt.label}
-                    {theme === opt.value ? " ·" : ""}
-                  </DropdownMenuItem>
-                ))
-              ) : (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>Тема</DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent>
-                    {THEME_OPTIONS.map((opt) => (
-                      <DropdownMenuItem key={opt.value} onClick={() => setTheme(opt.value)}>
-                        <opt.icon className="h-4 w-4" />
-                        {opt.label}
-                        {theme === opt.value ? " ·" : ""}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              )}
+              <div
+                className="px-1 py-1"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <RoleSwitcher embedded />
+              </div>
+              <DropdownMenuSeparator />
+              {THEME_OPTIONS.map((opt) => (
+                <DropdownMenuItem key={opt.value} onClick={() => setTheme(opt.value)}>
+                  <opt.icon className="h-4 w-4" />
+                  {opt.label}
+                  {theme === opt.value ? " ·" : ""}
+                </DropdownMenuItem>
+              ))}
               <DropdownMenuItem onClick={() => useUiStore.getState().setShortcutsHelpOpen(true)}>
                 <Keyboard className="h-4 w-4" /> Клавиши
               </DropdownMenuItem>

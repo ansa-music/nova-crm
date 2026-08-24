@@ -12,4 +12,6 @@ export interface Notification {
   read: boolean;
   createdAt: number;
   relatedAnnouncementId?: string | null;
+  pageId?: string | null;
+  href?: string | null;
 }

@@ -1,4 +1,5 @@
 import { Bell } from "lucide-react";
+import { useNavigate } from "react-router";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,6 +11,7 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { markAllNotificationsRead, markNotificationRead } from "@/services/notificationService";
 import { timeAgo } from "@/utils/date";
 import { cn } from "@/utils/cn";
+import type { Notification } from "@/types";
 
 const PRIORITY_DOT: Record<string, string> = {
   normal: "bg-muted-foreground",
@@ -17,10 +19,18 @@ const PRIORITY_DOT: Record<string, string> = {
   urgent: "bg-secondary",
 };
 
+function notificationHref(n: Notification): string | null {
+  if (typeof n.href === "string" && n.href.startsWith("/")) return n.href;
+  if (n.relatedAnnouncementId) return "/announcements";
+  if (typeof n.pageId === "string" && n.pageId) return "/page/" + n.pageId;
+  return null;
+}
+
 export function NotificationBell({ className }: { className?: string }) {
   const { profile } = useAuth();
   const { activeWorkspaceId } = useWorkspace();
   const { notifications, unreadCount, reload } = useNotifications(activeWorkspaceId, profile?.uid ?? null);
+  const navigate = useNavigate();
 
   return (
     <DropdownMenu
@@ -59,7 +69,11 @@ export function NotificationBell({ className }: { className?: string }) {
             notifications.map((n) => (
               <button
                 key={n.id}
-                onClick={() => activeWorkspaceId && !n.read && markNotificationRead(activeWorkspaceId, n.id)}
+                onClick={() => {
+                  if (activeWorkspaceId && !n.read) void markNotificationRead(activeWorkspaceId, n.id);
+                  const dest = notificationHref(n);
+                  if (dest) navigate(dest);
+                }}
                 className={cn(
                   "flex w-full items-start gap-2 border-b border-border px-3 py-2.5 text-left transition-colors last:border-0 hover:bg-accent/40",
                   !n.read && "bg-accent/20"

@@ -42,7 +42,7 @@ export function SimulationBanner() {
 }
 
 /** Dropdown switcher for the topbar — renders nothing for Manager/Viewer, who have nothing to switch. */
-export function RoleSwitcher() {
+export function RoleSwitcher({ embedded = false }: { embedded?: boolean } = {}) {
   const permissions = usePermissions();
   const { profile } = useAuth();
   const { activeWorkspaceId } = useWorkspace();
@@ -71,20 +71,8 @@ export function RoleSwitcher() {
     }
   }
 
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant={permissions.isSimulating ? "default" : "ghost"}
-          size="sm"
-          className={cn("gap-1.5", permissions.isSimulating && "bg-amber-500 text-white hover:bg-amber-500/90")}
-          title="Режим доступа"
-        >
-          <ShieldCheck className="h-3.5 w-3.5" />
-          {ROLE_LABELS[permissions.role]}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64 p-3">
+  const panel = (
+    <div className={cn(!embedded && "contents")}>
         <p className="mb-2 text-xs font-semibold text-muted-foreground">Режим доступа</p>
         <p className="mb-2 text-xs text-muted-foreground">
           Реальная роль: <span className="font-medium text-foreground">{ROLE_LABELS[permissions.realRole]}</span>
@@ -117,6 +105,26 @@ export function RoleSwitcher() {
             Вернуть мой реальный режим
           </Button>
         )}
+    </div>
+  );
+
+  if (embedded) return panel;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant={permissions.isSimulating ? "default" : "ghost"}
+          size="sm"
+          className={cn("gap-1.5", permissions.isSimulating && "bg-amber-500 text-white hover:bg-amber-500/90")}
+          title="Режим доступа"
+        >
+          <ShieldCheck className="h-3.5 w-3.5" />
+          {ROLE_LABELS[permissions.role]}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64 p-3">
+        {panel}
       </DropdownMenuContent>
     </DropdownMenu>
   );

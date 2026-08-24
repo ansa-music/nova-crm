@@ -42,3 +42,15 @@ export function groupDesksByPerson(pages: WorkspacePage[], members: WorkspaceMem
 export function groupDeskSubtitle(group: PersonDeskGroup) {
   return group.pages[0]?.name ?? "";
 }
+
+export const OWNER_FALLBACK_COVER = "/covers/nurba.png";
+export const DESK_FALLBACK_COVER = "/covers/default.png";
+
+export function resolvedCoverUrl(
+  page: { coverUrl?: string | null; responsibleUserId?: string | null } | null | undefined,
+  ownerUid?: string | null
+) {
+  if (page?.coverUrl) return page.coverUrl;
+  if (ownerUid && page?.responsibleUserId === ownerUid) return OWNER_FALLBACK_COVER;
+  return DESK_FALLBACK_COVER;
+}

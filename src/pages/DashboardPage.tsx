@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Settings2 } from "lucide-react";
+import { Plus, Settings2 } from "lucide-react";
 import { deskEase, gsap, useGSAP } from "@/lib/gsap";
 import { Button } from "@/components/ui/button";
 import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
@@ -10,7 +10,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { usePeopleDesks } from "@/hooks/usePeopleDesks";
 import { DeskStudioSheet } from "@/components/pagesnav/DeskStudioSheet";
 import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialog";
-import { personLabel } from "@/utils/peopleDesks";
+import { personLabel, resolvedCoverUrl } from "@/utils/peopleDesks";
 import { useNavigate } from "react-router";
 import type { WorkspacePage } from "@/types";
 
@@ -21,7 +21,7 @@ function cn(...classes: (string | boolean | undefined)[]) {
 export default function DashboardPage() {
   const permissions = usePermissions();
   const { profile } = useAuth();
-  const { groups, activeGroup, studioPages, isLoadingWorkspaceData, selectPerson } = usePeopleDesks();
+  const { groups, activeGroup, studioPages, isLoadingWorkspaceData, selectPerson, ownerUid } = usePeopleDesks();
   const [studioPageId, setStudioPageId] = useState<string | null>(null);
   const [createPageOpen, setCreatePageOpen] = useState(false);
   const [heroPageId, setHeroPageId] = useState<string | null>(null);
@@ -87,8 +87,8 @@ export default function DashboardPage() {
           action={
             permissions.canCreatePages ? (
               <Button size="sm" className="min-h-11 gap-1.5" onClick={() => setCreatePageOpen(true)}>
-                <Settings2 className="h-3.5 w-3.5" />
-                Настроить стол
+                <Plus className="h-3.5 w-3.5" />
+                Новый стол
               </Button>
             ) : undefined
           }
@@ -101,7 +101,7 @@ export default function DashboardPage() {
               className="block w-full text-left"
               onClick={() => navigate(`/page/${heroPage.id}`)}
             >
-              <DeskCoverStrip coverUrl={heroPage.coverUrl} name={heroPage.name} ratio="hero" />
+              <DeskCoverStrip coverUrl={resolvedCoverUrl(heroPage, ownerUid)} name={heroPage.name} ratio="hero" />
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
             </button>
             <div className="pointer-events-none absolute inset-0 z-[1] flex flex-col justify-between p-4 sm:p-7">
@@ -170,7 +170,7 @@ export default function DashboardPage() {
                         setHeroPageId(coverPage.id);
                       }}
                     >
-                      <DeskCoverStrip coverUrl={coverPage.coverUrl} name={label} ratio="thumb" />
+                      <DeskCoverStrip coverUrl={resolvedCoverUrl(coverPage, ownerUid)} name={label} ratio="thumb" />
                       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
                       <p className="absolute bottom-2 left-2.5 right-2 truncate text-[12px] font-medium text-[hsl(36_40%_96%)]">
                         {label}

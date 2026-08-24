@@ -1,10 +1,11 @@
 // PATH: src/layouts/AppLayout.tsx  (REPLACES EXISTING)
 import { useState, useEffect } from "react";
-import { Outlet, useLocation, useNavigate } from "react-router";
+import { Outlet, useLocation } from "react-router";
 import { Building2, Lock, Plus } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { PageShell } from "@/components/layout/PageShell";
 import { Topbar } from "@/components/layout/Topbar";
+import { GlobalSearch } from "@/components/layout/GlobalSearch";
 import { Maximize2 } from "lucide-react";
 import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog";
 import { NicknamePrompt } from "@/components/common/NicknamePrompt";
@@ -30,22 +31,6 @@ export function AppLayout() {
   useActiveWorkspaceDataBootstrap();
   usePresenceHeartbeat();
   const location = useLocation();
-  const navigate = useNavigate();
-
-  // Resume last table only once per browser tab. A remount of AppLayout
-  // (boot flicker) or tapping "Дашборд" must not bounce the user back off "/".
-  useEffect(() => {
-    try {
-      if (sessionStorage.getItem("nova-crm:did-resume-last-page") === "1") return;
-      sessionStorage.setItem("nova-crm:did-resume-last-page", "1");
-      if (location.pathname !== "/") return;
-      const lastPageId = window.localStorage.getItem("nova-crm:last-page-id");
-      if (lastPageId) navigate(`/page/${lastPageId}`, { replace: true });
-    } catch {
-      /* ignore */
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const { phase } = useAppBootstrap();
   const { activeWorkspace } = useWorkspace();
@@ -118,6 +103,7 @@ export function AppLayout() {
     <div className={`page-surface flex h-screen overflow-hidden bg-background ${isFullscreen ? "" : "p-3"}`}>
       <NicknamePrompt />
       <GlobalMessageToaster />
+      <GlobalSearch hideTrigger />
       <ShortcutsHelpDialog />
       <GlobalUndoHotkeys />
       <GoChordHotkeys />

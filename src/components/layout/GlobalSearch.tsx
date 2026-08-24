@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
+import { usePeopleDesks } from "@/hooks/usePeopleDesks";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { cn } from "@/utils/cn";
 import { useUiStore } from "@/store/uiStore";
@@ -29,12 +30,13 @@ type CommandItem = {
   run?: () => void;
 };
 
-export function GlobalSearch() {
+export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const { pages, members } = useWorkspace();
   const permissions = usePermissions();
+  const { selectPerson } = usePeopleDesks();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -60,6 +62,7 @@ export function GlobalSearch() {
   const destinations: CommandItem[] = useMemo(() => {
     const list: CommandItem[] = [
       { id: "dash", kind: "go", label: "Дашборд", hint: "Сегодня", href: "/", icon: LayoutDashboard },
+      { id: "people", kind: "go", label: "Люди", href: "/people", icon: Users },
       { id: "ann", kind: "go", label: "Объявления", href: "/announcements", icon: Megaphone },
       { id: "chat", kind: "go", label: "Чат workspace", href: "/chat", icon: MessageSquare },
       { id: "msg", kind: "go", label: "Личные сообщения", href: "/messages", icon: MessageCircle },
@@ -118,8 +121,15 @@ export function GlobalSearch() {
         hint: m.email,
         href: permissions.canManageWorkspace ? "/users" : undefined,
         icon: Users,
+        run:
+          !permissions.canManageWorkspace && m.uid
+            ? () => {
+                selectPerson(m.uid);
+                navigate("/");
+              }
+            : undefined,
       }));
-  }, [members, q, permissions.canManageWorkspace]);
+  }, [members, q, permissions.canManageWorkspace, selectPerson, navigate]);
 
   const items = [...filteredDest, ...pageItems, ...peopleItems];
   const total = items.length;
@@ -137,7 +147,7 @@ export function GlobalSearch() {
 
   return (
     <>
-      <button
+      {!hideTrigger && <button
         type="button"
         onClick={() => setOpen(true)}
         className="flex h-8 w-full max-w-xl items-center gap-2 rounded-full border border-border/70 bg-background/40 px-3 text-[13px] text-muted-foreground transition-colors duration-200 hover:border-border hover:text-foreground"
@@ -147,7 +157,7 @@ export function GlobalSearch() {
         <kbd className="hidden rounded border border-border px-1.5 py-0.5 font-mono text-[10px] tracking-wide sm:inline">
           Ctrl K
         </kbd>
-      </button>
+      </button>}
 
       <Dialog
         open={open}

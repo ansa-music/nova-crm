@@ -3,7 +3,7 @@ export type Role = "owner" | "admin" | "manager" | "viewer";
 export const ROLE_LABELS: Record<Role, string> = {
   owner: "Owner",
   admin: "Admin",
-  manager: "Manager",
+  manager: "Технар",
   viewer: "Viewer",
 };
 
