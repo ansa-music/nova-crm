@@ -85,7 +85,7 @@ export default {
         subtle: "0 1px 0 hsl(var(--foreground) / 0.04)",
         card: "0 1px 0 hsl(var(--foreground) / 0.04)",
         popover: "0 16px 40px -18px rgb(0 0 0 / 0.55), 0 0 0 1px hsl(var(--border))",
-        glow: "0 0 0 1px hsl(var(--primary) / 0.22)",
+        glow: "0 0 18px hsl(var(--primary) / 0.42), 0 0 42px hsl(var(--primary) / 0.18)",
       },
       transitionTimingFunction: {
         out: "cubic-bezier(0.16, 1, 0.3, 1)",

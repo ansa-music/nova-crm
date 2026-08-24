@@ -2,11 +2,11 @@ import { useEffect } from "react";
 import { useWorkspace } from "@/hooks/useWorkspace";
 
 export const ACCENT_PRESETS = [
-  { label: "Вермилион", value: "13 100% 57%" },
-  { label: "Синий", value: "217 91% 60%" },
-  { label: "Зелёный", value: "152 60% 40%" },
-  { label: "Фиолетовый", value: "262 70% 60%" },
-  { label: "Янтарный", value: "38 92% 50%" },
+  { label: "Циан", value: "187 100% 71%" },
+  { label: "Фиолетовый", value: "252 100% 68%" },
+  { label: "Изумруд", value: "164 78% 48%" },
+  { label: "Янтарный", value: "42 96% 62%" },
+  { label: "Малина", value: "340 82% 62%" },
 ] as const;
 
 /** Mount once near the app root. Resets to the default (index.css value) whenever no workspace override is set. */
