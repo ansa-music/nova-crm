@@ -64,6 +64,10 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
     setGoalInput(page.monthlyGoal ? String(page.monthlyGoal) : "");
   }, [page, open]);
 
+  useEffect(() => {
+    if (!permissions.canManageStatusVariants) setStatusDialogOpen(false);
+  }, [permissions.canManageStatusVariants]);
+
   const canEditPreview = Boolean(page && permissions.canManagePage(page));
   const columns = page?.columns ?? [];
   const statusColumn = columns.find((c) => c.type === "status") ?? null;
@@ -227,6 +231,7 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
   }
 
   return (
+    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
@@ -412,7 +417,10 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
               onToggleHidden={(key) => void handleToggleHidden(key)}
               onMoveColumn={(key, dir) => void handleMoveColumn(key, dir)}
               onDeleteColumn={(key) => void handleDeleteColumn(key)}
-              onManageStatuses={() => setStatusDialogOpen(true)}
+              onManageStatuses={() => {
+                if (!permissions.canManageStatusVariants) return;
+                setStatusDialogOpen(true);
+              }}
               canManageStatuses={permissions.canManageStatusVariants}
             />
           </section>
@@ -455,6 +463,8 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
             Сохранить стол
           </Button>
         </div>
+      </SheetContent>
+    </Sheet>
         <AddColumnDialog
           open={addColumnOpen}
           onOpenChange={setAddColumnOpen}
@@ -467,11 +477,11 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
           open={statusDialogOpen && permissions.canManageStatusVariants}
           onOpenChange={setStatusDialogOpen}
           title="Статусы стола"
-          description="Список для столбца «Статус» на этом столе. «Готово» — для дашборда и итогов."
+          description="Список для столбца «Статус» на этом столе. «Готово» учитывается на дашборде."
           options={statusOptions}
           onSave={handleSaveStatuses}
+          canEdit={permissions.canManageStatusVariants}
         />
-      </SheetContent>
-    </Sheet>
+    </>
   );
 }

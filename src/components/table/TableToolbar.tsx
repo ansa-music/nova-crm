@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Download, Plus, Search, Rows3, Columns3, Table2, Kanban, MoreHorizontal, Palette, SlidersHorizontal } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/utils/cn";
+import { NOT_DONE_STATUS_FILTER } from "@/utils/columnOptions";
 import type { PageColumn, StatusOption } from "@/types";
 
 interface TableToolbarProps {
@@ -75,6 +77,7 @@ export function TableToolbar({
   viewMode,
   onViewModeChange,
 }: TableToolbarProps) {
+  const [searchOpen, setSearchOpen] = useState(Boolean(searchQuery));
   const extraMenu = (
     <>
       {viewMode === "table" && (
@@ -112,20 +115,45 @@ export function TableToolbar({
     </>
   );
 
+  const searchExpanded = searchOpen || Boolean(searchQuery);
+
   return (
     <div className="z-10 flex h-12 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border bg-card px-2 sm:h-auto sm:flex-wrap sm:gap-2 sm:overflow-visible sm:px-4 sm:py-2">
-      <div className="relative min-w-0 flex-1 sm:w-64 sm:flex-none">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="Поиск по таблице…"
-          className="h-10 rounded-md bg-background pl-8 sm:h-8"
-        />
+      <div
+        className={cn(
+          "relative min-w-0",
+          searchExpanded ? "flex-1 sm:w-64 sm:flex-none" : "w-10 shrink-0 sm:w-64 sm:flex-none"
+        )}
+      >
+        {!searchExpanded && (
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-10 w-10 shrink-0 sm:hidden"
+            onClick={() => setSearchOpen(true)}
+            title="Поиск"
+          >
+            <Search className="h-4 w-4" />
+          </Button>
+        )}
+        <div className={cn(!searchExpanded && "hidden sm:block")}>
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="Поиск по таблице…"
+            className="h-10 rounded-md bg-background pl-8 sm:h-8"
+            autoFocus={searchOpen && !searchQuery}
+            onFocus={() => setSearchOpen(true)}
+            onBlur={() => {
+              if (!searchQuery) setSearchOpen(false);
+            }}
+          />
+        </div>
       </div>
 
       {hasStatusColumn && statusOptions && statusOptions.length > 0 && onStatusFilterChange && (
-        <div className="hidden min-w-0 max-w-full items-center gap-1 overflow-x-auto sm:flex">
+        <div className="flex min-w-0 max-w-full items-center gap-1 overflow-x-auto">
           <button
             type="button"
             onClick={() => onStatusFilterChange(null)}
@@ -138,13 +166,27 @@ export function TableToolbar({
           >
             Все
           </button>
+          <button
+            type="button"
+            onClick={() =>
+              onStatusFilterChange(statusFilter === NOT_DONE_STATUS_FILTER ? null : NOT_DONE_STATUS_FILTER)
+            }
+            className={cn(
+              "h-7 shrink-0 rounded-full border px-2.5 text-[11px] font-medium",
+              statusFilter === NOT_DONE_STATUS_FILTER
+                ? "border-primary/40 bg-primary/12 text-primary"
+                : "border-border bg-background text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Не готово
+          </button>
           {statusOptions.map((opt) => (
             <button
               key={opt.value}
               type="button"
               onClick={() => onStatusFilterChange(statusFilter === opt.value ? null : opt.value)}
               className={cn(
-                "h-7 shrink-0 rounded-full border px-2.5 text-[11px] font-medium",
+                "hidden h-7 shrink-0 rounded-full border px-2.5 text-[11px] font-medium sm:inline-flex",
                 statusFilter === opt.value
                   ? "border-primary/40 bg-primary/12 text-primary"
                   : "border-border bg-background text-muted-foreground hover:text-foreground"

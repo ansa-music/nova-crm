@@ -115,7 +115,13 @@ export function isResponsibleForPage(page: WorkspacePage, uid: string): boolean 
  * created, is that Manager.
  */
 export function canManagePage(page: WorkspacePage, role: Role, uid: string): boolean {
-  return role === "owner" || isResponsibleForPage(page, uid);
+  // Use the *effective* role (RoleSwitcher preview). Owner uid must not keep
+  // page-admin UI while simulating Viewer. A real/preview Manager still
+  // manages desks they are responsible for — status *variants* stay Owner-only
+  // via canManageStatusVariants(effectiveRole), never this check.
+  if (role === "owner") return true;
+  if (role === "viewer") return false;
+  return isResponsibleForPage(page, uid);
 }
 
 /** Only Owner or Admin may assign/change who is responsible for a page. */

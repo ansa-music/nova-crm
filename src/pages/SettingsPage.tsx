@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -224,6 +224,10 @@ export default function SettingsPage() {
     const id = manageOptionsKind.slice(7);
     return customFields.find((f) => f.id === id) ?? null;
   }
+
+  useEffect(() => {
+    if (!permissions.canManageWorkspace) setManageOptionsKind(null);
+  }, [permissions.canManageWorkspace]);
 
   async function handleSaveSharedOptions(next: StatusOption[]) {
     if (!activeWorkspace) return;
@@ -504,8 +508,9 @@ export default function SettingsPage() {
           )}
 
           <ManageOptionsDialog
-            open={manageOptionsKind !== null}
+            open={manageOptionsKind !== null && permissions.canManageWorkspace}
             onOpenChange={(o) => !o && setManageOptionsKind(null)}
+            canEdit={permissions.canManageWorkspace}
             title={
               manageOptionsKind === "status"
                 ? "Варианты статуса"

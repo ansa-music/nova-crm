@@ -51,6 +51,14 @@ export function isDoneStatusLabel(label: string): boolean {
   return l.includes("готов") || l.includes("done") || l.includes("успеш") || l.includes("закрыт");
 }
 
+/** Toolbar chip: hide rows whose status is «Готово». */
+export const NOT_DONE_STATUS_FILTER = "__not_done__";
+
+export function findDoneStatusOption(options: StatusOption[]): StatusOption | undefined {
+  return options.find((o) => isDoneStatusLabel(o.label) || o.value === "done")
+    ?? DEFAULT_STATUS_OPTIONS.find((o) => o.value === "done");
+}
+
 export const BASE_COLUMN_TYPE_LABELS: Record<Exclude<ColumnType, "custom">, string> = {
   text: "Текст",
   number: "Число",

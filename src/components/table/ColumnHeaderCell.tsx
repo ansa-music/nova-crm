@@ -36,6 +36,7 @@ interface ColumnHeaderCellProps {
   onFilterClick: (colKey: string, e: React.MouseEvent) => void;
   hasActiveFilter: boolean;
   onResizeStart: (colKey: string, e: React.PointerEvent) => void;
+  onAutoSize?: (colKey: string) => void;
   isPinned: boolean;
   onTogglePin: (colKey: string) => void;
   stickyLeft?: number;
@@ -59,6 +60,7 @@ export function ColumnHeaderCell({
   onFilterClick,
   hasActiveFilter,
   onResizeStart,
+  onAutoSize,
   isPinned,
   onTogglePin,
   stickyLeft,
@@ -81,7 +83,7 @@ export function ColumnHeaderCell({
   const { activeWorkspace } = useWorkspace();
   const permissions = usePermissions();
   const canEditThisOptions =
-    Boolean(canManageOptions) && isOptionColumn(column.type) && permissions.role === "owner";
+    Boolean(canManageOptions) && isOptionColumn(column.type) && permissions.canManageStatusVariants;
   const pinLabel = isPinned ? "Открепить столбец" : "Закрепить столбец";
   const customFields = activeWorkspace?.customFields ?? [];
   const typeChoices = buildColumnTypeChoices(customFields);
@@ -137,8 +139,16 @@ export function ColumnHeaderCell({
               className="flex min-h-11 min-w-0 flex-1 items-center gap-1 truncate py-1.5 text-left hover:text-foreground active:translate-y-px active:scale-[0.99] motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 sm:min-h-0 sm:py-0"
             >
               <span className="truncate">{column.label}</span>
-              {isSorted && sortState.direction === "asc" && <ArrowUp className="h-3 w-3 shrink-0" />}
-              {isSorted && sortState.direction === "desc" && <ArrowDown className="h-3 w-3 shrink-0" />}
+              {isSorted && sortState.direction === "desc" ? (
+                <ArrowDown className="h-3.5 w-3.5 shrink-0 text-foreground" />
+              ) : (
+                <ArrowUp
+                  className={cn(
+                    "h-3.5 w-3.5 shrink-0",
+                    isSorted ? "text-foreground" : "text-muted-foreground/55"
+                  )}
+                />
+              )}
             </button>
             <button
               type="button"
@@ -227,8 +237,13 @@ export function ColumnHeaderCell({
               e.stopPropagation();
               onResizeStart(column.key, e);
             }}
+            onDoubleClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onAutoSize?.(column.key);
+            }}
             className="absolute -right-1.5 top-0 z-10 h-full w-4 cursor-col-resize touch-none sm:w-2.5"
-            title="Ширина столбца"
+            title="Ширина столбца — двойной клик подогнать"
           >
             <span className="absolute right-[3px] top-1.5 h-[calc(100%-12px)] w-px bg-border opacity-0 group-hover:opacity-100 hover:bg-primary" />
           </div>

@@ -86,7 +86,7 @@ import { updateResponsibleOptions, updateCustomFieldOptions } from "@/services/w
 import { formatCurrency, formatNumber, downloadCsv } from "@/utils";
 import { isSummableColumn, sumNumericCells } from "@/utils/tableAggregates";
 import { clampColumnWidth } from "@/utils/tableLayout";
-import { getColumnOptions, isDoneStatusLabel, isOptionColumn, DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
+import { getColumnOptions, isDoneStatusLabel, isOptionColumn, DEFAULT_STATUS_OPTIONS, NOT_DONE_STATUS_FILTER, findDoneStatusOption } from "@/utils/columnOptions";
 import { isHttpUrl, parseHttpUrl } from "@/utils/httpUrl";
 import { parseClipboardMatrix } from "@/utils/clipboardMatrix";
 import { celebrateDone } from "@/utils/confetti";
@@ -279,6 +279,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const { activeWorkspace } = useWorkspace();
   const permissions = usePermissions();
   const isOwner = permissions.role === "owner";
+  const canManageVariants = permissions.canManageStatusVariants;
   const responsibleOptions = activeWorkspace?.responsibleOptions ?? [];
   const sharedStatusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
   const customFields = activeWorkspace?.customFields ?? [];
@@ -309,6 +310,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const editingCellRef = useRef<CellAddress | null>(null);
   const contextRowIdRef = useRef<string | null>(null);
   const lastCheckedRowIdRef = useRef<string | null>(null);
+  const pendingScrollRowIdRef = useRef<string | null>(null);
   const clipboardRef = useRef<{ matrix: string[][] } | null>(null);
   const resizeStateRef = useRef<
     | { type: "col"; colKey: string; startPos: number; startSize: number; lastValue: number }
@@ -323,6 +325,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   useEffect(() => {
     localStorage.setItem(`nova-crm:pinned:${page.id}`, JSON.stringify(pinnedKeys));
   }, [pinnedKeys, page.id]);
+
+  useEffect(() => {
+    if (!canManageVariants) {
+      setManageOptionsColKey(null);
+    }
+  }, [canManageVariants]);
 
   // Reset transient selection whenever the page changes.
   useEffect(() => {
@@ -347,8 +355,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     return () => mq.removeEventListener("change", apply);
   }, []);
   const rowHeight = coarsePointer
-    ? Math.max(44, DENSITY_ROW_HEIGHT[density])
-    : DENSITY_ROW_HEIGHT[density];
+    ? Math.max(52, DENSITY_ROW_HEIGHT[density])
+    : Math.max(48, DENSITY_ROW_HEIGHT[density]);
 
   // ---- Filtering + search + sort ----
   const processedRows = useMemo(() => {
@@ -367,7 +375,16 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       }
       if (statusFilter) {
         const statusCol = columns.find((c) => c.type === "status");
-        if (statusCol && String(row.cells[statusCol.key] ?? "") !== statusFilter) return false;
+        if (statusCol) {
+          const raw = String(row.cells[statusCol.key] ?? "");
+          const options = getColumnOptions(statusCol, activeWorkspace);
+          if (statusFilter === NOT_DONE_STATUS_FILTER) {
+            const opt = options.find((o) => o.value === raw);
+            if (opt && isDoneStatusLabel(opt.label)) return false;
+          } else if (raw !== statusFilter) {
+            return false;
+          }
+        }
       }
       return true;
     });
@@ -389,7 +406,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       result = [...result].sort((a, b) => a.order - b.order);
     }
     return result;
-  }, [rows, columns, searchQuery, filters, sortState, statusFilter]);
+  }, [rows, columns, searchQuery, filters, sortState, statusFilter, activeWorkspace]);
 
   const canReorderRows =
     canEdit &&
@@ -444,6 +461,20 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     estimateSize: (index) => paginatedRows[index]?.height ?? rowHeight,
     overscan: 10,
   });
+
+  useEffect(() => {
+    const id = pendingScrollRowIdRef.current;
+    if (!id) return;
+    const idx = paginatedRows.findIndex((r) => r.id === id);
+    if (idx < 0) return;
+    pendingScrollRowIdRef.current = null;
+    rowVirtualizer.scrollToIndex(idx, { align: "end" });
+    requestAnimationFrame(() => {
+      containerRef.current
+        ?.querySelector(`tr[data-row-id="${id}"]`)
+        ?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+    });
+  }, [paginatedRows, rowVirtualizer]);
 
   // ---- Selection bounds ----
   const getSelectionBounds = useCallback(() => {
@@ -1103,6 +1134,30 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     }
   }
 
+  function handleAutoSizeColumn(colKey: string) {
+    const col = columns.find((c) => c.key === colKey);
+    if (!col) return;
+    let maxPx = col.label.length * 9 + 64;
+    for (const row of rows) {
+      const raw = String(row.cells[colKey] ?? "");
+      const text = isOptionColumn(col.type)
+        ? (getColumnOptions(col, activeWorkspace).find((o) => o.value === raw)?.label ?? raw)
+        : raw;
+      maxPx = Math.max(maxPx, Math.min(420, 28 + text.length * 7.4));
+    }
+    const width = clampColumnWidth(col.type, maxPx);
+    const newColumns = columns.map((c) => (c.key === colKey ? { ...c, width } : c));
+    void updatePageColumns(workspaceId, page.id, newColumns);
+  }
+
+  function markRowDone(rowId: string) {
+    const statusCol = displayColumns.find((c) => c.type === "status");
+    if (!statusCol || !canEdit) return;
+    const done = findDoneStatusOption(statusCol.statusOptions ?? []);
+    if (!done) return;
+    handleStatusChange(rowId, statusCol.key, done.value);
+  }
+
   // ---- Sort / filter / pin ----
   function handleSort(colKey: string) {
     setSortState((prev) => ({
@@ -1161,6 +1216,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         liveId = restored.id;
       },
     });
+    pendingScrollRowIdRef.current = newRow.id;
     requestAnimationFrame(() => {
       setActiveCell({ rowId: newRow.id, colKey: columns[0].key });
       setRangeAnchor({ rowId: newRow.id, colKey: columns[0].key });
@@ -1168,7 +1224,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         setEditingCell({ rowId: newRow.id, colKey: columns[0].key });
         setEditValue("");
       }
-      containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight });
+      containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: "smooth" });
     });
   }
 
@@ -1520,6 +1576,16 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         diskUrl={rowDiskUrl(row.id)}
         onUndoLast={() => void undoLastCommand()}
         isExpanded={expandedRowId === row.id}
+        coarsePointer={coarsePointer}
+        statusTint={
+          (() => {
+            const statusCol = displayColumns.find((c) => c.type === "status");
+            if (!statusCol) return undefined;
+            const raw = String(displayRow.cells[statusCol.key] ?? "");
+            return statusCol.statusOptions?.find((o) => o.value === raw)?.color;
+          })()
+        }
+        onMarkDone={() => markRowDone(row.id)}
       />
     );
   }
@@ -1576,7 +1642,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onAddColumn={() => setAddColumnOpen(true)}
         onOpenSchema={() => setSchemaOpen(true)}
         onManageStatuses={() => void handleManageStatuses()}
-        canManageStatuses={permissions.canManageStatusVariants}
+        canManageStatuses={canManageVariants}
         selectedCount={selectedRowIds.size}
         onDeleteSelected={handleDeleteSelected}
         hasStatusColumn={Boolean(kanbanStatusColumn)}
@@ -1630,6 +1696,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       onFilterClick={handleFilterClick}
                       hasActiveFilter={(filters[column.key]?.size ?? 0) > 0}
                       onResizeStart={handleColumnResizeStart}
+                      onAutoSize={handleAutoSizeColumn}
                       isPinned={pinnedKeys.includes(column.key) || stickyKeys[0] === column.key}
                       onTogglePin={togglePin}
                       stickyLeft={
@@ -1641,11 +1708,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       isLastSticky={pinnedOrder.length > 0 && column.key === pinnedOrder[pinnedOrder.length - 1].key}
                       canReorder={canEdit}
                       canEditStructure={canEditStructure}
-                      canManageOptions={permissions.canManageStatusVariants}
+                      canManageOptions={canManageVariants}
                       onToggleHidden={canEditStructure ? handleToggleHiddenColumn : undefined}
                       onRename={handleRenameColumn}
                       onChangeType={handleChangeColumnType}
-                      onManageOptions={setManageOptionsColKey}
+                      onManageOptions={canManageVariants ? setManageOptionsColKey : undefined}
                       onDuplicate={handleDuplicateColumn}
                       onDelete={handleDeleteColumn}
                     />
@@ -1895,28 +1962,31 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                 setSchemaOpen(false);
                 void handleManageStatuses();
               }}
-              canManageStatuses={permissions.canManageStatusVariants}
+              canManageStatuses={canManageVariants}
             />
           </div>
         </SheetContent>
       </Sheet>
 
-      {manageOptionsColumn && permissions.canManageStatusVariants && (
-        <ManageOptionsDialog
-          open={Boolean(manageOptionsColKey)}
-          onOpenChange={(o) => !o && setManageOptionsColKey(null)}
-          title={`Варианты: «${manageOptionsColumn.label}»`}
-          description={
-            manageOptionsColumn.type === "responsible"
-              ? "Общий список для всех столбцов «Ответственный» на сайте — изменения увидят все."
-              : manageOptionsColumn.type === "custom"
-                ? `Общий список для всех столбцов «${customFields.find((f) => f.id === manageOptionsColumn.customFieldId)?.name ?? manageOptionsColumn.label}» на сайте — изменения увидят все.`
-                : "Список статусов этого стола. «Готово» учитывается на дашборде."
-          }
-          options={getColumnOptions(manageOptionsColumn, activeWorkspace)}
-          onSave={handleSaveColumnOptions}
-        />
-      )}
+      <ManageOptionsDialog
+        open={Boolean(manageOptionsColumn) && canManageVariants}
+        onOpenChange={(o) => !o && setManageOptionsColKey(null)}
+        title={manageOptionsColumn ? `Варианты: «${manageOptionsColumn.label}»` : "Варианты"}
+        description={
+          manageOptionsColumn?.type === "responsible"
+            ? "Общий список для всех столбцов «Ответственный» на сайте — изменения увидят все."
+            : manageOptionsColumn?.type === "custom"
+              ? `Общий список для всех столбцов «${customFields.find((f) => f.id === manageOptionsColumn.customFieldId)?.name ?? manageOptionsColumn.label}» на сайте — изменения увидят все.`
+              : "Список статусов этого стола. «Готово» учитывается на дашборде."
+        }
+        options={
+          manageOptionsColumn
+            ? getColumnOptions(manageOptionsColumn, activeWorkspace)
+            : DEFAULT_STATUS_OPTIONS
+        }
+        onSave={handleSaveColumnOptions}
+        canEdit={canManageVariants}
+      />
 
       <RowCommentsPanel
         open={Boolean(commentRowId)}

@@ -27,6 +27,7 @@ interface TableCellProps {
   onCommitEdit: (direction?: "down" | "right" | "left" | "none") => void;
   onCancelEdit: () => void;
   onStatusChange: (value: string) => void;
+  onMarkDone?: () => void;
   onUndoLast?: () => void;
   stickyLeft?: number;
   isLastSticky?: boolean;
@@ -47,6 +48,7 @@ export function TableCell({
   onCommitEdit,
   onCancelEdit,
   onStatusChange,
+  onMarkDone,
   onUndoLast,
   stickyLeft,
   isLastSticky,
@@ -109,7 +111,7 @@ export function TableCell({
         </span>
       );
     }
-    return <span className="truncate">{stringValue}</span>;
+    return <span className="line-clamp-2 whitespace-normal break-words leading-snug">{stringValue}</span>;
   }
 
   return (
@@ -139,7 +141,28 @@ export function TableCell({
           onValueChange={(v) => onStatusChange(v === "__clear__" ? "" : v)}
           disabled={!canEdit}
         >
-          <SelectTrigger className="table-status-trigger h-full min-h-11 w-full rounded-none border-0 bg-transparent px-2 shadow-none focus:ring-0 sm:min-h-[32px] [&>svg]:hidden">
+          <SelectTrigger
+            className="table-status-trigger h-full min-h-11 w-full rounded-none border-0 bg-transparent px-2 shadow-none focus:ring-0 sm:min-h-[32px] [&>svg]:hidden"
+            onDoubleClick={(e) => {
+              if (!canEdit || column.type !== "status" || !onMarkDone) return;
+              e.preventDefault();
+              e.stopPropagation();
+              onMarkDone();
+            }}
+            onTouchEnd={
+              canEdit && column.type === "status" && onMarkDone
+                ? (e) => {
+                    const now = Date.now();
+                    const last = (e.currentTarget as HTMLElement & { _lastTap?: number })._lastTap ?? 0;
+                    (e.currentTarget as HTMLElement & { _lastTap?: number })._lastTap = now;
+                    if (now - last < 320) {
+                      e.preventDefault();
+                      onMarkDone();
+                    }
+                  }
+                : undefined
+            }
+          >
             <SelectValue placeholder="">{renderDisplay()}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -246,7 +269,7 @@ export function TableCell({
       ) : (
         <div
           className={cn(
-            "flex h-full min-h-11 w-full items-center px-2.5 text-sm leading-none sm:min-h-[32px]",
+            "flex h-full min-h-11 w-full items-center px-2.5 text-sm leading-snug sm:min-h-[32px]",
             isNumeric && "justify-end tabular-nums"
           )}
           title={column.type === "url" ? (diskUrl?.href ?? "") : stringValue}

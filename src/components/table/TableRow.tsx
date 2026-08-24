@@ -1,7 +1,8 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
-import { Copy, GripVertical, MoreHorizontal, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { Check, Copy, GripVertical, MoreHorizontal, Trash2 } from "lucide-react";
 import { TableCell } from "@/components/table/TableCell";
 import { rowCardLayoutId } from "@/components/table/RowCardSheet";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -49,6 +50,9 @@ interface TableRowProps {
   diskUrl?: string | null;
   onUndoLast?: () => void;
   isExpanded?: boolean;
+  coarsePointer?: boolean;
+  statusTint?: string;
+  onMarkDone?: (rowId: string) => void;
 }
 
 export function TableRow({
@@ -83,6 +87,9 @@ export function TableRow({
   diskUrl,
   onUndoLast,
   isExpanded,
+  coarsePointer,
+  statusTint,
+  onMarkDone,
 }: TableRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.id,
@@ -99,23 +106,54 @@ export function TableRow({
   const lastStickyKey = pinnedCols.length ? pinnedCols[pinnedCols.length - 1].key : null;
 
   const isNew = Date.now() - row.createdAt < 24 * 60 * 60 * 1000;
+  const touchX = useRef<number | null>(null);
+  const [swipe, setSwipe] = useState(0);
 
   return (
     <tr
       ref={setNodeRef}
       style={{
         height: rowHeight,
-        transform: isDragging ? CSS.Transform.toString(transform) : undefined,
-        transition: isDragging ? transition : undefined,
+        transform: isDragging
+          ? CSS.Transform.toString(transform)
+          : swipe
+            ? `translateX(${swipe}px)`
+            : undefined,
+        transition: isDragging ? transition : swipe ? "transform 160ms ease" : undefined,
         opacity: isDragging ? 0.5 : 1,
+        backgroundColor: statusTint ? `hsl(${statusTint} / 0.08)` : undefined,
       }}
       data-row-id={row.id}
       className={cn(
-        "group/row table-data-row",
+        "group/row table-data-row relative",
         (isRowFullySelected || isChecked) && "table-data-row-selected",
         activeCell?.rowId === row.id && "table-data-row-active"
       )}
       onContextMenu={() => onContextMenuOpen(row.id)}
+      onTouchStart={
+        coarsePointer && canEdit
+          ? (e) => {
+              touchX.current = e.touches[0]?.clientX ?? null;
+            }
+          : undefined
+      }
+      onTouchMove={
+        coarsePointer && canEdit
+          ? (e) => {
+              if (touchX.current == null) return;
+              const dx = e.touches[0].clientX - touchX.current;
+              setSwipe(Math.max(-148, Math.min(0, dx)));
+            }
+          : undefined
+      }
+      onTouchEnd={
+        coarsePointer && canEdit
+          ? () => {
+              touchX.current = null;
+              setSwipe((s) => (s < -64 ? -148 : 0));
+            }
+          : undefined
+      }
     >
       <td
         onMouseDown={(e) => onRowNumberMouseDown(row.id, e)}
@@ -221,11 +259,43 @@ export function TableRow({
             onCancelEdit={onCancelEdit}
             onUndoLast={onUndoLast}
             onStatusChange={(v) => onStatusChange(row.id, column.key, v)}
+            onMarkDone={column.type === "status" ? () => onMarkDone?.(row.id) : undefined}
             stickyLeft={stickyLeft}
             isLastSticky={column.key === lastStickyKey}
           />
         );
       })}
+      {coarsePointer && canEdit && (
+        <td className="w-0 border-0 p-0">
+          <div
+            className="absolute right-0 top-0 z-20 flex h-full overflow-hidden rounded-l-md"
+            style={{ width: 148, transform: `translateX(${148 + swipe}px)` }}
+          >
+            <button
+              type="button"
+              className="flex h-full flex-1 items-center justify-center bg-emerald-600 px-2 text-[11px] font-medium text-white"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMarkDone?.(row.id);
+                setSwipe(0);
+              }}
+            >
+              <Check className="mr-1 h-3.5 w-3.5" /> Готово
+            </button>
+            <button
+              type="button"
+              className="flex h-full flex-1 items-center justify-center bg-destructive px-2 text-[11px] font-medium text-white"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteRow?.(row.id);
+                setSwipe(0);
+              }}
+            >
+              <Trash2 className="mr-1 h-3.5 w-3.5" /> Удалить
+            </button>
+          </div>
+        </td>
+      )}
     </tr>
   );
 }
