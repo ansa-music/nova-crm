@@ -66,8 +66,10 @@ export function subscribeToPages(
 ) {
   void currentUserUid;
   void isOwnerOfWorkspace;
-  // Members may read every desk doc (covers/names). Opening rows is still ACL-gated.
-  const q = query(paths.pages(workspaceId), orderBy("order", "asc"));
+  // Unfiltered list (rules: any member may read desk metadata). Do not
+  // orderBy("order") — that drops docs missing the field, which then looks
+  // like «Страница недоступна» for the person whose desk it is.
+  const q = query(paths.pages(workspaceId));
 
   let cancelled = false;
   let emittedOnce = false;
@@ -100,7 +102,7 @@ export function subscribeToPages(
       }
 
       emittedOnce = true;
-      onData([...pages].sort((a, b) => a.order - b.order));
+      onData([...pages].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
     },
     withErrorReporting(onError)
   );
@@ -301,11 +303,10 @@ export async function togglePageVisibility(
   responsibleUserId?: string | null
 ) {
   if (!db) return;
+  const keep = [responsibleUserId].filter((id): id is string => Boolean(id));
   const allowedUsers = show
-    ? Array.from(new Set(allActiveMemberUids))
-    : responsibleUserId
-      ? [responsibleUserId]
-      : [];
+    ? Array.from(new Set([...allActiveMemberUids, ...keep]))
+    : keep;
   await setDoc(
     paths.page(workspaceId, pageId),
     { allowedUsers, hiddenByResponsible: !show, updatedAt: Date.now() },
