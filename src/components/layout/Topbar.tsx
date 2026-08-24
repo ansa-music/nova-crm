@@ -11,7 +11,7 @@ import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { RoleSwitcher } from "@/components/common/RoleSwitcher";
 import { GlobalSearch } from "@/components/layout/GlobalSearch";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { useIsMobile } from "@/hooks/useMediaQuery";
+import { useIsTablet } from "@/hooks/useMediaQuery";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useNotifications } from "@/hooks/useNotifications";
@@ -27,7 +27,7 @@ const PRIORITY_DOT: Record<string, string> = {
 };
 
 export function Topbar({ title }: { title?: string }) {
-  const isMobile = useIsMobile();
+  const isCompactNav = useIsTablet();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const { profile } = useAuth();
   const { activeWorkspaceId } = useWorkspace();
@@ -35,13 +35,27 @@ export function Topbar({ title }: { title?: string }) {
 
   return (
     <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-1.5 border-b border-primary/25 bg-background/90 px-3 sm:px-4">
-      {isMobile && (
+      {isCompactNav && (
         <>
-          <Button variant="ghost" size="icon" onClick={() => setMobileNavOpen(true)}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="min-h-10 min-w-10"
+            title="Меню"
+            aria-label="Меню"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMobileNavOpen(true);
+            }}
+          >
             <Menu className="h-4 w-4" />
           </Button>
           <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-            <SheetContent side="left" className="w-64 p-0">
+            <SheetContent
+              side="left"
+              className="flex h-full max-h-dvh w-72 max-w-[85vw] flex-col overflow-y-auto p-0"
+            >
               <Sidebar mobile />
             </SheetContent>
           </Sheet>

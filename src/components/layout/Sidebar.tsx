@@ -85,8 +85,10 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
   return (
     <div
       className={cn(
-        "relative z-40 mr-2 h-full shrink-0 transition-[width] duration-280 ease-out",
-        pinnedCollapsed ? "w-[68px]" : "w-[228px]"
+        "relative z-40 h-full shrink-0",
+        mobile
+          ? "mr-0 w-full"
+          : cn("mr-2 transition-[width] duration-280 ease-out", pinnedCollapsed ? "w-[68px]" : "w-[228px]")
       )}
     >
     <div
@@ -95,8 +97,8 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
       className={cn(
         "os-sidebar hud-frame relative flex h-full flex-col gap-2 px-1.5 py-2.5 text-sidebar-foreground",
         "transition-[width,box-shadow] duration-280 ease-out",
-        collapsed ? "w-[56px] items-center" : "w-[216px]",
-        pinnedCollapsed && hoverOpen && "absolute inset-y-0 left-0 z-50 w-[216px] shadow-[0_0_48px_-16px_hsl(var(--primary)/0.45)]"
+        mobile ? "w-full" : collapsed ? "w-[56px] items-center" : "w-[216px]",
+        !mobile && pinnedCollapsed && hoverOpen && "absolute inset-y-0 left-0 z-50 w-[216px] shadow-[0_0_48px_-16px_hsl(var(--primary)/0.45)]"
       )}
     >
       <WorkspaceSwitcher collapsed={collapsed} />

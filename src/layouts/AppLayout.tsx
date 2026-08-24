@@ -20,7 +20,7 @@ import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorksp
 import { useAppBootstrap } from "@/hooks/useAppBootstrap";
 import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
 import { useAuth } from "@/hooks/useAuth";
-import { useIsMobile } from "@/hooks/useMediaQuery";
+import { useIsTablet } from "@/hooks/useMediaQuery";
 import { useUiStore } from "@/store/uiStore";
 import { isWorkspaceAdmin } from "@/utils/adminAccess";
 
@@ -52,7 +52,7 @@ export function AppLayout() {
   const { phase } = useAppBootstrap();
   const { activeWorkspace } = useWorkspace();
   const { profile } = useAuth();
-  const isMobile = useIsMobile();
+  const isCompactNav = useIsTablet();
   const [createOpen, setCreateOpen] = useState(false);
   const tableFullscreen = useUiStore((s) => s.tableFullscreen);
   const setTableFullscreen = useUiStore((s) => s.setTableFullscreen);
@@ -124,7 +124,7 @@ export function AppLayout() {
       <GlobalUndoHotkeys />
       <GoChordHotkeys />
       <AccentColorSync />
-      {!isMobile && !isFullscreen && <Sidebar />}
+      {!isCompactNav && !isFullscreen && <Sidebar />}
       <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${isFullscreen ? "" : "rounded-md border border-primary/35 bg-card/90"}`}>
         {!isFullscreen && <Topbar />}
         {!isFullscreen && <SimulationBanner />}
