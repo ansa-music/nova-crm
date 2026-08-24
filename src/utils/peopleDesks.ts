@@ -90,3 +90,29 @@ export function findMyDesk(uid: string | null | undefined, groups: PersonDeskGro
     null
   );
 }
+
+export function deskOwnerName(members: WorkspaceMember[], page: WorkspacePage) {
+  return personLabel(members.find((m) => m.uid === page.responsibleUserId) ?? null);
+}
+
+export function splitStudioDesks(
+  pages: WorkspacePage[],
+  opts: {
+    uid?: string | null;
+    canAccess: (page: WorkspacePage) => boolean;
+    isOwner: boolean;
+  }
+): { openable: WorkspacePage[]; hidden: WorkspacePage[] } {
+  const openable: WorkspacePage[] = [];
+  const hidden: WorkspacePage[] = [];
+  const uid = opts.uid ?? null;
+  for (const page of pages) {
+    const own = Boolean(uid && page.responsibleUserId === uid);
+    const canOpen = own || opts.isOwner || opts.canAccess(page);
+    if (canOpen && (!page.hiddenByResponsible || own || opts.isOwner)) openable.push(page);
+    else hidden.push(page);
+  }
+  return { openable, hidden };
+}
+
+

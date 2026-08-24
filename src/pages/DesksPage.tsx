@@ -13,9 +13,9 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { displayNameOf } from "@/utils/displayName";
-import { personLabel, resolvedCoverUrl } from "@/utils/peopleDesks";
+import { deskOwnerName, resolvedCoverUrl, splitStudioDesks } from "@/utils/peopleDesks";
 import { cn } from "@/utils/cn";
-import type { WorkspaceMember, WorkspacePage } from "@/types";
+import type { WorkspacePage } from "@/types";
 
 export default function DesksPage() {
   const navigate = useNavigate();
@@ -29,18 +29,15 @@ export default function DesksPage() {
 
   const ownerId = ownerUid ?? members.find((m) => m.role === "owner")?.uid ?? null;
 
-  const { openable, hidden } = useMemo(() => {
-    const openablePages: WorkspacePage[] = [];
-    const hiddenPages: WorkspacePage[] = [];
-    for (const page of pages) {
-      const own = Boolean(profile?.uid && page.responsibleUserId === profile.uid);
-      const ownerUser = Boolean(permissions.isWorkspaceOwner || permissions.realRole === "owner");
-      const canOpen = own || ownerUser || permissions.canAccessPage(page);
-      if (canOpen && (!page.hiddenByResponsible || own || ownerUser)) openablePages.push(page);
-      else if (page.hiddenByResponsible || !canOpen) hiddenPages.push(page);
-    }
-    return { openable: openablePages, hidden: hiddenPages };
-  }, [pages, permissions, profile?.uid]);
+  const { openable, hidden } = useMemo(
+    () =>
+      splitStudioDesks(pages, {
+        uid: profile?.uid,
+        canAccess: permissions.canAccessPage,
+        isOwner: Boolean(permissions.isWorkspaceOwner || permissions.realRole === "owner"),
+      }),
+    [pages, permissions, profile?.uid]
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -169,6 +166,3 @@ export default function DesksPage() {
   );
 }
 
-function deskOwnerName(members: WorkspaceMember[], page: WorkspacePage) {
-  return personLabel(members.find((m) => m.uid === page.responsibleUserId) ?? null);
-}

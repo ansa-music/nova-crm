@@ -23,10 +23,10 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
 
   const studioPages = useMemo(() => {
     if (isPersonalLanding && profile) {
-      return visiblePages.filter((p) => isResponsibleForPage(p, profile.uid));
+      return pages.filter((p) => isResponsibleForPage(p, profile.uid));
     }
     return visiblePages;
-  }, [visiblePages, isPersonalLanding, profile]);
+  }, [pages, visiblePages, isPersonalLanding, profile]);
 
   const groups = useMemo(() => groupDesksByPerson(studioPages, members), [studioPages, members]);
   // People tab: every member, even if their desk is hidden / not in studioPages.
@@ -52,7 +52,6 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
 
   const ownerUid = members.find((m) => m.role === "owner")?.uid ?? null;
   const myDesk = findMyDesk(profile?.uid, groups, pages);
-
 
   return {
     groups,
