@@ -59,6 +59,8 @@ export default function UsersPage() {
     };
   }, [activeWorkspaceId, permissions.canManageUsers]);
 
+  if (!permissions.isResolved) return null;
+
   if (!permissions.canManageUsers) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
@@ -70,6 +72,9 @@ export default function UsersPage() {
   }
 
   if (!activeWorkspaceId) return null;
+
+  const roster = Array.isArray(members) ? members : [];
+  const deskPages = Array.isArray(pages) ? pages : [];
 
   const joinLink = `${window.location.origin}/join/${activeWorkspaceId}`;
 
@@ -195,7 +200,7 @@ export default function UsersPage() {
       </Card>
 
       <div className="flex flex-col gap-3">
-        {members.map((member) => {
+        {roster.map((member) => {
           const isOwner = member.role === "owner";
           const isExpanded = expandedUid === member.uid;
           return (
@@ -203,7 +208,7 @@ export default function UsersPage() {
               <div className="flex items-center gap-3 p-4">
                 <div className="relative shrink-0">
                   <MemberAvatar
-                    id={member.uid}
+                    id={member.uid || member.email || "member"}
                     name={member.name}
                     nickname={member.nickname}
                     photoURL={member.photoURL}
@@ -233,7 +238,7 @@ export default function UsersPage() {
                 {isOwner ? (
                   <Badge variant="outline">Owner</Badge>
                 ) : (
-                  <RoleSelect value={member.role} onChange={(role) => handleRoleChange(member.uid, role)} />
+                  <RoleSelect value={member.role} onChange={(role) => handleRoleChange(member.uid || member.email, role)} />
                 )}
                 {member.status === "invited" && (
                   <Button variant="ghost" size="icon" title="Отправить снова" onClick={() => handleResend(member.email)}>
@@ -241,7 +246,7 @@ export default function UsersPage() {
                   </Button>
                 )}
                 {!isOwner && (
-                  <Button variant="ghost" size="icon" title="Удалить" onClick={() => handleRemove(member.uid, member.name)}>
+                  <Button variant="ghost" size="icon" title="Удалить" onClick={() => handleRemove(member.uid || member.email, displayNameOf(member))}>
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 )}
@@ -263,8 +268,8 @@ export default function UsersPage() {
                     Доступные страницы
                   </p>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {pages.map((page) => {
-                      const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid;
+                    {deskPages.map((page) => {
+                      const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid ?? PAGE_ICON_MAP.Users;
                       const checked = Boolean(page.allowedUsers?.includes(member.uid) || page.responsibleUserId === member.uid);
                       return (
                         <label
@@ -280,7 +285,7 @@ export default function UsersPage() {
                         </label>
                       );
                     })}
-                    {pages.length === 0 && (
+                    {deskPages.length === 0 && (
                       <p className="text-xs text-muted-foreground">В workspace пока нет страниц.</p>
                     )}
                   </div>

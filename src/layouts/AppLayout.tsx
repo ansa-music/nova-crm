@@ -11,6 +11,7 @@ import { NicknamePrompt } from "@/components/common/NicknamePrompt";
 import { GlobalMessageToaster } from "@/components/common/GlobalMessageToaster";
 import { SimulationBanner } from "@/components/common/RoleSwitcher";
 import { AppBootScreen } from "@/components/common/AppBootScreen";
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { ShortcutsHelpDialog } from "@/components/common/ShortcutsHelpDialog";
 import { GlobalUndoHotkeys } from "@/components/common/GlobalUndoHotkeys";
 import { GoChordHotkeys } from "@/components/common/GoChordHotkeys";
@@ -121,7 +122,9 @@ export function AppLayout() {
         {isFullscreen && <TableChromeExit label="Свернуть" />}
         <main className={`flex min-h-0 flex-1 flex-col ${isOnTablePage ? "overflow-hidden" : "overflow-y-auto"} scrollbar-thin`}>
           <PageShell>
-            <Outlet />
+            <ErrorBoundary compact key={location.pathname}>
+              <Outlet />
+            </ErrorBoundary>
           </PageShell>
         </main>
       </div>
