@@ -34,6 +34,7 @@ import { ColumnHeaderCell } from "@/components/table/ColumnHeaderCell";
 import { TableRow, ROW_GUTTER_WIDTH } from "@/components/table/TableRow";
 import { GroupHeaderRow } from "@/components/table/GroupHeaderRow";
 import { TableToolbar } from "@/components/table/TableToolbar";
+import { KanbanView } from "@/components/table/KanbanView";
 import { TablePagination } from "@/components/table/TablePagination";
 import { FilterPopover } from "@/components/table/FilterPopover";
 import { toast } from "@/components/ui/sonner";
@@ -181,6 +182,18 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   function handleDensityChange(next: "compact" | "default" | "comfortable") {
     setDensity(next);
     window.localStorage.setItem("nova-crm:table-density", next);
+  }
+  // Persisted per page/subpage — same localStorage-on-mount pattern as
+  // pinnedKeys below, keyed by subPageId when set so each subpage tab can
+  // remember its own view independently of the parent page's "Основная".
+  const [viewMode, setViewMode] = useState<"table" | "kanban">(() => {
+    if (typeof window === "undefined") return "table";
+    const saved = window.localStorage.getItem(`nova-crm:view-mode:${subPageId ?? page.id}`);
+    return saved === "kanban" ? "kanban" : "table";
+  });
+  function handleViewModeChange(next: "table" | "kanban") {
+    setViewMode(next);
+    window.localStorage.setItem(`nova-crm:view-mode:${subPageId ?? page.id}`, next);
   }
   const [addColumnOpen, setAddColumnOpen] = useState(false);
   const [manageOptionsColKey, setManageOptionsColKey] = useState<string | null>(null);
@@ -1091,6 +1104,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     toast.success("Тип столбца изменён");
   }
 
+  const kanbanStatusColumn = displayColumns.find((c) => c.type === "status") ?? null;
+
   const manageOptionsColumn = columns.find((c) => c.key === manageOptionsColKey) ?? null;
 
   async function handleSaveColumnOptions(options: StatusOption[]) {
@@ -1241,8 +1256,20 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onAddColumn={() => setAddColumnOpen(true)}
         selectedCount={selectedRowIds.size}
         onDeleteSelected={handleDeleteSelected}
+        hasStatusColumn={Boolean(kanbanStatusColumn)}
+        viewMode={viewMode}
+        onViewModeChange={handleViewModeChange}
       />
 
+      {viewMode === "kanban" && kanbanStatusColumn ? (
+        <KanbanView
+          columns={displayColumns}
+          rows={processedRows}
+          statusColumn={kanbanStatusColumn}
+          canEdit={canEdit}
+          onStatusChange={handleStatusChange}
+        />
+      ) : (
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <div ref={containerRef} tabIndex={0} className="relative flex-1 overflow-auto bg-background outline-none">
           <table className="border-collapse" style={{ tableLayout: "fixed" }}>
@@ -1413,6 +1440,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           )}
         </div>
       </DndContext>
+      )}
 
       {financialSummary && (
         <div className="flex items-center gap-6 border-t border-border bg-muted/30 px-4 py-2.5 text-sm">
@@ -1429,7 +1457,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         </div>
       )}
 
-      {!groups && (
+      {!groups && viewMode === "table" && (
         <TablePagination
           page={pageIndex}
           pageSize={pageSize}
