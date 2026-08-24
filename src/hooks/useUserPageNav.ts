@@ -11,13 +11,24 @@ function pinnedKey(uid: string) {
   return `nova-crm:pinned-pages:${uid}`;
 }
 
+function uniqueIds(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of ids) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
 function readIds(key: string): string[] {
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((id): id is string => typeof id === "string" && id.length > 0);
+    return uniqueIds(parsed.filter((id): id is string => typeof id === "string" && id.length > 0));
   } catch {
     return [];
   }
@@ -34,7 +45,7 @@ function writeIds(key: string, ids: string[]) {
 
 export function recordRecentPage(uid: string, pageId: string) {
   if (!uid || !pageId) return;
-  const next = [pageId, ...readIds(recentKey(uid)).filter((id) => id !== pageId)].slice(0, RECENT_LIMIT);
+  const next = uniqueIds([pageId, ...readIds(recentKey(uid)).filter((id) => id !== pageId)]).slice(0, RECENT_LIMIT);
   writeIds(recentKey(uid), next);
 }
 

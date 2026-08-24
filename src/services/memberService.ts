@@ -12,7 +12,6 @@ export function subscribeToMembers(
 ) {
   let cancelled = false;
   let emittedOnce = false;
-  let pendingEmptyCacheTimer: ReturnType<typeof setTimeout> | null = null;
 
   const unsubscribe = onSnapshot(
     paths.members(workspaceId),
@@ -20,21 +19,10 @@ export function subscribeToMembers(
       if (cancelled) return;
       const members = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as WorkspaceMember);
 
-      if (pendingEmptyCacheTimer) {
-        clearTimeout(pendingEmptyCacheTimer);
-        pendingEmptyCacheTimer = null;
-      }
-
-      // Same fix as pages/workspace list: don't trust an empty result from
-      // local cache on the very first snapshot — wait briefly for the real
-      // server confirmation instead of flashing empty and requiring reload.
+      // Never treat an empty CACHE snapshot as "you are not a member".
+      // First phone open often gets cache=[] before the server list arrives;
+      // emitting that made DynamicTablePage show «Вы не участник…» until reload.
       if (snapshot.metadata.fromCache && members.length === 0 && !emittedOnce) {
-        pendingEmptyCacheTimer = setTimeout(() => {
-          if (!cancelled) {
-            emittedOnce = true;
-            onData([]);
-          }
-        }, 1200);
         return;
       }
 
@@ -46,7 +34,6 @@ export function subscribeToMembers(
 
   return () => {
     cancelled = true;
-    if (pendingEmptyCacheTimer) clearTimeout(pendingEmptyCacheTimer);
     unsubscribe();
   };
 }

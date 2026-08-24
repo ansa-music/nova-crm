@@ -51,13 +51,16 @@ import type { Role, WorkspacePage } from "@/types";
  */
 export function usePermissions() {
   const { profile } = useAuth();
-  const { members } = useWorkspace();
+  const { members, activeWorkspace, membersLoadState } = useWorkspace();
   const { isReady } = useAppBootstrap();
 
-  const membership = useMemo(
-    () => members.find((m) => m.uid === profile?.uid) ?? null,
-    [members, profile?.uid]
-  );
+  const membership = useMemo(() => {
+    const uid = profile?.uid;
+    const email = profile?.email?.trim().toLowerCase();
+    return (
+      members.find((m) => (uid && m.uid === uid) || (email && m.email?.trim().toLowerCase() === email)) ?? null
+    );
+  }, [members, profile?.uid, profile?.email]);
 
   const realRole: Role = membership?.role ?? "viewer";
   const storedActiveRole = membership?.activeRole ?? null;
@@ -69,9 +72,11 @@ export function usePermissions() {
   const effectiveRole: Role = activeRole ?? realRole;
   const isSimulating = activeRole !== null && activeRole !== realRole;
 
-  const isResolved = isReady;
-  const hasMembership = Boolean(membership);
   const uid = profile?.uid ?? "";
+  const isOwnerOfWorkspace = Boolean(uid && activeWorkspace?.ownerId === uid);
+  // Empty members before the first CONFIRMED snapshot is loading, not "not a member".
+  const isResolved = isReady && (membersLoadState === "ready" || isOwnerOfWorkspace);
+  const hasMembership = Boolean(membership) || isOwnerOfWorkspace;
 
   return useMemo(
     () => ({

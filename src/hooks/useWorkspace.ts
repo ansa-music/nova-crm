@@ -65,6 +65,7 @@ export function useActiveWorkspaceDataBootstrap() {
   const setMembers = useWorkspaceStore((s) => s.setMembers);
   const setPages = useWorkspaceStore((s) => s.setPages);
   const setLoadingWorkspaceData = useWorkspaceStore((s) => s.setLoadingWorkspaceData);
+  const setMembersLoadState = useWorkspaceStore((s) => s.setMembersLoadState);
 
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? null;
   const isConfirmedActive = Boolean(activeWorkspaceId && activeWorkspace);
@@ -82,12 +83,14 @@ export function useActiveWorkspaceDataBootstrap() {
     if (!isConfirmedActive || !activeWorkspaceId) {
       setMembers([]);
       setPages([]);
+      setMembersLoadState("loading");
       setLoadingWorkspaceData(false);
       setResolvedDataWorkspaceId(null);
       return;
     }
 
     setLoadingWorkspaceData(true);
+    setMembersLoadState("loading");
     // Clear immediately so the phase drops back to "workspace-data" the moment
     // a switch starts, instead of briefly reporting ready with stale members.
     setResolvedDataWorkspaceId(null);
@@ -106,20 +109,32 @@ export function useActiveWorkspaceDataBootstrap() {
       }
     }
 
+    const hangTimer = window.setTimeout(() => {
+      if (generation !== generationRef.current) return;
+      if (!membersLoaded) {
+        // Boot must not sit on «Проверяем вход…» / workspace-data forever.
+        // An unconfirmed empty list is NOT "not a member" — permissions stay unresolved.
+        setMembersLoadState("unconfirmed");
+        membersLoaded = true;
+      }
+      if (!pagesLoaded) pagesLoaded = true;
+      maybeDone();
+    }, 10000);
+
     const unsubMembers = subscribeToMembers(
       activeWorkspaceId,
       (members) => {
         if (generation !== generationRef.current) return;
         setMembers(members);
+        setMembersLoadState("ready");
         membersLoaded = true;
         maybeDone();
       },
       (error) => {
         if (generation !== generationRef.current) return;
         console.error(`subscribeToMembers denied for workspace ${activeWorkspaceId}:`, error.code, error.message);
-        setMembers([]);
-        membersLoaded = true;
-        maybeDone();
+        // permission-denied / empty is not a finished membership check —
+        // keep membersLoadState loading until hangTimer marks unconfirmed.
       }
     );
 
@@ -143,6 +158,7 @@ export function useActiveWorkspaceDataBootstrap() {
     );
 
     return () => {
+      window.clearTimeout(hangTimer);
       unsubMembers();
       unsubPages();
     };
@@ -155,6 +171,7 @@ export function useActiveWorkspaceDataBootstrap() {
     setMembers,
     setPages,
     setLoadingWorkspaceData,
+    setMembersLoadState,
     setResolvedDataWorkspaceId,
   ]);
 }
@@ -167,6 +184,7 @@ export function useWorkspace() {
   const pages = useWorkspaceStore((s) => s.pages);
   const isLoadingWorkspaces = useWorkspaceStore((s) => s.isLoadingWorkspaces);
   const isLoadingWorkspaceData = useWorkspaceStore((s) => s.isLoadingWorkspaceData);
+  const membersLoadState = useWorkspaceStore((s) => s.membersLoadState);
 
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? null;
 
@@ -179,5 +197,6 @@ export function useWorkspace() {
     pages,
     isLoadingWorkspaces,
     isLoadingWorkspaceData,
+    membersLoadState,
   };
 }

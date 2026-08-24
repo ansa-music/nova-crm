@@ -1,6 +1,7 @@
 // PATH: src/hooks/useAuth.ts  (REPLACES EXISTING)
 import { useEffect, useRef } from "react";
 import { subscribeToAuthChanges } from "@/firebase/auth";
+import { auth } from "@/firebase/firebase";
 import { ensureUserProfile, syncNicknameToMemberships } from "@/services/authService";
 import { claimPendingInvites } from "@/services/memberService";
 import { paths, subscribeToDoc } from "@/firebase/firestore";
@@ -23,7 +24,52 @@ export function useAuthBootstrap() {
       resetBootstrap,
     } = useBootstrapStore.getState();
 
+    let authCallbackSettled = false;
+
+    function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+      return new Promise((resolve, reject) => {
+        const timer = window.setTimeout(() => reject(new Error("timeout")), ms);
+        promise.then(
+          (value) => {
+            window.clearTimeout(timer);
+            resolve(value);
+          },
+          (err) => {
+            window.clearTimeout(timer);
+            reject(err);
+          }
+        );
+      });
+    }
+
+    // Phone IndexedDB / hanging getIdToken used to leave AppBootScreen on
+    // «Проверяем вход…» forever. Unstick after 8s using whatever Auth already knows.
+    const authHangTimer = window.setTimeout(() => {
+      if (authCallbackSettled) return;
+      authCallbackSettled = true;
+      const current = auth?.currentUser ?? null;
+      setFirebaseUser(current);
+      setAuthResolved(true);
+      if (!current) {
+        setProfile(null);
+        setProfileResolved(true);
+        setLoading(false);
+        return;
+      }
+      ensureUserProfile(current)
+        .then((profile) => {
+          setProfile(profile);
+          setProfileResolved(true);
+        })
+        .catch(() => {
+          setProfileResolved(true);
+        })
+        .finally(() => setLoading(false));
+    }, 8000);
+
     const unsubscribe = subscribeToAuthChanges(async (user) => {
+      authCallbackSettled = true;
+      window.clearTimeout(authHangTimer);
       unsubscribeProfileRef.current?.();
       unsubscribeProfileRef.current = null;
 
@@ -32,21 +78,18 @@ export function useAuthBootstrap() {
       // briefly report "ready" using the PREVIOUS account's resolved flags.
       resetBootstrap();
 
+      // Resolve auth immediately so the boot screen cannot stick on «Проверяем вход…»
+      // while getIdToken hangs on a slow mobile network.
+      setFirebaseUser(user);
+      setAuthResolved(true);
+
       try {
         if (user) {
-          // Force-await the ID token BEFORE exposing this user to the rest of
-          // the app, otherwise downstream Firestore listeners can fire a
-          // moment before the token the SDK sends is valid -> a permanent
-          // "permission-denied" that only a lucky reload fixed.
-          await user.getIdToken();
+          await withTimeout(user.getIdToken(), 4000);
         }
       } catch (tokenError) {
         console.error("Failed to obtain ID token:", tokenError);
       }
-
-      setFirebaseUser(user);
-      // Auth itself is now definitively resolved (signed in or signed out).
-      setAuthResolved(true);
 
       try {
         if (user) {
@@ -88,6 +131,7 @@ export function useAuthBootstrap() {
     });
 
     return () => {
+      window.clearTimeout(authHangTimer);
       unsubscribeProfileRef.current?.();
       unsubscribe();
     };

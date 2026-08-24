@@ -66,10 +66,16 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
     ...pinnedIds.map((id) => visiblePages.find((p) => p.id === id)).filter((p): p is WorkspacePage => Boolean(p)),
     ...visiblePages.filter((p) => !pinnedSet.has(p.id)),
   ];
-  const recentPages = recentIds
-    .map((id) => accessiblePages.find((p) => p.id === id))
-    .filter((p): p is WorkspacePage => Boolean(p))
-    .filter((p) => showHiddenPages || !hiddenPageIds.includes(p.id));
+  const recentPages: WorkspacePage[] = [];
+  const seenRecent = new Set<string>();
+  for (const id of recentIds) {
+    if (seenRecent.has(id)) continue;
+    seenRecent.add(id);
+    const page = accessiblePages.find((p) => p.id === id);
+    if (!page) continue;
+    if (!showHiddenPages && hiddenPageIds.includes(page.id)) continue;
+    recentPages.push(page);
+  }
 
   async function handleToggleHiddenPage(pageId: string, hide: boolean) {
     if (!activeWorkspaceId || !profile) return;
