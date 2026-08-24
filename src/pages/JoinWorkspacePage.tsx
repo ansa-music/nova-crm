@@ -11,6 +11,7 @@ import {
 } from "@/services/joinRequestService";
 import { addOwnWorkspaceId } from "@/services/authService";
 import type { JoinRequest, Workspace } from "@/types";
+import { clearJoinIntent, rememberJoinIntent } from "@/utils/joinIntent";
 
 export default function JoinWorkspacePage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
@@ -23,6 +24,7 @@ export default function JoinWorkspacePage() {
 
   useEffect(() => {
     if (!workspaceId) return;
+    rememberJoinIntent(workspaceId);
     getPublicWorkspaceInfo(workspaceId).then(setWorkspace);
   }, [workspaceId]);
 
@@ -36,6 +38,7 @@ export default function JoinWorkspacePage() {
   useEffect(() => {
     if (!workspaceId || isLoadingWorkspaces) return;
     if (workspaces.some((w) => w.id === workspaceId)) {
+      clearJoinIntent();
       navigate("/", { replace: true });
     }
   }, [workspaceId, workspaces, isLoadingWorkspaces, navigate]);
@@ -50,7 +53,10 @@ export default function JoinWorkspacePage() {
             // Give the workspace-list listener a beat to pick up the fresh
             // id before navigating, so the app doesn't land on an empty
             // "create a workspace" screen for a split second.
-            setTimeout(() => navigate("/", { replace: true }), 400);
+            setTimeout(() => {
+              clearJoinIntent();
+              navigate("/", { replace: true });
+            }, 400);
           })
           .catch((err) => console.error("Не удалось сохранить workspace в профиле:", err));
       }
