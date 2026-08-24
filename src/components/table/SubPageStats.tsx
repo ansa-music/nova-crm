@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { formatCurrency } from "@/utils/format";
 import { cn } from "@/utils/cn";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
+import { DEFAULT_STATUS_OPTIONS, getColumnOptions, isDoneStatusLabel } from "@/utils/columnOptions";
 import type { PageColumn, PageRow } from "@/types";
 
 const PERCENTS = [5, 8, 10, 12];
@@ -15,12 +15,13 @@ interface SubPageStatsProps {
 
 export function SubPageStats({ columns, rows }: SubPageStatsProps) {
   const { activeWorkspace } = useWorkspace();
-  const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
-
   const stats = useMemo(() => {
     const priceCol = columns.find((c) => c.type === "currency");
     const statusCol = columns.find((c) => c.type === "status");
     if (!priceCol) return null;
+    const statusOptions = statusCol
+      ? getColumnOptions(statusCol, activeWorkspace)
+      : (activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS);
 
     let grandTotal = 0;
     let doneTotal = 0;
@@ -30,11 +31,11 @@ export function SubPageStats({ columns, rows }: SubPageStatsProps) {
       if (statusCol) {
         const rawStatus = String(row.cells[statusCol.key] ?? "");
         const label = statusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
-        if (label.toLowerCase().includes("готов")) doneTotal += raw;
+        if (isDoneStatusLabel(label)) doneTotal += raw;
       }
     }
     return { grandTotal, doneTotal };
-  }, [columns, rows, statusOptions]);
+  }, [columns, rows, activeWorkspace]);
 
   if (!stats) return null;
 

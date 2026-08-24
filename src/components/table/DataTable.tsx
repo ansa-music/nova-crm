@@ -21,6 +21,7 @@ import {
 } from "@dnd-kit/sortable";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Plus } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { LayoutGroup } from "framer-motion";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ import {
   changeColumnType as changeColumnTypeServiceBase,
   duplicateColumn as duplicateColumnServiceBase,
   deleteColumn as deleteColumnServiceBase,
+  updateColumnStatusOptions as updateColumnStatusOptionsBase,
 } from "@/services/pageService";
 import {
   addSubPageRow,
@@ -67,9 +69,11 @@ import {
   changeSubPageColumnType,
   duplicateSubPageColumn,
   deleteSubPageColumn,
+  updateSubPageColumnStatusOptions,
 } from "@/services/subPageService";
 import { AddColumnDialog } from "@/components/table/AddColumnDialog";
 import { ManageOptionsDialog } from "@/components/table/ManageOptionsDialog";
+import { TableSchemaEditor } from "@/components/table/TableSchemaEditor";
 import { RowCommentsPanel } from "@/components/chat/RowCommentsPanel";
 import { RowCardSheet } from "@/components/table/RowCardSheet";
 import { BulkActionBar } from "@/components/table/BulkActionBar";
@@ -77,7 +81,7 @@ import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
 import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
-import { updateResponsibleOptions, updateStatusOptions, updateCustomFieldOptions } from "@/services/workspaceService";
+import { updateResponsibleOptions, updateCustomFieldOptions } from "@/services/workspaceService";
 import { formatCurrency, formatNumber, downloadCsv } from "@/utils";
 import { isSummableColumn, sumNumericCells } from "@/utils/tableAggregates";
 import { getColumnOptions, isOptionColumn, DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
@@ -189,6 +193,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const deleteColumnService = subPageId
     ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string) => deleteSubPageColumn(wsId, pId, subPageId, cols, colKey)
     : deleteColumnServiceBase;
+  const updateColumnStatusOptions = subPageId
+    ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string, options: StatusOption[]) =>
+        updateSubPageColumnStatusOptions(wsId, pId, subPageId, cols, colKey, options)
+    : updateColumnStatusOptionsBase;
   async function updateRowCell(ctx: Parameters<typeof updateRowCellBase>[0]) {
     if (subPageId) {
       await updateSubPageRowCell(ctx.workspaceId, ctx.pageId, subPageId, ctx.rowId, ctx.field, ctx.newValue);
@@ -235,6 +243,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     window.localStorage.setItem(`nova-crm:view-mode:${subPageId ?? page.id}`, next);
   }
   const [addColumnOpen, setAddColumnOpen] = useState(false);
+  const [schemaOpen, setSchemaOpen] = useState(false);
   const [manageOptionsColKey, setManageOptionsColKey] = useState<string | null>(null);
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const [commentRowId, setCommentRowId] = useState<string | null>(null);
@@ -270,29 +279,18 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const sharedStatusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
   const customFields = activeWorkspace?.customFields ?? [];
 
-  // Columns with the live drag preview AND the shared "Ответственный" list
-  // overlaid, used only for rendering/exporting/grouping — selection math,
-  // sorting, and every *Service(...) mutation call always use the stable
-  // `columns` array untouched, so the workspace-wide list never gets
-  // accidentally persisted into a specific column's own statusOptions field.
   const displayColumns = useMemo(() => {
-    return columns.map((c) => {
-      let next = c;
-      if (resizePreview?.type === "col" && c.key === resizePreview.colKey) {
-        next = { ...next, width: resizePreview.width };
-      }
-      if (c.type === "responsible") {
-        next = { ...next, statusOptions: responsibleOptions };
-      } else if (c.type === "status") {
-        next = { ...next, statusOptions: sharedStatusOptions };
-      } else if (c.type === "custom") {
-        const options = customFields.find((f) => f.id === c.customFieldId)?.options ?? [];
-        next = { ...next, statusOptions: options };
-      }
-      return next;
-    });
+    return columns
+      .filter((c) => !c.hidden)
+      .map((c) => {
+        let next = { ...c, statusOptions: getColumnOptions(c, activeWorkspace) };
+        if (resizePreview?.type === "col" && c.key === resizePreview.colKey) {
+          next = { ...next, width: resizePreview.width };
+        }
+        return next;
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [columns, resizePreview, responsibleOptions, sharedStatusOptions, customFields]);
+  }, [columns, resizePreview, responsibleOptions, sharedStatusOptions, customFields, activeWorkspace]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const isSelectingRef = useRef(false);
@@ -1176,10 +1174,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   async function handleChangeColumnType(colKey: string, type: ColumnType, customFieldId?: string) {
     const current = columns.find((c) => c.key === colKey);
     if (!current || (current.type === type && current.customFieldId === customFieldId)) return;
-    // Neither "status", "responsible", nor "custom" store their own options
-    // anymore — all three read a shared, workspace-wide list — so there's
-    // never anything to carry over into the column doc itself.
-    await changeColumnTypeService(workspaceId, page.id, columns, colKey, type, undefined, customFieldId);
+    const seeded = type === "status" ? DEFAULT_STATUS_OPTIONS : undefined;
+    await changeColumnTypeService(workspaceId, page.id, columns, colKey, type, seeded, customFieldId);
     toast.success("Тип столбца изменён");
   }
 
@@ -1189,16 +1185,58 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   async function handleSaveColumnOptions(options: StatusOption[]) {
     if (!manageOptionsColumn) return;
-    // All three option-based column types are shared, site-wide lists that
-    // live on the workspace doc — never on the individual column.
-    if (manageOptionsColumn.type === "responsible") {
+    if (manageOptionsColumn.type === "status") {
+      await updateColumnStatusOptions(workspaceId, page.id, columns, manageOptionsColumn.key, options);
+    } else if (manageOptionsColumn.type === "responsible") {
+      if (!isOwner) throw new Error("Список ответственных меняет только Owner");
       await updateResponsibleOptions(workspaceId, options);
-    } else if (manageOptionsColumn.type === "status") {
-      await updateStatusOptions(workspaceId, options);
     } else if (manageOptionsColumn.type === "custom" && manageOptionsColumn.customFieldId) {
+      if (!isOwner) throw new Error("Кастомные поля меняет только Owner");
       await updateCustomFieldOptions(workspaceId, customFields, manageOptionsColumn.customFieldId, options);
     }
     toast.success("Варианты обновлены");
+  }
+
+  async function handleManageStatuses() {
+    let statusCol = columns.find((c) => c.type === "status");
+    if (!statusCol) {
+      const keys = new Set(columns.map((c) => c.key));
+      let key = "status";
+      let i = 1;
+      while (keys.has(key)) {
+        key = `status_${i}`;
+        i += 1;
+      }
+      statusCol = await addColumnService(workspaceId, page.id, columns, {
+        key,
+        label: "Статус",
+        type: "status",
+        statusOptions: DEFAULT_STATUS_OPTIONS,
+      });
+      toast.success("Столбец «Статус» добавлен");
+    }
+    setManageOptionsColKey(statusCol.key);
+  }
+
+  async function handleToggleHiddenColumn(colKey: string) {
+    const next = columns.map((c) => (c.key === colKey ? { ...c, hidden: !c.hidden } : c));
+    await updatePageColumns(workspaceId, page.id, next);
+  }
+
+  async function handleMoveColumn(colKey: string, direction: -1 | 1) {
+    const ordered = [...columns].sort((a, b) => a.order - b.order);
+    const index = ordered.findIndex((c) => c.key === colKey);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= ordered.length) return;
+    const swapped = [...ordered];
+    const tmp = swapped[index];
+    swapped[index] = swapped[nextIndex];
+    swapped[nextIndex] = tmp;
+    await updatePageColumns(
+      workspaceId,
+      page.id,
+      swapped.map((c, i) => ({ ...c, order: i }))
+    );
   }
 
   async function handleDuplicateColumn(colKey: string) {
@@ -1336,6 +1374,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         canEdit={canEdit}
         canEditStructure={canEditStructure}
         onAddColumn={() => setAddColumnOpen(true)}
+        onOpenSchema={() => setSchemaOpen(true)}
+        onManageStatuses={() => void handleManageStatuses()}
         selectedCount={0}
         onDeleteSelected={handleDeleteSelected}
         hasStatusColumn={Boolean(kanbanStatusColumn)}
@@ -1381,7 +1421,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       }
                       canReorder={canEdit}
                       canEditStructure={canEditStructure}
-                      canManageOptions={isOwner}
+                      canManageOptions={canEditStructure}
+                      onToggleHidden={canEditStructure ? handleToggleHiddenColumn : undefined}
                       onRename={handleRenameColumn}
                       onChangeType={handleChangeColumnType}
                       onManageOptions={setManageOptionsColKey}
@@ -1587,6 +1628,38 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         createColumn={addColumnService}
       />
 
+      <Sheet open={schemaOpen} onOpenChange={setSchemaOpen}>
+        <SheetContent side="right" className="flex h-full w-full max-w-md flex-col overflow-y-auto p-0">
+          <SheetHeader className="border-b border-border px-5 py-4 pr-12">
+            <SheetTitle>Столбцы и статусы</SheetTitle>
+            <p className="text-sm text-muted-foreground">Настройка таблицы на этом столе.</p>
+          </SheetHeader>
+          <div className="px-5 py-5">
+            <TableSchemaEditor
+              columns={columns}
+              statusOptions={
+                (columns.find((c) => c.type === "status")
+                  ? getColumnOptions(columns.find((c) => c.type === "status")!, activeWorkspace)
+                  : DEFAULT_STATUS_OPTIONS)
+              }
+              canEdit={canEditStructure}
+              onAddColumn={() => {
+                setSchemaOpen(false);
+                setAddColumnOpen(true);
+              }}
+              onRenameColumn={(key) => void handleRenameColumn(key)}
+              onToggleHidden={(key) => void handleToggleHiddenColumn(key)}
+              onMoveColumn={(key, dir) => void handleMoveColumn(key, dir)}
+              onDeleteColumn={(key) => void handleDeleteColumn(key)}
+              onManageStatuses={() => {
+                setSchemaOpen(false);
+                void handleManageStatuses();
+              }}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
+
       {manageOptionsColumn && (
         <ManageOptionsDialog
           open={Boolean(manageOptionsColKey)}
@@ -1597,7 +1670,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
               ? "Общий список для всех столбцов «Ответственный» на сайте — изменения увидят все."
               : manageOptionsColumn.type === "custom"
                 ? `Общий список для всех столбцов «${customFields.find((f) => f.id === manageOptionsColumn.customFieldId)?.name ?? manageOptionsColumn.label}» на сайте — изменения увидят все.`
-                : "Общий список для всех столбцов «Статус» на сайте — изменения увидят все."
+                : "Список статусов этого стола. «Готово» учитывается на дашборде."
           }
           options={getColumnOptions(manageOptionsColumn, activeWorkspace)}
           onSave={handleSaveColumnOptions}

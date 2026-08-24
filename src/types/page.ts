@@ -30,6 +30,8 @@ export interface PageColumn {
    * the workspace, not the column.
    */
   customFieldId?: string;
+  /** When true, the column stays in schema but is hidden in the table. */
+  hidden?: boolean;
 }
 
 export type PageIconName =

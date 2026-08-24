@@ -257,6 +257,16 @@ export default function DynamicTablePage() {
             Owner viewing their own page, which crowded the header badly.
             Frequency-of-use decided what stayed outside: chat + fullscreen
             get used far more often per session than stats/history/settings. */}
+        {permissions.canManagePage(page) && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="hidden h-8 gap-1.5 sm:inline-flex"
+            onClick={() => setDeskStudioOpen(true)}
+          >
+            <Settings2 className="h-3.5 w-3.5" /> Настроить стол
+          </Button>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="relative">

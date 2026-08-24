@@ -10,17 +10,27 @@ import { IconPicker } from "@/components/common/IconPicker";
 import { ColorPicker } from "@/components/common/ColorPicker";
 import { ACCENT_PRESETS } from "@/components/common/AccentColorSync";
 import { cn } from "@/utils/cn";
+import { AddColumnDialog } from "@/components/table/AddColumnDialog";
+import { ManageOptionsDialog } from "@/components/table/ManageOptionsDialog";
+import { TableSchemaEditor } from "@/components/table/TableSchemaEditor";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { DEFAULT_STATUS_OPTIONS, getColumnOptions } from "@/utils/columnOptions";
 import {
+  addColumn,
+  deleteColumn,
+  renameColumn,
   renamePage,
   setPageAccentColor,
   setPageMonthlyGoal,
+  updateColumnStatusOptions,
   updatePageAppearance,
+  updatePageColumns,
 } from "@/services/pageService";
 import { removeDeskCover, uploadDeskCover } from "@/services/deskCoverService";
 import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { useDeskLayout } from "@/hooks/useDeskLayout";
 import { usePermissions } from "@/hooks/usePermissions";
-import type { PageIconName, WorkspacePage } from "@/types";
+import type { PageIconName, StatusOption, WorkspacePage } from "@/types";
 
 interface DeskStudioSheetProps {
   page: WorkspacePage | null;
@@ -31,7 +41,10 @@ interface DeskStudioSheetProps {
 
 export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioSheetProps) {
   const permissions = usePermissions();
+  const { activeWorkspace } = useWorkspace();
   const { layout, setLayout } = useDeskLayout(uid ?? permissions.uid);
+  const [addColumnOpen, setAddColumnOpen] = useState(false);
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [name, setName] = useState("");
   const [icon, setIcon] = useState<PageIconName>("LayoutGrid");
   const [color, setColor] = useState("243 75% 59%");
@@ -51,6 +64,95 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
     setGoalInput(page.monthlyGoal ? String(page.monthlyGoal) : "");
   }, [page, open]);
 
+  const canEditPreview = Boolean(page && permissions.canManagePage(page));
+  const columns = page?.columns ?? [];
+  const statusColumn = columns.find((c) => c.type === "status") ?? null;
+  const statusOptions = statusColumn
+    ? getColumnOptions(statusColumn, activeWorkspace)
+    : (activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS);
+
+  async function handleRenameColumn(colKey: string) {
+    if (!page || !canEditPreview) return;
+    const current = columns.find((c) => c.key === colKey);
+    if (!current) return;
+    const newLabel = window.prompt("Новое название столбца", current.label);
+    if (!newLabel || !newLabel.trim() || newLabel.trim() === current.label) return;
+    try {
+      await renameColumn(page.workspaceId, page.id, columns, colKey, newLabel.trim());
+      toast.success("Столбец переименован");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось переименовать");
+    }
+  }
+
+  async function handleToggleHidden(colKey: string) {
+    if (!page || !canEditPreview) return;
+    const next = columns.map((c) => (c.key === colKey ? { ...c, hidden: !c.hidden } : c));
+    try {
+      await updatePageColumns(page.workspaceId, page.id, next);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось скрыть столбец");
+    }
+  }
+
+  async function handleMoveColumn(colKey: string, direction: -1 | 1) {
+    if (!page || !canEditPreview) return;
+    const ordered = [...columns].sort((a, b) => a.order - b.order);
+    const index = ordered.findIndex((c) => c.key === colKey);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= ordered.length) return;
+    const swapped = [...ordered];
+    const tmp = swapped[index];
+    swapped[index] = swapped[nextIndex];
+    swapped[nextIndex] = tmp;
+    try {
+      await updatePageColumns(
+        page.workspaceId,
+        page.id,
+        swapped.map((c, i) => ({ ...c, order: i }))
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось переместить столбец");
+    }
+  }
+
+  async function handleDeleteColumn(colKey: string) {
+    if (!page || !canEditPreview) return;
+    const current = columns.find((c) => c.key === colKey);
+    if (!current) return;
+    if (!window.confirm(`Удалить столбец «${current.label}»? Данные в нём будут скрыты.`)) return;
+    try {
+      await deleteColumn(page.workspaceId, page.id, columns, colKey);
+      toast.success("Столбец удалён");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось удалить столбец");
+    }
+  }
+
+  async function handleSaveStatuses(options: StatusOption[]) {
+    if (!page || !canEditPreview) return;
+    const target = columns.find((c) => c.type === "status");
+    if (!target) {
+      const keys = new Set(columns.map((c) => c.key));
+      let key = "status";
+      let i = 1;
+      while (keys.has(key)) {
+        key = `status_${i}`;
+        i += 1;
+      }
+      await addColumn(page.workspaceId, page.id, columns, {
+        key,
+        label: "Статус",
+        type: "status",
+        statusOptions: options,
+      });
+      toast.success("Столбец «Статус» добавлен");
+      return;
+    }
+    await updateColumnStatusOptions(page.workspaceId, page.id, columns, target.key, options);
+    toast.success("Статусы обновлены");
+  }
+
   if (!page) return null;
 
   const canEdit = permissions.canManagePage(page);
@@ -59,7 +161,7 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
   };
 
   async function saveAppearance() {
-    if (!page || !canEdit) return;
+    if (!page || !canEditPreview) return;
     setIsSaving(true);
     try {
       if (name.trim() && name.trim() !== page.name) {
@@ -113,7 +215,7 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
   }
 
   async function saveGoalNow() {
-    if (!page || !canEdit) return;
+    if (!page || !canEditPreview) return;
     const value = Number(goalInput.replace(",", "."));
     const nextGoal = Number.isFinite(value) && value > 0 ? value : null;
     try {
@@ -133,7 +235,7 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
         <SheetHeader className="border-b border-border px-5 py-4 pr-12">
           <SheetTitle>Твой стол</SheetTitle>
           <p className="text-sm text-muted-foreground">
-            Как называется, какой цвет дела и что висит на домашнем экране.
+            Имя, цвет, столбцы и статусы (включая «Готово»).
           </p>
         </SheetHeader>
 
@@ -300,6 +402,20 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
             />
           </section>
 
+          <section className="border-t border-border pt-6">
+            <TableSchemaEditor
+              columns={columns}
+              statusOptions={statusOptions}
+              canEdit={canEdit}
+              onAddColumn={() => setAddColumnOpen(true)}
+              onRenameColumn={(key) => void handleRenameColumn(key)}
+              onToggleHidden={(key) => void handleToggleHidden(key)}
+              onMoveColumn={(key, dir) => void handleMoveColumn(key, dir)}
+              onDeleteColumn={(key) => void handleDeleteColumn(key)}
+              onManageStatuses={() => setStatusDialogOpen(true)}
+            />
+          </section>
+
           <section className="flex flex-col gap-3 border-t border-border pt-6">
             <div>
               <p className="text-sm font-medium">Что висит на дашборде</p>
@@ -338,6 +454,22 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
             Сохранить стол
           </Button>
         </div>
+        <AddColumnDialog
+          open={addColumnOpen}
+          onOpenChange={setAddColumnOpen}
+          workspaceId={page.workspaceId}
+          pageId={page.id}
+          existingColumns={columns}
+          createColumn={addColumn}
+        />
+        <ManageOptionsDialog
+          open={statusDialogOpen}
+          onOpenChange={setStatusDialogOpen}
+          title="Статусы стола"
+          description="Список для столбца «Статус» на этом столе. «Готово» — для дашборда и итогов."
+          options={statusOptions}
+          onSave={handleSaveStatuses}
+        />
       </SheetContent>
     </Sheet>
   );

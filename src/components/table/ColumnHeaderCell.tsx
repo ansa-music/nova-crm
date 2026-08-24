@@ -1,6 +1,6 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowDown, ArrowUp, Filter, GripVertical, Palette, Pin, PinOff, Plus } from "lucide-react";
+import { ArrowDown, ArrowUp, Eye, EyeOff, Filter, GripVertical, MoreHorizontal, Palette, Pin, PinOff, Plus } from "lucide-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -11,8 +11,19 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/utils/cn";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { usePermissions } from "@/hooks/usePermissions";
 import { addCustomField } from "@/services/workspaceService";
 import { toast } from "@/components/ui/sonner";
 import { buildColumnTypeChoices, isOptionColumn } from "@/utils/columnOptions";
@@ -37,6 +48,7 @@ interface ColumnHeaderCellProps {
   onManageOptions?: (colKey: string) => void;
   onDuplicate?: (colKey: string) => void;
   onDelete?: (colKey: string) => void;
+  onToggleHidden?: (colKey: string) => void;
 }
 
 export function ColumnHeaderCell({
@@ -57,6 +69,7 @@ export function ColumnHeaderCell({
   onManageOptions,
   onDuplicate,
   onDelete,
+  onToggleHidden,
 }: ColumnHeaderCellProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: column.id,
@@ -64,6 +77,9 @@ export function ColumnHeaderCell({
   });
 
   const { activeWorkspace } = useWorkspace();
+  const permissions = usePermissions();
+  const canEditThisOptions =
+    Boolean(canManageOptions) && isOptionColumn(column.type) && (column.type === "status" || permissions.role === "owner");
   const customFields = activeWorkspace?.customFields ?? [];
   const typeChoices = buildColumnTypeChoices(customFields);
 
@@ -130,6 +146,61 @@ export function ColumnHeaderCell({
             >
               {isPinned ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
             </button>
+            {canEditStructure && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground sm:min-h-0 sm:min-w-0 sm:p-0.5 sm:opacity-0 sm:group-hover:opacity-100"
+                    title="Настройки столбца"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => onRename?.(column.key)}>Переименовать</DropdownMenuItem>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>Изменить тип</DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {typeChoices.map((choice) => {
+                        const isCurrent =
+                          column.type === choice.type &&
+                          (choice.type !== "custom" || column.customFieldId === choice.customFieldId);
+                        return (
+                          <DropdownMenuItem
+                            key={choice.value}
+                            onClick={() => onChangeType?.(column.key, choice.type, choice.customFieldId)}
+                          >
+                            {choice.label}
+                            {isCurrent && " ✓"}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  {canEditThisOptions && (
+                    <DropdownMenuItem onClick={() => onManageOptions?.(column.key)}>
+                      <Palette className="h-4 w-4" /> Изменить варианты
+                    </DropdownMenuItem>
+                  )}
+                  {onToggleHidden && (
+                    <DropdownMenuItem onClick={() => onToggleHidden(column.key)}>
+                      {column.hidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                      {column.hidden ? "Показать столбец" : "Скрыть столбец"}
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={() => onDuplicate?.(column.key)}>Дублировать</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => onDelete?.(column.key)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    Удалить столбец
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <button
               type="button"
               onClick={(e) => onFilterClick(column.key, e)}
@@ -177,9 +248,15 @@ export function ColumnHeaderCell({
               </ContextMenuItem>
             </ContextMenuSubContent>
           </ContextMenuSub>
-          {canManageOptions && isOptionColumn(column.type) && (
+          {canEditThisOptions && (
             <ContextMenuItem onClick={() => onManageOptions?.(column.key)}>
               <Palette className="h-4 w-4" /> Изменить варианты
+            </ContextMenuItem>
+          )}
+          {onToggleHidden && (
+            <ContextMenuItem onClick={() => onToggleHidden(column.key)}>
+              {column.hidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+              {column.hidden ? "Показать столбец" : "Скрыть столбец"}
             </ContextMenuItem>
           )}
           <ContextMenuItem onClick={() => onDuplicate?.(column.key)}>Дублировать</ContextMenuItem>

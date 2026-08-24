@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, Sele
 import { toast } from "@/components/ui/sonner";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { addCustomField } from "@/services/workspaceService";
-import { buildColumnTypeChoices, decodeColumnTypeValue, encodeColumnTypeValue } from "@/utils/columnOptions";
+import { buildColumnTypeChoices, decodeColumnTypeValue, DEFAULT_STATUS_OPTIONS, encodeColumnTypeValue } from "@/utils/columnOptions";
 import type { addColumn } from "@/services/pageService";
 import type { ColumnType, PageColumn } from "@/types";
 
@@ -107,10 +107,7 @@ export function AddColumnDialog({
         key,
         label: label.trim(),
         type,
-        // Neither "status", "responsible", nor "custom" columns store their
-        // own options anymore — all three read a shared, workspace-wide
-        // list (see src/utils/columnOptions.ts), managed by the Owner.
-        statusOptions: undefined,
+        statusOptions: type === "status" ? DEFAULT_STATUS_OPTIONS : undefined,
         customFieldId,
       });
       toast.success(`Столбец «${column.label}» добавлен`);
@@ -168,10 +165,14 @@ export function AddColumnDialog({
                 </SelectItem>
               </SelectContent>
             </Select>
-            {(type === "responsible" || type === "status" || type === "custom") && (
+            {type === "status" && (
               <p className="text-xs text-muted-foreground">
-                Варианты для этого столбца общие для всего сайта — их добавляет Овнер в Настройках →
-                Workspace → «{type === "responsible" ? "Ответственные" : type === "status" ? "Статусы" : "Кастомные поля"}».
+                Статусы (включая «Готово») можно добавить кнопкой «Статусы» над таблицей.
+              </p>
+            )}
+            {(type === "responsible" || type === "custom") && (
+              <p className="text-xs text-muted-foreground">
+                Варианты общие для сайта — их меняет Owner в Настройках.
               </p>
             )}
           </div>

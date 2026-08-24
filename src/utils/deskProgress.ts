@@ -1,4 +1,5 @@
 import { formatDate } from "@/utils/date";
+import { isDoneStatusLabel } from "@/utils/columnOptions";
 import type { PageColumn, PageRow, StatusOption, SubPage, WorkspacePage } from "@/types";
 
 export interface PageProgress {
@@ -35,8 +36,9 @@ export function progressForPage(
     grandTotal += raw;
     if (statusCol) {
       const rawStatus = String(row.cells[statusCol.key] ?? "");
-      const label = statusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
-      if (label.toLowerCase().includes("готов")) doneTotal += raw;
+      const options = statusCol.statusOptions?.length ? statusCol.statusOptions : statusOptions;
+      const label = options.find((o) => o.value === rawStatus)?.label ?? rawStatus;
+      if (isDoneStatusLabel(label)) doneTotal += raw;
       else openCount += 1;
     }
   }
@@ -46,16 +48,19 @@ export function progressForPage(
 
 export function statusDistributionFromDesks(desks: PageProgress[], statusOptions: StatusOption[]) {
   const counts = new Map<string, number>();
+  const byValue = new Map<string, StatusOption>();
+  for (const opt of statusOptions) byValue.set(opt.value, opt);
   for (const desk of desks) {
     const statusCol = desk.columns.find((c) => c.type === "status");
     if (!statusCol) continue;
+    for (const opt of statusCol.statusOptions ?? []) byValue.set(opt.value, opt);
     for (const row of desk.rows) {
       const raw = String(row.cells[statusCol.key] ?? "");
       if (!raw) continue;
       counts.set(raw, (counts.get(raw) ?? 0) + 1);
     }
   }
-  return statusOptions.map((opt) => ({
+  return [...byValue.values()].map((opt) => ({
     name: opt.label,
     value: counts.get(opt.value) ?? 0,
     color: opt.color,

@@ -1,4 +1,4 @@
-import { Download, Plus, Search, Rows3, Columns3, Table2, Kanban, MoreHorizontal } from "lucide-react";
+import { Download, Plus, Search, Rows3, Columns3, Table2, Kanban, MoreHorizontal, Palette, SlidersHorizontal } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,6 +30,8 @@ interface TableToolbarProps {
   canEdit: boolean;
   canEditStructure: boolean;
   onAddColumn: () => void;
+  onOpenSchema?: () => void;
+  onManageStatuses?: () => void;
   selectedCount: number;
   onDeleteSelected: () => void;
   hasStatusColumn: boolean;
@@ -56,6 +58,8 @@ export function TableToolbar({
   canEdit,
   canEditStructure,
   onAddColumn,
+  onOpenSchema,
+  onManageStatuses,
   selectedCount: _selectedCount,
   onDeleteSelected: _onDeleteSelected,
   hasStatusColumn,
@@ -92,9 +96,17 @@ export function TableToolbar({
         <Download className="h-3.5 w-3.5" /> CSV
       </DropdownMenuItem>
       {canEditStructure && (
-        <DropdownMenuItem onClick={onAddColumn}>
-          <Columns3 className="h-3.5 w-3.5" /> Столбец
-        </DropdownMenuItem>
+        <>
+          <DropdownMenuItem onClick={onOpenSchema ?? onAddColumn}>
+            <SlidersHorizontal className="h-3.5 w-3.5" /> Столбцы
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onManageStatuses}>
+            <Palette className="h-3.5 w-3.5" /> Статусы
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onAddColumn}>
+            <Columns3 className="h-3.5 w-3.5" /> Столбец
+          </DropdownMenuItem>
+        </>
       )}
     </>
   );
@@ -174,9 +186,17 @@ export function TableToolbar({
       </Button>
 
       {canEditStructure && (
-        <Button variant="outline" size="sm" className="hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onAddColumn}>
-          <Columns3 className="h-3.5 w-3.5" /> Столбец
-        </Button>
+        <>
+          <Button variant="outline" size="sm" className="hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onOpenSchema ?? onAddColumn}>
+            <SlidersHorizontal className="h-3.5 w-3.5" /> Столбцы
+          </Button>
+          <Button variant="outline" size="sm" className="hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onManageStatuses}>
+            <Palette className="h-3.5 w-3.5" /> Статусы
+          </Button>
+          <Button variant="outline" size="sm" className="hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onAddColumn}>
+            <Columns3 className="h-3.5 w-3.5" /> Столбец
+          </Button>
+        </>
       )}
 
       <DropdownMenu>

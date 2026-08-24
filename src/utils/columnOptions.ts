@@ -18,22 +18,28 @@ export const DEFAULT_STATUS_OPTIONS: StatusOption[] = [
 ];
 
 /**
- * Resolves the actual list of selectable options for a column.
+ * Resolves selectable options for a column.
  *
- * Both "status" and "responsible" columns work the same way now: neither
- * keeps its own per-column list. Instead every column of that type,
- * anywhere on the whole site, shares ONE list stored on the workspace
- * (`workspace.statusOptions` / `workspace.responsibleOptions`), managed
- * exclusively by the Owner from Настройки → Workspace. Adding/renaming/
- * recoloring/removing a value there updates it everywhere at once.
+ * Status prefers the page's own list (Технар can add «Готово» on their стол
+ * via updatePage). If the column has none yet, fall back to the workspace
+ * list or DEFAULT_STATUS_OPTIONS (includes Готово).
+ * Responsible and custom fields stay workspace-wide (Owner).
  */
 export function getColumnOptions(column: PageColumn, workspace: Workspace | null | undefined): StatusOption[] {
   if (column.type === "responsible") return workspace?.responsibleOptions ?? [];
-  if (column.type === "status") return workspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
+  if (column.type === "status") {
+    if (column.statusOptions && column.statusOptions.length > 0) return column.statusOptions;
+    return workspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
+  }
   if (column.type === "custom") {
     return workspace?.customFields?.find((f) => f.id === column.customFieldId)?.options ?? [];
   }
   return column.statusOptions ?? [];
+}
+
+export function isDoneStatusLabel(label: string): boolean {
+  const l = label.toLowerCase();
+  return l.includes("готов") || l.includes("done") || l.includes("успеш") || l.includes("закрыт");
 }
 
 export const BASE_COLUMN_TYPE_LABELS: Record<Exclude<ColumnType, "custom">, string> = {
