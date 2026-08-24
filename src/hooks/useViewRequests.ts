@@ -25,6 +25,18 @@ export function useViewRequests(workspaceId: string | null, uid: string | null) 
     return () => window.removeEventListener(INBOX_CHANGED_EVENT, onChanged);
   }, [reload]);
 
+  // Spark-safe: no extra onSnapshot. While *this* user has a pending
+  // view-request, poll every 4s so «Принять» opens their desk without a reload.
+  useEffect(() => {
+    if (!uid) return;
+    const minePending = data.some((row) => row.fromUid === uid && row.status === "pending");
+    if (!minePending) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void reload();
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [data, uid, reload]);
+
   const requestView = useCallback(
     async (page: WorkspacePage, fromName: string, toUid: string) => {
       if (!workspaceId || !uid) return null;
