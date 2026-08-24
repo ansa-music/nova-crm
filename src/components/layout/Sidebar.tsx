@@ -24,6 +24,7 @@ import { signOutUser } from "@/firebase/auth";
 import { setActiveRole, toggleHiddenPage } from "@/services/memberService";
 import { cn } from "@/utils/cn";
 import { useUiStore } from "@/store/uiStore";
+import { useUserPageNav } from "@/hooks/useUserPageNav";
 import type { WorkspacePage } from "@/types";
 
 export function Sidebar({ mobile }: { mobile?: boolean }) {
@@ -52,12 +53,23 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
 
   const myMembership = members.find((m) => m.uid === profile?.uid);
   const hiddenPageIds = myMembership?.hiddenPageIds ?? [];
+  const { recentIds, pinnedIds, togglePin } = useUserPageNav(profile?.uid);
 
   const accessiblePages = pages.filter((p) => permissions.canAccessPage(p));
   const hiddenCount = accessiblePages.filter((p) => hiddenPageIds.includes(p.id)).length;
   const visiblePages = showHiddenPages
     ? accessiblePages
     : accessiblePages.filter((p) => !hiddenPageIds.includes(p.id));
+
+  const pinnedSet = new Set(pinnedIds);
+  const orderedPages = [
+    ...pinnedIds.map((id) => visiblePages.find((p) => p.id === id)).filter((p): p is WorkspacePage => Boolean(p)),
+    ...visiblePages.filter((p) => !pinnedSet.has(p.id)),
+  ];
+  const recentPages = recentIds
+    .map((id) => accessiblePages.find((p) => p.id === id))
+    .filter((p): p is WorkspacePage => Boolean(p))
+    .filter((p) => showHiddenPages || !hiddenPageIds.includes(p.id));
 
   async function handleToggleHiddenPage(pageId: string, hide: boolean) {
     if (!activeWorkspaceId || !profile) return;
@@ -273,7 +285,27 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               )}
             </div>
           )}
-          {visiblePages.map((page) => (
+          {!collapsed && recentPages.length > 0 && (
+            <div className="mb-1 flex flex-col gap-0.5">
+              <span className="eyebrow px-2 pb-0.5">Недавние</span>
+              {recentPages.map((page) => (
+                <PageNavItem
+                  key={`recent-${page.id}`}
+                  page={page}
+                  canManage={permissions.canManagePage(page)}
+                  canDelete={permissions.canDeletePage(page)}
+                  nextOrder={pages.length}
+                  onEdit={setEditingPage}
+                  collapsed={collapsed}
+                  isHidden={hiddenPageIds.includes(page.id)}
+                  onToggleHidden={handleToggleHiddenPage}
+                  isPinned={pinnedSet.has(page.id)}
+                  onTogglePin={togglePin}
+                />
+              ))}
+            </div>
+          )}
+          {orderedPages.map((page) => (
             <PageNavItem
               key={page.id}
               page={page}
@@ -284,9 +316,11 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
               collapsed={collapsed}
               isHidden={hiddenPageIds.includes(page.id)}
               onToggleHidden={handleToggleHiddenPage}
+              isPinned={pinnedSet.has(page.id)}
+              onTogglePin={togglePin}
             />
           ))}
-          {visiblePages.length === 0 && !collapsed && (
+          {orderedPages.length === 0 && !collapsed && (
             <p className="px-2 text-xs text-muted-foreground">Пока нет доступных страниц</p>
           )}
           {!collapsed && hiddenCount > 0 && (

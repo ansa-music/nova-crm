@@ -28,6 +28,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { ensurePriceColumn, togglePageVisibility } from "@/services/pageService";
 import { displayNameOf } from "@/utils/displayName";
 import { useUiStore } from "@/store/uiStore";
+import { recordRecentPage } from "@/hooks/useUserPageNav";
 import type { PageIconName } from "@/types";
 
 export default function DynamicTablePage() {
@@ -80,7 +81,8 @@ export default function DynamicTablePage() {
     } catch {
       /* localStorage can throw in private-browsing edge cases — not worth failing over */
     }
-  }, [pageId]);
+    if (profile?.uid) recordRecentPage(profile.uid, pageId);
+  }, [pageId, profile?.uid]);
 
   const rows = activeSubPageId ? subPageRows : pageRows;
   const rowsLoading = activeSubPageId ? subPageRowsLoading : pageRowsLoading;

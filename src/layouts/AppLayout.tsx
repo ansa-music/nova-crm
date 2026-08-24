@@ -13,6 +13,7 @@ import { SimulationBanner } from "@/components/common/RoleSwitcher";
 import { AppBootScreen } from "@/components/common/AppBootScreen";
 import { ShortcutsHelpDialog } from "@/components/common/ShortcutsHelpDialog";
 import { GlobalUndoHotkeys } from "@/components/common/GlobalUndoHotkeys";
+import { GoChordHotkeys } from "@/components/common/GoChordHotkeys";
 import { AccentColorSync } from "@/components/common/AccentColorSync";
 import { Button } from "@/components/ui/button";
 import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorkspace";
@@ -121,6 +122,7 @@ export function AppLayout() {
       <GlobalMessageToaster />
       <ShortcutsHelpDialog />
       <GlobalUndoHotkeys />
+      <GoChordHotkeys />
       <AccentColorSync />
       {!isMobile && !isFullscreen && <Sidebar />}
       <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${isFullscreen ? "" : "rounded-[22px] border border-border/60 bg-card/25 backdrop-blur-sm"}`}>

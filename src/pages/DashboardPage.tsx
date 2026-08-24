@@ -27,7 +27,7 @@ import { setPageMonthlyGoal } from "@/services/pageService";
 import { updateLeaderboardEntry } from "@/services/leaderboardService";
 import { downloadCsv } from "@/utils/csv";
 import { formatCurrency } from "@/utils/format";
-import { formatDate, timeAgo } from "@/utils/date";
+import { formatDate, greetingByHour, hourInTimeZone, timeAgo, ymdInTimeZone } from "@/utils/date";
 import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
 import { Link } from "react-router";
 import type { LeaderboardEntry, PageColumn, PageRow, StatusOption, SubPage, WorkspacePage } from "@/types";
@@ -82,6 +82,66 @@ function progressForPage(
   }
   const percent = grandTotal > 0 ? Math.round((doneTotal / grandTotal) * 100) : 0;
   return { page, doneTotal, grandTotal, percent, rowCount: rows.length, openCount, columns, rows };
+}
+
+function isDateColumn(col: PageColumn): boolean {
+  return col.type === "date" || col.label.toLowerCase().includes("дата");
+}
+
+function parseDateCell(value: string | number | null | undefined): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  if (Number.isFinite(n) && n > 10_000) return n;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function rowTitle(row: PageRow, columns: PageColumn[], dateKey: string): string {
+  const titleCol = columns.find((c) => c.key !== dateKey && c.type !== "date") ?? columns[0];
+  const raw = titleCol ? row.cells[titleCol.key] : "";
+  const label = String(raw ?? "").trim();
+  return label || "без названия";
+}
+
+function collectDeadlines(source: PageProgress[]): { key: string; label: string; detail: string; href: string; overdue: boolean; sort: string }[] {
+  const now = Date.now();
+  const today = ymdInTimeZone(now);
+  const until = ymdInTimeZone(now + 7 * 24 * 60 * 60 * 1000);
+  const items: { key: string; label: string; detail: string; href: string; overdue: boolean; sort: string }[] = [];
+
+  for (const desk of source) {
+    const dateCols = desk.columns.filter(isDateColumn);
+    if (dateCols.length === 0) continue;
+    for (const row of desk.rows) {
+      for (const col of dateCols) {
+        const ms = parseDateCell(row.cells[col.key]);
+        if (ms === null) continue;
+        const ymd = ymdInTimeZone(ms);
+        const overdue = ymd < today;
+        const upcoming = ymd >= today && ymd <= until;
+        if (!overdue && !upcoming) continue;
+        const title = rowTitle(row, desk.columns, col.key);
+        const detail = overdue ? "просрочено" : ymd === today ? "сегодня" : formatDate(ms, "d MMM");
+        items.push({
+          key: `${desk.page.id}:${row.id}:${col.key}`,
+          label: `${title} · ${desk.page.name}`,
+          detail,
+          href: `/page/${desk.page.id}`,
+          overdue,
+          sort: ymd,
+        });
+      }
+    }
+  }
+
+  items.sort((a, b) => {
+    if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+    return a.sort.localeCompare(b.sort);
+  });
+  return items.slice(0, 8);
 }
 
 export default function DashboardPage() {
@@ -244,6 +304,10 @@ export default function DashboardPage() {
 
   const dateLine = formatDate(Date.now(), "d MMMM");
   const name = profile ? profile.nickname || profile.name : "";
+  const hello = greetingByHour(hourInTimeZone(Date.now()));
+
+  const deadlineSource = isPersonalLanding ? myProgress : deskProgress;
+  const deadlineItems = collectDeadlines(deadlineSource);
 
   const motionDesks = (isPersonalLanding ? myProgress : deskProgress).filter(
     (d) => d.openCount > 0 || (d.grandTotal > 0 && d.percent < 100)
@@ -270,7 +334,7 @@ export default function DashboardPage() {
         <div className="min-w-0">
           <p className="eyebrow mb-2 text-primary">Сегодня · {dateLine}</p>
           <h1 className="hero">
-            {name ? (isPersonalLanding ? `Привет, ${name}` : `Добрый день, ${name}`) : isPersonalLanding ? "Привет" : "Добрый день"}
+            {name ? (isPersonalLanding ? `Привет, ${name}` : `${hello}, ${name}`) : isPersonalLanding ? "Привет" : hello}
           </h1>
           <p className="body mt-2 max-w-xl">
             {isPersonalLanding
@@ -329,6 +393,25 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+      {deadlineItems.length > 0 && (
+        <div className="relative z-[1] mt-5">
+          <p className="eyebrow mb-2">Сроки</p>
+          <div className="flex flex-col">
+            {deadlineItems.map((item) => (
+              <Link
+                key={item.key}
+                to={item.href}
+                className="flex items-baseline justify-between gap-3 border-t border-border/50 py-2 first:border-t-0 first:pt-0 hover:text-primary"
+              >
+                <span className="truncate text-[13px] font-medium">{item.label}</span>
+                <span className={item.overdue ? "shrink-0 font-mono text-[11px] tabular text-destructive" : "shrink-0 font-mono text-[11px] tabular text-muted-foreground"}>
+                  {item.detail}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 

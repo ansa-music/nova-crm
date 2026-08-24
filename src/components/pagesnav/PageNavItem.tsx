@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink } from "react-router";
-import { Copy, EyeOff, MoreHorizontal, Pencil, Settings2, Trash2 } from "lucide-react";
+import { Copy, EyeOff, MoreHorizontal, Pencil, Pin, Settings2, Trash2 } from "lucide-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -27,6 +27,8 @@ interface PageNavItemProps {
   /** Is this page currently on MY OWN "hidden from my sidebar" list? Purely personal — never affects real access. */
   isHidden?: boolean;
   onToggleHidden?: (pageId: string, hide: boolean) => void;
+  isPinned?: boolean;
+  onTogglePin?: (pageId: string) => void;
 }
 
 export function PageNavItem({
@@ -38,29 +40,47 @@ export function PageNavItem({
   collapsed,
   isHidden,
   onToggleHidden,
+  isPinned,
+  onTogglePin,
 }: PageNavItemProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [draftName, setDraftName] = useState(page.name);
   const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid;
 
   if (collapsed) {
+    const link = (
+      <NavLink
+        to={`/page/${page.id}`}
+        className={({ isActive }) =>
+          cn(
+            "relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
+            isActive ? "nav-link-active bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
+          )
+        }
+      >
+        <Icon className="h-4 w-4" style={{ color: `hsl(${page.color})` }} />
+        {isPinned && <span className="absolute right-0.5 top-0.5 h-1 w-1 rounded-full bg-primary" />}
+      </NavLink>
+    );
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <NavLink
-            to={`/page/${page.id}`}
-            className={({ isActive }) =>
-              cn(
-                "flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
-                isActive ? "nav-link-active bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
-              )
-            }
-          >
-            <Icon className="h-4 w-4" style={{ color: `hsl(${page.color})` }} />
-          </NavLink>
-        </TooltipTrigger>
-        <TooltipContent side="right">{page.name}</TooltipContent>
-      </Tooltip>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div>
+            <Tooltip>
+              <TooltipTrigger asChild>{link}</TooltipTrigger>
+              <TooltipContent side="right">{page.name}</TooltipContent>
+            </Tooltip>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={() => onTogglePin?.(page.id)}>
+            <Pin className="h-4 w-4" /> {isPinned ? "Открепить" : "Закрепить у себя"}
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => onToggleHidden?.(page.id, !isHidden)}>
+            <EyeOff className="h-4 w-4" /> {isHidden ? "Показать у себя" : "Скрыть у себя"}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     );
   }
 
@@ -122,6 +142,7 @@ export function PageNavItem({
         <Icon className="h-4 w-4" />
       </span>
       <span className="flex-1 truncate">{page.name}</span>
+      {isPinned && <Pin className="h-3 w-3 shrink-0 fill-current text-primary" />}
     </NavLink>
   );
 
@@ -129,9 +150,26 @@ export function PageNavItem({
     return (
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <div className="flex items-center">{content}</div>
+          <div className="group/item relative flex items-center">
+            {content}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onTogglePin?.(page.id);
+              }}
+              className="absolute right-1 hidden h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground group-hover/item:flex"
+              title={isPinned ? "Открепить" : "Закрепить у себя"}
+            >
+              <Pin className={cn("h-3.5 w-3.5", isPinned && "fill-current text-primary")} />
+            </button>
+          </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          <ContextMenuItem onClick={() => onTogglePin?.(page.id)}>
+            <Pin className="h-4 w-4" /> {isPinned ? "Открепить" : "Закрепить у себя"}
+          </ContextMenuItem>
           <ContextMenuItem onClick={() => onToggleHidden?.(page.id, !isHidden)}>
             <EyeOff className="h-4 w-4" /> {isHidden ? "Показать у себя" : "Скрыть у себя"}
           </ContextMenuItem>
@@ -146,16 +184,30 @@ export function PageNavItem({
         <div className="group/item relative flex items-center">
           {content}
           {!isRenaming && (
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                onEdit(page);
-              }}
-              className="absolute right-1 hidden h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent group-hover/item:flex"
-              title="Настроить страницу"
-            >
-              <MoreHorizontal className="h-3.5 w-3.5" />
-            </button>
+            <div className="absolute right-1 hidden items-center group-hover/item:flex">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onTogglePin?.(page.id);
+                }}
+                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+                title={isPinned ? "Открепить" : "Закрепить у себя"}
+              >
+                <Pin className={cn("h-3.5 w-3.5", isPinned && "fill-current text-primary")} />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  onEdit(page);
+                }}
+                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent"
+                title="Настроить страницу"
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+            </div>
           )}
         </div>
       </ContextMenuTrigger>
@@ -165,6 +217,9 @@ export function PageNavItem({
         </ContextMenuItem>
         <ContextMenuItem onClick={() => onEdit(page)}>
           <Settings2 className="h-4 w-4" /> Настройки страницы
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => onTogglePin?.(page.id)}>
+          <Pin className="h-4 w-4" /> {isPinned ? "Открепить" : "Закрепить у себя"}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => onToggleHidden?.(page.id, !isHidden)}>
           <EyeOff className="h-4 w-4" /> {isHidden ? "Показать у себя" : "Скрыть у себя"}
