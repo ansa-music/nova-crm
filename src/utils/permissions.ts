@@ -82,7 +82,7 @@ export function canSendNotifications(role: Role): boolean {
 export function canAccessPage(page: WorkspacePage, role: Role, uid: string): boolean {
   if (role === "owner") return true;
   if (isResponsibleForPage(page, uid)) return true;
-  return page.allowedUsers.includes(uid);
+  return Boolean(uid && page.allowedUsers?.includes(uid));
 }
 
 /**

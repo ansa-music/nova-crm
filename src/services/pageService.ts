@@ -323,9 +323,11 @@ export async function toggleUserPageAccess(
   uid: string,
   grant: boolean
 ) {
+  const current = page.allowedUsers ?? [];
+  if (!grant && page.responsibleUserId === uid) return;
   const next = grant
-    ? Array.from(new Set([...page.allowedUsers, uid]))
-    : page.allowedUsers.filter((id) => id !== uid);
+    ? Array.from(new Set([...current, uid, ...(page.responsibleUserId ? [page.responsibleUserId] : [])]))
+    : current.filter((id) => id !== uid);
   await updatePagePermissions(workspaceId, page.id, next);
 }
 

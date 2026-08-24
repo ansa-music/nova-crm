@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useUiStore } from "@/store/uiStore";
+import { useWorkspaceStore } from "@/store/workspaceStore";
 import { Check, ChevronDown, ChevronRight, Copy, Link2, Mail, ShieldCheck, Trash2, X } from "lucide-react";
 import { displayNameOf } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
@@ -28,6 +30,10 @@ export default function UsersPage() {
   const [expandedUid, setExpandedUid] = useState<string | null>(null);
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [linkCopied, setLinkCopied] = useState(false);
+
+  useEffect(() => {
+    useUiStore.getState().setSelectedPersonKey(null);
+  }, []);
 
   useEffect(() => {
     if (!activeWorkspaceId || !permissions.canManageWorkspace) return;
@@ -110,8 +116,16 @@ export default function UsersPage() {
     toast.success("Приглашение обновлено");
   }
 
-  async function handleTogglePageAccess(uid: string, page: (typeof pages)[number], checked: boolean) {
-    await toggleUserPageAccess(activeWorkspaceId!, page, uid, checked);
+  async function handleTogglePageAccess(uid: string, pageId: string, checked: boolean) {
+    const latest = useWorkspaceStore.getState().pages.find((p) => p.id === pageId);
+    if (!latest) return;
+    const already = Boolean(latest.allowedUsers?.includes(uid));
+    if (already === checked) return;
+    if (!checked && latest.responsibleUserId === uid) {
+      toast.error("Нельзя снять доступ у ответственного за этот стол");
+      return;
+    }
+    await toggleUserPageAccess(activeWorkspaceId!, latest, uid, checked);
   }
 
   return (
@@ -251,7 +265,7 @@ export default function UsersPage() {
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {pages.map((page) => {
                       const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid;
-                      const checked = page.allowedUsers.includes(member.uid);
+                      const checked = Boolean(page.allowedUsers?.includes(member.uid) || page.responsibleUserId === member.uid);
                       return (
                         <label
                           key={page.id}
@@ -259,7 +273,7 @@ export default function UsersPage() {
                         >
                           <Checkbox
                             checked={checked}
-                            onCheckedChange={(value) => handleTogglePageAccess(member.uid, page, Boolean(value))}
+                            onCheckedChange={(value) => handleTogglePageAccess(member.uid, page.id, Boolean(value))}
                           />
                           <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: `hsl(${page.color})` }} />
                           <span className="truncate">{page.name}</span>

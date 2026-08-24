@@ -48,11 +48,47 @@ export function subscribeToOwnMember(
   };
 }
 
+/**
+ * Resolve THIS signed-in account's member row.
+ * Must prefer uid. Matching any row with the same email (old `find` OR) lets an
+ * email-keyed invite stub (uid "", role viewer) win over the real uid-keyed
+ * owner/admin doc — after Users panel refetches the roster, canAccessPage then
+ * treats the signed-in user as a Viewer and every table looks locked.
+ */
+export function findOwnMembership(
+  members: WorkspaceMember[],
+  uid?: string | null,
+  email?: string | null
+): WorkspaceMember | null {
+  const normalizedEmail = email?.trim().toLowerCase() || "";
+  if (uid) {
+    const active = members.find((m) => m.uid === uid && m.status !== "invited");
+    if (active) return active;
+    const anyUid = members.find((m) => m.uid === uid);
+    if (anyUid) return anyUid;
+  }
+  if (!normalizedEmail) return null;
+  return (
+    members.find(
+      (m) =>
+        m.email?.trim().toLowerCase() === normalizedEmail &&
+        (!m.uid || m.uid === uid) &&
+        m.status !== "invited"
+    ) ??
+    members.find(
+      (m) => m.email?.trim().toLowerCase() === normalizedEmail && (!m.uid || m.uid === uid)
+    ) ??
+    null
+  );
+}
+
 export function mergeOwnMember(members: WorkspaceMember[], own: WorkspaceMember | null): WorkspaceMember[] {
   if (!own) return members;
-  const idx = members.findIndex(
-    (m) => (own.uid && m.uid === own.uid) || (own.email && m.email?.trim().toLowerCase() === own.email.trim().toLowerCase())
-  );
+  let idx = own.uid ? members.findIndex((m) => m.uid === own.uid) : -1;
+  if (idx === -1 && own.email) {
+    const email = own.email.trim().toLowerCase();
+    idx = members.findIndex((m) => !m.uid && m.email?.trim().toLowerCase() === email);
+  }
   if (idx === -1) return sortMembers([...members, own]);
   const next = members.slice();
   next[idx] = { ...next[idx], ...own };

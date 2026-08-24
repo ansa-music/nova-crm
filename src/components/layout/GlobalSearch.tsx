@@ -61,7 +61,7 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
 
   const destinations: CommandItem[] = useMemo(() => {
     const list: CommandItem[] = [
-      { id: "dash", kind: "go", label: "Дашборд", hint: "Сегодня", href: "/", icon: LayoutDashboard },
+      { id: "dash", kind: "go", label: "Главная", hint: "Твой стол", href: "/", icon: LayoutDashboard },
       { id: "people", kind: "go", label: "Люди", href: "/people", icon: Users },
       { id: "ann", kind: "go", label: "Объявления", href: "/announcements", icon: Megaphone },
       { id: "chat", kind: "go", label: "Чат workspace", href: "/chat", icon: MessageSquare },
@@ -175,7 +175,7 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
                 autoFocus
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Страница, человек, дашборд, настройки…"
+                placeholder="Стол, человек, главная, настройки…"
                 className="h-10 border-0 bg-transparent px-1 text-[15px] shadow-none focus-visible:ring-0"
                 onKeyDown={(e) => {
                   if (e.code === "ArrowDown") {

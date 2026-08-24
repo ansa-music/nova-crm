@@ -6,7 +6,8 @@ import { useUiStore } from "@/store/uiStore";
 import { isResponsibleForPage } from "@/utils/permissions";
 import { groupDesksByPerson, type PersonDeskGroup } from "@/utils/peopleDesks";
 
-export function usePeopleDesks() {
+/** `syncPersonSelection` is only for Люди. Never treat selected person as ACL. */
+export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSelection?: boolean } = {}) {
   const { pages, members, isLoadingWorkspaceData } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
@@ -30,6 +31,7 @@ export function usePeopleDesks() {
   const groups = useMemo(() => groupDesksByPerson(studioPages, members), [studioPages, members]);
 
   useEffect(() => {
+    if (!syncPersonSelection) return;
     if (groups.length === 0) {
       if (selectedPersonKey !== null) setSelectedPersonKey(null);
       return;
@@ -40,7 +42,7 @@ export function usePeopleDesks() {
       return;
     }
     setSelectedPersonKey(groups[0].key);
-  }, [groups, profile, selectedPersonKey, setSelectedPersonKey]);
+  }, [groups, profile, selectedPersonKey, setSelectedPersonKey, syncPersonSelection]);
 
   const activeGroup: PersonDeskGroup | null =
     groups.find((g) => g.key === selectedPersonKey) ?? groups[0] ?? null;

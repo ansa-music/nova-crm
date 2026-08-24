@@ -12,7 +12,7 @@ import { cn } from "@/utils/cn";
 
 export default function PeoplePage() {
   const navigate = useNavigate();
-  const { groups, isLoadingWorkspaceData, selectPerson } = usePeopleDesks();
+  const { groups, isLoadingWorkspaceData, selectPerson } = usePeopleDesks({ syncPersonSelection: true });
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {

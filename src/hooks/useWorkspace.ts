@@ -1,7 +1,7 @@
 // PATH: src/hooks/useWorkspace.ts  (REPLACES EXISTING)
 import { useEffect, useRef } from "react";
 import { subscribeToUserWorkspaces } from "@/services/workspaceService";
-import { fetchMembers, mergeOwnMember, subscribeToOwnMember } from "@/services/memberService";
+import { fetchMembers, findOwnMembership, mergeOwnMember, subscribeToOwnMember } from "@/services/memberService";
 import { subscribeToPages } from "@/services/pageService";
 import { useAuthStore } from "@/store/authStore";
 import { useBootstrapStore } from "@/store/bootstrapStore";
@@ -225,6 +225,9 @@ export function useWorkspace() {
 export async function refreshWorkspaceMembers(workspaceId: string) {
   const list = await fetchMembers(workspaceId);
   const uid = useAuthStore.getState().firebaseUser?.uid;
-  const own = useWorkspaceStore.getState().members.find((m) => m.uid === uid) ?? null;
+  const email = useAuthStore.getState().profile?.email;
+  const own =
+    findOwnMembership(useWorkspaceStore.getState().members, uid, email) ??
+    findOwnMembership(list, uid, email);
   useWorkspaceStore.getState().setMembers(mergeOwnMember(list, own));
 }

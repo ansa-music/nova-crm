@@ -23,6 +23,7 @@ import {
   canViewHistory,
   isResponsibleForPage,
 } from "@/utils/permissions";
+import { findOwnMembership } from "@/services/memberService";
 import type { Role, WorkspacePage } from "@/types";
 
 /**
@@ -54,15 +55,16 @@ export function usePermissions() {
   const { members, activeWorkspace, membersLoadState } = useWorkspace();
   const { isReady } = useAppBootstrap();
 
-  const membership = useMemo(() => {
-    const uid = profile?.uid;
-    const email = profile?.email?.trim().toLowerCase();
-    return (
-      members.find((m) => (uid && m.uid === uid) || (email && m.email?.trim().toLowerCase() === email)) ?? null
-    );
-  }, [members, profile?.uid, profile?.email]);
+  const uid = profile?.uid ?? "";
+  const isOwnerOfWorkspace = Boolean(uid && activeWorkspace?.ownerId === uid);
 
-  const realRole: Role = membership?.role ?? "viewer";
+  const membership = useMemo(
+    () => findOwnMembership(members, profile?.uid, profile?.email),
+    [members, profile?.uid, profile?.email]
+  );
+
+  // Workspace ownerId wins over a stale/wrong member row (invite stub, email match).
+  const realRole: Role = isOwnerOfWorkspace ? "owner" : (membership?.role ?? "viewer");
   const storedActiveRole = membership?.activeRole ?? null;
   // Defensive clamp: only trust a stored activeRole if the CURRENT real role
   // is still allowed to simulate it (e.g. protects against a stale value if
@@ -71,9 +73,6 @@ export function usePermissions() {
     storedActiveRole && canSimulateRole(realRole, storedActiveRole) ? storedActiveRole : null;
   const effectiveRole: Role = activeRole ?? realRole;
   const isSimulating = activeRole !== null && activeRole !== realRole;
-
-  const uid = profile?.uid ?? "";
-  const isOwnerOfWorkspace = Boolean(uid && activeWorkspace?.ownerId === uid);
   // Empty members before the first CONFIRMED snapshot is loading, not "not a member".
   const isResolved = isReady && (membersLoadState === "ready" || isOwnerOfWorkspace);
   const hasMembership = Boolean(membership) || isOwnerOfWorkspace;
