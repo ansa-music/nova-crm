@@ -57,8 +57,7 @@ export function groupAllPeople(members: WorkspaceMember[], visiblePages: Workspa
     if (!member.uid) continue;
     const list = (byUid.get(member.uid) ?? []).slice();
     list.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, "ru"));
-    const hasOpenable = list.some((p) => !p.hiddenByResponsible);
-    const deskHidden = list.some((p) => p.hiddenByResponsible) ? !hasOpenable : list.length === 0;
+    const deskHidden = list.length > 0 && list.every((p) => p.hiddenByResponsible);
     groups.push({ key: member.uid, uid: member.uid, member, pages: list, deskHidden });
   }
   groups.sort((a, b) => personLabel(a.member).localeCompare(personLabel(b.member), "ru"));

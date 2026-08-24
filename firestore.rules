@@ -223,7 +223,9 @@ service cloud.firestore {
       }
 
       match /pages/{pageId} {
-        allow read: if isMember(workspaceId) && canAccessPage(workspaceId, resource.data);
+        // Members may list desk metadata (name/cover/hidden). Row data still
+        // uses canAccessPage below — hidden desks are visible, not openable.
+        allow read: if isMember(workspaceId);
 
         // Owner always. Admin/Manager may also create a page, but ONLY as
         // its own responsible person and only if they include themselves in
@@ -404,6 +406,26 @@ service cloud.firestore {
             }
           }
         }
+      }
+
+      // -----------------------------------------------------------------
+      // View requests — ask the desk's responsible person for view access
+      // to a hidden desk. List queries are fromUid==me or toUid==me so they
+      // match this rule (Spark-safe, same pattern as notifications).
+      // -----------------------------------------------------------------
+      match /viewRequests/{requestId} {
+        allow read: if isMember(workspaceId) &&
+          (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+        allow create: if isMember(workspaceId)
+          && request.resource.data.fromUid == request.auth.uid
+          && request.resource.data.toUid is string
+          && request.resource.data.pageId is string
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.status == 'pending';
+        allow update: if isMember(workspaceId)
+          && resource.data.toUid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+          && request.resource.data.status in ['approved', 'denied'];
       }
 
       // -----------------------------------------------------------------

@@ -14,4 +14,7 @@ export interface Notification {
   relatedAnnouncementId?: string | null;
   pageId?: string | null;
   href?: string | null;
+  kind?: "view-request" | "view-request-result" | null;
+  viewRequestId?: string | null;
 }
+

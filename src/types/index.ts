@@ -9,3 +9,4 @@ export * from "@/types/notification";
 export * from "@/types/chat";
 export * from "@/types/inbox";
 export * from "@/types/leaderboard";
+export * from "@/types/viewRequest";

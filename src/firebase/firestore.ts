@@ -96,6 +96,11 @@ export const paths = {
   announcement: (workspaceId: string, id: string) =>
     doc(requireDb(), "workspaces", workspaceId, "announcements", id),
 
+  viewRequests: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "viewRequests"),
+  viewRequest: (workspaceId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "viewRequests", id),
+
   notifications: (workspaceId: string) =>
     collection(requireDb(), "workspaces", workspaceId, "notifications"),
   notification: (workspaceId: string, id: string) =>

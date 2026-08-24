@@ -5,21 +5,26 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useNotifications } from "@/hooks/useNotifications";
+import { useViewRequests } from "@/hooks/useViewRequests";
 import { markAllNotificationsRead, markNotificationRead } from "@/services/notificationService";
+import { displayNameOf } from "@/utils/displayName";
 import { timeAgo } from "@/utils/date";
+import { toast } from "@/components/ui/sonner";
 import { cn } from "@/utils/cn";
 import type { Notification } from "@/types";
 
 const PRIORITY_DOT: Record<string, string> = {
   normal: "bg-muted-foreground",
-  important: "bg-secondary",
-  urgent: "bg-secondary",
+  important: "bg-primary",
+  urgent: "bg-primary",
 };
 
 function notificationHref(n: Notification): string | null {
+  if (n.kind === "view-request") return null;
   if (typeof n.href === "string" && n.href.startsWith("/")) return n.href;
   if (n.relatedAnnouncementId) return "/announcements";
   if (typeof n.pageId === "string" && n.pageId) return "/page/" + n.pageId;
@@ -29,8 +34,9 @@ function notificationHref(n: Notification): string | null {
 
 export function NotificationBell({ className }: { className?: string }) {
   const { profile } = useAuth();
-  const { activeWorkspaceId } = useWorkspace();
+  const { activeWorkspaceId, pages } = useWorkspace();
   const { notifications, unreadCount, reload, markReadLocal } = useNotifications(activeWorkspaceId, profile?.uid ?? null);
+  const { requests, resolveRequest, reload: reloadRequests } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const navigate = useNavigate();
 
   return (
@@ -38,6 +44,7 @@ export function NotificationBell({ className }: { className?: string }) {
       onOpenChange={(open) => {
         if (open) {
           void reload();
+          void reloadRequests();
           if (activeWorkspaceId) markAllNotificationsRead(activeWorkspaceId, notifications);
         }
       }}
@@ -60,39 +67,89 @@ export function NotificationBell({ className }: { className?: string }) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80 p-0">
-        <div className="border-b border-border px-3 py-2">
+        <div className="border-b border-primary/25 px-3 py-2">
           <p className="eyebrow">Уведомления</p>
         </div>
         <div className="max-h-96 overflow-y-auto">
           {notifications.length === 0 ? (
             <div className="p-4 text-center text-sm text-muted-foreground">У вас пока нет новых уведомлений</div>
           ) : (
-            notifications.map((n) => (
-              <button
-                key={n.id}
-                onClick={() => {
-                  if (activeWorkspaceId && !n.read) {
-                    markReadLocal(n.id);
-                    void markNotificationRead(activeWorkspaceId, n.id);
-                  }
-                  const dest = notificationHref(n);
-                  if (dest) navigate(dest);
-                }}
-                className={cn(
-                  "flex w-full items-start gap-2 border-b border-border px-3 py-2.5 text-left transition-colors last:border-0 hover:bg-accent/40",
-                  !n.read && "bg-accent/20"
-                )}
-              >
-                <span className={cn("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", PRIORITY_DOT[n.priority])} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{n.title}</p>
-                  <p className="line-clamp-2 text-xs text-muted-foreground">{n.body}</p>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">
-                    {n.fromName} · {timeAgo(n.createdAt)}
-                  </p>
+            notifications.map((n) => {
+              const req = n.viewRequestId ? requests.find((r) => r.id === n.viewRequestId) : null;
+              const pending = n.kind === "view-request" && req?.status === "pending";
+              return (
+                <div
+                  key={n.id}
+                  className={cn(
+                    "flex w-full items-start gap-2 border-b border-border px-3 py-2.5 text-left last:border-0",
+                    !n.read && "bg-primary/[0.06]"
+                  )}
+                >
+                  <span className={cn("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", PRIORITY_DOT[n.priority])} />
+                  <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      className="w-full text-left"
+                      onClick={() => {
+                        if (activeWorkspaceId && !n.read) {
+                          markReadLocal(n.id);
+                          void markNotificationRead(activeWorkspaceId, n.id);
+                        }
+                        const dest = notificationHref(n);
+                        if (dest) navigate(dest);
+                      }}
+                    >
+                      <p className="truncate text-sm font-medium">{n.title}</p>
+                      <p className="line-clamp-2 text-xs text-muted-foreground">{n.body}</p>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">
+                        {n.fromName} · {timeAgo(n.createdAt)}
+                      </p>
+                    </button>
+                    {pending && req ? (
+                      <div className="mt-2 flex gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-9 flex-1"
+                          onClick={async (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            try {
+                              const page = pages.find((p) => p.id === req.pageId);
+                              await resolveRequest(req, page, "approved", displayNameOf(profile));
+                              toast.success("Доступ открыт");
+                            } catch (error) {
+                              toast.error(error instanceof Error ? error.message : "Не удалось принять");
+                            }
+                          }}
+                        >
+                          Принять
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-9 flex-1"
+                          onClick={async (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            try {
+                              const page = pages.find((p) => p.id === req.pageId);
+                              await resolveRequest(req, page, "denied", displayNameOf(profile));
+                              toast.success("Запрос отклонён");
+                            } catch (error) {
+                              toast.error(error instanceof Error ? error.message : "Не удалось отклонить");
+                            }
+                          }}
+                        >
+                          Отклонить
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              </button>
-            ))
+              );
+            })
           )}
         </div>
       </DropdownMenuContent>

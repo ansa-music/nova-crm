@@ -30,7 +30,7 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
 
   const groups = useMemo(() => groupDesksByPerson(studioPages, members), [studioPages, members]);
   // People tab: every member, even if their desk is hidden / not in studioPages.
-  const peopleGroups = useMemo(() => groupAllPeople(members, visiblePages), [members, visiblePages]);
+  const peopleGroups = useMemo(() => groupAllPeople(members, pages), [members, pages]);
 
   useEffect(() => {
     if (!syncPersonSelection) return;

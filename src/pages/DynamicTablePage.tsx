@@ -21,12 +21,14 @@ import { HistoryPanel } from "@/components/history/HistoryPanel";
 import { PageChatPanel } from "@/components/chat/PageChatPanel";
 import { PersonalSpacePanel } from "@/components/personal/PersonalSpacePanel";
 import { toast } from "@/components/ui/sonner";
+import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePageRows } from "@/hooks/usePageRows";
 import { useSubPages, useSubPageRows } from "@/hooks/useSubPageData";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
+import { useViewRequests } from "@/hooks/useViewRequests";
 import { ensureDiskColumn, ensurePriceColumn, togglePageVisibility } from "@/services/pageService";
 import { displayNameOf } from "@/utils/displayName";
 import { useUiStore } from "@/store/uiStore";
@@ -39,6 +41,7 @@ export default function DynamicTablePage() {
   const { activeWorkspaceId, pages, members } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
+  const { requestView, latestForPage, reload: reloadViewRequests } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const setTableFullscreen = useUiStore((s) => s.setTableFullscreen);
   const setTableImmersive = useUiStore((s) => s.setTableImmersive);
   const tableFullscreen = useUiStore((s) => s.tableFullscreen);
@@ -185,13 +188,26 @@ export default function DynamicTablePage() {
   }
 
   if (!hasAccess) {
+    const toUid = page.responsibleUserId || members.find((m) => m.role === "owner")?.uid || "";
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <Lock className="h-8 w-8 text-muted-foreground" />
-        <p className="page-title">Нет доступа</p>
-        <p className="text-sm text-muted-foreground">
-          У вас нет доступа к этой странице. Обратитесь к Owner workspace, чтобы получить доступ.
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+        <Lock className="h-8 w-8 text-primary" />
+        <p className="page-title">Стол скрыт</p>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          «{page.name}» можно смотреть после разрешения ответственного. Данные листа не открываются.
         </p>
+        {toUid ? (
+          <div className="w-full max-w-xs">
+            <RequestDeskViewButton
+              page={page}
+              mine={latestForPage(page.id)}
+              onRequest={async () => {
+                await requestView(page, displayNameOf(profile), toUid);
+                await reloadViewRequests();
+              }}
+            />
+          </div>
+        ) : null}
       </div>
     );
   }

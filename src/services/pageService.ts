@@ -64,10 +64,10 @@ export function subscribeToPages(
   currentUserUid?: string,
   isOwnerOfWorkspace?: boolean
 ) {
-  const q =
-    !isOwnerOfWorkspace && currentUserUid
-      ? query(paths.pages(workspaceId), where("allowedUsers", "array-contains", currentUserUid))
-      : query(paths.pages(workspaceId), orderBy("order", "asc"));
+  void currentUserUid;
+  void isOwnerOfWorkspace;
+  // Members may read every desk doc (covers/names). Opening rows is still ACL-gated.
+  const q = query(paths.pages(workspaceId), orderBy("order", "asc"));
 
   let cancelled = false;
   let emittedOnce = false;

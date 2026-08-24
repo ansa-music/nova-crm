@@ -21,7 +21,10 @@ export interface SendNotificationInput {
   role?: Role;
   href?: string | null;
   pageId?: string | null;
+  kind?: Notification["kind"];
+  viewRequestId?: string | null;
 }
+
 
 /** Resolves the target picker's choice down to a concrete list of member uids to notify. */
 export function resolveNotificationTargets(
@@ -69,6 +72,8 @@ export async function sendNotification(input: SendNotificationInput, targetUids:
       relatedAnnouncementId: input.relatedAnnouncementId ?? null,
       href: input.href ?? null,
       pageId: input.pageId ?? null,
+      kind: input.kind ?? null,
+      viewRequestId: input.viewRequestId ?? null,
     };
     batch.set(paths.notification(input.workspaceId, id), { ...notification, serverOrderAt: serverTimestamp() });
   }
