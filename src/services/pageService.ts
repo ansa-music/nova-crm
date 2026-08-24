@@ -1,6 +1,7 @@
 import {
   deleteDoc,
   deleteField,
+  getDoc,
   getDocs,
   onSnapshot,
   orderBy,
@@ -51,17 +52,18 @@ export function stripUndefined<T>(value: T): T {
  * Pages list. Do not orderBy("order") — that drops docs missing the field
  * and then looks like «Страница недоступна» for the person whose desk it is.
  *
- * Live rules (when deployed) let any member read desk metadata, so the
- * unfiltered collection query is the intended query. CI only deploys
- * hosting, so live rules may still be `canAccessPage` — Firestore then
- * DENIES the unfiltered list for non-owners (it cannot prove a per-doc
- * ACL for a list query). That is the «Нет доступа к части данных» toast
- * and empty Home for Технар.
+ * Owner: unfiltered collection query only (isOwner does not depend on
+ * resource.data, so the live list is allowed).
  *
- * If the unfiltered list is denied, fall back to
- * where("allowedUsers","array-contains",uid) — the query Firestore can
- * prove against canAccessPage. Owner always uses the unfiltered list
- * (isOwner does not depend on resource.data). One active onSnapshot.
+ * Non-owner: never start with unfiltered. Live rules still evaluate
+ * canAccessPage on LIST, so that query is always permission-denied and
+ * toasts «Нет доступа к части данных». Instead run two scoped live queries
+ * and merge by page id:
+ *   1) where("responsibleUserId","==",uid) — own desk even if not in allowedUsers
+ *   2) where("allowedUsers","array-contains",uid) — shared desks
+ * Emit after each snapshot so the own desk appears without waiting for the
+ * other query. Skip a query that is permission-denied / failed-precondition
+ * and still emit the other; toast only if both fail.
  */
 export function subscribeToPages(
   workspaceId: string,
@@ -70,68 +72,129 @@ export function subscribeToPages(
   currentUserUid?: string,
   isOwnerOfWorkspace?: boolean
 ) {
-  const unfiltered = query(paths.pages(workspaceId));
-  const fallbacks: Query[] = [];
-  if (currentUserUid && !isOwnerOfWorkspace) {
-    // Matches live canAccessPage (uid in allowedUsers). Hide-desk and
-    // setPageResponsible keep the responsible person on allowedUsers, so
-    // this still returns their own desk when the unfiltered list is denied.
-    fallbacks.push(
-      query(paths.pages(workspaceId), where("allowedUsers", "array-contains", currentUserUid))
-    );
-  }
-
   let cancelled = false;
   let emittedOnce = false;
   let pendingEmptyCacheTimer: ReturnType<typeof setTimeout> | null = null;
-  let unsubscribe: (() => void) | null = null;
   const report = withErrorReporting(onError);
+  const unsubscribers: Array<() => void> = [];
 
-  const handleSnap = (snapshot: { docs: { id: string; data: () => object }[]; metadata: { fromCache: boolean } }) => {
+  const emit = (pages: WorkspacePage[]) => {
     if (cancelled) return;
-    const pages = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as WorkspacePage);
-
-    if (pendingEmptyCacheTimer) {
-      clearTimeout(pendingEmptyCacheTimer);
-      pendingEmptyCacheTimer = null;
-    }
-
-    // Fresh navigation can surface a stale empty cache before the server
-    // snapshot. Do not flash "Access denied"/empty Home in that window.
-    if (snapshot.metadata.fromCache && pages.length === 0 && !emittedOnce) {
-      pendingEmptyCacheTimer = setTimeout(() => {
-        if (!cancelled) {
-          emittedOnce = true;
-          onData([]);
-        }
-      }, 1200);
-      return;
-    }
-
     emittedOnce = true;
     onData([...pages].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
   };
 
-  function attach(next: Query, rest: Query[]) {
-    unsubscribe = onSnapshot(next, handleSnap, (error) => {
-      if (cancelled) return;
-      if ((error.code === "permission-denied" || error.code === "failed-precondition") && rest.length > 0) {
-        console.warn("subscribeToPages: list denied by rules, retrying scoped query");
-        unsubscribe?.();
-        attach(rest[0], rest.slice(1));
-        return;
-      }
-      report(error);
-    });
-  }
+  const handleSnapPages = (fromCache: boolean, pages: WorkspacePage[]) => {
+    if (cancelled) return;
+    if (pendingEmptyCacheTimer) {
+      clearTimeout(pendingEmptyCacheTimer);
+      pendingEmptyCacheTimer = null;
+    }
+    // Fresh navigation can surface a stale empty cache before the server
+    // snapshot. Do not flash "Access denied"/empty Home in that window.
+    if (fromCache && pages.length === 0 && !emittedOnce) {
+      pendingEmptyCacheTimer = setTimeout(() => {
+        if (!cancelled) emit([]);
+      }, 1200);
+      return;
+    }
+    emit(pages);
+  };
 
-  attach(unfiltered, fallbacks);
+  if (isOwnerOfWorkspace) {
+    unsubscribers.push(
+      onSnapshot(
+        query(paths.pages(workspaceId)),
+        (snapshot) => {
+          const pages = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as WorkspacePage);
+          handleSnapPages(snapshot.metadata.fromCache, pages);
+        },
+        (error) => {
+          if (!cancelled) report(error);
+        }
+      )
+    );
+  } else if (currentUserUid) {
+    const responsibleById = new Map<string, WorkspacePage>();
+    const allowedById = new Map<string, WorkspacePage>();
+    let responsibleFailed = false;
+    let allowedFailed = false;
+
+    const mergedPages = () => {
+      const merged = new Map<string, WorkspacePage>();
+      for (const [id, page] of responsibleById) merged.set(id, page);
+      for (const [id, page] of allowedById) merged.set(id, page);
+      return Array.from(merged.values());
+    };
+
+    const attachScoped = (
+      q: Query,
+      bucket: Map<string, WorkspacePage>,
+      markFailed: () => void,
+      otherFailed: () => boolean
+    ) => {
+      unsubscribers.push(
+        onSnapshot(
+          q,
+          (snapshot) => {
+            if (cancelled) return;
+            bucket.clear();
+            for (const d of snapshot.docs) {
+              bucket.set(d.id, { id: d.id, ...d.data() } as WorkspacePage);
+            }
+            handleSnapPages(snapshot.metadata.fromCache, mergedPages());
+          },
+          (error) => {
+            if (cancelled) return;
+            if (error.code === "permission-denied" || error.code === "failed-precondition") {
+              markFailed();
+              // Skip this query. Toast only if the other also failed.
+              if (otherFailed()) report(error);
+              else handleSnapPages(false, mergedPages());
+              return;
+            }
+            report(error);
+          }
+        )
+      );
+    };
+
+    attachScoped(
+      query(paths.pages(workspaceId), where("responsibleUserId", "==", currentUserUid)),
+      responsibleById,
+      () => {
+        responsibleFailed = true;
+      },
+      () => allowedFailed
+    );
+    attachScoped(
+      query(paths.pages(workspaceId), where("allowedUsers", "array-contains", currentUserUid)),
+      allowedById,
+      () => {
+        allowedFailed = true;
+      },
+      () => responsibleFailed
+    );
+  }
 
   return () => {
     cancelled = true;
     if (pendingEmptyCacheTimer) clearTimeout(pendingEmptyCacheTimer);
-    unsubscribe?.();
+    unsubscribers.forEach((u) => u());
   };
+}
+
+/** One-shot page get for a direct desk URL when the list store is still empty. */
+export async function fetchPageIfAccessible(
+  workspaceId: string,
+  pageId: string,
+  uid: string
+): Promise<WorkspacePage | null> {
+  const snap = await getDoc(paths.page(workspaceId, pageId));
+  if (!snap.exists()) return null;
+  const page = { id: snap.id, ...snap.data() } as WorkspacePage;
+  if (page.responsibleUserId === uid || (page.allowedUsers ?? []).includes(uid)) return page;
+  return null;
 }
 
 export interface CreatePageInput {
