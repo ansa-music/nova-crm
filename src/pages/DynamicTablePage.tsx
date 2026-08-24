@@ -29,12 +29,12 @@ import { useSubPages, useSubPageRows } from "@/hooks/useSubPageData";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
 import { useViewRequests } from "@/hooks/useViewRequests";
-import { ensureDiskColumn, ensurePriceColumn, togglePageVisibility } from "@/services/pageService";
+import { ensureDiskColumn, ensurePriceColumn, fetchPageIfAccessible, togglePageVisibility } from "@/services/pageService";
 import { displayNameOf } from "@/utils/displayName";
 import { useUiStore } from "@/store/uiStore";
 import { cn } from "@/utils/cn";
 import { recordRecentPage } from "@/hooks/useUserPageNav";
-import type { PageIconName } from "@/types";
+import type { PageIconName, WorkspacePage } from "@/types";
 
 export default function DynamicTablePage() {
   const { pageId } = useParams<{ pageId: string }>();
@@ -57,7 +57,46 @@ export default function DynamicTablePage() {
   const [tabsReady, setTabsReady] = useState(false);
   const appliedDefaultForPageRef = useRef<string | null>(null);
 
-  const page = pages.find((p) => p.id === pageId);
+  const storePage = pages.find((p) => p.id === pageId);
+  const [fetchedPage, setFetchedPage] = useState<WorkspacePage | null>(null);
+  const page = storePage ?? fetchedPage;
+  const pageFetchKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    setFetchedPage(null);
+    pageFetchKeyRef.current = null;
+  }, [pageId, activeWorkspaceId]);
+
+  // Direct desk URL: if the list store missed this page (technician is
+  // responsibleUserId but not in allowedUsers; live LIST still denied),
+  // one-shot getDoc. Single-doc read is allowed by canAccessPage. Do not loop.
+  useEffect(() => {
+    if (!permissions.isResolved || !permissions.hasMembership) return;
+    if (!pageId || !activeWorkspaceId || !permissions.uid) return;
+    if (storePage) return;
+    const key = `${activeWorkspaceId}:${pageId}:${permissions.uid}`;
+    if (pageFetchKeyRef.current === key) return;
+    pageFetchKeyRef.current = key;
+    let cancelled = false;
+    void fetchPageIfAccessible(activeWorkspaceId, pageId, permissions.uid)
+      .then((docPage) => {
+        if (!cancelled && docPage) setFetchedPage(docPage);
+      })
+      .catch(() => {
+        /* subscribeToPages is the source of truth; a denied get is not retried */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    permissions.isResolved,
+    permissions.hasMembership,
+    permissions.uid,
+    pageId,
+    activeWorkspaceId,
+    storePage,
+  ]);
+
   const isOwnDesk = Boolean(page && permissions.uid && page.responsibleUserId === permissions.uid);
   const isWorkspaceOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
   // Responsible person and workspace Owner must never hit the hidden-desk lock.
