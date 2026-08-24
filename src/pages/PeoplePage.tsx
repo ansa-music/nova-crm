@@ -154,7 +154,18 @@ export default function PeoplePage() {
 
             return (
               <div key={group.key} className={cn("overflow-hidden rounded-xl border border-primary/25 bg-card", hidden && "opacity-80")}>
-                <div className="flex min-h-16 items-center gap-3 px-3 py-3">{body}</div>
+                <button
+                  type="button"
+                  className="flex min-h-16 w-full items-center gap-3 px-3 py-3 text-left"
+                  onClick={() => {
+                    selectPerson(group.key);
+                    if (!requestPage) return;
+                    if (latestForPage(requestPage.id)?.status === "pending") return;
+                    void sendRequest(requestPage);
+                  }}
+                >
+                  {body}
+                </button>
                 {requestPage ? (
                   <div className="border-t border-primary/20 px-3 py-2">
                     <RequestDeskViewButton
