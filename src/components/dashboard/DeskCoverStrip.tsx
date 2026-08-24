@@ -13,7 +13,7 @@ interface DeskCoverStripProps {
   name: string;
   className?: string;
   compact?: boolean;
-  ratio?: "video" | "strip";
+  ratio?: "video" | "strip" | "hero" | "thumb";
 }
 
 export function DeskCoverStrip({ coverUrl, name, className, compact, ratio }: DeskCoverStripProps) {
@@ -24,13 +24,18 @@ export function DeskCoverStrip({ coverUrl, name, className, compact, ratio }: De
   }, [coverUrl]);
 
   const showPhoto = Boolean(coverUrl) && !broken;
-  const wide = ratio === "video" || (!compact && ratio !== "strip");
+  const hero = ratio === "hero";
+  const thumb = ratio === "thumb";
+  const wide = ratio === "video" || (!compact && !hero && !thumb && ratio !== "strip");
 
   return (
     <div
       className={cn(
-        "relative w-full overflow-hidden border-b border-primary/30 bg-[#0B0F19]",
-        wide ? "aspect-video" : compact ? "h-16" : "h-24 sm:h-28",
+        "relative w-full overflow-hidden bg-muted",
+        hero || thumb ? "border-0" : "border-b border-border",
+        hero && "aspect-[16/10] min-h-[220px] sm:aspect-[2/1] sm:min-h-[280px]",
+        thumb && "aspect-[4/3]",
+        !hero && !thumb && (wide ? "aspect-video" : compact ? "h-16" : "h-24 sm:h-28"),
         className
       )}
     >
@@ -39,25 +44,20 @@ export function DeskCoverStrip({ coverUrl, name, className, compact, ratio }: De
           src={coverUrl ?? ""}
           alt=""
           className="h-full w-full object-cover"
+          loading="lazy"
+          decoding="async"
           onError={() => setBroken(true)}
         />
       ) : (
-        <div
-          className="absolute inset-0 flex items-center justify-center"
-          aria-hidden
-          style={{
-            backgroundImage: [
-              "linear-gradient(180deg, hsl(189 100% 72% / 0.16), #0B0F19 78%)",
-              "repeating-linear-gradient(90deg, hsl(189 100% 72% / 0.1) 0 1px, transparent 1px 22px)",
-              "repeating-linear-gradient(0deg, hsl(189 100% 72% / 0.08) 0 1px, transparent 1px 22px)",
-            ].join(", "),
-          }}
-        >
-          <span className="pointer-events-none font-mono text-2xl tracking-[0.32em] text-primary/75 sm:text-3xl">
+        <div className="desk-cover-placeholder absolute inset-0 flex items-center justify-center" aria-hidden>
+          <span
+            className={cn(
+              "pointer-events-none tracking-[0.18em] text-primary/45",
+              thumb ? "text-base font-medium" : "text-2xl font-medium sm:text-3xl"
+            )}
+          >
             {deskInitials(name)}
           </span>
-          <span className="pointer-events-none absolute inset-x-4 top-3 h-px bg-primary/40" />
-          <span className="pointer-events-none absolute inset-x-4 bottom-3 h-px bg-primary/25" />
         </div>
       )}
     </div>

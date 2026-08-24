@@ -4,49 +4,49 @@
 
 @layer base {
   /*
-    Design tokens — Nova HUD:
-    ground #0B0F19, cyan #6EE7FF, magenta/violet #C084FC.
-    Hard edges, high contrast. Light mode is a cooler fallback.
+    Design tokens — Nova studio:
+    walnut #1C1612, ivory foreground, bronze/gold primary.
+    Bronze hairlines. Light mode is warm paper, not cool gray.
   */
   :root {
-    --background: 210 40% 97%;
-    --foreground: 222 47% 11%;
+    --background: 36 38% 96%;
+    --foreground: 24 20% 14%;
 
-    --card: 210 36% 99%;
-    --card-foreground: 222 47% 11%;
+    --card: 36 40% 98%;
+    --card-foreground: 24 20% 14%;
 
-    --popover: 210 40% 99%;
-    --popover-foreground: 222 47% 11%;
+    --popover: 36 42% 99%;
+    --popover-foreground: 24 20% 14%;
 
-    --primary: 189 100% 32%;
-    --primary-foreground: 210 40% 99%;
+    --primary: 32 42% 36%;
+    --primary-foreground: 36 40% 98%;
 
-    --secondary: 270 91% 48%;
-    --secondary-foreground: 210 40% 99%;
+    --secondary: 18 32% 42%;
+    --secondary-foreground: 36 40% 98%;
 
-    --muted: 214 28% 92%;
-    --muted-foreground: 215 18% 32%;
+    --muted: 34 24% 91%;
+    --muted-foreground: 24 12% 38%;
 
-    --accent: 214 32% 91%;
-    --accent-foreground: 189 80% 24%;
+    --accent: 34 28% 90%;
+    --accent-foreground: 32 40% 28%;
 
-    --destructive: 340 72% 46%;
+    --destructive: 8 62% 44%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 164 70% 32%;
+    --success: 150 32% 32%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 38 92% 42%;
-    --warning-foreground: 222 47% 11%;
+    --warning: 38 70% 38%;
+    --warning-foreground: 24 20% 14%;
 
-    --border: 214 24% 80%;
-    --input: 214 24% 80%;
-    --ring: 189 100% 32%;
+    --border: 32 20% 80%;
+    --input: 32 20% 80%;
+    --ring: 32 42% 36%;
 
-    --sidebar: 210 32% 96%;
-    --sidebar-foreground: 215 16% 32%;
-    --sidebar-border: 214 24% 80%;
-    --sidebar-accent: 214 28% 92%;
+    --sidebar: 36 30% 94%;
+    --sidebar-foreground: 24 12% 34%;
+    --sidebar-border: 32 18% 82%;
+    --sidebar-accent: 34 24% 90%;
 
     --radius: 0.25rem;
     --os-radius: 8px;
@@ -58,44 +58,44 @@
   }
 
   .dark {
-    --background: 223 39% 7%; /* #0B0F19 */
-    --foreground: 210 40% 96%;
+    --background: 24 22% 9%; /* #1C1612 walnut */
+    --foreground: 36 40% 92%; /* ivory */
 
-    --card: 222 32% 10%;
-    --card-foreground: 210 40% 96%;
+    --card: 24 18% 12%;
+    --card-foreground: 36 40% 92%;
 
-    --popover: 222 34% 9%;
-    --popover-foreground: 210 40% 96%;
+    --popover: 24 20% 11%;
+    --popover-foreground: 36 40% 92%;
 
-    --primary: 189 100% 72%; /* #6EE7FF */
-    --primary-foreground: 223 39% 8%;
+    --primary: 36 47% 60%; /* bronze / gold */
+    --primary-foreground: 24 30% 10%;
 
-    --secondary: 270 91% 75%; /* #C084FC */
-    --secondary-foreground: 223 39% 8%;
+    --secondary: 22 32% 48%;
+    --secondary-foreground: 36 40% 94%;
 
-    --muted: 222 28% 14%;
-    --muted-foreground: 214 18% 78%;
+    --muted: 24 14% 16%;
+    --muted-foreground: 32 16% 72%;
 
-    --accent: 222 28% 14%;
-    --accent-foreground: 189 100% 82%;
+    --accent: 24 14% 16%;
+    --accent-foreground: 36 50% 78%;
 
-    --destructive: 270 91% 75%;
-    --destructive-foreground: 223 39% 8%;
+    --destructive: 8 62% 48%;
+    --destructive-foreground: 36 40% 96%;
 
-    --success: 164 78% 48%;
-    --success-foreground: 223 39% 8%;
+    --success: 150 32% 42%;
+    --success-foreground: 36 40% 96%;
 
-    --warning: 42 96% 62%;
-    --warning-foreground: 223 39% 8%;
+    --warning: 38 70% 52%;
+    --warning-foreground: 24 30% 10%;
 
-    --border: 189 40% 22%;
-    --input: 222 28% 16%;
-    --ring: 189 100% 72%;
+    --border: 32 24% 22%; /* bronze hairline */
+    --input: 24 16% 18%;
+    --ring: 36 47% 60%;
 
-    --sidebar: 223 39% 7%;
-    --sidebar-foreground: 214 16% 82%;
-    --sidebar-border: 189 40% 20%;
-    --sidebar-accent: 222 28% 12%;
+    --sidebar: 24 22% 9%;
+    --sidebar-foreground: 32 16% 74%;
+    --sidebar-border: 32 22% 20%;
+    --sidebar-accent: 24 16% 14%;
   }
 
   * {
@@ -118,46 +118,14 @@
   }
 
   .dark body {
-    background-color: #0b0f19;
+    background-color: #1c1612;
   }
 
-  /* Faint perspective grid — not a mess */
+  /* HUD toys off site-wide (cyber-grid overlay + scanlines). Phone kill-switch remains. */
+  .dark body::before,
   .dark body::after {
-    content: "";
-    pointer-events: none;
-    position: fixed;
-    left: -8%;
-    right: -8%;
-    top: 8%;
-    height: 140%;
-    z-index: 0;
-    background-image:
-      linear-gradient(hsl(189 100% 72% / 0.07) 1px, transparent 1px),
-      linear-gradient(90deg, hsl(189 100% 72% / 0.07) 1px, transparent 1px);
-    background-size: 56px 56px;
-    transform: perspective(720px) rotateX(62deg);
-    transform-origin: center top;
-    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.55), transparent 68%);
-    -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.55), transparent 68%);
-    opacity: 0.85;
-  }
-
-  /* Scanlines ~0.06 */
-  .dark body::before {
-    content: "";
-    pointer-events: none;
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    opacity: 0.055;
-    mix-blend-mode: overlay;
-    background: repeating-linear-gradient(
-      to bottom,
-      transparent 0,
-      transparent 2px,
-      hsl(0 0% 0% / 0.55) 2px,
-      hsl(0 0% 0% / 0.55) 3px
-    );
+    content: none;
+    display: none;
   }
 
   #root {
@@ -283,9 +251,9 @@
     color: inherit;
     text-decoration: none;
     cursor: pointer;
-    background: #0b0f19;
-    border-color: hsl(189 40% 22% / 0.9);
-    box-shadow: 0 0 0 1px hsl(189 100% 72% / 0.08);
+    background: hsl(var(--card));
+    border-color: hsl(var(--border));
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.08);
     transition:
       box-shadow var(--duration-fast) var(--ease-out),
       border-color var(--duration-fast) var(--ease-out),
@@ -297,11 +265,10 @@
   @media (hover: hover) and (pointer: fine) {
     .desk-card:hover,
     .desk-card-active {
-      border-color: #6ee7ff;
+      border-color: hsl(var(--primary));
       box-shadow:
-        0 0 0 1px #6ee7ff,
-        0 0 22px hsl(189 100% 72% / 0.55),
-        0 0 48px hsl(189 100% 72% / 0.28);
+        0 0 0 1px hsl(var(--primary) / 0.55),
+        0 0 22px hsl(var(--primary) / 0.22);
     }
   }
 
@@ -586,8 +553,8 @@
   }
   .desk-card:hover,
   .desk-card-active {
-    border-color: hsl(189 40% 22% / 0.9);
-    box-shadow: 0 0 0 1px hsl(189 100% 72% / 0.08);
+    border-color: hsl(var(--border));
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.08);
     transform: none;
   }
   .table-instrument,
@@ -596,6 +563,15 @@
     transform: none !important;
     perspective: none !important;
   }
+}
+
+.desk-cover-placeholder {
+  background:
+    linear-gradient(165deg, hsl(32 18% 88%) 0%, hsl(36 28% 92%) 42%, hsl(32 16% 84%) 100%);
+}
+.dark .desk-cover-placeholder {
+  background:
+    linear-gradient(165deg, hsl(28 16% 18%) 0%, hsl(24 22% 11%) 55%, hsl(22 18% 9%) 100%);
 }
 
 .status-pill {

@@ -55,7 +55,7 @@ export function RevenueChart({ data }: RevenueChartProps) {
               stroke="hsl(var(--primary))"
               strokeWidth={2.25}
               fill="url(#orderDateGradient)"
-              activeDot={{ r: 5, fill: "hsl(var(--primary))", stroke: "#0B0F19", strokeWidth: 2 }}
+              activeDot={{ r: 5, fill: "hsl(var(--primary))", stroke: "hsl(var(--background))", strokeWidth: 2 }}
             />
           </AreaChart>
         </ResponsiveContainer>

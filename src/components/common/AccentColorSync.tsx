@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useWorkspace } from "@/hooks/useWorkspace";
 
 export const ACCENT_PRESETS = [
+  { label: "Бронза", value: "36 47% 60%" },
   { label: "Циан", value: "189 100% 72%" },
   { label: "Фиолетовый", value: "270 91% 75%" },
   { label: "Изумруд", value: "164 78% 48%" },
