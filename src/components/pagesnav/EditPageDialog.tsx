@@ -16,22 +16,15 @@ import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/sonner";
-import { IconPicker } from "@/components/common/IconPicker";
-import { ColorPicker } from "@/components/common/ColorPicker";
 import { displayNameOf } from "@/utils/displayName";
-import { cn } from "@/utils/cn";
-import { ACCENT_PRESETS } from "@/components/common/AccentColorSync";
 import {
-  renamePage,
   setPageResponsible,
-  setPageAccentColor,
-  updatePageAppearance,
   updatePageEditableUsers,
   updatePagePermissions,
 } from "@/services/pageService";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
-import type { PageIconName, WorkspacePage } from "@/types";
+import type { WorkspacePage } from "@/types";
 
 interface EditPageDialogProps {
   page: WorkspacePage | null;
@@ -41,10 +34,6 @@ interface EditPageDialogProps {
 export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
   const { members } = useWorkspace();
   const permissions = usePermissions();
-  const [name, setName] = useState(page?.name ?? "");
-  const [icon, setIcon] = useState<PageIconName>(page?.icon ?? "LayoutGrid");
-  const [color, setColor] = useState(page?.color ?? "243 75% 59%");
-  const [accentColor, setAccentColor] = useState<string | undefined>(page?.accentColor);
   const [allowedUsers, setAllowedUsers] = useState<string[]>(page?.allowedUsers ?? []);
   const [editableUsers, setEditableUsers] = useState<string[]>(page?.editableUsers ?? []);
   const [responsibleUserId, setResponsibleUserId] = useState<string>(page?.responsibleUserId ?? "");
@@ -124,13 +113,6 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
     setIsSaving(true);
     try {
       if (canEdit) {
-        if (name.trim() && name !== page.name) await renamePage(page.workspaceId, page.id, name.trim());
-        if (icon !== page.icon || color !== page.color) {
-          await updatePageAppearance(page.workspaceId, page.id, { icon, color });
-        }
-        if (accentColor !== page.accentColor) {
-          await setPageAccentColor(page.workspaceId, page.id, accentColor ?? null);
-        }
         await updatePagePermissions(page.workspaceId, page.id, allowedUsers);
         await updatePageEditableUsers(page.workspaceId, page.id, editableUsers);
       }
@@ -154,69 +136,17 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Настройки страницы</DialogTitle>
-          <DialogDescription>Внешний вид и права доступа для «{page.name}».</DialogDescription>
+                    <DialogDescription>Кто видит лист «{page.name}» и кто за него отвечает. Имя, цвет и цель — в «Настроить стол».</DialogDescription>
         </DialogHeader>
-        <Tabs defaultValue="general">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="general">Общее</TabsTrigger>
+        <Tabs defaultValue={canAssignResponsible ? "general" : "access"}>
+          <TabsList className={canAssignResponsible ? "grid w-full grid-cols-2" : "grid w-full grid-cols-1"}>
+            {canAssignResponsible && <TabsTrigger value="general">Общее</TabsTrigger>}
             <TabsTrigger value="access">Доступ</TabsTrigger>
           </TabsList>
+          {canAssignResponsible && (
           <TabsContent value="general" className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="edit-page-name">Название</Label>
-              <Input
-                id="edit-page-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                disabled={!canEdit}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Цвет</Label>
-              <ColorPicker value={color} onChange={canEdit ? setColor : () => {}} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Иконка</Label>
-              <IconPicker value={icon} onChange={canEdit ? setIcon : () => {}} color={color} />
-            </div>
-
-            {canEdit && (
-              <div className="flex flex-col gap-1.5 border-t border-border pt-4">
-                <Label>Акцент страницы</Label>
-                <p className="text-xs text-muted-foreground">
-                  Только для этой страницы — общий акцент сайта настраивает Овнер в Настройках.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    title="Как на сайте"
-                    onClick={() => setAccentColor(undefined)}
-                    className={cn(
-                      "flex h-8 w-8 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40 text-[10px] text-muted-foreground transition-transform hover:scale-105",
-                      !accentColor && "border-foreground text-foreground"
-                    )}
-                  >
-                    ×
-                  </button>
-                  {ACCENT_PRESETS.map((preset) => (
-                    <button
-                      key={preset.value}
-                      type="button"
-                      title={preset.label}
-                      onClick={() => setAccentColor(preset.value)}
-                      className={cn(
-                        "flex h-8 w-8 items-center justify-center rounded-full ring-offset-2 ring-offset-background transition-transform hover:scale-105",
-                        accentColor === preset.value && "ring-2 ring-foreground"
-                      )}
-                      style={{ backgroundColor: `hsl(${preset.value})` }}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
             {canAssignResponsible && (
-              <div className="flex flex-col gap-1.5 border-t border-border pt-4">
+              <div className="flex flex-col gap-1.5">
                 <Label className="flex items-center gap-1.5">
                   <ShieldCheck className="h-3.5 w-3.5" /> Ответственный за страницу
                 </Label>
@@ -242,8 +172,10 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
               </div>
             )}
           </TabsContent>
+          )}
 
-          <TabsContent value="access" className="flex flex-col gap-3">
+          <TabsContent value="access"
+ className="flex flex-col gap-3">
             <p className="text-xs text-muted-foreground">
               {owner ? displayNameOf(owner) : "Owner"} и ответственный всегда могут просматривать и
               редактировать эту страницу. Остальным доступ на просмотр и право редактирования

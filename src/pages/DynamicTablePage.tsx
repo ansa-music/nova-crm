@@ -15,6 +15,7 @@ import { DataTable } from "@/components/table/DataTable";
 import { SubPageTabs } from "@/components/table/SubPageTabs";
 import { SubPageStats } from "@/components/table/SubPageStats";
 import { EditPageDialog } from "@/components/pagesnav/EditPageDialog";
+import { DeskStudioSheet } from "@/components/pagesnav/DeskStudioSheet";
 import { HistoryPanel } from "@/components/history/HistoryPanel";
 import { PageChatPanel } from "@/components/chat/PageChatPanel";
 import { PersonalSpacePanel } from "@/components/personal/PersonalSpacePanel";
@@ -40,6 +41,7 @@ export default function DynamicTablePage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [deskStudioOpen, setDeskStudioOpen] = useState(false);
   const [personalSpaceOpen, setPersonalSpaceOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [activeSubPageId, setActiveSubPageId] = useState<string | null>(null);
@@ -211,6 +213,12 @@ export default function DynamicTablePage() {
           <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Только просмотр</span>
         )}
         <div className="flex-1" />
+        {permissions.canManagePage(page) && (
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setDeskStudioOpen(true)}>
+            <Settings2 className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Настроить стол</span>
+          </Button>
+        )}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="ghost" size="icon" onClick={() => setChatOpen(true)}>
@@ -269,13 +277,18 @@ export default function DynamicTablePage() {
                 <History className="h-4 w-4" /> История
               </DropdownMenuItem>
             )}
-            {(permissions.canManagePage(page) || permissions.canAssignResponsible) && (
+            {permissions.canManagePage(page) && (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
-                  <Settings2 className="h-4 w-4" /> Настройки страницы
+                <DropdownMenuItem onClick={() => setDeskStudioOpen(true)}>
+                  <Settings2 className="h-4 w-4" /> Настроить стол
                 </DropdownMenuItem>
               </>
+            )}
+            {(permissions.canManagePage(page) || permissions.canAssignResponsible) && (
+              <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
+                <Settings2 className="h-4 w-4" /> Доступ к листу
+              </DropdownMenuItem>
             )}
           </DropdownMenuContent>
         </DropdownMenu>
@@ -335,6 +348,9 @@ export default function DynamicTablePage() {
       )}
 
       {settingsOpen && <EditPageDialog page={page} onOpenChange={() => setSettingsOpen(false)} />}
+      {permissions.canManagePage(page) && (
+        <DeskStudioSheet page={page} open={deskStudioOpen} onOpenChange={setDeskStudioOpen} uid={profile?.uid} />
+      )}
       {permissions.canViewHistory && (
         <HistoryPanel open={historyOpen} onOpenChange={setHistoryOpen} workspaceId={page.workspaceId} pageId={page.id} columns={page.columns} />
       )}

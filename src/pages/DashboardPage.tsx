@@ -24,6 +24,8 @@ import { isResponsibleForPage } from "@/utils/permissions";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { updateDashboardPages } from "@/services/workspaceService";
 import { setPageMonthlyGoal } from "@/services/pageService";
+import { DeskStudioSheet } from "@/components/pagesnav/DeskStudioSheet";
+import { useDeskLayout } from "@/hooks/useDeskLayout";
 import { updateLeaderboardEntry } from "@/services/leaderboardService";
 import { downloadCsv } from "@/utils/csv";
 import { formatCurrency } from "@/utils/format";
@@ -148,6 +150,8 @@ export default function DashboardPage() {
   const { activeWorkspace, activeWorkspaceId, pages, members, isLoadingWorkspaceData } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
+  const { layout: deskLayout } = useDeskLayout(profile?.uid);
+  const [studioPage, setStudioPage] = useState<WorkspacePage | null>(null);
 
   const visiblePages = useMemo(
     () => pages.filter((p) => permissions.canAccessPage(p)),
@@ -306,6 +310,8 @@ export default function DashboardPage() {
   const name = profile ? profile.nickname || profile.name : "";
   const hello = greetingByHour(hourInTimeZone(Date.now()));
 
+  const myDesk = myProgress.find((p) => permissions.canManagePage(p.page))?.page ?? null;
+
   const deadlineSource = isPersonalLanding ? myProgress : deskProgress;
   const deadlineItems = collectDeadlines(deadlineSource);
 
@@ -342,6 +348,12 @@ export default function DashboardPage() {
               : "Что требует взгляда на чужих столах, и что уже идёт."}
           </p>
         </div>
+        {isPersonalLanding && myDesk && (
+          <Button variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={() => setStudioPage(myDesk)}>
+            <Settings2 className="h-3.5 w-3.5" />
+            Настроить стол
+          </Button>
+        )}
         {!isPersonalLanding && permissions.canManageWorkspace && (
           <DashboardSourcePicker
             workspaceId={activeWorkspaceId ?? ""}
@@ -393,7 +405,7 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
-      {deadlineItems.length > 0 && (
+      {(!isPersonalLanding || deskLayout.showDeadlines) && deadlineItems.length > 0 && (
         <div className="relative z-[1] mt-5">
           <p className="eyebrow mb-2">Сроки</p>
           <div className="flex flex-col">
@@ -425,6 +437,8 @@ export default function DashboardPage() {
   );
 
   if (isPersonalLanding) {
+    const showProgress = deskLayout.showProgress;
+    const showBoard = deskLayout.showLeaderboard;
     return (
       <div ref={deskRef} className="mx-auto max-w-5xl p-4 sm:p-6 lg:p-8">
         {todayCard}
@@ -437,21 +451,35 @@ export default function DashboardPage() {
                 Когда появится — откроешь его здесь и поведёшь своё дело. Пока просто подожди.
               </p>
             </div>
-            <div className="desk-home lg:col-span-2">{leaderboard}</div>
+            {showBoard && <div className="desk-home lg:col-span-2">{leaderboard}</div>}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
-            <div className="flex flex-col gap-4 lg:col-span-3">
-              {myProgress.map((p) => (
-                <div key={p.page.id} className="desk-home">
-                  <MyProgressCard {...p} workspaceId={activeWorkspaceId ?? ""} large />
-                </div>
-              ))}
-
-            </div>
-            <div className="desk-home lg:col-span-2">{leaderboard}</div>
+            {showProgress && (
+              <div className="flex flex-col gap-4 lg:col-span-3">
+                {myProgress.map((p) => (
+                  <div key={p.page.id} className="desk-home">
+                    <MyProgressCard
+                      {...p}
+                      workspaceId={activeWorkspaceId ?? ""}
+                      large
+                      onCustomize={permissions.canManagePage(p.page) ? () => setStudioPage(p.page) : undefined}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+            {showBoard && <div className="desk-home lg:col-span-2">{leaderboard}</div>}
           </div>
         )}
+        <DeskStudioSheet
+          page={studioPage}
+          open={Boolean(studioPage)}
+          onOpenChange={(open) => {
+            if (!open) setStudioPage(null);
+          }}
+          uid={profile?.uid}
+        />
       </div>
     );
   }
@@ -630,6 +658,7 @@ function MyProgressCard({
   columns,
   rows,
   large,
+  onCustomize,
 }: {
   workspaceId: string;
   page: WorkspacePage;
@@ -640,6 +669,7 @@ function MyProgressCard({
   columns: PageColumn[];
   rows: PageRow[];
   large?: boolean;
+  onCustomize?: () => void;
 }) {
   const animatedDone = useAnimatedNumber(doneTotal);
   const animatedTotal = useAnimatedNumber(grandTotal);
@@ -677,6 +707,11 @@ function MyProgressCard({
             <p className="mt-0.5 text-xs text-muted-foreground">{rowCount} записей</p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {onCustomize && (
+              <Button variant="ghost" size="icon" className="h-8 w-8" title="Настроить стол" onClick={onCustomize}>
+                <Settings2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
             <Button variant="ghost" size="icon" className="h-8 w-8" title="Скачать мой отчёт (CSV)" onClick={handleExport}>
               <Download className="h-3.5 w-3.5" />
             </Button>
