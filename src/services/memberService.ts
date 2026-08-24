@@ -114,6 +114,17 @@ export async function inviteMember(
 ) {
   if (!db) throw new Error("Firebase не настроен");
   const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) throw new Error("Введите email");
+  const existing = (await fetchMembers(workspaceId)).find(
+    (m) => m.email?.trim().toLowerCase() === normalizedEmail
+  );
+  if (existing) {
+    throw new Error(
+      existing.status === "invited"
+        ? "Этому email уже отправлено приглашение"
+        : "Этот email уже в workspace"
+    );
+  }
   const member: WorkspaceMember = {
     uid: "",
     email: normalizedEmail,
