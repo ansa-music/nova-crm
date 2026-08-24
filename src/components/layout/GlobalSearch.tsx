@@ -9,7 +9,7 @@ import {
   Settings,
   Users,
 } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -59,7 +59,7 @@ export function GlobalSearch() {
 
   const destinations: CommandItem[] = useMemo(() => {
     const list: CommandItem[] = [
-      { id: "dash", kind: "go", label: "Дашборд", hint: "Сегодняшний стол", href: "/", icon: LayoutDashboard },
+      { id: "dash", kind: "go", label: "Дашборд", hint: "Сегодня", href: "/", icon: LayoutDashboard },
       { id: "ann", kind: "go", label: "Объявления", href: "/announcements", icon: Megaphone },
       { id: "chat", kind: "go", label: "Чат workspace", href: "/chat", icon: MessageSquare },
       { id: "msg", kind: "go", label: "Личные сообщения", href: "/messages", icon: MessageCircle },
@@ -102,14 +102,26 @@ export function GlobalSearch() {
     [pages, q, permissions]
   );
 
-  const filteredMembers = useMemo(() => {
+  const peopleItems: CommandItem[] = useMemo(() => {
     if (!q) return [];
-    return members.filter(
-      (m) => m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q)
-    );
-  }, [members, q]);
+    return members
+      .filter(
+        (m) =>
+          m.name.toLowerCase().includes(q) ||
+          m.email.toLowerCase().includes(q) ||
+          (m.nickname ?? "").toLowerCase().includes(q)
+      )
+      .map((m) => ({
+        id: m.uid || m.email,
+        kind: "person" as const,
+        label: m.nickname || m.name,
+        hint: m.email,
+        href: permissions.canManageWorkspace ? "/users" : undefined,
+        icon: Users,
+      }));
+  }, [members, q, permissions.canManageWorkspace]);
 
-  const items = [...filteredDest, ...pageItems];
+  const items = [...filteredDest, ...pageItems, ...peopleItems];
   const total = items.length;
 
   useEffect(() => {
@@ -124,105 +136,123 @@ export function GlobalSearch() {
   }
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(v) => {
-        setOpen(v);
-        if (!v) setQuery("");
-      }}
-    >
-      <PopoverTrigger asChild>
-        <button className="flex h-8 w-full max-w-xl items-center gap-2 rounded-md border border-border/70 bg-background/50 px-2.5 text-[13px] text-muted-foreground transition-colors duration-200 hover:border-border hover:text-foreground">
-          <Search className="h-3.5 w-3.5 shrink-0" />
-          <span className="flex-1 truncate text-left">Перейти, найти пространство…</span>
-          <kbd className="hidden rounded border border-border px-1.5 py-0.5 font-mono text-[10px] tracking-wide sm:inline">
-            Ctrl K
-          </kbd>
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-[min(36rem,calc(100vw-2rem))] overflow-hidden p-0">
-        <div className="border-b border-border/70 px-2 py-2">
-          <Input
-            autoFocus
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Куда перейти?"
-            className="h-9 border-0 bg-transparent px-2 shadow-none focus-visible:ring-0"
-            onKeyDown={(e) => {
-              if (e.code === "ArrowDown") {
-                e.preventDefault();
-                setActiveIndex((i) => (total === 0 ? 0 : (i + 1) % total));
-              } else if (e.code === "ArrowUp") {
-                e.preventDefault();
-                setActiveIndex((i) => (total === 0 ? 0 : (i - 1 + total) % total));
-              } else if (e.code === "Enter" && items[activeIndex]) {
-                e.preventDefault();
-                goItem(items[activeIndex]);
-              }
-            }}
-          />
-        </div>
-        <div className="max-h-[22rem] overflow-y-auto p-1.5 scrollbar-thin">
-          {filteredDest.length > 0 && (
-            <div className="mb-1">
-              <p className="eyebrow px-2 py-1.5">Команды</p>
-              {filteredDest.map((item) => {
-                const i = items.indexOf(item);
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => goItem(item)}
-                    className={cn("command-item", i === activeIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60")}
-                  >
-                    <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="flex-1 truncate">{item.label}</span>
-                    {item.hint && <span className="font-mono text-[10px] text-muted-foreground">{item.hint}</span>}
-                  </button>
-                );
-              })}
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex h-8 w-full max-w-xl items-center gap-2 rounded-full border border-border/70 bg-background/40 px-3 text-[13px] text-muted-foreground transition-colors duration-200 hover:border-border hover:text-foreground"
+      >
+        <Search className="h-3.5 w-3.5 shrink-0" />
+        <span className="flex-1 truncate text-left">Перейти…</span>
+        <kbd className="hidden rounded border border-border px-1.5 py-0.5 font-mono text-[10px] tracking-wide sm:inline">
+          Ctrl K
+        </kbd>
+      </button>
+
+      <Dialog
+        open={open}
+        onOpenChange={(v) => {
+          setOpen(v);
+          if (!v) setQuery("");
+        }}
+      >
+        <DialogContent className="top-[18%] max-w-xl translate-y-0 gap-0 overflow-hidden rounded-[22px] border-border/60 bg-card/80 p-0 shadow-[0_24px_80px_-28px_hsl(var(--primary)/0.35)] backdrop-blur-2xl">
+          <DialogTitle className="sr-only">Командный центр</DialogTitle>
+          <div className="border-b border-border/60 px-3 py-3">
+            <div className="flex items-center gap-2">
+              <Search className="h-4 w-4 text-muted-foreground" />
+              <Input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Страница, человек, дашборд, настройки…"
+                className="h-10 border-0 bg-transparent px-1 text-[15px] shadow-none focus-visible:ring-0"
+                onKeyDown={(e) => {
+                  if (e.code === "ArrowDown") {
+                    e.preventDefault();
+                    setActiveIndex((i) => (total === 0 ? 0 : (i + 1) % total));
+                  } else if (e.code === "ArrowUp") {
+                    e.preventDefault();
+                    setActiveIndex((i) => (total === 0 ? 0 : (i - 1 + total) % total));
+                  } else if (e.code === "Enter" && items[activeIndex]) {
+                    e.preventDefault();
+                    goItem(items[activeIndex]);
+                  }
+                }}
+              />
             </div>
-          )}
-          {pageItems.length > 0 && (
-            <div className="mb-1">
-              <p className="eyebrow px-2 py-1.5">Пространства</p>
-              {pageItems.map((item) => {
-                const i = items.indexOf(item);
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => goItem(item)}
-                    className={cn("command-item", i === activeIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60")}
-                  >
-                    <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: item.color ? `hsl(${item.color})` : undefined }} />
-                    {item.label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {filteredMembers.length > 0 && (
-            <div>
-              <p className="eyebrow px-2 py-1.5">Люди</p>
-              {filteredMembers.map((m) => (
-                <div key={m.uid || m.email} className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px]">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted font-mono text-[10px] font-medium">
-                    {m.name[0]?.toUpperCase()}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate">{m.name}</p>
-                    <p className="truncate font-mono text-[11px] text-muted-foreground">{m.email}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          {query && items.length === 0 && filteredMembers.length === 0 && (
-            <p className="px-2 py-10 text-center text-sm text-muted-foreground">Ничего не найдено</p>
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
+          </div>
+          <div className="max-h-[22rem] overflow-y-auto p-2 scrollbar-thin">
+            {filteredDest.length > 0 && (
+              <div className="mb-1">
+                <p className="eyebrow px-2 py-1.5">Перейти</p>
+                {filteredDest.map((item) => {
+                  const i = items.indexOf(item);
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => goItem(item)}
+                      className={cn("command-item", i === activeIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60")}
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="flex-1 truncate">{item.label}</span>
+                      {item.hint && <span className="font-mono text-[10px] text-muted-foreground">{item.hint}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {pageItems.length > 0 && (
+              <div className="mb-1">
+                <p className="eyebrow px-2 py-1.5">Столы</p>
+                {pageItems.map((item) => {
+                  const i = items.indexOf(item);
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => goItem(item)}
+                      className={cn("command-item", i === activeIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60")}
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: item.color ? `hsl(${item.color})` : undefined }} />
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {peopleItems.length > 0 && (
+              <div>
+                <p className="eyebrow px-2 py-1.5">Люди</p>
+                {peopleItems.map((item) => {
+                  const i = items.indexOf(item);
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => goItem(item)}
+                      className={cn("command-item", i === activeIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60")}
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="flex-1 truncate">{item.label}</span>
+                      {item.hint && <span className="truncate font-mono text-[10px] text-muted-foreground">{item.hint}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {query && items.length === 0 && (
+              <p className="px-2 py-10 text-center text-sm text-muted-foreground">Ничего не найдено</p>
+            )}
+          </div>
+          <div className="flex items-center gap-3 border-t border-border/60 px-3 py-2 font-mono text-[10px] text-muted-foreground">
+            <span>↑↓ двигать</span>
+            <span>Enter открыть</span>
+            <span>Esc закрыть</span>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

@@ -50,9 +50,10 @@
     --sidebar-accent: 36 14% 92%;
 
     --radius: 0.5rem;
-    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --os-radius: 22px;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
     --duration-fast: 160ms;
-    --duration: 240ms;
+    --duration: 260ms;
     --duration-slow: 320ms;
   }
 
@@ -147,6 +148,18 @@
     font-optical-sizing: auto;
   }
 
+  .hero {
+    @apply display text-[1.75rem] leading-[1.12] sm:text-[2.05rem];
+  }
+
+  .section {
+    @apply text-[15px] font-medium tracking-[-0.02em];
+  }
+
+  .body {
+    @apply text-[13px] leading-6 text-muted-foreground;
+  }
+
   .tabular {
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum", "cv02", "cv03", "cv11";
@@ -155,7 +168,8 @@
 
 @layer components {
   .nav-link {
-    @apply relative flex items-center gap-2 rounded-[6px] px-2 py-[6px] text-[13px] font-medium text-sidebar-foreground transition-colors duration-200;
+    @apply relative flex items-center gap-2 rounded-[10px] px-2.5 py-[7px] text-[13px] font-medium text-sidebar-foreground;
+    transition: background-color var(--duration) var(--ease-out), color var(--duration) var(--ease-out);
   }
   .nav-link:hover {
     @apply bg-sidebar-accent/80 text-foreground;
@@ -166,17 +180,24 @@
   .nav-link-active::before {
     content: "";
     position: absolute;
-    left: 0;
-    top: 5px;
-    bottom: 5px;
+    left: 5px;
+    top: 7px;
+    bottom: 7px;
     width: 2px;
-    border-radius: 1px;
+    border-radius: 999px;
     background: hsl(var(--primary));
+    box-shadow: 0 0 10px hsl(var(--primary) / 0.55);
   }
 
   .desk-cluster {
-    @apply overflow-hidden border border-border/70 bg-card/70;
-    box-shadow: 0 1px 0 hsl(var(--foreground) / 0.03);
+    @apply overflow-hidden rounded-[20px] border border-border/60 bg-card/55 backdrop-blur-xl;
+    box-shadow: 0 1px 0 hsl(var(--foreground) / 0.04);
+    transition: box-shadow var(--duration) var(--ease-out), transform var(--duration) var(--ease-out);
+  }
+  .desk-cluster:hover {
+    box-shadow:
+      0 0 0 1px hsl(var(--primary) / 0.08),
+      0 12px 32px -24px hsl(var(--primary) / 0.35);
   }
 
   .desk-metric {
@@ -184,18 +205,26 @@
   }
 
   .desk-row {
-    @apply flex flex-wrap items-center gap-3 border-t border-border/60 px-5 py-3.5;
+    @apply flex flex-col gap-3 border-t border-border/50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5;
+    transition: background-color var(--duration) var(--ease-out);
   }
   .desk-row:hover {
-    @apply bg-accent/25;
+    background: hsl(var(--primary) / 0.045);
   }
 
   .command-item {
-    @apply flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors duration-200;
+    @apply flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left text-[13px];
+    transition: background-color var(--duration-fast) var(--ease-out);
   }
 
   .table-instrument thead th {
     box-shadow: 0 1px 0 hsl(var(--border) / 0.7);
+  }
+  .table-instrument tbody tr td {
+    transition: background-color var(--duration) var(--ease-out);
+  }
+  .table-instrument tbody tr:hover td {
+    background-color: hsl(var(--primary) / 0.035);
   }
 
   .page-header {
@@ -209,10 +238,46 @@
 
 @layer utilities {
   .glass {
-    @apply bg-white/70 dark:bg-white/[0.03] backdrop-blur-xl border border-white/20 dark:border-white/10;
+    @apply bg-white/70 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10;
   }
   .glass-panel {
-    @apply bg-background/80 backdrop-blur-xl border border-border/70;
+    @apply bg-background/70 backdrop-blur-2xl border border-border/60;
+  }
+  .os-sidebar {
+    border-radius: var(--os-radius);
+    background: hsl(var(--sidebar) / 0.72);
+    backdrop-filter: blur(22px);
+    border: 1px solid hsl(var(--border) / 0.7);
+    box-shadow:
+      0 1px 0 hsl(var(--foreground) / 0.04),
+      0 18px 40px -28px hsl(0 0% 0% / 0.45);
+  }
+  .today-card {
+    @apply relative overflow-hidden rounded-[22px] border border-border/60 bg-card/60 backdrop-blur-xl;
+    box-shadow:
+      0 1px 0 hsl(var(--foreground) / 0.04),
+      0 0 40px -18px hsl(var(--primary) / 0.28);
+  }
+  .today-card::after {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: auto -20% -40% auto;
+    width: 55%;
+    height: 70%;
+    background: radial-gradient(circle, hsl(var(--primary) / 0.14), transparent 68%);
+  }
+  .lift-card {
+    transition: transform var(--duration) var(--ease-out), box-shadow var(--duration) var(--ease-out);
+  }
+  .lift-card:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      0 0 0 1px hsl(var(--primary) / 0.1),
+      0 14px 28px -22px hsl(var(--primary) / 0.45);
+  }
+  .feed-item {
+    @apply rounded-[12px] px-2 py-2;
   }
   .page-surface {
     background:

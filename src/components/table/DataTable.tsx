@@ -71,6 +71,7 @@ import { AddColumnDialog } from "@/components/table/AddColumnDialog";
 import { ManageOptionsDialog } from "@/components/table/ManageOptionsDialog";
 import { RowCommentsPanel } from "@/components/chat/RowCommentsPanel";
 import { RowCardSheet } from "@/components/table/RowCardSheet";
+import { BulkActionBar } from "@/components/table/BulkActionBar";
 import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
 import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -83,9 +84,9 @@ import { pushUndoCommand, undo as undoLastCommand } from "@/utils/undoStore";
 import type { CellAddress, ColumnType, PageRow, SortState, StatusOption, WorkspacePage } from "@/types";
 
 const DENSITY_ROW_HEIGHT: Record<"compact" | "default" | "comfortable", number> = {
-  compact: 30,
-  default: 38,
-  comfortable: 48,
+  compact: 32,
+  default: 42,
+  comfortable: 52,
 };
 
 interface DataTableProps {
@@ -1230,7 +1231,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const isSaving = pendingWrites.hasSavingCell;
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <div className="relative flex h-full flex-col bg-background">
       {/* A thin top progress bar while any cell write is in flight — same
           idea as YouTube/GitHub, so "is it saving?" is visible at a glance
           instead of only in the small per-cell dot. */}
@@ -1255,7 +1256,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         canEdit={canEdit}
         canEditStructure={canEditStructure}
         onAddColumn={() => setAddColumnOpen(true)}
-        selectedCount={selectedRowIds.size}
+        selectedCount={0}
         onDeleteSelected={handleDeleteSelected}
         hasStatusColumn={Boolean(kanbanStatusColumn)}
         viewMode={viewMode}
@@ -1509,6 +1510,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onOpenChange={(o) => !o && setExpandedRowId(null)}
         columns={displayColumns}
         row={rows.find((r) => r.id === expandedRowId) ?? null}
+      />
+
+      <BulkActionBar
+        count={selectedRowIds.size}
+        onDelete={handleDeleteSelected}
+        onClear={() => setSelectedRowIds(new Set())}
       />
     </div>
   );

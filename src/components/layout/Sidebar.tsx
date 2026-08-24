@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { NavLink } from "react-router";
 import { ChevronLeft, ChevronRight, EyeOff, LayoutDashboard, LogOut, Megaphone, MessageCircle, MessageSquare, Plus, Settings, User, Users } from "lucide-react";
 import { motion } from "framer-motion";
@@ -31,11 +31,24 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
   const { pages, activeWorkspaceId, members } = useWorkspace();
   const { workspaceChatUnread, privateUnreadTotal } = useInboxSummary(activeWorkspaceId, profile?.uid ?? null);
   const permissions = usePermissions();
-  const collapsed = useUiStore((s) => s.sidebarCollapsed) && !mobile;
+  const pinnedCollapsed = useUiStore((s) => s.sidebarCollapsed) && !mobile;
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
+  const [hoverOpen, setHoverOpen] = useState(false);
+  const leaveTimer = useRef<number | null>(null);
+  const collapsed = pinnedCollapsed && !hoverOpen;
   const [createPageOpen, setCreatePageOpen] = useState(false);
   const [editingPage, setEditingPage] = useState<WorkspacePage | null>(null);
   const [showHiddenPages, setShowHiddenPages] = useState(false);
+
+  function handleEnter() {
+    if (leaveTimer.current) window.clearTimeout(leaveTimer.current);
+    if (pinnedCollapsed) setHoverOpen(true);
+  }
+
+  function handleLeave() {
+    if (!pinnedCollapsed) return;
+    leaveTimer.current = window.setTimeout(() => setHoverOpen(false), 180);
+  }
 
   const myMembership = members.find((m) => m.uid === profile?.uid);
   const hiddenPageIds = myMembership?.hiddenPageIds ?? [];
@@ -54,8 +67,18 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
   return (
     <div
       className={cn(
-        "relative flex h-full flex-col gap-2 border-r border-sidebar-border bg-sidebar px-1.5 py-2.5 text-sidebar-foreground",
-        collapsed ? "w-[56px] items-center" : "w-[216px]"
+        "relative z-40 mr-2 h-full shrink-0 transition-[width] duration-280 ease-out",
+        pinnedCollapsed ? "w-[68px]" : "w-[228px]"
+      )}
+    >
+    <div
+      onMouseEnter={handleEnter}
+      onMouseLeave={handleLeave}
+      className={cn(
+        "os-sidebar relative flex h-full flex-col gap-2 px-1.5 py-2.5 text-sidebar-foreground",
+        "transition-[width,box-shadow] duration-280 ease-out",
+        collapsed ? "w-[56px] items-center" : "w-[216px]",
+        pinnedCollapsed && hoverOpen && "absolute inset-y-0 left-0 z-50 w-[216px] shadow-[0_0_48px_-16px_hsl(var(--primary)/0.45)]"
       )}
     >
       <WorkspaceSwitcher collapsed={collapsed} />
@@ -238,7 +261,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
         <div className="flex flex-col gap-0.5">
           {!collapsed && (
             <div className="flex items-center justify-between px-2 pb-1">
-              <span className="eyebrow px-2">Пространства</span>
+              <span className="eyebrow px-2">Столы</span>
               {permissions.canCreatePages && (
                 <button
                   onClick={() => setCreatePageOpen(true)}
@@ -417,15 +440,18 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
 
       {!mobile && (
         <motion.button
+          type="button"
           onClick={toggleSidebar}
-          className="absolute -right-3 top-[3.25rem] flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:text-foreground"
+          title={pinnedCollapsed ? "Закрепить меню" : "Свернуть в рейку"}
+          className="absolute -right-2.5 top-[3.4rem] flex h-6 w-6 items-center justify-center rounded-full border border-border/80 bg-card/90 text-muted-foreground backdrop-blur hover:text-foreground"
         >
-          {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
+          {pinnedCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
         </motion.button>
       )}
 
       <CreatePageDialog open={createPageOpen} onOpenChange={setCreatePageOpen} />
       <EditPageDialog key={editingPage?.id ?? "none"} page={editingPage} onOpenChange={() => setEditingPage(null)} />
+    </div>
     </div>
   );
 }

@@ -104,9 +104,21 @@ export default function DynamicTablePage() {
   //    flash "Страница не найдена" / "Access denied" and needed an F5.
   if (!permissions.isResolved) {
     return (
-      <div className="p-6">
-        <Skeleton className="mb-4 h-8 w-48" />
-        <Skeleton className="h-64 w-full" />
+      <div className="p-5">
+        <div className="mb-4 flex items-center gap-3">
+          <Skeleton className="h-8 w-8 rounded-full" />
+          <Skeleton className="h-6 w-40" />
+        </div>
+        <div className="overflow-hidden rounded-[16px] border border-border/60">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 border-t border-border/50 px-4 py-3 first:border-t-0">
+              <Skeleton className="h-3 w-6" />
+              <Skeleton className="h-3.5 flex-1" />
+              <Skeleton className="h-5 w-20 rounded-full" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -292,8 +304,17 @@ export default function DynamicTablePage() {
 
           <div className="flex-1 overflow-hidden">
             {rowsLoading ? (
-              <div className="p-6">
-                <Skeleton className="h-64 w-full" />
+              <div className="p-4">
+                <div className="overflow-hidden rounded-[16px] border border-border/60">
+                  {Array.from({ length: 10 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-3 border-t border-border/50 px-4 py-3 first:border-t-0">
+                      <Skeleton className="h-3 w-6" />
+                      <Skeleton className="h-3.5 flex-1" />
+                      <Skeleton className="h-5 w-20 rounded-full" />
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : (
               <DataTable

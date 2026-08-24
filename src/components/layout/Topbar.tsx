@@ -34,7 +34,7 @@ export function Topbar({ title }: { title?: string }) {
   const { notifications, unreadCount } = useNotifications(activeWorkspaceId, profile?.uid ?? null);
 
   return (
-    <header className="sticky top-0 z-30 flex h-11 shrink-0 items-center gap-1.5 border-b border-border/60 bg-background/80 px-3 backdrop-blur-xl sm:px-4">
+    <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-1.5 border-b border-border/50 bg-background/55 px-3 backdrop-blur-xl sm:px-4">
       {isMobile && (
         <>
           <Button variant="ghost" size="icon" onClick={() => setMobileNavOpen(true)}>

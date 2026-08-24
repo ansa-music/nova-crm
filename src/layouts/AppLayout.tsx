@@ -116,14 +116,14 @@ export function AppLayout() {
   }
 
   return (
-    <div className="page-surface flex h-screen overflow-hidden bg-background">
+    <div className={`page-surface flex h-screen overflow-hidden bg-background ${isFullscreen ? "" : "p-2"}`}>
       <NicknamePrompt />
       <GlobalMessageToaster />
       <ShortcutsHelpDialog />
       <GlobalUndoHotkeys />
       <AccentColorSync />
       {!isMobile && !isFullscreen && <Sidebar />}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${isFullscreen ? "" : "rounded-[22px] border border-border/60 bg-card/25 backdrop-blur-sm"}`}>
         {!isFullscreen && <Topbar />}
         {!isFullscreen && <SimulationBanner />}
         {isFullscreen && (

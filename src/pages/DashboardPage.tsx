@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { ArrowRight, Download, Pencil, Settings2 } from "lucide-react";
 import { deskEase, gsap, useGSAP } from "@/lib/gsap";
 import { Button } from "@/components/ui/button";
@@ -220,11 +220,22 @@ export default function DashboardPage() {
 
   if (isLoadingWorkspaceData) {
     return (
-      <div className="p-6">
-        <Skeleton className="mb-6 h-8 w-64" />
-        <div className="flex flex-col gap-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-16" />
+      <div className="mx-auto max-w-6xl p-4 sm:p-6 lg:p-8">
+        <div className="today-card mb-6 p-6">
+          <Skeleton className="mb-3 h-3 w-24" />
+          <Skeleton className="mb-2 h-9 w-56" />
+          <Skeleton className="h-4 w-80" />
+        </div>
+        <div className="desk-cluster">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 border-t border-border/50 px-5 py-4 first:border-t-0">
+              <Skeleton className="h-9 w-9 rounded-full" />
+              <div className="flex-1">
+                <Skeleton className="mb-1.5 h-3.5 w-32" />
+                <Skeleton className="h-3 w-48" />
+              </div>
+              <Skeleton className="h-4 w-16" />
+            </div>
           ))}
         </div>
       </div>
@@ -234,30 +245,91 @@ export default function DashboardPage() {
   const dateLine = formatDate(Date.now(), "d MMMM");
   const name = profile ? profile.nickname || profile.name : "";
 
-  const greeting = (
-    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <p className="eyebrow mb-2 text-primary">
-          {isPersonalLanding ? `Это твоё дело · ${dateLine}` : `Проверка столов · ${dateLine}`}
-        </p>
-        <h1 className="display text-[1.9rem] leading-[1.15] sm:text-[2.15rem]">
-          {name ? (isPersonalLanding ? `Привет, ${name}` : `Добрый день, ${name}`) : isPersonalLanding ? "Привет" : "Добрый день"}
-        </h1>
-        <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-          {isPersonalLanding
-            ? "Открой свой лист, поставь цель и смотри, как идёт дело — рядом с другими людьми на своих столах."
-            : "У каждого листа свой человек. Ты заходишь посмотреть, как идёт дело."}
-        </p>
+  const motionDesks = (isPersonalLanding ? myProgress : deskProgress).filter(
+    (d) => d.openCount > 0 || (d.grandTotal > 0 && d.percent < 100)
+  );
+
+  function onTodayMove(e: MouseEvent<HTMLElement>) {
+    const el = e.currentTarget;
+    const r = el.getBoundingClientRect();
+    const x = ((e.clientX - r.left) / r.width - 0.5) * 4;
+    const y = ((e.clientY - r.top) / r.height - 0.5) * 2;
+    el.style.transform = `translate(${x}px, ${y}px)`;
+  }
+
+  const todayCard = (
+    <section
+      className="today-card desk-home mb-6 p-6 sm:p-7"
+      onMouseMove={onTodayMove}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = "translate(0, 0)";
+      }}
+      style={{ transition: "transform 260ms cubic-bezier(0.22, 1, 0.36, 1)" }}
+    >
+      <div className="relative z-[1] flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="eyebrow mb-2 text-primary">Сегодня · {dateLine}</p>
+          <h1 className="hero">
+            {name ? (isPersonalLanding ? `Привет, ${name}` : `Добрый день, ${name}`) : isPersonalLanding ? "Привет" : "Добрый день"}
+          </h1>
+          <p className="body mt-2 max-w-xl">
+            {isPersonalLanding
+              ? "Что нужно от тебя на твоём столе — и что уже в движении."
+              : "Что требует взгляда на чужих столах, и что уже идёт."}
+          </p>
+        </div>
+        {!isPersonalLanding && permissions.canManageWorkspace && (
+          <DashboardSourcePicker
+            workspaceId={activeWorkspaceId ?? ""}
+            pages={visiblePages}
+            clientsPageId={activeWorkspace?.dashboardClientsPageId}
+            projectsPageId={activeWorkspace?.dashboardProjectsPageId}
+          />
+        )}
       </div>
-      {!isPersonalLanding && permissions.canManageWorkspace && (
-        <DashboardSourcePicker
-          workspaceId={activeWorkspaceId ?? ""}
-          pages={visiblePages}
-          clientsPageId={activeWorkspace?.dashboardClientsPageId}
-          projectsPageId={activeWorkspace?.dashboardProjectsPageId}
-        />
-      )}
-    </div>
+      <div className="relative z-[1] mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2">
+        <div>
+          <p className="eyebrow mb-2">Нужно от меня</p>
+          {attentionItems.length === 0 ? (
+            <p className="body">Сейчас тихо — можно выдохнуть.</p>
+          ) : (
+            <div className="flex flex-col">
+              {attentionItems.slice(0, 4).map((item) => (
+                <Link
+                  key={item.href + item.detail}
+                  to={item.href}
+                  className="flex items-baseline justify-between gap-3 border-t border-border/50 py-2 first:border-t-0 first:pt-0 hover:text-primary"
+                >
+                  <span className="truncate text-[13px] font-medium">{item.label}</span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">{item.detail}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+        <div>
+          <p className="eyebrow mb-2">В движении</p>
+          {motionDesks.length === 0 ? (
+            <p className="body">Все закрыли своё дело.</p>
+          ) : (
+            <div className="flex flex-col">
+              {motionDesks.slice(0, 4).map((d) => (
+                <Link
+                  key={d.page.id}
+                  to={`/page/${d.page.id}`}
+                  className="flex items-baseline justify-between gap-3 border-t border-border/50 py-2 first:border-t-0 first:pt-0 hover:text-primary"
+                >
+                  <span className="truncate text-[13px] font-medium">{d.page.name}</span>
+                  <span className="shrink-0 font-mono text-[11px] tabular text-muted-foreground">
+                    {d.openCount > 0 ? `${d.openCount} в деле` : `${d.percent}%`}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
   );
 
   const leaderboard = (
@@ -272,7 +344,7 @@ export default function DashboardPage() {
   if (isPersonalLanding) {
     return (
       <div ref={deskRef} className="mx-auto max-w-5xl p-4 sm:p-6 lg:p-8">
-        {greeting}
+        {todayCard}
         {myProgress.length === 0 ? (
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
             <div className="desk-cluster desk-home px-8 py-14 text-center lg:col-span-3">
@@ -292,23 +364,7 @@ export default function DashboardPage() {
                   <MyProgressCard {...p} workspaceId={activeWorkspaceId ?? ""} large />
                 </div>
               ))}
-              {attentionItems.length > 0 && (
-                <div className="desk-cluster desk-attention p-5">
-                  <p className="eyebrow mb-3 text-primary">Ещё в деле</p>
-                  <div className="flex flex-col">
-                    {attentionItems.map((item) => (
-                      <Link
-                        key={item.href + item.detail}
-                        to={item.href}
-                        className="flex items-baseline justify-between gap-3 border-t border-border/60 py-2.5 first:border-t-0 first:pt-0"
-                      >
-                        <span className="truncate text-sm font-medium">{item.label}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground">{item.detail}</span>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-              )}
+
             </div>
             <div className="desk-home lg:col-span-2">{leaderboard}</div>
           </div>
@@ -321,9 +377,9 @@ export default function DashboardPage() {
 
   return (
     <div ref={deskRef} className="mx-auto max-w-6xl p-4 sm:p-6 lg:p-8">
-      {greeting}
+      {todayCard}
 
-      <div className="desk-cluster mb-6">
+      <div className="desk-cluster lift-card mb-6">
         <div className="flex items-baseline justify-between gap-3 px-5 py-4">
           <div>
             <p className="eyebrow text-primary">Столы</p>
@@ -341,7 +397,7 @@ export default function DashboardPage() {
               const empty = !desk.page.responsibleUserId || !member;
               return (
                 <div key={desk.page.id} className="desk-row">
-                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <div className="flex min-w-0 items-center gap-3 sm:flex-1">
                     {empty ? (
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-[10px] text-muted-foreground">
                         —
@@ -355,30 +411,35 @@ export default function DashboardPage() {
                         className="h-9 w-9 shrink-0"
                       />
                     )}
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{empty ? "пока без человека" : who}</p>
-                      <Link to={`/page/${desk.page.id}`} className="truncate text-[13px] text-muted-foreground hover:text-primary">
+                      <Link to={`/page/${desk.page.id}`} className="block truncate text-[13px] text-muted-foreground hover:text-primary">
                         {desk.page.name}
                       </Link>
+                      {member?.lastActiveAt ? (
+                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground sm:hidden">
+                          заходил {timeAgo(member.lastActiveAt)}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
-                  <div className="flex shrink-0 flex-wrap items-end gap-5 sm:gap-7">
-                    <div className="text-right">
+                  <div className="grid w-full min-w-0 grid-cols-3 gap-2 sm:w-auto sm:shrink-0 sm:gap-7">
+                    <div className="min-w-0 text-left sm:text-right">
                       <p className="eyebrow">Готово</p>
-                      <p className="font-mono text-sm tabular text-success">{formatCurrency(desk.doneTotal)}</p>
+                      <p className="break-words font-mono text-[12px] tabular text-success sm:text-sm">{formatCurrency(desk.doneTotal)}</p>
                     </div>
-                    <div className="text-right">
+                    <div className="min-w-0 text-left sm:text-right">
                       <p className="eyebrow">Общий</p>
-                      <p className="font-mono text-sm tabular">{formatCurrency(desk.grandTotal)}</p>
+                      <p className="break-words font-mono text-[12px] tabular sm:text-sm">{formatCurrency(desk.grandTotal)}</p>
                     </div>
-                    <div className="w-12 text-right">
+                    <div className="min-w-0 text-left sm:text-right">
                       <p className="eyebrow">%</p>
-                      <p className="font-mono text-sm tabular">{desk.percent}</p>
+                      <p className="font-mono text-[12px] tabular sm:text-sm">{desk.percent}</p>
                     </div>
-                    <p className="hidden w-36 text-right text-[11px] text-muted-foreground sm:block">
-                      {member?.lastActiveAt ? `заходил ${timeAgo(member.lastActiveAt)}` : " "}
-                    </p>
                   </div>
+                  <p className="hidden w-36 shrink-0 text-right text-[11px] text-muted-foreground sm:block">
+                    {member?.lastActiveAt ? `заходил ${timeAgo(member.lastActiveAt)}` : " "}
+                  </p>
                 </div>
               );
             })}
@@ -386,45 +447,23 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <div className="mb-6 grid grid-cols-1 gap-5 lg:grid-cols-5">
-        <div className="desk-cluster desk-attention p-5 lg:col-span-3">
-          <p className="eyebrow mb-3 text-primary">Ещё в деле</p>
-          {attentionItems.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Все столы закрыли своё дело — спокойно.</p>
-          ) : (
-            <div className="flex flex-col">
-              {attentionItems.map((item) => (
-                <Link
-                  key={item.href + item.detail}
-                  to={item.href}
-                  className="flex items-baseline justify-between gap-3 border-t border-border/50 py-2.5 first:border-t-0 first:pt-0 hover:text-primary"
-                >
-                  <span className="truncate text-sm font-medium">{item.label}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">{item.detail}</span>
-                </Link>
-              ))}
-            </div>
-          )}
+      <div className="mb-6">{leaderboard}</div>
+
+      {permissions.canViewHistory && (
+        <div className="mb-6">
+          <RecentActivity entries={historyEntries} />
         </div>
-        <div className="lg:col-span-2">{leaderboard}</div>
-      </div>
+      )}
 
       {showCharts && (
-        <div className="mb-8 opacity-80">
-          <p className="eyebrow mb-3 text-muted-foreground">Цифры с листа — не главное</p>
+        <div className="mb-8 opacity-55">
+          <p className="eyebrow mb-3 text-muted-foreground">Цифры с листа</p>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <RevenueChart data={revenueByMonth} />
             </div>
             <StatusChart title="Статусы" data={statusDistribution} />
           </div>
-        </div>
-      )}
-
-      {permissions.canViewHistory && (
-        <div>
-          <p className="eyebrow mb-3 text-muted-foreground">Что менялось</p>
-          <RecentActivity entries={historyEntries} />
         </div>
       )}
     </div>
@@ -541,7 +580,7 @@ function MyProgressCard({
   }
 
   return (
-    <Card className="overflow-hidden border-border/70 bg-card/70">
+    <Card className="lift-card overflow-hidden border-border/70 bg-card/60 backdrop-blur-xl">
       <CardContent className={large ? "p-6" : "p-4"}>
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -675,7 +714,7 @@ function LeaderboardWidget({
   }, [entries, members]);
 
   return (
-    <Card className={featured ? "h-full border-border/70 bg-card/70" : "border-border/70 bg-card/70"}>
+    <Card className={featured ? "lift-card h-full border-border/70 bg-card/60 backdrop-blur-xl" : "lift-card border-border/70 bg-card/60 backdrop-blur-xl"}>
       <CardContent className={featured ? "p-5 sm:p-6" : "p-4"}>
         <p className="eyebrow mb-1 text-primary">Как ведут дело</p>
         <p className={cn(featured ? "mb-4 text-base font-medium" : "mb-3 text-sm font-medium")}>рейтинг по сумме «Готово»</p>

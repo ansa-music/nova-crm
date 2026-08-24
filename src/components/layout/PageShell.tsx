@@ -11,15 +11,15 @@ export function PageShell({ children }: { children: ReactNode }) {
       if (!ref.current) return;
       gsap.fromTo(
         ref.current,
-        { opacity: 0, y: 6 },
-        { opacity: 1, y: 0, duration: 0.28, ease: deskEase }
+        { opacity: 0, y: 8, scale: 0.992 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.3, ease: deskEase }
       );
     },
     { scope: ref, dependencies: [location.pathname] }
   );
 
   return (
-    <div ref={ref} className="h-full">
+    <div ref={ref} className="h-full origin-top">
       {children}
     </div>
   );

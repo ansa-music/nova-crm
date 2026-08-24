@@ -86,7 +86,7 @@ export function TableRow({
     <tr
       ref={setNodeRef}
       style={{ height: rowHeight, transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
-      className="group/row transition-colors duration-200 hover:bg-muted/35"
+      className="group/row"
       onContextMenu={() => onContextMenuOpen(row.id)}
     >
       <td
@@ -94,7 +94,7 @@ export function TableRow({
         onDoubleClick={() => onExpandRow(row.id)}
         title="Двойной клик — открыть строку карточкой"
         className={cn(
-          "sticky left-0 z-20 select-none border-b border-r border-border/50 bg-background text-center font-mono text-[11px] tabular text-muted-foreground",
+          "sticky left-0 z-20 select-none border-b border-r border-border/40 bg-background text-center font-mono text-[11px] tabular text-muted-foreground group-hover/row:bg-transparent",
           isRowFullySelected && "bg-primary/10 font-medium text-primary"
         )}
         style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}

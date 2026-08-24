@@ -1,5 +1,6 @@
+import { useRef } from "react";
 import { History, Pencil, Plus, Trash2 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { deskEase, gsap, useGSAP } from "@/lib/gsap";
 import { timeAgo } from "@/utils/date";
 import type { HistoryEntry } from "@/types";
 
@@ -10,42 +11,51 @@ const ACTION_ICON = {
   restore: History,
 } as const;
 
+function lineFor(entry: HistoryEntry) {
+  const who = entry.userName?.trim();
+  const actor = who || "Кто-то";
+  const place = entry.pageName ? ` в «${entry.pageName}»` : "";
+  if (entry.action === "create") return `${actor} добавил(а) запись${place}`;
+  if (entry.action === "delete") return `${actor} удалил(а) запись${place}`;
+  if (entry.action === "restore") return `${actor} восстановил(а) значение${place}`;
+  const field = entry.fieldLabel ?? entry.field;
+  return field ? `${actor} изменил(а) «${field}»${place}` : `${actor} изменил(а) запись${place}`;
+}
+
 export function RecentActivity({ entries }: { entries: HistoryEntry[] }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useGSAP(
+    () => {
+      const nodes = ref.current?.querySelectorAll(".feed-item");
+      if (!nodes?.length) return;
+      gsap.fromTo(nodes, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.28, stagger: 0.04, ease: deskEase });
+    },
+    { scope: ref, dependencies: [entries.length] }
+  );
+
   return (
-    <Card className="bg-card/80">
-      <CardHeader className="pb-2">
-        <p className="eyebrow">Журнал</p>
-        <CardTitle className="text-base font-medium">Недавняя активность</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-1">
-        {entries.length === 0 && (
-          <p className="py-6 text-center text-sm text-muted-foreground">Изменений пока нет</p>
-        )}
-        {entries.slice(0, 5).map((entry) => {
+    <div ref={ref} className="desk-cluster lift-card p-5">
+      <p className="eyebrow mb-1 text-primary">Лента</p>
+      <p className="section mb-4">Что менялось</p>
+      {entries.length === 0 && (
+        <p className="body py-4">Изменений пока нет</p>
+      )}
+      <div className="flex flex-col gap-0.5">
+        {entries.slice(0, 8).map((entry) => {
           const Icon = ACTION_ICON[entry.action];
           return (
-            <div
-              key={entry.id}
-              className="flex items-start gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent/40"
-            >
-              <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
+            <div key={entry.id} className="feed-item flex items-start gap-3">
+              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border/70 bg-muted/40">
                 <Icon className="h-3 w-3" />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm">
-                  <span className="font-medium">{entry.userName}</span>{" "}
-                  {entry.action === "update" && `изменил(а) «${entry.fieldLabel ?? entry.field}»`}
-                  {entry.action === "create" && "добавил(а) запись"}
-                  {entry.action === "delete" && "удалил(а) запись"}
-                  {entry.action === "restore" && "восстановил(а) значение"}
-                  {entry.pageName && <span className="text-muted-foreground"> в «{entry.pageName}»</span>}
-                </p>
-                <p className="text-xs text-muted-foreground">{timeAgo(entry.timestamp)}</p>
+                <p className="text-[13px] leading-5">{lineFor(entry)}</p>
+                <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">{timeAgo(entry.timestamp)}</p>
               </div>
             </div>
           );
         })}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

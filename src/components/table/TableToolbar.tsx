@@ -56,14 +56,14 @@ export function TableToolbar({
   canEdit,
   canEditStructure,
   onAddColumn,
-  selectedCount,
-  onDeleteSelected,
+  selectedCount: _selectedCount,
+  onDeleteSelected: _onDeleteSelected,
   hasStatusColumn,
   viewMode,
   onViewModeChange,
 }: TableToolbarProps) {
   return (
-    <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-border/80 bg-card/70 px-4 py-2 backdrop-blur-md">
+    <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-border/70 bg-card/50 px-4 py-2 backdrop-blur-xl">
       <div className="relative w-full sm:w-64">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -131,12 +131,6 @@ export function TableToolbar({
       )}
 
       <div className="flex-1" />
-
-      {selectedCount > 0 && (
-        <Button variant="destructive" size="sm" className="h-8" onClick={onDeleteSelected}>
-          Удалить выбранные ({selectedCount})
-        </Button>
-      )}
 
       <Button variant="outline" size="sm" className="h-8 gap-1.5 bg-background" onClick={onExportCsv}>
         <Download className="h-3.5 w-3.5" /> CSV

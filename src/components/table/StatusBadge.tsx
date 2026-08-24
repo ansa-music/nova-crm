@@ -15,10 +15,14 @@ export function StatusBadge({ value, options, className }: StatusBadgeProps) {
   return (
     <span
       className={cn(
-        "inline-flex max-w-full items-center gap-1.5 truncate rounded-full px-2 py-[3px] text-[11px] font-medium",
+        "inline-flex max-w-full items-center gap-1.5 truncate rounded-full border px-2.5 py-[3px] text-[11px] font-medium",
         className
       )}
-      style={{ backgroundColor: `hsl(${option.color} / 0.15)`, color: `hsl(${option.color})` }}
+      style={{
+        backgroundColor: `hsl(${option.color} / 0.16)`,
+        color: `hsl(${option.color})`,
+        borderColor: `hsl(${option.color} / 0.28)`,
+      }}
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: `hsl(${option.color})` }} />
       <span className="truncate">{option.label}</span>
