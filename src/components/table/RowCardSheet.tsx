@@ -1,9 +1,15 @@
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useEffect } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { X } from "lucide-react";
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { formatCurrency } from "@/utils/format";
 import { formatDate } from "@/utils/date";
 import { isOptionColumn } from "@/utils/columnOptions";
 import type { PageColumn, PageRow } from "@/types";
+
+export function rowCardLayoutId(rowId: string) {
+  return `row-card-${rowId}`;
+}
 
 interface RowCardSheetProps {
   open: boolean;
@@ -17,11 +23,19 @@ function isTitleColumn(col: PageColumn) {
 }
 
 export function RowCardSheet({ open, onOpenChange, columns, row }: RowCardSheetProps) {
-  if (!row) return null;
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.code === "Escape") onOpenChange(false);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open, onOpenChange]);
+
   const record = row;
 
   const titleCol = columns.find(isTitleColumn) ?? columns[0];
-  const rawTitle = titleCol ? record.cells[titleCol.key] : null;
+  const rawTitle = record && titleCol ? record.cells[titleCol.key] : null;
   const title =
     rawTitle === null || rawTitle === undefined || String(rawTitle).trim() === ""
       ? "Без названия"
@@ -33,6 +47,7 @@ export function RowCardSheet({ open, onOpenChange, columns, row }: RowCardSheetP
   const rest = columns.filter((c) => !identityKeys.has(c.key));
 
   function renderValue(col: PageColumn) {
+    if (!record) return null;
     const raw = record.cells[col.key];
     const stringValue = raw === null || raw === undefined ? "" : String(raw);
     if (isOptionColumn(col.type)) {
@@ -52,37 +67,72 @@ export function RowCardSheet({ open, onOpenChange, columns, row }: RowCardSheetP
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full max-w-md origin-right flex-col p-0">
-        <SheetHeader className="border-b border-border/70 px-6 py-6 text-left">
-          <p className="eyebrow mb-2 text-primary">Человек</p>
-          <SheetTitle className="hero text-[1.55rem]">{title}</SheetTitle>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            {statusCol && renderValue(statusCol)}
-            {responsibleCol && (
-              <div className="flex items-center gap-2">
-                <span className="eyebrow">{responsibleCol.label}</span>
-                {renderValue(responsibleCol)}
-              </div>
-            )}
-          </div>
-        </SheetHeader>
-        <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-6 py-5 scrollbar-thin">
-          {rest.length > 0 && (
-            <div>
-              <p className="eyebrow mb-3">Поля</p>
-              <div className="flex flex-col">
-                {rest.map((col) => (
-                  <div key={col.id} className="flex items-start justify-between gap-4 border-t border-border/50 py-3">
-                    <p className="shrink-0 pt-0.5 text-[12px] text-muted-foreground">{col.label}</p>
-                    <div className="min-w-0 text-right">{renderValue(col)}</div>
+    <AnimatePresence>
+      {open && record && (
+        <>
+          <motion.button
+            type="button"
+            aria-label="Закрыть"
+            key="row-card-backdrop"
+            className="fixed inset-0 z-50 bg-background/50 backdrop-blur-xl"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => onOpenChange(false)}
+          />
+          <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              key={record.id}
+              layoutId={rowCardLayoutId(record.id)}
+              role="dialog"
+              aria-modal="true"
+              className="glass-float pointer-events-auto flex max-h-[88vh] w-full max-w-md flex-col overflow-hidden rounded-[24px]"
+              transition={{ type: "spring", stiffness: 400, damping: 30 }}
+            >
+              <div className="border-b border-white/10 px-6 py-6 text-left">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="eyebrow mb-2 text-primary">Человек</p>
+                    <h2 className="hero text-[1.55rem]">{title}</h2>
                   </div>
-                ))}
+                  <button
+                    type="button"
+                    onClick={() => onOpenChange(false)}
+                    className="rounded-md p-1 text-muted-foreground transition-opacity hover:text-foreground"
+                  >
+                    <X className="h-4 w-4" />
+                    <span className="sr-only">Закрыть</span>
+                  </button>
+                </div>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  {statusCol && renderValue(statusCol)}
+                  {responsibleCol && (
+                    <div className="flex items-center gap-2">
+                      <span className="eyebrow">{responsibleCol.label}</span>
+                      {renderValue(responsibleCol)}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
-      </SheetContent>
-    </Sheet>
+              <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-6 py-5 scrollbar-thin">
+                {rest.length > 0 && (
+                  <div>
+                    <p className="eyebrow mb-3">Поля</p>
+                    <div className="flex flex-col">
+                      {rest.map((col) => (
+                        <div key={col.id} className="flex items-start justify-between gap-4 border-t border-border/50 py-3">
+                          <p className="shrink-0 pt-0.5 text-[12px] text-muted-foreground">{col.label}</p>
+                          <div className="min-w-0 text-right">{renderValue(col)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        </>
+      )}
+    </AnimatePresence>
   );
 }

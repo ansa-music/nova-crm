@@ -1,7 +1,9 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { motion } from "framer-motion";
 import { GripVertical } from "lucide-react";
 import { TableCell } from "@/components/table/TableCell";
+import { rowCardLayoutId } from "@/components/table/RowCardSheet";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/utils/cn";
 import type { CellAddress, PageColumn, PageRow } from "@/types";
@@ -34,6 +36,7 @@ interface TableRowProps {
   onRowResizeStart: (rowId: string, e: React.MouseEvent) => void;
   onContextMenuOpen: (rowId: string) => void;
   onExpandRow: (rowId: string) => void;
+  isExpanded?: boolean;
 }
 
 export function TableRow({
@@ -62,6 +65,7 @@ export function TableRow({
   onRowResizeStart,
   onContextMenuOpen,
   onExpandRow,
+  isExpanded,
 }: TableRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.id,
@@ -100,6 +104,13 @@ export function TableRow({
         style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}
       >
         <div className="relative flex h-full w-full items-center justify-center gap-1">
+          {!isExpanded && (
+            <motion.div
+              layoutId={rowCardLayoutId(row.id)}
+              className="pointer-events-none absolute inset-0 rounded-md"
+              transition={{ type: "spring", stiffness: 400, damping: 30 }}
+            />
+          )}
           {isNew && (
             <span
               className="absolute left-0 top-1/2 h-3.5 w-[3px] -translate-y-1/2 rounded-full bg-primary"

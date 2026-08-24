@@ -54,7 +54,7 @@ export function PageNavItem({
         className={({ isActive }) =>
           cn(
             "relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
-            isActive ? "nav-link-active bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
+            isActive ? "nav-link-active text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
           )
         }
       >

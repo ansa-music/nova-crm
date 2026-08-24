@@ -131,8 +131,8 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   end
                   className={({ isActive }) =>
                     cn(
-                      "flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
-                      isActive ? "nav-link-active bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-foreground"
+                      "relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
+                      isActive ? "nav-link-active text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-foreground"
                     )
                   }
                 >
@@ -166,8 +166,8 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   to="/announcements"
                   className={({ isActive }) =>
                     cn(
-                      "flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
-                      isActive ? "nav-link-active bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-foreground"
+                      "relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
+                      isActive ? "nav-link-active text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-foreground"
                     )
                   }
                 >
@@ -201,7 +201,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   className={({ isActive }) =>
                     cn(
                       "relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
-                      isActive ? "nav-link-active bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-foreground"
+                      isActive ? "nav-link-active text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-foreground"
                     )
                   }
                 >
@@ -243,7 +243,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   className={({ isActive }) =>
                     cn(
                       "relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
-                      isActive ? "nav-link-active bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-foreground"
+                      isActive ? "nav-link-active text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-foreground"
                     )
                   }
                 >
@@ -361,8 +361,8 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                     to="/users"
                     className={({ isActive }) =>
                       cn(
-                        "flex items-center justify-center rounded-lg p-2 transition-colors",
-                        isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+                        "relative flex items-center justify-center rounded-lg p-2 transition-colors",
+                        isActive ? "nav-link-active text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
                       )
                     }
                   >
@@ -376,8 +376,8 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                 to="/users"
                 className={({ isActive }) =>
                   cn(
-                    "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
-                    isActive ? "bg-sidebar-accent text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+                    "relative flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
+                    isActive ? "nav-link-active text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
                   )
                 }
               >
@@ -392,8 +392,8 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
                   to="/settings"
                   className={({ isActive }) =>
                     cn(
-                      "flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
-                      isActive ? "nav-link-active bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-foreground"
+                      "relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200",
+                      isActive ? "nav-link-active text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-foreground"
                     )
                   }
                 >

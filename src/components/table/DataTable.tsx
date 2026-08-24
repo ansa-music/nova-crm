@@ -21,6 +21,7 @@ import {
 } from "@dnd-kit/sortable";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Plus } from "lucide-react";
+import { LayoutGroup } from "framer-motion";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
 import {
@@ -1222,6 +1223,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onRowResizeStart={handleRowResizeStart}
         onContextMenuOpen={handleContextMenuOpen}
         onExpandRow={setExpandedRowId}
+        isExpanded={expandedRowId === row.id}
       />
     );
   }
@@ -1231,6 +1233,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const isSaving = pendingWrites.hasSavingCell;
 
   return (
+    <LayoutGroup>
     <div className="relative flex h-full flex-col bg-background">
       {/* A thin top progress bar while any cell write is in flight — same
           idea as YouTube/GitHub, so "is it saving?" is visible at a glance
@@ -1518,5 +1521,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onClear={() => setSelectedRowIds(new Set())}
       />
     </div>
+    </LayoutGroup>
   );
 }

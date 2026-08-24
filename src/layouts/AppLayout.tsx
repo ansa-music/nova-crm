@@ -117,7 +117,7 @@ export function AppLayout() {
   }
 
   return (
-    <div className={`page-surface flex h-screen overflow-hidden bg-background ${isFullscreen ? "" : "p-2"}`}>
+    <div className={`page-surface flex h-screen overflow-hidden bg-background ${isFullscreen ? "" : "p-3"}`}>
       <NicknamePrompt />
       <GlobalMessageToaster />
       <ShortcutsHelpDialog />
