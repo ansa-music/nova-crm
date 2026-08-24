@@ -232,7 +232,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
         </div>
 
         <div className={cn("mt-3 flex items-center border-t border-border pt-3", collapsed ? "justify-center" : "gap-1")}>
-          <DropdownMenu>
+          <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
@@ -269,7 +269,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                 {!collapsed && <MoreVertical className="h-4 w-4 shrink-0 text-muted-foreground" />}
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
+            <DropdownMenuContent align="start" className="z-[300] w-56">
               {workspaces.map((ws) => (
                 <DropdownMenuItem key={ws.id} onClick={() => setActiveWorkspaceId(ws.id)}>
                   {ws.name}

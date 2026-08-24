@@ -35,7 +35,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { ColumnHeaderCell } from "@/components/table/ColumnHeaderCell";
-import { TableRow, ROW_GUTTER_WIDTH } from "@/components/table/TableRow";
+import { TableRow } from "@/components/table/TableRow";
 import { GroupHeaderRow } from "@/components/table/GroupHeaderRow";
 import { TableToolbar } from "@/components/table/TableToolbar";
 import { KanbanView } from "@/components/table/KanbanView";
@@ -298,13 +298,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columns, resizePreview, responsibleOptions, sharedStatusOptions, customFields, activeWorkspace]);
 
-  const stickyKeys = useMemo(() => {
-    const first = displayColumns[0]?.key;
-    const keys = pinnedKeys.filter((k) => displayColumns.some((c) => c.key === k));
-    if (first && !keys.includes(first)) keys.unshift(first);
-    return keys;
-  }, [pinnedKeys, displayColumns]);
-
+  const stickyKeys = useMemo(
+    () => pinnedKeys.filter((k) => displayColumns.some((c) => c.key === k)),
+    [pinnedKeys, displayColumns]
+  );
   const containerRef = useRef<HTMLDivElement>(null);
   const [hFade, setHFade] = useState({ left: false, right: false });
   const isSelectingRef = useRef(false);
@@ -358,6 +355,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const rowHeight = coarsePointer
     ? Math.max(52, DENSITY_ROW_HEIGHT[density])
     : Math.max(48, DENSITY_ROW_HEIGHT[density]);
+  const gutterWidth = coarsePointer ? 48 : 56;
 
   const setTableImmersive = useUiStore((s) => s.setTableImmersive);
   const [gridFocused, setGridFocused] = useState(false);
@@ -423,6 +421,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   const canReorderRows =
     canEdit &&
+    !coarsePointer &&
     !sortState.colKey &&
     !groupByKey &&
     !searchQuery.trim() &&
@@ -1357,8 +1356,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   function togglePin(colKey: string) {
-    const first = displayColumns[0]?.key;
-    if (colKey === first) return;
     setPinnedKeys((prev) => (prev.includes(colKey) ? prev.filter((k) => k !== colKey) : [...prev, colKey]));
   }
 
@@ -1764,6 +1761,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         isRowFullySelected={isRowFullySelected(row.id)}
         isChecked={selectedRowIds.has(row.id)}
         pinnedKeys={stickyKeys}
+        gutterWidth={gutterWidth}
         onToggleChecked={toggleRowChecked}
         onCellMouseDown={handleCellMouseDown}
         onCellMouseEnter={handleCellMouseEnter}
@@ -1891,14 +1889,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
             e.preventDefault();
             void applyMatrixPaste(parseClipboardMatrix(text));
           }}
-          className="table-grid-scroll absolute inset-0 overflow-auto overscroll-contain bg-background outline-none scrollbar-thin"
+          className="table-grid-scroll absolute inset-0 overflow-auto overscroll-contain bg-background pb-[env(safe-area-inset-bottom,0px)] outline-none scrollbar-thin"
         >
           <table className="table-instrument w-max min-w-full border-separate border-spacing-0" style={{ tableLayout: "fixed" }}>
             <thead className="sticky top-0 z-30 bg-background">
               <tr>
                 <th
                   className="table-sticky-col sticky left-0 top-0 z-40 border-b border-r border-border/50 bg-background"
-                  style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}
+                  style={{ width: gutterWidth, minWidth: gutterWidth }}
                 >
                   <div className="flex h-11 items-center justify-center sm:h-9">
                     <Checkbox
@@ -1922,16 +1920,17 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       hasActiveFilter={(filters[column.key]?.size ?? 0) > 0}
                       onResizeStart={handleColumnResizeStart}
                       onAutoSize={handleAutoSizeColumn}
-                      isPinned={pinnedKeys.includes(column.key) || stickyKeys[0] === column.key}
+                      isPinned={pinnedKeys.includes(column.key)}
                       onTogglePin={togglePin}
                       stickyLeft={
                         stickyKeys.includes(column.key)
-                          ? ROW_GUTTER_WIDTH +
+                          ? gutterWidth +
                             pinnedOrder.slice(0, pinnedOrder.findIndex((c) => c.key === column.key)).reduce((sum, c) => sum + c.width, 0)
                           : undefined
                       }
                       isLastSticky={pinnedOrder.length > 0 && column.key === pinnedOrder[pinnedOrder.length - 1].key}
-                      canReorder={canEdit}
+                      canReorder={canEdit && !coarsePointer}
+                      compactChrome={coarsePointer}
                       canEditStructure={canEditStructure}
                       canManageOptions={canManageVariants}
                       onToggleHidden={canEditStructure ? handleToggleHiddenColumn : undefined}
@@ -2066,10 +2065,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
             </ContextMenu>
             {processedRows.length > 0 && (
               <tfoot className="sticky bottom-0 z-20">
-                <tr className="border-t border-border/70 bg-background/95 backdrop-blur-sm">
+                <tr className="border-t border-border/70 bg-background">
                   <td
-                    className="table-sticky-col sticky left-0 z-30 border-r border-border/50 bg-background/95 px-1 py-2 text-center font-mono text-[11px] tabular text-muted-foreground"
-                    style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}
+                    className="table-sticky-col sticky left-0 z-30 border-r border-border/50 bg-background px-1 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] text-center font-mono text-[11px] tabular text-muted-foreground"
+                    style={{ width: gutterWidth, minWidth: gutterWidth }}
                     title="Строк в фильтре"
                   >
                     <div className="flex flex-col items-center gap-0.5">
@@ -2084,29 +2083,33 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                   {displayColumns.map((column) => {
                     const tot = columnTotals[column.key];
                     const stickyLeft = stickyKeys.includes(column.key)
-                      ? ROW_GUTTER_WIDTH +
+                      ? gutterWidth +
                         pinnedOrder.slice(0, pinnedOrder.findIndex((c) => c.key === column.key)).reduce((sum, c) => sum + c.width, 0)
                       : undefined;
                     return (
                       <td
                         key={`total-${column.id}`}
-                        className={`border-r border-border/35 px-2.5 py-2 text-right text-sm tabular-nums ${
-                          stickyLeft !== undefined ? "table-sticky-col sticky z-[25] bg-background/95" : ""
+                        className={`overflow-visible whitespace-normal border-r border-border/35 px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] text-right text-sm tabular-nums ${
+                          stickyLeft !== undefined ? "table-sticky-col sticky z-[25] bg-background" : "bg-background"
                         } ${pinnedOrder.length && column.key === pinnedOrder[pinnedOrder.length - 1].key ? "table-sticky-edge" : ""}`}
                         style={{
                           width: column.width,
                           minWidth: column.width,
-                          maxWidth: column.width,
                           left: stickyLeft,
                         }}
                       >
                         {column.type === "date" ? null : tot ? (
-                          <div className="flex flex-col items-end gap-0.5">
-                            <span className="font-medium">
+                          <div className="flex min-w-0 flex-col items-end gap-0.5">
+                            <span
+                              className="block max-w-full truncate font-medium"
+                              title={column.type === "currency" ? formatCurrency(tot.sum) : formatNumber(tot.sum)}
+                            >
                               {column.type === "currency" ? formatCurrency(tot.sum) : formatNumber(tot.sum)}
                             </span>
                             {tot.done !== undefined && (
-                              <span className="text-[10px] text-success">Готово {formatCurrency(tot.done)}</span>
+                              <span className="block max-w-full truncate text-[10px] text-success" title={`Готово ${formatCurrency(tot.done)}`}>
+                                Готово {formatCurrency(tot.done)}
+                              </span>
                             )}
                           </div>
                         ) : column.key === displayColumns[0]?.key ? (

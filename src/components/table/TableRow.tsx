@@ -16,7 +16,7 @@ import {
 import { cn } from "@/utils/cn";
 import type { CellAddress, PageColumn, PageRow } from "@/types";
 
-const ROW_GUTTER_WIDTH = 72;
+const ROW_GUTTER_WIDTH = 56;
 
 interface TableRowProps {
   row: PageRow;
@@ -57,6 +57,7 @@ interface TableRowProps {
   onInsertRowBelow?: (rowId: string) => void;
   onCopyRow?: (rowId: string) => void;
   expandedColKey?: string | null;
+  gutterWidth?: number;
 }
 
 function TableRowInner({
@@ -98,14 +99,16 @@ function TableRowInner({
   onInsertRowBelow,
   onCopyRow,
   expandedColKey,
+  gutterWidth = ROW_GUTTER_WIDTH,
 }: TableRowProps) {
+  const allowRowDrag = canReorder && !coarsePointer;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.id,
-    disabled: !canReorder,
+    disabled: !allowRowDrag,
   });
 
   const pinnedCols = columns.filter((c) => pinnedKeys.includes(c.key));
-  let cumulativeLeft = ROW_GUTTER_WIDTH;
+  let cumulativeLeft = gutterWidth;
   const pinnedOffsets = new Map<string, number>();
   pinnedCols.forEach((c) => {
     pinnedOffsets.set(c.key, cumulativeLeft);
@@ -128,6 +131,7 @@ function TableRowInner({
             ? `translateX(${swipe}px)`
             : undefined,
         transition: isDragging ? transition : swipe ? "transform 160ms ease" : undefined,
+        willChange: isDragging || swipe ? "transform" : undefined,
         opacity: isDragging ? 0.5 : 1,
         backgroundColor: statusTint ? `hsl(${statusTint} / 0.08)` : undefined,
       }}
@@ -168,11 +172,11 @@ function TableRowInner({
         onDoubleClick={() => onExpandRow(row.id)}
         title="Двойной клик — открыть строку карточкой"
         className={cn(
-          "table-sticky-col sticky left-0 z-20 select-none border-b border-r border-border/40 bg-background text-center font-mono text-[11px] tabular text-muted-foreground",
+          "table-sticky-col sticky left-0 z-[22] overflow-hidden select-none border-b border-r border-border/40 bg-background text-center font-mono text-[11px] tabular text-muted-foreground",
           !lastStickyKey && "table-sticky-edge",
           isRowFullySelected && "bg-primary/10 font-medium text-primary"
         )}
-        style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}
+        style={{ width: gutterWidth, minWidth: gutterWidth }}
       >
         <div className="relative flex h-full w-full items-center justify-center gap-0.5 px-0.5">
           {!isExpanded && (
@@ -188,6 +192,7 @@ function TableRowInner({
               title="Добавлено недавно"
             />
           )}
+          {allowRowDrag && (
           <button
             {...attributes}
             {...listeners}
@@ -196,6 +201,7 @@ function TableRowInner({
           >
             <GripVertical className="h-3.5 w-3.5" />
           </button>
+          )}
           <Checkbox
             checked={isChecked}
             onClick={(e) => {
@@ -203,10 +209,11 @@ function TableRowInner({
               e.stopPropagation();
               onToggleChecked(row.id, e.shiftKey);
             }}
-            className={cn("h-4 w-4 max-md:h-5 max-md:w-5", !isChecked && "opacity-0 group-hover/row:opacity-100")}
+            className={cn("h-4 w-4 max-md:h-5 max-md:w-5", !isChecked && !coarsePointer && "opacity-0 group-hover/row:opacity-100")}
           />
           <span className="flex min-w-[1.1rem] items-center justify-center text-[11px]">{rowNumber}</span>
-          <DropdownMenu>
+          {!coarsePointer && (
+          <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
@@ -218,7 +225,7 @@ function TableRowInner({
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
+            <DropdownMenuContent align="start" className="z-[80]">
               <DropdownMenuItem onClick={() => onInsertRowAbove?.(row.id)} disabled={!canEdit}>
                 Вставить строку выше
               </DropdownMenuItem>
@@ -244,6 +251,7 @@ function TableRowInner({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          )}
           <div
             onMouseDown={(e) => {
               e.stopPropagation();
@@ -280,6 +288,50 @@ function TableRowInner({
             stickyLeft={stickyLeft}
             isLastSticky={column.key === lastStickyKey}
             isExpanded={expandedColKey === column.key}
+            trailing={
+              coarsePointer && column.key === columns[0]?.key ? (
+                <div className="absolute right-0.5 top-1/2 z-10 -translate-y-1/2">
+                  <DropdownMenu modal={false}>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-background/90 text-muted-foreground"
+                        title="Действия со строкой"
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="z-[80]">
+                      <DropdownMenuItem onClick={() => onInsertRowAbove?.(row.id)} disabled={!canEdit}>
+                        Вставить строку выше
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onInsertRowBelow?.(row.id)} disabled={!canEdit}>
+                        Вставить строку ниже
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onCopyRow?.(row.id)}>
+                        Копировать строку
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onDuplicateRow?.(row.id)} disabled={!canEdit}>
+                        Дублировать
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onCopyDiskUrl?.(row.id)} disabled={!diskUrl}>
+                        <Copy className="h-3.5 w-3.5" /> Копировать ссылку Диск
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => onDeleteRow?.(row.id)}
+                        disabled={!canEdit}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Удалить
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              ) : undefined
+            }
           />
         );
       })}
@@ -343,7 +395,8 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     prev.isExpanded !== next.isExpanded ||
     prev.coarsePointer !== next.coarsePointer ||
     prev.statusTint !== next.statusTint ||
-    prev.expandedColKey !== next.expandedColKey
+    prev.expandedColKey !== next.expandedColKey ||
+    prev.gutterWidth !== next.gutterWidth
   ) {
     return false;
   }

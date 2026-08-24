@@ -1,3 +1,4 @@
+import type { MouseEvent, PointerEvent } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ArrowDown, ArrowUp, Eye, EyeOff, Filter, GripVertical, MoreHorizontal, Palette, Pin, PinOff, Plus } from "lucide-react";
@@ -33,9 +34,9 @@ interface ColumnHeaderCellProps {
   column: PageColumn;
   sortState: SortState;
   onSort: (colKey: string) => void;
-  onFilterClick: (colKey: string, e: React.MouseEvent) => void;
+  onFilterClick: (colKey: string, e: MouseEvent) => void;
   hasActiveFilter: boolean;
-  onResizeStart: (colKey: string, e: React.PointerEvent) => void;
+  onResizeStart: (colKey: string, e: PointerEvent) => void;
   onAutoSize?: (colKey: string) => void;
   isPinned: boolean;
   onTogglePin: (colKey: string) => void;
@@ -53,6 +54,8 @@ interface ColumnHeaderCellProps {
   onToggleHidden?: (colKey: string) => void;
   onSelectColumn?: (colKey: string, extend: boolean) => void;
   isColumnSelected?: boolean;
+  /** Phone: one ⋯ menu, no drag handle, no second ellipsis in the label. */
+  compactChrome?: boolean;
 }
 
 export function ColumnHeaderCell({
@@ -78,6 +81,7 @@ export function ColumnHeaderCell({
   onToggleHidden,
   onSelectColumn,
   isColumnSelected,
+  compactChrome,
 }: ColumnHeaderCellProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: column.id,
@@ -105,6 +109,10 @@ export function ColumnHeaderCell({
   }
 
   const isSorted = sortState.colKey === column.key;
+  const hasLabel = Boolean(column.label?.trim());
+  const showColumnMenu = Boolean(canEditStructure) && hasLabel;
+  const pinInMenu = showColumnMenu && compactChrome;
+  const filterInMenu = showColumnMenu && compactChrome;
 
   return (
     <ContextMenu>
@@ -127,8 +135,8 @@ export function ColumnHeaderCell({
             isColumnSelected && "bg-primary/10"
           )}
         >
-          <div className="flex h-11 items-center gap-1 sm:h-9">
-            {canReorder && (
+          <div className="flex h-11 min-w-0 items-center gap-0.5 overflow-hidden sm:h-9">
+            {canReorder && !compactChrome && (
               <button
                 {...attributes}
                 {...listeners}
@@ -151,9 +159,9 @@ export function ColumnHeaderCell({
               onMouseDown={(e) => {
                 if (e.ctrlKey || e.metaKey) e.preventDefault();
               }}
-              className="flex min-h-11 min-w-0 flex-1 items-center gap-1 truncate py-1.5 text-left hover:text-foreground active:translate-y-px active:scale-[0.99] motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 sm:min-h-0 sm:py-0"
+              className="flex min-h-11 min-w-0 flex-1 items-center gap-1 overflow-hidden py-1.5 text-left hover:text-foreground active:translate-y-px active:scale-[0.99] motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 sm:min-h-0 sm:py-0"
             >
-              <span className="truncate">{column.label}</span>
+              <span className={cn("min-w-0 flex-1 overflow-hidden whitespace-nowrap", !showColumnMenu && "truncate")}>{column.label}</span>
               {isSorted && sortState.direction === "desc" ? (
                 <ArrowDown className="h-3.5 w-3.5 shrink-0 text-foreground" />
               ) : (
@@ -165,6 +173,7 @@ export function ColumnHeaderCell({
                 />
               )}
             </button>
+            {!pinInMenu && hasLabel && (
             <button
               type="button"
               onClick={() => onTogglePin(column.key)}
@@ -176,8 +185,9 @@ export function ColumnHeaderCell({
             >
               {isPinned ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
             </button>
-            {canEditStructure && (
-              <DropdownMenu>
+            )}
+            {showColumnMenu && (
+              <DropdownMenu modal={false}>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
@@ -188,8 +198,13 @@ export function ColumnHeaderCell({
                     <MoreHorizontal className="h-3.5 w-3.5" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="end" className="z-[80]">
                   <DropdownMenuItem onClick={() => onTogglePin(column.key)}>{pinLabel}</DropdownMenuItem>
+                  {filterInMenu && (
+                    <DropdownMenuItem onClick={(e) => onFilterClick(column.key, e as unknown as MouseEvent)}>
+                      Фильтр
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => onRename?.(column.key)}>Переименовать</DropdownMenuItem>
                   <DropdownMenuSub>
@@ -233,6 +248,7 @@ export function ColumnHeaderCell({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
+            {!filterInMenu && hasLabel && (
             <button
               type="button"
               onClick={(e) => onFilterClick(column.key, e)}
@@ -244,6 +260,7 @@ export function ColumnHeaderCell({
             >
               <Filter className="h-3 w-3" />
             </button>
+            )}
           </div>
           <div
             onPointerDown={(e) => {

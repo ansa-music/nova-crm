@@ -29,7 +29,7 @@ export function StatusBadge({ value, options, className, showTick }: StatusBadge
   return (
     <span
       className={cn(
-        "status-pill inline-flex max-w-full items-center gap-1.5 truncate rounded-full border px-2.5 py-[3px] text-[11px] font-medium",
+        "status-pill inline-flex min-w-0 max-w-full items-center gap-1.5 overflow-hidden truncate rounded-full border px-2.5 py-[3px] text-[11px] font-medium",
         className
       )}
       style={{

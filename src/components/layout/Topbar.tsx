@@ -13,7 +13,7 @@ export function Topbar({ title }: { title?: string }) {
   if (!isCompactNav) return null;
 
   return (
-    <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-1.5 border-b border-border bg-background px-3">
+    <header className={`sticky top-0 flex h-12 shrink-0 items-center gap-1.5 border-b border-border bg-background px-3 ${mobileNavOpen ? "z-[220]" : "z-30"}`}>
       <Button
         type="button"
         variant="ghost"
@@ -21,9 +21,10 @@ export function Topbar({ title }: { title?: string }) {
         className="min-h-10 min-w-10"
         title="Меню"
         aria-label="Меню"
+        aria-expanded={mobileNavOpen}
         onClick={(e) => {
           e.stopPropagation();
-          setMobileNavOpen(true);
+          setMobileNavOpen((open) => !open);
         }}
       >
         <Menu className="h-4 w-4" />

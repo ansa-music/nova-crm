@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CalendarDays } from "lucide-react";
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { DiskLinkChip } from "@/components/table/DiskLinkChip";
@@ -32,6 +32,7 @@ interface TableCellProps {
   stickyLeft?: number;
   isLastSticky?: boolean;
   isExpanded?: boolean;
+  trailing?: ReactNode;
 }
 
 export function TableCell({
@@ -54,6 +55,7 @@ export function TableCell({
   stickyLeft,
   isLastSticky,
   isExpanded,
+  trailing,
 }: TableCellProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
@@ -134,8 +136,8 @@ export function TableCell({
   return (
     <td
       className={cn(
-        "relative select-none border-b border-r border-border/35 p-0 align-middle",
-        stickyLeft !== undefined && "table-sticky-col sticky z-[15] bg-background",
+        "relative min-w-0 overflow-hidden select-none border-b border-r border-border/35 p-0 align-middle",
+        stickyLeft !== undefined && "table-sticky-col sticky z-[20] bg-background",
         isLastSticky && "table-sticky-edge",
         isInRange && !isEditing && "bg-primary/[0.07]",
         isActive && !isEditing && "z-10 shadow-[inset_0_0_0_2px_hsl(var(--primary)/0.7)]"
@@ -159,7 +161,7 @@ export function TableCell({
           disabled={!canEdit}
         >
           <SelectTrigger
-            className="table-status-trigger h-full min-h-11 w-full rounded-none border-0 bg-transparent px-2 shadow-none focus:ring-0 sm:min-h-[32px] [&>svg]:hidden"
+            className="table-status-trigger h-full min-h-11 w-full min-w-0 max-w-full overflow-hidden rounded-none border-0 bg-transparent px-2 shadow-none focus:ring-0 sm:min-h-[32px] [&>svg]:hidden"
             onDoubleClick={(e) => {
               if (!canEdit || column.type !== "status" || !onMarkDone) return;
               e.preventDefault();
@@ -309,6 +311,7 @@ export function TableCell({
           {showFull ? <span className="whitespace-pre-wrap break-words text-sm">{stringValue}</span> : renderDisplay()}
         </div>
       )}
+      {trailing}
     </td>
   );
 }

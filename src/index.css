@@ -539,11 +539,8 @@
     box-shadow: 0 0 0 1px hsl(var(--primary) / 0.08);
     transform: none;
   }
-  .table-instrument,
-  .table-instrument tbody tr,
-  .table-instrument tbody td {
-    transform: none !important;
-    perspective: none !important;
+  .table-instrument tbody td:not(.table-sticky-col) {
+    perspective: none;
   }
 }
 
@@ -567,6 +564,15 @@
 .table-sticky-col {
   position: sticky;
   background-color: hsl(var(--background));
+  background-clip: padding-box;
+  isolation: isolate;
+}
+.table-instrument tbody td {
+  overflow: hidden;
+}
+.table-instrument tfoot td {
+  overflow: visible;
+  white-space: normal;
 }
 .table-sticky-edge {
   box-shadow: 8px 0 12px -10px hsl(24 24% 10% / 0.35);
