@@ -3,7 +3,9 @@ import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
 import { GripVertical } from "lucide-react";
 import { TableCell } from "@/components/table/TableCell";
+import { RowFilesCell } from "@/components/table/RowFilesCell";
 import { rowCardLayoutId } from "@/components/table/RowCardSheet";
+import type { RowAttachmentTarget } from "@/services/rowAttachmentService";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/utils/cn";
 import type { CellAddress, PageColumn, PageRow } from "@/types";
@@ -37,6 +39,7 @@ interface TableRowProps {
   onContextMenuOpen: (rowId: string) => void;
   onExpandRow: (rowId: string) => void;
   isExpanded?: boolean;
+  attachmentTarget: RowAttachmentTarget;
 }
 
 export function TableRow({
@@ -66,6 +69,7 @@ export function TableRow({
   onContextMenuOpen,
   onExpandRow,
   isExpanded,
+  attachmentTarget,
 }: TableRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.id,
@@ -169,6 +173,11 @@ export function TableRow({
           />
         );
       })}
+      <RowFilesCell
+        attachments={row.attachments}
+        target={attachmentTarget}
+        canEdit={canEdit}
+      />
     </tr>
   );
 }

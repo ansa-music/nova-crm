@@ -114,10 +114,22 @@ export interface WorkspacePage {
   isDashboard?: boolean;
 }
 
+export interface RowAttachment {
+  id: string;
+  name: string;
+  mime: string;
+  size: number;
+  path: string;
+  publicUrl: string;
+  createdAt: number;
+}
+
 export interface PageRow {
   id: string;
   pageId: string;
   cells: Record<string, string | number | null>;
+  /** Optional file list. Never stored inside cells. */
+  attachments?: RowAttachment[];
   order: number;
   height?: number;
   createdAt: number;

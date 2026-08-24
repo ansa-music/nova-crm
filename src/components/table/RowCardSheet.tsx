@@ -2,9 +2,11 @@ import { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { StatusBadge } from "@/components/table/StatusBadge";
+import { RowAttachmentsPanel } from "@/components/table/RowFilesCell";
 import { formatCurrency } from "@/utils/format";
 import { formatDate } from "@/utils/date";
 import { isOptionColumn } from "@/utils/columnOptions";
+import type { RowAttachmentTarget } from "@/services/rowAttachmentService";
 import type { PageColumn, PageRow } from "@/types";
 
 export function rowCardLayoutId(rowId: string) {
@@ -16,13 +18,22 @@ interface RowCardSheetProps {
   onOpenChange: (open: boolean) => void;
   columns: PageColumn[];
   row: PageRow | null;
+  canEdit?: boolean;
+  attachmentTarget?: RowAttachmentTarget | null;
 }
 
 function isTitleColumn(col: PageColumn) {
   return col.type === "text" || col.type === "email" || col.type === "phone";
 }
 
-export function RowCardSheet({ open, onOpenChange, columns, row }: RowCardSheetProps) {
+export function RowCardSheet({
+  open,
+  onOpenChange,
+  columns,
+  row,
+  canEdit = false,
+  attachmentTarget = null,
+}: RowCardSheetProps) {
   useEffect(() => {
     if (!open) return;
     function onKeyDown(e: KeyboardEvent) {
@@ -86,7 +97,7 @@ export function RowCardSheet({ open, onOpenChange, columns, row }: RowCardSheetP
               layoutId={rowCardLayoutId(record.id)}
               role="dialog"
               aria-modal="true"
-              className="glass-float pointer-events-auto flex max-h-[88vh] w-full max-w-md flex-col overflow-hidden rounded-[24px]"
+              className="glass-float pointer-events-auto flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-[24px]"
               transition={{ type: "spring", stiffness: 400, damping: 30 }}
             >
               <div className="border-b border-white/10 px-6 py-6 text-left">
@@ -114,20 +125,29 @@ export function RowCardSheet({ open, onOpenChange, columns, row }: RowCardSheetP
                   )}
                 </div>
               </div>
-              <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-6 py-5 scrollbar-thin">
-                {rest.length > 0 && (
-                  <div>
-                    <p className="eyebrow mb-3">Поля</p>
-                    <div className="flex flex-col">
-                      {rest.map((col) => (
-                        <div key={col.id} className="flex items-start justify-between gap-4 border-t border-border/50 py-3">
-                          <p className="shrink-0 pt-0.5 text-[12px] text-muted-foreground">{col.label}</p>
-                          <div className="min-w-0 text-right">{renderValue(col)}</div>
-                        </div>
-                      ))}
+              <div className="grid min-h-0 flex-1 overflow-hidden md:grid-cols-[1fr_280px]">
+                <div className="flex flex-col gap-5 overflow-y-auto px-6 py-5 scrollbar-thin">
+                  {rest.length > 0 && (
+                    <div>
+                      <p className="eyebrow mb-3">Поля</p>
+                      <div className="flex flex-col">
+                        {rest.map((col) => (
+                          <div key={col.id} className="flex items-start justify-between gap-4 border-t border-border/50 py-3">
+                            <p className="shrink-0 pt-0.5 text-[12px] text-muted-foreground">{col.label}</p>
+                            <div className="min-w-0 text-right">{renderValue(col)}</div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
+                <div className="border-t border-white/10 px-5 py-5 md:border-l md:border-t-0 overflow-y-auto scrollbar-thin">
+                  <RowAttachmentsPanel
+                    attachments={record.attachments}
+                    target={attachmentTarget}
+                    canEdit={canEdit}
+                  />
+                </div>
               </div>
             </motion.div>
           </div>

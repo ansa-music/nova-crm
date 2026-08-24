@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/context-menu";
 import { ColumnHeaderCell } from "@/components/table/ColumnHeaderCell";
 import { TableRow, ROW_GUTTER_WIDTH } from "@/components/table/TableRow";
+import { ROW_FILES_COLUMN_WIDTH } from "@/components/table/RowFilesCell";
 import { GroupHeaderRow } from "@/components/table/GroupHeaderRow";
 import { TableToolbar } from "@/components/table/TableToolbar";
 import { KanbanView } from "@/components/table/KanbanView";
@@ -1264,6 +1265,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onContextMenuOpen={handleContextMenuOpen}
         onExpandRow={setExpandedRowId}
         isExpanded={expandedRowId === row.id}
+        attachmentTarget={{
+          workspaceId,
+          pageId: page.id,
+          rowId: row.id,
+          subPageId,
+        }}
       />
     );
   }
@@ -1353,6 +1360,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                     />
                   ))}
                 </SortableContext>
+                <th
+                  className="sticky top-0 z-20 border-b border-border/50 bg-background/90 px-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground backdrop-blur-md"
+                  style={{ width: ROW_FILES_COLUMN_WIDTH, minWidth: ROW_FILES_COLUMN_WIDTH }}
+                >
+                  Файлы
+                </th>
               </tr>
             </thead>
             <ContextMenu>
@@ -1366,7 +1379,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                           <GroupHeaderRow
                             label={label}
                             count={groupRows.length}
-                            colSpan={columns.length}
+                            colSpan={columns.length + 1}
                             collapsed={collapsed}
                             color={groups.col?.statusOptions?.find((o) => o.label === label)?.color}
                             onToggle={() =>
@@ -1386,7 +1399,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                     <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
                       {paddingTop > 0 && (
                         <tr>
-                          <td colSpan={columns.length + 1} style={{ height: paddingTop }} />
+                          <td colSpan={columns.length + 2} style={{ height: paddingTop }} />
                         </tr>
                       )}
                       {virtualItems.map((virtualRow) => {
@@ -1396,14 +1409,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       })}
                       {paddingBottom > 0 && (
                         <tr>
-                          <td colSpan={columns.length + 1} style={{ height: paddingBottom }} />
+                          <td colSpan={columns.length + 2} style={{ height: paddingBottom }} />
                         </tr>
                       )}
                     </SortableContext>
                   )}
                   {processedRows.length === 0 && (
                     <tr>
-                      <td colSpan={columns.length + 1}>
+                      <td colSpan={columns.length + 2}>
                         {rows.length === 0 ? (
                           <EmptyState
                             eyebrow="Новая таблица"
@@ -1553,6 +1566,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onOpenChange={(o) => !o && setExpandedRowId(null)}
         columns={displayColumns}
         row={rows.find((r) => r.id === expandedRowId) ?? null}
+        canEdit={canEdit}
+        attachmentTarget={
+          expandedRowId
+            ? { workspaceId, pageId: page.id, rowId: expandedRowId, subPageId }
+            : null
+        }
       />
 
       <BulkActionBar
