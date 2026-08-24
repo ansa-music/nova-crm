@@ -29,7 +29,7 @@ interface MemberAvatarProps {
 
 export function MemberAvatar({ id, name, nickname, photoURL, className }: MemberAvatarProps) {
   const label = displayNameOf({ name, nickname });
-  const hue = hueFromId(id);
+  const hue = hueFromId(id || "unknown");
   return (
     <Avatar className={cn("h-8 w-8", className)}>
       {photoURL && <AvatarImage src={photoURL} alt={label} />}
