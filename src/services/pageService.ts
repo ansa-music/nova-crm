@@ -8,6 +8,7 @@ import {
   setDoc,
   where,
   writeBatch,
+  type Query,
 } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, subscribe, withErrorReporting } from "@/firebase/firestore";
@@ -47,15 +48,20 @@ export function stripUndefined<T>(value: T): T {
 // ---------------------------------------------------------------------------
 
 /**
- * `isOwner` bypasses the per-doc `allowedUsers` check entirely, so a plain
- * unfiltered list is safe for the Owner (rule evaluation doesn't depend on
- * resource.data at all for them). For everyone else, Firestore CANNOT
- * validate an unfiltered list query against a per-document rule condition
- * like "uid in allowedUsers" — that combination is always denied outright,
- * regardless of whether the data itself would actually pass. The fix is to
- * make the query itself carry the same condition the rule checks, via an
- * explicit `where("allowedUsers", "array-contains", uid)` — then Firestore
- * can prove every possible result already satisfies the rule.
+ * Pages list. Do not orderBy("order") — that drops docs missing the field
+ * and then looks like «Страница недоступна» for the person whose desk it is.
+ *
+ * Live rules (when deployed) let any member read desk metadata, so the
+ * unfiltered collection query is the intended query. CI only deploys
+ * hosting, so live rules may still be `canAccessPage` — Firestore then
+ * DENIES the unfiltered list for non-owners (it cannot prove a per-doc
+ * ACL for a list query). That is the «Нет доступа к части данных» toast
+ * and empty Home for Технар.
+ *
+ * If the unfiltered list is denied, fall back to
+ * where("allowedUsers","array-contains",uid) — the query Firestore can
+ * prove against canAccessPage. Owner always uses the unfiltered list
+ * (isOwner does not depend on resource.data). One active onSnapshot.
  */
 export function subscribeToPages(
   workspaceId: string,
@@ -64,53 +70,67 @@ export function subscribeToPages(
   currentUserUid?: string,
   isOwnerOfWorkspace?: boolean
 ) {
-  void currentUserUid;
-  void isOwnerOfWorkspace;
-  // Unfiltered list (rules: any member may read desk metadata). Do not
-  // orderBy("order") — that drops docs missing the field, which then looks
-  // like «Страница недоступна» for the person whose desk it is.
-  const q = query(paths.pages(workspaceId));
+  const unfiltered = query(paths.pages(workspaceId));
+  const fallbacks: Query[] = [];
+  if (currentUserUid && !isOwnerOfWorkspace) {
+    // Matches live canAccessPage (uid in allowedUsers). Hide-desk and
+    // setPageResponsible keep the responsible person on allowedUsers, so
+    // this still returns their own desk when the unfiltered list is denied.
+    fallbacks.push(
+      query(paths.pages(workspaceId), where("allowedUsers", "array-contains", currentUserUid))
+    );
+  }
 
   let cancelled = false;
   let emittedOnce = false;
   let pendingEmptyCacheTimer: ReturnType<typeof setTimeout> | null = null;
+  let unsubscribe: (() => void) | null = null;
+  const report = withErrorReporting(onError);
 
-  const unsubscribe = onSnapshot(
-    q,
-    (snapshot) => {
+  const handleSnap = (snapshot: { docs: { id: string; data: () => object }[]; metadata: { fromCache: boolean } }) => {
+    if (cancelled) return;
+    const pages = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as WorkspacePage);
+
+    if (pendingEmptyCacheTimer) {
+      clearTimeout(pendingEmptyCacheTimer);
+      pendingEmptyCacheTimer = null;
+    }
+
+    // Fresh navigation can surface a stale empty cache before the server
+    // snapshot. Do not flash "Access denied"/empty Home in that window.
+    if (snapshot.metadata.fromCache && pages.length === 0 && !emittedOnce) {
+      pendingEmptyCacheTimer = setTimeout(() => {
+        if (!cancelled) {
+          emittedOnce = true;
+          onData([]);
+        }
+      }, 1200);
+      return;
+    }
+
+    emittedOnce = true;
+    onData([...pages].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
+  };
+
+  function attach(next: Query, rest: Query[]) {
+    unsubscribe = onSnapshot(next, handleSnap, (error) => {
       if (cancelled) return;
-      const pages = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as WorkspacePage);
-
-      if (pendingEmptyCacheTimer) {
-        clearTimeout(pendingEmptyCacheTimer);
-        pendingEmptyCacheTimer = null;
-      }
-
-      // Same class of fix as the workspace list: a fresh navigation/reload
-      // can surface a stale, empty local cache (e.g. right after gaining
-      // page access) before the real server snapshot arrives. Give the
-      // server a brief window rather than flashing "Access denied"/an empty
-      // page and requiring a manual reload to fix it.
-      if (snapshot.metadata.fromCache && pages.length === 0 && !emittedOnce) {
-        pendingEmptyCacheTimer = setTimeout(() => {
-          if (!cancelled) {
-            emittedOnce = true;
-            onData([]);
-          }
-        }, 1200);
+      if ((error.code === "permission-denied" || error.code === "failed-precondition") && rest.length > 0) {
+        console.warn("subscribeToPages: list denied by rules, retrying scoped query");
+        unsubscribe?.();
+        attach(rest[0], rest.slice(1));
         return;
       }
+      report(error);
+    });
+  }
 
-      emittedOnce = true;
-      onData([...pages].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
-    },
-    withErrorReporting(onError)
-  );
+  attach(unfiltered, fallbacks);
 
   return () => {
     cancelled = true;
     if (pendingEmptyCacheTimer) clearTimeout(pendingEmptyCacheTimer);
-    unsubscribe();
+    unsubscribe?.();
   };
 }
 

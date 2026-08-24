@@ -39,7 +39,17 @@ export function subscribeToOwnMember(
       emittedOnce = true;
       onData(snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as unknown as WorkspaceMember) : null);
     },
-    withErrorReporting(onError)
+    (error) => {
+      if (cancelled) return;
+      // Missing members/{uid} is permission-denied under older rules (get of a
+      // non-existent doc). Do not toast — treat as "no own member row" so
+      // fetchMembers roster can still resolve the role.
+      if (error.code === "permission-denied") {
+        onData(null);
+        return;
+      }
+      withErrorReporting(onError)(error);
+    }
   );
 
   return () => {

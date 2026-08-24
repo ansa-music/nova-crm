@@ -122,7 +122,11 @@ service cloud.firestore {
         // is NOT yet a member may still read the one pending-invite doc
         // that matches their own email — otherwise claimPendingInvites()
         // could never find its own invite to accept (chicken-and-egg).
+        // Own uid-keyed member doc is always readable by that user, even when
+        // the doc does not exist (otherwise a missing members/{uid} get is
+        // permission-denied and the app toasts «Нет доступа к части данных»).
         allow read: if isMember(workspaceId) ||
+          (signedIn() && memberId == request.auth.uid) ||
           (signedIn() && memberId == request.auth.token.email && resource.data.status == 'invited');
 
         // Self-service: a member may update just their own nickname,
@@ -224,8 +228,12 @@ service cloud.firestore {
       }
 
       match /pages/{pageId} {
-        // Members may list desk metadata (name/cover/hidden). Row data still
-        // uses canAccessPage below — hidden desks are visible, not openable.
+        // MUST stay isMember (not canAccessPage). The client lists this
+        // collection unfiltered so every member can see desk covers / hidden
+        // desks. canAccessPage depends on resource.data, so an unfiltered
+        // list is always permission-denied for non-owners — Технар then lose
+        // their own desk and get «Нет доступа к части данных».
+        // Row data still uses canAccessPage below.
         allow read: if isMember(workspaceId);
 
         // Owner always. Admin/Manager may also create a page, but ONLY as
