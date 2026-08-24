@@ -12,6 +12,7 @@ import { StatusChart } from "@/components/dashboard/StatusChart";
 import { DeskChart, GoalVsDoneChart } from "@/components/dashboard/DeskChart";
 import { DeskPointerGlow } from "@/components/dashboard/DeskPointerGlow";
 import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
+import { DeskCard } from "@/components/dashboard/DeskCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -271,7 +272,7 @@ export default function DashboardPage() {
       ) {
         return;
       }
-      const nodes = deskRef.current?.querySelectorAll(".desk-row, .desk-attention, .desk-home, .desk-chart");
+      const nodes = deskRef.current?.querySelectorAll(".desk-card, .desk-row, .desk-attention, .desk-home, .desk-chart");
       if (!nodes?.length) return;
       gsap.fromTo(nodes, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.32, stagger: 0.05, ease: deskEase });
     },
@@ -286,15 +287,17 @@ export default function DashboardPage() {
           <Skeleton className="mb-2 h-9 w-56" />
           <Skeleton className="h-4 w-80" />
         </div>
-        <div className="desk-cluster">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-3 border-t border-border/50 px-5 py-4 first:border-t-0">
-              <Skeleton className="h-9 w-9 rounded-full" />
-              <div className="flex-1">
-                <Skeleton className="mb-1.5 h-3.5 w-32" />
-                <Skeleton className="h-3 w-48" />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="overflow-hidden rounded-xl border border-primary/20 bg-card">
+              <Skeleton className="aspect-video w-full rounded-none" />
+              <div className="flex items-center gap-3 p-4">
+                <Skeleton className="h-10 w-10 rounded-full" />
+                <div className="flex-1">
+                  <Skeleton className="mb-1.5 h-3.5 w-28" />
+                  <Skeleton className="h-3 w-20" />
+                </div>
               </div>
-              <Skeleton className="h-4 w-16" />
             </div>
           ))}
         </div>
@@ -489,99 +492,40 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="desk-cluster hud-frame lift-card mb-6">
-        <div className="flex items-baseline justify-between gap-3 px-5 py-4">
-          <div>
-            <p className="eyebrow text-primary">Столы</p>
-            <p className="mt-1 text-sm text-muted-foreground">Лист и человек, который ведёт на нём своё дело.</p>
-          </div>
+      <section className="mb-6">
+        <div className="mb-4 flex items-baseline justify-between gap-3">
+          <p className="eyebrow text-primary">Столы</p>
           <span className="font-mono text-[11px] tabular text-muted-foreground">{deskProgress.length}</span>
         </div>
         {deskProgress.length === 0 ? (
-          <p className="border-t border-border/60 px-5 py-8 text-sm text-muted-foreground">Пока нет листов.</p>
+          <p className="rounded-xl border border-primary/25 bg-card/80 px-5 py-8 text-sm text-muted-foreground">
+            Пока нет листов.
+          </p>
         ) : (
-          <div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             {deskProgress.map((desk) => {
-              const member = members.find((m) => m.uid === desk.page.responsibleUserId);
+              const member = members.find((m) => m.uid === desk.page.responsibleUserId) ?? null;
               const who = personLabel(member);
               const empty = !desk.page.responsibleUserId || !member;
               return (
-                <Link
+                <DeskCard
                   key={desk.page.id}
-                  to={`/page/${desk.page.id}`}
-                  className={cn("desk-row", highlightedDeskId === desk.page.id && "desk-row-active")}
-                  onMouseEnter={() => setHighlightedDeskId(desk.page.id)}
-                  onMouseLeave={() => setHighlightedDeskId(null)}
-                >
-                  <DeskCoverStrip
-                    coverUrl={desk.page.coverUrl}
-                    name={desk.page.name}
-                    compact
-                    className="-mx-4 -mt-4 mb-1 sm:-mx-5"
-                  />
-                  <div className="flex min-w-0 items-center gap-3 sm:flex-1">
-                    {empty ? (
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-[10px] text-muted-foreground">
-                        —
-                      </div>
-                    ) : (
-                      <MemberAvatar
-                        id={member.uid}
-                        name={member.name}
-                        nickname={member.nickname}
-                        photoURL={member.photoURL}
-                        className="h-9 w-9 shrink-0"
-                      />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{empty ? "пока без человека" : who}</p>
-                      <p className="block truncate text-[13px] text-muted-foreground">
-                        {desk.page.name}
-                      </p>
-                      {member?.lastActiveAt ? (
-                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground sm:hidden">
-                          заходил {timeAgo(member.lastActiveAt)}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="grid w-full min-w-0 grid-cols-3 gap-2 sm:w-auto sm:shrink-0 sm:gap-7">
-                    <div className="min-w-0 text-left sm:text-right">
-                      <p className="eyebrow">Готово</p>
-                      <p className="break-words font-mono text-[12px] tabular text-success sm:text-sm">{formatCurrency(desk.doneTotal)}</p>
-                    </div>
-                    <div className="min-w-0 text-left sm:text-right">
-                      <p className="eyebrow">Общий</p>
-                      <p className="break-words font-mono text-[12px] tabular sm:text-sm">{formatCurrency(desk.grandTotal)}</p>
-                    </div>
-                    <div className="min-w-0 text-left sm:text-right">
-                      <p className="eyebrow">%</p>
-                      <p className="font-mono text-[12px] tabular sm:text-sm">{desk.percent}</p>
-                    </div>
-                  </div>
-                  <p className="hidden w-36 shrink-0 text-right text-[11px] text-muted-foreground sm:block">
-                    {member?.lastActiveAt ? `заходил ${timeAgo(member.lastActiveAt)}` : " "}
-                  </p>
-                  {permissions.canManagePage(desk.page) && (
-                    <button
-                      type="button"
-                      title="Настроить стол"
-                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-primary/30 text-muted-foreground hover:text-primary"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setStudioPageId(desk.page.id);
-                      }}
-                    >
-                      <Settings2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </Link>
+                  page={desk.page}
+                  title={empty ? desk.page.name : who || desk.page.name}
+                  member={empty ? null : member}
+                  doneTotal={desk.doneTotal}
+                  percent={desk.percent}
+                  openCount={desk.openCount}
+                  highlighted={highlightedDeskId === desk.page.id}
+                  canManage={permissions.canManagePage(desk.page)}
+                  onCustomize={() => setStudioPageId(desk.page.id)}
+                  onHover={setHighlightedDeskId}
+                />
               );
             })}
           </div>
         )}
-      </div>
+      </section>
 
       <div className="mb-6">{leaderboard}</div>
 
@@ -716,7 +660,7 @@ function MyProgressCard({
 
   return (
     <Card className="hud-frame lift-card overflow-hidden border-primary/35 bg-card/92">
-      <DeskCoverStrip coverUrl={page.coverUrl} name={page.name} />
+      <DeskCoverStrip coverUrl={page.coverUrl} name={page.name} ratio="video" />
       <CardContent className={large ? "p-6" : "p-4"}>
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -731,8 +675,9 @@ function MyProgressCard({
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {onCustomize && (
-              <Button variant="ghost" size="icon" className="h-8 w-8" title="Настроить стол" onClick={onCustomize}>
+              <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={onCustomize}>
                 <Settings2 className="h-3.5 w-3.5" />
+                Настроить стол
               </Button>
             )}
             <Button variant="ghost" size="icon" className="h-8 w-8" title="Скачать мой отчёт (CSV)" onClick={handleExport}>

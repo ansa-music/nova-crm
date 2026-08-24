@@ -278,6 +278,33 @@
       0 0 22px hsl(var(--primary) / 0.38);
   }
 
+  .desk-card {
+    @apply relative flex h-full flex-col overflow-hidden rounded-xl border text-inherit no-underline;
+    color: inherit;
+    text-decoration: none;
+    cursor: pointer;
+    background: #0b0f19;
+    border-color: hsl(189 40% 22% / 0.9);
+    box-shadow: 0 0 0 1px hsl(189 100% 72% / 0.08);
+    transition:
+      box-shadow var(--duration-fast) var(--ease-out),
+      border-color var(--duration-fast) var(--ease-out),
+      transform var(--duration-fast) var(--ease-out);
+  }
+  .desk-card:active {
+    transform: scale(0.992);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .desk-card:hover,
+    .desk-card-active {
+      border-color: #6ee7ff;
+      box-shadow:
+        0 0 0 1px #6ee7ff,
+        0 0 22px hsl(189 100% 72% / 0.55),
+        0 0 48px hsl(189 100% 72% / 0.28);
+    }
+  }
+
   .command-item {
     @apply flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-[13px];
     transition: background-color var(--duration-fast) var(--ease-out);
@@ -502,6 +529,7 @@
     animation: none !important;
   }
   .desk-row,
+  .desk-card,
   .desk-cluster,
   .lift-card {
     transition: none !important;
@@ -541,5 +569,58 @@
   .desk-row:hover,
   .desk-row:active {
     transform: none;
+  }
+  .desk-card:hover,
+  .desk-card-active {
+    border-color: hsl(189 40% 22% / 0.9);
+    box-shadow: 0 0 0 1px hsl(189 100% 72% / 0.08);
+    transform: none;
+  }
+}
+
+.status-pill {
+  position: relative;
+}
+
+.table-instrument {
+  min-width: 100%;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .table-instrument tbody tr.table-data-row:hover td {
+    background-color: hsl(var(--primary) / 0.07);
+    box-shadow: inset 0 -1.5px 0 hsl(var(--primary) / 0.88);
+  }
+  .status-pill {
+    box-shadow:
+      0 1px 0 hsl(0 0% 100% / 0.05),
+      0 0 0 1px hsl(var(--primary) / 0.06);
+    transition: transform 160ms var(--ease-out), filter 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+  }
+  .status-pill:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.08);
+    box-shadow: 0 0 10px hsl(var(--primary) / 0.22);
+  }
+  .status-pill:active {
+    transform: translateY(0) scale(0.98);
+  }
+}
+
+@media (max-width: 767px), (hover: none), (pointer: coarse) {
+  .table-instrument tbody tr:hover td {
+    background-color: transparent;
+    box-shadow: none;
+  }
+  .status-pill {
+    min-height: 28px;
+    padding: 5px 11px;
+    font-size: 12px;
+  }
+  .status-tick {
+    display: none;
+  }
+  .table-status-trigger {
+    min-height: 44px;
   }
 }

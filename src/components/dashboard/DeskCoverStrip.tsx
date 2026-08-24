@@ -13,9 +13,10 @@ interface DeskCoverStripProps {
   name: string;
   className?: string;
   compact?: boolean;
+  ratio?: "video" | "strip";
 }
 
-export function DeskCoverStrip({ coverUrl, name, className, compact }: DeskCoverStripProps) {
+export function DeskCoverStrip({ coverUrl, name, className, compact, ratio }: DeskCoverStripProps) {
   const [broken, setBroken] = useState(false);
 
   useEffect(() => {
@@ -23,12 +24,13 @@ export function DeskCoverStrip({ coverUrl, name, className, compact }: DeskCover
   }, [coverUrl]);
 
   const showPhoto = Boolean(coverUrl) && !broken;
+  const wide = ratio === "video" || (!compact && ratio !== "strip");
 
   return (
     <div
       className={cn(
-        "relative w-full overflow-hidden border-b border-primary/30 bg-primary/5",
-        compact ? "h-16" : "h-24 sm:h-28",
+        "relative w-full overflow-hidden border-b border-primary/30 bg-[#0B0F19]",
+        wide ? "aspect-video" : compact ? "h-16" : "h-24 sm:h-28",
         className
       )}
     >
@@ -45,17 +47,17 @@ export function DeskCoverStrip({ coverUrl, name, className, compact }: DeskCover
           aria-hidden
           style={{
             backgroundImage: [
-              "linear-gradient(180deg, hsl(var(--primary) / 0.12), hsl(var(--background) / 0.55))",
-              "repeating-linear-gradient(90deg, hsl(var(--primary) / 0.08) 0 1px, transparent 1px 18px)",
-              "repeating-linear-gradient(0deg, hsl(var(--primary) / 0.08) 0 1px, transparent 1px 18px)",
+              "linear-gradient(180deg, hsl(189 100% 72% / 0.16), #0B0F19 78%)",
+              "repeating-linear-gradient(90deg, hsl(189 100% 72% / 0.1) 0 1px, transparent 1px 22px)",
+              "repeating-linear-gradient(0deg, hsl(189 100% 72% / 0.08) 0 1px, transparent 1px 22px)",
             ].join(", "),
           }}
         >
-          <span className="pointer-events-none font-mono text-lg tracking-[0.28em] text-primary/70 sm:text-xl">
+          <span className="pointer-events-none font-mono text-2xl tracking-[0.32em] text-primary/75 sm:text-3xl">
             {deskInitials(name)}
           </span>
-          <span className="pointer-events-none absolute inset-x-3 top-2 h-px bg-primary/35" />
-          <span className="pointer-events-none absolute inset-x-3 bottom-2 h-px bg-primary/25" />
+          <span className="pointer-events-none absolute inset-x-4 top-3 h-px bg-primary/40" />
+          <span className="pointer-events-none absolute inset-x-4 bottom-3 h-px bg-primary/25" />
         </div>
       )}
     </div>
