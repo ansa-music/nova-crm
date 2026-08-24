@@ -263,7 +263,14 @@ export default function DashboardPage() {
   const deskRef = useRef<HTMLDivElement>(null);
   useGSAP(
     () => {
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      // Phones / touch: no stagger enter — CSS already calms HUD overlays.
+      if (
+        window.matchMedia(
+          "(prefers-reduced-motion: reduce), (hover: none), (pointer: coarse), (max-width: 1023px)"
+        ).matches
+      ) {
+        return;
+      }
       const nodes = deskRef.current?.querySelectorAll(".desk-row, .desk-attention, .desk-home, .desk-chart");
       if (!nodes?.length) return;
       gsap.fromTo(nodes, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.32, stagger: 0.05, ease: deskEase });
