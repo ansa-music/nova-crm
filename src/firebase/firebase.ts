@@ -11,23 +11,20 @@ import { type FirebaseStorage, getStorage } from "firebase/storage";
 import { getAnalytics, isSupported, type Analytics } from "firebase/analytics";
 
 /**
- * iPhone Safari/Chrome block third-party storage. If authDomain is
- * *.firebaseapp.com while the app is on *.web.app, Google redirect and the
- * auth iframe fail. Always use the page's own Hosting hostname.
+ * Google OAuth authorized redirect is
+ * https://nurba-6e70d.firebaseapp.com/__/auth/handler (Firebase default).
+ * Do NOT derive authDomain from window.location (e.g. nurba-6e70d.web.app):
+ * that sends redirect_uri=https://nurba-6e70d.web.app/__/auth/handler and
+ * Google returns Error 400 redirect_uri_mismatch («Доступ заблокирован»).
+ *
+ * To use *.web.app as authDomain instead, add
+ * https://nurba-6e70d.web.app/__/auth/handler as an Authorized redirect URI
+ * in Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client.
+ * That cannot be done from this repo.
  */
-function resolveAuthDomain(): string {
-  if (typeof window !== "undefined") {
-    const host = window.location.hostname;
-    if (host.endsWith(".web.app") || host.endsWith(".firebaseapp.com")) {
-      return host;
-    }
-  }
-  return import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "nurba-6e70d.web.app";
-}
-
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDvcnG_bcSt0ODT-hsbxRjamxSzIlnvvCc",
-  authDomain: resolveAuthDomain(),
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "nurba-6e70d.firebaseapp.com",
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "nurba-6e70d",
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "nurba-6e70d.firebasestorage.app",
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "890276594199",

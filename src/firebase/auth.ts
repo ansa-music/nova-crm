@@ -109,6 +109,12 @@ export function wasGoogleRedirectPending(): boolean {
   }
 }
 
+/**
+ * iOS/Android: signInWithRedirect against the firebaseapp.com authDomain
+ * from firebase config (standard Firebase). Never switch authDomain to the
+ * Hosting web.app hostname — Google's authorized redirect is only
+ * https://nurba-6e70d.firebaseapp.com/__/auth/handler.
+ */
 export async function signInWithGoogle() {
   const authInstance = requireAuth();
   if (shouldUseRedirectSignIn()) {

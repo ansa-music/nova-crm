@@ -40,6 +40,27 @@ Firebase API key для веб-приложений не является сек
    все запросы (permission-denied) — это единственный шаг, который я не могу
    выполнить за вас: он требует вашей сессии `firebase login`.
 
+### Google OAuth и `authDomain`
+
+`authDomain` в `src/firebase/firebase.ts` обязан быть `nurba-6e70d.firebaseapp.com`.
+Это домен обработчика Firebase Auth:
+
+`https://nurba-6e70d.firebaseapp.com/__/auth/handler`
+
+Google уже знает его как Authorized redirect URI. На iPhone Google-вход идёт через
+`signInWithRedirect` с этим доменом (стандартный Firebase) — **не** с hostname
+страницы `nurba-6e70d.web.app`.
+
+Если подставить `web.app` как `authDomain` (в т.ч. из `window.location.hostname`),
+Google получит `redirect_uri=https://nurba-6e70d.web.app/__/auth/handler` и ответит
+Error 400 `redirect_uri_mismatch` («Доступ заблокирован: недопустимый запрос»).
+
+Чтобы когда-нибудь использовать `*.web.app` как `authDomain` (same-origin, без
+iframe на firebaseapp.com), нужно вручную добавить
+`https://nurba-6e70d.web.app/__/auth/handler` в Google Cloud Console →
+APIs & Services → Credentials → OAuth 2.0 Client ID (Web client). Это нельзя
+сделать из репозитория.
+
 ### Полное тестирование (проведено с нуля из чистого ZIP)
 
 Распаковал реально отданный архив, поставил зависимости с нуля (без кэша), прогнал

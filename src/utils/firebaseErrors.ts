@@ -33,9 +33,17 @@ function errorCode(error: unknown): string | undefined {
   return (error as { code?: string })?.code;
 }
 
+function looksLikeRedirectUriMismatch(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /redirect_uri_mismatch|недопустимый запрос/i.test(message);
+}
+
 export function getAuthErrorMessage(error: unknown): string {
   const code = errorCode(error);
   if (code && MESSAGES[code]) return MESSAGES[code];
+  if (looksLikeRedirectUriMismatch(error)) {
+    return "Google отклонил адрес возврата. Нужен authDomain nurba-6e70d.firebaseapp.com, а не web.app.";
+  }
   if (error instanceof Error && error.message) return error.message;
   return "Что-то пошло не так, попробуйте ещё раз";
 }
