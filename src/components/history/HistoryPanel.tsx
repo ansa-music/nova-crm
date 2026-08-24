@@ -74,7 +74,7 @@ export function HistoryPanel({ open, onOpenChange, workspaceId, pageId, columns 
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full max-w-md">
+      <SheetContent side="right" className="h-full w-full max-w-md">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             <History className="h-4 w-4" /> История изменений

@@ -154,37 +154,43 @@ export default function DashboardPage() {
 
   const isPersonalLanding = permissions.role !== "owner" && permissions.role !== "admin";
 
-  // Owner/admin check-in needs progress for EVERY visible desk, not only
-  // pages the current person runs. Personal landing still uses the same
-  // default-tab resolution (defaultSubPageId).
-  const progressPageIds = useMemo(() => visiblePages.map((p) => p.id), [visiblePages]);
-  const rowPageIds = useMemo(() => {
-    const ids = new Set(progressPageIds);
-    if (clientsPage?.id) ids.add(clientsPage.id);
-    if (projectsPage?.id) ids.add(projectsPage.id);
-    return Array.from(ids);
-  }, [progressPageIds, clientsPage?.id, projectsPage?.id]);
+  // Owner/admin: every visible desk. Personal landing: only desks this
+  // person runs — no Spark listeners on everyone else's rows.
+  const progressPages = useMemo(() => {
+    if (isPersonalLanding && profile) {
+      return visiblePages.filter((p) => isResponsibleForPage(p, profile.uid));
+    }
+    return visiblePages;
+  }, [visiblePages, isPersonalLanding, profile]);
+
+  const rowPageIds = useMemo(
+    () => progressPages.filter((p) => !p.defaultSubPageId).map((p) => p.id),
+    [progressPages]
+  );
 
   const rowsByPage = useMultiPageRows(activeWorkspaceId, rowPageIds);
-  const subPagesByPage = useMultiPageSubPages(activeWorkspaceId, progressPageIds);
+  const subPageMetaIds = useMemo(
+    () => progressPages.filter((p) => p.defaultSubPageId).map((p) => p.id),
+    [progressPages]
+  );
+  const subPagesByPage = useMultiPageSubPages(activeWorkspaceId, subPageMetaIds);
   const defaultSubPagePairs = useMemo(
     () =>
-      visiblePages
+      progressPages
         .filter((p) => p.defaultSubPageId)
         .map((p) => ({ pageId: p.id, subPageId: p.defaultSubPageId as string })),
-    [visiblePages]
+    [progressPages]
   );
   const rowsBySubPage = useMultiSubPageRows(activeWorkspaceId, defaultSubPagePairs);
 
-  const clientRows = clientsPage ? rowsByPage[clientsPage.id] ?? [] : [];
   const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
 
   const deskProgress = useMemo(
     () =>
-      visiblePages.map((page) =>
+      (isPersonalLanding ? progressPages : visiblePages).map((page) =>
         progressForPage(page, subPagesByPage, rowsBySubPage, rowsByPage, statusOptions)
       ),
-    [visiblePages, subPagesByPage, rowsBySubPage, rowsByPage, statusOptions]
+    [visiblePages, progressPages, isPersonalLanding, subPagesByPage, rowsBySubPage, rowsByPage, statusOptions]
   );
 
   const myProgress = useMemo(
@@ -502,7 +508,7 @@ export default function DashboardPage() {
             Пока нет листов.
           </p>
         ) : (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
             {deskProgress.map((desk) => {
               const member = members.find((m) => m.uid === desk.page.responsibleUserId) ?? null;
               const who = personLabel(member);

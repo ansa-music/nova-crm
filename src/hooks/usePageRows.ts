@@ -67,10 +67,19 @@ export function useSyncedTableRows(
 
   useEffect(() => {
     if (!workspaceId || !pageId || !fsReady || !supabaseOk) return;
-    const key = `${pageId}:${subPageId ?? "main"}:${firestoreRows.map((r) => `${r.id}:${r.updatedAt}`).join("|")}`;
+    const scope = `${pageId}:${subPageId ?? "main"}`;
+    const key = `${scope}:${firestoreRows.length > 0 ? "data" : "empty"}`;
     if (copyKeyRef.current === key) return;
+    if (copyKeyRef.current.startsWith(`${scope}:data`)) return;
     copyKeyRef.current = key;
-    void copyMissingRowRecords(workspaceId, pageId, subPageId, firestoreRows).catch(() => undefined);
+    const ws = workspaceId;
+    const pid = pageId;
+    const sid = subPageId;
+    const snapshot = firestoreRows;
+    const t = window.setTimeout(() => {
+      void copyMissingRowRecords(ws, pid, sid, snapshot).catch(() => undefined);
+    }, 0);
+    return () => window.clearTimeout(t);
   }, [workspaceId, pageId, subPageId, firestoreRows, fsReady, supabaseOk]);
 
   const rows = useMemo(

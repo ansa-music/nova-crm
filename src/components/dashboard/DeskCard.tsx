@@ -83,7 +83,7 @@ export function DeskCard({
         {canManage && onCustomize ? (
           <button
             type="button"
-            className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-primary/40 bg-transparent px-3 text-[12px] font-medium text-primary hover:border-primary hover:bg-primary/10"
+            className="inline-flex h-8 min-h-10 w-full items-center justify-center gap-1.5 rounded-md border border-primary/40 bg-transparent px-3 text-[12px] font-medium text-primary hover:border-primary hover:bg-primary/10 sm:min-h-8"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();

@@ -32,15 +32,13 @@ export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // "Продолжить с того места": on a genuinely fresh load of the app (this
-  // effect has an empty dep array, so it runs exactly once per real page
-  // load — NOT on every client-side navigation back to "/", which is what
-  // clicking "Дашборд" in the sidebar does). If the person was last looking
-  // at a table page, jump straight back instead of always showing the
-  // Dashboard first.
+  // Resume last table only once per browser tab. A remount of AppLayout
+  // (boot flicker) or tapping "Дашборд" must not bounce the user back off "/".
   useEffect(() => {
-    if (location.pathname !== "/") return;
     try {
+      if (sessionStorage.getItem("nova-crm:did-resume-last-page") === "1") return;
+      sessionStorage.setItem("nova-crm:did-resume-last-page", "1");
+      if (location.pathname !== "/") return;
       const lastPageId = window.localStorage.getItem("nova-crm:last-page-id");
       if (lastPageId) navigate(`/page/${lastPageId}`, { replace: true });
     } catch {

@@ -265,6 +265,22 @@ export function subscribeToSubPageRows(
   return subscribe<PageRow>(q, onData);
 }
 
+export async function fetchSubPages(workspaceId: string, pageId: string): Promise<SubPage[]> {
+  const snap = await getDocs(query(paths.subPages(workspaceId, pageId), orderBy("order", "asc")));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as SubPage);
+}
+
+export async function fetchSubPageRows(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string
+): Promise<PageRow[]> {
+  const snap = await getDocs(
+    query(paths.subPageRows(workspaceId, pageId, subPageId), orderBy("order", "asc"))
+  );
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as PageRow);
+}
+
 export async function addSubPageRow(
   workspaceId: string,
   pageId: string,

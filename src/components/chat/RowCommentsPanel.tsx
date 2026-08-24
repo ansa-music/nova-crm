@@ -39,7 +39,7 @@ export function RowCommentsPanel({ open, onOpenChange, workspaceId, pageId, rowI
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full flex-col p-0 sm:max-w-md">
+      <SheetContent side="right" className="flex h-full w-full max-w-md flex-col p-0">
         <SheetHeader className="border-b border-border p-4">
           <SheetTitle>Комментарии к строке</SheetTitle>
         </SheetHeader>

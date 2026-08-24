@@ -566,6 +566,20 @@
   .desk-pointer-glow {
     display: none !important;
   }
+  .desk-cluster,
+  .glass,
+  .glass-panel,
+  .os-sidebar,
+  .glass-float,
+  .today-card {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .nav-link {
+    min-height: 44px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
   .desk-row:hover,
   .desk-row:active {
     transform: none;
@@ -575,6 +589,12 @@
     border-color: hsl(189 40% 22% / 0.9);
     box-shadow: 0 0 0 1px hsl(189 100% 72% / 0.08);
     transform: none;
+  }
+  .table-instrument,
+  .table-instrument tbody tr,
+  .table-instrument tbody td {
+    transform: none !important;
+    perspective: none !important;
   }
 }
 

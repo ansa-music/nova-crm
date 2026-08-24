@@ -85,7 +85,7 @@ export function RowCardSheet({
             type="button"
             aria-label="Закрыть"
             key="row-card-backdrop"
-            className="fixed inset-0 z-50 bg-background/70 backdrop-blur-[10px]"
+            className="fixed inset-0 z-50 bg-black/70 max-lg:backdrop-blur-none lg:bg-background/70 lg:backdrop-blur-[10px]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}

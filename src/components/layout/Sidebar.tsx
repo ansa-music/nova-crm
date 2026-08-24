@@ -87,7 +87,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
       className={cn(
         "relative z-40 shrink-0",
         mobile
-          ? "mr-0 h-[100dvh] w-full bg-background"
+          ? "mr-0 h-full min-h-0 w-full bg-background"
           : cn("h-full mr-2 transition-[width] duration-280 ease-out", pinnedCollapsed ? "w-[68px]" : "w-[228px]")
       )}
     >
@@ -97,7 +97,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
       className={cn(
         "os-sidebar hud-frame relative flex flex-col gap-2 px-1.5 py-2.5 text-sidebar-foreground",
         "transition-[width,box-shadow] duration-280 ease-out",
-        mobile ? "h-[100dvh] w-full bg-background" : cn("h-full", collapsed ? "w-[56px] items-center" : "w-[216px]"),
+        mobile ? "h-full min-h-0 w-full bg-background" : cn("h-full", collapsed ? "w-[56px] items-center" : "w-[216px]"),
         !mobile && pinnedCollapsed && hoverOpen && "absolute inset-y-0 left-0 z-50 w-[216px] shadow-[0_0_48px_-16px_hsl(var(--primary)/0.45)]"
       )}
     >

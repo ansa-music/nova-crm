@@ -162,10 +162,40 @@ export function TableCell({
       ) : isEditing ? (
         <input
           ref={inputRef}
+          type="text"
+          inputMode={column.type === "url" ? "url" : isNumeric ? "decimal" : "text"}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
           value={editValue}
           placeholder={column.type === "url" ? "https://drive.google.com/…" : undefined}
           onChange={(e) => onEditValueChange(e.target.value)}
           onBlur={() => onCommitEdit("none")}
+          onPaste={
+            column.type === "url"
+              ? (e) => {
+                  if (e.clipboardData.files && e.clipboardData.files.length > 0) {
+                    e.preventDefault();
+                  }
+                  const pasted =
+                    e.clipboardData.getData("text/plain") || e.clipboardData.getData("text/uri-list");
+                  if (pasted) {
+                    e.preventDefault();
+                    onEditValueChange(pasted.trim());
+                  }
+                }
+              : undefined
+          }
+          onDrop={
+            column.type === "url"
+              ? (e) => {
+                  e.preventDefault();
+                  const uri = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text");
+                  if (uri) onEditValueChange(uri.trim());
+                }
+              : undefined
+          }
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();

@@ -9,7 +9,13 @@ export function PageShell({ children }: { children: ReactNode }) {
   useGSAP(
     () => {
       if (!ref.current) return;
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      if (
+        window.matchMedia(
+          "(prefers-reduced-motion: reduce), (hover: none), (pointer: coarse), (max-width: 1023px)"
+        ).matches
+      ) {
+        return;
+      }
       gsap.fromTo(
         ref.current,
         { opacity: 0, y: 8, scale: 0.992 },

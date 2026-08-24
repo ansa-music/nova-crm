@@ -561,6 +561,12 @@ export function subscribeToRows(
   return subscribe<PageRow>(q, onData);
 }
 
+/** One-shot row read for dashboards — no live listener. */
+export async function fetchRows(workspaceId: string, pageId: string): Promise<PageRow[]> {
+  const snap = await getDocs(query(paths.rows(workspaceId, pageId), orderBy("order", "asc")));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as PageRow);
+}
+
 export async function addRow(
   workspaceId: string,
   pageId: string,
