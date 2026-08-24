@@ -1158,6 +1158,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       }
       if (!activeCell) return;
 
+      if (isCtrl && e.altKey && e.code === "KeyC") {
+        e.preventDefault();
+        handleCopyRow(activeCell.rowId);
+        return;
+      }
       if (isCtrl && e.code === "KeyC") {
         e.preventDefault();
         handleCopy();

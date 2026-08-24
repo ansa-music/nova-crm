@@ -333,17 +333,19 @@ export default function DynamicTablePage() {
         </div>
       ) : (
         <>
-          <SubPageTabs
-            workspaceId={page.workspaceId}
-            page={page}
-            subPages={subPages}
-            activeSubPageId={activeSubPageId}
-            onSelect={setActiveSubPageId}
-            canManage={canEditData || permissions.canManagePage(page)}
-            userId={profile?.uid ?? ""}
-          />
+          <div className={cn(tableImmersive && "max-md:hidden")}>
+            <SubPageTabs
+              workspaceId={page.workspaceId}
+              page={page}
+              subPages={subPages}
+              activeSubPageId={activeSubPageId}
+              onSelect={setActiveSubPageId}
+              canManage={canEditData || permissions.canManagePage(page)}
+              userId={profile?.uid ?? ""}
+            />
+          </div>
 
-          {statsOpen && <SubPageStats columns={activeSubPage ? activeSubPage.columns : page.columns} rows={rows} />}
+          {statsOpen && !tableImmersive && <SubPageStats columns={activeSubPage ? activeSubPage.columns : page.columns} rows={rows} />}
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {rowsLoading ? (

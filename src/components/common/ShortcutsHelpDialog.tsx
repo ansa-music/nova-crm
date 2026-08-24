@@ -42,6 +42,7 @@ const GROUPS: ShortcutGroup[] = [
       { keys: ["Ctrl", "Enter"], label: "Добавить строку" },
       { keys: ["Ctrl", "Shift", "Enter"], label: "Вставить строку сверху" },
       { keys: ["Ctrl", "Space"], label: "Выделить столбец" },
+      { keys: ["Ctrl", "Alt", "C"], label: "Копировать строку" },
     ],
   },
 ];
