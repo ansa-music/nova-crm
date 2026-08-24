@@ -90,6 +90,40 @@ const DENSITY_ROW_HEIGHT: Record<"compact" | "default" | "comfortable", number> 
   comfortable: 52,
 };
 
+type CellValue = string | number | null | undefined;
+
+function isEmptySortValue(value: CellValue, type?: ColumnType): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "") return true;
+    if (type === "number" || type === "currency") return Number.isNaN(Number(trimmed));
+    if (type === "date") {
+      const n = Number(trimmed);
+      return Number.isNaN(n);
+    }
+    return false;
+  }
+  if (typeof value === "number") return Number.isNaN(value);
+  return false;
+}
+
+function compareFilledValues(av: CellValue, bv: CellValue, type: ColumnType | undefined, dir: "asc" | "desc"): number {
+  let cmp = 0;
+  if (type === "number" || type === "currency") {
+    cmp = Number(av) - Number(bv);
+  } else if (type === "date") {
+    cmp = Number(av) - Number(bv);
+  } else {
+    cmp = String(av).localeCompare(String(bv), "ru");
+  }
+  return dir === "asc" ? cmp : -cmp;
+}
+
+function isEmptyGroupLabel(label: string): boolean {
+  return label.trim() === "";
+}
+
 interface DataTableProps {
   workspaceId: string;
   page: WorkspacePage;
@@ -313,16 +347,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (sortState.colKey && sortState.direction) {
       const col = columns.find((c) => c.key === sortState.colKey);
       const dir = sortState.direction;
+      const colKey = sortState.colKey;
       result = [...result].sort((a, b) => {
-        const av = a.cells[sortState.colKey!] ?? "";
-        const bv = b.cells[sortState.colKey!] ?? "";
-        if (col?.type === "number" || col?.type === "currency") {
-          const an = Number(av) || 0;
-          const bn = Number(bv) || 0;
-          return dir === "asc" ? an - bn : bn - an;
-        }
-        const cmp = String(av).localeCompare(String(bv), "ru");
-        return dir === "asc" ? cmp : -cmp;
+        const av = a.cells[colKey];
+        const bv = b.cells[colKey];
+        const aEmpty = isEmptySortValue(av, col?.type);
+        const bEmpty = isEmptySortValue(bv, col?.type);
+        if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
+        if (aEmpty && bEmpty) return 0;
+        return compareFilledValues(av, bv, col?.type, dir);
       });
     } else {
       result = [...result].sort((a, b) => a.order - b.order);
@@ -351,11 +384,18 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       // triggered and the raw internal placeholder leaked into the UI as a
       // literal group header. Empty string works fine as a Map key on its
       // own; no sentinel needed.
-      const key = label;
+      const key = isEmptyGroupLabel(label) ? "" : label;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(row);
     });
-    return { col, entries: Array.from(map.entries()) };
+    const entries = Array.from(map.entries());
+    entries.sort((a, b) => {
+      const aEmpty = isEmptyGroupLabel(a[0]);
+      const bEmpty = isEmptyGroupLabel(b[0]);
+      if (aEmpty === bEmpty) return 0;
+      return aEmpty ? 1 : -1;
+    });
+    return { col, entries };
   }, [groupByKey, processedRows, displayColumns]);
 
   // ---- Pagination (disabled while grouped) ----

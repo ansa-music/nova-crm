@@ -99,29 +99,31 @@ export function ColumnHeaderCell({
             stickyLeft !== undefined && "sticky z-20 bg-background/95"
           )}
         >
-          <div className="flex h-9 items-center gap-1">
+          <div className="flex min-h-11 items-center gap-1 sm:h-9 sm:min-h-9">
             {canReorder && (
               <button
                 {...attributes}
                 {...listeners}
-                className="cursor-grab touch-none rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100 active:cursor-grabbing"
+                className="cursor-grab touch-none select-none rounded p-1.5 opacity-0 hover:bg-accent group-hover:opacity-100 active:translate-y-px active:scale-[0.97] active:cursor-grabbing motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 sm:p-0.5"
                 title="Перетащить столбец"
               >
                 <GripVertical className="h-3.5 w-3.5" />
               </button>
             )}
             <button
+              type="button"
               onClick={() => onSort(column.key)}
-              className="flex min-w-0 flex-1 items-center gap-1 truncate text-left hover:text-foreground"
+              className="flex min-h-11 min-w-0 flex-1 items-center gap-1 truncate py-1.5 text-left hover:text-foreground active:translate-y-px active:scale-[0.99] motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 sm:min-h-0 sm:py-0"
             >
               <span className="truncate">{column.label}</span>
               {isSorted && sortState.direction === "asc" && <ArrowUp className="h-3 w-3 shrink-0" />}
               {isSorted && sortState.direction === "desc" && <ArrowDown className="h-3 w-3 shrink-0" />}
             </button>
             <button
+              type="button"
               onClick={() => onTogglePin(column.key)}
               className={cn(
-                "shrink-0 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100",
+                "inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded p-1.5 select-none opacity-0 hover:bg-accent group-hover:opacity-100 active:translate-y-px active:scale-[0.97] motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 sm:min-h-0 sm:min-w-0 sm:p-0.5",
                 isPinned && "opacity-100 text-primary"
               )}
               title={isPinned ? "Открепить столбец" : "Закрепить столбец"}
@@ -129,9 +131,10 @@ export function ColumnHeaderCell({
               {isPinned ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
             </button>
             <button
+              type="button"
               onClick={(e) => onFilterClick(column.key, e)}
               className={cn(
-                "shrink-0 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100",
+                "inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded p-1.5 select-none opacity-0 hover:bg-accent group-hover:opacity-100 active:translate-y-px active:scale-[0.97] motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 sm:min-h-0 sm:min-w-0 sm:p-0.5",
                 hasActiveFilter && "opacity-100 text-primary"
               )}
               title="Фильтр"

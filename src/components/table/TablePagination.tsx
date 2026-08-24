@@ -22,7 +22,7 @@ export function TablePagination({ page, pageSize, total, onPageChange, onPageSiz
       <div className="flex items-center gap-2">
         <span>Строк на странице</span>
         <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
-          <SelectTrigger className="h-7 w-[72px]">
+          <SelectTrigger className="h-10 w-[72px] sm:h-7">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

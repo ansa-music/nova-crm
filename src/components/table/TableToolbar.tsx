@@ -70,14 +70,14 @@ export function TableToolbar({
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="Поиск по таблице…"
-          className="h-8 rounded-md bg-background pl-8"
+          className="h-10 rounded-md bg-background pl-8 sm:h-8"
         />
       </div>
 
       {viewMode === "table" && (
         <>
           <Select value={groupByKey ?? "__none__"} onValueChange={(v) => onGroupByChange(v === "__none__" ? null : v)}>
-            <SelectTrigger className="h-8 w-44 rounded-md">
+            <SelectTrigger className="h-10 w-44 rounded-md sm:h-8">
               <SelectValue placeholder="Группировка" />
             </SelectTrigger>
             <SelectContent>
@@ -92,7 +92,7 @@ export function TableToolbar({
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8 gap-1.5 bg-background">
+              <Button variant="outline" size="sm" className="h-10 gap-1.5 bg-background sm:h-8">
                 <Rows3 className="h-3.5 w-3.5" /> {DENSITY_LABELS[density]}
               </Button>
             </DropdownMenuTrigger>
@@ -112,7 +112,7 @@ export function TableToolbar({
           <Button
             variant={viewMode === "table" ? "secondary" : "ghost"}
             size="sm"
-            className="h-7 gap-1.5 rounded-full px-2.5"
+            className="h-10 min-w-10 gap-1.5 rounded-full px-2.5 sm:h-7 sm:min-w-0"
             onClick={() => onViewModeChange("table")}
             title="Таблица"
           >
@@ -121,7 +121,7 @@ export function TableToolbar({
           <Button
             variant={viewMode === "kanban" ? "secondary" : "ghost"}
             size="sm"
-            className="h-7 gap-1.5 rounded-full px-2.5"
+            className="h-10 min-w-10 gap-1.5 rounded-full px-2.5 sm:h-7 sm:min-w-0"
             onClick={() => onViewModeChange("kanban")}
             title="Канбан"
           >
@@ -132,18 +132,18 @@ export function TableToolbar({
 
       <div className="flex-1" />
 
-      <Button variant="outline" size="sm" className="h-8 gap-1.5 bg-background" onClick={onExportCsv}>
+      <Button variant="outline" size="sm" className="h-10 gap-1.5 bg-background sm:h-8" onClick={onExportCsv}>
         <Download className="h-3.5 w-3.5" /> CSV
       </Button>
 
       {canEditStructure && (
-        <Button variant="outline" size="sm" className="h-8 gap-1.5 bg-background" onClick={onAddColumn}>
+        <Button variant="outline" size="sm" className="h-10 gap-1.5 bg-background sm:h-8" onClick={onAddColumn}>
           <Columns3 className="h-3.5 w-3.5" /> Столбец
         </Button>
       )}
 
       {canEdit && (
-        <Button size="sm" className="h-8 gap-1.5" onClick={onAddRow}>
+        <Button size="sm" className="h-10 gap-1.5 sm:h-8" onClick={onAddRow}>
           <Plus className="h-3.5 w-3.5" /> Строка
         </Button>
       )}
