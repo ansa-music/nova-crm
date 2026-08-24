@@ -35,10 +35,11 @@ interface ColumnHeaderCellProps {
   onSort: (colKey: string) => void;
   onFilterClick: (colKey: string, e: React.MouseEvent) => void;
   hasActiveFilter: boolean;
-  onResizeStart: (colKey: string, e: React.MouseEvent) => void;
+  onResizeStart: (colKey: string, e: React.PointerEvent) => void;
   isPinned: boolean;
   onTogglePin: (colKey: string) => void;
   stickyLeft?: number;
+  isLastSticky?: boolean;
   canReorder: boolean;
   canEditStructure?: boolean;
   /** Owner-only: shows "Изменить варианты" for status/responsible/custom columns. */
@@ -61,6 +62,7 @@ export function ColumnHeaderCell({
   isPinned,
   onTogglePin,
   stickyLeft,
+  isLastSticky,
   canReorder,
   canEditStructure,
   canManageOptions,
@@ -105,17 +107,19 @@ export function ColumnHeaderCell({
           style={{
             width: column.width,
             minWidth: column.width,
+            top: 0,
             left: stickyLeft,
-            transform: CSS.Transform.toString(transform),
-            transition,
+            transform: isDragging ? CSS.Transform.toString(transform) : undefined,
+            transition: isDragging ? transition : undefined,
             opacity: isDragging ? 0.6 : 1,
           }}
           className={cn(
-            "group relative border-b border-r border-border/50 bg-background px-1 text-left font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground",
-            stickyLeft !== undefined && "sticky z-20 bg-background/95"
+            "group sticky top-0 z-[21] border-b border-r border-border/50 bg-background px-1 text-left font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground",
+            stickyLeft !== undefined && "table-sticky-col z-[31] bg-background",
+            isLastSticky && "table-sticky-edge"
           )}
         >
-          <div className="flex min-h-11 items-center gap-1 sm:h-9 sm:min-h-9">
+          <div className="flex h-11 items-center gap-1 sm:h-9">
             {canReorder && (
               <button
                 {...attributes}
@@ -214,12 +218,17 @@ export function ColumnHeaderCell({
             </button>
           </div>
           <div
-            onMouseDown={(e) => {
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              e.preventDefault();
               e.stopPropagation();
               onResizeStart(column.key, e);
             }}
-            className="absolute -right-[1px] top-0 h-full w-[3px] cursor-col-resize opacity-0 hover:opacity-100 hover:bg-primary"
-          />
+            className="absolute -right-1 top-0 z-10 h-full w-2.5 cursor-col-resize touch-none"
+            title="Ширина столбца"
+          >
+            <span className="absolute right-[3px] top-1.5 h-[calc(100%-12px)] w-px bg-border opacity-0 group-hover:opacity-100 hover:bg-primary" />
+          </div>
         </th>
       </ContextMenuTrigger>
       {canEditStructure && (

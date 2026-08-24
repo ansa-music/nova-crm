@@ -54,6 +54,31 @@ export function ymdInTimeZone(ms: number, timeZone = USER_TIMEZONE): string {
   }).format(new Date(ms));
 }
 
+/** Order-received date in Asia/Almaty (calendar day, not a deadline). */
+export function formatOrderDate(timestamp: number): string {
+  const ms = toMillis(timestamp);
+  if (!Number.isFinite(ms) || ms <= 0) return "";
+  return new Intl.DateTimeFormat("ru-RU", {
+    timeZone: USER_TIMEZONE,
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(ms));
+}
+
+export function ymdPartsInTimeZone(ms: number, timeZone = USER_TIMEZONE): { year: number; month: number; day: number } {
+  const ymd = ymdInTimeZone(ms, timeZone);
+  const [year, month, day] = ymd.split("-").map(Number);
+  return { year, month: month - 1, day };
+}
+
+/** Noon on that calendar day in Asia/Almaty (UTC+5, no DST). */
+export function almatyNoonMillis(year: number, monthIndex: number, day: number): number {
+  const m = String(monthIndex + 1).padStart(2, "0");
+  const d = String(day).padStart(2, "0");
+  return new Date(`${year}-${m}-${d}T12:00:00+05:00`).getTime();
+}
+
 export function greetingByHour(hour: number): string {
   if (hour >= 5 && hour < 12) return "Доброе утро";
   if (hour >= 12 && hour < 17) return "Добрый день";

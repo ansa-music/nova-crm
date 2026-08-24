@@ -564,10 +564,35 @@
   min-width: 100%;
 }
 
+.table-sticky-col {
+  position: sticky;
+  background-color: hsl(var(--background));
+}
+.table-sticky-edge {
+  box-shadow: 8px 0 12px -10px hsl(24 24% 10% / 0.35);
+}
+
+.table-instrument tbody tr.table-data-row-selected td,
+.table-instrument tbody tr.table-data-row-active td {
+  background-color: color-mix(in srgb, hsl(var(--primary)) 10%, hsl(var(--background)));
+}
+.table-instrument tbody td.table-sticky-col,
+.table-instrument thead th.table-sticky-col,
+.table-instrument tfoot td.table-sticky-col {
+  background-color: hsl(var(--background));
+}
+.table-instrument tbody tr.table-data-row-selected td.table-sticky-col,
+.table-instrument tbody tr.table-data-row-active td.table-sticky-col {
+  background-color: color-mix(in srgb, hsl(var(--primary)) 10%, hsl(var(--background)));
+}
+
 @media (hover: hover) and (pointer: fine) {
   .table-instrument tbody tr.table-data-row:hover td {
     background-color: hsl(var(--muted));
     box-shadow: none;
+  }
+  .table-instrument tbody tr.table-data-row:hover td.table-sticky-col {
+    background-color: hsl(var(--muted));
   }
   .status-pill {
     box-shadow: none;

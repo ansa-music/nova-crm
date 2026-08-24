@@ -6,7 +6,7 @@ import { DateCalendar } from "@/components/table/DateCalendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatCurrency } from "@/utils/format";
-import { formatDate } from "@/utils/date";
+import { formatOrderDate } from "@/utils/date";
 import { isOptionColumn } from "@/utils/columnOptions";
 import { parseHttpUrl } from "@/utils/httpUrl";
 import { cn } from "@/utils/cn";
@@ -22,12 +22,13 @@ interface TableCellProps {
   canEdit: boolean;
   onMouseDown: (e: React.MouseEvent) => void;
   onMouseEnter: () => void;
-  onDoubleClick: () => void;
+  onStartEdit: () => void;
   onEditValueChange: (value: string) => void;
   onCommitEdit: (direction?: "down" | "right" | "left" | "none") => void;
   onCancelEdit: () => void;
   onStatusChange: (value: string) => void;
   stickyLeft?: number;
+  isLastSticky?: boolean;
 }
 
 export function TableCell({
@@ -40,12 +41,13 @@ export function TableCell({
   canEdit,
   onMouseDown,
   onMouseEnter,
-  onDoubleClick,
+  onStartEdit,
   onEditValueChange,
   onCommitEdit,
   onCancelEdit,
   onStatusChange,
   stickyLeft,
+  isLastSticky,
 }: TableCellProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
@@ -59,8 +61,6 @@ export function TableCell({
 
   const isNumeric = column.type === "number" || column.type === "currency";
   const stringValue = value === null || value === undefined ? "" : String(value);
-  // A little built-in conditional formatting: negative numbers/amounts read
-  // as red, same convention as any spreadsheet — no per-column setup needed.
   const isNegative = isNumeric && stringValue !== "" && Number(stringValue) < 0;
   const diskUrl = column.type === "url" ? parseHttpUrl(stringValue) : null;
 
@@ -75,13 +75,32 @@ export function TableCell({
       return <span className={cn("tabular-nums", isNegative && "font-medium text-destructive")}>{stringValue}</span>;
     }
     if (column.type === "date" && stringValue) {
-      return <span className="truncate">{formatDate(Number(stringValue), "d MMM yyyy")}</span>;
+      return <span className="truncate">{formatOrderDate(Number(stringValue))}</span>;
     }
     if (column.type === "url") {
-      if (diskUrl) return <DiskLinkChip href={diskUrl.href} />;
+      if (diskUrl) {
+        return (
+          <span className="flex min-w-0 items-center gap-1.5">
+            <DiskLinkChip href={diskUrl.href} />
+            {canEdit && (
+              <button
+                type="button"
+                className="shrink-0 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStartEdit();
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                правка
+              </button>
+            )}
+          </span>
+        );
+      }
       if (stringValue) return <span className="truncate text-[11px] text-muted-foreground">{stringValue}</span>;
       return (
-        <span className="flex min-h-10 w-full items-center truncate text-xs text-muted-foreground/80 sm:min-h-0 sm:text-[11px]">
+        <span className="truncate text-xs text-muted-foreground/80 sm:text-[11px]">
           {canEdit ? "вставить ссылку" : "—"}
         </span>
       );
@@ -93,9 +112,10 @@ export function TableCell({
     <td
       className={cn(
         "relative select-none border-b border-r border-border/35 p-0 align-middle",
-        stickyLeft !== undefined && "sticky z-[15] bg-background group-hover/row:bg-transparent",
+        stickyLeft !== undefined && "table-sticky-col sticky z-[15] bg-background",
+        isLastSticky && "table-sticky-edge",
         isInRange && !isEditing && "bg-primary/[0.07]",
-        isActive && !isEditing && "outline outline-2 outline-primary -outline-offset-1 z-10"
+        isActive && !isEditing && "z-10 shadow-[inset_0_0_0_2px_hsl(var(--primary)/0.7)]"
       )}
       style={{
         width: column.width,
@@ -106,7 +126,7 @@ export function TableCell({
       }}
       onMouseDown={onMouseDown}
       onMouseEnter={onMouseEnter}
-      onDoubleClick={onDoubleClick}
+      onDoubleClick={onStartEdit}
       data-col={column.key}
     >
       {isOptionColumn(column.type) ? (
@@ -115,7 +135,7 @@ export function TableCell({
           onValueChange={(v) => onStatusChange(v === "__clear__" ? "" : v)}
           disabled={!canEdit}
         >
-          <SelectTrigger className="table-status-trigger h-full min-h-[32px] w-full rounded-none border-0 bg-transparent px-2 shadow-none focus:ring-0">
+          <SelectTrigger className="table-status-trigger h-full min-h-[40px] w-full rounded-none border-0 bg-transparent px-2 shadow-none focus:ring-0 sm:min-h-[32px] [&>svg]:hidden">
             <SelectValue placeholder="">{renderDisplay()}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -135,14 +155,10 @@ export function TableCell({
             <button
               type="button"
               disabled={!canEdit}
-              className="flex h-full min-h-[32px] w-full items-center gap-1.5 px-2.5 text-left text-sm disabled:cursor-default"
+              className="flex h-full min-h-[40px] w-full items-center gap-1.5 px-2.5 text-left text-sm disabled:cursor-default sm:min-h-[32px]"
             >
               <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              {stringValue ? (
-                renderDisplay()
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
+              {stringValue ? renderDisplay() : <span className="text-muted-foreground">—</span>}
             </button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-2" align="start">
@@ -210,22 +226,17 @@ export function TableCell({
             }
           }}
           className={cn(
-            "h-full w-full border-0 bg-background px-2.5 text-sm outline-none ring-2 ring-primary",
-            column.type === "url" && "min-h-10 sm:min-h-0",
+            "h-full min-h-[40px] w-full border-0 bg-background px-2.5 text-sm outline-none ring-1 ring-inset ring-primary sm:min-h-0",
             isNumeric && "text-right tabular-nums"
           )}
         />
       ) : (
         <div
           className={cn(
-            "flex h-full min-h-[32px] w-full items-center px-2.5 text-sm leading-none",
-            column.type === "url" && "min-h-10 cursor-text sm:min-h-0",
+            "flex h-full min-h-[40px] w-full items-center px-2.5 text-sm leading-none sm:min-h-[32px]",
             isNumeric && "justify-end tabular-nums"
           )}
           title={column.type === "url" ? (diskUrl?.href ?? "") : stringValue}
-          onClick={() => {
-            if (column.type === "url" && canEdit && !diskUrl) onDoubleClick();
-          }}
         >
           {renderDisplay()}
         </div>

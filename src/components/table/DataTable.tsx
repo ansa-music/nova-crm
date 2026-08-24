@@ -84,6 +84,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { updateResponsibleOptions, updateCustomFieldOptions } from "@/services/workspaceService";
 import { formatCurrency, formatNumber, downloadCsv } from "@/utils";
 import { isSummableColumn, sumNumericCells } from "@/utils/tableAggregates";
+import { clampColumnWidth } from "@/utils/tableLayout";
 import { getColumnOptions, isOptionColumn, DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { isHttpUrl, parseHttpUrl } from "@/utils/httpUrl";
 import { celebrateDone } from "@/utils/confetti";
@@ -91,9 +92,9 @@ import { pushUndoCommand, undo as undoLastCommand } from "@/utils/undoStore";
 import type { CellAddress, ColumnType, PageRow, SortState, StatusOption, WorkspacePage } from "@/types";
 
 const DENSITY_ROW_HEIGHT: Record<"compact" | "default" | "comfortable", number> = {
-  compact: 32,
+  compact: 36,
   default: 42,
-  comfortable: 52,
+  comfortable: 48,
 };
 
 type CellValue = string | number | null | undefined;
@@ -284,15 +285,23 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       .filter((c) => !c.hidden)
       .map((c) => {
         let next = { ...c, statusOptions: getColumnOptions(c, activeWorkspace) };
-        if (resizePreview?.type === "col" && c.key === resizePreview.colKey) {
-          next = { ...next, width: resizePreview.width };
-        }
+        const width =
+          resizePreview?.type === "col" && c.key === resizePreview.colKey ? resizePreview.width : c.width;
+        next = { ...next, width: clampColumnWidth(c.type, width) };
         return next;
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columns, resizePreview, responsibleOptions, sharedStatusOptions, customFields, activeWorkspace]);
 
+  const stickyKeys = useMemo(() => {
+    const first = displayColumns[0]?.key;
+    const keys = pinnedKeys.filter((k) => displayColumns.some((c) => c.key === k));
+    if (first && !keys.includes(first)) keys.unshift(first);
+    return keys;
+  }, [pinnedKeys, displayColumns]);
+
   const containerRef = useRef<HTMLDivElement>(null);
+  const [hFade, setHFade] = useState({ left: false, right: false });
   const isSelectingRef = useRef(false);
   const editingCellRef = useRef<CellAddress | null>(null);
   const contextRowIdRef = useRef<string | null>(null);
@@ -333,7 +342,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     return () => mq.removeEventListener("change", apply);
   }, []);
   const rowHeight = coarsePointer
-    ? Math.max(48, DENSITY_ROW_HEIGHT[density])
+    ? Math.max(44, DENSITY_ROW_HEIGHT[density])
     : DENSITY_ROW_HEIGHT[density];
 
   // ---- Filtering + search + sort ----
@@ -590,17 +599,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setActiveCell(next);
     setRangeAnchor(next);
 
-    // Enter (down) auto-opens editing on the newly active cell so the
-    // person can just keep typing without a second keypress — Tab/Shift+Tab
-    // deliberately only move the selection, matching normal spreadsheet feel.
-    if (direction === "down" && canEdit) {
-      const col = columns.find((c) => c.key === next.colKey);
-      if (col && !isOptionColumn(col.type)) {
-        const row = rows.find((r) => r.id === next.rowId);
-        setEditingCell(next);
-        setEditValue(String(row?.cells[next.colKey] ?? ""));
-      }
-    }
+    // After Enter/Tab, keep typing in the next text/number/url cell.
+    // Status and date stay chip/calendar — no text editor.
+    if (!canEdit) return;
+    const col = columns.find((c) => c.key === next.colKey);
+    if (!col || isOptionColumn(col.type) || col.type === "date") return;
+    const row = rows.find((r) => r.id === next.rowId);
+    setEditingCell(next);
+    setEditValue(String(row?.cells[next.colKey] ?? ""));
   }
 
   const handleCommitEdit = useCallback(
@@ -672,10 +678,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       setActiveCell(addr);
       isSelectingRef.current = !isUrl;
     }
+    const alreadyActive = !e.shiftKey && activeCell?.rowId === rowId && activeCell?.colKey === colKey;
     if (isUrl && canEdit) {
       const row = rows.find((r) => r.id === rowId);
       const raw = String(row?.cells[colKey] ?? "");
-      if (!parseHttpUrl(raw)) startEditing(rowId, colKey);
+      if (!parseHttpUrl(raw) || alreadyActive) startEditing(rowId, colKey);
+      return;
+    }
+    if (alreadyActive && canEdit && col && !isOptionColumn(col.type) && col.type !== "date") {
+      startEditing(rowId, colKey);
     }
   }
 
@@ -972,12 +983,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // feedback — Firestore is written exactly once, on mouseup. Writing on
   // every mousemove would flood Firestore with dozens of writes per second
   // and make the drag feel laggy for every collaborator watching the page.
-  function handleColumnResizeStart(colKey: string, e: React.MouseEvent) {
+  function handleColumnResizeStart(colKey: string, e: React.PointerEvent) {
     const col = columns.find((c) => c.key === colKey)!;
-    resizeStateRef.current = { type: "col", colKey, startPos: e.clientX, startSize: col.width, lastValue: col.width };
-    setResizePreview({ type: "col", colKey, width: col.width });
-    window.addEventListener("mousemove", handleResizeMove);
-    window.addEventListener("mouseup", handleResizeEnd);
+    const startSize = clampColumnWidth(col.type, col.width);
+    resizeStateRef.current = { type: "col", colKey, startPos: e.clientX, startSize, lastValue: startSize };
+    setResizePreview({ type: "col", colKey, width: startSize });
+    window.addEventListener("pointermove", handleResizeMove);
+    window.addEventListener("pointerup", handleResizeEnd);
   }
 
   function handleRowResizeStart(rowId: string, e: React.MouseEvent) {
@@ -985,21 +997,22 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const startHeight = row?.height ?? rowHeight;
     resizeStateRef.current = { type: "row", rowId, startPos: e.clientY, startSize: startHeight, lastValue: startHeight };
     setResizePreview({ type: "row", rowId, height: startHeight });
-    window.addEventListener("mousemove", handleResizeMove);
-    window.addEventListener("mouseup", handleResizeEnd);
+    window.addEventListener("pointermove", handleResizeMove);
+    window.addEventListener("pointerup", handleResizeEnd);
   }
 
-  function handleResizeMove(e: MouseEvent) {
+  function handleResizeMove(e: PointerEvent) {
     const state = resizeStateRef.current;
     if (!state) return;
     if (state.type === "col") {
+      const col = columns.find((c) => c.key === state.colKey);
       const delta = e.clientX - state.startPos;
-      const newWidth = Math.max(60, Math.round(state.startSize + delta));
+      const newWidth = clampColumnWidth(col?.type ?? "text", state.startSize + delta);
       state.lastValue = newWidth;
       setResizePreview({ type: "col", colKey: state.colKey, width: newWidth });
     } else {
       const delta = e.clientY - state.startPos;
-      const newHeight = Math.max(22, Math.round(state.startSize + delta));
+      const newHeight = Math.max(coarsePointer ? 44 : 28, Math.round(state.startSize + delta));
       state.lastValue = newHeight;
       setResizePreview({ type: "row", rowId: state.rowId, height: newHeight });
     }
@@ -1009,8 +1022,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const state = resizeStateRef.current;
     resizeStateRef.current = null;
     setResizePreview(null);
-    window.removeEventListener("mousemove", handleResizeMove);
-    window.removeEventListener("mouseup", handleResizeEnd);
+    window.removeEventListener("pointermove", handleResizeMove);
+    window.removeEventListener("pointerup", handleResizeEnd);
     if (!state) return;
     if (state.type === "col") {
       const newColumns = columns.map((c) => (c.key === state.colKey ? { ...c, width: state.lastValue } : c));
@@ -1325,11 +1338,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         canReorder={canReorderRows}
         isRowFullySelected={isRowFullySelected(row.id)}
         isChecked={selectedRowIds.has(row.id)}
-        pinnedKeys={pinnedKeys}
+        pinnedKeys={stickyKeys}
         onToggleChecked={toggleRowChecked}
         onCellMouseDown={handleCellMouseDown}
         onCellMouseEnter={handleCellMouseEnter}
-        onCellDoubleClick={(rowId, colKey) => startEditing(rowId, colKey)}
+        onCellStartEdit={(rowId, colKey) => startEditing(rowId, colKey)}
         onEditValueChange={setEditValue}
         onCommitEdit={handleCommitEdit}
         onCancelEdit={() => setEditingCell(null)}
@@ -1343,7 +1356,26 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     );
   }
 
-  const pinnedOrder = displayColumns.filter((c) => pinnedKeys.includes(c.key));
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || viewMode !== "table") return;
+    const update = () => {
+      setHFade({
+        left: el.scrollLeft > 8,
+        right: el.scrollLeft + el.clientWidth < el.scrollWidth - 8,
+      });
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro.disconnect();
+    };
+  }, [displayColumns, paginatedRows.length, viewMode]);
+
+  const pinnedOrder = displayColumns.filter((c) => stickyKeys.includes(c.key));
 
   const isSaving = pendingWrites.hasSavingCell;
 
@@ -1393,12 +1425,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         />
       ) : (
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-        <div ref={containerRef} tabIndex={0} className="relative flex-1 overflow-auto bg-background outline-none">
-          <table className="table-instrument w-full border-collapse" style={{ tableLayout: "fixed" }}>
-            <thead className="sticky top-0 z-20">
+        <div className="relative min-h-0 flex-1">
+        <div ref={containerRef} tabIndex={0} className="absolute inset-0 overflow-auto overscroll-contain bg-background outline-none scrollbar-thin">
+          <table className="table-instrument w-max min-w-full border-separate border-spacing-0" style={{ tableLayout: "fixed" }}>
+            <thead className="sticky top-0 z-30">
               <tr>
                 <th
-                  className="sticky left-0 top-0 z-30 border-b border-r border-border/50 bg-background"
+                  className="table-sticky-col sticky left-0 top-0 z-40 border-b border-r border-border/50 bg-background"
                   style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}
                 />
                 <SortableContext items={displayColumns.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
@@ -1411,14 +1444,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       onFilterClick={handleFilterClick}
                       hasActiveFilter={(filters[column.key]?.size ?? 0) > 0}
                       onResizeStart={handleColumnResizeStart}
-                      isPinned={pinnedKeys.includes(column.key)}
+                      isPinned={pinnedKeys.includes(column.key) || stickyKeys[0] === column.key}
                       onTogglePin={togglePin}
                       stickyLeft={
-                        pinnedKeys.includes(column.key)
+                        stickyKeys.includes(column.key)
                           ? ROW_GUTTER_WIDTH +
                             pinnedOrder.slice(0, pinnedOrder.findIndex((c) => c.key === column.key)).reduce((sum, c) => sum + c.width, 0)
                           : undefined
                       }
+                      isLastSticky={pinnedOrder.length > 0 && column.key === pinnedOrder[pinnedOrder.length - 1].key}
                       canReorder={canEdit}
                       canEditStructure={canEditStructure}
                       canManageOptions={canEditStructure}
@@ -1479,6 +1513,19 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       )}
                     </SortableContext>
                   )}
+                  {canEdit && processedRows.length > 0 && (
+                    <tr>
+                      <td colSpan={displayColumns.length + 1} className="border-b border-border/35 p-0">
+                        <button
+                          type="button"
+                          onClick={handleAddRow}
+                          className="flex h-11 w-full items-center gap-2 px-3 text-left text-sm text-muted-foreground hover:bg-muted/70 hover:text-foreground sm:h-10"
+                        >
+                          <Plus className="h-3.5 w-3.5" /> Добавить строку
+                        </button>
+                      </td>
+                    </tr>
+                  )}
                   {processedRows.length === 0 && (
                     <tr>
                       <td colSpan={columns.length + 1}>
@@ -1527,7 +1574,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
               <tfoot className="sticky bottom-0 z-20">
                 <tr className="border-t border-border/70 bg-background/95 backdrop-blur-sm">
                   <td
-                    className="sticky left-0 z-30 border-r border-border/50 bg-background/95 px-1 py-2 text-center font-mono text-[11px] tabular text-muted-foreground"
+                    className="table-sticky-col sticky left-0 z-30 border-r border-border/50 bg-background/95 px-1 py-2 text-center font-mono text-[11px] tabular text-muted-foreground"
                     style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}
                     title="Строк в фильтре"
                   >
@@ -1535,7 +1582,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                   </td>
                   {displayColumns.map((column) => {
                     const tot = columnTotals[column.key];
-                    const stickyLeft = pinnedKeys.includes(column.key)
+                    const stickyLeft = stickyKeys.includes(column.key)
                       ? ROW_GUTTER_WIDTH +
                         pinnedOrder.slice(0, pinnedOrder.findIndex((c) => c.key === column.key)).reduce((sum, c) => sum + c.width, 0)
                       : undefined;
@@ -1543,8 +1590,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       <td
                         key={`total-${column.id}`}
                         className={`border-r border-border/35 px-2.5 py-2 text-right text-sm tabular-nums ${
-                          stickyLeft !== undefined ? "sticky z-[25] bg-background/95" : ""
-                        }`}
+                          stickyLeft !== undefined ? "table-sticky-col sticky z-[25] bg-background/95" : ""
+                        } ${pinnedOrder.length && column.key === pinnedOrder[pinnedOrder.length - 1].key ? "table-sticky-edge" : ""}`}
                         style={{
                           width: column.width,
                           minWidth: column.width,
@@ -1602,6 +1649,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
               onClose={() => setFilterPopover(null)}
             />
           )}
+        </div>
+        {hFade.left && (
+          <div className="pointer-events-none absolute inset-y-0 left-0 z-40 w-7 bg-gradient-to-r from-background to-transparent" aria-hidden />
+        )}
+        {hFade.right && (
+          <div className="pointer-events-none absolute inset-y-0 right-0 z-40 w-7 bg-gradient-to-l from-background to-transparent" aria-hidden />
+        )}
         </div>
       </DndContext>
       )}

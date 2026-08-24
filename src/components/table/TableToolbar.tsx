@@ -96,23 +96,15 @@ export function TableToolbar({
         <Download className="h-3.5 w-3.5" /> CSV
       </DropdownMenuItem>
       {canEditStructure && (
-        <>
-          <DropdownMenuItem onClick={onOpenSchema ?? onAddColumn}>
-            <SlidersHorizontal className="h-3.5 w-3.5" /> Столбцы
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={onManageStatuses}>
-            <Palette className="h-3.5 w-3.5" /> Статусы
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={onAddColumn}>
-            <Columns3 className="h-3.5 w-3.5" /> Столбец
-          </DropdownMenuItem>
-        </>
+        <DropdownMenuItem onClick={onAddColumn}>
+          <Columns3 className="h-3.5 w-3.5" /> Столбец
+        </DropdownMenuItem>
       )}
     </>
   );
 
   return (
-    <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-card px-3 py-2 sm:flex-wrap sm:px-4">
+    <div className="z-10 flex h-12 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border bg-card px-2 sm:h-auto sm:flex-wrap sm:gap-2 sm:overflow-visible sm:px-4 sm:py-2">
       <div className="relative min-w-0 flex-1 sm:w-64 sm:flex-none">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -195,6 +187,29 @@ export function TableToolbar({
           </Button>
           <Button variant="outline" size="sm" className="hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onAddColumn}>
             <Columns3 className="h-3.5 w-3.5" /> Столбец
+          </Button>
+        </>
+      )}
+
+      {canEditStructure && (
+        <>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-10 w-10 shrink-0 sm:hidden"
+            onClick={onOpenSchema ?? onAddColumn}
+            title="Столбцы"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-10 w-10 shrink-0 sm:hidden"
+            onClick={onManageStatuses}
+            title="Статусы"
+          >
+            <Palette className="h-4 w-4" />
           </Button>
         </>
       )}

@@ -27,7 +27,7 @@ interface TableRowProps {
   onToggleChecked: (rowId: string) => void;
   onCellMouseDown: (rowId: string, colKey: string, e: React.MouseEvent) => void;
   onCellMouseEnter: (rowId: string, colKey: string) => void;
-  onCellDoubleClick: (rowId: string, colKey: string) => void;
+  onCellStartEdit: (rowId: string, colKey: string) => void;
   onEditValueChange: (value: string) => void;
   onCommitEdit: (direction?: "down" | "right" | "left" | "none") => void;
   onCancelEdit: () => void;
@@ -56,7 +56,7 @@ export function TableRow({
   onToggleChecked,
   onCellMouseDown,
   onCellMouseEnter,
-  onCellDoubleClick,
+  onCellStartEdit,
   onEditValueChange,
   onCommitEdit,
   onCancelEdit,
@@ -72,22 +72,31 @@ export function TableRow({
     disabled: !canReorder,
   });
 
+  const pinnedCols = columns.filter((c) => pinnedKeys.includes(c.key));
   let cumulativeLeft = ROW_GUTTER_WIDTH;
   const pinnedOffsets = new Map<string, number>();
-  columns
-    .filter((c) => pinnedKeys.includes(c.key))
-    .forEach((c) => {
-      pinnedOffsets.set(c.key, cumulativeLeft);
-      cumulativeLeft += c.width;
-    });
+  pinnedCols.forEach((c) => {
+    pinnedOffsets.set(c.key, cumulativeLeft);
+    cumulativeLeft += c.width;
+  });
+  const lastStickyKey = pinnedCols.length ? pinnedCols[pinnedCols.length - 1].key : null;
 
   const isNew = Date.now() - row.createdAt < 24 * 60 * 60 * 1000;
 
   return (
     <tr
       ref={setNodeRef}
-      style={{ height: rowHeight, transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
-      className="group/row table-data-row"
+      style={{
+        height: rowHeight,
+        transform: isDragging ? CSS.Transform.toString(transform) : undefined,
+        transition: isDragging ? transition : undefined,
+        opacity: isDragging ? 0.5 : 1,
+      }}
+      className={cn(
+        "group/row table-data-row",
+        (isRowFullySelected || isChecked) && "table-data-row-selected",
+        activeCell?.rowId === row.id && "table-data-row-active"
+      )}
       onContextMenu={() => onContextMenuOpen(row.id)}
     >
       <td
@@ -95,7 +104,8 @@ export function TableRow({
         onDoubleClick={() => onExpandRow(row.id)}
         title="Двойной клик — открыть строку карточкой"
         className={cn(
-          "sticky left-0 z-20 select-none border-b border-r border-border/40 bg-background text-center font-mono text-[11px] tabular text-muted-foreground group-hover/row:bg-transparent",
+          "table-sticky-col sticky left-0 z-20 select-none border-b border-r border-border/40 bg-background text-center font-mono text-[11px] tabular text-muted-foreground",
+          !lastStickyKey && "table-sticky-edge",
           isRowFullySelected && "bg-primary/10 font-medium text-primary"
         )}
         style={{ width: ROW_GUTTER_WIDTH, minWidth: ROW_GUTTER_WIDTH }}
@@ -157,12 +167,13 @@ export function TableRow({
             canEdit={canEdit}
             onMouseDown={(e) => onCellMouseDown(row.id, column.key, e)}
             onMouseEnter={() => onCellMouseEnter(row.id, column.key)}
-            onDoubleClick={() => onCellDoubleClick(row.id, column.key)}
+            onStartEdit={() => onCellStartEdit(row.id, column.key)}
             onEditValueChange={onEditValueChange}
             onCommitEdit={onCommitEdit}
             onCancelEdit={onCancelEdit}
             onStatusChange={(v) => onStatusChange(row.id, column.key, v)}
             stickyLeft={stickyLeft}
+            isLastSticky={column.key === lastStickyKey}
           />
         );
       })}

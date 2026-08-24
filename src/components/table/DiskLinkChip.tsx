@@ -14,8 +14,8 @@ export function DiskLinkChip({ href, className }: DiskLinkChipProps) {
       rel="noreferrer"
       title={href}
       className={cn(
-        "status-pill inline-flex max-w-full items-center justify-center gap-1.5 truncate rounded-full border border-primary/40 bg-primary/12 px-3 py-2 text-xs font-medium text-primary",
-        "min-h-10 min-w-[4.5rem] sm:min-h-0 sm:min-w-0 sm:px-2 sm:py-0.5 sm:text-[11px]",
+        "status-pill inline-flex max-w-full items-center justify-center gap-1 truncate rounded-full border border-primary/40 bg-primary/12 px-2 py-0.5 text-[11px] font-medium text-primary",
+        "min-h-8 sm:min-h-0",
         className
       )}
       onClick={(e) => e.stopPropagation()}

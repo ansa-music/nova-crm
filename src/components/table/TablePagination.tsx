@@ -18,11 +18,11 @@ export function TablePagination({ page, pageSize, total, onPageChange, onPageSiz
   const to = Number.isFinite(pageSize) ? Math.min(total, (page + 1) * pageSize) : total;
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-card px-4 py-2.5 text-sm text-muted-foreground">
+    <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-t border-border bg-card px-2 text-sm text-muted-foreground sm:h-auto sm:flex-wrap sm:px-4 sm:py-2">
       <div className="flex items-center gap-2">
-        <span>Строк на странице</span>
+        <span className="hidden sm:inline">Строк на странице</span>
         <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
-          <SelectTrigger className="h-10 w-[72px] sm:h-7">
+          <SelectTrigger className="h-9 w-[72px] sm:h-7">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
