@@ -14,7 +14,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { displayNameOf } from "@/utils/displayName";
-import { deskOwnerName, resolvedCoverUrl, splitStudioDesks } from "@/utils/peopleDesks";
+import { canOpenDesk, deskOwnerName, resolvedCoverUrl, splitStudioDesks } from "@/utils/peopleDesks";
 import type { WorkspacePage } from "@/types";
 
 export default function DesksPage() {
@@ -28,25 +28,34 @@ export default function DesksPage() {
   const [hiddenOpen, setHiddenOpen] = useState(false);
 
   const ownerId = ownerUid ?? members.find((m) => m.role === "owner")?.uid ?? null;
+  const isOwner = Boolean(permissions.isWorkspaceOwner || permissions.realRole === "owner");
 
-  const { openable, hidden } = useMemo(
+  const { visible, hidden } = useMemo(
     () =>
       splitStudioDesks(pages, {
         uid: profile?.uid,
-        canAccess: permissions.canAccessPage,
-        isOwner: Boolean(permissions.isWorkspaceOwner || permissions.realRole === "owner"),
       }),
-    [pages, permissions, profile?.uid]
+    [pages, profile?.uid]
   );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return openable;
-    return openable.filter((page) => {
+    if (!q) return visible;
+    return visible.filter((page) => {
       const who = deskOwnerName(members, page) || "";
       return page.name.toLowerCase().includes(q) || who.toLowerCase().includes(q);
     });
-  }, [openable, members, query]);
+  }, [visible, members, query]);
+
+  function mayOpen(page: WorkspacePage) {
+    return canOpenDesk({
+      page,
+      uid: profile?.uid,
+      isOwner,
+      role: permissions.role,
+      latestRequest: latestForPage(page.id),
+    });
+  }
 
   async function sendRequest(page: WorkspacePage) {
     const toUid = page.responsibleUserId || ownerId;
@@ -74,7 +83,9 @@ export default function DesksPage() {
         <div>
           <p className="eyebrow mb-1 text-primary">Studio</p>
           <h1 className="font-serif text-[1.85rem] font-medium tracking-[-0.03em] sm:text-[2.15rem]">Столы</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Открой стол по обложке.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Обложки видны всем. Свой стол открывается сразу, чужой — после разрешения.
+          </p>
         </div>
         <div className="flex w-full max-w-xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
           {hidden.length > 0 && (
@@ -101,7 +112,11 @@ export default function DesksPage() {
           pages={filtered}
           members={members}
           ownerUid={ownerUid}
+          canOpen={mayOpen}
           onOpen={(page) => navigate(`/page/${page.id}`)}
+          renderAction={(page) => (
+            <RequestDeskViewButton page={page} mine={latestForPage(page.id)} onRequest={() => sendRequest(page)} />
+          )}
         />
       ) : query.trim() || hidden.length === 0 ? (
         <EmptyState
@@ -122,7 +137,7 @@ export default function DesksPage() {
             ) : (
               hidden.map((page) => {
                 const who = deskOwnerName(members, page);
-                const canOpen = permissions.canAccessPage(page);
+                const openable = mayOpen(page);
                 const mine = latestForPage(page.id);
                 return (
                   <div key={page.id} className="overflow-hidden rounded-xl border border-primary/25 bg-card">
@@ -132,7 +147,7 @@ export default function DesksPage() {
                         <p className="truncate font-medium">{page.name}</p>
                         {who ? <p className="truncate text-[12px] text-muted-foreground">{who}</p> : null}
                       </div>
-                      {canOpen ? (
+                      {openable ? (
                         <Button type="button" size="sm" className="min-h-11 w-full" onClick={() => navigate(`/page/${page.id}`)}>
                           Открыть
                         </Button>
@@ -150,4 +165,3 @@ export default function DesksPage() {
     </div>
   );
 }
-

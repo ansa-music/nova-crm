@@ -3,21 +3,33 @@ import { Search, UsersRound } from "lucide-react";
 import { useNavigate } from "react-router";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { EmptyState } from "@/components/common/EmptyState";
+import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import { usePeopleDesks } from "@/hooks/usePeopleDesks";
 import { usePermissions } from "@/hooks/usePermissions";
-import { groupDeskSubtitle, personLabel } from "@/utils/peopleDesks";
+import { useViewRequests } from "@/hooks/useViewRequests";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { displayNameOf } from "@/utils/displayName";
+import { canOpenDesk, groupDeskSubtitle, personLabel } from "@/utils/peopleDesks";
 import { ROLE_LABELS } from "@/types";
 import { cn } from "@/utils/cn";
+import type { WorkspacePage } from "@/types";
 
 export default function PeoplePage() {
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const { peopleGroups, isLoadingWorkspaceData, selectPerson } = usePeopleDesks({ syncPersonSelection: true });
+  const { peopleGroups, isLoadingWorkspaceData, selectPerson, ownerUid } = usePeopleDesks({
+    syncPersonSelection: true,
+  });
   const permissions = usePermissions();
+  const { activeWorkspaceId, members } = useWorkspace();
+  const { requestView, latestForPage, reload } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const [query, setQuery] = useState("");
+
+  const isOwner = Boolean(permissions.isWorkspaceOwner || permissions.realRole === "owner");
+  const ownerId = ownerUid ?? members.find((m) => m.role === "owner")?.uid ?? null;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -28,6 +40,23 @@ export default function PeoplePage() {
       return name.toLowerCase().includes(q) || desk.toLowerCase().includes(q);
     });
   }, [peopleGroups, query]);
+
+  function mayOpen(page: WorkspacePage) {
+    return canOpenDesk({
+      page,
+      uid: profile?.uid,
+      isOwner,
+      role: permissions.role,
+      latestRequest: latestForPage(page.id),
+    });
+  }
+
+  async function sendRequest(page: WorkspacePage) {
+    const toUid = page.responsibleUserId || ownerId;
+    if (!toUid) throw new Error("Нет ответственного у стола");
+    await requestView(page, displayNameOf(profile), toUid);
+    await reload();
+  }
 
   if (isLoadingWorkspaceData) {
     return (
@@ -45,7 +74,9 @@ export default function PeoplePage() {
       <header className="mb-7">
         <p className="eyebrow mb-1 text-primary">Студия</p>
         <h1 className="font-serif text-[1.85rem] font-medium tracking-[-0.03em] sm:text-[2.15rem]">Люди</h1>
-        <p className="mt-1 mb-5 text-sm text-muted-foreground">Лица команды. Нажми — откроется его стол.</p>
+        <p className="mt-1 mb-5 text-sm text-muted-foreground">
+          Лица команды. Свой стол открывается сразу, чужой — после запроса.
+        </p>
         <label className="flex h-11 w-full items-center gap-2 rounded-full border border-primary/30 bg-card/80 px-4 text-[13px] text-muted-foreground">
           <Search className="h-3.5 w-3.5 shrink-0" />
           <input
@@ -62,26 +93,18 @@ export default function PeoplePage() {
       ) : (
         <div className="flex flex-col gap-2">
           {filtered.map((group) => {
-            const coverPage =
-              group.pages.find((p) => permissions.canAccessPage(p)) ??
-              (profile?.uid && group.uid === profile.uid ? group.pages[0] ?? null : null);
+            const openPage = group.pages.find((p) => mayOpen(p)) ?? null;
+            const requestPage = openPage ? null : (group.pages[0] ?? null);
             const name = personLabel(group.member) || (group.uid ? "Стол" : "Без ответственного");
             const desk = groupDeskSubtitle(group);
             const role = group.member?.role ? ROLE_LABELS[group.member.role] : null;
             const hidden = Boolean(group.deskHidden);
-            return (
-              <button
-                key={group.key}
-                type="button"
-                onClick={() => {
-                  selectPerson(group.key);
-                  if (coverPage) navigate(`/page/${coverPage.id}`);
-                }}
-                className={cn(
-                  "flex min-h-16 w-full items-center gap-3 rounded-xl border border-primary/25 bg-card px-3 py-3 text-left transition-colors hover:border-primary/55 hover:bg-primary/[0.06] active:scale-[0.99]",
-                  hidden && "opacity-80"
-                )}
-              >
+            const rowClass = cn(
+              "flex min-h-16 w-full items-center gap-3 rounded-xl border border-primary/25 bg-card px-3 py-3 text-left",
+              hidden && "opacity-80"
+            );
+            const body = (
+              <>
                 {group.member ? (
                   <MemberAvatar
                     id={group.member.uid}
@@ -110,7 +133,38 @@ export default function PeoplePage() {
                     {[role, desk].filter(Boolean).join(" · ")}
                   </span>
                 </span>
-              </button>
+              </>
+            );
+
+            if (openPage) {
+              return (
+                <button
+                  key={group.key}
+                  type="button"
+                  onClick={() => {
+                    selectPerson(group.key);
+                    navigate(`/page/${openPage.id}`);
+                  }}
+                  className={cn(rowClass, "transition-colors hover:border-primary/55 hover:bg-primary/[0.06] active:scale-[0.99]")}
+                >
+                  {body}
+                </button>
+              );
+            }
+
+            return (
+              <div key={group.key} className={cn("overflow-hidden rounded-xl border border-primary/25 bg-card", hidden && "opacity-80")}>
+                <div className="flex min-h-16 items-center gap-3 px-3 py-3">{body}</div>
+                {requestPage ? (
+                  <div className="border-t border-primary/20 px-3 py-2">
+                    <RequestDeskViewButton
+                      page={requestPage}
+                      mine={latestForPage(requestPage.id)}
+                      onRequest={() => sendRequest(requestPage)}
+                    />
+                  </div>
+                ) : null}
+              </div>
             );
           })}
         </div>

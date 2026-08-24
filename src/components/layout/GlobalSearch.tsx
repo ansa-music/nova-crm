@@ -11,10 +11,13 @@ import {
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { usePeopleDesks } from "@/hooks/usePeopleDesks";
+import { useViewRequests } from "@/hooks/useViewRequests";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
+import { canOpenDesk } from "@/utils/peopleDesks";
 import { cn } from "@/utils/cn";
 import { useUiStore } from "@/store/uiStore";
 import type { PageIconName } from "@/types";
@@ -34,10 +37,13 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const { pages, members } = useWorkspace();
+  const { pages, members, activeWorkspaceId } = useWorkspace();
   const permissions = usePermissions();
+  const { profile } = useAuth();
+  const { latestForPage } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const { selectPerson } = usePeopleDesks();
   const navigate = useNavigate();
+  const isOwner = Boolean(permissions.isWorkspaceOwner || permissions.realRole === "owner");
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -93,7 +99,15 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
   const pageItems: CommandItem[] = useMemo(
     () =>
       pages
-        .filter((p) => permissions.canAccessPage(p))
+        .filter((p) =>
+          canOpenDesk({
+            page: p,
+            uid: profile?.uid,
+            isOwner,
+            role: permissions.role,
+            latestRequest: latestForPage(p.id),
+          })
+        )
         .filter((p) => !q || p.name.toLowerCase().includes(q))
         .map((p) => ({
           id: p.id,
@@ -103,7 +117,7 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
           icon: PAGE_ICON_MAP[(p.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid,
           color: p.color,
         })),
-    [pages, q, permissions]
+    [pages, q, permissions, profile?.uid, isOwner, latestForPage]
   );
 
   const peopleItems: CommandItem[] = useMemo(() => {

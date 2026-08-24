@@ -31,6 +31,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { ensureDiskColumn, ensurePriceColumn, fetchPageIfAccessible, togglePageVisibility } from "@/services/pageService";
 import { displayNameOf } from "@/utils/displayName";
+import { canOpenDesk, isRestrictedDeskRole } from "@/utils/peopleDesks";
 import { useUiStore } from "@/store/uiStore";
 import { cn } from "@/utils/cn";
 import { recordRecentPage } from "@/hooks/useUserPageNav";
@@ -41,7 +42,7 @@ export default function DynamicTablePage() {
   const { activeWorkspaceId, pages, members } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
-  const { requestView, latestForPage, reload: reloadViewRequests } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
+  const { requestView, latestForPage, reload: reloadViewRequests, isLoading: viewRequestsLoading } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const setTableFullscreen = useUiStore((s) => s.setTableFullscreen);
   const setTableImmersive = useUiStore((s) => s.setTableImmersive);
   const tableFullscreen = useUiStore((s) => s.tableFullscreen);
@@ -99,9 +100,18 @@ export default function DynamicTablePage() {
 
   const isOwnDesk = Boolean(page && permissions.uid && page.responsibleUserId === permissions.uid);
   const isWorkspaceOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
-  // Responsible person and workspace Owner must never hit the hidden-desk lock.
-  const hasAccess =
-    permissions.isResolved && Boolean(page && (isOwnDesk || isWorkspaceOwner || permissions.canAccessPage(page)));
+  const personalOpen = page
+    ? canOpenDesk({
+        page,
+        uid: permissions.uid,
+        isOwner: isWorkspaceOwner,
+        role: permissions.role,
+        latestRequest: latestForPage(page.id),
+      })
+    : false;
+  // Owner / responsible always open. Технар/viewer: own desk or accepted view-request only.
+  // Do not use allowedUsers membership — live pages often list everyone.
+  const hasAccess = permissions.isResolved && Boolean(page && personalOpen);
   const { subPages } = useSubPages(activeWorkspaceId, hasAccess && page ? page.id : null);
   const activeSubPage = subPages.find((s) => s.id === activeSubPageId) ?? null;
   const tabScopeReady = tabsReady && appliedDefaultForPageRef.current === pageId;
@@ -230,14 +240,47 @@ export default function DynamicTablePage() {
     );
   }
 
+  // Wait for this user's view-requests before denying — an already-approved grant
+  // should not flash the request screen.
+  if (
+    page &&
+    !hasAccess &&
+    viewRequestsLoading &&
+    isRestrictedDeskRole(permissions.role) &&
+    !isOwnDesk &&
+    !isWorkspaceOwner
+  ) {
+    return (
+      <div className="p-5">
+        <div className="mb-4 flex items-center gap-3">
+          <Skeleton className="h-8 w-8 rounded-full" />
+          <Skeleton className="h-6 w-40" />
+        </div>
+        <div className="overflow-hidden rounded-[16px] border border-border/60">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 border-t border-border/50 px-4 py-3 first:border-t-0">
+              <Skeleton className="h-3 w-6" />
+              <Skeleton className="h-3.5 flex-1" />
+              <Skeleton className="h-5 w-20 rounded-full" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   if (!hasAccess) {
     const toUid = page.responsibleUserId || members.find((m) => m.role === "owner")?.uid || "";
+    const hidden = Boolean(page.hiddenByResponsible);
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
         <Lock className="h-8 w-8 text-primary" />
-        <p className="page-title">Стол скрыт</p>
+        <p className="page-title">{hidden ? "Стол скрыт" : "Нужно разрешение"}</p>
         <p className="max-w-sm text-sm text-muted-foreground">
-          «{page.name}» можно смотреть после разрешения ответственного. Данные листа не открываются.
+          {hidden
+            ? `«${page.name}» можно смотреть после разрешения ответственного. Данные листа не открываются.`
+            : `Чтобы открыть «${page.name}», запросите просмотр у ответственного. Данные листа не открываются.`}
         </p>
         {toUid && toUid !== permissions.uid ? (
           <div className="w-full max-w-xs">

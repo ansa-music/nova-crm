@@ -41,11 +41,15 @@ export function GoChordHotkeys() {
   }
 
   function firstDeskHref(): string | null {
-    const accessible = pagesRef.current.filter((p) => permissionsRef.current.canAccessPage(p));
-    if (accessible.length === 0) return null;
-    const pinned = uidRef.current ? readPinnedPageIds(uidRef.current) : [];
-    const pinnedPage = pinned.map((id) => accessible.find((p) => p.id === id)).find((page) => page !== undefined);
-    const target = pinnedPage ?? accessible[0];
+    const uid = uidRef.current;
+    const perms = permissionsRef.current;
+    const isOwner = Boolean(perms.isWorkspaceOwner || perms.realRole === "owner");
+    const own = uid ? pagesRef.current.find((p) => p.responsibleUserId === uid) : undefined;
+    if (own) return `/page/${own.id}`;
+    if (!isOwner) return null;
+    const pinned = uid ? readPinnedPageIds(uid) : [];
+    const pinnedPage = pinned.map((id) => pagesRef.current.find((p) => p.id === id)).find((page) => page !== undefined);
+    const target = pinnedPage ?? pagesRef.current[0];
     return target ? `/page/${target.id}` : null;
   }
 

@@ -1,4 +1,4 @@
-import type { WorkspaceMember, WorkspacePage } from "@/types";
+import type { Role, ViewRequest, WorkspaceMember, WorkspacePage } from "@/types";
 
 export function personLabel(member?: { name?: string; nickname?: string } | null) {
   if (!member) return "";
@@ -99,23 +99,19 @@ export function splitStudioDesks(
   pages: WorkspacePage[],
   opts: {
     uid?: string | null;
-    canAccess: (page: WorkspacePage) => boolean;
-    isOwner: boolean;
   }
-): { openable: WorkspacePage[]; hidden: WorkspacePage[] } {
-  const openable: WorkspacePage[] = [];
+): { visible: WorkspacePage[]; hidden: WorkspacePage[] } {
+  const visible: WorkspacePage[] = [];
   const hidden: WorkspacePage[] = [];
   const uid = opts.uid ?? null;
   for (const page of pages) {
     const own = Boolean(uid && page.responsibleUserId === uid);
-    const canOpen = own || opts.isOwner || opts.canAccess(page);
-    // Main grid = desks this person can open that are not hidden from studio.
-    // Own desk stays here even if they hid it. Owner/others open hidden desks
-    // from «Скрытые столы», not mixed into available covers.
-    if (canOpen && (!page.hiddenByResponsible || own)) openable.push(page);
+    // Main grid = non-hidden covers for everyone. Own desk stays here even if they hid it.
+    // Others' hidden desks stay behind «Скрытые столы».
+    if (!page.hiddenByResponsible || own) visible.push(page);
     else hidden.push(page);
   }
-  return { openable, hidden };
+  return { visible, hidden };
 }
 
 /** Home / Dashboard cover grids: same as /desks main, hidden desks stay off. */
@@ -123,10 +119,39 @@ export function coverGridPages(
   pages: WorkspacePage[],
   opts: {
     uid?: string | null;
-    canAccess: (page: WorkspacePage) => boolean;
-    isOwner: boolean;
   }
 ): WorkspacePage[] {
-  return splitStudioDesks(pages, opts).openable.filter((page) => !page.hiddenByResponsible);
+  return splitStudioDesks(pages, opts).visible.filter((page) => !page.hiddenByResponsible);
+}
+
+export function isRestrictedDeskRole(role: Role): boolean {
+  return role === "manager" || role === "viewer";
+}
+
+export function isApprovedViewRequest(request: ViewRequest | null | undefined): boolean {
+  return request?.status === "approved";
+}
+
+/**
+ * Whether this user may OPEN the table (navigate to /page/:id), not merely see the cover.
+ * Owner: every desk. Responsible: always their own (even if hidden).
+ * Технар/viewer: own desk OR latest view-request for this page is approved.
+ * Do not treat allowedUsers membership as open — live pages often list everyone.
+ */
+export function canOpenDesk(opts: {
+  page: WorkspacePage;
+  uid?: string | null;
+  isOwner: boolean;
+  role: Role;
+  latestRequest?: ViewRequest | null;
+}): boolean {
+  const uid = opts.uid ?? "";
+  if (!uid) return false;
+  if (opts.isOwner) return true;
+  if (opts.page.responsibleUserId === uid) return true;
+  if (isRestrictedDeskRole(opts.role)) {
+    return isApprovedViewRequest(opts.latestRequest);
+  }
+  return Boolean(opts.page.allowedUsers?.includes(uid));
 }
 

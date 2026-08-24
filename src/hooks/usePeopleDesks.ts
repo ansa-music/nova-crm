@@ -26,7 +26,6 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
   );
 
   const isPersonalLanding = permissions.role !== "owner" && permissions.role !== "admin";
-  const isOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
 
   const studioPages = useMemo(() => {
     if (isPersonalLanding && profile) {
@@ -43,10 +42,8 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
     () =>
       coverGridPages(pages, {
         uid: profile?.uid,
-        canAccess: permissions.canAccessPage,
-        isOwner,
       }),
-    [pages, permissions, profile?.uid, isOwner]
+    [pages, profile?.uid]
   );
 
   useEffect(() => {
