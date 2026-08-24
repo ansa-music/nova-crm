@@ -22,9 +22,15 @@ import { getAnalytics, isSupported, type Analytics } from "firebase/analytics";
  * in Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client.
  * That cannot be done from this repo.
  */
+const configuredAuthDomain =
+  import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "nurba-6e70d.firebaseapp.com";
+// Never compile *.web.app as authDomain: Google only authorizes
+// https://nurba-6e70d.firebaseapp.com/__/auth/handler
+const authDomain = String(configuredAuthDomain).replace(/\.web\.app$/i, ".firebaseapp.com");
+
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDvcnG_bcSt0ODT-hsbxRjamxSzIlnvvCc",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "nurba-6e70d.firebaseapp.com",
+  authDomain,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "nurba-6e70d",
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "nurba-6e70d.firebasestorage.app",
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "890276594199",

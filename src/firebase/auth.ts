@@ -16,7 +16,7 @@ import { auth } from "@/firebase/firebase";
 
 const GOOGLE_REDIRECT_FLAG = "nova-crm:google-redirect";
 const REDIRECT_FLAG_MAX_AGE_MS = 10 * 60 * 1000;
-const REDIRECT_RESULT_TIMEOUT_MS = 6000;
+const REDIRECT_RESULT_TIMEOUT_MS = 20000;
 
 function requireAuth() {
   if (!auth) throw new Error("Firebase не настроен: заполните .env.local");
@@ -114,6 +114,8 @@ export function wasGoogleRedirectPending(): boolean {
  * from firebase config (standard Firebase). Never switch authDomain to the
  * Hosting web.app hostname — Google's authorized redirect is only
  * https://nurba-6e70d.firebaseapp.com/__/auth/handler.
+ * index.html bounces *.web.app → *.firebaseapp.com so the page origin
+ * matches that handler (fixes iPhone redirect that never returns a session).
  */
 export async function signInWithGoogle() {
   const authInstance = requireAuth();

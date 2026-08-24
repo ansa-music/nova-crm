@@ -2,6 +2,14 @@
 <html lang="ru" class="dark">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (function () {
+        var host = location.hostname;
+        if (host.length > 8 && host.slice(-8) === ".web.app") {
+          location.replace(location.href.replace(".web.app", ".firebaseapp.com"));
+        }
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
