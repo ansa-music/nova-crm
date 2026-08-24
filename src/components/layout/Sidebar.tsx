@@ -1,17 +1,17 @@
 import { useState, type ReactNode } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router";
+import { NavLink, useNavigate } from "react-router";
 import {
   ChevronLeft,
   ChevronRight,
   Keyboard,
   LayoutDashboard,
+  LayoutGrid,
   LogOut,
   Megaphone,
   MessageCircle,
   MessageSquare,
   MoreVertical,
   Plus,
-  Search,
   Settings,
   User,
   Users,
@@ -34,12 +34,10 @@ import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog
 import { isWorkspaceAdmin } from "@/utils/adminAccess";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { usePeopleDesks } from "@/hooks/usePeopleDesks";
 import { usePermissions } from "@/hooks/usePermissions";
 import { signOutUser } from "@/firebase/auth";
 import { setActiveRole } from "@/services/memberService";
 import { cn } from "@/utils/cn";
-import { personLabel, groupDeskSubtitle } from "@/utils/peopleDesks";
 import { useUiStore } from "@/store/uiStore";
 import { THEME_OPTIONS } from "@/components/layout/ThemeToggle";
 
@@ -80,34 +78,17 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   const { profile } = useAuth();
   const { members, activeWorkspaceId, workspaces, activeWorkspace, setActiveWorkspaceId } = useWorkspace();
   const permissions = usePermissions();
-  const { groups, activeGroup, selectPerson } = usePeopleDesks();
   const navigate = useNavigate();
-  const location = useLocation();
   const pinnedCollapsed = useUiStore((s) => s.sidebarCollapsed) && !mobile;
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const collapsed = pinnedCollapsed;
   const [createPageOpen, setCreatePageOpen] = useState(false);
   const [createWsOpen, setCreateWsOpen] = useState(false);
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
-  const [query, setQuery] = useState("");
   const theme = useUiStore((s) => s.theme);
   const setTheme = useUiStore((s) => s.setTheme);
 
   const myMembership = members.find((m) => m.uid === profile?.uid);
-  const filtered = groups.filter((g) => {
-    const q = query.trim().toLowerCase();
-    if (!q) return true;
-    const name = personLabel(g.member) || "Без ответственного";
-    const desk = groupDeskSubtitle(g);
-    return name.toLowerCase().includes(q) || desk.toLowerCase().includes(q);
-  });
-
-  function pickPerson(key: string) {
-    selectPerson(key);
-    if (location.pathname !== "/") navigate("/");
-    onNavigate?.();
-  }
-
   function goHome() {
     navigate("/");
     onNavigate?.();
@@ -144,25 +125,62 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-thin">
           {!mobile && (
-            <nav className="mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Люди">
+            <nav className="mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
               {collapsed ? (
-                <NavLink
-                  to="/people"
-                  title="Люди"
-                  onClick={() => onNavigate?.()}
-                  className={({ isActive }) =>
-                    cn(
-                      "flex h-11 w-11 items-center justify-center rounded-xl",
-                      isActive ? "bg-[hsl(24_16%_16%)] text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
-                    )
-                  }
-                >
-                  <UsersRound className="h-4 w-4" />
-                </NavLink>
+                <>
+                  <NavLink
+                    to="/"
+                    end
+                    title="Главная"
+                    onClick={() => { navigate("/"); onNavigate?.(); }}
+                    className={({ isActive }) =>
+                      cn(
+                        "flex h-11 w-11 items-center justify-center rounded-xl",
+                        isActive ? "bg-[hsl(24_16%_16%)] text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
+                      )
+                    }
+                  >
+                    <LayoutDashboard className="h-4 w-4" />
+                  </NavLink>
+                  <NavLink
+                    to="/desks"
+                    title="Столы"
+                    onClick={() => onNavigate?.()}
+                    className={({ isActive }) =>
+                      cn(
+                        "flex h-11 w-11 items-center justify-center rounded-xl",
+                        isActive ? "bg-[hsl(24_16%_16%)] text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
+                      )
+                    }
+                  >
+                    <LayoutGrid className="h-4 w-4" />
+                  </NavLink>
+                  <NavLink
+                    to="/people"
+                    title="Люди"
+                    onClick={() => onNavigate?.()}
+                    className={({ isActive }) =>
+                      cn(
+                        "flex h-11 w-11 items-center justify-center rounded-xl",
+                        isActive ? "bg-[hsl(24_16%_16%)] text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
+                      )
+                    }
+                  >
+                    <UsersRound className="h-4 w-4" />
+                  </NavLink>
+                </>
               ) : (
-                <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
-                  Люди
-                </AppNavLink>
+                <>
+                  <AppNavLink to="/" end icon={LayoutDashboard} onNavigate={() => { navigate("/"); onNavigate?.(); }}>
+                    Главная
+                  </AppNavLink>
+                  <AppNavLink to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
+                    Столы
+                  </AppNavLink>
+                  <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
+                    Люди
+                  </AppNavLink>
+                </>
               )}
             </nav>
           )}
@@ -170,6 +188,9 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
             <nav className="mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
               <AppNavLink to="/" end icon={LayoutDashboard} onNavigate={() => { navigate("/"); onNavigate?.(); }}>
                 Главная
+              </AppNavLink>
+              <AppNavLink to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
+                Столы
               </AppNavLink>
               <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
                 Люди
@@ -200,64 +221,6 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               )}
             </nav>
           )}
-          {!collapsed && (
-          <>
-            <p className="mb-2 px-1 text-[13px] font-medium text-foreground">Люди</p>
-            <label className="mb-3 flex h-9 items-center gap-2 rounded-full border border-border bg-card/80 px-3 text-[13px] text-muted-foreground">
-              <Search className="h-3.5 w-3.5 shrink-0" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Поиск"
-                className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
-              />
-            </label>
-          </>
-        )}
-
-        <nav className="flex flex-col gap-0.5">
-          {filtered.map((group) => {
-            const name = personLabel(group.member) || (group.uid ? "Стол" : "Без ответственного");
-            const desk = groupDeskSubtitle(group);
-            const selected = activeGroup?.key === group.key;
-            return (
-              <button
-                key={group.key}
-                type="button"
-                onClick={() => pickPerson(group.key)}
-                className={cn(
-                  "flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors",
-                  mobile && "min-h-11",
-                  selected ? "bg-[hsl(24_16%_16%)] text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80",
-                  collapsed && "justify-center px-0"
-                )}
-              >
-                {group.member ? (
-                  <MemberAvatar
-                    id={group.member.uid}
-                    name={group.member.name}
-                    nickname={group.member.nickname}
-                    photoURL={group.member.photoURL}
-                    className="h-8 w-8 shrink-0"
-                  />
-                ) : (
-                  <Avatar className="h-8 w-8">
-                    <AvatarFallback>{desk.slice(0, 1)}</AvatarFallback>
-                  </Avatar>
-                )}
-                {!collapsed && (
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-semibold text-foreground">{name}</span>
-                    <span className="block truncate text-[11px] text-muted-foreground">{desk}</span>
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          {filtered.length === 0 && !collapsed && (
-            <p className="px-2 py-3 text-xs text-muted-foreground">Никого не нашлось</p>
-          )}
-        </nav>
         </div>
 
         <div className={cn("mt-3 flex items-center border-t border-border pt-3", collapsed ? "justify-center" : "gap-1")}>
