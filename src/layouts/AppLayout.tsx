@@ -1,6 +1,6 @@
 // PATH: src/layouts/AppLayout.tsx  (REPLACES EXISTING)
 import { useState, useEffect } from "react";
-import { Outlet, useLocation } from "react-router";
+import { Navigate, Outlet, useLocation } from "react-router";
 import { Building2, Lock, Plus } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { PageShell } from "@/components/layout/PageShell";
@@ -25,6 +25,13 @@ import { useAuth } from "@/hooks/useAuth";
 import { useIsTablet } from "@/hooks/useMediaQuery";
 import { useUiStore } from "@/store/uiStore";
 import { isWorkspaceAdmin } from "@/utils/adminAccess";
+import { FALLBACK_JOIN_WORKSPACE_ID, getJoinIntent } from "@/utils/joinIntent";
+
+
+function NoWorkspaceJoinRedirect() {
+  const id = getJoinIntent() || FALLBACK_JOIN_WORKSPACE_ID;
+  return <Navigate to={`/join/${id}`} replace />;
+}
 
 export function AppLayout() {
   // Hooks always run before any early return, so the subscriptions keep making
@@ -93,14 +100,7 @@ export function AppLayout() {
             <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />
           </>
         ) : (
-          <div>
-            <p className="eyebrow mb-2 text-primary">Доступ</p>
-            <h1 className="display text-2xl">Нет доступа к workspace</h1>
-            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-              Создание новых workspace ограничено. Попросите ссылку-приглашение у владельца
-              нужного workspace — доступ откроется после его подтверждения.
-            </p>
-          </div>
+          <NoWorkspaceJoinRedirect />
         )}
       </div>
     );
