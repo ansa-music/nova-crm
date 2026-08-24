@@ -41,7 +41,7 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
   const permissions = usePermissions();
   const { profile } = useAuth();
   const { latestForPage } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
-  const { selectPerson } = usePeopleDesks();
+  const { selectPerson, peopleGroups } = usePeopleDesks();
   const navigate = useNavigate();
   const isOwner = Boolean(permissions.isWorkspaceOwner || permissions.realRole === "owner");
 
@@ -129,22 +129,28 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
           m.email.toLowerCase().includes(q) ||
           (m.nickname ?? "").toLowerCase().includes(q)
       )
-      .map((m) => ({
-        id: m.uid || m.email,
-        kind: "person" as const,
-        label: m.nickname || m.name,
-        hint: m.email,
-        href: permissions.canManageWorkspace ? "/users" : undefined,
-        icon: Users,
-        run:
-          !permissions.canManageWorkspace && m.uid
-            ? () => {
-                selectPerson(m.uid);
-                navigate("/");
-              }
-            : undefined,
-      }));
-  }, [members, q, permissions.canManageWorkspace, selectPerson, navigate]);
+      .map((m) => {
+        const group = peopleGroups.find((g) => g.uid === m.uid);
+        const openPage = group?.pages.find((page) =>
+          canOpenDesk({
+            page,
+            uid: profile?.uid,
+            isOwner,
+            role: permissions.role,
+            latestRequest: latestForPage(page.id),
+          })
+        );
+        return {
+          id: m.uid || m.email,
+          kind: "person" as const,
+          label: m.nickname || m.name,
+          hint: m.email,
+          href: openPage ? `/page/${openPage.id}` : "/people",
+          icon: Users,
+          run: m.uid ? () => selectPerson(m.uid) : undefined,
+        };
+      });
+  }, [members, q, peopleGroups, profile?.uid, isOwner, permissions.role, latestForPage, selectPerson]);
 
   const items = [...filteredDest, ...pageItems, ...peopleItems];
   const total = items.length;
