@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
+import { cn } from "@/utils/cn";
 import type { ViewRequest, WorkspacePage } from "@/types";
 
 export function RequestDeskViewButton({
@@ -17,12 +18,26 @@ export function RequestDeskViewButton({
   className?: string;
 }) {
   const [busy, setBusy] = useState(false);
+  const approved = mine?.status === "approved";
+  const pending = mine?.status === "pending";
+
+  if (canOpen && approved) {
+    return (
+      <span
+        className={cn(
+          "inline-flex min-h-11 w-full items-center justify-center rounded-sm border border-primary/50 bg-primary/15 text-xs font-medium text-primary shadow-glow",
+          className
+        )}
+      >
+        Разрешено
+      </span>
+    );
+  }
 
   if (canOpen) {
     return null;
   }
 
-  const pending = mine?.status === "pending";
   const label = pending ? "Запрос отправлен" : "Запросить просмотр";
 
   return (

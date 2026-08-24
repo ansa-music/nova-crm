@@ -12,6 +12,8 @@ export function DeskCoverGrid({
   highlightedId,
   canOpen,
   renderAction,
+  onRequest,
+  isPending,
 }: {
   pages: WorkspacePage[];
   members: WorkspaceMember[];
@@ -20,6 +22,8 @@ export function DeskCoverGrid({
   highlightedId?: string | null;
   canOpen?: (page: WorkspacePage) => boolean;
   renderAction?: (page: WorkspacePage) => ReactNode;
+  onRequest?: (page: WorkspacePage) => void;
+  isPending?: (page: WorkspacePage) => boolean;
 }) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -27,40 +31,47 @@ export function DeskCoverGrid({
         const who = deskOwnerName(members, page);
         const highlighted = highlightedId === page.id;
         const openable = canOpen ? canOpen(page) : true;
-        const action = !openable ? renderAction?.(page) : null;
-        const cover = (
-          <>
-            <DeskCoverStrip coverUrl={resolvedCoverUrl(page, ownerUid)} name={page.name} ratio="thumb" />
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-            <span className="absolute inset-x-0 bottom-0 z-[1] p-4">
-              <span className="block truncate font-serif text-[1.05rem] font-medium tracking-[-0.02em] text-white">
-                {page.name}
-              </span>
-              {who ? <span className="block truncate text-[12px] text-white/75">{who}</span> : null}
-            </span>
-          </>
-        );
+        const pending = Boolean(!openable && isPending?.(page));
+        const action = renderAction?.(page) ?? null;
         return (
           <div
             key={page.id}
             className={cn(
               "relative overflow-hidden rounded-xl border bg-card text-left",
               highlighted ? "border-primary/70" : "border-primary/28",
-              openable && "transition-colors hover:border-primary/60"
+              (openable || !pending) && "transition-colors hover:border-primary/60"
             )}
           >
+            <DeskCoverStrip coverUrl={resolvedCoverUrl(page, ownerUid)} name={page.name} ratio="thumb" />
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#070c18] via-[#070c18]/45 to-transparent" />
+
             {openable ? (
               <button
                 type="button"
                 onClick={() => onOpen(page)}
-                className="group relative block w-full overflow-hidden text-left active:scale-[0.99]"
-              >
-                {cover}
-              </button>
-            ) : (
-              <div className="relative overflow-hidden">{cover}</div>
-            )}
-            {action ? <div className="border-t border-primary/20 p-3">{action}</div> : null}
+                className="absolute inset-0 z-[1] active:scale-[0.99]"
+                aria-label={page.name}
+              />
+            ) : !pending && onRequest ? (
+              <button
+                type="button"
+                onClick={() => onRequest(page)}
+                className="absolute inset-0 z-[1] active:scale-[0.99]"
+                aria-label="Запросить просмотр"
+              />
+            ) : null}
+
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] flex flex-col gap-2 p-4">
+              <div>
+                <span className="block truncate font-serif text-[1.05rem] font-medium tracking-[-0.02em] text-white">
+                  {page.name}
+                </span>
+                {who ? <span className="block truncate text-[12px] text-white/75">{who}</span> : null}
+              </div>
+              {action ? (
+                <div className={openable ? "pointer-events-none" : "pointer-events-auto"}>{action}</div>
+              ) : null}
+            </div>
           </div>
         );
       })}
