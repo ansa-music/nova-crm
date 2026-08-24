@@ -226,6 +226,13 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
                 onCheckedChange={(v) => setLayout({ showProgress: v })}
               />
             </label>
+            <label className="flex items-center justify-between gap-3 rounded-lg border border-border/70 px-3 py-2.5">
+              <span className="text-sm">Диаграмма стола</span>
+              <Switch
+                checked={layout.showCharts}
+                onCheckedChange={(v) => setLayout({ showCharts: v })}
+              />
+            </label>
           </section>
         </div>
 

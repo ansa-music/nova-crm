@@ -3,11 +3,13 @@ import { useCallback, useEffect, useState } from "react";
 export interface DeskLayout {
   showLeaderboard: boolean;
   showProgress: boolean;
+  showCharts: boolean;
 }
 
 const DEFAULT_LAYOUT: DeskLayout = {
   showLeaderboard: true,
   showProgress: true,
+  showCharts: true,
 };
 
 const EVENT = "nova:desk-layout";
@@ -24,6 +26,7 @@ function readLayout(uid: string): DeskLayout {
     return {
       showLeaderboard: parsed.showLeaderboard !== false,
       showProgress: parsed.showProgress !== false,
+      showCharts: parsed.showCharts !== false,
     };
   } catch {
     return { ...DEFAULT_LAYOUT };

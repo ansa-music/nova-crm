@@ -93,7 +93,7 @@ export function Sidebar({ mobile }: { mobile?: boolean }) {
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
       className={cn(
-        "os-sidebar relative flex h-full flex-col gap-2 px-1.5 py-2.5 text-sidebar-foreground",
+        "os-sidebar hud-frame relative flex h-full flex-col gap-2 px-1.5 py-2.5 text-sidebar-foreground",
         "transition-[width,box-shadow] duration-280 ease-out",
         collapsed ? "w-[56px] items-center" : "w-[216px]",
         pinnedCollapsed && hoverOpen && "absolute inset-y-0 left-0 z-50 w-[216px] shadow-[0_0_48px_-16px_hsl(var(--primary)/0.45)]"

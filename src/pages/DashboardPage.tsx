@@ -9,6 +9,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { StatusChart } from "@/components/dashboard/StatusChart";
+import { DeskChart, GoalVsDoneChart } from "@/components/dashboard/DeskChart";
+import { DeskPointerGlow } from "@/components/dashboard/DeskPointerGlow";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,7 +33,7 @@ import { downloadCsv } from "@/utils/csv";
 import { formatCurrency } from "@/utils/format";
 import { formatDate, greetingByHour, hourInTimeZone, timeAgo } from "@/utils/date";
 import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import type { LeaderboardEntry, PageColumn, PageRow, StatusOption, SubPage, WorkspacePage } from "@/types";
 
 function cn(...classes: (string | boolean | undefined)[]) {
@@ -86,12 +88,54 @@ function progressForPage(
   return { page, doneTotal, grandTotal, percent, rowCount: rows.length, openCount, columns, rows };
 }
 
+
+function statusDistributionFromDesks(desks: PageProgress[], statusOptions: StatusOption[]) {
+  const counts = new Map<string, number>();
+  for (const desk of desks) {
+    const statusCol = desk.columns.find((c) => c.type === "status");
+    if (!statusCol) continue;
+    for (const row of desk.rows) {
+      const raw = String(row.cells[statusCol.key] ?? "");
+      if (!raw) continue;
+      counts.set(raw, (counts.get(raw) ?? 0) + 1);
+    }
+  }
+  return statusOptions.map((opt) => ({
+    name: opt.label,
+    value: counts.get(opt.value) ?? 0,
+    color: opt.color,
+  }));
+}
+
+function ordersByDateFromDesks(desks: PageProgress[]) {
+  const buckets = new Map<string, { label: string; value: number }>();
+  for (const desk of desks) {
+    const dateCol = desk.columns.find((c) => c.type === "date");
+    const priceCol = desk.columns.find((c) => c.type === "currency");
+    if (!dateCol) continue;
+    for (const row of desk.rows) {
+      const ms = Number(row.cells[dateCol.key]);
+      if (!Number.isFinite(ms) || ms <= 0) continue;
+      const sortKey = formatDate(ms, "yyyy-MM");
+      const label = formatDate(ms, "LLL yyyy");
+      const amount = Number(row.cells[priceCol?.key ?? ""] ?? 0) || 0;
+      const prev = buckets.get(sortKey);
+      buckets.set(sortKey, { label, value: (prev?.value ?? 0) + amount });
+    }
+  }
+  return Array.from(buckets.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, v]) => v);
+}
+
 export default function DashboardPage() {
   const { activeWorkspace, activeWorkspaceId, pages, members, isLoadingWorkspaceData } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
   const { layout: deskLayout } = useDeskLayout(profile?.uid);
   const [studioPage, setStudioPage] = useState<WorkspacePage | null>(null);
+  const [highlightedDeskId, setHighlightedDeskId] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const visiblePages = useMemo(
     () => pages.filter((p) => permissions.canAccessPage(p)),
@@ -164,27 +208,29 @@ export default function DashboardPage() {
 
   const leaderboardEntries = useLeaderboard(activeWorkspaceId);
 
-  const clientAmountColumn = clientsPage?.columns.find((c) => c.type === "currency");
+  const statusDistribution = useMemo(
+    () => statusDistributionFromDesks(isPersonalLanding ? myProgress : deskProgress, statusOptions),
+    [deskProgress, myProgress, isPersonalLanding, statusOptions]
+  );
 
-  const revenueByMonth = useMemo(() => {
-    if (!clientAmountColumn) return [];
-    const buckets = new Map<string, number>();
-    clientRows.forEach((row) => {
-      const label = formatDate(row.createdAt, "LLL yyyy");
-      buckets.set(label, (buckets.get(label) ?? 0) + (Number(row.cells[clientAmountColumn.key]) || 0));
-    });
-    return Array.from(buckets.entries()).map(([label, value]) => ({ label, value }));
-  }, [clientRows, clientAmountColumn]);
+  const ordersByDate = useMemo(
+    () => ordersByDateFromDesks(isPersonalLanding ? myProgress : deskProgress),
+    [deskProgress, myProgress, isPersonalLanding]
+  );
 
-  const statusColumn = clientsPage?.columns.find((c) => c.type === "status");
-  const statusDistribution = useMemo(() => {
-    if (!statusColumn) return [];
-    return statusOptions.map((opt) => ({
-      name: opt.label,
-      value: clientRows.filter((r) => r.cells[statusColumn.key] === opt.value).length,
-      color: opt.color,
-    }));
-  }, [statusColumn, clientRows, statusOptions]);
+  const deskBarData = useMemo(
+    () =>
+      (isPersonalLanding ? myProgress : deskProgress).map((desk) => {
+        const member = members.find((m) => m.uid === desk.page.responsibleUserId);
+        return {
+          id: desk.page.id,
+          name: desk.page.name,
+          person: personLabel(member),
+          doneTotal: desk.doneTotal,
+        };
+      }),
+    [deskProgress, myProgress, isPersonalLanding, members]
+  );
 
   const { entries: historyEntries } = useHistoryLog(permissions.canViewHistory ? activeWorkspaceId : null);
 
@@ -215,7 +261,8 @@ export default function DashboardPage() {
   const deskRef = useRef<HTMLDivElement>(null);
   useGSAP(
     () => {
-      const nodes = deskRef.current?.querySelectorAll(".desk-row, .desk-attention, .desk-home");
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      const nodes = deskRef.current?.querySelectorAll(".desk-row, .desk-attention, .desk-home, .desk-chart");
       if (!nodes?.length) return;
       gsap.fromTo(nodes, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.32, stagger: 0.05, ease: deskEase });
     },
@@ -266,7 +313,7 @@ export default function DashboardPage() {
 
   const todayCard = (
     <section
-      className="today-card desk-home mb-6 p-6 sm:p-7"
+      className="today-card hud-frame neon-pulse desk-home mb-6 p-6 sm:p-7"
       onMouseMove={onTodayMove}
       onMouseLeave={(e) => {
         e.currentTarget.style.transform = "translate(0, 0)";
@@ -358,8 +405,24 @@ export default function DashboardPage() {
     const showProgress = deskLayout.showProgress;
     const showBoard = deskLayout.showLeaderboard;
     return (
-      <div ref={deskRef} className="mx-auto max-w-5xl p-4 sm:p-6 lg:p-8">
+      <div ref={deskRef} className="cyber-grid relative mx-auto max-w-5xl overflow-hidden p-4 sm:p-6 lg:p-8">
+        <DeskPointerGlow />
         {todayCard}
+        {deskLayout.showCharts && myProgress.length > 0 && (
+          <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <StatusChart title="На моём столе" data={statusDistribution} />
+            {myProgress.some((p) => (p.page.monthlyGoal ?? 0) > 0) ? (
+              <GoalVsDoneChart
+                doneTotal={myProgress.reduce((sum, p) => sum + p.doneTotal, 0)}
+                goal={myProgress.reduce((sum, p) => sum + (p.page.monthlyGoal ?? 0), 0)}
+              />
+            ) : (
+              <div className="desk-chart lift-card flex items-center rounded-[20px] border border-border/60 bg-card/55 px-6 py-8 text-sm text-muted-foreground backdrop-blur-xl">
+                Поставь цель на месяц в настройках стола — здесь появится сравнение с «Готово».
+              </div>
+            )}
+          </div>
+        )}
         {myProgress.length === 0 ? (
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
             <div className="desk-cluster desk-home px-8 py-14 text-center lg:col-span-3">
@@ -402,13 +465,35 @@ export default function DashboardPage() {
     );
   }
 
-  const showCharts = revenueByMonth.length > 0 || statusDistribution.some((d) => d.value > 0);
-
   return (
-    <div ref={deskRef} className="mx-auto max-w-6xl p-4 sm:p-6 lg:p-8">
+    <div ref={deskRef} className="cyber-grid relative mx-auto max-w-6xl overflow-hidden p-4 sm:p-6 lg:p-8">
+      <DeskPointerGlow />
       {todayCard}
 
-      <div className="desk-cluster lift-card mb-6">
+      {deskBarData.length > 0 && (
+        <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <DeskChart
+              data={deskBarData}
+              activeId={highlightedDeskId}
+              onHover={setHighlightedDeskId}
+              onSelect={(id) => {
+                setHighlightedDeskId(id);
+                navigate(`/page/${id}`);
+              }}
+            />
+          </div>
+          <StatusChart title="На столах" data={statusDistribution} />
+        </div>
+      )}
+
+      {ordersByDate.length > 0 && (
+        <div className="mb-6">
+          <RevenueChart data={ordersByDate} />
+        </div>
+      )}
+
+      <div className="desk-cluster hud-frame lift-card mb-6">
         <div className="flex items-baseline justify-between gap-3 px-5 py-4">
           <div>
             <p className="eyebrow text-primary">Столы</p>
@@ -425,7 +510,13 @@ export default function DashboardPage() {
               const who = personLabel(member);
               const empty = !desk.page.responsibleUserId || !member;
               return (
-                <div key={desk.page.id} className="desk-row">
+                <Link
+                  key={desk.page.id}
+                  to={`/page/${desk.page.id}`}
+                  className={cn("desk-row", highlightedDeskId === desk.page.id && "desk-row-active")}
+                  onMouseEnter={() => setHighlightedDeskId(desk.page.id)}
+                  onMouseLeave={() => setHighlightedDeskId(null)}
+                >
                   <div className="flex min-w-0 items-center gap-3 sm:flex-1">
                     {empty ? (
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-[10px] text-muted-foreground">
@@ -442,9 +533,9 @@ export default function DashboardPage() {
                     )}
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{empty ? "пока без человека" : who}</p>
-                      <Link to={`/page/${desk.page.id}`} className="block truncate text-[13px] text-muted-foreground hover:text-primary">
+                      <p className="block truncate text-[13px] text-muted-foreground">
                         {desk.page.name}
-                      </Link>
+                      </p>
                       {member?.lastActiveAt ? (
                         <p className="mt-0.5 truncate text-[11px] text-muted-foreground sm:hidden">
                           заходил {timeAgo(member.lastActiveAt)}
@@ -469,7 +560,7 @@ export default function DashboardPage() {
                   <p className="hidden w-36 shrink-0 text-right text-[11px] text-muted-foreground sm:block">
                     {member?.lastActiveAt ? `заходил ${timeAgo(member.lastActiveAt)}` : " "}
                   </p>
-                </div>
+                </Link>
               );
             })}
           </div>
@@ -484,17 +575,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {showCharts && (
-        <div className="mb-8 opacity-55">
-          <p className="eyebrow mb-3 text-muted-foreground">Цифры с листа</p>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="lg:col-span-2">
-              <RevenueChart data={revenueByMonth} />
-            </div>
-            <StatusChart title="Статусы" data={statusDistribution} />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -515,15 +595,15 @@ function DashboardSourcePicker({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="icon" title="Откуда брать цифры с листа">
+        <Button variant="outline" size="icon" title="Какой лист открывать в навигации">
           <Settings2 className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72">
-        <p className="mb-3 text-sm font-medium">Цифры с листа</p>
+        <p className="mb-3 text-sm font-medium">Листы на домашнем</p>
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs text-muted-foreground">Доход / статусы</Label>
+            <Label className="text-xs text-muted-foreground">Клиенты</Label>
             <Select
               value={clientsPageId ?? "__auto__"}
               onValueChange={(v) => updateDashboardPages(workspaceId, { clientsPageId: v === "__auto__" ? null : v })}

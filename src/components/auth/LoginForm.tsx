@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { deskEase, gsap, useGSAP } from "@/lib/gsap";
+import { useMagnetic } from "@/hooks/useMagnetic";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,6 +43,11 @@ function GoogleIcon() {
 
 const fieldClass =
   "h-10 rounded-md border border-input bg-background/60 px-3 font-sans tracking-normal placeholder:font-sans placeholder:text-muted-foreground/80";
+
+function MagneticButton(props: React.ComponentProps<typeof Button>) {
+  const ref = useMagnetic<HTMLButtonElement>();
+  return <Button ref={ref} {...props} />;
+}
 
 export function LoginForm() {
   const [mode, setMode] = useState<"login" | "signup">("login");
@@ -118,7 +124,7 @@ export function LoginForm() {
       )}
 
       <div className="mt-8 flex flex-col gap-4">
-        <Button
+        <MagneticButton
           variant="outline"
           className="h-10 w-full"
           onClick={handleGoogle}
@@ -126,7 +132,7 @@ export function LoginForm() {
         >
           {isGoogleLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}
           Продолжить с Google
-        </Button>
+        </MagneticButton>
 
         <div className="flex items-center gap-3">
           <div className="h-px flex-1 bg-border" />
@@ -168,10 +174,10 @@ export function LoginForm() {
                 <p className="text-xs text-destructive">{loginForm.formState.errors.password.message}</p>
               )}
             </div>
-            <Button type="submit" className="mt-1 h-10 w-full" disabled={isSubmitting || !isFirebaseConfigured}>
+            <MagneticButton type="submit" className="mt-1 h-10 w-full" disabled={isSubmitting || !isFirebaseConfigured}>
               {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
               Войти
-            </Button>
+            </MagneticButton>
           </form>
         ) : (
           <form onSubmit={signupForm.handleSubmit(handleSignup)} className="flex flex-col gap-4">
@@ -232,10 +238,10 @@ export function LoginForm() {
                 <p className="text-xs text-destructive">{signupForm.formState.errors.confirmPassword.message}</p>
               )}
             </div>
-            <Button type="submit" className="mt-1 h-10 w-full" disabled={isSubmitting || !isFirebaseConfigured}>
+            <MagneticButton type="submit" className="mt-1 h-10 w-full" disabled={isSubmitting || !isFirebaseConfigured}>
               {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
               Создать аккаунт
-            </Button>
+            </MagneticButton>
           </form>
         )}
       </div>
