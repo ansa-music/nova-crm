@@ -189,6 +189,48 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   >
                     <UsersRound className="h-4 w-4" />
                   </NavLink>
+                  <NavLink
+                    to="/settings"
+                    title="Настройки"
+                    onClick={() => onNavigate?.()}
+                    className={({ isActive }) => navActiveClass(isActive, true)}
+                  >
+                    <Settings className="h-4 w-4" />
+                  </NavLink>
+                  <NavLink
+                    to="/announcements"
+                    title="Объявления"
+                    onClick={() => onNavigate?.()}
+                    className={({ isActive }) => navActiveClass(isActive, true)}
+                  >
+                    <Megaphone className="h-4 w-4" />
+                  </NavLink>
+                  <NavLink
+                    to="/messages"
+                    title="Сообщения"
+                    onClick={() => onNavigate?.()}
+                    className={({ isActive }) => navActiveClass(isActive, true)}
+                  >
+                    <span className="relative">
+                      <MessageCircle className="h-4 w-4" />
+                      {privateUnreadTotal > 0 && (
+                        <span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-primary" />
+                      )}
+                    </span>
+                  </NavLink>
+                  <NavLink
+                    to="/chat"
+                    title="Чат"
+                    onClick={() => onNavigate?.()}
+                    className={({ isActive }) => navActiveClass(isActive, true)}
+                  >
+                    <span className="relative">
+                      <MessageSquare className="h-4 w-4" />
+                      {workspaceChatUnread > 0 && (
+                        <span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-primary" />
+                      )}
+                    </span>
+                  </NavLink>
                   {showUsersNav && (
                     <NavLink
                       to="/users"
@@ -213,6 +255,18 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   </AppNavLink>
                   <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
                     Люди
+                  </AppNavLink>
+                  <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
+                    Настройки
+                  </AppNavLink>
+                  <AppNavLink to="/announcements" icon={Megaphone} onNavigate={onNavigate}>
+                    Объявления
+                  </AppNavLink>
+                  <AppNavLink to="/messages" icon={MessageCircle} onNavigate={onNavigate} badge={privateUnreadTotal}>
+                    Сообщения
+                  </AppNavLink>
+                  <AppNavLink to="/chat" icon={MessageSquare} onNavigate={onNavigate} badge={workspaceChatUnread}>
+                    Чат
                   </AppNavLink>
                   {showUsersNav && (
                     <AppNavLink to="/users" icon={Users} onNavigate={onNavigate}>
