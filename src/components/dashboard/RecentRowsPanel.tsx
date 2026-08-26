@@ -5,8 +5,8 @@ import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/cn";
 import { formatCurrency } from "@/utils/format";
-import { formatDate, timeAgo } from "@/utils/date";
-import { collectRecentRows, matchesRecentStatusFilter } from "@/utils/recentRows";
+import { formatDate, formatOrderDate, timeAgo } from "@/utils/date";
+import { collectRecentRows, matchesRecentStatusFilter, type RecentRowItem } from "@/utils/recentRows";
 import type { PageProgress } from "@/utils/deskProgress";
 import type { StatusOption, WorkspaceMember } from "@/types";
 
@@ -53,7 +53,20 @@ export function RecentRowsPanel({
           ))}
         </div>
       </div>
-      <div className="overflow-x-auto">
+
+      <div className="flex flex-col gap-2 p-3 md:hidden">
+        {visible.map((row) => (
+          <RecentRowCard
+            key={`${row.pageId}:${row.id}`}
+            row={row}
+            members={members}
+            statusOptions={statusOptions}
+            onOpen={() => navigate(`/page/${row.pageId}`)}
+          />
+        ))}
+      </div>
+
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full min-w-[720px] text-left text-sm">
           <thead>
             <tr className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -109,5 +122,51 @@ export function RecentRowsPanel({
         </table>
       </div>
     </section>
+  );
+}
+
+function RecentRowCard({
+  row,
+  members,
+  statusOptions,
+  onOpen,
+}: {
+  row: RecentRowItem;
+  members: WorkspaceMember[];
+  statusOptions: StatusOption[];
+  onOpen: () => void;
+}) {
+  const member = members.find((m) => m.uid === row.responsibleUid);
+  return (
+    <button
+      type="button"
+      className="flex w-full flex-col gap-2 rounded-lg border border-border p-3 text-left hover:bg-primary/5"
+      onClick={onOpen}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate font-medium">{row.title}</p>
+          <p className="truncate text-[11px] text-muted-foreground">{row.pageName}</p>
+        </div>
+        <StatusBadge value={row.statusValue} options={statusOptions} />
+      </div>
+      <div className="flex items-center gap-2">
+        {member ? (
+          <MemberAvatar
+            id={member.uid}
+            name={member.name}
+            nickname={member.nickname}
+            photoURL={member.photoURL}
+            className="h-6 w-6"
+          />
+        ) : null}
+        <span className="truncate text-xs text-muted-foreground">{row.responsibleLabel}</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <span className="tabular-nums text-foreground">{formatCurrency(row.price)}</span>
+        <span>{row.dateMs ? formatOrderDate(row.dateMs) : "—"}</span>
+        <span>{row.updatedAt ? timeAgo(row.updatedAt) : "—"}</span>
+      </div>
+    </button>
   );
 }

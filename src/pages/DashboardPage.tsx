@@ -7,6 +7,8 @@ import { LeaderboardWidget } from "@/components/dashboard/LeaderboardWidget";
 import { MyProgressCard } from "@/components/dashboard/MyProgressCard";
 import { KpiStatsRow } from "@/components/dashboard/KpiStatsRow";
 import { WaitingForYou } from "@/components/dashboard/WaitingForYou";
+import { TechnicianQueue } from "@/components/dashboard/TechnicianQueue";
+import { StalledRowsPanel } from "@/components/dashboard/StalledRowsPanel";
 import { RecentRowsPanel } from "@/components/dashboard/RecentRowsPanel";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { StatusChart } from "@/components/dashboard/StatusChart";
@@ -274,6 +276,10 @@ export default function DashboardPage() {
       )}
 
       <WaitingForYou />
+
+      <TechnicianQueue desks={deskProgress} statusOptions={statusOptions} members={members} />
+
+      <StalledRowsPanel desks={chartSource} statusOptions={statusOptions} members={members} />
 
       <KpiStatsRow desks={chartSource} statusOptions={statusOptions} />
 
