@@ -35,7 +35,10 @@ export function MemberAvatar({ id, name, nickname, photoURL, className }: Member
       {photoURL && <AvatarImage src={photoURL} alt={label} />}
       <AvatarFallback
         className="bg-none text-[11px] font-semibold"
-        style={{ backgroundColor: `hsl(${hue} 55% 32%)`, color: `hsl(${hue} 70% 85%)` }}
+        style={{
+          backgroundImage: `linear-gradient(145deg, hsl(${hue} 62% 44%), hsl(${hue} 58% 22%))`,
+          color: `hsl(${hue} 70% 88%)`,
+        }}
       >
         {initialsOf(label)}
       </AvatarFallback>

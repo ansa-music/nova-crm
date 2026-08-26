@@ -15,7 +15,24 @@ import { displayNameOf } from "@/utils/displayName";
 import { canOpenDesk, groupDeskSubtitle, personLabel } from "@/utils/peopleDesks";
 import { ROLE_LABELS } from "@/types";
 import { cn } from "@/utils/cn";
-import type { WorkspacePage } from "@/types";
+import type { Role, WorkspacePage } from "@/types";
+
+
+function RoleBadge({ role }: { role: Role }) {
+  const tone =
+    role === "owner"
+      ? "border-primary/40 bg-primary/12 text-primary"
+      : role === "manager"
+        ? "border-teal-400/40 bg-teal-400/12 text-teal-200"
+        : role === "admin"
+          ? "border-sky-400/40 bg-sky-400/12 text-sky-200"
+          : "border-border bg-muted/60 text-muted-foreground";
+  return (
+    <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em]", tone)}>
+      {ROLE_LABELS[role]}
+    </span>
+  );
+}
 
 export default function PeoplePage() {
   const navigate = useNavigate();
@@ -97,7 +114,6 @@ export default function PeoplePage() {
             const requestPage = openPage ? null : (group.pages[0] ?? null);
             const name = personLabel(group.member) || (group.uid ? "Стол" : "Без ответственного");
             const desk = groupDeskSubtitle(group);
-            const role = group.member?.role ? ROLE_LABELS[group.member.role] : null;
             const hidden = Boolean(group.deskHidden);
             const rowClass = cn(
               "flex min-h-16 w-full items-center gap-3 rounded-xl border border-primary/25 bg-card px-3 py-3 text-left",
@@ -123,15 +139,16 @@ export default function PeoplePage() {
                 <span className="min-w-0 flex-1">
                   <span className="flex min-w-0 items-center gap-2">
                     <span className="block truncate text-[15px] font-semibold text-foreground">{name}</span>
+                    {group.member?.role ? <RoleBadge role={group.member.role} /> : null}
                     {hidden ? (
                       <span className="shrink-0 rounded-full border border-primary/25 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
                         скрыт
                       </span>
                     ) : null}
                   </span>
-                  <span className="block truncate text-[12px] text-muted-foreground">
-                    {[role, desk].filter(Boolean).join(" · ")}
-                  </span>
+                  {desk ? (
+                    <span className="block truncate text-[12px] text-muted-foreground">{desk}</span>
+                  ) : null}
                 </span>
               </>
             );
