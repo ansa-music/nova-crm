@@ -1,4 +1,4 @@
-import { deleteDoc, getDocs, setDoc } from "firebase/firestore";
+import { deleteDoc, getDocs, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -51,6 +51,34 @@ function mapAccounts(docs: { id: string; data: () => import("firebase/firestore"
 export async function fetchGrokAccounts(workspaceId: string): Promise<GrokAccount[]> {
   const snapshot = await getDocs(paths.grokAccounts(workspaceId));
   return mapAccounts(snapshot.docs);
+}
+
+/**
+ * Live listener for the GROK LIMIT screen. Unlike secondary dashboard
+ * widgets (which deliberately poll — see SPARK_POLL_MS — to stay under the
+ * Spark plan's concurrent-listener cap), this is the single, dedicated
+ * listener for one full-page route, opened only while the user is actually
+ * on /grok-limit and closed on unmount — same footprint as the live row
+ * listener for whichever desk is currently open. This is what makes the
+ * shared account pool actually feel shared: one person marking an account
+ * unavailable shows up for everyone else looking at the page right away,
+ * instead of after up to a minute of polling.
+ */
+export function subscribeToGrokAccounts(workspaceId: string, cb: (accounts: GrokAccount[]) => void) {
+  return onSnapshot(paths.grokAccounts(workspaceId), (snapshot) => {
+    cb(mapAccounts(snapshot.docs));
+  });
+}
+
+/** Case/whitespace-insensitive match against already-saved accounts, to block accidental duplicate entries. */
+export function findDuplicateGrokAccount(
+  accounts: GrokAccount[],
+  email: string,
+  excludeId?: string
+): GrokAccount | undefined {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return undefined;
+  return accounts.find((a) => a.id !== excludeId && a.email.trim().toLowerCase() === normalized);
 }
 
 export interface CreateGrokAccountInput {

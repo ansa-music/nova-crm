@@ -25,7 +25,7 @@ import type { GrokAccount } from "@/types";
 export default function GrokLimitPage() {
   const { profile } = useAuth();
   const { activeWorkspaceId } = useWorkspace();
-  const { accounts, isLoading, reload } = useGrokAccounts(activeWorkspaceId);
+  const { accounts, isLoading } = useGrokAccounts(activeWorkspaceId);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<GrokAccount | null>(null);
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
@@ -53,7 +53,6 @@ export default function GrokLimitPage() {
   async function handleDelete(account: GrokAccount) {
     if (!window.confirm(`Удалить аккаунт «${account.email}»?`)) return;
     await deleteGrokAccount(activeWorkspaceId!, account.id);
-    void reload();
     toast.success("Аккаунт удалён");
   }
 
@@ -138,8 +137,8 @@ export default function GrokLimitPage() {
                     </div>
 
                     <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                      <AvailabilityToggle account={account} onSaved={reload} />
-                      <ActualizePopover account={account} onSaved={reload} />
+                      <AvailabilityToggle account={account} />
+                      <ActualizePopover account={account} />
                       <Button
                         variant="ghost"
                         size="icon"
@@ -180,11 +179,9 @@ export default function GrokLimitPage() {
 
       <GrokAccountDialog
         open={dialogOpen}
-        onOpenChange={(open) => {
-          setDialogOpen(open);
-          if (!open) void reload();
-        }}
+        onOpenChange={setDialogOpen}
         editing={editing}
+        accounts={accounts}
       />
     </div>
   );
@@ -198,7 +195,7 @@ export default function GrokLimitPage() {
  * button people will hit most). Still re-stamps who/when like any other
  * actualization.
  */
-function AvailabilityToggle({ account, onSaved }: { account: GrokAccount; onSaved: () => Promise<void> | void }) {
+function AvailabilityToggle({ account }: { account: GrokAccount }) {
   const { profile } = useAuth();
   const { activeWorkspaceId } = useWorkspace();
   const [isSaving, setIsSaving] = useState(false);
@@ -216,7 +213,6 @@ function AvailabilityToggle({ account, onSaved }: { account: GrokAccount; onSave
         profile.uid,
         displayNameOf(profile)
       );
-      await onSaved();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось обновить");
     } finally {
@@ -258,7 +254,7 @@ function AvailabilityToggle({ account, onSaved }: { account: GrokAccount; onSave
  * supplementary info: saving it does NOT itself flip Доступно/Недоступно —
  * use the button above for that.
  */
-function ActualizePopover({ account, onSaved }: { account: GrokAccount; onSaved: () => Promise<void> | void }) {
+function ActualizePopover({ account }: { account: GrokAccount }) {
   const { profile } = useAuth();
   const { activeWorkspaceId } = useWorkspace();
   const [open, setOpen] = useState(false);
@@ -284,7 +280,6 @@ function ActualizePopover({ account, onSaved }: { account: GrokAccount; onSaved:
         profile.uid,
         displayNameOf(profile)
       );
-      await onSaved();
       toast.success("Актуализировано");
       setOpen(false);
     } catch (error) {
@@ -312,7 +307,7 @@ function ActualizePopover({ account, onSaved }: { account: GrokAccount; onSaved:
           autoFocus
           className={cn("tabular-nums", invalid && "border-destructive focus-visible:ring-destructive")}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !invalid) save();
+            if (e.code === "Enter" && !invalid) save();
           }}
         />
         <p className={cn("mt-1.5 text-xs text-muted-foreground", invalid && "text-destructive")}>

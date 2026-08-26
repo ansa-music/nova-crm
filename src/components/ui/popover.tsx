@@ -16,9 +16,10 @@ export const PopoverContent = React.forwardRef<
       align={align}
       sideOffset={sideOffset}
       className={cn(
-        "glass-float animate-glass-pop z-[130] w-72 rounded-md p-4 text-popover-foreground outline-none",
+        "glass-float animate-glass-pop z-[130] w-72 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto rounded-md p-4 text-popover-foreground outline-none",
         className
       )}
+      collisionPadding={8}
       {...props}
     />
   </PopoverPrimitive.Portal>

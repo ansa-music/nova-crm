@@ -1,14 +1,29 @@
-import { fetchGrokAccounts } from "@/services/grokAccountService";
-import { usePolledData } from "@/hooks/usePolledData";
+import { useEffect, useState } from "react";
+import { subscribeToGrokAccounts } from "@/services/grokAccountService";
 import type { GrokAccount } from "@/types";
 
+/**
+ * Live Firestore listener, not a poll — see the note on
+ * subscribeToGrokAccounts for why this one screen is exempt from the
+ * usual Spark-plan polling pattern.
+ */
 export function useGrokAccounts(workspaceId: string | null) {
-  const { data: accounts, isLoading, reload } = usePolledData<GrokAccount[]>(
-    Boolean(workspaceId),
-    () => fetchGrokAccounts(workspaceId as string),
-    [],
-    [workspaceId]
-  );
+  const [accounts, setAccounts] = useState<GrokAccount[]>([]);
+  const [isLoading, setIsLoading] = useState(Boolean(workspaceId));
 
-  return { accounts, isLoading, reload };
+  useEffect(() => {
+    if (!workspaceId) {
+      setAccounts([]);
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    const unsubscribe = subscribeToGrokAccounts(workspaceId, (next) => {
+      setAccounts(next);
+      setIsLoading(false);
+    });
+    return unsubscribe;
+  }, [workspaceId]);
+
+  return { accounts, isLoading };
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/sonner";
-import { createGrokAccount, updateGrokAccount } from "@/services/grokAccountService";
+import { createGrokAccount, findDuplicateGrokAccount, updateGrokAccount } from "@/services/grokAccountService";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
 import { displayNameOf } from "@/utils/displayName";
@@ -24,18 +24,37 @@ interface GrokAccountDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editing?: GrokAccount | null;
+  /** Current list, used to block saving an email that's already in the pool. */
+  accounts: GrokAccount[];
 }
 
-export function GrokAccountDialog({ open, onOpenChange, editing }: GrokAccountDialogProps) {
+export function GrokAccountDialog({ open, onOpenChange, editing, accounts }: GrokAccountDialogProps) {
   const { profile } = useAuth();
   const { activeWorkspaceId } = useWorkspace();
   const [email, setEmail] = useState(editing?.email ?? "");
   const [password, setPassword] = useState(editing?.password ?? "");
   const [resetAt, setResetAt] = useState(() => formatDateTimeManual(editing?.limitResetAt ?? null));
   const [isSaving, setIsSaving] = useState(false);
+  const wasShownRef = useRef(false);
+
+  // Re-seed the form from `editing` only on the closed→open transition —
+  // this dialog instance is reused for every account (add and each edit),
+  // so without this guard the fields would keep showing whichever account
+  // was open last instead of resetting for a fresh add / a different edit.
+  useEffect(() => {
+    if (open && !wasShownRef.current) {
+      wasShownRef.current = true;
+      setEmail(editing?.email ?? "");
+      setPassword(editing?.password ?? "");
+      setResetAt(formatDateTimeManual(editing?.limitResetAt ?? null));
+    } else if (!open) {
+      wasShownRef.current = false;
+    }
+  }, [open, editing]);
 
   const parsedResetAt = parseDateTimeManual(resetAt);
   const dateInvalid = parsedResetAt === undefined;
+  const duplicate = findDuplicateGrokAccount(accounts, email, editing?.id);
 
   async function handleSave() {
     if (!activeWorkspaceId || !profile) return;
@@ -45,6 +64,10 @@ export function GrokAccountDialog({ open, onOpenChange, editing }: GrokAccountDi
     }
     if (dateInvalid) {
       toast.error(`Дата в формате ${MANUAL_DATETIME_PLACEHOLDER}, или оставьте поле пустым`);
+      return;
+    }
+    if (duplicate) {
+      toast.error(`Аккаунт с таким email уже есть в списке`);
       return;
     }
     setIsSaving(true);
@@ -95,7 +118,9 @@ export function GrokAccountDialog({ open, onOpenChange, editing }: GrokAccountDi
               placeholder="account@example.com"
               autoFocus
               autoComplete="off"
+              className={cn(duplicate && "border-destructive focus-visible:ring-destructive")}
             />
+            {duplicate && <p className="text-xs text-destructive">Такой email уже есть в списке</p>}
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>Пароль</Label>
@@ -124,7 +149,7 @@ export function GrokAccountDialog({ open, onOpenChange, editing }: GrokAccountDi
         </div>
 
         <DialogFooter>
-          <Button onClick={handleSave} disabled={isSaving}>
+          <Button onClick={handleSave} disabled={isSaving || Boolean(duplicate)}>
             {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
             {editing ? "Сохранить" : "Добавить"}
           </Button>
