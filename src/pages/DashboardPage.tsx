@@ -6,6 +6,7 @@ import { DeskChart, GoalVsDoneChart } from "@/components/dashboard/DeskChart";
 import { LeaderboardWidget } from "@/components/dashboard/LeaderboardWidget";
 import { MyProgressCard } from "@/components/dashboard/MyProgressCard";
 import { KpiStatsRow } from "@/components/dashboard/KpiStatsRow";
+import { WaitingForYou } from "@/components/dashboard/WaitingForYou";
 import { RecentRowsPanel } from "@/components/dashboard/RecentRowsPanel";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { StatusChart } from "@/components/dashboard/StatusChart";
@@ -239,6 +240,8 @@ export default function DashboardPage() {
           />
         </div>
       )}
+
+      <WaitingForYou />
 
       <KpiStatsRow desks={chartSource} statusOptions={statusOptions} />
 
