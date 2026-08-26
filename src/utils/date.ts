@@ -30,6 +30,19 @@ export function formatDate(timestamp: number, pattern = "d MMM yyyy, HH:mm"): st
   return format(new Date(toMillis(timestamp)), pattern, { locale: ru });
 }
 
+/** Live remaining time until a Grok limit reset, e.g. "через 2ч 15м". */
+export function formatResetCountdown(at: number, now: number = Date.now()): string {
+  const diff = at - now;
+  if (diff <= 0) return "сейчас";
+  const totalMin = Math.floor(diff / 60_000);
+  if (totalMin < 1) return "скоро";
+  const hours = Math.floor(totalMin / 60);
+  const mins = totalMin % 60;
+  if (hours <= 0) return `через ${mins}м`;
+  if (mins === 0) return `через ${hours}ч`;
+  return `через ${hours}ч ${mins}м`;
+}
+
 /** "26.08.2026 17:25" — typed by hand, not picked through a native date widget. Local wall-clock time. */
 export const MANUAL_DATETIME_FORMAT = "dd.MM.yyyy HH:mm";
 export const MANUAL_DATETIME_PLACEHOLDER = "26.08.2026 17:25";

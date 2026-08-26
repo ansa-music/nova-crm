@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Copy, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import {
 import { SecretRow } from "@/components/grok/SecretRow";
 import { ActualizePopover, AvailabilityToggle } from "@/components/grok/GrokStatusControls";
 import { getGrokAccountStatus } from "@/services/grokAccountService";
-import { formatDate, timeAgo } from "@/utils/date";
+import { formatDate, formatResetCountdown, timeAgo } from "@/utils/date";
 import { cn } from "@/utils/cn";
 
 const RAIL = {
@@ -32,6 +32,22 @@ const CARD = {
   resetToday: "border-warning/25",
   unavailable: "border-destructive/20",
 } as const;
+
+function ResetCountdown({ at }: { at: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  return (
+    <span
+      className="text-[13px] font-medium tabular-nums leading-none text-foreground"
+      title={formatDate(at)}
+    >
+      {formatResetCountdown(at, now)}
+    </span>
+  );
+}
 
 export function GrokCredentialCard({
   methodLabel,
@@ -110,7 +126,7 @@ export function GrokCredentialCard({
   }
 
   return (
-    <Card className={cn("hud-frame glass-panel overflow-hidden", CARD[status])}>
+    <Card className={cn("hud-frame glass-panel overflow-hidden", CARD[status], status === "resetToday" && "grok-reset-pulse")}>
       <CardContent className="relative p-0">
         <button
           type="button"
@@ -219,9 +235,7 @@ export function GrokCredentialCard({
 
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-muted-foreground">
             <ActualizePopover limitResetAt={limitResetAt} onSave={onActualize} />
-            {limitResetAt != null && (
-              <span className="text-[13px] font-medium tabular-nums leading-none text-foreground">{formatDate(limitResetAt)}</span>
-            )}
+            {limitResetAt != null && <ResetCountdown at={limitResetAt} />}
             {note?.trim() && <span className="truncate">{note}</span>}
             <span className="ml-auto shrink-0">
               <span className="font-medium text-foreground">{updatedByName}</span>
