@@ -325,7 +325,8 @@
     background: transparent;
   }
   .skeleton {
-    @apply relative overflow-hidden bg-muted;
+    @apply relative overflow-hidden;
+    background: hsl(var(--primary) / 0.08);
   }
   .skeleton::after {
     content: "";
@@ -333,11 +334,15 @@
     background: linear-gradient(
       90deg,
       transparent,
-      hsl(var(--foreground) / 0.05),
+      hsl(var(--primary) / 0.22),
       transparent
     );
     animation: shimmer 1.8s infinite;
     background-size: 1000px 100%;
+  }
+  @keyframes shimmer {
+    0% { background-position: -1000px 0; }
+    100% { background-position: 1000px 0; }
   }
   .no-select {
     user-select: none;
