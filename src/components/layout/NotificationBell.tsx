@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Bell } from "lucide-react";
 import { useNavigate } from "react-router";
 import {
@@ -37,6 +38,8 @@ export function NotificationBell({ className }: { className?: string }) {
   const { notifications, unreadCount, reload, markReadLocal } = useNotifications(activeWorkspaceId, profile?.uid ?? null);
   const { requests, resolveRequest, reload: reloadRequests } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const navigate = useNavigate();
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const visible = unreadOnly ? notifications.filter((n) => !n.read) : notifications;
 
   return (
     <DropdownMenu
@@ -66,14 +69,28 @@ export function NotificationBell({ className }: { className?: string }) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80 p-0">
-        <div className="border-b border-primary/25 px-3 py-2">
+        <div className="flex items-center justify-between gap-2 border-b border-primary/25 px-3 py-2">
           <p className="eyebrow">Уведомления</p>
+          <button
+            type="button"
+            onClick={() => setUnreadOnly((v) => !v)}
+            className={cn(
+              "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+              unreadOnly
+                ? "border-primary/50 bg-primary/10 text-primary"
+                : "border-border bg-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Непрочитанные
+          </button>
         </div>
         <div className="max-h-96 overflow-y-auto">
-          {notifications.length === 0 ? (
-            <div className="p-4 text-center text-sm text-muted-foreground">У вас пока нет новых уведомлений</div>
+          {visible.length === 0 ? (
+            <div className="p-4 text-center text-sm text-muted-foreground">
+              {unreadOnly ? "Нет непрочитанных" : "У вас пока нет новых уведомлений"}
+            </div>
           ) : (
-            notifications.map((n) => {
+            visible.map((n) => {
               const req = n.viewRequestId ? requests.find((r) => r.id === n.viewRequestId) : null;
               const pending = n.kind === "view-request" && req?.status === "pending";
               return (
