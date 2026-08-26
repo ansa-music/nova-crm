@@ -58,7 +58,11 @@ export async function downloadWorkspaceBackup(workspaceId: string, workspaceName
   const a = document.createElement("a");
   const datestamp = new Date().toISOString().slice(0, 10);
   a.href = url;
-  a.download = `${workspaceName || "workspace"}-backup-${datestamp}.json`;
+  const safeName = (workspaceName || "workspace")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[\\/:*?"<>|]+/g, "") || "workspace";
+  a.download = `${safeName}-backup-${datestamp}.json`;
   document.body.appendChild(a);
   a.click();
   a.remove();
