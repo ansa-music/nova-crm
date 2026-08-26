@@ -29,17 +29,38 @@ export default function AnnouncementsPage() {
   const [editing, setEditing] = useState<Announcement | null>(null);
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"active" | "archived">("active");
+  const [priorityFilter, setPriorityFilter] = useState<"all" | "important" | "urgent">("all");
+
+  const inTab = useMemo(
+    () => announcements.filter((a) => Boolean(a.isArchived) === (tab === "archived")),
+    [announcements, tab]
+  );
+
+  const counts = useMemo(() => {
+    const next = { all: inTab.length, important: 0, urgent: 0 };
+    for (const a of inTab) {
+      if (a.priority === "important") next.important += 1;
+      if (a.priority === "urgent") next.urgent += 1;
+    }
+    return next;
+  }, [inTab]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return announcements
-      .filter((a) => Boolean(a.isArchived) === (tab === "archived"))
+    return inTab
+      .filter((a) => priorityFilter === "all" || a.priority === priorityFilter)
       .filter((a) => !q || a.title.toLowerCase().includes(q) || a.body.toLowerCase().includes(q))
       .sort((a, b) => {
         if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
         return b.createdAt - a.createdAt;
       });
-  }, [announcements, search, tab]);
+  }, [inTab, search, priorityFilter]);
+
+  const priorityChips: { id: "all" | "important" | "urgent"; label: string; count: number; tone: string }[] = [
+    { id: "all", label: "Все", count: counts.all, tone: "border-primary/50 bg-primary/15 text-primary" },
+    { id: "important", label: "Важные", count: counts.important, tone: "border-amber-400/50 bg-amber-400/15 text-amber-300" },
+    { id: "urgent", label: "Срочные", count: counts.urgent, tone: "border-secondary/50 bg-secondary/15 text-secondary" },
+  ];
 
   if (!activeWorkspaceId) return null;
 
@@ -88,7 +109,25 @@ export default function AnnouncementsPage() {
             <TabsTrigger value="archived">Архив</TabsTrigger>
           </TabsList>
         </Tabs>
-        <div className="relative flex-1 sm:max-w-xs">
+        <div className="flex flex-wrap gap-1.5">
+          {priorityChips.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setPriorityFilter(item.id)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                priorityFilter === item.id
+                  ? item.tone
+                  : "border-border bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground"
+              )}
+            >
+              {item.label}
+              <span className="tabular-nums text-[10px] opacity-80">{item.count}</span>
+            </button>
+          ))}
+        </div>
+        <div className="relative flex-1 sm:ml-auto sm:max-w-xs">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск объявлений..." className="pl-8" />
         </div>
@@ -157,7 +196,11 @@ export default function AnnouncementsPage() {
           })}
           {filtered.length === 0 && (
             <p className="py-16 text-center text-sm text-muted-foreground">
-              {tab === "archived" ? "В архиве пока пусто" : "Пока нет объявлений"}
+              {inTab.length === 0
+                ? tab === "archived"
+                  ? "В архиве пока пусто"
+                  : "Пока нет объявлений"
+                : "Ничего не нашлось по этому фильтру"}
             </p>
           )}
         </div>

@@ -31,6 +31,7 @@ export default function MessagesPage() {
   const { activeWorkspaceId, members } = useWorkspace();
   const { profile } = useAuth();
   const [search, setSearch] = useState("");
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const { conversations, markReadLocal } = useInboxSummary(activeWorkspaceId, profile?.uid ?? null);
 
   const selectedUid = peerUid && profile && peerUid !== profile.uid ? peerUid : null;
@@ -48,17 +49,24 @@ export default function MessagesPage() {
         const otherUid = c.participants.find((p) => p !== profile?.uid) ?? c.participants[0];
         return { ...c, otherUid, otherMember: memberByUid.get(otherUid) };
       })
-      .filter((c) => !q || (c.otherMember && displayNameOf(c.otherMember).toLowerCase().includes(q)));
-  }, [conversations, search, profile?.uid, memberByUid]);
+      .filter((c) => {
+        if (unreadOnly && !c.unread) return false;
+        if (!q) return true;
+        return Boolean(c.otherMember && displayNameOf(c.otherMember).toLowerCase().includes(q));
+      });
+  }, [conversations, search, unreadOnly, profile?.uid, memberByUid]);
 
   const conversationUids = new Set(conversations.map((c) => c.participants.find((p) => p !== profile?.uid)));
   const filteredNewContacts = useMemo(() => {
     const q = search.trim().toLowerCase();
     return otherMembers.filter(
-      (m) => !conversationUids.has(m.uid) && (!q || displayNameOf(m).toLowerCase().includes(q))
+      (m) =>
+        !unreadOnly &&
+        !conversationUids.has(m.uid) &&
+        (!q || displayNameOf(m).toLowerCase().includes(q))
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [otherMembers, search, conversations]);
+  }, [otherMembers, search, unreadOnly, conversations]);
 
   const { messages, chatId } = usePrivateChat(activeWorkspaceId, profile?.uid ?? null, selectedUid);
   const selectedMember = selectedUid ? (memberByUid.get(selectedUid) ?? null) : null;
@@ -142,6 +150,18 @@ export default function MessagesPage() {
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск..." className="h-8 pl-8 text-sm" />
           </div>
+          <button
+            type="button"
+            onClick={() => setUnreadOnly((v) => !v)}
+            className={cn(
+              "mt-2 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+              unreadOnly
+                ? "border-primary/50 bg-primary/10 text-primary"
+                : "border-border bg-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Непрочитанные
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto scrollbar-thin">
           {filteredConversations.map((c) => {
