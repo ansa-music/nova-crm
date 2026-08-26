@@ -1,6 +1,7 @@
 import { getDoc, getDocs, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, subscribeToDoc } from "@/firebase/firestore";
+import { deleteInvitedStubIfPresent } from "@/services/memberService";
 import type { JoinRequest, Role, Workspace, WorkspaceMember } from "@/types";
 
 /** New accepted joiners become Технар so they can create exactly one own desk. Owner can still reassign. */
@@ -76,6 +77,7 @@ export async function approveJoinRequest(workspaceId: string, request: JoinReque
   if (!db) return;
   const existing = await getDoc(paths.member(workspaceId, request.uid));
   if (existing.exists()) {
+    await deleteInvitedStubIfPresent(workspaceId, request.email, request.uid);
     throw new Error(
       `${request.name} уже состоит в этом workspace (роль: ${(existing.data() as WorkspaceMember).role}). Заявка отклонена автоматически — обновите список участников.`
     );
@@ -92,6 +94,7 @@ export async function approveJoinRequest(workspaceId: string, request: JoinReque
     joinedAt: Date.now(),
   };
   await setDoc(paths.member(workspaceId, request.uid), member);
+  await deleteInvitedStubIfPresent(workspaceId, request.email, request.uid);
   await setDoc(paths.joinRequest(workspaceId, request.uid), { status: "approved" }, { merge: true });
 }
 

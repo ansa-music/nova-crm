@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/sonner";
 import { InviteMemberForm } from "@/components/members/InviteMemberForm";
 import { RoleSelect } from "@/components/members/RoleSelect";
-import { changeMemberRole, removeMember, resendInvite } from "@/services/memberService";
+import { cancelInvite, changeMemberRole, removeMember, resendInvite } from "@/services/memberService";
 import { toggleUserPageAccess } from "@/services/pageService";
 import { approveJoinRequest, rejectJoinRequest, fetchJoinRequests, DEFAULT_JOIN_ROLE } from "@/services/joinRequestService";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
@@ -128,6 +128,22 @@ export default function UsersPage() {
       toast.success("Роль обновлена");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось сменить роль");
+    }
+  }
+
+  async function handleCancelInvite(email: string) {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) {
+      toast.error("Нет email для отмены приглашения");
+      return;
+    }
+    if (!window.confirm(`Отменить приглашение для ${normalized}?`)) return;
+    try {
+      await cancelInvite(activeWorkspaceId!, normalized);
+      await refreshWorkspaceMembers(activeWorkspaceId!);
+      toast.success("Приглашение отменено");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось отменить приглашение");
     }
   }
 
@@ -279,17 +295,23 @@ export default function UsersPage() {
                 {isOwner ? (
                   <Badge variant="outline">Owner</Badge>
                 ) : (
-                  <RoleSelect value={member.role} onChange={(role) => handleRoleChange(member.uid || member.email, role)} />
+                  <RoleSelect value={member.role} onChange={(role) => handleRoleChange(member.status === "invited" ? member.email : member.uid, role)} />
                 )}
                 {member.status === "invited" && (
                   <Button variant="ghost" size="icon" title="Отправить снова" onClick={() => handleResend(member.email)}>
                     <Mail className="h-4 w-4" />
                   </Button>
                 )}
-                {!isOwner && (
-                  <Button variant="ghost" size="icon" title="Удалить" onClick={() => handleRemove(member.uid || member.email, displayNameOf(member))}>
+                {member.status === "invited" ? (
+                  <Button variant="ghost" size="icon" title="Отменить приглашение" onClick={() => handleCancelInvite(member.email)}>
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
+                ) : (
+                  !isOwner && (
+                    <Button variant="ghost" size="icon" title="Удалить" onClick={() => handleRemove(member.uid, displayNameOf(member))}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  )
                 )}
                 {!isOwner && member.status === "active" && (
                   <Button

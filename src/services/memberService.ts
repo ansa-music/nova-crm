@@ -1,4 +1,4 @@
-import { deleteDoc, getDocs, onSnapshot, query, setDoc, where } from "firebase/firestore";
+import { deleteDoc, getDoc, getDocs, onSnapshot, query, setDoc, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -137,6 +137,33 @@ export async function inviteMember(
   };
   await setDoc(paths.member(workspaceId, normalizedEmail), member);
   return member;
+}
+
+
+/** Delete an email-keyed invite stub only. Never members/{uid} and never uid "". */
+export async function cancelInvite(workspaceId: string, email: string) {
+  if (!db) return;
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) throw new Error("Нет email для отмены приглашения");
+  const snap = await getDoc(paths.member(workspaceId, normalized));
+  const data = snap.exists() ? (snap.data() as WorkspaceMember) : null;
+  if (!data || data.status !== "invited") {
+    throw new Error("Приглашение не найдено");
+  }
+  await deleteDoc(snap.ref);
+}
+
+/** After approve/claim: drop leftover members/{email} invite stub if it is still invited. */
+export async function deleteInvitedStubIfPresent(workspaceId: string, email: string, keepUid?: string) {
+  if (!db) return;
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return;
+  if (keepUid && normalized === keepUid) return;
+  const snap = await getDoc(paths.member(workspaceId, normalized));
+  if (!snap.exists()) return;
+  const data = snap.data() as WorkspaceMember;
+  if (data.status !== "invited") return;
+  await deleteDoc(snap.ref);
 }
 
 export async function resendInvite(workspaceId: string, email: string) {
