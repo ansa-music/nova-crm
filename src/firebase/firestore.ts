@@ -90,6 +90,11 @@ export const paths = {
   dailyDispatch: (workspaceId: string, id: string) =>
     doc(requireDb(), "workspaces", workspaceId, "dailyDispatches", id),
 
+  dispatchTechnicians: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "dispatchTechnicians"),
+  dispatchTechnician: (workspaceId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "dispatchTechnicians", id),
+
   history: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "history"),
   historyEntry: (workspaceId: string, entryId: string) =>
     doc(requireDb(), "workspaces", workspaceId, "history", entryId),

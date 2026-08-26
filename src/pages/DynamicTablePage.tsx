@@ -20,6 +20,7 @@ import { DeskStudioSheet } from "@/components/pagesnav/DeskStudioSheet";
 import { HistoryPanel } from "@/components/history/HistoryPanel";
 import { PageChatPanel } from "@/components/chat/PageChatPanel";
 import { PersonalSpacePanel } from "@/components/personal/PersonalSpacePanel";
+import { IncomingDispatchBanner } from "@/components/dispatch/IncomingDispatchBanner";
 import { toast } from "@/components/ui/sonner";
 import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
@@ -440,6 +441,10 @@ export default function DynamicTablePage() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {isOwnDesk && !chromeHidden && (
+        <IncomingDispatchBanner workspaceId={page.workspaceId} uid={permissions.uid} />
+      )}
 
       {personalSpaceOpen ? (
         <div className="flex-1 overflow-hidden">

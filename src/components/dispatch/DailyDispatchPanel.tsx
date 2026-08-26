@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, ChevronDown, Link2, PackageCheck, Plus } from "lucide-react";
+import { Check, ChevronDown, Link2, PackageCheck, Pencil, Plus, Trash2, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -22,24 +22,32 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { useDailyDispatch } from "@/hooks/useDailyDispatch";
+import { useDispatchTechnicians } from "@/hooks/useDispatchTechnicians";
 import {
   bindDailyDispatchToSheet,
   createDailyDispatch,
   toggleDailyDispatchMark,
 } from "@/services/dailyDispatchService";
+import {
+  bindDispatchTechnician,
+  createDispatchTechnician,
+  deleteDispatchTechnician,
+  renameDispatchTechnician,
+} from "@/services/dispatchTechnicianService";
 import { displayNameOf } from "@/utils/displayName";
 import { formatCurrency } from "@/utils/format";
 import { cn } from "@/utils/cn";
 import { almatyNoonMillis, USER_TIMEZONE, ymdInTimeZone } from "@/utils/date";
-import type { DailyDispatch, StatusOption, WorkspaceMember, WorkspacePage } from "@/types";
+import type { DailyDispatch, DispatchTechnician, StatusOption, WorkspaceMember, WorkspacePage } from "@/types";
 
 interface DailyDispatchPanelProps {
   workspaceId: string;
   uid: string;
   members: WorkspaceMember[];
   pages: WorkspacePage[];
+  /** Owner only — binding a roster nickname to a real account, or a dispatch entry to a desk, stays a bigger decision than day-to-day dispatch use. */
   isOwner: boolean;
-  /** Shared "Ответственный" list — same one every "Ответственный" column on the site draws from. Used only to offer a quick-fill for "ОС", never written back to it. */
+  /** Shared "Ответственный" list — same one every "Ответственный" column on the site draws from. "ОС" only ever picks from this, never free text. */
   responsibleOptions: StatusOption[];
 }
 
@@ -63,21 +71,19 @@ export function DailyDispatchPanel({
   responsibleOptions,
 }: DailyDispatchPanelProps) {
   const { data: entries, isLoading, reload } = useDailyDispatch(workspaceId, true);
+  const { data: technicians, reload: reloadTechnicians } = useDispatchTechnicians(workspaceId, true);
   const [checkNo, setCheckNo] = useState("");
-  const [technicianName, setTechnicianName] = useState("");
+  const [technicianRosterId, setTechnicianRosterId] = useState("");
   const [amount, setAmount] = useState("");
   const [minutes, setMinutes] = useState("");
   const [character, setCharacter] = useState("");
   const [os, setOs] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [pastOpen, setPastOpen] = useState(false);
+  const [rosterOpen, setRosterOpen] = useState(false);
   const [bindTarget, setBindTarget] = useState<DailyDispatch | null>(null);
 
   const todayKey = ymdInTimeZone(Date.now());
-  const technicians = useMemo(
-    () => members.filter((m) => m.status === "active" && m.role === "manager"),
-    [members]
-  );
 
   const { today, pastByDay } = useMemo(() => {
     const todayRows = entries.filter((e) => e.dayKey === todayKey);
@@ -96,12 +102,19 @@ export function DailyDispatchPanel({
   async function handleAdd(event: React.FormEvent) {
     event.preventDefault();
     if (submitting) return;
+    const tech = technicians.find((t) => t.id === technicianRosterId);
+    if (!tech) {
+      toast.error("Выбери технаря из списка ниже");
+      return;
+    }
     setSubmitting(true);
     try {
       await createDailyDispatch({
         workspaceId,
         checkNo,
-        technicianName,
+        technicianRosterId: tech.id,
+        technicianName: tech.nickname,
+        technicianUid: tech.memberUid,
         amount: amount.trim() ? Number(amount) : 0,
         minutes: minutes.trim() ? Number(minutes) : null,
         character,
@@ -109,7 +122,7 @@ export function DailyDispatchPanel({
         createdBy: uid,
       });
       setCheckNo("");
-      setTechnicianName("");
+      setTechnicianRosterId("");
       setAmount("");
       setMinutes("");
       setCharacter("");
@@ -160,38 +173,21 @@ export function DailyDispatchPanel({
               />
             </div>
             <div className="min-w-0 flex-[1.2] space-y-1.5">
-              <Label htmlFor="dispatch-tech">Технар</Label>
-              <Input
-                id="dispatch-tech"
-                value={technicianName}
-                onChange={(e) => setTechnicianName(e.target.value)}
-                placeholder="Имя — напишите сами"
-                autoComplete="off"
-              />
+              <Label>Технар</Label>
+              <Select value={technicianRosterId} onValueChange={setTechnicianRosterId}>
+                <SelectTrigger>
+                  <SelectValue placeholder={technicians.length ? "Выбери технаря" : "Сначала добавь ниже"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {technicians.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.nickname}
+                      {!t.memberUid && " · не привязан"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            {technicians.length > 0 && (
-              <div className="min-w-[180px] space-y-1.5 sm:w-52">
-                <Label>Подставить имя</Label>
-                <Select
-                  value=""
-                  onValueChange={(value) => {
-                    const member = technicians.find((m) => m.uid === value);
-                    if (member) setTechnicianName(displayNameOf(member));
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="из списка" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {technicians.map((m) => (
-                      <SelectItem key={m.uid} value={m.uid}>
-                        {displayNameOf(m)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
           </div>
 
           <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -230,39 +226,21 @@ export function DailyDispatchPanel({
               />
             </div>
             <div className="min-w-0 flex-1 space-y-1.5">
-              <Label htmlFor="dispatch-os">ОС</Label>
-              <Input
-                id="dispatch-os"
-                value={os}
-                onChange={(e) => setOs(e.target.value)}
-                placeholder="Свободный текст"
-                autoComplete="off"
-              />
+              <Label>ОС</Label>
+              <Select value={os || undefined} onValueChange={setOs}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Выбери из списка" />
+                </SelectTrigger>
+                <SelectContent>
+                  {responsibleOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.label}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            {responsibleOptions.length > 0 && (
-              <div className="min-w-[160px] space-y-1.5 sm:w-44">
-                <Label>Подставить ОС</Label>
-                <Select
-                  value=""
-                  onValueChange={(value) => {
-                    const option = responsibleOptions.find((o) => o.value === value);
-                    if (option) setOs(option.label);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="из списка" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {responsibleOptions.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            <Button type="submit" disabled={submitting || !checkNo.trim() || !technicianName.trim()} className="shrink-0 gap-1.5">
+            <Button type="submit" disabled={submitting || !checkNo.trim() || !technicianRosterId} className="shrink-0 gap-1.5">
               <Plus className="h-3.5 w-3.5" /> Добавить
             </Button>
           </div>
@@ -328,6 +306,27 @@ export function DailyDispatchPanel({
                   ))}
               </section>
             )}
+
+            <section className="mt-8">
+              <button
+                type="button"
+                onClick={() => setRosterOpen((v) => !v)}
+                className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground"
+              >
+                <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", !rosterOpen && "-rotate-90")} />
+                Технари ({technicians.length})
+              </button>
+              {rosterOpen && (
+                <TechnicianRoster
+                  workspaceId={workspaceId}
+                  uid={uid}
+                  technicians={technicians}
+                  members={members}
+                  isOwner={isOwner}
+                  onChanged={reloadTechnicians}
+                />
+              )}
+            </section>
           </>
         )}
       </div>
@@ -335,7 +334,6 @@ export function DailyDispatchPanel({
       {bindTarget && (
         <BindSheetDialog
           row={bindTarget}
-          members={members}
           pages={pages}
           onClose={() => setBindTarget(null)}
           onBound={async () => {
@@ -373,7 +371,11 @@ function DispatchRow({
     >
       <div className="min-w-0 flex-1">
         <p className={cn("truncate font-medium", compact ? "text-sm" : "text-base")}>Чек {row.checkNo}</p>
-        <p className="truncate text-sm text-muted-foreground">{row.technicianName}</p>
+        <p className="truncate text-sm text-muted-foreground">
+          {row.technicianName}
+          {row.requestStatus === "pending" && <span className="ml-1.5 text-xs text-warning">· ждёт принятия</span>}
+          {row.requestStatus === "accepted" && <span className="ml-1.5 text-xs text-success">· принято</span>}
+        </p>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
           {row.amount > 0 && <span className="tabular">{formatCurrency(row.amount)}</span>}
           {row.minutes != null && <span>{row.minutes} мин</span>}
@@ -398,38 +400,174 @@ function DispatchRow({
   );
 }
 
+/**
+ * Admin-curated roster — nicknames the shop actually uses, decoupled from
+ * whatever email or self-chosen nickname a real account has. Any Admin+
+ * (this whole panel is already gated that way) can add/rename a nickname;
+ * only Owner can link/relink it to a real account, same weight as binding
+ * a dispatch entry to a desk above.
+ */
+function TechnicianRoster({
+  workspaceId,
+  uid,
+  technicians,
+  members,
+  isOwner,
+  onChanged,
+}: {
+  workspaceId: string;
+  uid: string;
+  technicians: DispatchTechnician[];
+  members: WorkspaceMember[];
+  isOwner: boolean;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [nickname, setNickname] = useState("");
+  const [adding, setAdding] = useState(false);
+  const activeMembers = useMemo(
+    () => members.filter((m) => m.status === "active").sort((a, b) => displayNameOf(a).localeCompare(displayNameOf(b), "ru")),
+    [members]
+  );
+
+  async function handleAdd(event: React.FormEvent) {
+    event.preventDefault();
+    if (adding || !nickname.trim()) return;
+    setAdding(true);
+    try {
+      await createDispatchTechnician({ workspaceId, nickname, createdBy: uid });
+      setNickname("");
+      await onChanged();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось добавить технаря");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function handleRename(tech: DispatchTechnician) {
+    const name = window.prompt("Новый ник", tech.nickname);
+    if (!name || !name.trim() || name.trim() === tech.nickname) return;
+    try {
+      await renameDispatchTechnician(workspaceId, tech.id, name.trim());
+      await onChanged();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось переименовать");
+    }
+  }
+
+  async function handleBind(tech: DispatchTechnician, memberUid: string) {
+    try {
+      await bindDispatchTechnician(workspaceId, tech.id, memberUid || null);
+      await onChanged();
+      toast.success(memberUid ? "Привязан к аккаунту" : "Отвязан");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось привязать");
+    }
+  }
+
+  async function handleDelete(tech: DispatchTechnician) {
+    if (!window.confirm(`Убрать «${tech.nickname}» из списка технарей?`)) return;
+    try {
+      await deleteDispatchTechnician(workspaceId, tech.id);
+      await onChanged();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось удалить");
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-muted-foreground">
+        Ник придумываешь сам — чтобы не путаться в почте и никах, которые люди сами себе поставили.
+        {isOwner ? " Привязка к аккаунту — вручную, ниже." : " Привязку к аккаунту делает Owner."}
+      </p>
+      {technicians.length === 0 ? (
+        <p className="rounded-md border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+          Технарей пока нет — добавь первого ниже
+        </p>
+      ) : (
+        technicians.map((tech) => {
+          const bound = tech.memberUid ? activeMembers.find((m) => m.uid === tech.memberUid) : undefined;
+          return (
+            <div key={tech.id} className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-card px-3 py-2">
+              <button
+                type="button"
+                onClick={() => handleRename(tech)}
+                className="flex min-w-0 items-center gap-1.5 text-sm font-medium hover:text-primary"
+                title="Переименовать"
+              >
+                <Pencil className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <span className="truncate">{tech.nickname}</span>
+              </button>
+              <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                <UserRound className="h-3 w-3" />
+                {bound ? displayNameOf(bound) : "не привязан"}
+              </span>
+              <div className="flex-1" />
+              {isOwner && (
+                <Select value={tech.memberUid ?? ""} onValueChange={(v) => handleBind(tech, v)}>
+                  <SelectTrigger className="h-8 w-44 shrink-0">
+                    <SelectValue placeholder="Привязать к…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Не привязан</SelectItem>
+                    {activeMembers.map((m) => (
+                      <SelectItem key={m.uid} value={m.uid}>
+                        {displayNameOf(m)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <button
+                type="button"
+                onClick={() => handleDelete(tech)}
+                className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-destructive"
+                title="Удалить"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          );
+        })
+      )}
+      <form onSubmit={handleAdd} className="flex items-end gap-2">
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <Label htmlFor="tech-nickname">Новый технар</Label>
+          <Input
+            id="tech-nickname"
+            value={nickname}
+            onChange={(e) => setNickname(e.target.value)}
+            placeholder="Ник"
+            autoComplete="off"
+          />
+        </div>
+        <Button type="submit" variant="outline" disabled={adding || !nickname.trim()} className="shrink-0 gap-1.5">
+          <Plus className="h-3.5 w-3.5" /> Добавить
+        </Button>
+      </form>
+    </div>
+  );
+}
+
 function BindSheetDialog({
   row,
-  members,
   pages,
   onClose,
   onBound,
 }: {
   row: DailyDispatch;
-  members: WorkspaceMember[];
   pages: WorkspacePage[];
   onClose: () => void;
   onBound: () => Promise<void>;
 }) {
-  const activeMembers = useMemo(
-    () => members.filter((m) => m.status === "active").sort((a, b) => displayNameOf(a).localeCompare(displayNameOf(b), "ru")),
-    [members]
-  );
   const sortedPages = useMemo(() => [...pages].sort((a, b) => a.order - b.order), [pages]);
-  const [memberUid, setMemberUid] = useState(row.technicianUid ?? "");
-  const [sheetId, setSheetId] = useState(row.linkedPageId ?? "");
-  const [saving, setSaving] = useState(false);
-
-  const desksForMember = useMemo(
-    () => (memberUid ? sortedPages.filter((p) => p.responsibleUserId === memberUid) : []),
-    [memberUid, sortedPages]
+  const desksForTechnician = useMemo(
+    () => (row.technicianUid ? sortedPages.filter((p) => p.responsibleUserId === row.technicianUid) : []),
+    [row.technicianUid, sortedPages]
   );
-
-  function applyMember(uid: string) {
-    setMemberUid(uid);
-    const ownDesk = sortedPages.find((p) => p.responsibleUserId === uid);
-    if (ownDesk) setSheetId(ownDesk.id);
-  }
+  const [sheetId, setSheetId] = useState(row.linkedPageId ?? desksForTechnician[0]?.id ?? "");
+  const [saving, setSaving] = useState(false);
 
   async function handleSave() {
     const sheet = sortedPages.find((p) => p.id === sheetId);
@@ -442,7 +580,7 @@ function BindSheetDialog({
       await bindDailyDispatchToSheet({
         workspaceId: row.workspaceId,
         id: row.id,
-        technicianUid: memberUid || null,
+        technicianUid: row.technicianUid,
         linkedPageId: sheet.id,
         linkedPageName: sheet.name,
       });
@@ -465,21 +603,11 @@ function BindSheetDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">
-          <div className="space-y-1.5">
-            <Label>Участник</Label>
-            <Select value={memberUid || undefined} onValueChange={applyMember}>
-              <SelectTrigger>
-                <SelectValue placeholder="Выберите участника" />
-              </SelectTrigger>
-              <SelectContent>
-                {activeMembers.map((m) => (
-                  <SelectItem key={m.uid} value={m.uid}>
-                    {displayNameOf(m)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!row.technicianUid && (
+            <p className="text-sm text-muted-foreground">
+              «{row.technicianName}» не привязан к аккаунту в разделе «Технари» — можно выбрать любой лист, но заказ никому не придёт как запрос.
+            </p>
+          )}
           <div className="space-y-1.5">
             <Label>Лист стола</Label>
             <Select value={sheetId || undefined} onValueChange={setSheetId}>
@@ -487,14 +615,14 @@ function BindSheetDialog({
                 <SelectValue placeholder="Выберите лист" />
               </SelectTrigger>
               <SelectContent>
-                {(desksForMember.length > 0 ? desksForMember : sortedPages).map((p) => (
+                {(desksForTechnician.length > 0 ? desksForTechnician : sortedPages).map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.name}
                   </SelectItem>
                 ))}
-                {desksForMember.length > 0 &&
+                {desksForTechnician.length > 0 &&
                   sortedPages
-                    .filter((p) => !desksForMember.some((d) => d.id === p.id))
+                    .filter((p) => !desksForTechnician.some((d) => d.id === p.id))
                     .map((p) => (
                       <SelectItem key={p.id} value={p.id}>
                         {p.name}
