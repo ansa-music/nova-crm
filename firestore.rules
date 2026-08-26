@@ -374,6 +374,13 @@ service cloud.firestore {
           allow update, delete: if isMember(workspaceId) && resource.data.authorUid == request.auth.uid;
         }
 
+
+        // Daily dispatch board (Выдача) — Owner/admin only. Separate collection
+        // so the shared subpages list stays an unfiltered member query.
+        match /dailyDispatches/{dispatchId} {
+          allow read, create, update, delete: if isOwnerOrAdmin(workspaceId);
+        }
+
         // -----------------------------------------------------------------
         // Personal Space — Reports/Finance/Notes nested under this page,
         // keyed by the owning member's uid. Gated by canUsePersonalZone,

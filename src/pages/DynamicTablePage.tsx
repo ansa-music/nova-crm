@@ -20,6 +20,7 @@ import { DeskStudioSheet } from "@/components/pagesnav/DeskStudioSheet";
 import { HistoryPanel } from "@/components/history/HistoryPanel";
 import { PageChatPanel } from "@/components/chat/PageChatPanel";
 import { PersonalSpacePanel } from "@/components/personal/PersonalSpacePanel";
+import { DailyDispatchPanel } from "@/components/dispatch/DailyDispatchPanel";
 import { toast } from "@/components/ui/sonner";
 import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
@@ -55,6 +56,7 @@ export default function DynamicTablePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deskStudioOpen, setDeskStudioOpen] = useState(false);
   const [personalSpaceOpen, setPersonalSpaceOpen] = useState(false);
+  const [dispatchOpen, setDispatchOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [activeSubPageId, setActiveSubPageId] = useState<string | null>(null);
   const [tabsReady, setTabsReady] = useState(false);
@@ -114,10 +116,15 @@ export default function DynamicTablePage() {
   // Owner / responsible always open. Технар/viewer: own desk or accepted view-request only.
   // Do not use allowedUsers membership — live pages often list everyone.
   const hasAccess = permissions.isResolved && Boolean(page && personalOpen);
+  const canSeeDispatch =
+    permissions.isResolved &&
+    (permissions.realRole === "owner" || permissions.realRole === "admin" || permissions.isWorkspaceOwner) &&
+    (permissions.role === "owner" || permissions.role === "admin");
+  const canBindDispatch = permissions.isWorkspaceOwner || permissions.realRole === "owner";
   const { subPages } = useSubPages(activeWorkspaceId, hasAccess && page ? page.id : null);
   const activeSubPage = subPages.find((s) => s.id === activeSubPageId) ?? null;
   const tabScopeReady = tabsReady && appliedDefaultForPageRef.current === pageId;
-  const listenMainRows = Boolean(hasAccess && page && tabScopeReady && !activeSubPageId);
+  const listenMainRows = Boolean(hasAccess && page && tabScopeReady && !activeSubPageId && !dispatchOpen);
   const listenSubRows = Boolean(hasAccess && page && tabScopeReady && activeSubPageId);
   const { rows: pageRows, isLoading: pageRowsLoading } = usePageRows(
     activeWorkspaceId,
@@ -140,6 +147,7 @@ export default function DynamicTablePage() {
     appliedDefaultForPageRef.current = null;
     setTabsReady(false);
     setActiveSubPageId(null);
+    setDispatchOpen(false);
   }, [pageId]);
 
   useEffect(() => {
@@ -415,7 +423,7 @@ export default function DynamicTablePage() {
               </DropdownMenuItem>
             )}
             {canUsePersonalSpace && (
-              <DropdownMenuItem onClick={() => setPersonalSpaceOpen((v) => !v)}>
+              <DropdownMenuItem onClick={() => { setDispatchOpen(false); setPersonalSpaceOpen((v) => !v); }}>
                 <User className="h-4 w-4" /> Личное пространство
               </DropdownMenuItem>
             )}
@@ -458,14 +466,33 @@ export default function DynamicTablePage() {
               page={page}
               subPages={subPages}
               activeSubPageId={activeSubPageId}
-              onSelect={setActiveSubPageId}
+              onSelect={(id) => {
+                setDispatchOpen(false);
+                setActiveSubPageId(id);
+              }}
               canManage={canEditData || permissions.canManagePage(page)}
               userId={profile?.uid ?? ""}
+              showDispatchTab={canSeeDispatch}
+              dispatchActive={dispatchOpen}
+              onSelectDispatch={() => {
+                setPersonalSpaceOpen(false);
+                setDispatchOpen(true);
+              }}
             />
           </div>
 
-          {statsOpen && !chromeHidden && <SubPageStats columns={activeSubPage ? activeSubPage.columns : page.columns} rows={rows} />}
+          {statsOpen && !chromeHidden && !dispatchOpen && <SubPageStats columns={activeSubPage ? activeSubPage.columns : page.columns} rows={rows} />}
 
+          {dispatchOpen ? (
+            <DailyDispatchPanel
+              workspaceId={page.workspaceId}
+              pageId={page.id}
+              uid={permissions.uid}
+              members={members}
+              pages={pages}
+              isOwner={canBindDispatch}
+            />
+          ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {rowsLoading ? (
               <div className="p-4">
@@ -494,6 +521,7 @@ export default function DynamicTablePage() {
               />
             )}
           </div>
+          )}
         </>
       )}
 

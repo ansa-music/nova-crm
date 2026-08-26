@@ -12,3 +12,5 @@ export * from "@/types/leaderboard";
 export * from "@/types/viewRequest";
 export * from "@/types/grokAccount";
 export * from "@/types/grokAppAccount";
+
+export * from "@/types/dailyDispatch";
