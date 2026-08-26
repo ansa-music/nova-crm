@@ -28,6 +28,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { addCustomField } from "@/services/workspaceService";
 import { toast } from "@/components/ui/sonner";
 import { buildColumnTypeChoices, isOptionColumn } from "@/utils/columnOptions";
+import { ColumnTypeIcon } from "@/components/table/ColumnTypeIcon";
 import type { ColumnType, PageColumn, SortState } from "@/types";
 
 interface ColumnHeaderCellProps {
@@ -161,6 +162,7 @@ export function ColumnHeaderCell({
               }}
               className="flex min-h-11 min-w-0 flex-1 items-center gap-1 overflow-hidden py-1.5 text-left hover:text-foreground active:translate-y-px active:scale-[0.99] motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 sm:min-h-0 sm:py-0"
             >
+              <ColumnTypeIcon type={column.type} className="h-3 w-3" />
               <span className={cn("min-w-0 flex-1 overflow-hidden whitespace-nowrap", !showColumnMenu && "truncate")}>{column.label}</span>
               {isSorted && sortState.direction === "desc" ? (
                 <ArrowDown className="h-3.5 w-3.5 shrink-0 text-foreground" />
@@ -215,6 +217,7 @@ export function ColumnHeaderCell({
                             key={choice.value}
                             onClick={() => onChangeType?.(column.key, choice.type, choice.customFieldId)}
                           >
+                            <ColumnTypeIcon type={choice.type} className="h-3.5 w-3.5" />
                             {choice.label}
                             {isCurrent && " ✓"}
                           </DropdownMenuItem>
@@ -296,6 +299,7 @@ export function ColumnHeaderCell({
                     key={choice.value}
                     onClick={() => onChangeType?.(column.key, choice.type, choice.customFieldId)}
                   >
+                    <ColumnTypeIcon type={choice.type} className="h-3.5 w-3.5" />
                     {choice.label}
                     {isCurrent && " ✓"}
                   </ContextMenuItem>
