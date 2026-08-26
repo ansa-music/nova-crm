@@ -15,6 +15,11 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Invite stubs are keyed by lowercase email. Token email may be mixed case.
+    function authEmailLower() {
+      return request.auth.token.email.lower();
+    }
+
     function memberDoc(workspaceId, uid) {
       return get(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(uid));
     }
@@ -28,12 +33,17 @@ service cloud.firestore {
       return memberDoc(workspaceId, request.auth.uid).data.role;
     }
 
+    function isDocOwner(workspaceId) {
+      return signedIn() &&
+        get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '') == request.auth.uid;
+    }
+
     function isOwner(workspaceId) {
-      return isMember(workspaceId) && myRole(workspaceId) == 'owner';
+      return isDocOwner(workspaceId) || (isMember(workspaceId) && myRole(workspaceId) == 'owner');
     }
 
     function isOwnerOrAdmin(workspaceId) {
-      return isMember(workspaceId) && (myRole(workspaceId) == 'owner' || myRole(workspaceId) == 'admin');
+      return isOwner(workspaceId) || (isMember(workspaceId) && myRole(workspaceId) == 'admin');
     }
 
 
@@ -127,7 +137,7 @@ service cloud.firestore {
         // permission-denied and the app toasts «Нет доступа к части данных»).
         allow read: if isMember(workspaceId) ||
           (signedIn() && memberId == request.auth.uid) ||
-          (signedIn() && memberId == request.auth.token.email && resource.data.status == 'invited');
+          (signedIn() && request.auth.token.email is string && resource.data.email == authEmailLower() && resource.data.status == 'invited');
 
         // Self-service: a member may update just their own nickname,
         // presence heartbeat, and/or simulated activeRole ("Переключение
@@ -172,7 +182,8 @@ service cloud.firestore {
         // exists, and role/email must match exactly what was invited.
         allow create: if signedIn()
           && request.auth.uid == memberId
-          && request.auth.token.email == request.resource.data.email
+          && request.auth.token.email is string
+          && request.resource.data.email == authEmailLower()
           && request.resource.data.status == 'active'
           && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.resource.data.email))
           && memberDoc(workspaceId, request.resource.data.email).data.status == 'invited'
@@ -198,8 +209,20 @@ service cloud.firestore {
         allow create: if signedIn()
           && request.auth.uid == uid
           && request.resource.data.uid == uid
-          && request.resource.data.status == 'pending';
-        allow update: if isOwner(workspaceId);
+          && request.resource.data.status == 'pending'
+          && request.resource.data.email is string
+          && request.auth.token.email is string
+          && request.resource.data.email == authEmailLower();
+        allow update: if isOwner(workspaceId)
+          || (signedIn()
+            && request.auth.uid == uid
+            && resource.data.uid == uid
+            && request.resource.data.uid == uid
+            && request.resource.data.status == 'pending'
+            && resource.data.status in ['rejected', 'pending']
+            && request.resource.data.email is string
+            && request.auth.token.email is string
+            && request.resource.data.email == authEmailLower());
         allow delete: if isOwner(workspaceId) || (signedIn() && request.auth.uid == uid);
       }
 
@@ -224,7 +247,15 @@ service cloud.firestore {
           && existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId))
           && getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId)).data.createdBy == request.auth.uid
           && request.resource.data.uid == request.auth.uid;
-        allow update, delete: if isOwner(workspaceId);
+        allow update: if isOwner(workspaceId);
+        // Manager may drop own claim only in the same batch as deleting that page,
+        // so deleting the last own desk lets them create one again.
+        allow delete: if isOwner(workspaceId) || (
+          isMember(workspaceId)
+          && uid == request.auth.uid
+          && resource.data.pageId is string
+          && !existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(resource.data.pageId))
+        );
       }
 
       match /pages/{pageId} {
@@ -258,6 +289,12 @@ service cloud.firestore {
               getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/managerPageClaims/$(request.auth.uid)).data.pageId == pageId));
 
         allow update: if isOwner(workspaceId);
+        // Responsible person may set their own monthly goal without going
+        // through columnStatusOptionsPreserved (that helper errors on some
+        // legacy column shapes and denied the save).
+        allow update: if isMember(workspaceId)
+          && resource.data.responsibleUserId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['monthlyGoal', 'updatedAt']);
         // Delete: Owner always, or the page's own creator while they're
         // still its responsible person (mirrors canDeletePage client-side).
         allow delete: if isOwner(workspaceId) ||
@@ -430,7 +467,9 @@ service cloud.firestore {
           && request.resource.data.toUid is string
           && request.resource.data.pageId is string
           && request.resource.data.workspaceId == workspaceId
-          && request.resource.data.status == 'pending';
+          && request.resource.data.status == 'pending'
+          && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId))
+          && get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId)).data.get('responsibleUserId', '') == request.resource.data.toUid;
         allow update: if isMember(workspaceId)
           && resource.data.toUid == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
@@ -477,19 +516,40 @@ service cloud.firestore {
       }
 
       // -----------------------------------------------------------------
-      // GROK LIMIT — shared company account credentials + when each one's
-      // usage limit refreshes. Deliberately open to every member (not just
-      // Owner/Admin, unlike announcements above) — the whole feature is
-      // that whoever last checked an account can update it for everyone.
-      // The only constraint: you can only stamp YOURSELF as the person who
-      // last touched a row, never someone else's name.
+      // GROK LIMIT — credentials and status stay writable by every member
+      // (whoever last checked an account updates it for everyone). The
+      // `nickname` card title is Owner/Admin only: others may not create
+      // or change it. Create/delete of the account itself stay member-wide.
+      // Stamp yourself as updatedByUid, never someone else.
       // -----------------------------------------------------------------
+      function grokNicknamePreserved() {
+        return request.resource.data.get('nickname', '') == resource.data.get('nickname', '');
+      }
+      function grokCreateNicknameOk(workspaceId) {
+        return isOwnerOrAdmin(workspaceId) || request.resource.data.get('nickname', '') == '';
+      }
+
       match /grokAccounts/{accountId} {
         allow read: if isMember(workspaceId);
         allow create: if isMember(workspaceId)
           && request.resource.data.createdBy == request.auth.uid
-          && request.resource.data.updatedByUid == request.auth.uid;
-        allow update: if isMember(workspaceId) && request.resource.data.updatedByUid == request.auth.uid;
+          && request.resource.data.updatedByUid == request.auth.uid
+          && grokCreateNicknameOk(workspaceId);
+        allow update: if isMember(workspaceId)
+          && request.resource.data.updatedByUid == request.auth.uid
+          && (isOwnerOrAdmin(workspaceId) || grokNicknamePreserved());
+        allow delete: if isMember(workspaceId);
+      }
+
+      match /grokAppAccounts/{accountId} {
+        allow read: if isMember(workspaceId);
+        allow create: if isMember(workspaceId)
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.updatedByUid == request.auth.uid
+          && grokCreateNicknameOk(workspaceId);
+        allow update: if isMember(workspaceId)
+          && request.resource.data.updatedByUid == request.auth.uid
+          && (isOwnerOrAdmin(workspaceId) || grokNicknamePreserved());
         allow delete: if isMember(workspaceId);
       }
 

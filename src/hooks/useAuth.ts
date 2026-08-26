@@ -101,6 +101,17 @@ export function useAuthBootstrap() {
             await claimPendingInvites(user.uid, profile.email, profile.name, profile.photoURL, profile.nickname);
           } catch (inviteError) {
             console.error("claimPendingInvites failed:", inviteError);
+            const code =
+              inviteError && typeof inviteError === "object" && "code" in inviteError
+                ? String((inviteError as { code?: string }).code)
+                : "";
+            // Collection-group scan is denied unless rules match the query shape.
+            // Don't scare Owner/members on every reload when there is no invite to claim.
+            if (code !== "permission-denied") {
+              toast.error("Не удалось принять приглашение", {
+                description: inviteError instanceof Error ? inviteError.message : "Обновите страницу или напишите Owner.",
+              });
+            }
           }
 
           if (profile.nickname && profile.workspaceIds?.length) {

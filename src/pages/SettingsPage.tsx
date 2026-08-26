@@ -37,7 +37,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { updateUserPassword, updateUserProfile } from "@/firebase/auth";
-import { updateUserDoc } from "@/services/authService";
+import { syncNicknameToMemberships, updateUserDoc } from "@/services/authService";
 import {
   deleteWorkspace,
   updateResponsibleOptions,
@@ -137,14 +137,20 @@ export default function SettingsPage() {
 
   const profileForm = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
-    defaultValues: { name: profile?.name ?? "" },
+    defaultValues: { name: profile?.name ?? "", nickname: profile?.nickname ?? "" },
   });
 
   async function onSaveProfile(values: ProfileFormValues) {
     setIsSavingProfile(true);
     try {
       await updateUserProfile(values.name);
-      if (profile) await updateUserDoc(profile.uid, { name: values.name });
+      if (profile) {
+        const nickname = (values.nickname ?? "").trim();
+        await updateUserDoc(profile.uid, { name: values.name, nickname });
+        if (nickname && profile.workspaceIds?.length) {
+          await syncNicknameToMemberships(profile.uid, profile.workspaceIds, nickname);
+        }
+      }
       toast.success("Профиль обновлён");
     } catch (error) {
       toast.error(getAuthErrorMessage(error));
@@ -186,10 +192,14 @@ export default function SettingsPage() {
   async function handleDeleteWorkspace() {
     if (!activeWorkspace) return;
     if (!window.confirm(`Удалить workspace «${activeWorkspace.name}»? Это действие необратимо.`)) return;
-    await deleteWorkspace(activeWorkspace.id);
-    const next = workspaces.find((w) => w.id !== activeWorkspace.id);
-    setActiveWorkspaceId(next?.id ?? null);
-    toast.success("Workspace удалён");
+    try {
+      await deleteWorkspace(activeWorkspace.id);
+      const next = workspaces.find((w) => w.id !== activeWorkspace.id);
+      setActiveWorkspaceId(next?.id ?? null);
+      toast.success("Workspace удалён");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось удалить workspace");
+    }
   }
 
   const [isBackingUp, setIsBackingUp] = useState(false);
@@ -320,6 +330,10 @@ export default function SettingsPage() {
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="name">Имя</Label>
                   <Input id="name" {...profileForm.register("name")} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="nickname">Ник</Label>
+                  <Input id="nickname" {...profileForm.register("nickname")} placeholder="как в чате" />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label>Email</Label>

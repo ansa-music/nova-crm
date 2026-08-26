@@ -9,7 +9,7 @@ export const ROLE_LABELS: Record<Role, string> = {
 
 export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   owner: "Полный доступ: workspace, участники, права, история",
-  admin: "Создание и редактирование страниц, управление пользователями",
+  admin: "Создание и редактирование своих столов. Пользователей ведёт Owner.",
   manager: "Редактирование только разрешённых страниц",
   viewer: "Только просмотр",
 };

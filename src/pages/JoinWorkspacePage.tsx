@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Building2, Clock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import {
@@ -68,6 +69,8 @@ export default function JoinWorkspacePage() {
     setIsSubmitting(true);
     try {
       await submitJoinRequest(workspaceId, profile.uid, profile.email, profile.name, profile.photoURL);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось отправить заявку");
     } finally {
       setIsSubmitting(false);
     }

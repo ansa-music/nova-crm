@@ -1,4 +1,4 @@
-import { getDocs, query, setDoc, where } from "firebase/firestore";
+import { getDocs, onSnapshot, query, setDoc, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -27,6 +27,34 @@ export async function fetchMyViewRequests(workspaceId: string, uid: string): Pro
   return Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
 }
 
+export function subscribeToMyViewRequests(
+  workspaceId: string,
+  uid: string,
+  cb: (rows: ViewRequest[]) => void
+) {
+  const fromQ = query(paths.viewRequests(workspaceId), where("fromUid", "==", uid));
+  const toQ = query(paths.viewRequests(workspaceId), where("toUid", "==", uid));
+  let fromRows: ViewRequest[] = [];
+  let toRows: ViewRequest[] = [];
+  const emit = () => {
+    const byId = new Map<string, ViewRequest>();
+    for (const row of [...fromRows, ...toRows]) byId.set(row.id, row);
+    cb(Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt));
+  };
+  const unsubFrom = onSnapshot(fromQ, (snap) => {
+    fromRows = mapRequests(snap.docs);
+    emit();
+  });
+  const unsubTo = onSnapshot(toQ, (snap) => {
+    toRows = mapRequests(snap.docs);
+    emit();
+  });
+  return () => {
+    unsubFrom();
+    unsubTo();
+  };
+}
+
 export function latestRequestForPage(requests: ViewRequest[], pageId: string, fromUid: string): ViewRequest | null {
   return requests.find((r) => r.pageId === pageId && r.fromUid === fromUid) ?? null;
 }
@@ -40,6 +68,8 @@ export async function requestDeskView(input: {
   existing: ViewRequest[];
 }): Promise<ViewRequest | null> {
   if (!db) throw new Error("Firebase не настроен");
+  const toUid = input.page.responsibleUserId;
+  if (!toUid) throw new Error("У стола нет ответственного");
   const current = latestRequestForPage(input.existing, input.page.id, input.fromUid);
   if (current?.status === "pending") return current;
   const id = generateId("viewreq");
@@ -51,7 +81,7 @@ export async function requestDeskView(input: {
     pageName: input.page.name,
     fromUid: input.fromUid,
     fromName: input.fromName,
-    toUid: input.toUid,
+    toUid,
     status: "pending",
     createdAt: now,
     updatedAt: now,
@@ -71,7 +101,7 @@ export async function requestDeskView(input: {
       kind: "view-request",
       viewRequestId: id,
     },
-    [input.toUid]
+    [toUid]
   ).catch(() => {
     /* request itself already saved */
   });

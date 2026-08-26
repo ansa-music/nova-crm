@@ -1,4 +1,4 @@
-import { deleteDoc, getDocs, onSnapshot, query, setDoc, where } from "firebase/firestore";
+import { deleteDoc, getDoc, getDocs, onSnapshot, query, setDoc, where, writeBatch } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -8,6 +8,58 @@ import type { Role, WorkspaceMember } from "@/types";
 function sortMembers(members: WorkspaceMember[]) {
   return members.sort((a, b) => a.invitedAt - b.invitedAt);
 }
+
+export function normalizeMemberEmail(email?: string | null): string {
+  return email?.trim().toLowerCase() ?? "";
+}
+
+/** Hide invite stubs that already have an active member or a pending join on the same email. */
+export function visibleMemberRoster(
+  members: WorkspaceMember[],
+  pendingJoinEmails: Iterable<string>
+): WorkspaceMember[] {
+  const joinEmails = new Set(Array.from(pendingJoinEmails, normalizeMemberEmail).filter(Boolean));
+  const activeEmails = new Set(
+    members
+      .filter((m) => m.status === "active")
+      .map((m) => normalizeMemberEmail(m.email))
+      .filter(Boolean)
+  );
+  const seenInvited = new Set<string>();
+  const out: WorkspaceMember[] = [];
+  for (const member of members) {
+    if (member.status !== "invited") {
+      out.push(member);
+      continue;
+    }
+    const email = normalizeMemberEmail(member.email);
+    if (!email || seenInvited.has(email)) continue;
+    if (joinEmails.has(email) || activeEmails.has(email)) continue;
+    seenInvited.add(email);
+    out.push(member);
+  }
+  return out;
+}
+
+export const QUIET_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Active members silent for 7 days. lastActiveAt, else joinedAt. Not presence (10 min). */
+export function quietActiveMembers(
+  members: WorkspaceMember[],
+  myUid?: string | null,
+  now = Date.now()
+): WorkspaceMember[] {
+  return members
+    .filter((m) => {
+      if (m.status !== "active") return false;
+      if (myUid && m.uid && m.uid === myUid) return false;
+      const ts = m.lastActiveAt || m.joinedAt;
+      if (!ts) return false;
+      return now - ts > QUIET_AFTER_MS;
+    })
+    .sort((a, b) => (a.lastActiveAt || a.joinedAt || 0) - (b.lastActiveAt || b.joinedAt || 0));
+}
+
 
 export async function fetchMembers(workspaceId: string): Promise<WorkspaceMember[]> {
   const snapshot = await getDocs(paths.members(workspaceId));
@@ -74,21 +126,19 @@ export function findOwnMembership(
   if (uid) {
     const active = members.find((m) => m.uid === uid && m.status !== "invited");
     if (active) return active;
-    const anyUid = members.find((m) => m.uid === uid);
+    const anyUid = members.find((m) => m.uid === uid && m.status !== "invited");
     if (anyUid) return anyUid;
   }
   if (!normalizedEmail) return null;
+  // Invite stubs are email-keyed and have no uid / status invited — never treat them as the signed-in row.
   return (
     members.find(
       (m) =>
+        Boolean(m.uid) &&
+        m.status !== "invited" &&
         m.email?.trim().toLowerCase() === normalizedEmail &&
-        (!m.uid || m.uid === uid) &&
-        m.status !== "invited"
-    ) ??
-    members.find(
-      (m) => m.email?.trim().toLowerCase() === normalizedEmail && (!m.uid || m.uid === uid)
-    ) ??
-    null
+        (!uid || m.uid === uid)
+    ) ?? null
   );
 }
 
@@ -114,8 +164,20 @@ export async function inviteMember(
 ) {
   if (!db) throw new Error("Firebase не настроен");
   const normalizedEmail = email.trim().toLowerCase();
-  const member: WorkspaceMember = {
-    uid: "",
+  if (!normalizedEmail) throw new Error("Введите email");
+  const existing = (await fetchMembers(workspaceId)).find(
+    (m) => m.email?.trim().toLowerCase() === normalizedEmail
+  );
+  if (existing) {
+    throw new Error(
+      existing.status === "invited"
+        ? "Этому email уже отправлено приглашение"
+        : "Этот email уже в workspace"
+    );
+  }
+  // Email-keyed stub: no uid field. Empty uid:"" made findOwnMembership treat
+  // the invite as a real row and locked tables after claim.
+  const member: Omit<WorkspaceMember, "uid"> = {
     email: normalizedEmail,
     name: normalizedEmail.split("@")[0],
     role,
@@ -125,13 +187,42 @@ export async function inviteMember(
     inviteToken: generateId("inv"),
   };
   await setDoc(paths.member(workspaceId, normalizedEmail), member);
-  return member;
+  return member as WorkspaceMember;
+}
+
+
+/** Delete an email-keyed invite stub only. Never members/{uid} and never uid "". */
+export async function cancelInvite(workspaceId: string, email: string) {
+  if (!db) return;
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) throw new Error("Нет email для отмены приглашения");
+  const snap = await getDoc(paths.member(workspaceId, normalized));
+  const data = snap.exists() ? (snap.data() as WorkspaceMember) : null;
+  if (!data || data.status !== "invited") {
+    throw new Error("Приглашение не найдено");
+  }
+  await deleteDoc(snap.ref);
+}
+
+/** After approve/claim: drop leftover members/{email} invite stub if it is still invited. */
+export async function deleteInvitedStubIfPresent(workspaceId: string, email: string, keepUid?: string) {
+  if (!db) return;
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return;
+  if (keepUid && normalized === keepUid) return;
+  const snap = await getDoc(paths.member(workspaceId, normalized));
+  if (!snap.exists()) return;
+  const data = snap.data() as WorkspaceMember;
+  if (data.status !== "invited") return;
+  await deleteDoc(snap.ref);
 }
 
 export async function resendInvite(workspaceId: string, email: string) {
   if (!db) return;
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return;
   await setDoc(
-    paths.member(workspaceId, email),
+    paths.member(workspaceId, normalized),
     { invitedAt: Date.now(), inviteToken: generateId("inv") },
     { merge: true }
   );
@@ -139,6 +230,29 @@ export async function resendInvite(workspaceId: string, email: string) {
 
 export async function changeMemberRole(workspaceId: string, uid: string, role: Role) {
   if (!db) return;
+  if (role === "manager") {
+    const pagesSnap = await getDocs(paths.pages(workspaceId));
+    const pages = pagesSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<{
+      id: string;
+      responsibleUserId?: string | null;
+    }>;
+    const own = pages.filter((page) => page.responsibleUserId === uid);
+    if (own.length > 1) {
+      throw new Error("Сначала заберите лишние столы — у технара может быть только один свой стол");
+    }
+    const only = own.length === 1 ? own[0] : undefined;
+    if (only) {
+      const batch = writeBatch(db);
+      batch.set(paths.member(workspaceId, uid), { role }, { merge: true });
+      batch.set(paths.managerPageClaim(workspaceId, uid), {
+        uid,
+        pageId: only.id,
+        createdAt: Date.now(),
+      });
+      await batch.commit();
+      return;
+    }
+  }
   await setDoc(paths.member(workspaceId, uid), { role }, { merge: true });
 }
 

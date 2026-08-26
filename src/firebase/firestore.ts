@@ -103,6 +103,11 @@ export const paths = {
   grokAccount: (workspaceId: string, id: string) =>
     doc(requireDb(), "workspaces", workspaceId, "grokAccounts", id),
 
+  grokAppAccounts: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "grokAppAccounts"),
+  grokAppAccount: (workspaceId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "grokAppAccounts", id),
+
   viewRequests: (workspaceId: string) =>
     collection(requireDb(), "workspaces", workspaceId, "viewRequests"),
   viewRequest: (workspaceId: string, id: string) =>

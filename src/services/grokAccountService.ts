@@ -3,10 +3,11 @@ import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { isSameLocalDay, normalizeTimestamp } from "@/utils/date";
-import type { GrokAccount } from "@/types";
+import type { GrokAccount, GrokLoginMethod } from "@/types";
+import { grokLoginMethodOf } from "@/types/grokAccount";
 
 /** Missing `available` (accounts created before that field existed) reads as available. */
-export function isGrokAccountAvailable(account: GrokAccount): boolean {
+export function isGrokAccountAvailable(account: { available?: boolean }): boolean {
   return account.available ?? true;
 }
 
@@ -18,7 +19,7 @@ export type GrokAccountStatus = "available" | "resetToday" | "unavailable";
  * (still marked unavailable, but its typed reset date is today — worth
  * checking again soon), red "unavailable" otherwise.
  */
-export function getGrokAccountStatus(account: GrokAccount, now: number = Date.now()): GrokAccountStatus {
+export function getGrokAccountStatus(account: { available?: boolean; limitResetAt: number | null }, now: number = Date.now()): GrokAccountStatus {
   if (isGrokAccountAvailable(account)) return "available";
   if (account.limitResetAt != null && isSameLocalDay(account.limitResetAt, now)) return "resetToday";
   return "unavailable";
@@ -27,7 +28,10 @@ export function getGrokAccountStatus(account: GrokAccount, now: number = Date.no
 const STATUS_RANK: Record<GrokAccountStatus, number> = { available: 0, resetToday: 1, unavailable: 2 };
 
 function mapAccounts(docs: { id: string; data: () => import("firebase/firestore").DocumentData }[]): GrokAccount[] {
-  const items = docs.map((d) => ({ id: d.id, ...d.data() }) as GrokAccount);
+  const items = docs.map((d) => {
+    const data = d.data();
+    return { id: d.id, ...data, loginMethod: grokLoginMethodOf(data.loginMethod) } as GrokAccount;
+  });
   items.forEach((a) => {
     a.createdAt = normalizeTimestamp(a.createdAt);
     a.updatedAt = normalizeTimestamp(a.updatedAt);
@@ -85,6 +89,9 @@ export interface CreateGrokAccountInput {
   workspaceId: string;
   email: string;
   password: string;
+  phone?: string;
+  loginMethod?: GrokLoginMethod;
+  nickname?: string;
   limitResetAt: number | null;
   actorUid: string;
   actorName: string;
@@ -99,6 +106,9 @@ export async function createGrokAccount(input: CreateGrokAccountInput): Promise<
     workspaceId: input.workspaceId,
     email: input.email.trim(),
     password: input.password,
+    phone: input.phone?.trim() ?? "",
+    loginMethod: grokLoginMethodOf(input.loginMethod),
+    nickname: input.nickname?.trim() ?? "",
     // A newly added account is assumed usable until someone says otherwise —
     // only relevant if a reset time in the future was already typed in.
     available: input.limitResetAt == null || input.limitResetAt <= now,
@@ -116,6 +126,9 @@ export async function createGrokAccount(input: CreateGrokAccountInput): Promise<
 export interface UpdateGrokAccountInput {
   email?: string;
   password?: string;
+  phone?: string;
+  loginMethod?: GrokLoginMethod;
+  nickname?: string;
   limitResetAt?: number | null;
   available?: boolean;
 }

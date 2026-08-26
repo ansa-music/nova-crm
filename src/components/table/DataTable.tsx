@@ -38,6 +38,12 @@ import { ColumnHeaderCell } from "@/components/table/ColumnHeaderCell";
 import { TableRow } from "@/components/table/TableRow";
 import { GroupHeaderRow } from "@/components/table/GroupHeaderRow";
 import { TableToolbar } from "@/components/table/TableToolbar";
+import {
+  captureTableView,
+  loadSavedTableViews,
+  writeSavedTableViews,
+  type SavedTableView,
+} from "@/utils/savedTableViews";
 import { KanbanView } from "@/components/table/KanbanView";
 import { TablePagination } from "@/components/table/TablePagination";
 import { FilterPopover } from "@/components/table/FilterPopover";
@@ -278,6 +284,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [groupByKey, setGroupByKey] = useState<string | null>(null);
+  const [savedViews, setSavedViews] = useState<SavedTableView[]>(() => loadSavedTableViews(tableViewKey));
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [density, setDensity] = useState<"compact" | "default" | "comfortable">(() => {
     // Persisted across visits/reloads (per-browser) — was previously reset
@@ -397,6 +404,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setSearchQuery("");
     setStatusFilter(null);
     setGroupByKey(null);
+    setSavedViews(loadSavedTableViews(tableViewKey));
     setSelectedRowIds(new Set());
     setPageIndex(0);
   }, [page.id, tableViewKey]);
@@ -1389,6 +1397,41 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   // ---- Sort / filter / pin ----
+  function persistSavedViews(next: SavedTableView[]) {
+    setSavedViews(next);
+    writeSavedTableViews(tableViewKey, next);
+  }
+
+  function handleSaveTableView() {
+    const name = window.prompt("Название вида");
+    if (name == null) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const snapshot = captureTableView(trimmed, {
+      statusFilter,
+      groupByKey,
+      sortState,
+      filters: Object.fromEntries(Object.entries(filters).map(([k, v]) => [k, Array.from(v)])),
+    });
+    persistSavedViews([...savedViews.filter((v) => v.name !== snapshot.name), snapshot]);
+    toast.success(`Вид «${snapshot.name}» сохранён`);
+  }
+
+  function handleApplyTableView(view: SavedTableView) {
+    setStatusFilter(view.statusFilter);
+    setGroupByKey(view.groupByKey);
+    setSortState(view.sortState);
+    localStorage.setItem(sortStorageKey(tableViewKey), JSON.stringify(view.sortState));
+    setFilters(
+      Object.fromEntries(Object.entries(view.filters ?? {}).map(([k, vals]) => [k, new Set(vals)]))
+    );
+    setPageIndex(0);
+  }
+
+  function handleDeleteTableView(view: SavedTableView) {
+    persistSavedViews(savedViews.filter((v) => v.id !== view.id));
+  }
+
   function handleSort(colKey: string) {
     setSortState((prev) => {
       const next: SortState =
@@ -1939,6 +1982,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         }}
         viewMode={viewMode}
         onViewModeChange={handleViewModeChange}
+        savedViews={savedViews}
+        onSaveView={handleSaveTableView}
+        onApplyView={handleApplyTableView}
+        onDeleteView={handleDeleteTableView}
       />
 
       {viewMode === "kanban" && kanbanStatusColumn ? (

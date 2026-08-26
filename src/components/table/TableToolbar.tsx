@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Plus, Search, Rows3, Columns3, Table2, Kanban, MoreHorizontal, Palette, SlidersHorizontal, Eye } from "lucide-react";
+import { Download, Plus, Search, Rows3, Columns3, Table2, Kanban, MoreHorizontal, Palette, SlidersHorizontal, Eye, Bookmark } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +15,7 @@ import {
 import { cn } from "@/utils/cn";
 import { NOT_DONE_STATUS_FILTER } from "@/utils/columnOptions";
 import type { PageColumn, StatusOption } from "@/types";
+import type { SavedTableView } from "@/utils/savedTableViews";
 
 interface TableToolbarProps {
   columns: PageColumn[];
@@ -40,6 +41,10 @@ interface TableToolbarProps {
   onStatusFilterChange?: (value: string | null) => void;
   viewMode: "table" | "kanban";
   onViewModeChange: (mode: "table" | "kanban") => void;
+  savedViews?: SavedTableView[];
+  onSaveView?: () => void;
+  onApplyView?: (view: SavedTableView) => void;
+  onDeleteView?: (view: SavedTableView) => void;
 }
 
 const DENSITY_LABELS: Record<TableToolbarProps["density"], string> = {
@@ -72,6 +77,10 @@ export function TableToolbar({
   onStatusFilterChange,
   viewMode,
   onViewModeChange,
+  savedViews,
+  onSaveView,
+  onApplyView,
+  onDeleteView,
 }: TableToolbarProps) {
   const [searchOpen, setSearchOpen] = useState(Boolean(searchQuery));
   // A hidden column disappears from the table entirely — its own header
@@ -237,6 +246,40 @@ export function TableToolbar({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
+          {onSaveView && onApplyView && onDeleteView && (
+            <>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Bookmark className="h-3.5 w-3.5" /> Виды{savedViews && savedViews.length ? ` (${savedViews.length})` : ""}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <DropdownMenuItem onClick={onSaveView}>Сохранить текущий</DropdownMenuItem>
+                  {savedViews && savedViews.length > 0 && <DropdownMenuSeparator />}
+                  {savedViews?.map((view) => (
+                    <DropdownMenuItem key={view.id} onClick={() => onApplyView(view)}>
+                      {view.name}
+                    </DropdownMenuItem>
+                  ))}
+                  {savedViews && savedViews.length > 0 && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>Удалить</DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent>
+                          {savedViews.map((view) => (
+                            <DropdownMenuItem key={view.id} onClick={() => onDeleteView(view)}>
+                              {view.name}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                    </>
+                  )}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSeparator />
+            </>
+          )}
           {viewMode === "table" && (
             <>
               <DropdownMenuSub>

@@ -620,10 +620,19 @@ export async function deletePage(workspaceId: string, pageId: string) {
 
   // Firestore batches cap out at 500 writes; chunk defensively for pages
   // with a lot of rows/history so deletion never silently fails partway.
+  let claimUid: string | null = null;
+  try {
+    const pageSnap = await getDoc(paths.page(workspaceId, pageId));
+    const createdBy = pageSnap.data()?.createdBy;
+    if (typeof createdBy === "string" && createdBy) claimUid = createdBy;
+  } catch {
+    /* still delete the page */
+  }
   const refsToDelete = [
     ...rowsSnapshot.docs.map((d) => d.ref),
     ...historySnapshot.docs.map((d) => d.ref),
     paths.page(workspaceId, pageId),
+    ...(claimUid ? [paths.managerPageClaim(workspaceId, claimUid)] : []),
   ];
   const CHUNK_SIZE = 450;
   for (let i = 0; i < refsToDelete.length; i += CHUNK_SIZE) {
