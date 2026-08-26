@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { LayoutGrid, Settings2, UsersRound } from "lucide-react";
+import { Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { DeskChart, GoalVsDoneChart } from "@/components/dashboard/DeskChart";
@@ -28,6 +28,7 @@ import { greetingByHour, hourInTimeZone } from "@/utils/date";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { isResponsibleForPage } from "@/utils/permissions";
 import { ordersByDateFromDesks, progressForPage, statusDistributionFromDesks } from "@/utils/deskProgress";
+import { formatCurrency } from "@/utils/format";
 import { updateLeaderboardEntry } from "@/services/leaderboardService";
 import { useNavigate } from "react-router";
 import type { LeaderboardEntry } from "@/types";
@@ -71,6 +72,11 @@ export default function DashboardPage() {
   const deskProgress = useMemo(
     () => progressPages.map((page) => progressForPage(page, subPagesByPage, rowsBySubPage, rowsByPage, statusOptions)),
     [progressPages, subPagesByPage, rowsBySubPage, rowsByPage, statusOptions]
+  );
+
+  const myDeskProgress = useMemo(
+    () => (myDesk ? deskProgress.find((d) => d.page.id === myDesk.id) : undefined),
+    [deskProgress, myDesk]
   );
 
   const myProgress = useMemo(
@@ -162,6 +168,19 @@ export default function DashboardPage() {
     ? deskBarData.filter((d) => myProgress.some((p) => p.page.id === d.id))
     : deskBarData;
 
+  const myDeskGoal = myDeskProgress?.page.monthlyGoal ?? 0;
+  const myDeskGoalPercent =
+    myDeskProgress && myDeskGoal > 0
+      ? Math.min(100, Math.round((myDeskProgress.doneTotal / myDeskGoal) * 100))
+      : null;
+
+  const myProgressIds = new Set(myProgress.map((p) => p.page.id));
+  const myProgressDuplicatesKpi =
+    chartSource.length > 0 &&
+    chartSource.length === myProgress.length &&
+    chartSource.every((d) => myProgressIds.has(d.page.id));
+  const showProgressCards = showProgress && myProgress.length > 0 && !myProgressDuplicatesKpi;
+
   const leaderboard = (
     <LeaderboardWidget
       entries={leaderboardEntries}
@@ -181,17 +200,6 @@ export default function DashboardPage() {
       <p className="mt-1 mb-6 text-sm text-muted-foreground">
         Рейтинг и диаграммы по заказам на столах. Сроки как дедлайны сюда не входят — даты на листах это когда заказ пришёл.
       </p>
-
-      <div className="mb-6 flex flex-wrap gap-2">
-        <Button variant="outline" className="min-h-11 gap-1.5 rounded-full" onClick={() => navigate("/desks")}>
-          <LayoutGrid className="h-3.5 w-3.5" />
-          Все столы
-        </Button>
-        <Button variant="outline" className="min-h-11 gap-1.5 rounded-full" onClick={() => navigate("/people")}>
-          <UsersRound className="h-3.5 w-3.5" />
-          Люди
-        </Button>
-      </div>
 
       {myDesk ? (
         <section className="relative mb-8 overflow-hidden rounded-[1.35rem] border border-border">
@@ -219,9 +227,33 @@ export default function DashboardPage() {
             ) : (
               <div />
             )}
-            <p className="font-serif text-[1.65rem] font-medium tracking-[-0.03em] text-white sm:text-[2.15rem]">
-              {myDesk.name}
-            </p>
+            <div>
+              <p className="font-serif text-[1.65rem] font-medium tracking-[-0.03em] text-white sm:text-[2.15rem]">
+                {myDesk.name}
+              </p>
+              {myDeskProgress ? (
+                <div className="mt-3 flex flex-wrap gap-6 sm:gap-8">
+                  <div>
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-white/70">Общий</p>
+                    <p className="mt-0.5 tabular text-lg font-medium text-white sm:text-xl">
+                      {formatCurrency(myDeskProgress.grandTotal)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-white/70">Готово</p>
+                    <p className="mt-0.5 tabular text-lg font-medium text-white sm:text-xl">
+                      {formatCurrency(myDeskProgress.doneTotal)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-white/70">% цели</p>
+                    <p className="mt-0.5 tabular text-lg font-medium text-white sm:text-xl">
+                      {myDeskGoalPercent == null ? "—" : `${myDeskGoalPercent}%`}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
         </section>
       ) : (
@@ -283,7 +315,7 @@ export default function DashboardPage() {
       )}
 
       <div className="mb-6 grid grid-cols-1 gap-5 lg:grid-cols-5">
-        {showProgress && myProgress.length > 0 && (
+        {showProgressCards && (
           <div className="flex flex-col gap-4 lg:col-span-3">
             {myProgress.map((p) => (
               <MyProgressCard
@@ -297,7 +329,7 @@ export default function DashboardPage() {
           </div>
         )}
         {showBoard && (
-          <div className={showProgress && myProgress.length > 0 ? "lg:col-span-2" : "lg:col-span-5"}>
+          <div className={showProgressCards ? "lg:col-span-2" : "lg:col-span-5"}>
             {leaderboard}
           </div>
         )}

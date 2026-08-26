@@ -35,16 +35,26 @@ export function KpiStatsRow({ desks, statusOptions }: { desks: PageProgress[]; s
   const doneTotal = desks.reduce((sum, d) => sum + d.doneTotal, 0);
   const openCount = desks.reduce((sum, d) => sum + d.openCount, 0);
 
+  const hideDeskCount = desks.length === 1;
+
   return (
-    <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <KpiStatCard
-        icon={LayoutGrid}
-        color="189 100% 72%"
-        label="Столов"
-        value={formatNumber(desks.length)}
-        trend={deskTrend}
-        delta={weekDelta(deskTrend)}
-      />
+    <div
+      className={
+        hideDeskCount
+          ? "mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+          : "mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
+      }
+    >
+      {hideDeskCount ? null : (
+        <KpiStatCard
+          icon={LayoutGrid}
+          color="189 100% 72%"
+          label="Столов"
+          value={formatNumber(desks.length)}
+          trend={deskTrend}
+          delta={weekDelta(deskTrend)}
+        />
+      )}
       <KpiStatCard
         icon={DollarSign}
         color="271 81% 56%"
