@@ -568,7 +568,11 @@
 }
 .table-instrument td,
 .table-instrument th {
-  border-color: hsl(var(--border) / 0.85);
+  /* Was hsl(var(--border) / 0.85) — --border is a dark cyan (22% lightness)
+     that sits too close to the near-black #070c18 table background to read
+     as a grid line at a glance. --muted-foreground is much lighter, so a
+     low-opacity slice of it stays subtle but actually separates cells. */
+  border-color: hsl(var(--muted-foreground) / 0.22);
 }
 
 .table-grid-scroll {

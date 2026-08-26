@@ -320,7 +320,17 @@ export function TableToolbar({
       </DropdownMenu>
 
       {canEdit && (
-        <Button size="sm" className="h-10 shrink-0 gap-1.5 sm:h-8" onClick={onAddRow}>
+        // Sticky to the scroll container's right edge: on a phone this toolbar
+        // scrolls horizontally (status chips + group/density/CSV before it), so
+        // without this the single most-used button could sit off-screen with no
+        // visual hint to scroll for it. Sticky keeps it reachable at any scroll
+        // position; sm:static drops the pinning once the toolbar wraps instead
+        // of scrolling.
+        <Button
+          size="sm"
+          className="sticky right-0 z-20 ml-1 h-10 shrink-0 gap-1.5 shadow-[-8px_0_8px_-4px_hsl(222_55%_6%)] sm:static sm:ml-0 sm:h-8 sm:shadow-none"
+          onClick={onAddRow}
+        >
           <Plus className="h-3.5 w-3.5" />
           <span className="hidden xs:inline sm:inline">Строка</span>
         </Button>
