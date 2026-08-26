@@ -26,7 +26,7 @@ export default function JoinWorkspacePage() {
   useEffect(() => {
     if (!workspaceId) return;
     rememberJoinIntent(workspaceId);
-    getPublicWorkspaceInfo(workspaceId).then(setWorkspace);
+    getPublicWorkspaceInfo(workspaceId).then(setWorkspace).catch(() => setWorkspace(null));
   }, [workspaceId]);
 
   // If this account is already a member (most importantly: the Owner

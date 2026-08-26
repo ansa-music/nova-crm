@@ -10,8 +10,13 @@ export const DEFAULT_JOIN_ROLE: Role = "manager";
 /** Minimal public info shown on the /join/:workspaceId page before the person is a member. */
 export async function getPublicWorkspaceInfo(workspaceId: string): Promise<Workspace | null> {
   if (!db) return null;
-  const snap = await getDoc(paths.workspace(workspaceId));
-  return snap.exists() ? ({ id: snap.id, ...snap.data() } as Workspace) : null;
+  try {
+    const snap = await getDoc(paths.workspace(workspaceId));
+    return snap.exists() ? ({ id: snap.id, ...snap.data() } as Workspace) : null;
+  } catch (error) {
+    console.error("getPublicWorkspaceInfo failed:", error);
+    return null;
+  }
 }
 
 export function subscribeToPublicWorkspaceInfo(

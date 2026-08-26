@@ -147,7 +147,7 @@ export default function SettingsPage() {
       if (profile) {
         const nickname = (values.nickname ?? "").trim();
         await updateUserDoc(profile.uid, { name: values.name, nickname });
-        if (nickname && profile.workspaceIds?.length) {
+        if (profile.workspaceIds?.length) {
           await syncNicknameToMemberships(profile.uid, profile.workspaceIds, nickname);
         }
       }
