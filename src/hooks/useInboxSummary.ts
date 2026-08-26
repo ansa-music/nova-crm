@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { paths } from "@/firebase/firestore";
-import { fetchChat } from "@/services/chatService";
-import { fetchMyConversations, fetchReadMarkers } from "@/services/inboxService";
-import { usePolledData } from "@/hooks/usePolledData";
+import { subscribeToChat } from "@/services/chatService";
+import { subscribeMyConversations, subscribeReadMarkers } from "@/services/inboxService";
 import { INBOX_CHANGED_EVENT } from "@/utils/inboxEvents";
 import type { ChatMessage, PrivateChatMeta } from "@/types";
 
@@ -15,40 +14,39 @@ export function useInboxSummary(
   const includeWorkspaceChat = opts.includeWorkspaceChat === true;
   const active = Boolean(enabled && workspaceId && uid);
   const [optimisticReads, setOptimisticReads] = useState<Record<string, number>>({});
-
-  const { data, reload } = usePolledData(
-    active,
-    async () => {
-      const ws = workspaceId as string;
-      const user = uid as string;
-      const [workspaceMessages, conversations, readMarkers] = await Promise.all([
-        includeWorkspaceChat ? fetchChat(paths.workspaceChat(ws)) : Promise.resolve([] as ChatMessage[]),
-        fetchMyConversations(ws, user),
-        fetchReadMarkers(ws, user),
-      ]);
-      return { workspaceMessages, conversations, readMarkers };
-    },
-    {
-      workspaceMessages: [] as ChatMessage[],
-      conversations: [] as PrivateChatMeta[],
-      readMarkers: {} as Record<string, number>,
-    },
-    [workspaceId, uid, includeWorkspaceChat]
-  );
+  const [workspaceMessages, setWorkspaceMessages] = useState<ChatMessage[]>([]);
+  const [conversations, setConversations] = useState<PrivateChatMeta[]>([]);
+  const [readMarkers, setReadMarkers] = useState<Record<string, number>>({});
 
   useEffect(() => {
     setOptimisticReads({});
   }, [workspaceId, uid]);
 
   useEffect(() => {
+    if (!active || !workspaceId || !uid) {
+      setWorkspaceMessages([]);
+      setConversations([]);
+      setReadMarkers({});
+      return;
+    }
+    const unsubs: Array<() => void> = [];
+    if (includeWorkspaceChat) {
+      unsubs.push(subscribeToChat(paths.workspaceChat(workspaceId), setWorkspaceMessages));
+    } else {
+      setWorkspaceMessages([]);
+    }
+    unsubs.push(subscribeMyConversations(workspaceId, uid, setConversations));
+    unsubs.push(subscribeReadMarkers(workspaceId, uid, setReadMarkers));
+    return () => unsubs.forEach((u) => u());
+  }, [active, workspaceId, uid, includeWorkspaceChat]);
+
+  useEffect(() => {
     function onChanged() {
-      void reload();
+      /* live onSnapshot already feeds inbox; ping stays for other listeners */
     }
     window.addEventListener(INBOX_CHANGED_EVENT, onChanged);
     return () => window.removeEventListener(INBOX_CHANGED_EVENT, onChanged);
-  }, [reload]);
-
-  const { workspaceMessages, conversations, readMarkers } = data;
+  }, []);
 
   const mergedReads = useMemo(
     () => ({ ...readMarkers, ...optimisticReads }),
@@ -80,7 +78,9 @@ export function useInboxSummary(
     workspaceChatUnread,
     conversations: conversationsWithUnread,
     privateUnreadTotal,
-    reload,
+    reload: () => {
+      /* live onSnapshot already feeds inbox */
+    },
     markReadLocal,
   };
 }

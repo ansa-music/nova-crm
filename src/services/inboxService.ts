@@ -1,4 +1,4 @@
-import { getDocs, query, setDoc, where } from "firebase/firestore";
+import { getDocs, onSnapshot, query, setDoc, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { normalizeTimestamp } from "@/utils/date";
@@ -76,3 +76,45 @@ export async function fetchReadMarkers(workspaceId: string, uid: string): Promis
   });
   return map;
 }
+
+
+export function subscribeMyConversations(
+  workspaceId: string,
+  uid: string,
+  cb: (rows: PrivateChatMeta[]) => void
+) {
+  if (!db) {
+    cb([]);
+    return () => {};
+  }
+  const q = query(paths.privateChats(workspaceId), where("participants", "array-contains", uid));
+  return onSnapshot(q, (snapshot) => {
+    cb(
+      snapshot.docs
+        .map((d) => ({ id: d.id, ...d.data() }) as unknown as PrivateChatMeta)
+        .map((c) => ({ ...c, lastMessageAt: normalizeTimestamp(c.lastMessageAt) }))
+        .sort((a, b) => b.lastMessageAt - a.lastMessageAt)
+    );
+  });
+}
+
+export function subscribeReadMarkers(
+  workspaceId: string,
+  uid: string,
+  cb: (map: Record<string, number>) => void
+) {
+  if (!db) {
+    cb({});
+    return () => {};
+  }
+  const q = query(paths.readMarkers(workspaceId), where("uid", "==", uid));
+  return onSnapshot(q, (snapshot) => {
+    const map: Record<string, number> = {};
+    snapshot.docs.forEach((d) => {
+      const data = d.data() as ReadMarker;
+      map[data.context] = normalizeTimestamp(data.lastReadAt);
+    });
+    cb(map);
+  });
+}
+
