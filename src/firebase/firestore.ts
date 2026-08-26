@@ -85,10 +85,10 @@ export const paths = {
   subPageRow: (workspaceId: string, pageId: string, subPageId: string, rowId: string) =>
     doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "subpages", subPageId, "rows", rowId),
 
-  dailyDispatches: (workspaceId: string, pageId: string) =>
-    collection(requireDb(), "workspaces", workspaceId, "pages", pageId, "dailyDispatches"),
-  dailyDispatch: (workspaceId: string, pageId: string, id: string) =>
-    doc(requireDb(), "workspaces", workspaceId, "pages", pageId, "dailyDispatches", id),
+  dailyDispatches: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "dailyDispatches"),
+  dailyDispatch: (workspaceId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "dailyDispatches", id),
 
   history: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "history"),
   historyEntry: (workspaceId: string, entryId: string) =>

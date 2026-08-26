@@ -55,9 +55,6 @@ interface SubPageTabsProps {
   onSelect: (subPageId: string | null) => void;
   canManage: boolean;
   userId: string;
-  showDispatchTab?: boolean;
-  dispatchActive?: boolean;
-  onSelectDispatch?: () => void;
 }
 
 export function SubPageTabs({
@@ -68,9 +65,6 @@ export function SubPageTabs({
   onSelect,
   canManage,
   userId,
-  showDispatchTab,
-  dispatchActive,
-  onSelectDispatch,
 }: SubPageTabsProps) {
   const [showArchived, setShowArchived] = useState(false);
   const [duplicateTarget, setDuplicateTarget] = useState<SubPage | null>(null);
@@ -177,7 +171,7 @@ export function SubPageTabs({
       onClick={() => onSelect(null)}
       className={cn(
         "shrink-0 flex items-center gap-1 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
-        activeSubPageId === null && !dispatchActive
+        activeSubPageId === null
           ? "border-primary/50 bg-primary/10 text-primary"
           : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
       )}
@@ -202,23 +196,7 @@ export function SubPageTabs({
         mainTab
       )}
 
-
-      {showDispatchTab ? (
-        <button
-          type="button"
-          onClick={() => onSelectDispatch?.()}
-          className={cn(
-            "shrink-0 flex items-center gap-1 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
-            dispatchActive
-              ? "border-primary/50 bg-primary/10 text-primary"
-              : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
-          )}
-        >
-          Выдача
-        </button>
-      ) : null}
-
-            <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <SortableContext items={visible.map((s) => s.id)} strategy={horizontalListSortingStrategy}>
           <div className="flex flex-1 items-center gap-1 overflow-x-auto scrollbar-thin">
             {visible.map((sub) => (

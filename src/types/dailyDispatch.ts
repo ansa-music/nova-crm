@@ -1,7 +1,6 @@
 export interface DailyDispatch {
   id: string;
   workspaceId: string;
-  pageId: string;
   checkNo: string;
   technicianName: string;
   technicianUid: string | null;

@@ -24,6 +24,7 @@ const DesksPage = lazy(() => import("@/pages/DesksPage"));
 const AnnouncementsPage = lazy(() => import("@/pages/AnnouncementsPage"));
 const GrokLimitPage = lazy(() => import("@/pages/GrokLimitPage"));
 const GrokAppsPage = lazy(() => import("@/pages/GrokAppsPage"));
+const DispatchPage = lazy(() => import("@/pages/DispatchPage"));
 const WorkspaceChatPage = lazy(() => import("@/pages/WorkspaceChatPage"));
 const MessagesPage = lazy(() => import("@/pages/MessagesPage"));
 const JoinWorkspacePage = lazy(() => import("@/pages/JoinWorkspacePage"));
@@ -110,6 +111,7 @@ function AppShell() {
             <Route path="announcements" element={<AnnouncementsPage />} />
             <Route path="grok-limit" element={<GrokLimitPage />} />
             <Route path="grok-limit/apps" element={<GrokAppsPage />} />
+            <Route path="dispatch" element={<DispatchPage />} />
             <Route path="chat" element={<WorkspaceChatPage />} />
             <Route path="messages" element={<MessagesPage />} />
             <Route path="messages/:peerUid" element={<MessagesPage />} />

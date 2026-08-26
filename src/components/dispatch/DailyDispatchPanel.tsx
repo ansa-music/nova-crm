@@ -35,7 +35,6 @@ import type { DailyDispatch, StatusOption, WorkspaceMember, WorkspacePage } from
 
 interface DailyDispatchPanelProps {
   workspaceId: string;
-  pageId: string;
   uid: string;
   members: WorkspaceMember[];
   pages: WorkspacePage[];
@@ -57,14 +56,13 @@ function formatDayHeading(dayKey: string): string {
 
 export function DailyDispatchPanel({
   workspaceId,
-  pageId,
   uid,
   members,
   pages,
   isOwner,
   responsibleOptions,
 }: DailyDispatchPanelProps) {
-  const { data: entries, isLoading, reload } = useDailyDispatch(workspaceId, pageId, true);
+  const { data: entries, isLoading, reload } = useDailyDispatch(workspaceId, true);
   const [checkNo, setCheckNo] = useState("");
   const [technicianName, setTechnicianName] = useState("");
   const [amount, setAmount] = useState("");
@@ -102,7 +100,6 @@ export function DailyDispatchPanel({
     try {
       await createDailyDispatch({
         workspaceId,
-        pageId,
         checkNo,
         technicianName,
         amount: amount.trim() ? Number(amount) : 0,
@@ -127,7 +124,7 @@ export function DailyDispatchPanel({
 
   async function handleMark(row: DailyDispatch, marked: boolean) {
     try {
-      await toggleDailyDispatchMark(workspaceId, pageId, row.id, uid, marked);
+      await toggleDailyDispatchMark(workspaceId, row.id, uid, marked);
       await reload();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось отметить");
@@ -444,7 +441,6 @@ function BindSheetDialog({
     try {
       await bindDailyDispatchToSheet({
         workspaceId: row.workspaceId,
-        pageId: row.pageId,
         id: row.id,
         technicianUid: memberUid || null,
         linkedPageId: sheet.id,

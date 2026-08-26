@@ -20,7 +20,6 @@ function mapDispatch(id: string, raw: Record<string, unknown>): DailyDispatch {
   return {
     id,
     workspaceId: String(raw.workspaceId ?? ""),
-    pageId: String(raw.pageId ?? ""),
     checkNo: String(raw.checkNo ?? ""),
     technicianName: String(raw.technicianName ?? ""),
     technicianUid: typeof raw.technicianUid === "string" ? raw.technicianUid : null,
@@ -37,9 +36,9 @@ function mapDispatch(id: string, raw: Record<string, unknown>): DailyDispatch {
   };
 }
 
-export async function listDailyDispatches(workspaceId: string, pageId: string): Promise<DailyDispatch[]> {
+export async function listDailyDispatches(workspaceId: string): Promise<DailyDispatch[]> {
   requireDb();
-  const snap = await getDocs(paths.dailyDispatches(workspaceId, pageId));
+  const snap = await getDocs(paths.dailyDispatches(workspaceId));
   return snap.docs
     .map((d) => mapDispatch(d.id, d.data() as Record<string, unknown>))
     .sort((a, b) => b.createdAt - a.createdAt);
@@ -47,7 +46,6 @@ export async function listDailyDispatches(workspaceId: string, pageId: string): 
 
 export async function createDailyDispatch(input: {
   workspaceId: string;
-  pageId: string;
   checkNo: string;
   technicianName: string;
   amount?: number;
@@ -66,7 +64,6 @@ export async function createDailyDispatch(input: {
   const row: DailyDispatch = {
     id,
     workspaceId: input.workspaceId,
-    pageId: input.pageId,
     checkNo,
     technicianName,
     technicianUid: null,
@@ -81,27 +78,25 @@ export async function createDailyDispatch(input: {
     createdAt: now,
     createdBy: input.createdBy,
   };
-  await setDoc(paths.dailyDispatch(input.workspaceId, input.pageId, id), stripUndefined(row));
+  await setDoc(paths.dailyDispatch(input.workspaceId, id), stripUndefined(row));
   return row;
 }
 
 /** Writes only the current uid into marks. Uncheck removes that key, never other people's. */
 export async function toggleDailyDispatchMark(
   workspaceId: string,
-  pageId: string,
   id: string,
   uid: string,
   marked: boolean
 ): Promise<void> {
   requireDb();
-  await updateDoc(paths.dailyDispatch(workspaceId, pageId, id), {
+  await updateDoc(paths.dailyDispatch(workspaceId, id), {
     [`marks.${uid}`]: marked ? true : deleteField(),
   });
 }
 
 export async function bindDailyDispatchToSheet(input: {
   workspaceId: string;
-  pageId: string;
   id: string;
   technicianUid: string | null;
   linkedPageId: string;
@@ -109,7 +104,7 @@ export async function bindDailyDispatchToSheet(input: {
 }): Promise<void> {
   requireDb();
   await updateDoc(
-    paths.dailyDispatch(input.workspaceId, input.pageId, input.id),
+    paths.dailyDispatch(input.workspaceId, input.id),
     stripUndefined({
       technicianUid: input.technicianUid,
       linkedPageId: input.linkedPageId,

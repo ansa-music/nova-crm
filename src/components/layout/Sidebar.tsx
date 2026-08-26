@@ -13,6 +13,7 @@ import {
   MessageCircle,
   MessageSquare,
   MoreVertical,
+  PackageCheck,
   Plus,
   Settings,
   User,
@@ -187,6 +188,13 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
 
   const myMembership = members.find((m) => m.uid === profile?.uid);
   const showUsersNav = permissions.canManageUsers;
+  // Real role gates visibility outright — an Owner simulating Технар via
+  // RoleSwitcher must lose this link, so effectiveRole (permissions.role)
+  // is checked too, same rule DispatchPage itself enforces server-side-ish.
+  const showDispatchNav =
+    permissions.isResolved &&
+    (permissions.realRole === "owner" || permissions.realRole === "admin" || permissions.isWorkspaceOwner) &&
+    (permissions.role === "owner" || permissions.role === "admin");
   const homeTo = myDesk ? `/page/${myDesk.id}` : "/";
   const homeLabel = myDesk && myMembership?.role === "manager" ? "Мой стол" : "Главная";
   const homeActive = location.pathname === "/" || Boolean(myDesk && location.pathname === `/page/${myDesk.id}`);
@@ -232,7 +240,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-thin">
           {!mobile && (
             <nav ref={desktopNavRef} className="relative mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
-              <NavSlide navRef={desktopNavRef} watch={`${location.pathname}|${collapsed}|${showUsersNav}|${homeTo}`} />
+              <NavSlide navRef={desktopNavRef} watch={`${location.pathname}|${collapsed}|${showUsersNav}|${showDispatchNav}|${homeTo}`} />
               {collapsed ? (
                 <>
                   <AppNavLink collapsed title={homeLabel} to={homeTo} icon={Home} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
@@ -262,6 +270,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink collapsed title="Грок лимит" to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
                     Грок лимит
                   </AppNavLink>
+                  {showDispatchNav && (
+                    <AppNavLink collapsed title="Выдача" to="/dispatch" icon={PackageCheck} onNavigate={onNavigate}>
+                      Выдача
+                    </AppNavLink>
+                  )}
                   {showUsersNav && (
                     <AppNavLink collapsed title="Пользователи" to="/users" icon={Users} onNavigate={onNavigate}>
                       Пользователи
@@ -297,6 +310,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
                     Грок лимит
                   </AppNavLink>
+                  {showDispatchNav && (
+                    <AppNavLink to="/dispatch" icon={PackageCheck} onNavigate={onNavigate}>
+                      Выдача
+                    </AppNavLink>
+                  )}
                   {showUsersNav && (
                     <AppNavLink to="/users" icon={Users} onNavigate={onNavigate}>
                       Пользователи
@@ -308,7 +326,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
           )}
           {mobile && (
             <nav ref={mobileNavRef} className="relative mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
-              <NavSlide navRef={mobileNavRef} watch={`${location.pathname}|${showUsersNav}|${homeTo}`} />
+              <NavSlide navRef={mobileNavRef} watch={`${location.pathname}|${showUsersNav}|${showDispatchNav}|${homeTo}`} />
               <AppNavLink to={homeTo} icon={Home} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                 {homeLabel}
               </AppNavLink>
@@ -336,6 +354,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               <AppNavLink to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
                 Грок лимит
               </AppNavLink>
+              {showDispatchNav && (
+                <AppNavLink to="/dispatch" icon={PackageCheck} onNavigate={onNavigate}>
+                  Выдача
+                </AppNavLink>
+              )}
               {showUsersNav && (
                 <AppNavLink to="/users" icon={Users} onNavigate={onNavigate}>
                   Пользователи

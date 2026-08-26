@@ -374,13 +374,6 @@ service cloud.firestore {
           allow update, delete: if isMember(workspaceId) && resource.data.authorUid == request.auth.uid;
         }
 
-
-        // Daily dispatch board (Выдача) — Owner/admin only. Separate collection
-        // so the shared subpages list stays an unfiltered member query.
-        match /dailyDispatches/{dispatchId} {
-          allow read, create, update, delete: if isOwnerOrAdmin(workspaceId);
-        }
-
         // -----------------------------------------------------------------
         // Personal Space — Reports/Finance/Notes nested under this page,
         // keyed by the owning member's uid. Gated by canUsePersonalZone,
@@ -534,6 +527,14 @@ service cloud.firestore {
       }
       function grokCreateNicknameOk(workspaceId) {
         return isOwnerOrAdmin(workspaceId) || request.resource.data.get('nickname', '') == '';
+      }
+
+      // Daily dispatch board (Выдача) — standalone sidebar section, not tied
+      // to any one desk. Owner/admin only, both to see it at all and to
+      // read/write any entry — same blanket rule the per-page version had,
+      // just moved up to workspace level to match where the UI lives now.
+      match /dailyDispatches/{dispatchId} {
+        allow read, create, update, delete: if isOwnerOrAdmin(workspaceId);
       }
 
       match /grokAccounts/{accountId} {
