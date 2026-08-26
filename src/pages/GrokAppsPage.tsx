@@ -6,53 +6,60 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { EmptyState } from "@/components/common/EmptyState";
-import { GrokAccountDialog } from "@/components/grok/GrokAccountDialog";
+import { GrokAppDialog } from "@/components/grok/GrokAppDialog";
 import { GrokLimitSubnav } from "@/components/grok/GrokLimitSubnav";
 import { SecretRow } from "@/components/grok/SecretRow";
 import { ActualizePopover, AvailabilityToggle } from "@/components/grok/GrokStatusControls";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
-import { useGrokAccounts } from "@/hooks/useGrokAccounts";
-import { deleteGrokAccount, getGrokAccountStatus, updateGrokAccount, type GrokAccountStatus } from "@/services/grokAccountService";
+import { useGrokAppAccounts } from "@/hooks/useGrokAppAccounts";
+import { deleteGrokAppAccount, getGrokAccountStatus, updateGrokAppAccount } from "@/services/grokAppAccountService";
 import { displayNameOf } from "@/utils/displayName";
 import { formatDate, timeAgo } from "@/utils/date";
 import { grokLoginMethodLabel, grokLoginMethodOf } from "@/types/grokAccount";
+import { GROK_APP_PROVIDERS, grokAppProviderLabel, type GrokAppAccount, type GrokAppProvider } from "@/types/grokAppAccount";
 import { cn } from "@/utils/cn";
-import type { GrokAccount } from "@/types";
 
-type StatusFilter = "all" | GrokAccountStatus;
+type ProviderFilter = "all" | GrokAppProvider;
 
-const STATUS_META: Record<GrokAccountStatus, { label: string; rail: string; card: string }> = {
-  available: { label: "Доступно", rail: "bg-success", card: "border-success/25" },
-  resetToday: { label: "Сегодня", rail: "bg-warning", card: "border-warning/30" },
-  unavailable: { label: "Недоступно", rail: "bg-destructive", card: "border-destructive/25" },
-};
+const STATUS_CARD = {
+  available: "border-success/25",
+  resetToday: "border-warning/30",
+  unavailable: "border-destructive/25",
+} as const;
 
-export default function GrokLimitPage() {
+const STATUS_RAIL = {
+  available: "bg-success",
+  resetToday: "bg-warning",
+  unavailable: "bg-destructive",
+} as const;
+
+export default function GrokAppsPage() {
   const { profile } = useAuth();
   const { activeWorkspaceId } = useWorkspace();
-  const { accounts, isLoading } = useGrokAccounts(activeWorkspaceId);
+  const { accounts, isLoading } = useGrokAppAccounts(activeWorkspaceId);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<GrokAccount | null>(null);
+  const [editing, setEditing] = useState<GrokAppAccount | null>(null);
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState<StatusFilter>("all");
+  const [provider, setProvider] = useState<ProviderFilter>("all");
   const [query, setQuery] = useState("");
 
   const counts = useMemo(() => {
-    const next = { all: accounts.length, available: 0, resetToday: 0, unavailable: 0 };
-    for (const account of accounts) next[getGrokAccountStatus(account)] += 1;
+    const next: Record<string, number> = { all: accounts.length };
+    for (const item of GROK_APP_PROVIDERS) next[item.id] = 0;
+    for (const account of accounts) next[account.provider] = (next[account.provider] ?? 0) + 1;
     return next;
   }, [accounts]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return accounts.filter((account) => {
-      if (filter !== "all" && getGrokAccountStatus(account) !== filter) return false;
+      if (provider !== "all" && account.provider !== provider) return false;
       if (!q) return true;
-      const hay = `${account.email} ${account.phone ?? ""} ${grokLoginMethodLabel(grokLoginMethodOf(account.loginMethod))}`.toLowerCase();
+      const hay = `${account.email} ${account.phone ?? ""} ${account.note ?? ""} ${grokAppProviderLabel(account.provider, account.providerOther)}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [accounts, filter, query]);
+  }, [accounts, provider, query]);
 
   if (!activeWorkspaceId) return null;
 
@@ -79,17 +86,16 @@ export default function GrokLimitPage() {
     }
   }
 
-  async function handleDelete(account: GrokAccount) {
-    if (!window.confirm(`Удалить аккаунт «${account.email}»?`)) return;
-    await deleteGrokAccount(activeWorkspaceId!, account.id);
-    toast.success("Аккаунт удалён");
+  async function handleDelete(account: GrokAppAccount) {
+    const name = grokAppProviderLabel(account.provider, account.providerOther);
+    if (!window.confirm(`Удалить ${name} «${account.email}»?`)) return;
+    await deleteGrokAppAccount(activeWorkspaceId!, account.id);
+    toast.success("Подписка удалена");
   }
 
-  const filters: { id: StatusFilter; label: string; count: number }[] = [
+  const filters: { id: ProviderFilter; label: string; count: number }[] = [
     { id: "all", label: "Все", count: counts.all },
-    { id: "available", label: "Доступно", count: counts.available },
-    { id: "resetToday", label: "Сегодня", count: counts.resetToday },
-    { id: "unavailable", label: "Недоступно", count: counts.unavailable },
+    ...GROK_APP_PROVIDERS.map((item) => ({ id: item.id, label: item.label, count: counts[item.id] ?? 0 })),
   ];
 
   return (
@@ -100,16 +106,12 @@ export default function GrokLimitPage() {
         </span>
         <div className="min-w-0">
           <h1 className="page-title">Грок лимит</h1>
-          {!isLoading && accounts.length > 0 && (
-            <p className="text-[11px] text-muted-foreground">
-              {counts.available} доступны · {counts.resetToday} сегодня · {counts.unavailable} заняты
-            </p>
-          )}
+          <p className="text-[11px] text-muted-foreground">Другие подписки рядом с Grok</p>
         </div>
         <GrokLimitSubnav />
         <div className="flex-1" />
         <Button size="sm" className="gap-1.5" onClick={openCreate}>
-          <Plus className="h-4 w-4" /> Добавить аккаунт
+          <Plus className="h-4 w-4" /> Добавить подписку
         </Button>
       </div>
 
@@ -119,10 +121,10 @@ export default function GrokLimitPage() {
             <button
               key={item.id}
               type="button"
-              onClick={() => setFilter(item.id)}
+              onClick={() => setProvider(item.id)}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                filter === item.id
+                provider === item.id
                   ? "border-primary/50 bg-primary/15 text-primary"
                   : "border-border bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground"
               )}
@@ -134,7 +136,7 @@ export default function GrokLimitPage() {
         </div>
         <div className="relative flex-1 sm:ml-auto sm:max-w-xs">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по email, номеру..." className="h-8 pl-8" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по сервису, email..." className="h-8 pl-8" />
         </div>
       </div>
 
@@ -149,12 +151,12 @@ export default function GrokLimitPage() {
 
           {!isLoading && accounts.length === 0 && (
             <EmptyState
-              eyebrow="Пул Grok"
-              title="Пока нет аккаунтов"
-              description="Добавьте аккаунт с способом входа и номером — команда увидит, как зайти, без переписки."
+              eyebrow="Подписки"
+              title="Пока пусто"
+              description="ElevenLabs, Higgsfield, Suno — те же логин, номер и статус, что у Grok, на отдельной странице."
               action={
                 <Button size="sm" className="gap-1.5" onClick={openCreate}>
-                  <Plus className="h-4 w-4" /> Добавить аккаунт
+                  <Plus className="h-4 w-4" /> Добавить подписку
                 </Button>
               }
             />
@@ -166,30 +168,30 @@ export default function GrokLimitPage() {
 
           {visible.map((account) => {
             const status = getGrokAccountStatus(account);
-            const meta = STATUS_META[status];
             const isRevealed = revealed.has(account.id);
             const method = grokLoginMethodOf(account.loginMethod);
+            const name = grokAppProviderLabel(account.provider, account.providerOther);
             return (
-              <Card key={account.id} className={cn("hud-frame glass-panel overflow-hidden", meta.card)}>
+              <Card key={account.id} className={cn("hud-frame glass-panel overflow-hidden", STATUS_CARD[status])}>
                 <CardContent className="relative p-0">
-                  <span className={cn("absolute inset-y-0 left-0 w-1", meta.rail)} aria-hidden />
+                  <span className={cn("absolute inset-y-0 left-0 w-1", STATUS_RAIL[status])} aria-hidden />
                   <div className="flex flex-col gap-3 p-4 pl-5">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Вход</p>
+                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Вход · {name}</p>
                         <div className="mt-1 flex flex-wrap items-center gap-2">
                           <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                             {grokLoginMethodLabel(method)}
                           </span>
                           <span className="truncate text-[15px] font-medium tracking-[-0.01em]">{account.email}</span>
+                          {account.note?.trim() && (
+                            <span className="rounded-full border border-border/70 px-2 py-0.5 text-[11px] text-muted-foreground">
+                              {account.note}
+                            </span>
+                          )}
                         </div>
                         <div className="mt-2.5 flex flex-col gap-1 rounded-lg border border-border/70 bg-background/40 px-2.5 py-2">
-                          <SecretRow
-                            label="Почта"
-                            value={account.email}
-                            onCopy={() => copyText(account.email, "Email")}
-                            mono={false}
-                          />
+                          <SecretRow label="Логин" value={account.email} onCopy={() => copyText(account.email, "Логин")} mono={false} />
                           <SecretRow
                             label="Пароль"
                             value={account.password}
@@ -197,11 +199,7 @@ export default function GrokLimitPage() {
                             onToggle={() => toggleReveal(account.id)}
                             onCopy={() => copyText(account.password, "Пароль")}
                           />
-                          <SecretRow
-                            label="Номер"
-                            value={account.phone ?? ""}
-                            onCopy={() => copyText(account.phone ?? "", "Номер")}
-                          />
+                          <SecretRow label="Номер" value={account.phone ?? ""} onCopy={() => copyText(account.phone ?? "", "Номер")} />
                         </div>
                       </div>
 
@@ -211,7 +209,7 @@ export default function GrokLimitPage() {
                           limitResetAt={account.limitResetAt}
                           onToggle={async (next) => {
                             if (!profile) return;
-                            await updateGrokAccount(
+                            await updateGrokAppAccount(
                               activeWorkspaceId!,
                               account.id,
                               { available: next },
@@ -224,7 +222,7 @@ export default function GrokLimitPage() {
                           limitResetAt={account.limitResetAt}
                           onSave={async (next) => {
                             if (!profile) return;
-                            await updateGrokAccount(
+                            await updateGrokAppAccount(
                               activeWorkspaceId!,
                               account.id,
                               { limitResetAt: next },
@@ -279,7 +277,7 @@ export default function GrokLimitPage() {
         </div>
       </div>
 
-      <GrokAccountDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} accounts={accounts} />
+      <GrokAppDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} accounts={accounts} />
     </div>
   );
 }

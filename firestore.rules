@@ -493,6 +493,15 @@ service cloud.firestore {
         allow delete: if isMember(workspaceId);
       }
 
+      match /grokAppAccounts/{accountId} {
+        allow read: if isMember(workspaceId);
+        allow create: if isMember(workspaceId)
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.updatedByUid == request.auth.uid;
+        allow update: if isMember(workspaceId) && request.resource.data.updatedByUid == request.auth.uid;
+        allow delete: if isMember(workspaceId);
+      }
+
       // -----------------------------------------------------------------
       // Notifications — fan-out, one doc per recipient. Only the Owner may
       // send (create) notifications. Each person may only read/update
