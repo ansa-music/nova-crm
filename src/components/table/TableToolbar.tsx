@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Plus, Search, Rows3, Columns3, Table2, Kanban, MoreHorizontal, Palette, SlidersHorizontal } from "lucide-react";
+import { Download, Plus, Search, Rows3, Columns3, Table2, Kanban, MoreHorizontal, Palette, SlidersHorizontal, Eye } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -193,6 +193,26 @@ export function TableToolbar({
             <Kanban className="h-3.5 w-3.5" />
           </Button>
         </div>
+      )}
+
+      {/* Hiding a column removes its own header — and the "Показать столбец"
+          toggle on it — from the table entirely, so burying the way back in
+          a menu made it effectively unrecoverable in practice. This button
+          only exists when something IS hidden, so it adds no clutter the
+          rest of the time, but the moment it matters it's a single visible,
+          impossible-to-miss button — not one more line in "Ещё". */}
+      {canEditStructure && hiddenColumnCount > 0 && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 shrink-0 gap-1.5 border-primary/50 bg-primary/10 text-primary hover:bg-primary/15"
+          onClick={onOpenSchema ?? onAddColumn}
+          title={`Скрытых столбцов: ${hiddenColumnCount} — нажмите, чтобы вернуть`}
+        >
+          <Eye className="h-3.5 w-3.5" />
+          <span className="hidden xs:inline">Скрыто: {hiddenColumnCount}</span>
+          <span className="xs:hidden">{hiddenColumnCount}</span>
+        </Button>
       )}
 
       <div className="hidden flex-1 sm:block" />

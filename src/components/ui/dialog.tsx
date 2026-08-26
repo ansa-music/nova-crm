@@ -39,7 +39,7 @@ export const DialogContent = React.forwardRef<
         // the top and bottom edges with the parts past the edges completely
         // unreachable. Every dialog built on this component inherits the
         // fix; don't remove it in a caller's className override.
-        "glass-float animate-glass-pop fixed left-[50%] top-[50%] z-[110] grid max-h-[min(88dvh,36rem)] w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-md p-6 hud-frame",
+        "glass-float animate-glass-pop fixed left-[50%] top-[50%] z-[110] grid max-h-[85vh] w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-md p-6 hud-frame",
         className
       )}
       {...props}

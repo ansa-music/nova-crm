@@ -35,7 +35,7 @@ export const DropdownMenuSubContent = React.forwardRef<
   <DropdownMenuPrimitive.SubContent
     ref={ref}
     className={cn(
-      "glass-float animate-glass-pop z-[240] min-w-[10rem] overflow-hidden rounded-md p-1 text-popover-foreground",
+      "glass-float animate-glass-pop z-[240] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[10rem] overflow-y-auto overflow-x-hidden rounded-md p-1 text-popover-foreground",
       className
     )}
     {...props}
@@ -52,7 +52,13 @@ export const DropdownMenuContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        "glass-float animate-glass-pop z-[240] min-w-[12rem] overflow-hidden rounded-md p-1.5 text-popover-foreground",
+        // max-h + overflow-y-auto against Radix's own "how much room is
+        // actually there" variable: without it a menu with enough items
+        // (this one grew to ~8 after consolidating the toolbar into it)
+        // could render taller than the space Radix flipped it into,
+        // pushing the bottom entries past the viewport edge with nothing
+        // to scroll them back — same class of bug as the dialogs.
+        "glass-float animate-glass-pop z-[240] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[12rem] overflow-y-auto overflow-x-hidden rounded-md p-1.5 text-popover-foreground",
         className
       )}
       {...props}
