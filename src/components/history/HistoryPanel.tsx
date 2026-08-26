@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { History, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { History } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
@@ -11,10 +11,24 @@ import { updateRowCell } from "@/services/pageService";
 import { timeAgo } from "@/utils/date";
 import { displayNameOf } from "@/utils/displayName";
 import { getColumnOptions, isOptionColumn } from "@/utils/columnOptions";
-import type { HistoryEntry, PageColumn } from "@/types";
+import { cn } from "@/utils/cn";
+import type { HistoryAction, HistoryEntry, PageColumn } from "@/types";
 
-const ACTION_ICON = { create: Plus, update: Pencil, delete: Trash2, restore: RotateCcw } as const;
 const PAGE_STEP = 10;
+
+const ACTION_DOT: Record<HistoryAction, string> = {
+  create: "bg-success",
+  update: "bg-warning",
+  delete: "bg-destructive",
+  restore: "bg-primary",
+};
+
+const ACTION_LABEL: Record<HistoryAction, string> = {
+  create: "создано",
+  update: "изменено",
+  delete: "удалено",
+  restore: "восстановлено",
+};
 
 interface HistoryPanelProps {
   open: boolean;
@@ -80,53 +94,61 @@ export function HistoryPanel({ open, onOpenChange, workspaceId, pageId, columns 
             <History className="h-4 w-4" /> История изменений
           </SheetTitle>
         </SheetHeader>
-        <div className="mt-4 flex flex-col gap-1 overflow-y-auto scrollbar-thin" style={{ maxHeight: "calc(100vh - 6rem)" }}>
+        <div className="mt-4 overflow-y-auto scrollbar-thin" style={{ maxHeight: "calc(100vh - 6rem)" }}>
           {entries.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">История пуста</p>}
-          {visibleEntries.map((entry) => {
-            const Icon = ACTION_ICON[entry.action];
-            return (
-              <div key={entry.id} className="flex items-start gap-3 rounded-lg border border-transparent px-2 py-2.5 hover:border-border hover:bg-accent/30">
-                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
-                  <Icon className="h-3.5 w-3.5" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm">
-                    <span className="font-medium">{entry.userName}</span>{" "}
-                    {entry.action === "update" && (
-                      <>
-                        изменил(а) «{entry.fieldLabel ?? entry.field}»:{" "}
-                        <span className="text-muted-foreground line-through">
-                          {formatValue(entry, entry.oldValue)}
-                        </span>{" "}
-                        → <span className="font-medium">{formatValue(entry, entry.newValue)}</span>
-                      </>
+          {visibleEntries.length > 0 && (
+            <ol className="relative ml-1">
+              <span
+                className="pointer-events-none absolute bottom-3 left-[5px] top-3 w-px bg-border"
+                aria-hidden
+              />
+              {visibleEntries.map((entry) => (
+                <li key={entry.id} className="relative flex items-start gap-3 py-2.5">
+                  <span
+                    className={cn(
+                      "relative z-[1] mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ring-4 ring-background",
+                      ACTION_DOT[entry.action]
                     )}
-                    {entry.action === "restore" && (
-                      <>
-                        восстановил(а) «{entry.fieldLabel ?? entry.field}» до {formatValue(entry, entry.newValue)}
-                      </>
-                    )}
-                    {entry.action === "create" && "добавил(а) запись"}
-                    {entry.action === "delete" && "удалил(а) запись"}
-                  </p>
-                  <div className="mt-0.5 flex items-center gap-2">
-                    <p className="text-xs text-muted-foreground">
-                      {entry.pageName && `${entry.pageName} · `}
-                      {timeAgo(entry.timestamp)}
+                    title={ACTION_LABEL[entry.action]}
+                    aria-label={ACTION_LABEL[entry.action]}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm">
+                      <span className="font-medium">{entry.userName}</span>{" "}
+                      {entry.action === "update" && (
+                        <>
+                          изменил(а) «{entry.fieldLabel ?? entry.field}»:{" "}
+                          <span className="text-muted-foreground line-through">
+                            {formatValue(entry, entry.oldValue)}
+                          </span>{" "}
+                          → <span className="font-medium">{formatValue(entry, entry.newValue)}</span>
+                        </>
+                      )}
+                      {entry.action === "restore" && (
+                        <>восстановил(а) «{entry.fieldLabel ?? entry.field}» до {formatValue(entry, entry.newValue)}</>
+                      )}
+                      {entry.action === "create" && "добавил(а) запись"}
+                      {entry.action === "delete" && "удалил(а) запись"}
                     </p>
-                    {permissions.canRestoreHistory && entry.action === "update" && entry.rowId && (
-                      <button
-                        onClick={() => handleRestore(entry)}
-                        className="text-xs font-medium text-primary hover:underline"
-                      >
-                        Восстановить
-                      </button>
-                    )}
+                    <div className="mt-0.5 flex items-center gap-2">
+                      <p className="text-xs text-muted-foreground">
+                        {entry.pageName && `${entry.pageName} · `}
+                        {timeAgo(entry.timestamp)}
+                      </p>
+                      {permissions.canRestoreHistory && entry.action === "update" && entry.rowId && (
+                        <button
+                          onClick={() => handleRestore(entry)}
+                          className="text-xs font-medium text-primary hover:underline"
+                        >
+                          Восстановить
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </div>
-            );
-          })}
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
 
         {entries.length > visibleCount && (
