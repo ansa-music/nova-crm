@@ -91,6 +91,7 @@ export interface CreateGrokAccountInput {
   password: string;
   phone?: string;
   loginMethod?: GrokLoginMethod;
+  nickname?: string;
   limitResetAt: number | null;
   actorUid: string;
   actorName: string;
@@ -107,6 +108,7 @@ export async function createGrokAccount(input: CreateGrokAccountInput): Promise<
     password: input.password,
     phone: input.phone?.trim() ?? "",
     loginMethod: grokLoginMethodOf(input.loginMethod),
+    nickname: input.nickname?.trim() ?? "",
     // A newly added account is assumed usable until someone says otherwise —
     // only relevant if a reset time in the future was already typed in.
     available: input.limitResetAt == null || input.limitResetAt <= now,
@@ -126,6 +128,7 @@ export interface UpdateGrokAccountInput {
   password?: string;
   phone?: string;
   loginMethod?: GrokLoginMethod;
+  nickname?: string;
   limitResetAt?: number | null;
   available?: boolean;
 }

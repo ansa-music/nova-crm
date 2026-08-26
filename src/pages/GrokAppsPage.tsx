@@ -10,6 +10,7 @@ import { GrokCredentialCard } from "@/components/grok/GrokCredentialCard";
 import { GrokLimitSubnav } from "@/components/grok/GrokLimitSubnav";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useGrokAppAccounts } from "@/hooks/useGrokAppAccounts";
 import { deleteGrokAppAccount, updateGrokAppAccount } from "@/services/grokAppAccountService";
 import { displayNameOf } from "@/utils/displayName";
@@ -21,6 +22,8 @@ type ProviderFilter = "all" | GrokAppProvider;
 
 export default function GrokAppsPage() {
   const { profile } = useAuth();
+  const { role } = usePermissions();
+  const canName = role === "owner" || role === "admin";
   const { activeWorkspaceId } = useWorkspace();
   const { accounts, isLoading } = useGrokAppAccounts(activeWorkspaceId);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -41,7 +44,7 @@ export default function GrokAppsPage() {
     return accounts.filter((account) => {
       if (provider !== "all" && account.provider !== provider) return false;
       if (!q) return true;
-      const hay = `${account.email} ${account.phone ?? ""} ${account.note ?? ""} ${grokAppProviderLabel(account.provider, account.providerOther)}`.toLowerCase();
+      const hay = `${account.nickname ?? ""} ${account.email} ${account.phone ?? ""} ${account.note ?? ""} ${grokAppProviderLabel(account.provider, account.providerOther)}`.toLowerCase();
       return hay.includes(q);
     });
   }, [accounts, provider, query]);
@@ -156,6 +159,7 @@ export default function GrokAppsPage() {
               key={account.id}
               methodLabel={grokLoginMethodLabel(grokLoginMethodOf(account.loginMethod))}
               extraChip={grokAppProviderLabel(account.provider, account.providerOther)}
+              nickname={account.nickname}
               email={account.email}
               password={account.password}
               phone={account.phone}
@@ -167,9 +171,14 @@ export default function GrokAppsPage() {
               revealed={revealed.has(account.id)}
               onToggleReveal={() => toggleReveal(account.id)}
               onCopy={copyText}
+              canRename={canName}
               onToggleAvailable={async (next) => {
                 if (!profile) return;
                 await updateGrokAppAccount(activeWorkspaceId!, account.id, { available: next }, profile.uid, displayNameOf(profile));
+              }}
+              onRename={async (nickname) => {
+                if (!profile) return;
+                await updateGrokAppAccount(activeWorkspaceId!, account.id, { nickname }, profile.uid, displayNameOf(profile));
               }}
               onActualize={async (next) => {
                 if (!profile) return;

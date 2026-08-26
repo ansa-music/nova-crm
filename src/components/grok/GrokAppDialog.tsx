@@ -16,6 +16,7 @@ import { LoginMethodPicker } from "@/components/grok/LoginMethodPicker";
 import { createGrokAppAccount, findDuplicateGrokAppAccount, updateGrokAppAccount } from "@/services/grokAppAccountService";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import { displayNameOf } from "@/utils/displayName";
 import { autoFormatManualDateTimeInput, formatDateTimeManual, parseDateTimeManual, MANUAL_DATETIME_PLACEHOLDER } from "@/utils/date";
 import { grokLoginMethodOf, type GrokLoginMethod } from "@/types/grokAccount";
@@ -32,12 +33,15 @@ interface GrokAppDialogProps {
 export function GrokAppDialog({ open, onOpenChange, editing, accounts }: GrokAppDialogProps) {
   const { profile } = useAuth();
   const { activeWorkspaceId } = useWorkspace();
+  const { role } = usePermissions();
+  const canName = role === "owner" || role === "admin";
   const [provider, setProvider] = useState<GrokAppProvider>(editing?.provider ?? "elevenlabs");
   const [providerOther, setProviderOther] = useState(editing?.providerOther ?? "");
   const [email, setEmail] = useState(editing?.email ?? "");
   const [password, setPassword] = useState(editing?.password ?? "");
   const [phone, setPhone] = useState(editing?.phone ?? "");
   const [note, setNote] = useState(editing?.note ?? "");
+  const [nickname, setNickname] = useState(editing?.nickname ?? "");
   const [loginMethod, setLoginMethod] = useState<GrokLoginMethod>(() => grokLoginMethodOf(editing?.loginMethod));
   const [resetAt, setResetAt] = useState(() => formatDateTimeManual(editing?.limitResetAt ?? null));
   const [isSaving, setIsSaving] = useState(false);
@@ -52,6 +56,7 @@ export function GrokAppDialog({ open, onOpenChange, editing, accounts }: GrokApp
       setPassword(editing?.password ?? "");
       setPhone(editing?.phone ?? "");
       setNote(editing?.note ?? "");
+      setNickname(editing?.nickname ?? "");
       setLoginMethod(grokLoginMethodOf(editing?.loginMethod));
       setResetAt(formatDateTimeManual(editing?.limitResetAt ?? null));
     } else if (!open) {
@@ -98,6 +103,7 @@ export function GrokAppDialog({ open, onOpenChange, editing, accounts }: GrokApp
             note: note.trim(),
             loginMethod,
             limitResetAt,
+            ...(canName ? { nickname: nickname.trim() } : {}),
           },
           profile.uid,
           actorName
@@ -113,6 +119,7 @@ export function GrokAppDialog({ open, onOpenChange, editing, accounts }: GrokApp
           note: note.trim(),
           loginMethod,
           limitResetAt,
+          ...(canName ? { nickname: nickname.trim() } : {}),
           actorUid: profile.uid,
           actorName,
         });
@@ -135,6 +142,18 @@ export function GrokAppDialog({ open, onOpenChange, editing, accounts }: GrokApp
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
+          {canName && (
+            <div className="flex flex-col gap-1.5">
+              <Label>Название</Label>
+              <Input
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                placeholder="Никнейм аккаунта"
+                autoComplete="off"
+              />
+              <p className="text-xs text-muted-foreground">Крупно на карточке. Видно всем, меняют только админ и овнер.</p>
+            </div>
+          )}
           <div className="flex flex-col gap-1.5">
             <Label>Сервис</Label>
             <div className="flex flex-wrap gap-1">

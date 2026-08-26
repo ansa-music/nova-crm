@@ -10,6 +10,7 @@ import { GrokCredentialCard } from "@/components/grok/GrokCredentialCard";
 import { GrokLimitSubnav } from "@/components/grok/GrokLimitSubnav";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useGrokAccounts } from "@/hooks/useGrokAccounts";
 import { deleteGrokAccount, getGrokAccountStatus, updateGrokAccount, type GrokAccountStatus } from "@/services/grokAccountService";
 import { displayNameOf } from "@/utils/displayName";
@@ -21,6 +22,8 @@ type StatusFilter = "all" | GrokAccountStatus;
 
 export default function GrokLimitPage() {
   const { profile } = useAuth();
+  const { role } = usePermissions();
+  const canName = role === "owner" || role === "admin";
   const { activeWorkspaceId } = useWorkspace();
   const { accounts, isLoading } = useGrokAccounts(activeWorkspaceId);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -40,7 +43,7 @@ export default function GrokLimitPage() {
     return accounts.filter((account) => {
       if (filter !== "all" && getGrokAccountStatus(account) !== filter) return false;
       if (!q) return true;
-      const hay = `${account.email} ${account.phone ?? ""} ${grokLoginMethodLabel(grokLoginMethodOf(account.loginMethod))}`.toLowerCase();
+      const hay = `${account.nickname ?? ""} ${account.email} ${account.phone ?? ""} ${grokLoginMethodLabel(grokLoginMethodOf(account.loginMethod))}`.toLowerCase();
       return hay.includes(q);
     });
   }, [accounts, filter, query]);
@@ -159,6 +162,7 @@ export default function GrokLimitPage() {
             <GrokCredentialCard
               key={account.id}
               methodLabel={grokLoginMethodLabel(grokLoginMethodOf(account.loginMethod))}
+              nickname={account.nickname}
               email={account.email}
               password={account.password}
               phone={account.phone}
@@ -169,9 +173,14 @@ export default function GrokLimitPage() {
               revealed={revealed.has(account.id)}
               onToggleReveal={() => toggleReveal(account.id)}
               onCopy={copyText}
+              canRename={canName}
               onToggleAvailable={async (next) => {
                 if (!profile) return;
                 await updateGrokAccount(activeWorkspaceId!, account.id, { available: next }, profile.uid, displayNameOf(profile));
+              }}
+              onRename={async (nickname) => {
+                if (!profile) return;
+                await updateGrokAccount(activeWorkspaceId!, account.id, { nickname }, profile.uid, displayNameOf(profile));
               }}
               onActualize={async (next) => {
                 if (!profile) return;

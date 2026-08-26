@@ -30,6 +30,8 @@ export interface GrokAppAccount {
   providerOther?: string;
   email: string;
   password: string;
+  /** Card title. Optional on older rows. Only Owner/Admin may set it. */
+  nickname?: string;
   loginMethod?: GrokLoginMethod;
   phone?: string;
   /** Plan / seat note, e.g. "Creator", "не безлимит". */

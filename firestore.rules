@@ -506,19 +506,28 @@ service cloud.firestore {
       }
 
       // -----------------------------------------------------------------
-      // GROK LIMIT — shared company account credentials + when each one's
-      // usage limit refreshes. Deliberately open to every member (not just
-      // Owner/Admin, unlike announcements above) — the whole feature is
-      // that whoever last checked an account can update it for everyone.
-      // The only constraint: you can only stamp YOURSELF as the person who
-      // last touched a row, never someone else's name.
+      // GROK LIMIT — credentials and status stay writable by every member
+      // (whoever last checked an account updates it for everyone). The
+      // `nickname` card title is Owner/Admin only: others may not create
+      // or change it. Create/delete of the account itself stay member-wide.
+      // Stamp yourself as updatedByUid, never someone else.
       // -----------------------------------------------------------------
+      function grokNicknamePreserved() {
+        return request.resource.data.get('nickname', '') == resource.data.get('nickname', '');
+      }
+      function grokCreateNicknameOk(workspaceId) {
+        return isOwnerOrAdmin(workspaceId) || request.resource.data.get('nickname', '') == '';
+      }
+
       match /grokAccounts/{accountId} {
         allow read: if isMember(workspaceId);
         allow create: if isMember(workspaceId)
           && request.resource.data.createdBy == request.auth.uid
-          && request.resource.data.updatedByUid == request.auth.uid;
-        allow update: if isMember(workspaceId) && request.resource.data.updatedByUid == request.auth.uid;
+          && request.resource.data.updatedByUid == request.auth.uid
+          && grokCreateNicknameOk(workspaceId);
+        allow update: if isMember(workspaceId)
+          && request.resource.data.updatedByUid == request.auth.uid
+          && (isOwnerOrAdmin(workspaceId) || grokNicknamePreserved());
         allow delete: if isMember(workspaceId);
       }
 
@@ -526,8 +535,11 @@ service cloud.firestore {
         allow read: if isMember(workspaceId);
         allow create: if isMember(workspaceId)
           && request.resource.data.createdBy == request.auth.uid
-          && request.resource.data.updatedByUid == request.auth.uid;
-        allow update: if isMember(workspaceId) && request.resource.data.updatedByUid == request.auth.uid;
+          && request.resource.data.updatedByUid == request.auth.uid
+          && grokCreateNicknameOk(workspaceId);
+        allow update: if isMember(workspaceId)
+          && request.resource.data.updatedByUid == request.auth.uid
+          && (isOwnerOrAdmin(workspaceId) || grokNicknamePreserved());
         allow delete: if isMember(workspaceId);
       }
 

@@ -67,6 +67,7 @@ export interface CreateGrokAppAccountInput {
   loginMethod: GrokLoginMethod;
   phone: string;
   note: string;
+  nickname?: string;
   limitResetAt: number | null;
   actorUid: string;
   actorName: string;
@@ -86,6 +87,7 @@ export async function createGrokAppAccount(input: CreateGrokAppAccountInput): Pr
     loginMethod: input.loginMethod,
     phone: input.phone.trim(),
     note: input.note.trim(),
+    nickname: input.nickname?.trim() ?? "",
     available: input.limitResetAt == null || input.limitResetAt <= now,
     limitResetAt: input.limitResetAt,
     updatedByUid: input.actorUid,
@@ -106,6 +108,7 @@ export interface UpdateGrokAppAccountInput {
   loginMethod?: GrokLoginMethod;
   phone?: string;
   note?: string;
+  nickname?: string;
   limitResetAt?: number | null;
   available?: boolean;
 }
