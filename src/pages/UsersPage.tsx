@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useUiStore } from "@/store/uiStore";
 import { useWorkspaceStore } from "@/store/workspaceStore";
-import { Check, ChevronDown, ChevronRight, Copy, Link2, Mail, ShieldCheck, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Clock3, Copy, Link2, Mail, ShieldCheck, Trash2, X } from "lucide-react";
 import { displayNameOf } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
 import { cn } from "@/utils/cn";
@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/sonner";
 import { InviteMemberForm } from "@/components/members/InviteMemberForm";
 import { RoleSelect } from "@/components/members/RoleSelect";
-import { cancelInvite, changeMemberRole, removeMember, resendInvite } from "@/services/memberService";
+import { cancelInvite, changeMemberRole, quietActiveMembers, removeMember, resendInvite, visibleMemberRoster } from "@/services/memberService";
 import { toggleUserPageAccess } from "@/services/pageService";
 import { approveJoinRequest, rejectJoinRequest, fetchJoinRequests, DEFAULT_JOIN_ROLE } from "@/services/joinRequestService";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
@@ -30,6 +30,19 @@ export default function UsersPage() {
   const [expandedUid, setExpandedUid] = useState<string | null>(null);
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [linkCopied, setLinkCopied] = useState(false);
+
+  const roster = useMemo(
+    () =>
+      visibleMemberRoster(
+        Array.isArray(members) ? members : [],
+        joinRequests.map((r) => r.email)
+      ),
+    [members, joinRequests]
+  );
+  const quiet = useMemo(
+    () => quietActiveMembers(Array.isArray(members) ? members : [], profile?.uid),
+    [members, profile?.uid]
+  );
 
   useEffect(() => {
     useUiStore.getState().setSelectedPersonKey(null);
@@ -73,7 +86,6 @@ export default function UsersPage() {
 
   if (!activeWorkspaceId) return null;
 
-  const roster = Array.isArray(members) ? members : [];
   const deskPages = Array.isArray(pages) ? pages : [];
 
   const joinLink = `${window.location.origin}/join/${activeWorkspaceId}`;
@@ -240,6 +252,37 @@ export default function UsersPage() {
                 <Button size="sm" className="gap-1.5" onClick={() => handleApproveRequest(request)}>
                   <Check className="h-3.5 w-3.5" /> Одобрить
                 </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {quiet.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Clock3 className="h-4 w-4" /> Давно не заходили ({quiet.length})
+            </CardTitle>
+            <CardDescription>Семь дней без активности. Не точка «не в сети» — она гаснет за десять минут.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {quiet.map((member) => (
+              <div key={member.uid || member.email} className="flex items-center gap-3 rounded-lg border border-border p-3">
+                <MemberAvatar
+                  id={member.uid || member.email || "member"}
+                  name={member.name}
+                  nickname={member.nickname}
+                  photoURL={member.photoURL}
+                  className="h-8 w-8"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{displayNameOf(member)}</p>
+                  <p className="truncate text-xs text-muted-foreground">{member.email}</p>
+                </div>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {timeAgo(member.lastActiveAt || member.joinedAt || member.invitedAt)}
+                </span>
               </div>
             ))}
           </CardContent>
