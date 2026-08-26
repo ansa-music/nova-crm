@@ -21,6 +21,12 @@ const RAIL = {
   unavailable: "bg-destructive",
 } as const;
 
+const OVERLAY = {
+  available: "bg-success/25 text-success",
+  resetToday: "bg-warning/25 text-warning",
+  unavailable: "bg-destructive/25 text-destructive",
+} as const;
+
 const CARD = {
   available: "border-success/25",
   resetToday: "border-warning/30",
@@ -71,7 +77,6 @@ export function GrokCredentialCard({
   onDelete: () => void;
 }) {
   const status = getGrokAccountStatus({ available, limitResetAt });
-  const label = nickname?.trim() || email;
   const named = Boolean(nickname?.trim());
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(nickname ?? "");
@@ -102,8 +107,30 @@ export function GrokCredentialCard({
   return (
     <Card className={cn("hud-frame glass-panel overflow-hidden", CARD[status])}>
       <CardContent className="relative p-0">
-        <span className={cn("absolute inset-y-0 left-0 w-1", RAIL[status])} aria-hidden />
-        <div className="flex flex-col gap-3 px-4 py-3.5 pl-5">
+        {named ? (
+          <button
+            type="button"
+            disabled={!canRename}
+            onClick={startRename}
+            title={canRename ? "Нажми, чтобы изменить название" : nickname}
+            className={cn(
+              "absolute inset-y-0 left-0 z-10 flex w-8 items-center justify-center overflow-hidden",
+              OVERLAY[status],
+              canRename && "cursor-text hover:brightness-110"
+            )}
+          >
+            <span
+              aria-hidden
+              className={cn("absolute inset-y-0 left-0 w-1", RAIL[status])}
+            />
+            <span className="max-h-[calc(100%-12px)] max-w-[1.25rem] truncate text-[12px] font-semibold tracking-wide [writing-mode:vertical-rl] rotate-180">
+              {nickname?.trim()}
+            </span>
+          </button>
+        ) : (
+          <span className={cn("absolute inset-y-0 left-0 w-1", RAIL[status])} aria-hidden />
+        )}
+        <div className={cn("flex flex-col gap-3 px-4 py-3.5", named ? "pl-11" : "pl-5")}>
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
               {renaming ? (
@@ -124,42 +151,25 @@ export function GrokCredentialCard({
                   }}
                 />
               ) : (
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <h2
-                      className={cn(
-                        "truncate text-[18px] font-semibold leading-snug tracking-[-0.02em] text-foreground",
-                        canRename && "cursor-text rounded-sm hover:bg-accent/50"
-                      )}
-                      title={canRename ? "Нажми, чтобы дать название" : undefined}
-                      onClick={startRename}
-                    >
-                      {label}
-                    </h2>
-                    {!named && (
-                      <button
-                        type="button"
-                        className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                        title="Копировать email"
-                        onClick={() => onCopy(email, "Email")}
-                      >
-                        <Copy className="h-4 w-4" />
-                      </button>
+                <div className="flex items-center gap-1.5">
+                  <h2
+                    className={cn(
+                      "truncate text-[18px] font-semibold leading-snug tracking-[-0.02em] text-foreground",
+                      canRename && !named && "cursor-text rounded-sm hover:bg-accent/50"
                     )}
-                  </div>
-                  {named && (
-                    <div className="mt-0.5 flex items-center gap-1.5">
-                      <span className="truncate text-[15px] leading-6 text-foreground">{email}</span>
-                      <button
-                        type="button"
-                        className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                        title="Копировать email"
-                        onClick={() => onCopy(email, "Email")}
-                      >
-                        <Copy className="h-4 w-4" />
-                      </button>
-                    </div>
-                  )}
+                    title={canRename && !named ? "Нажми, чтобы дать название" : undefined}
+                    onClick={named ? undefined : startRename}
+                  >
+                    {email}
+                  </h2>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    title="Копировать email"
+                    onClick={() => onCopy(email, "Email")}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </button>
                 </div>
               )}
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -212,7 +222,9 @@ export function GrokCredentialCard({
 
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             <ActualizePopover limitResetAt={limitResetAt} onSave={onActualize} />
-            {limitResetAt != null && <span className="tabular-nums text-foreground/85">{formatDate(limitResetAt)}</span>}
+            {limitResetAt != null && (
+              <span className="text-sm font-medium tabular-nums text-foreground">{formatDate(limitResetAt)}</span>
+            )}
             {note?.trim() && <span className="truncate">{note}</span>}
             <span className="ml-auto">
               <span className="font-medium text-foreground">{updatedByName}</span>
