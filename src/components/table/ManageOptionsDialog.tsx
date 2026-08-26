@@ -167,7 +167,7 @@ export function ManageOptionsDialog({
           onEscapeKeyDown={() => close()}
           onCloseAutoFocus={(e) => e.preventDefault()}
           className={cn(
-            "glass-float animate-glass-pop fixed left-[50%] top-[50%] z-[110] grid w-[calc(100%-2rem)] max-w-lg max-h-[85vh] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-md p-6 hud-frame"
+            "glass-float animate-glass-pop fixed left-[50%] top-[50%] z-[310] grid w-[calc(100%-2rem)] max-w-lg max-h-[85vh] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-md p-6 hud-frame"
           )}
         >
           <DialogHeader>

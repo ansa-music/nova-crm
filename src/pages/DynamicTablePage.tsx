@@ -354,6 +354,19 @@ export default function DynamicTablePage() {
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(statsOpen && "bg-primary/10 text-primary")}
+              onClick={() => setStatsOpen((v) => !v)}
+            >
+              <BarChart3 className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{statsOpen ? "Скрыть статистику" : "Показать статистику"}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
             <Button variant="ghost" size="icon" onClick={() => { setTableFullscreen(true); setTableImmersive(true); }}>
               <Maximize2 className="h-4 w-4" />
             </Button>
@@ -380,7 +393,7 @@ export default function DynamicTablePage() {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="relative">
               <MoreHorizontal className="h-4 w-4" />
-              {(statsOpen || personalSpaceOpen) && (
+              {personalSpaceOpen && (
                 <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-primary" />
               )}
             </Button>
@@ -399,9 +412,6 @@ export default function DynamicTablePage() {
                 )}
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem onClick={() => setStatsOpen((v) => !v)}>
-              <BarChart3 className="h-4 w-4" /> {statsOpen ? "Скрыть статистику" : "Показать статистику"}
-            </DropdownMenuItem>
             {canUsePersonalSpace && (
               <DropdownMenuItem onClick={() => setPersonalSpaceOpen((v) => !v)}>
                 <User className="h-4 w-4" /> Личное пространство

@@ -380,7 +380,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                 {!collapsed && <MoreVertical className="h-4 w-4 shrink-0 text-muted-foreground" />}
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="z-[300] w-56">
+            <DropdownMenuContent align="start" className="z-[330] w-56">
               {workspaces.map((ws) => (
                 <DropdownMenuItem key={ws.id} onClick={() => setActiveWorkspaceId(ws.id)}>
                   {ws.name}

@@ -350,9 +350,24 @@
     isolation: isolate;
   }
 
-  .hud-frame {
-    position: relative;
-  }
+  /*
+   * `position: relative` used to anchor the now-disabled decorative
+   * ::before scanline (see below — content:none, display:none site-wide).
+   * It's dead weight now, and actively dangerous: this rule lives in
+   * @layer utilities, the SAME layer as Tailwind's own position utilities,
+   * so cascade order (not the class list order in markup) decides the
+   * winner — and this rule was compiling AFTER `.fixed`/`.absolute`,
+   * silently downgrading every dialog/sheet that combines `fixed` with
+   * `hud-frame` (ManageOptionsDialog, the shared Dialog, DeskStudioSheet,
+   * the hidden-desks sheet) back to `position: relative`. A relatively
+   * positioned element with `top-[50%]`/`translate(-50%,-50%)` (or a
+   * right/top/bottom-anchored sheet) then just sits in normal document
+   * flow whenever it isn't coincidentally wrapped by another fixed
+   * ancestor — off in whatever the surrounding page's scroll height
+   * happens to be, which is exactly the "have to scroll down to find it"
+   * bug. Do not reintroduce `position` here without checking every caller
+   * that pairs `hud-frame` with `fixed`/`absolute`.
+   */
   .hud-frame::before {
     content: none;
     display: none;
