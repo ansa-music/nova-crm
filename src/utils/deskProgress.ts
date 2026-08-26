@@ -1,4 +1,4 @@
-import { formatDate } from "@/utils/date";
+import { formatDate, ymdInTimeZone } from "@/utils/date";
 import { isDoneStatusLabel } from "@/utils/columnOptions";
 import type { PageColumn, PageRow, StatusOption, SubPage, WorkspacePage } from "@/types";
 
@@ -47,6 +47,39 @@ export function progressForPage(
   }
   const percent = grandTotal > 0 ? Math.round((doneTotal / grandTotal) * 100) : 0;
   return { page, doneTotal, grandTotal, percent, rowCount: rows.length, openCount, columns, rows };
+}
+
+
+/** Row counts for the current Asia/Almaty month, by order-received date. Pieces, not money. */
+export function monthOrderCounts(
+  desks: PageProgress[],
+  statusOptions: StatusOption[],
+  now = Date.now()
+): { open: number; done: number; total: number } {
+  const monthKey = ymdInTimeZone(now).slice(0, 7);
+  let open = 0;
+  let done = 0;
+  let total = 0;
+  for (const desk of desks) {
+    const dateCol = desk.columns.find((c) => c.type === "date");
+    const statusCol = desk.columns.find((c) => c.type === "status");
+    if (!dateCol) continue;
+    for (const row of desk.rows) {
+      const ms = Number(row.cells[dateCol.key]);
+      if (!Number.isFinite(ms) || ms <= 0) continue;
+      if (ymdInTimeZone(ms).slice(0, 7) !== monthKey) continue;
+      total += 1;
+      if (!statusCol) {
+        open += 1;
+        continue;
+      }
+      const rawStatus = String(row.cells[statusCol.key] ?? "");
+      const label = statusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
+      if (isDoneStatusLabel(label)) done += 1;
+      else open += 1;
+    }
+  }
+  return { open, done, total };
 }
 
 export function statusDistributionFromDesks(desks: PageProgress[], statusOptions: StatusOption[]) {

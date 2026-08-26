@@ -1,4 +1,5 @@
 import { isDoneStatusLabel } from "@/utils/columnOptions";
+import { USER_TIMEZONE } from "@/utils/date";
 import type { PageProgress } from "@/utils/deskProgress";
 import type { StatusOption, WorkspacePage } from "@/types";
 
@@ -128,6 +129,12 @@ export function weekDelta(trend: number[]): { text: string; tone: "up" | "down" 
   if (Math.round(change) === 0) return { text: "без изменений за неделю", tone: "flat" };
   const sign = change > 0 ? "+" : "−";
   return { text: `${sign}${Math.abs(Math.round(change))} за неделю`, tone: change > 0 ? "up" : "down" };
+}
+
+/** "Готово · август" — current month in Asia/Almaty, nominative. */
+export function countMonthCaption(kind: string, now = Date.now()): string {
+  const name = new Date(now).toLocaleDateString("ru-RU", { month: "long", timeZone: USER_TIMEZONE });
+  return `${kind} · ${name}`;
 }
 
 /** "Выручка · август" — current month, nominative, from local clock. */

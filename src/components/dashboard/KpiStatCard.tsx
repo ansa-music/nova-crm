@@ -8,8 +8,8 @@ interface KpiStatCardProps {
   color: string;
   label: string;
   value: string;
-  trend: number[];
-  delta: { text: string; tone: "up" | "down" | "flat" };
+  trend?: number[];
+  delta?: { text: string; tone: "up" | "down" | "flat" };
 }
 
 export function KpiStatCard({ icon: Icon, color, label, value, trend, delta }: KpiStatCardProps) {
@@ -26,9 +26,9 @@ export function KpiStatCard({ icon: Icon, color, label, value, trend, delta }: K
       </div>
       <div className="flex items-end justify-between gap-2">
         <p className="tabular text-[1.65rem] font-medium leading-none tracking-[-0.03em]">{value}</p>
-        <Sparkline points={trend} color={color} width={72} height={32} />
+        {trend && trend.length > 0 ? <Sparkline points={trend} color={color} width={72} height={32} /> : null}
       </div>
-      {delta.text && (
+      {delta?.text ? (
         <p
           className={cn(
             "text-[11px]",
@@ -39,7 +39,7 @@ export function KpiStatCard({ icon: Icon, color, label, value, trend, delta }: K
         >
           {delta.text}
         </p>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -1,16 +1,15 @@
-import { CheckCircle2, Clock, DollarSign, LayoutGrid } from "lucide-react";
+import { CheckCircle2, Clock, DollarSign, LayoutGrid, ListOrdered } from "lucide-react";
 import { KpiStatCard } from "@/components/dashboard/KpiStatCard";
 import {
   deskCountTrend,
-  doneTrend,
-  openCountTrend,
+  countMonthCaption,
   revenueMonthCaption,
   revenueMonthDelta,
   revenueTrend,
   weekDelta,
 } from "@/utils/dashboardTrends";
 import { formatCurrency, formatNumber } from "@/utils/format";
-import type { PageProgress } from "@/utils/deskProgress";
+import { monthOrderCounts, type PageProgress } from "@/utils/deskProgress";
 import type { StatusOption } from "@/types";
 
 /** Mockup-style compact KZT: 3.4M₸, else the usual currency formatter. */
@@ -28,23 +27,14 @@ export function KpiStatsRow({ desks, statusOptions }: { desks: PageProgress[]; s
 
   const deskTrend = deskCountTrend(desks.map((d) => d.page));
   const revTrend = revenueTrend(desks);
-  const doneTrendData = doneTrend(desks, statusOptions);
-  const openTrendData = openCountTrend(desks, statusOptions);
 
   const grandTotal = desks.reduce((sum, d) => sum + d.grandTotal, 0);
-  const doneTotal = desks.reduce((sum, d) => sum + d.doneTotal, 0);
-  const openCount = desks.reduce((sum, d) => sum + d.openCount, 0);
+  const monthCounts = monthOrderCounts(desks, statusOptions);
 
   const hideDeskCount = desks.length === 1;
 
   return (
-    <div
-      className={
-        hideDeskCount
-          ? "mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
-          : "mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
-      }
-    >
+    <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       {hideDeskCount ? null : (
         <KpiStatCard
           icon={LayoutGrid}
@@ -64,20 +54,22 @@ export function KpiStatsRow({ desks, statusOptions }: { desks: PageProgress[]; s
         delta={revenueMonthDelta(desks)}
       />
       <KpiStatCard
-        icon={CheckCircle2}
-        color="150 48% 46%"
-        label="Готово"
-        value={formatCurrency(doneTotal)}
-        trend={doneTrendData}
-        delta={weekDelta(doneTrendData)}
-      />
-      <KpiStatCard
         icon={Clock}
         color="42 88% 56%"
-        label="В работе"
-        value={formatNumber(openCount)}
-        trend={openTrendData}
-        delta={weekDelta(openTrendData)}
+        label={countMonthCaption("В работе")}
+        value={formatNumber(monthCounts.open)}
+      />
+      <KpiStatCard
+        icon={CheckCircle2}
+        color="150 48% 46%"
+        label={countMonthCaption("Готово")}
+        value={formatNumber(monthCounts.done)}
+      />
+      <KpiStatCard
+        icon={ListOrdered}
+        color="189 100% 72%"
+        label={countMonthCaption("Всего")}
+        value={formatNumber(monthCounts.total)}
       />
     </div>
   );
