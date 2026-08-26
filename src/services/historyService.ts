@@ -1,4 +1,4 @@
-import { deleteDoc, getDocs, orderBy, query, setDoc, limit as fsLimit } from "firebase/firestore";
+import { deleteDoc, getDocs, onSnapshot, orderBy, query, setDoc, limit as fsLimit } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -35,3 +35,16 @@ export async function deleteHistoryEntry(workspaceId: string, entryId: string) {
   if (!db) return;
   await deleteDoc(paths.historyEntry(workspaceId, entryId));
 }
+
+
+export function subscribeToHistory(workspaceId: string, cb: (rows: HistoryEntry[]) => void, max = 200) {
+  if (!db) {
+    cb([]);
+    return () => {};
+  }
+  const q = query(paths.history(workspaceId), orderBy("timestamp", "desc"), fsLimit(max));
+  return onSnapshot(q, (snap) => {
+    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as HistoryEntry));
+  });
+}
+
