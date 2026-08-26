@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useUiStore } from "@/store/uiStore";
 import { useWorkspaceStore } from "@/store/workspaceStore";
-import { Check, ChevronDown, ChevronRight, Clock3, Copy, Link2, Mail, ShieldCheck, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Clock3, Copy, Link2, Mail, Search, ShieldCheck, Trash2, X } from "lucide-react";
 import { displayNameOf } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
 import { cn } from "@/utils/cn";
@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/sonner";
 import { InviteMemberForm } from "@/components/members/InviteMemberForm";
@@ -21,7 +22,16 @@ import { timeAgo } from "@/utils/date";
 import { useAuth } from "@/hooks/useAuth";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
-import type { JoinRequest, PageIconName } from "@/types";
+import type { JoinRequest, PageIconName, Role } from "@/types";
+
+
+const ROLE_CHIPS: { id: Role | "invited"; label: string }[] = [
+  { id: "owner", label: "Owner" },
+  { id: "manager", label: "Технар" },
+  { id: "admin", label: "admin" },
+  { id: "viewer", label: "Viewer" },
+  { id: "invited", label: "invited" },
+];
 
 export default function UsersPage() {
   const { profile } = useAuth();
@@ -30,6 +40,8 @@ export default function UsersPage() {
   const [expandedUid, setExpandedUid] = useState<string | null>(null);
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [query, setQuery] = useState("");
+  const [roleChip, setRoleChip] = useState<Role | "invited" | null>(null);
 
   const roster = useMemo(
     () =>
@@ -39,6 +51,19 @@ export default function UsersPage() {
       ),
     [members, joinRequests]
   );
+  const filteredRoster = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return roster.filter((member) => {
+      if (roleChip === "invited" && member.status !== "invited") return false;
+      if (roleChip && roleChip !== "invited" && member.role !== roleChip) return false;
+      if (!q) return true;
+      const hay = [member.name, member.nickname, member.email, displayNameOf(member)]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [roster, query, roleChip]);
   const quiet = useMemo(
     () => quietActiveMembers(Array.isArray(members) ? members : [], profile?.uid),
     [members, profile?.uid]
@@ -300,8 +325,43 @@ export default function UsersPage() {
         </CardContent>
       </Card>
 
+      <div className="mb-3 flex flex-col gap-2">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Имя, ник или email"
+            className="pl-9"
+          />
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {ROLE_CHIPS.map((chip) => {
+            const on = roleChip === chip.id;
+            return (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => setRoleChip(on ? null : chip.id)}
+                className={cn(
+                  "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                  on
+                    ? "border-primary/50 bg-primary/10 text-primary"
+                    : "border-border bg-transparent text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {chip.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="flex flex-col gap-3">
-        {roster.map((member) => {
+        {filteredRoster.length === 0 && (
+          <p className="py-8 text-center text-sm text-muted-foreground">Никого не нашли</p>
+        )}
+        {filteredRoster.map((member) => {
           const isOwner = member.role === "owner";
           const isExpanded = expandedUid === member.uid;
           const noDesk =
