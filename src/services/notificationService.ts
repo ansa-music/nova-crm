@@ -1,4 +1,4 @@
-import { getDocs, query, serverTimestamp, setDoc, where, writeBatch } from "firebase/firestore";
+import { getDocs, onSnapshot, query, serverTimestamp, setDoc, where, writeBatch } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -92,6 +92,17 @@ export async function fetchMyNotifications(workspaceId: string, uid: string): Pr
   const q = query(paths.notifications(workspaceId), where("targetUid", "==", uid));
   const snapshot = await getDocs(q);
   return mapNotifications(snapshot.docs);
+}
+
+export function subscribeMyNotifications(
+  workspaceId: string,
+  uid: string,
+  cb: (rows: Notification[]) => void
+) {
+  const q = query(paths.notifications(workspaceId), where("targetUid", "==", uid));
+  return onSnapshot(q, (snap) => {
+    cb(mapNotifications(snap.docs));
+  });
 }
 
 export async function markNotificationRead(workspaceId: string, id: string) {

@@ -1,29 +1,23 @@
 import { useEffect, useState } from "react";
-import { fetchMyNotifications } from "@/services/notificationService";
-import { usePolledData } from "@/hooks/usePolledData";
-import { INBOX_CHANGED_EVENT } from "@/utils/inboxEvents";
+import { subscribeMyNotifications } from "@/services/notificationService";
 import type { Notification } from "@/types";
 
 export function useNotifications(workspaceId: string | null, uid: string | null, enabled = true) {
   const [optimisticReadIds, setOptimisticReadIds] = useState<string[]>([]);
-  const { data: notifications, reload } = usePolledData<Notification[]>(
-    Boolean(enabled && workspaceId && uid),
-    () => fetchMyNotifications(workspaceId as string, uid as string),
-    [],
-    [workspaceId, uid]
-  );
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
   useEffect(() => {
     setOptimisticReadIds([]);
   }, [workspaceId, uid]);
 
   useEffect(() => {
-    function onChanged() {
-      void reload();
+    if (!enabled || !workspaceId || !uid) {
+      setNotifications([]);
+      return;
     }
-    window.addEventListener(INBOX_CHANGED_EVENT, onChanged);
-    return () => window.removeEventListener(INBOX_CHANGED_EVENT, onChanged);
-  }, [reload]);
+    const unsubscribe = subscribeMyNotifications(workspaceId, uid, setNotifications);
+    return unsubscribe;
+  }, [enabled, workspaceId, uid]);
 
   const readSet = new Set(optimisticReadIds);
   const visible = notifications.map((n) => (n.read || readSet.has(n.id) ? { ...n, read: true } : n));
@@ -33,5 +27,12 @@ export function useNotifications(workspaceId: string | null, uid: string | null,
     setOptimisticReadIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
   }
 
-  return { notifications: visible, unreadCount, reload, markReadLocal };
+  return {
+    notifications: visible,
+    unreadCount,
+    reload: () => {
+      /* live onSnapshot already feeds notifications */
+    },
+    markReadLocal,
+  };
 }
