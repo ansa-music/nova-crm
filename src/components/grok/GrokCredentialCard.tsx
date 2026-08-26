@@ -104,30 +104,33 @@ export function GrokCredentialCard({
     }
   }
 
+  function copyLogin() {
+    const lines = [email, password, phone?.trim()].filter((part): part is string => Boolean(part));
+    onCopy(lines.join("\n"), "Вход");
+  }
+
   return (
     <Card className={cn("hud-frame glass-panel overflow-hidden", CARD[status])}>
       <CardContent className="relative p-0">
-        {named ? (
-          <button
-            type="button"
-            disabled={!canRename}
-            onClick={startRename}
-            title={canRename ? "Нажми, чтобы изменить название" : nickname}
-            className={cn(
-              "absolute inset-y-0 left-0 z-10 flex w-9 items-center justify-center overflow-hidden",
-              OVERLAY[status],
-              canRename && "cursor-text hover:bg-accent/35"
-            )}
-          >
-            <span aria-hidden className={cn("absolute inset-y-0 left-0 w-1", RAIL[status])} />
+        <button
+          type="button"
+          disabled={!canRename}
+          onClick={startRename}
+          title={named ? (canRename ? "Нажми, чтобы изменить название" : nickname) : canRename ? "Нажми, чтобы дать название" : undefined}
+          className={cn(
+            "absolute inset-y-0 left-0 z-10 flex w-9 items-center justify-center overflow-hidden",
+            named ? OVERLAY[status] : "bg-transparent",
+            canRename && "cursor-text hover:bg-accent/35"
+          )}
+        >
+          <span aria-hidden className={cn("absolute inset-y-0 left-0 w-1", RAIL[status])} />
+          {named && (
             <span className="max-h-[calc(100%-12px)] max-w-6 truncate text-[13px] font-semibold leading-none tracking-wide text-foreground [writing-mode:vertical-rl] rotate-180">
               {nickname?.trim()}
             </span>
-          </button>
-        ) : (
-          <span className={cn("absolute inset-y-0 left-0 w-1", RAIL[status])} aria-hidden />
-        )}
-        <div className={cn("flex flex-col gap-2 px-3.5 py-3", named ? "pl-11" : "pl-4")}>
+          )}
+        </button>
+        <div className="flex flex-col gap-2 py-3 pl-11 pr-3.5">
           <div className="flex items-start gap-1.5">
             <div className="min-w-0 flex-1">
               {renaming ? (
@@ -149,14 +152,7 @@ export function GrokCredentialCard({
                 />
               ) : (
                 <div className="flex min-w-0 items-center gap-1">
-                  <h2
-                    className={cn(
-                      "min-w-0 truncate text-[16px] font-semibold leading-snug tracking-[-0.02em] text-foreground",
-                      canRename && !named && "cursor-text rounded-sm hover:bg-accent/50"
-                    )}
-                    title={canRename && !named ? "Нажми, чтобы дать название" : undefined}
-                    onClick={named ? undefined : startRename}
-                  >
+                  <h2 className="min-w-0 truncate text-[16px] font-semibold leading-snug tracking-[-0.02em] text-foreground">
                     {email}
                   </h2>
                   <button
@@ -188,6 +184,10 @@ export function GrokCredentialCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={copyLogin}>
+                  <Copy className="mr-2 h-3.5 w-3.5" />
+                  Копировать вход
+                </DropdownMenuItem>
                 {canRename && onRename && (
                   <DropdownMenuItem onClick={startRename}>
                     <Pencil className="mr-2 h-3.5 w-3.5" />
@@ -206,7 +206,7 @@ export function GrokCredentialCard({
             </DropdownMenu>
           </div>
 
-          <div className="grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
+          <div className={cn("grid gap-x-4 gap-y-0.5", phone?.trim() && "sm:grid-cols-2")}>
             <SecretRow
               label="Пароль"
               value={password}
@@ -214,7 +214,7 @@ export function GrokCredentialCard({
               onToggle={onToggleReveal}
               onCopy={() => onCopy(password, "Пароль")}
             />
-            <SecretRow label="Номер" value={phone ?? ""} onCopy={() => onCopy(phone ?? "", "Номер")} />
+            <SecretRow label="Номер" value={phone ?? ""} hideEmpty onCopy={() => onCopy(phone ?? "", "Номер")} />
           </div>
 
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-muted-foreground">

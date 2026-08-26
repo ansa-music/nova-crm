@@ -26,9 +26,9 @@ const STATUS_DOT: Record<GrokAccountStatus, string> = {
 };
 
 const STATUS_CHIP: Record<GrokAccountStatus, string> = {
-  available: "text-success hover:bg-success/10",
-  resetToday: "text-warning hover:bg-warning/10",
-  unavailable: "text-destructive hover:bg-destructive/10",
+  available: "bg-success/15 text-success hover:bg-success/25",
+  resetToday: "bg-warning/15 text-warning hover:bg-warning/25",
+  unavailable: "bg-destructive/15 text-destructive hover:bg-destructive/25",
 };
 
 /** Live status: reads as a badge, still one-tap to flip. Not styled like Актуализировать. */

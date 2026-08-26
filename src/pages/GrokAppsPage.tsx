@@ -124,7 +124,7 @@ export default function GrokAppsPage() {
         </div>
         <div className="relative flex-1 sm:ml-auto sm:max-w-xs">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по сервису, email..." className="h-8 pl-8" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Название, сервис, email..." className="h-8 pl-8" />
         </div>
       </div>
 

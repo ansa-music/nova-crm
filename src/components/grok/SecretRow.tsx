@@ -9,6 +9,7 @@ export function SecretRow({
   onCopy,
   mono = true,
   empty = "не указан",
+  hideEmpty,
 }: {
   label: string;
   value: string;
@@ -17,8 +18,10 @@ export function SecretRow({
   onCopy: () => void;
   mono?: boolean;
   empty?: string;
+  hideEmpty?: boolean;
 }) {
   const has = Boolean(value);
+  if (!has && hideEmpty) return null;
   const shown = !has ? empty : revealed === false ? "•".repeat(Math.max(6, value.length)) : value;
   return (
     <div className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-x-2">
