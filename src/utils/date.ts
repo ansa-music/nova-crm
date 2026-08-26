@@ -39,6 +39,24 @@ export function formatDateTimeManual(ms: number | null | undefined): string {
   return format(new Date(ms), MANUAL_DATETIME_FORMAT);
 }
 
+/**
+ * Feed this the input's raw value on every keystroke and set the field to
+ * the result — strips everything but digits, then re-inserts the dots,
+ * space, and colon at fixed positions as you type (26→26.→26.08→26.08.2026
+ * →26.08.2026 1→26.08.2026 17:25), so typing is just the 12 digits, never
+ * the punctuation by hand. Deleting works the same way in reverse: erasing
+ * a digit just re-runs the mask on one fewer digit.
+ */
+export function autoFormatManualDateTimeInput(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 12);
+  let out = digits.slice(0, 2);
+  if (digits.length > 2) out += "." + digits.slice(2, 4);
+  if (digits.length > 4) out += "." + digits.slice(4, 8);
+  if (digits.length > 8) out += " " + digits.slice(8, 10);
+  if (digits.length > 10) out += ":" + digits.slice(10, 12);
+  return out;
+}
+
 /** Same calendar day on the device's local clock — not UTC, matches how the manual field is typed/read. */
 export function isSameLocalDay(a: number, b: number): boolean {
   const da = new Date(a);

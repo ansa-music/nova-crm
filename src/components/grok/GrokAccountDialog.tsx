@@ -16,7 +16,7 @@ import { createGrokAccount, updateGrokAccount } from "@/services/grokAccountServ
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
 import { displayNameOf } from "@/utils/displayName";
-import { formatDateTimeManual, parseDateTimeManual, MANUAL_DATETIME_PLACEHOLDER } from "@/utils/date";
+import { autoFormatManualDateTimeInput, formatDateTimeManual, parseDateTimeManual, MANUAL_DATETIME_PLACEHOLDER } from "@/utils/date";
 import { cn } from "@/utils/cn";
 import type { GrokAccount } from "@/types";
 
@@ -110,7 +110,8 @@ export function GrokAccountDialog({ open, onOpenChange, editing }: GrokAccountDi
             <Label>Лимит восстановится</Label>
             <Input
               value={resetAt}
-              onChange={(e) => setResetAt(e.target.value)}
+              onChange={(e) => setResetAt(autoFormatManualDateTimeInput(e.target.value))}
+              inputMode="numeric"
               placeholder={MANUAL_DATETIME_PLACEHOLDER}
               className={cn("tabular-nums", dateInvalid && "border-destructive focus-visible:ring-destructive")}
             />

@@ -11,7 +11,14 @@ import { useAuth } from "@/hooks/useAuth";
 import { useGrokAccounts } from "@/hooks/useGrokAccounts";
 import { deleteGrokAccount, getGrokAccountStatus, isGrokAccountAvailable, updateGrokAccount } from "@/services/grokAccountService";
 import { displayNameOf } from "@/utils/displayName";
-import { formatDate, formatDateTimeManual, parseDateTimeManual, timeAgo, MANUAL_DATETIME_PLACEHOLDER } from "@/utils/date";
+import {
+  autoFormatManualDateTimeInput,
+  formatDate,
+  formatDateTimeManual,
+  parseDateTimeManual,
+  timeAgo,
+  MANUAL_DATETIME_PLACEHOLDER,
+} from "@/utils/date";
 import { cn } from "@/utils/cn";
 import type { GrokAccount } from "@/types";
 
@@ -219,7 +226,6 @@ function AvailabilityToggle({ account, onSaved }: { account: GrokAccount; onSave
 
   return (
     <Button
-      size="sm"
       disabled={isSaving}
       onClick={toggle}
       title={
@@ -230,13 +236,17 @@ function AvailabilityToggle({ account, onSaved }: { account: GrokAccount; onSave
             : "Отметить как доступный"
       }
       className={cn(
-        "h-8 gap-1.5 border font-medium",
-        status === "available" && "border-success/40 bg-success/15 text-success hover:bg-success/25",
-        status === "resetToday" && "border-warning/40 bg-warning/15 text-warning hover:bg-warning/25",
-        status === "unavailable" && "border-destructive/40 bg-destructive/15 text-destructive hover:bg-destructive/25"
+        // Bigger and visibly a button, not a status label: thicker border,
+        // a shadow that lifts on hover, a press-down on click — this is the
+        // control people reach for most, so it needs to read as clickable
+        // at a glance, not blend in as decoration.
+        "h-11 gap-2 rounded-xl border-2 px-4 text-sm font-semibold shadow-sm transition-all hover:-translate-y-px hover:shadow-md active:translate-y-0 active:scale-[0.97] active:shadow-none",
+        status === "available" && "border-success/50 bg-success/15 text-success hover:bg-success/25",
+        status === "resetToday" && "border-warning/50 bg-warning/15 text-warning hover:bg-warning/25",
+        status === "unavailable" && "border-destructive/50 bg-destructive/15 text-destructive hover:bg-destructive/25"
       )}
     >
-      {available ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />}
+      {available ? <CheckCircle2 className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
       {available ? "Доступно" : "Недоступно"}
     </Button>
   );
@@ -296,7 +306,8 @@ function ActualizePopover({ account, onSaved }: { account: GrokAccount; onSaved:
         <p className="mb-2 text-sm font-medium">Когда восстановится лимит?</p>
         <Input
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={(e) => setValue(autoFormatManualDateTimeInput(e.target.value))}
+          inputMode="numeric"
           placeholder={MANUAL_DATETIME_PLACEHOLDER}
           autoFocus
           className={cn("tabular-nums", invalid && "border-destructive focus-visible:ring-destructive")}
