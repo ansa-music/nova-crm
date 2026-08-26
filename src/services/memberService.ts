@@ -1,4 +1,4 @@
-import { deleteDoc, getDoc, getDocs, onSnapshot, query, setDoc, where } from "firebase/firestore";
+import { deleteDoc, getDoc, getDocs, onSnapshot, query, setDoc, where, writeBatch } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -126,21 +126,19 @@ export function findOwnMembership(
   if (uid) {
     const active = members.find((m) => m.uid === uid && m.status !== "invited");
     if (active) return active;
-    const anyUid = members.find((m) => m.uid === uid);
+    const anyUid = members.find((m) => m.uid === uid && m.status !== "invited");
     if (anyUid) return anyUid;
   }
   if (!normalizedEmail) return null;
+  // Invite stubs are email-keyed and have no uid / status invited — never treat them as the signed-in row.
   return (
     members.find(
       (m) =>
+        Boolean(m.uid) &&
+        m.status !== "invited" &&
         m.email?.trim().toLowerCase() === normalizedEmail &&
-        (!m.uid || m.uid === uid) &&
-        m.status !== "invited"
-    ) ??
-    members.find(
-      (m) => m.email?.trim().toLowerCase() === normalizedEmail && (!m.uid || m.uid === uid)
-    ) ??
-    null
+        (!uid || m.uid === uid)
+    ) ?? null
   );
 }
 
@@ -221,8 +219,10 @@ export async function deleteInvitedStubIfPresent(workspaceId: string, email: str
 
 export async function resendInvite(workspaceId: string, email: string) {
   if (!db) return;
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return;
   await setDoc(
-    paths.member(workspaceId, email),
+    paths.member(workspaceId, normalized),
     { invitedAt: Date.now(), inviteToken: generateId("inv") },
     { merge: true }
   );
@@ -230,6 +230,29 @@ export async function resendInvite(workspaceId: string, email: string) {
 
 export async function changeMemberRole(workspaceId: string, uid: string, role: Role) {
   if (!db) return;
+  if (role === "manager") {
+    const pagesSnap = await getDocs(paths.pages(workspaceId));
+    const pages = pagesSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<{
+      id: string;
+      responsibleUserId?: string | null;
+    }>;
+    const own = pages.filter((page) => page.responsibleUserId === uid);
+    if (own.length > 1) {
+      throw new Error("Сначала заберите лишние столы — у технара может быть только один свой стол");
+    }
+    const only = own.length === 1 ? own[0] : undefined;
+    if (only) {
+      const batch = writeBatch(db);
+      batch.set(paths.member(workspaceId, uid), { role }, { merge: true });
+      batch.set(paths.managerPageClaim(workspaceId, uid), {
+        uid,
+        pageId: only.id,
+        createdAt: Date.now(),
+      });
+      await batch.commit();
+      return;
+    }
+  }
   await setDoc(paths.member(workspaceId, uid), { role }, { merge: true });
 }
 

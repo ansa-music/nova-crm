@@ -15,6 +15,11 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Invite stubs are keyed by lowercase email. Token email may be mixed case.
+    function authEmailLower() {
+      return request.auth.token.email.lower();
+    }
+
     function memberDoc(workspaceId, uid) {
       return get(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(uid));
     }
@@ -132,7 +137,7 @@ service cloud.firestore {
         // permission-denied and the app toasts «Нет доступа к части данных»).
         allow read: if isMember(workspaceId) ||
           (signedIn() && memberId == request.auth.uid) ||
-          (signedIn() && memberId == request.auth.token.email && resource.data.status == 'invited');
+          (signedIn() && request.auth.token.email is string && memberId == authEmailLower() && resource.data.status == 'invited');
 
         // Self-service: a member may update just their own nickname,
         // presence heartbeat, and/or simulated activeRole ("Переключение
@@ -177,7 +182,8 @@ service cloud.firestore {
         // exists, and role/email must match exactly what was invited.
         allow create: if signedIn()
           && request.auth.uid == memberId
-          && request.auth.token.email == request.resource.data.email
+          && request.auth.token.email is string
+          && request.resource.data.email == authEmailLower()
           && request.resource.data.status == 'active'
           && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.resource.data.email))
           && memberDoc(workspaceId, request.resource.data.email).data.status == 'invited'
@@ -205,7 +211,8 @@ service cloud.firestore {
           && request.resource.data.uid == uid
           && request.resource.data.status == 'pending'
           && request.resource.data.email is string
-          && request.resource.data.email == request.auth.token.email;
+          && request.auth.token.email is string
+          && request.resource.data.email == authEmailLower();
         allow update: if isOwner(workspaceId)
           || (signedIn()
             && request.auth.uid == uid
@@ -214,7 +221,8 @@ service cloud.firestore {
             && request.resource.data.status == 'pending'
             && resource.data.status in ['rejected', 'pending']
             && request.resource.data.email is string
-            && request.resource.data.email == request.auth.token.email);
+            && request.auth.token.email is string
+            && request.resource.data.email == authEmailLower());
         allow delete: if isOwner(workspaceId) || (signedIn() && request.auth.uid == uid);
       }
 
@@ -459,7 +467,9 @@ service cloud.firestore {
           && request.resource.data.toUid is string
           && request.resource.data.pageId is string
           && request.resource.data.workspaceId == workspaceId
-          && request.resource.data.status == 'pending';
+          && request.resource.data.status == 'pending'
+          && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId))
+          && get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId)).data.get('responsibleUserId', '') == request.resource.data.toUid;
         allow update: if isMember(workspaceId)
           && resource.data.toUid == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
