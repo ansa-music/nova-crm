@@ -198,6 +198,7 @@ export default function DashboardPage() {
       members={members}
       myUid={profile?.uid}
       featured
+      anonymous={isPersonalLanding}
     />
   );
 

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { cn } from "@/utils/cn";
-import { formatCurrency } from "@/utils/format";
+import { formatCurrency, formatNumber } from "@/utils/format";
 import { timeAgo } from "@/utils/date";
 import { personLabel } from "@/utils/peopleDesks";
 import type { LeaderboardEntry } from "@/types";
@@ -22,12 +22,44 @@ export function LeaderboardWidget({
   members,
   myUid,
   featured,
+  anonymous,
 }: {
   entries: LeaderboardEntry[];
   members: MemberRow[];
   myUid?: string;
   featured?: boolean;
+  anonymous?: boolean;
 }) {
+  if (anonymous) {
+    const open = entries.reduce((sum, e) => sum + (Number(e.openCount) || 0), 0);
+    const done = entries.reduce((sum, e) => sum + (Number(e.doneCount) || 0), 0);
+    const doneMoney = entries.reduce((sum, e) => sum + e.doneTotal, 0);
+    return (
+      <Card className={cn("h-full overflow-hidden rounded-xl border-primary/28 bg-card", featured && "min-h-[16rem]")}>
+        <CardContent className={featured ? "p-5 sm:p-6" : "p-5"}>
+          <p className="eyebrow mb-1 text-primary">Студия</p>
+          <p className={cn(featured ? "mb-4 font-serif text-lg font-medium tracking-[-0.02em]" : "mb-3 text-sm font-medium")}>
+            общее по всем листам
+          </p>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <p className="text-[11px] text-muted-foreground">В работе</p>
+              <p className="tabular text-2xl font-medium tracking-[-0.03em]">{formatNumber(open)}</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-muted-foreground">Готово</p>
+              <p className="tabular text-2xl font-medium tracking-[-0.03em]">{formatNumber(done)}</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-muted-foreground">Рейтинг</p>
+              <p className="tabular text-2xl font-medium tracking-[-0.03em]">{formatCurrency(doneMoney)}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   // Ranked by total sum «Готово» (not %). A small list fully done shouldn't
   // outrank someone who closed more in absolute terms. Every active person
   // appears, even at 0 with no list yet. Several lists for one person sum
