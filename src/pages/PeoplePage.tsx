@@ -13,10 +13,18 @@ import { useViewRequests } from "@/hooks/useViewRequests";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { displayNameOf } from "@/utils/displayName";
 import { canOpenDesk, groupDeskSubtitle, personLabel } from "@/utils/peopleDesks";
+import { getPresenceStatus, PRESENCE_DOT_COLOR } from "@/utils/presence";
 import { ROLE_LABELS } from "@/types";
 import { cn } from "@/utils/cn";
 import type { Role, WorkspacePage } from "@/types";
 
+
+const ROLE_CHIPS: { id: Role; label: string }[] = [
+  { id: "owner", label: "Owner" },
+  { id: "manager", label: "Технар" },
+  { id: "admin", label: "admin" },
+  { id: "viewer", label: "Viewer" },
+];
 
 function RoleBadge({ role }: { role: Role }) {
   const tone =
@@ -44,19 +52,21 @@ export default function PeoplePage() {
   const { activeWorkspaceId, members } = useWorkspace();
   const { requestView, latestForPage, reload } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<Role | null>(null);
 
   const isOwner = Boolean(permissions.isWorkspaceOwner || permissions.realRole === "owner");
   const ownerId = ownerUid ?? members.find((m) => m.role === "owner")?.uid ?? null;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return peopleGroups;
     return peopleGroups.filter((g) => {
+      if (roleFilter && g.member?.role !== roleFilter) return false;
+      if (!q) return true;
       const name = personLabel(g.member) || (g.uid ? "Стол" : "Без ответственного");
       const desk = groupDeskSubtitle(g);
       return name.toLowerCase().includes(q) || desk.toLowerCase().includes(q);
     });
-  }, [peopleGroups, query]);
+  }, [peopleGroups, query, roleFilter]);
 
   function mayOpen(page: WorkspacePage) {
     return canOpenDesk({
@@ -94,6 +104,26 @@ export default function PeoplePage() {
         <p className="mt-1 mb-5 text-sm text-muted-foreground">
           Лица команды. Свой стол открывается сразу, чужой — после запроса.
         </p>
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {ROLE_CHIPS.map((chip) => {
+            const on = roleFilter === chip.id;
+            return (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => setRoleFilter(on ? null : chip.id)}
+                className={cn(
+                  "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                  on
+                    ? "border-primary/50 bg-primary/15 text-primary"
+                    : "border-border bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground"
+                )}
+              >
+                {chip.label}
+              </button>
+            );
+          })}
+        </div>
         <label className="flex h-11 w-full items-center gap-2 rounded-full border border-primary/30 bg-card/80 px-4 text-[13px] text-muted-foreground">
           <Search className="h-3.5 w-3.5 shrink-0" />
           <input
@@ -106,7 +136,7 @@ export default function PeoplePage() {
       </header>
 
       {filtered.length === 0 ? (
-        <EmptyState className="rounded-2xl border border-primary/25 bg-card py-16" title={query ? "Никого не нашлось" : "Пока никого нет"} />
+        <EmptyState className="rounded-2xl border border-primary/25 bg-card py-16" title={query || roleFilter ? "Никого не нашлось" : "Пока никого нет"} />
       ) : (
         <div className="flex flex-col gap-2">
           {filtered.map((group) => {
@@ -122,13 +152,21 @@ export default function PeoplePage() {
             const body = (
               <>
                 {group.member ? (
-                  <MemberAvatar
-                    id={group.member.uid}
-                    name={group.member.name}
-                    nickname={group.member.nickname}
-                    photoURL={group.member.photoURL}
-                    className="h-12 w-12 shrink-0"
-                  />
+                  <div className="relative shrink-0">
+                    <MemberAvatar
+                      id={group.member.uid}
+                      name={group.member.name}
+                      nickname={group.member.nickname}
+                      photoURL={group.member.photoURL}
+                      className="h-12 w-12 shrink-0"
+                    />
+                    <span
+                      className={cn(
+                        "absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card",
+                        PRESENCE_DOT_COLOR[getPresenceStatus(group.member.lastActiveAt)]
+                      )}
+                    />
+                  </div>
                 ) : (
                   <Avatar className="h-12 w-12 shrink-0">
                     <AvatarFallback>

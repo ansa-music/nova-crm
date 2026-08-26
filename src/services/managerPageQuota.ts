@@ -2,7 +2,7 @@ import { writeBatch } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
-import { stripUndefined } from "@/services/pageService";
+import { seedCurrentMonthDesk, stripUndefined } from "@/services/pageService";
 import type { PageColumn, PageIconName, WorkspacePage } from "@/types";
 
 export interface CreateManagerPageInput {
@@ -54,6 +54,7 @@ export async function createManagerOwnedPage(input: CreateManagerPageInput): Pro
     columns: input.columns.map((column, index) =>
       stripUndefined({ ...column, id: generateId("col"), order: index })
     ),
+    hideMainTab: true,
     createdAt: now,
     updatedAt: now,
   };
@@ -66,5 +67,6 @@ export async function createManagerOwnedPage(input: CreateManagerPageInput): Pro
     createdAt: now,
   });
   await batch.commit();
-  return page;
+  // Month tab after the atomic page+claim batch — never inside it.
+  return seedCurrentMonthDesk(page);
 }
