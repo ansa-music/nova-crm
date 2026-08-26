@@ -177,8 +177,9 @@ export async function inviteMember(
         : "Этот email уже в workspace"
     );
   }
-  const member: WorkspaceMember = {
-    uid: "",
+  // Email-keyed stub: no uid field. Empty uid:"" made findOwnMembership treat
+  // the invite as a real row and locked tables after claim.
+  const member: Omit<WorkspaceMember, "uid"> = {
     email: normalizedEmail,
     name: normalizedEmail.split("@")[0],
     role,
@@ -188,7 +189,7 @@ export async function inviteMember(
     inviteToken: generateId("inv"),
   };
   await setDoc(paths.member(workspaceId, normalizedEmail), member);
-  return member;
+  return member as WorkspaceMember;
 }
 
 

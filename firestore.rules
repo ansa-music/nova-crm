@@ -203,8 +203,18 @@ service cloud.firestore {
         allow create: if signedIn()
           && request.auth.uid == uid
           && request.resource.data.uid == uid
-          && request.resource.data.status == 'pending';
-        allow update: if isOwner(workspaceId);
+          && request.resource.data.status == 'pending'
+          && request.resource.data.email is string
+          && request.resource.data.email == request.auth.token.email;
+        allow update: if isOwner(workspaceId)
+          || (signedIn()
+            && request.auth.uid == uid
+            && resource.data.uid == uid
+            && request.resource.data.uid == uid
+            && request.resource.data.status == 'pending'
+            && resource.data.status in ['rejected', 'pending']
+            && request.resource.data.email is string
+            && request.resource.data.email == request.auth.token.email);
         allow delete: if isOwner(workspaceId) || (signedIn() && request.auth.uid == uid);
       }
 
@@ -229,7 +239,15 @@ service cloud.firestore {
           && existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId))
           && getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId)).data.createdBy == request.auth.uid
           && request.resource.data.uid == request.auth.uid;
-        allow update, delete: if isOwner(workspaceId);
+        allow update: if isOwner(workspaceId);
+        // Manager may drop own claim only in the same batch as deleting that page,
+        // so deleting the last own desk lets them create one again.
+        allow delete: if isOwner(workspaceId) || (
+          isMember(workspaceId)
+          && uid == request.auth.uid
+          && resource.data.pageId is string
+          && !existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(resource.data.pageId))
+        );
       }
 
       match /pages/{pageId} {

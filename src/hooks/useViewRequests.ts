@@ -28,7 +28,7 @@ export function useViewRequests(workspaceId: string | null, uid: string | null) 
   const requestView = useCallback(
     async (page: WorkspacePage, fromName: string, toUid: string) => {
       if (!workspaceId || !uid) return null;
-      return requestDeskView({
+      const row = await requestDeskView({
         workspaceId,
         page,
         fromUid: uid,
@@ -36,6 +36,10 @@ export function useViewRequests(workspaceId: string | null, uid: string | null) 
         toUid,
         existing: data,
       });
+      if (row) {
+        setData((prev) => (prev.some((r) => r.id === row.id) ? prev : [...prev, row]));
+      }
+      return row;
     },
     [workspaceId, uid, data]
   );
@@ -58,7 +62,9 @@ export function useViewRequests(workspaceId: string | null, uid: string | null) 
   return {
     requests: data,
     isLoading,
-    reload: () => undefined,
+    reload: () => {
+      /* live onSnapshot already feeds `data`; requestView also optimistic-inserts */
+    },
     requestView,
     resolveRequest,
     latestForPage: (pageId: string) => (uid ? latestRequestForPage(data, pageId, uid) : null),

@@ -101,6 +101,9 @@ export function useAuthBootstrap() {
             await claimPendingInvites(user.uid, profile.email, profile.name, profile.photoURL, profile.nickname);
           } catch (inviteError) {
             console.error("claimPendingInvites failed:", inviteError);
+            toast.error("Не удалось принять приглашение", {
+              description: inviteError instanceof Error ? inviteError.message : "Обновите страницу или напишите Owner.",
+            });
           }
 
           if (profile.nickname && profile.workspaceIds?.length) {

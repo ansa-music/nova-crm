@@ -37,5 +37,6 @@ export type PageFormValues = z.infer<typeof pageSchema>;
 
 export const profileSchema = z.object({
   name: z.string().min(2, "Минимум 2 символа"),
+  nickname: z.string().max(40, "Максимум 40 символов").optional(),
 });
 export type ProfileFormValues = z.infer<typeof profileSchema>;
