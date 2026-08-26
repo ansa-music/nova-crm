@@ -175,24 +175,40 @@ export function ChatPanel({
             {search.trim() ? "Ничего не найдено" : emptyMessage ?? "Сообщений пока нет"}
           </p>
         )}
-        <div className="flex flex-col gap-3">
-          {displayedMessages.map((m) => {
+        <div className="flex flex-col gap-1.5">
+          {displayedMessages.map((m, index) => {
             const isMine = m.authorUid === currentUid;
             const isEditing = editingId === m.id;
+            const prev = displayedMessages[index - 1];
+            const stacked = Boolean(prev && prev.authorUid === m.authorUid);
+            const showAvatar = !stacked;
             return (
-              <div key={m.id} className="group flex items-start gap-2.5">
-                <Avatar className="h-8 w-8 shrink-0">
-                  <AvatarImage src={m.authorPhotoURL ?? undefined} />
-                  <AvatarFallback>{m.authorName[0]?.toUpperCase()}</AvatarFallback>
-                </Avatar>
+              <div key={m.id} className={cn("group flex items-start gap-2.5", stacked ? "mt-0" : "mt-2 first:mt-0")}>
+                {showAvatar ? (
+                  <Avatar className="h-8 w-8 shrink-0">
+                    <AvatarImage src={m.authorPhotoURL ?? undefined} />
+                    <AvatarFallback>{m.authorName[0]?.toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                ) : (
+                  <div className="h-8 w-8 shrink-0" aria-hidden />
+                )}
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-sm font-medium">{m.authorName}</span>
-                    <span className="text-[10px] text-muted-foreground">{formatMessageWrittenAt(m.createdAt)}</span>
-                    {m.editedAt && !m.deleted && (
-                      <span className="text-[10px] text-muted-foreground">(изменено)</span>
-                    )}
-                  </div>
+                  {showAvatar ? (
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-sm font-medium">{m.authorName}</span>
+                      <span className="text-[10px] text-muted-foreground">{formatMessageWrittenAt(m.createdAt)}</span>
+                      {m.editedAt && !m.deleted && (
+                        <span className="text-[10px] text-muted-foreground">(изменено)</span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-[10px] text-muted-foreground">{formatMessageWrittenAt(m.createdAt)}</span>
+                      {m.editedAt && !m.deleted && (
+                        <span className="text-[10px] text-muted-foreground">(изменено)</span>
+                      )}
+                    </div>
+                  )}
 
                   {m.replyToId && !m.deleted && (
                     <div className="mt-0.5 rounded border-l-2 border-primary/40 bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
@@ -226,7 +242,15 @@ export function ChatPanel({
                       </div>
                     </div>
                   ) : (
-                    <p className={cn("whitespace-pre-wrap text-sm", m.deleted && "italic text-muted-foreground")}>
+                    <p
+                      className={cn(
+                        "whitespace-pre-wrap text-sm",
+                        m.deleted && "italic text-muted-foreground",
+                        isMine &&
+                          !m.deleted &&
+                          "rounded-2xl border border-primary/55 bg-primary/[0.04] px-3 py-1.5 [border-color:hsl(var(--primary)/0.45)] shadow-[0_0_10px_hsl(var(--primary)/0.16)]"
+                      )}
+                    >
                       {m.deleted ? "Сообщение удалено" : renderTextWithMentions(m.text, mentionableUsers)}
                     </p>
                   )}
