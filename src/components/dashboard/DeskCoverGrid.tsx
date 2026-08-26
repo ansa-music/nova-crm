@@ -14,6 +14,7 @@ export function DeskCoverGrid({
   renderAction,
   onRequest,
   isPending,
+  progressByPageId,
 }: {
   pages: WorkspacePage[];
   members: WorkspaceMember[];
@@ -24,6 +25,7 @@ export function DeskCoverGrid({
   renderAction?: (page: WorkspacePage) => ReactNode;
   onRequest?: (page: WorkspacePage) => void;
   isPending?: (page: WorkspacePage) => boolean;
+  progressByPageId?: Record<string, number>;
 }) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -42,7 +44,12 @@ export function DeskCoverGrid({
               (openable || !pending) && "transition-colors hover:border-primary/60"
             )}
           >
-            <DeskCoverStrip coverUrl={resolvedCoverUrl(page, ownerUid)} name={page.name} ratio="thumb" />
+            <DeskCoverStrip
+              coverUrl={resolvedCoverUrl(page, ownerUid)}
+              name={page.name}
+              ratio="thumb"
+              progressPercent={progressByPageId?.[page.id] ?? null}
+            />
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#070c18] via-[#070c18]/45 to-transparent" />
 
             {openable ? (

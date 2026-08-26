@@ -10,6 +10,7 @@ import { toast } from "@/components/ui/sonner";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
+import { useLeaderboard } from "@/hooks/useLeaderboard";
 import { usePeopleDesks } from "@/hooks/usePeopleDesks";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useViewRequests } from "@/hooks/useViewRequests";
@@ -25,8 +26,22 @@ export default function DesksPage() {
   const permissions = usePermissions();
   const { isLoadingWorkspaceData, ownerUid } = usePeopleDesks();
   const { requestView, latestForPage, reload } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
+  const leaderboard = useLeaderboard(activeWorkspaceId);
   const [query, setQuery] = useState("");
   const [hiddenOpen, setHiddenOpen] = useState(false);
+
+  const progressByPageId = useMemo(() => {
+    const next: Record<string, number> = {};
+    for (const entry of leaderboard) {
+      if (!(entry.grandTotal > 0)) continue;
+      const percent =
+        typeof entry.percent === "number" && Number.isFinite(entry.percent)
+          ? entry.percent
+          : Math.round((entry.doneTotal / entry.grandTotal) * 100);
+      next[entry.pageId] = percent;
+    }
+    return next;
+  }, [leaderboard]);
 
   const ownerId = ownerUid ?? members.find((m) => m.role === "owner")?.uid ?? null;
   const isOwner = Boolean(permissions.isWorkspaceOwner || permissions.realRole === "owner");
@@ -128,6 +143,7 @@ export default function DesksPage() {
           onOpen={(page) => navigate(`/page/${page.id}`)}
           onRequest={(page) => void requestFromCard(page)}
           isPending={(page) => latestForPage(page.id)?.status === "pending"}
+          progressByPageId={progressByPageId}
           renderAction={(page) => (
             <RequestDeskViewButton
               page={page}
@@ -160,7 +176,7 @@ export default function DesksPage() {
                 const mine = latestForPage(page.id);
                 return (
                   <div key={page.id} className="overflow-hidden rounded-xl border border-primary/25 bg-card">
-                    <DeskCoverStrip coverUrl={resolvedCoverUrl(page, ownerUid)} name={page.name} ratio="thumb" />
+                    <DeskCoverStrip coverUrl={resolvedCoverUrl(page, ownerUid)} name={page.name} ratio="thumb" progressPercent={progressByPageId[page.id] ?? null} />
                     <div className="flex flex-col gap-2 p-3">
                       <div>
                         <p className="truncate font-medium">{page.name}</p>
