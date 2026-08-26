@@ -65,7 +65,9 @@ export function groupAllPeople(members: WorkspaceMember[], visiblePages: Workspa
 }
 
 export function groupDeskSubtitle(group: PersonDeskGroup) {
-  return group.pages[0]?.name ?? "";
+  if (group.pages[0]?.name) return group.pages[0].name;
+  if (group.member?.role === "manager") return "стола нет";
+  return "";
 }
 
 export const OWNER_FALLBACK_COVER = "/covers/nurba.png";

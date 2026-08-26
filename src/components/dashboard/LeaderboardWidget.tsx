@@ -82,7 +82,7 @@ export function LeaderboardWidget({
                       {mine ? " · ты" : ""}
                     </p>
                     <p className="truncate text-[11px] text-muted-foreground">
-                      {pageNames.length > 0 ? pageNames.join(", ") : "нет листа"}
+                      {pageNames.length > 0 ? pageNames.join(", ") : member.role === "manager" ? "стола нет" : "нет листа"}
                       {member.lastActiveAt ? ` · заходил ${timeAgo(member.lastActiveAt)}` : ""}
                     </p>
                   </div>
