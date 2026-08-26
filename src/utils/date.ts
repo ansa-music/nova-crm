@@ -122,6 +122,16 @@ export function almatyNoonMillis(year: number, monthIndex: number, day: number):
   return new Date(`${year}-${m}-${d}T12:00:00+05:00`).getTime();
 }
 
+
+/** Soft greeting glow: cold cyan in the morning, warmer toward evening. Asia/Almaty hour. */
+export function greetingGlowShadow(hour: number): string {
+  const t = Math.min(1, Math.max(0, (hour - 6) / 14));
+  const hue = 189 + (32 - 189) * t;
+  const light = 72 - 12 * t;
+  const alpha = 0.36 + 0.08 * t;
+  return `0 0 22px hsl(${hue} 100% ${light}% / ${alpha})`;
+}
+
 export function greetingByHour(hour: number): string {
   if (hour >= 5 && hour < 12) return "Доброе утро";
   if (hour >= 12 && hour < 17) return "Добрый день";
