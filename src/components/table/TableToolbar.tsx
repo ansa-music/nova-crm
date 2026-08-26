@@ -78,6 +78,12 @@ export function TableToolbar({
   onViewModeChange,
 }: TableToolbarProps) {
   const [searchOpen, setSearchOpen] = useState(Boolean(searchQuery));
+  // A hidden column disappears from the table entirely — its own header
+  // (and the "Показать столбец" toggle on it) goes with it — so the ONLY
+  // way back is this "Столбцы" panel. Badge it whenever something's hidden,
+  // otherwise it's undiscoverable: nothing else in the table hints that a
+  // column even exists to bring back.
+  const hiddenColumnCount = columns.filter((c) => c.hidden).length;
   const extraMenu = (
     <>
       {viewMode === "table" && (
@@ -271,8 +277,16 @@ export function TableToolbar({
 
       {canEditStructure && (
         <>
-          <Button variant="outline" size="sm" className="hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onOpenSchema ?? onAddColumn}>
+          <Button variant="outline" size="sm" className="relative hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onOpenSchema ?? onAddColumn}>
             <SlidersHorizontal className="h-3.5 w-3.5" /> Столбцы
+            {hiddenColumnCount > 0 && (
+              <span
+                className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground"
+                title={`Скрытых столбцов: ${hiddenColumnCount}`}
+              >
+                {hiddenColumnCount}
+              </span>
+            )}
           </Button>
           {canManageStatuses && (
           <Button variant="outline" size="sm" className="hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onManageStatuses}>
@@ -290,11 +304,19 @@ export function TableToolbar({
           <Button
             variant="outline"
             size="icon"
-            className="h-10 w-10 shrink-0 sm:hidden"
+            className="relative h-10 w-10 shrink-0 sm:hidden"
             onClick={onOpenSchema ?? onAddColumn}
             title="Столбцы"
           >
             <SlidersHorizontal className="h-4 w-4" />
+            {hiddenColumnCount > 0 && (
+              <span
+                className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground"
+                title={`Скрытых столбцов: ${hiddenColumnCount}`}
+              >
+                {hiddenColumnCount}
+              </span>
+            )}
           </Button>
           {canManageStatuses && (
           <Button

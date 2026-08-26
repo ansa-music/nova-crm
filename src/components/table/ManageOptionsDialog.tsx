@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GripVertical, Loader2, Plus, X } from "lucide-react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
@@ -52,17 +52,32 @@ export function ManageOptionsDialog({
   const [draft, setDraft] = useState<StatusOption[]>(() => ensureDoneStatus(options.length ? options : DEFAULT_STATUS_OPTIONS));
   const [isSaving, setIsSaving] = useState(false);
   const shown = open && canEdit;
+  const wasShownRef = useRef(false);
 
+  // Re-sync ONLY on the closed→open transition, never while already open.
+  // `options` is a fresh array reference on every render where the parent's
+  // `activeWorkspace` snapshot object changes — which happens on ANY
+  // workspace doc update, not just this field. Re-running on every
+  // `options` change (the old dependency) meant: open the dialog, click
+  // "Добавить вариант", start typing a label — and the moment an unrelated
+  // Firestore snapshot ticks in the background, this effect fired again and
+  // silently overwrote the in-progress draft back to the last-saved list,
+  // wiping out anything just typed/added. That's what "новые варианты не
+  // добавляются" (can't add new custom values) actually was.
   useEffect(() => {
     if (!shown) {
+      wasShownRef.current = false;
       releaseBodyScrollLock();
       return;
     }
+    if (wasShownRef.current) return;
+    wasShownRef.current = true;
     const next = ensureDone
       ? ensureDoneStatus(options.length ? options : DEFAULT_STATUS_OPTIONS)
       : (options.length ? options : []);
     setDraft(next);
-  }, [shown, options, ensureDone]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown]);
 
   useEffect(() => {
     if (!shown) return;

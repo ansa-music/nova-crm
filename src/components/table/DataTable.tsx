@@ -1410,7 +1410,19 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   function handleFilterClick(colKey: string, e: React.MouseEvent) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setFilterPopover({ colKey, x: rect.left, y: rect.bottom + 4 });
+    // FilterPopover renders as a fixed-position, fixed-width (224px) panel —
+    // anchoring it to the button's raw left/bottom with no clamping sent it
+    // straight off the right/bottom edge for any column near there (which is
+    // most of them, on a wide table). Clamp into the viewport with a margin.
+    const POPOVER_WIDTH = 224;
+    const POPOVER_MAX_HEIGHT = 260;
+    const margin = 8;
+    const x = Math.min(Math.max(margin, rect.left), window.innerWidth - POPOVER_WIDTH - margin);
+    const y =
+      rect.bottom + 4 + POPOVER_MAX_HEIGHT > window.innerHeight
+        ? Math.max(margin, rect.top - POPOVER_MAX_HEIGHT - 4)
+        : rect.bottom + 4;
+    setFilterPopover({ colKey, x, y });
   }
 
   function togglePin(colKey: string) {
