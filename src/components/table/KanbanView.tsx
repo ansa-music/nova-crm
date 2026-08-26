@@ -125,18 +125,28 @@ function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCo
   const { setNodeRef, isOver } = useDroppable({ id: option.value });
 
   return (
-    <div className="flex h-full w-72 shrink-0 flex-col rounded-lg bg-muted/20">
+    <div
+      className="flex h-full w-72 shrink-0 flex-col overflow-hidden rounded-lg"
+      style={{ backgroundColor: `hsl(${option.color} / 0.05)` }}
+    >
+      <div
+        className="h-[3px] shrink-0"
+        style={{ backgroundColor: `hsl(${option.color})`, boxShadow: `0 0 10px -1px hsl(${option.color} / 0.65)` }}
+      />
       <div className="flex items-center gap-2 px-3 py-2.5">
         <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: `hsl(${option.color})` }} />
-        <span className="truncate text-sm font-medium">{option.label}</span>
-        <span className="text-xs font-normal text-muted-foreground">{rows.length}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{option.label}</span>
+        <span
+          className="tabular shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium"
+          style={{ backgroundColor: `hsl(${option.color} / 0.16)`, color: `hsl(${option.color})` }}
+        >
+          {rows.length}
+        </span>
       </div>
       <div
         ref={setNodeRef}
-        className={cn(
-          "flex-1 space-y-2 overflow-y-auto rounded-md border border-dashed border-transparent px-2 pb-2",
-          isOver && "border-primary/40 bg-primary/5"
-        )}
+        className="flex-1 space-y-2 overflow-y-auto rounded-md border border-dashed border-transparent px-2 pb-2 transition-colors"
+        style={isOver ? { borderColor: `hsl(${option.color} / 0.5)`, backgroundColor: `hsl(${option.color} / 0.08)` } : undefined}
       >
         {rows.map((row) => (
           <KanbanCard
