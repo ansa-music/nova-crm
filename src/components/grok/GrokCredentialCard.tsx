@@ -22,9 +22,9 @@ const RAIL = {
 } as const;
 
 const OVERLAY = {
-  available: "bg-success/25 text-success",
-  resetToday: "bg-warning/25 text-warning",
-  unavailable: "bg-destructive/25 text-destructive",
+  available: "bg-success/15",
+  resetToday: "bg-warning/15",
+  unavailable: "bg-destructive/15",
 } as const;
 
 const CARD = {
@@ -114,23 +114,20 @@ export function GrokCredentialCard({
             onClick={startRename}
             title={canRename ? "Нажми, чтобы изменить название" : nickname}
             className={cn(
-              "absolute inset-y-0 left-0 z-10 flex w-8 items-center justify-center overflow-hidden",
+              "absolute inset-y-0 left-0 z-10 flex w-10 items-center justify-center overflow-hidden",
               OVERLAY[status],
-              canRename && "cursor-text hover:brightness-110"
+              canRename && "cursor-text hover:bg-accent/40"
             )}
           >
-            <span
-              aria-hidden
-              className={cn("absolute inset-y-0 left-0 w-1", RAIL[status])}
-            />
-            <span className="max-h-[calc(100%-12px)] max-w-[1.25rem] truncate text-[12px] font-semibold tracking-wide [writing-mode:vertical-rl] rotate-180">
+            <span aria-hidden className={cn("absolute inset-y-0 left-0 w-1.5", RAIL[status])} />
+            <span className="max-h-[calc(100%-16px)] max-w-7 truncate text-[14px] font-semibold leading-none tracking-wide text-foreground [writing-mode:vertical-rl] rotate-180">
               {nickname?.trim()}
             </span>
           </button>
         ) : (
-          <span className={cn("absolute inset-y-0 left-0 w-1", RAIL[status])} aria-hidden />
+          <span className={cn("absolute inset-y-0 left-0 w-1.5", RAIL[status])} aria-hidden />
         )}
-        <div className={cn("flex flex-col gap-3 px-4 py-3.5", named ? "pl-11" : "pl-5")}>
+        <div className={cn("flex flex-col gap-3.5 px-4 py-4", named ? "pl-12" : "pl-5")}>
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
               {renaming ? (
@@ -164,7 +161,7 @@ export function GrokCredentialCard({
                   </h2>
                   <button
                     type="button"
-                    className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                     title="Копировать email"
                     onClick={() => onCopy(email, "Email")}
                   >
@@ -172,12 +169,12 @@ export function GrokCredentialCard({
                   </button>
                 </div>
               )}
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
                   {methodLabel}
                 </span>
                 {extraChip && (
-                  <span className="truncate rounded-full border border-border/70 px-2 py-0.5 text-xs text-foreground/80">
+                  <span className="truncate rounded-full border border-border/70 px-2.5 py-0.5 text-xs text-foreground/80">
                     {extraChip}
                   </span>
                 )}
@@ -209,7 +206,7 @@ export function GrokCredentialCard({
             </DropdownMenu>
           </div>
 
-          <div className="flex flex-col gap-1.5 rounded-md border border-border/50 bg-background/40 px-3 py-2">
+          <div className="flex flex-col gap-2 rounded-lg border border-border/50 bg-background/50 px-3.5 py-2.5">
             <SecretRow
               label="Пароль"
               value={password}
@@ -220,13 +217,13 @@ export function GrokCredentialCard({
             <SecretRow label="Номер" value={phone ?? ""} onCopy={() => onCopy(phone ?? "", "Номер")} />
           </div>
 
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <ActualizePopover limitResetAt={limitResetAt} onSave={onActualize} />
             {limitResetAt != null && (
-              <span className="text-sm font-medium tabular-nums text-foreground">{formatDate(limitResetAt)}</span>
+              <span className="text-[15px] font-medium tabular-nums leading-none text-foreground">{formatDate(limitResetAt)}</span>
             )}
             {note?.trim() && <span className="truncate">{note}</span>}
-            <span className="ml-auto">
+            <span className="ml-auto shrink-0">
               <span className="font-medium text-foreground">{updatedByName}</span>
               {" · "}
               {timeAgo(updatedAt)}
