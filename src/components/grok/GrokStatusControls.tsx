@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Ban, CheckCircle2, Clock3, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -19,6 +19,19 @@ const STATUS_LABEL: Record<GrokAccountStatus, string> = {
   unavailable: "Недоступно",
 };
 
+const STATUS_DOT: Record<GrokAccountStatus, string> = {
+  available: "bg-success shadow-[0_0_8px_hsl(var(--success))]",
+  resetToday: "bg-warning shadow-[0_0_8px_hsl(var(--warning))]",
+  unavailable: "bg-destructive shadow-[0_0_8px_hsl(var(--destructive))]",
+};
+
+const STATUS_CHIP: Record<GrokAccountStatus, string> = {
+  available: "text-success hover:bg-success/10",
+  resetToday: "text-warning hover:bg-warning/10",
+  unavailable: "text-destructive hover:bg-destructive/10",
+};
+
+/** Live status: reads as a badge, still one-tap to flip. Not styled like Актуализировать. */
 export function AvailabilityToggle({
   available,
   limitResetAt,
@@ -47,32 +60,25 @@ export function AvailabilityToggle({
   }
 
   return (
-    <Button
+    <button
+      type="button"
       disabled={disabled || isSaving}
       onClick={toggle}
       title={
         isAvailable
-          ? "Отметить как недоступный"
+          ? "Нажми — отметить как недоступный"
           : status === "resetToday"
-            ? "Восстанавливается сегодня — отметить как доступный"
-            : "Отметить как доступный"
+            ? "Восстанавливается сегодня — нажми, чтобы отметить доступным"
+            : "Нажми — отметить как доступный"
       }
       className={cn(
-        "h-11 min-w-[148px] gap-2 rounded-xl border-2 px-4 text-sm font-semibold shadow-sm transition-all hover:-translate-y-px hover:shadow-md active:translate-y-0 active:scale-[0.97] active:shadow-none",
-        status === "available" && "border-success/50 bg-success/15 text-success hover:bg-success/25",
-        status === "resetToday" && "border-warning/50 bg-warning/15 text-warning hover:bg-warning/25",
-        status === "unavailable" && "border-destructive/50 bg-destructive/15 text-destructive hover:bg-destructive/25"
+        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-50",
+        STATUS_CHIP[status]
       )}
     >
-      {status === "available" ? (
-        <CheckCircle2 className="h-4 w-4" />
-      ) : status === "resetToday" ? (
-        <Clock3 className="h-4 w-4" />
-      ) : (
-        <Ban className="h-4 w-4" />
-      )}
+      <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_DOT[status])} />
       {STATUS_LABEL[status]}
-    </Button>
+    </button>
   );
 }
 
@@ -112,12 +118,12 @@ export function ActualizePopover({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="h-8 gap-1.5" title="Указать/обновить время восстановления">
-          <RefreshCw className="h-3.5 w-3.5" />
+        <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground" title="Указать время восстановления лимита">
+          <RefreshCw className="h-3 w-3" />
           Актуализировать
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-72" align="end">
+      <PopoverContent className="w-72" align="start">
         <p className="mb-2 text-sm font-medium">Когда восстановится лимит?</p>
         <Input
           value={value}
