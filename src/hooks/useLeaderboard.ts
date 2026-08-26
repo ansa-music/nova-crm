@@ -1,13 +1,17 @@
-import { fetchLeaderboard } from "@/services/leaderboardService";
-import { usePolledData } from "@/hooks/usePolledData";
+import { useEffect, useState } from "react";
+import { subscribeLeaderboard } from "@/services/leaderboardService";
 import type { LeaderboardEntry } from "@/types";
 
 export function useLeaderboard(workspaceId: string | null) {
-  const { data } = usePolledData<LeaderboardEntry[]>(
-    Boolean(workspaceId),
-    () => fetchLeaderboard(workspaceId as string),
-    [],
-    [workspaceId]
-  );
+  const [data, setData] = useState<LeaderboardEntry[]>([]);
+
+  useEffect(() => {
+    if (!workspaceId) {
+      setData([]);
+      return;
+    }
+    return subscribeLeaderboard(workspaceId, setData);
+  }, [workspaceId]);
+
   return data;
 }
