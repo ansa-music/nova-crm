@@ -36,8 +36,11 @@ export function progressForPage(
     grandTotal += raw;
     if (statusCol) {
       const rawStatus = String(row.cells[statusCol.key] ?? "");
-      const options = statusCol.statusOptions?.length ? statusCol.statusOptions : statusOptions;
-      const label = options.find((o) => o.value === rawStatus)?.label ?? rawStatus;
+      // Status is fully workspace-wide (see getColumnOptions in
+      // columnOptions.ts) — never prefer a column's own stale statusOptions,
+      // or the dashboard's "Готово" total can silently disagree with what
+      // the table itself shows for the same row.
+      const label = statusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
       if (isDoneStatusLabel(label)) doneTotal += raw;
       else openCount += 1;
     }
@@ -53,7 +56,8 @@ export function statusDistributionFromDesks(desks: PageProgress[], statusOptions
   for (const desk of desks) {
     const statusCol = desk.columns.find((c) => c.type === "status");
     if (!statusCol) continue;
-    for (const opt of statusCol.statusOptions ?? []) byValue.set(opt.value, opt);
+    // Never re-merge a column's own stale statusOptions over the
+    // workspace-wide list — same reasoning as progressForPage above.
     for (const row of desk.rows) {
       const raw = String(row.cells[statusCol.key] ?? "");
       if (!raw) continue;
