@@ -234,7 +234,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   </NavLink>
                   <NavLink
                     to="/grok-limit"
-                    title="GROK LIMIT"
+                    title="Грок лимит"
                     onClick={() => onNavigate?.()}
                     className={({ isActive }) => navActiveClass(isActive, true)}
                   >
@@ -278,7 +278,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                     Чат
                   </AppNavLink>
                   <AppNavLink to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
-                    GROK LIMIT
+                    Грок лимит
                   </AppNavLink>
                   {showUsersNav && (
                     <AppNavLink to="/users" icon={Users} onNavigate={onNavigate}>
@@ -316,7 +316,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                 Чат
               </AppNavLink>
               <AppNavLink to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
-                GROK LIMIT
+                Грок лимит
               </AppNavLink>
               {showUsersNav && (
                 <AppNavLink to="/users" icon={Users} onNavigate={onNavigate}>
