@@ -447,8 +447,26 @@
   display: none;
 }
 
+
+.grok-reset-pulse {
+  animation: grok-reset-pulse 1.8s ease-in-out infinite;
+}
+@keyframes grok-reset-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px hsl(var(--warning) / 0.35),
+      0 0 12px hsl(var(--warning) / 0.22);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px hsl(var(--warning) / 0.8),
+      0 0 20px hsl(var(--warning) / 0.4);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .neon-pulse,
+  .grok-reset-pulse,
   .animate-glass-pop,
   .skeleton::after {
     animation: none !important;

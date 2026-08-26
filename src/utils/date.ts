@@ -30,6 +30,19 @@ export function formatDate(timestamp: number, pattern = "d MMM yyyy, HH:mm"): st
   return format(new Date(toMillis(timestamp)), pattern, { locale: ru });
 }
 
+/** Live remaining time until a Grok limit reset, e.g. "через 2ч 15м". */
+export function formatResetCountdown(at: number, now: number = Date.now()): string {
+  const diff = at - now;
+  if (diff <= 0) return "сейчас";
+  const totalMin = Math.floor(diff / 60_000);
+  if (totalMin < 1) return "скоро";
+  const hours = Math.floor(totalMin / 60);
+  const mins = totalMin % 60;
+  if (hours <= 0) return `через ${mins}м`;
+  if (mins === 0) return `через ${hours}ч`;
+  return `через ${hours}ч ${mins}м`;
+}
+
 /** "26.08.2026 17:25" — typed by hand, not picked through a native date widget. Local wall-clock time. */
 export const MANUAL_DATETIME_FORMAT = "dd.MM.yyyy HH:mm";
 export const MANUAL_DATETIME_PLACEHOLDER = "26.08.2026 17:25";
@@ -120,6 +133,16 @@ export function almatyNoonMillis(year: number, monthIndex: number, day: number):
   const m = String(monthIndex + 1).padStart(2, "0");
   const d = String(day).padStart(2, "0");
   return new Date(`${year}-${m}-${d}T12:00:00+05:00`).getTime();
+}
+
+
+/** Soft greeting glow: cold cyan in the morning, warmer toward evening. Asia/Almaty hour. */
+export function greetingGlowShadow(hour: number): string {
+  const t = Math.min(1, Math.max(0, (hour - 6) / 14));
+  const hue = 189 + (32 - 189) * t;
+  const light = 72 - 12 * t;
+  const alpha = 0.36 + 0.08 * t;
+  return `0 0 22px hsl(${hue} 100% ${light}% / ${alpha})`;
 }
 
 export function greetingByHour(hour: number): string {

@@ -25,7 +25,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { DeskStudioSheet } from "@/components/pagesnav/DeskStudioSheet";
 import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialog";
 import { resolvedCoverUrl, personLabel } from "@/utils/peopleDesks";
-import { greetingByHour, hourInTimeZone } from "@/utils/date";
+import { greetingByHour, greetingGlowShadow, hourInTimeZone } from "@/utils/date";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { isResponsibleForPage } from "@/utils/permissions";
 import { nowOrderCounts, ordersByDateFromDesks, progressForPage, statusDistributionFromDesks } from "@/utils/deskProgress";
@@ -167,7 +167,8 @@ export default function DashboardPage() {
     );
   }
 
-  const hello = greetingByHour(hourInTimeZone(Date.now()));
+  const hour = hourInTimeZone(Date.now());
+  const hello = greetingByHour(hour);
   const who = profile?.nickname || profile?.name || "";
   const showCharts = deskLayout.showCharts;
   const showProgress = deskLayout.showProgress;
@@ -205,7 +206,10 @@ export default function DashboardPage() {
   return (
     <div className="mx-auto max-w-6xl p-5 sm:p-8 lg:p-10">
       <p className="eyebrow mb-2 text-primary">Дашборд</p>
-      <h1 className="font-serif text-[1.85rem] font-medium tracking-[-0.03em] sm:text-[2.2rem]">
+      <h1
+        className="font-serif text-[1.85rem] font-medium tracking-[-0.03em] sm:text-[2.2rem]"
+        style={{ textShadow: greetingGlowShadow(hour) }}
+      >
         {hello}
         {who ? `, ${who}` : ""}
       </h1>
