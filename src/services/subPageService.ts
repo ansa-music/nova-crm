@@ -11,6 +11,7 @@ import {
 import { db } from "@/firebase/firebase";
 import { paths, subscribe, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
+import { ymdPartsInTimeZone } from "@/utils/date";
 import { stripUndefined } from "@/services/pageService";
 import type { PageColumn, PageIconName, PageRow, StatusOption, SubPage } from "@/types";
 import {
@@ -215,6 +216,16 @@ const MONTHS_RU = [
   "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
 ];
 
+function titleMonth(word: string): string {
+  return word[0].toUpperCase() + word.slice(1);
+}
+
+/** Current calendar month in Asia/Almaty, e.g. "Август 2026" — parsable by guessNextMonthName. */
+export function currentMonthTabName(now: number = Date.now()): string {
+  const { year, month } = ymdPartsInTimeZone(now);
+  return `${titleMonth(MONTHS_RU[month])} ${year}`;
+}
+
 /** Guesses "next month" from a subpage name like "Январь" or "Июль 2026", falling back to a generic name if it doesn't recognize a month. */
 function guessNextMonthName(currentName: string): string {
   const trimmed = currentName.trim();
@@ -225,7 +236,7 @@ function guessNextMonthName(currentName: string): string {
   const idx = MONTHS_RU.findIndex((m) => m === word);
   if (idx === -1) return "Новый месяц";
   const nextIdx = (idx + 1) % 12;
-  const nextWord = MONTHS_RU[nextIdx][0].toUpperCase() + MONTHS_RU[nextIdx].slice(1);
+  const nextWord = titleMonth(MONTHS_RU[nextIdx]);
   const nextYear = year !== null ? (nextIdx === 0 ? year + 1 : year) : null;
   return nextYear ? `${nextWord} ${nextYear}` : nextWord;
 }

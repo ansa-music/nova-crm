@@ -100,6 +100,11 @@ export interface WorkspacePage {
    */
   defaultSubPageId?: string | null;
   /**
+   * New desks hide the "Основная" tab (page rows). Set only at create time.
+   * Older desks omit this and keep Основная plus their existing rows.
+   */
+  hideMainTab?: boolean;
+  /**
    * Personal monthly revenue target for whoever is responsible for this
    * page — purely a personal-motivation number shown as a progress bar on
    * their own Dashboard landing, editable by them or the Owner. Not used

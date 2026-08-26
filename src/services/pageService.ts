@@ -256,12 +256,30 @@ export async function createPage(input: CreatePageInput): Promise<WorkspacePage>
     editableUsers: input.editableUsers ?? [],
     visibility: input.visibility ?? "public",
     columns: input.columns.map((c, i) => stripUndefined({ ...c, id: generateId("col"), order: i })),
+    hideMainTab: true,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     createdBy: input.createdBy,
   };
   await setDoc(paths.page(input.workspaceId, id), stripUndefined(page));
-  return page;
+  return seedCurrentMonthDesk(page);
+}
+
+/** After the page doc exists: month tab, then default. Never part of the manager claim batch. */
+export async function seedCurrentMonthDesk(page: WorkspacePage): Promise<WorkspacePage> {
+  const { createSubPage, currentMonthTabName } = await import("@/services/subPageService");
+  const sub = await createSubPage({
+    workspaceId: page.workspaceId,
+    pageId: page.id,
+    name: currentMonthTabName(),
+    color: page.color,
+    icon: page.icon,
+    columns: page.columns,
+    order: 0,
+    createdBy: page.createdBy,
+  });
+  await setDefaultSubPage(page.workspaceId, page.id, sub.id);
+  return { ...page, defaultSubPageId: sub.id, hideMainTab: true };
 }
 
 /**

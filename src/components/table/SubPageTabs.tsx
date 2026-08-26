@@ -119,7 +119,7 @@ export function SubPageTabs({
 
   async function handleArchiveToggle(sub: SubPage) {
     await archiveSubPage(workspaceId, page.id, sub.id, !sub.isArchived);
-    if (activeSubPageId === sub.id) onSelect(null);
+    if (activeSubPageId === sub.id) selectAwayFrom(sub.id);
     toast.success(sub.isArchived ? "Вкладка восстановлена" : "Вкладка архивирована");
   }
 
@@ -127,7 +127,7 @@ export function SubPageTabs({
     if (!window.confirm(`Удалить вкладку «${sub.name}» вместе со всеми данными? Это необратимо.`)) return;
     const snapshot = await snapshotSubPage(workspaceId, page.id, sub.id);
     await deleteSubPage(workspaceId, page.id, sub.id);
-    if (activeSubPageId === sub.id) onSelect(null);
+    if (activeSubPageId === sub.id) selectAwayFrom(sub.id);
     toast("Вкладка удалена", { action: { label: "Отменить", onClick: () => undo() } });
     pushUndoCommand({
       undo: () => restoreSubPageSnapshot(workspaceId, page.id, sub.id, snapshot),
@@ -166,6 +166,16 @@ export function SubPageTabs({
   }
 
   const isDefaultMain = !page.defaultSubPageId;
+  const hideMain = Boolean(page.hideMainTab);
+
+  function selectAwayFrom(subId: string) {
+    const next = visible.find((s) => s.id !== subId);
+    if (next) {
+      onSelect(next.id);
+      return;
+    }
+    onSelect(hideMain ? subId : null);
+  }
 
   async function handleSetDefault(subPageId: string | null) {
     await setDefaultSubPage(workspaceId, page.id, subPageId);
@@ -189,7 +199,7 @@ export function SubPageTabs({
 
   return (
     <div className="flex items-center gap-1.5 border-b border-border bg-muted/10 px-3 py-2">
-      {canManage ? (
+      {!hideMain && (canManage ? (
         <ContextMenu>
           <ContextMenuTrigger asChild>{mainTab}</ContextMenuTrigger>
           <ContextMenuContent>
@@ -200,7 +210,7 @@ export function SubPageTabs({
         </ContextMenu>
       ) : (
         mainTab
-      )}
+      ))}
 
 
       {showDispatchTab ? (
