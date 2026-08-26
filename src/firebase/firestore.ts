@@ -98,6 +98,11 @@ export const paths = {
   announcement: (workspaceId: string, id: string) =>
     doc(requireDb(), "workspaces", workspaceId, "announcements", id),
 
+  grokAccounts: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "grokAccounts"),
+  grokAccount: (workspaceId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "grokAccounts", id),
+
   viewRequests: (workspaceId: string) =>
     collection(requireDb(), "workspaces", workspaceId, "viewRequests"),
   viewRequest: (workspaceId: string, id: string) =>

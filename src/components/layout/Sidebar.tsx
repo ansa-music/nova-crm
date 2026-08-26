@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Keyboard,
+  KeyRound,
   Home,
   LayoutDashboard,
   LayoutGrid,
@@ -231,6 +232,14 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                       )}
                     </span>
                   </NavLink>
+                  <NavLink
+                    to="/grok-limit"
+                    title="GROK LIMIT"
+                    onClick={() => onNavigate?.()}
+                    className={({ isActive }) => navActiveClass(isActive, true)}
+                  >
+                    <KeyRound className="h-4 w-4" />
+                  </NavLink>
                   {showUsersNav && (
                     <NavLink
                       to="/users"
@@ -268,6 +277,9 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink to="/chat" icon={MessageSquare} onNavigate={onNavigate} badge={workspaceChatUnread}>
                     Чат
                   </AppNavLink>
+                  <AppNavLink to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
+                    GROK LIMIT
+                  </AppNavLink>
                   {showUsersNav && (
                     <AppNavLink to="/users" icon={Users} onNavigate={onNavigate}>
                       Пользователи
@@ -302,6 +314,9 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               </AppNavLink>
               <AppNavLink to="/chat" icon={MessageSquare} onNavigate={onNavigate} badge={workspaceChatUnread}>
                 Чат
+              </AppNavLink>
+              <AppNavLink to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
+                GROK LIMIT
               </AppNavLink>
               {showUsersNav && (
                 <AppNavLink to="/users" icon={Users} onNavigate={onNavigate}>
