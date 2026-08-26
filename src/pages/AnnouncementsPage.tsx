@@ -17,7 +17,7 @@ import type { Announcement, AnnouncementPriority } from "@/types";
 
 const PRIORITY_STYLES: Record<AnnouncementPriority, { label: string; badge: string; border: string }> = {
   normal: { label: "Обычный", badge: "bg-muted text-muted-foreground", border: "border-border" },
-  important: { label: "Важный", badge: "bg-amber-500/15 text-amber-500", border: "border-amber-500/30" },
+  important: { label: "Важный", badge: "bg-amber-500/15 text-amber-500", border: "border-primary/80 [border-color:hsl(var(--primary)/0.72)] shadow-[0_0_16px_hsl(var(--primary)/0.32)]" },
   urgent: { label: "Срочный", badge: "bg-secondary/20 text-secondary", border: "border-secondary/50" },
 };
 
