@@ -1,4 +1,4 @@
-import { formatDistanceToNow, format } from "date-fns";
+import { formatDistanceToNow, format, isValid, parse } from "date-fns";
 import { ru } from "date-fns/locale";
 
 /**
@@ -28,6 +28,24 @@ export function timeAgo(timestamp: number): string {
 
 export function formatDate(timestamp: number, pattern = "d MMM yyyy, HH:mm"): string {
   return format(new Date(toMillis(timestamp)), pattern, { locale: ru });
+}
+
+/** "26.08.2026 17:25" — typed by hand, not picked through a native date widget. Local wall-clock time. */
+export const MANUAL_DATETIME_FORMAT = "dd.MM.yyyy HH:mm";
+export const MANUAL_DATETIME_PLACEHOLDER = "26.08.2026 17:25";
+
+export function formatDateTimeManual(ms: number | null | undefined): string {
+  if (ms == null || !Number.isFinite(ms)) return "";
+  return format(new Date(ms), MANUAL_DATETIME_FORMAT);
+}
+
+/** Returns null for an empty string ("no date set"), or undefined if the text doesn't parse as a valid date. */
+export function parseDateTimeManual(value: string): number | null | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = parse(trimmed, MANUAL_DATETIME_FORMAT, new Date());
+  if (!isValid(parsed)) return undefined;
+  return parsed.getTime();
 }
 
 

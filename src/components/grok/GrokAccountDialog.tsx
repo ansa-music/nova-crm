@@ -16,6 +16,8 @@ import { createGrokAccount, updateGrokAccount } from "@/services/grokAccountServ
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
 import { displayNameOf } from "@/utils/displayName";
+import { formatDateTimeManual, parseDateTimeManual, MANUAL_DATETIME_PLACEHOLDER } from "@/utils/date";
+import { cn } from "@/utils/cn";
 import type { GrokAccount } from "@/types";
 
 interface GrokAccountDialogProps {
@@ -24,28 +26,16 @@ interface GrokAccountDialogProps {
   editing?: GrokAccount | null;
 }
 
-/** <input type="datetime-local"> works in local wall-clock time with no timezone info — convert both ways via local Date parts, never UTC/ISO. */
-function msToLocalInputValue(ms: number | null): string {
-  if (ms == null) return "";
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function localInputValueToMs(value: string): number | null {
-  if (!value) return null;
-  const d = new Date(value);
-  const ms = d.getTime();
-  return Number.isFinite(ms) ? ms : null;
-}
-
 export function GrokAccountDialog({ open, onOpenChange, editing }: GrokAccountDialogProps) {
   const { profile } = useAuth();
   const { activeWorkspaceId } = useWorkspace();
   const [email, setEmail] = useState(editing?.email ?? "");
   const [password, setPassword] = useState(editing?.password ?? "");
-  const [resetAt, setResetAt] = useState(() => msToLocalInputValue(editing?.limitResetAt ?? null));
+  const [resetAt, setResetAt] = useState(() => formatDateTimeManual(editing?.limitResetAt ?? null));
   const [isSaving, setIsSaving] = useState(false);
+
+  const parsedResetAt = parseDateTimeManual(resetAt);
+  const dateInvalid = parsedResetAt === undefined;
 
   async function handleSave() {
     if (!activeWorkspaceId || !profile) return;
@@ -53,10 +43,14 @@ export function GrokAccountDialog({ open, onOpenChange, editing }: GrokAccountDi
       toast.error("Введите email аккаунта");
       return;
     }
+    if (dateInvalid) {
+      toast.error(`Дата в формате ${MANUAL_DATETIME_PLACEHOLDER}, или оставьте поле пустым`);
+      return;
+    }
     setIsSaving(true);
     try {
       const actorName = displayNameOf(profile);
-      const limitResetAt = localInputValueToMs(resetAt);
+      const limitResetAt = parsedResetAt ?? null;
       if (editing) {
         await updateGrokAccount(
           activeWorkspaceId,
@@ -115,11 +109,16 @@ export function GrokAccountDialog({ open, onOpenChange, editing }: GrokAccountDi
           <div className="flex flex-col gap-1.5">
             <Label>Лимит восстановится</Label>
             <Input
-              type="datetime-local"
               value={resetAt}
               onChange={(e) => setResetAt(e.target.value)}
-              className="tabular-nums"
+              placeholder={MANUAL_DATETIME_PLACEHOLDER}
+              className={cn("tabular-nums", dateInvalid && "border-destructive focus-visible:ring-destructive")}
             />
+            <p className={cn("text-xs text-muted-foreground", dateInvalid && "text-destructive")}>
+              {dateInvalid
+                ? `Формат: ${MANUAL_DATETIME_PLACEHOLDER}`
+                : `Формат: ${MANUAL_DATETIME_PLACEHOLDER} — оставьте пустым, если лимита нет`}
+            </p>
           </div>
         </div>
 
