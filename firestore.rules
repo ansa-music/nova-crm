@@ -137,7 +137,7 @@ service cloud.firestore {
         // permission-denied and the app toasts «Нет доступа к части данных»).
         allow read: if isMember(workspaceId) ||
           (signedIn() && memberId == request.auth.uid) ||
-          (signedIn() && request.auth.token.email is string && memberId == authEmailLower() && resource.data.status == 'invited');
+          (signedIn() && request.auth.token.email is string && resource.data.email == authEmailLower() && resource.data.status == 'invited');
 
         // Self-service: a member may update just their own nickname,
         // presence heartbeat, and/or simulated activeRole ("Переключение
