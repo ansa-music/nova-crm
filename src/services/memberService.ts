@@ -9,6 +9,58 @@ function sortMembers(members: WorkspaceMember[]) {
   return members.sort((a, b) => a.invitedAt - b.invitedAt);
 }
 
+export function normalizeMemberEmail(email?: string | null): string {
+  return email?.trim().toLowerCase() ?? "";
+}
+
+/** Hide invite stubs that already have an active member or a pending join on the same email. */
+export function visibleMemberRoster(
+  members: WorkspaceMember[],
+  pendingJoinEmails: Iterable<string>
+): WorkspaceMember[] {
+  const joinEmails = new Set(Array.from(pendingJoinEmails, normalizeMemberEmail).filter(Boolean));
+  const activeEmails = new Set(
+    members
+      .filter((m) => m.status === "active")
+      .map((m) => normalizeMemberEmail(m.email))
+      .filter(Boolean)
+  );
+  const seenInvited = new Set<string>();
+  const out: WorkspaceMember[] = [];
+  for (const member of members) {
+    if (member.status !== "invited") {
+      out.push(member);
+      continue;
+    }
+    const email = normalizeMemberEmail(member.email);
+    if (!email || seenInvited.has(email)) continue;
+    if (joinEmails.has(email) || activeEmails.has(email)) continue;
+    seenInvited.add(email);
+    out.push(member);
+  }
+  return out;
+}
+
+export const QUIET_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Active members silent for 7 days. lastActiveAt, else joinedAt. Not presence (10 min). */
+export function quietActiveMembers(
+  members: WorkspaceMember[],
+  myUid?: string | null,
+  now = Date.now()
+): WorkspaceMember[] {
+  return members
+    .filter((m) => {
+      if (m.status !== "active") return false;
+      if (myUid && m.uid && m.uid === myUid) return false;
+      const ts = m.lastActiveAt || m.joinedAt;
+      if (!ts) return false;
+      return now - ts > QUIET_AFTER_MS;
+    })
+    .sort((a, b) => (a.lastActiveAt || a.joinedAt || 0) - (b.lastActiveAt || b.joinedAt || 0));
+}
+
+
 export async function fetchMembers(workspaceId: string): Promise<WorkspaceMember[]> {
   const snapshot = await getDocs(paths.members(workspaceId));
   return sortMembers(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as WorkspaceMember));
