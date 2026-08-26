@@ -5,6 +5,8 @@ import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { DeskChart, GoalVsDoneChart } from "@/components/dashboard/DeskChart";
 import { LeaderboardWidget } from "@/components/dashboard/LeaderboardWidget";
 import { MyProgressCard } from "@/components/dashboard/MyProgressCard";
+import { KpiStatsRow } from "@/components/dashboard/KpiStatsRow";
+import { RecentRowsPanel } from "@/components/dashboard/RecentRowsPanel";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { StatusChart } from "@/components/dashboard/StatusChart";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -96,10 +98,17 @@ export default function DashboardPage() {
 
   const leaderboardEntries = useMemo(() => {
     const byPage = new Map<string, LeaderboardEntry>();
+    // Shared /leaderboard is readable by every member, including for desks
+    // this viewer cannot open (hiddenByResponsible). Live row overlay is
+    // only the pages in this view — empty live rows must not wipe those
+    // shared «Готово» totals.
     for (const entry of polledLeaderboard) byPage.set(entry.pageId, entry);
     for (const desk of deskProgress) {
       const uid = desk.page.responsibleUserId;
       if (!uid) continue;
+      const existing = byPage.get(desk.page.id);
+      const liveEmpty = desk.rowCount === 0 && desk.doneTotal === 0 && desk.grandTotal === 0;
+      if (liveEmpty && existing) continue;
       byPage.set(desk.page.id, {
         pageId: desk.page.id,
         pageName: desk.page.name,
@@ -230,6 +239,10 @@ export default function DashboardPage() {
           />
         </div>
       )}
+
+      <KpiStatsRow desks={chartSource} statusOptions={statusOptions} />
+
+      <RecentRowsPanel desks={deskProgress} statusOptions={statusOptions} members={members} />
 
       {showCharts && (
         <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">

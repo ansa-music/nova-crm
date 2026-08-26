@@ -77,7 +77,10 @@ export default function MessagesPage() {
   // Auto-mark on open using existing readMarkers. Button still shows while unread.
   useEffect(() => {
     if (!activeWorkspaceId || !profile?.uid || !selectedUid || !chatId) return;
+    markReadLocal(`private:${chatId}`);
     void markPrivateConversationRead(activeWorkspaceId, profile.uid, selectedUid, chatId);
+    // markReadLocal is recreated each render — listing it loops the write.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspaceId, profile?.uid, selectedUid, chatId, messages.length]);
 
   if (!activeWorkspaceId || !profile) return null;

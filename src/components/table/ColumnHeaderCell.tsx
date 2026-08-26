@@ -174,7 +174,7 @@ export function ColumnHeaderCell({
               onClick={() => onTogglePin(column.key)}
               className={cn(
                 "inline-flex shrink-0 items-center justify-center rounded select-none hover:bg-accent active:translate-y-px active:scale-[0.97] motion-reduce:active:translate-y-0 motion-reduce:active:scale-100",
-                compactChrome ? "h-7 w-7" : "min-h-10 min-w-10 p-1.5 opacity-0 group-hover:opacity-100 sm:min-h-0 sm:min-w-0 sm:p-0.5",
+                compactChrome ? "h-7 w-7" : "min-h-10 min-w-10 p-1.5 opacity-40 group-hover:opacity-100 sm:min-h-0 sm:min-w-0 sm:p-0.5",
                 isPinned && "opacity-100 text-primary"
               )}
               title={isPinned ? "Открепить столбец" : "Закрепить столбец"}
@@ -187,7 +187,7 @@ export function ColumnHeaderCell({
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    className="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground sm:min-h-0 sm:min-w-0 sm:p-0.5 sm:opacity-0 sm:group-hover:opacity-100"
+                    className="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground sm:min-h-0 sm:min-w-0 sm:p-0.5 sm:opacity-40 sm:group-hover:opacity-100"
                     title="Настройки столбца"
                     onClick={(e) => e.stopPropagation()}
                   >
@@ -249,7 +249,7 @@ export function ColumnHeaderCell({
               type="button"
               onClick={(e) => onFilterClick(column.key, e)}
               className={cn(
-                "inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded p-1.5 select-none opacity-0 hover:bg-accent group-hover:opacity-100 active:translate-y-px active:scale-[0.97] motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 sm:min-h-0 sm:min-w-0 sm:p-0.5",
+                "inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded p-1.5 select-none opacity-40 hover:bg-accent group-hover:opacity-100 active:translate-y-px active:scale-[0.97] motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 sm:min-h-0 sm:min-w-0 sm:p-0.5",
                 hasActiveFilter && "opacity-100 text-primary"
               )}
               title="Фильтр"

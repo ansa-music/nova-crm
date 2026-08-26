@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, Sele
 import { toast } from "@/components/ui/sonner";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { addCustomField } from "@/services/workspaceService";
-import { buildColumnTypeChoices, decodeColumnTypeValue, DEFAULT_STATUS_OPTIONS, encodeColumnTypeValue } from "@/utils/columnOptions";
+import { buildColumnTypeChoices, decodeColumnTypeValue, encodeColumnTypeValue } from "@/utils/columnOptions";
 import type { addColumn } from "@/services/pageService";
 import type { ColumnType, PageColumn } from "@/types";
 
@@ -103,11 +103,14 @@ export function AddColumnDialog({
     try {
       const existingKeys = new Set(existingColumns.map((c) => c.key));
       const key = slugify(label, existingKeys);
+      // Never seed statusOptions, including for type "status" — that list is
+      // workspace-wide now (getColumnOptions never reads a column's own
+      // value), so a new status column just reads the shared list like every
+      // other one instead of getting its own copy that could drift.
       const column = await createColumn(workspaceId, pageId, existingColumns, {
         key,
         label: label.trim(),
         type,
-        statusOptions: type === "status" ? DEFAULT_STATUS_OPTIONS : undefined,
         customFieldId,
       });
       toast.success(`Столбец «${column.label}» добавлен`);

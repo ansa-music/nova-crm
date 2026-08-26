@@ -6,6 +6,7 @@ import { DeskCoverGrid } from "@/components/dashboard/DeskCoverGrid";
 import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/sonner";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
@@ -64,6 +65,17 @@ export default function DesksPage() {
     await reload();
   }
 
+  async function requestFromCard(page: WorkspacePage) {
+    if (mayOpen(page)) return;
+    if (latestForPage(page.id)?.status === "pending") return;
+    try {
+      await sendRequest(page);
+      toast.success("Запрос отправлен");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось отправить запрос");
+    }
+  }
+
   if (isLoadingWorkspaceData) {
     return (
       <div className="mx-auto max-w-6xl p-5 sm:p-8 lg:p-10">
@@ -114,8 +126,15 @@ export default function DesksPage() {
           ownerUid={ownerUid}
           canOpen={mayOpen}
           onOpen={(page) => navigate(`/page/${page.id}`)}
+          onRequest={(page) => void requestFromCard(page)}
+          isPending={(page) => latestForPage(page.id)?.status === "pending"}
           renderAction={(page) => (
-            <RequestDeskViewButton page={page} mine={latestForPage(page.id)} onRequest={() => sendRequest(page)} />
+            <RequestDeskViewButton
+              page={page}
+              mine={latestForPage(page.id)}
+              canOpen={mayOpen(page)}
+              onRequest={() => sendRequest(page)}
+            />
           )}
         />
       ) : query.trim() || hidden.length === 0 ? (

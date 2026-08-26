@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/utils/format";
 import { cn } from "@/utils/cn";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -15,6 +16,7 @@ interface SubPageStatsProps {
 
 export function SubPageStats({ columns, rows }: SubPageStatsProps) {
   const { activeWorkspace } = useWorkspace();
+  const [percentBase, setPercentBase] = useState<"done" | "total">("done");
   const stats = useMemo(() => {
     const priceCol = columns.find((c) => c.type === "currency");
     const statusCol = columns.find((c) => c.type === "status");
@@ -39,19 +41,47 @@ export function SubPageStats({ columns, rows }: SubPageStatsProps) {
 
   if (!stats) return null;
 
+  const percentSource = percentBase === "total" ? stats.grandTotal : stats.doneTotal;
+  const percentHint = percentBase === "total" ? "от общего" : "от готово";
+
+  const baseToggle = (
+    <div className="flex shrink-0 rounded-lg border border-border p-0.5">
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className={cn("h-7 px-2.5 text-[11px]", percentBase === "done" && "bg-primary/15 text-primary hover:bg-primary/20")}
+        onClick={() => setPercentBase("done")}
+      >
+        от Готово
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className={cn("h-7 px-2.5 text-[11px]", percentBase === "total" && "bg-primary/15 text-primary hover:bg-primary/20")}
+        onClick={() => setPercentBase("total")}
+      >
+        от Общего
+      </Button>
+    </div>
+  );
+
   return (
     <div className="border-b border-border p-3 sm:p-4">
-      {/* Mobile: compact horizontal-scroll strip of pills — keeps the table
-          visible above the fold instead of pushing it far down the screen. */}
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">Проценты {percentHint}</p>
+        {baseToggle}
+      </div>
+
       <div className="flex gap-2 overflow-x-auto scrollbar-thin sm:hidden">
         <StatPill label="Готово" value={stats.doneTotal} accent />
         <StatPill label="Общий" value={stats.grandTotal} />
         {PERCENTS.map((pct) => (
-          <StatPill key={pct} label={`${pct}%`} value={(stats.doneTotal * pct) / 100} />
+          <StatPill key={pct} label={`${pct}%`} value={(percentSource * pct) / 100} />
         ))}
       </div>
 
-      {/* sm+ : full card grid */}
       <div className="hidden gap-3 sm:grid sm:grid-cols-3 lg:grid-cols-6">
         <Card className="glass-panel border-emerald-500/20 bg-emerald-500/5">
           <CardContent className="p-3">
@@ -68,8 +98,10 @@ export function SubPageStats({ columns, rows }: SubPageStatsProps) {
         {PERCENTS.map((pct) => (
           <Card key={pct} className="glass-panel">
             <CardContent className="p-3">
-              <p className="text-xs text-muted-foreground">{pct}%</p>
-              <p className="mt-1 text-lg font-semibold">{formatCurrency((stats.doneTotal * pct) / 100)}</p>
+              <p className="text-xs text-muted-foreground">
+                {pct}% <span className="text-muted-foreground/70">{percentHint}</span>
+              </p>
+              <p className="mt-1 text-lg font-semibold">{formatCurrency((percentSource * pct) / 100)}</p>
             </CardContent>
           </Card>
         ))}

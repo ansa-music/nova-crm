@@ -194,7 +194,7 @@ export function GoalVsDoneChart({ doneTotal, goal }: GoalVsDoneChartProps) {
               tick={{ fontSize: 12, fill: "hsl(210 22% 82%)" }}
             />
             <Tooltip cursor={{ fill: "hsl(var(--primary) / 0.06)" }} content={<GoalTooltip />} />
-            <Bar dataKey="value" radius={[0, 2, 2, 0]} maxBarSize={28} cursor="pointer">
+            <Bar dataKey="value" radius={[0, 2, 2, 0]} maxBarSize={28}>
               {data.map((entry) => (
                 <Cell key={entry.name} fill={entry.fill} />
               ))}

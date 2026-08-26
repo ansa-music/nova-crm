@@ -1,4 +1,4 @@
-import { formatDistanceToNow, format } from "date-fns";
+import { formatDistanceToNow, format, isValid, parse } from "date-fns";
 import { ru } from "date-fns/locale";
 
 /**
@@ -28,6 +28,49 @@ export function timeAgo(timestamp: number): string {
 
 export function formatDate(timestamp: number, pattern = "d MMM yyyy, HH:mm"): string {
   return format(new Date(toMillis(timestamp)), pattern, { locale: ru });
+}
+
+/** "26.08.2026 17:25" — typed by hand, not picked through a native date widget. Local wall-clock time. */
+export const MANUAL_DATETIME_FORMAT = "dd.MM.yyyy HH:mm";
+export const MANUAL_DATETIME_PLACEHOLDER = "26.08.2026 17:25";
+
+export function formatDateTimeManual(ms: number | null | undefined): string {
+  if (ms == null || !Number.isFinite(ms)) return "";
+  return format(new Date(ms), MANUAL_DATETIME_FORMAT);
+}
+
+/**
+ * Feed this the input's raw value on every keystroke and set the field to
+ * the result — strips everything but digits, then re-inserts the dots,
+ * space, and colon at fixed positions as you type (26→26.→26.08→26.08.2026
+ * →26.08.2026 1→26.08.2026 17:25), so typing is just the 12 digits, never
+ * the punctuation by hand. Deleting works the same way in reverse: erasing
+ * a digit just re-runs the mask on one fewer digit.
+ */
+export function autoFormatManualDateTimeInput(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 12);
+  let out = digits.slice(0, 2);
+  if (digits.length > 2) out += "." + digits.slice(2, 4);
+  if (digits.length > 4) out += "." + digits.slice(4, 8);
+  if (digits.length > 8) out += " " + digits.slice(8, 10);
+  if (digits.length > 10) out += ":" + digits.slice(10, 12);
+  return out;
+}
+
+/** Same calendar day on the device's local clock — not UTC, matches how the manual field is typed/read. */
+export function isSameLocalDay(a: number, b: number): boolean {
+  const da = new Date(a);
+  const db = new Date(b);
+  return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+}
+
+/** Returns null for an empty string ("no date set"), or undefined if the text doesn't parse as a valid date. */
+export function parseDateTimeManual(value: string): number | null | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = parse(trimmed, MANUAL_DATETIME_FORMAT, new Date());
+  if (!isValid(parsed)) return undefined;
+  return parsed.getTime();
 }
 
 

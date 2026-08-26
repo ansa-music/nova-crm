@@ -134,7 +134,7 @@ function TableRowInner({
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="z-[240]">
+            <DropdownMenuContent align="start" className="z-[320]">
               <DropdownMenuItem onClick={() => onInsertRowAbove?.(row.id)} disabled={!canEdit}>
                 Вставить строку выше
               </DropdownMenuItem>

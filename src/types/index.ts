@@ -10,3 +10,4 @@ export * from "@/types/chat";
 export * from "@/types/inbox";
 export * from "@/types/leaderboard";
 export * from "@/types/viewRequest";
+export * from "@/types/grokAccount";

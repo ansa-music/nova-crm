@@ -38,6 +38,12 @@ import { ColumnHeaderCell } from "@/components/table/ColumnHeaderCell";
 import { TableRow } from "@/components/table/TableRow";
 import { GroupHeaderRow } from "@/components/table/GroupHeaderRow";
 import { TableToolbar } from "@/components/table/TableToolbar";
+import {
+  captureTableView,
+  loadSavedTableViews,
+  writeSavedTableViews,
+  type SavedTableView,
+} from "@/utils/savedTableViews";
 import { KanbanView } from "@/components/table/KanbanView";
 import { TablePagination } from "@/components/table/TablePagination";
 import { FilterPopover } from "@/components/table/FilterPopover";
@@ -55,7 +61,6 @@ import {
   changeColumnType as changeColumnTypeServiceBase,
   duplicateColumn as duplicateColumnServiceBase,
   deleteColumn as deleteColumnServiceBase,
-  updateColumnStatusOptions as updateColumnStatusOptionsBase,
 } from "@/services/pageService";
 import {
   addSubPageRow,
@@ -70,7 +75,6 @@ import {
   changeSubPageColumnType,
   duplicateSubPageColumn,
   deleteSubPageColumn,
-  updateSubPageColumnStatusOptions,
 } from "@/services/subPageService";
 import { AddColumnDialog } from "@/components/table/AddColumnDialog";
 import { ManageOptionsDialog } from "@/components/table/ManageOptionsDialog";
@@ -82,7 +86,7 @@ import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
 import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
-import { updateResponsibleOptions, updateCustomFieldOptions } from "@/services/workspaceService";
+import { updateResponsibleOptions, updateCustomFieldOptions, updateStatusOptions } from "@/services/workspaceService";
 import { formatCurrency, formatNumber, downloadCsv } from "@/utils";
 import { isSummableColumn, sumNumericCells } from "@/utils/tableAggregates";
 import { clampColumnWidth } from "@/utils/tableLayout";
@@ -260,10 +264,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const deleteColumnService = subPageId
     ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string) => deleteSubPageColumn(wsId, pId, subPageId, cols, colKey)
     : deleteColumnServiceBase;
-  const updateColumnStatusOptions = subPageId
-    ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string, options: StatusOption[]) =>
-        updateSubPageColumnStatusOptions(wsId, pId, subPageId, cols, colKey, options)
-    : updateColumnStatusOptionsBase;
   async function updateRowCell(ctx: Parameters<typeof updateRowCellBase>[0]) {
     if (subPageId) {
       await updateSubPageRowCell(ctx.workspaceId, ctx.pageId, subPageId, ctx.rowId, ctx.field, ctx.newValue);
@@ -284,6 +284,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [groupByKey, setGroupByKey] = useState<string | null>(null);
+  const [savedViews, setSavedViews] = useState<SavedTableView[]>(() => loadSavedTableViews(tableViewKey));
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [density, setDensity] = useState<"compact" | "default" | "comfortable">(() => {
     // Persisted across visits/reloads (per-browser) — was previously reset
@@ -403,6 +404,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setSearchQuery("");
     setStatusFilter(null);
     setGroupByKey(null);
+    setSavedViews(loadSavedTableViews(tableViewKey));
     setSelectedRowIds(new Set());
     setPageIndex(0);
   }, [page.id, tableViewKey]);
@@ -1395,6 +1397,41 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   // ---- Sort / filter / pin ----
+  function persistSavedViews(next: SavedTableView[]) {
+    setSavedViews(next);
+    writeSavedTableViews(tableViewKey, next);
+  }
+
+  function handleSaveTableView() {
+    const name = window.prompt("Название вида");
+    if (name == null) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const snapshot = captureTableView(trimmed, {
+      statusFilter,
+      groupByKey,
+      sortState,
+      filters: Object.fromEntries(Object.entries(filters).map(([k, v]) => [k, Array.from(v)])),
+    });
+    persistSavedViews([...savedViews.filter((v) => v.name !== snapshot.name), snapshot]);
+    toast.success(`Вид «${snapshot.name}» сохранён`);
+  }
+
+  function handleApplyTableView(view: SavedTableView) {
+    setStatusFilter(view.statusFilter);
+    setGroupByKey(view.groupByKey);
+    setSortState(view.sortState);
+    localStorage.setItem(sortStorageKey(tableViewKey), JSON.stringify(view.sortState));
+    setFilters(
+      Object.fromEntries(Object.entries(view.filters ?? {}).map(([k, vals]) => [k, new Set(vals)]))
+    );
+    setPageIndex(0);
+  }
+
+  function handleDeleteTableView(view: SavedTableView) {
+    persistSavedViews(savedViews.filter((v) => v.id !== view.id));
+  }
+
   function handleSort(colKey: string) {
     setSortState((prev) => {
       const next: SortState =
@@ -1410,7 +1447,19 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   function handleFilterClick(colKey: string, e: React.MouseEvent) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setFilterPopover({ colKey, x: rect.left, y: rect.bottom + 4 });
+    // FilterPopover renders as a fixed-position, fixed-width (224px) panel —
+    // anchoring it to the button's raw left/bottom with no clamping sent it
+    // straight off the right/bottom edge for any column near there (which is
+    // most of them, on a wide table). Clamp into the viewport with a margin.
+    const POPOVER_WIDTH = 224;
+    const POPOVER_MAX_HEIGHT = 260;
+    const margin = 8;
+    const x = Math.min(Math.max(margin, rect.left), window.innerWidth - POPOVER_WIDTH - margin);
+    const y =
+      rect.bottom + 4 + POPOVER_MAX_HEIGHT > window.innerHeight
+        ? Math.max(margin, rect.top - POPOVER_MAX_HEIGHT - 4)
+        : rect.bottom + 4;
+    setFilterPopover({ colKey, x, y });
   }
 
   function togglePin(colKey: string) {
@@ -1644,8 +1693,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   async function handleChangeColumnType(colKey: string, type: ColumnType, customFieldId?: string) {
     const current = columns.find((c) => c.key === colKey);
     if (!current || (current.type === type && current.customFieldId === customFieldId)) return;
-    const seeded = type === "status" ? DEFAULT_STATUS_OPTIONS : undefined;
-    await changeColumnTypeService(workspaceId, page.id, columns, colKey, type, seeded, customFieldId);
+    // Status never seeds a per-column list — it always reads the shared
+    // workspace.statusOptions (see getColumnOptions), so there's nothing to
+    // seed here for any option type anymore.
+    await changeColumnTypeService(workspaceId, page.id, columns, colKey, type, undefined, customFieldId);
     toast.success("Тип столбца изменён");
   }
 
@@ -1656,8 +1707,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   async function handleSaveColumnOptions(options: StatusOption[]) {
     if (!manageOptionsColumn) return;
     if (manageOptionsColumn.type === "status") {
-      if (!permissions.canManageStatusVariants) throw new Error("Варианты статуса меняет только Owner");
-      await updateColumnStatusOptions(workspaceId, page.id, columns, manageOptionsColumn.key, options);
+      // Workspace-wide, same as Ответственный below — never per-column, so
+      // editing statuses on ANY desk updates the one shared list everyone sees.
+      if (!isOwner) throw new Error("Варианты статуса меняет только Owner");
+      await updateStatusOptions(workspaceId, options);
     } else if (manageOptionsColumn.type === "responsible") {
       if (!isOwner) throw new Error("Список ответственных меняет только Owner");
       await updateResponsibleOptions(workspaceId, options);
@@ -1679,11 +1732,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         key = `status_${i}`;
         i += 1;
       }
+      // No seeded statusOptions — this desk's "Статус" column reads the
+      // shared workspace list, same as every other desk's.
       statusCol = await addColumnService(workspaceId, page.id, columns, {
         key,
         label: "Статус",
         type: "status",
-        statusOptions: DEFAULT_STATUS_OPTIONS,
       });
       toast.success("Столбец «Статус» добавлен");
     }
@@ -1928,6 +1982,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         }}
         viewMode={viewMode}
         onViewModeChange={handleViewModeChange}
+        savedViews={savedViews}
+        onSaveView={handleSaveTableView}
+        onApplyView={handleApplyTableView}
+        onDeleteView={handleDeleteTableView}
       />
 
       {viewMode === "kanban" && kanbanStatusColumn ? (

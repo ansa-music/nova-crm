@@ -24,7 +24,6 @@ const PRIORITY_DOT: Record<string, string> = {
 };
 
 function notificationHref(n: Notification): string | null {
-  if (n.kind === "view-request") return null;
   if (typeof n.href === "string" && n.href.startsWith("/")) return n.href;
   if (n.relatedAnnouncementId) return "/announcements";
   if (typeof n.pageId === "string" && n.pageId) return "/page/" + n.pageId;
@@ -87,24 +86,34 @@ export function NotificationBell({ className }: { className?: string }) {
                 >
                   <span className={cn("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", PRIORITY_DOT[n.priority])} />
                   <div className="min-w-0 flex-1">
-                    <button
-                      type="button"
-                      className="w-full text-left"
-                      onClick={() => {
-                        if (activeWorkspaceId && !n.read) {
-                          markReadLocal(n.id);
-                          void markNotificationRead(activeWorkspaceId, n.id);
-                        }
-                        const dest = notificationHref(n);
-                        if (dest) navigate(dest);
-                      }}
-                    >
-                      <p className="truncate text-sm font-medium">{n.title}</p>
-                      <p className="line-clamp-2 text-xs text-muted-foreground">{n.body}</p>
-                      <p className="mt-0.5 text-[10px] text-muted-foreground">
-                        {n.fromName} · {timeAgo(n.createdAt)}
-                      </p>
-                    </button>
+                    {pending ? (
+                      <div>
+                        <p className="truncate text-sm font-medium">{n.title}</p>
+                        <p className="line-clamp-2 text-xs text-muted-foreground">{n.body}</p>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">
+                          {n.fromName} · {timeAgo(n.createdAt)}
+                        </p>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="w-full text-left"
+                        onClick={() => {
+                          if (activeWorkspaceId && !n.read) {
+                            markReadLocal(n.id);
+                            void markNotificationRead(activeWorkspaceId, n.id);
+                          }
+                          const dest = notificationHref(n);
+                          if (dest) navigate(dest);
+                        }}
+                      >
+                        <p className="truncate text-sm font-medium">{n.title}</p>
+                        <p className="line-clamp-2 text-xs text-muted-foreground">{n.body}</p>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">
+                          {n.fromName} · {timeAgo(n.createdAt)}
+                        </p>
+                      </button>
+                    )}
                     {pending && req ? (
                       <div className="mt-2 flex gap-2">
                         <Button

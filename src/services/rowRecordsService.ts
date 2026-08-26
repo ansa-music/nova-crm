@@ -195,6 +195,19 @@ export async function fetchRowRecords(pageId: string, subPageId: string | null):
   return (data ?? []).map((row) => recordToPageRow(row as RowRecordPayload));
 }
 
+// mirrorPatchRowCells/patchRowRecord do their own read-then-write round trip
+// (select current cells, merge the one changed field, upsert) with no lock —
+// two edits to the same row within that window (e.g. Tab-ing across cells,
+// or a slow connection) can interleave and the later upsert to actually land
+// silently drops whatever the other one wrote. That lost update still shows
+// up as a real, newer `updated_at` on the row Supabase reports. 250ms was
+// nowhere near enough margin to outlast that round trip (two sequential
+// network calls, worse on mobile), so a fast edit could visibly revert a
+// moment after being typed. Firestore is the documented source of truth
+// here — Supabase only exists to nudge OTHER viewers faster — so give it a
+// wide berth before ever preferring Supabase's cells over Firestore's.
+const SUPABASE_PREFERRED_MARGIN_MS = 4000;
+
 /**
  * Prefer Supabase cells/order when a copy exists; Firestore is the existence
  * source so a failed supabase delete cannot resurrect a user-deleted row.
@@ -205,7 +218,7 @@ export function mergeFirestoreAndSupabaseRows(firestoreRows: PageRow[], supabase
   const merged = firestoreRows.map((fs) => {
     const sb = sbMap.get(fs.id);
     if (!sb) return fs;
-    const firestoreNewer = fs.updatedAt > sb.updatedAt + 250;
+    const firestoreNewer = fs.updatedAt > sb.updatedAt - SUPABASE_PREFERRED_MARGIN_MS;
     return {
       ...fs,
       cells: firestoreNewer ? fs.cells : sb.cells,

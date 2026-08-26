@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Keyboard,
+  KeyRound,
   Home,
   LayoutDashboard,
   LayoutGrid,
@@ -42,6 +43,7 @@ import { cn } from "@/utils/cn";
 import { useUiStore } from "@/store/uiStore";
 import { THEME_OPTIONS } from "@/components/layout/ThemeToggle";
 import { usePeopleDesks } from "@/hooks/usePeopleDesks";
+import { useInboxSummary } from "@/hooks/useInboxSummary";
 
 
 function navActiveClass(active: boolean, collapsed?: boolean) {
@@ -64,6 +66,7 @@ function AppNavLink({
   children,
   onNavigate,
   forceActive,
+  badge,
 }: {
   to: string;
   end?: boolean;
@@ -71,6 +74,7 @@ function AppNavLink({
   children: ReactNode;
   onNavigate?: () => void;
   forceActive?: boolean;
+  badge?: number;
 }) {
   return (
     <NavLink
@@ -80,7 +84,12 @@ function AppNavLink({
       className={({ isActive }) => navActiveClass(forceActive ?? isActive)}
     >
       <Icon className="h-4 w-4 shrink-0" />
-      <span className="truncate">{children}</span>
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+      {badge ? (
+        <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
+          {badge > 9 ? "9+" : badge}
+        </span>
+      ) : null}
     </NavLink>
   );
 }
@@ -90,6 +99,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   const { members, activeWorkspaceId, workspaces, activeWorkspace, setActiveWorkspaceId } = useWorkspace();
   const permissions = usePermissions();
   const { myDesk } = usePeopleDesks();
+  const { privateUnreadTotal, workspaceChatUnread } = useInboxSummary(
+    activeWorkspaceId,
+    profile?.uid ?? null,
+    { includeWorkspaceChat: true }
+  );
   const location = useLocation();
   const navigate = useNavigate();
   const pinnedCollapsed = useUiStore((s) => s.sidebarCollapsed) && !mobile;
@@ -127,16 +141,21 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
       >
         <div className={cn("mb-5 flex items-center", collapsed ? "justify-center" : "justify-between gap-2 pr-1")}>
           {collapsed ? (
-            <button type="button" onClick={goHome} className="wordmark text-lg" title="Главная">
-              N
-            </button>
+            <div className="flex flex-col items-center gap-2">
+              <button type="button" onClick={goHome} className="wordmark text-lg" title="Главная">
+                N
+              </button>
+              <NotificationBell />
+            </div>
           ) : (
-            <button type="button" onClick={goHome} className="flex min-w-0 items-center gap-2" title="Главная">
-              <span className="wordmark text-[22px] leading-none">NOVA</span>
-              <span className="desk-accent-mark h-4 w-0.5 shrink-0 rounded-full" aria-hidden />
-            </button>
+            <>
+              <button type="button" onClick={goHome} className="flex min-w-0 items-center gap-2" title="Главная">
+                <span className="wordmark text-[22px] leading-none">NOVA</span>
+                <span className="desk-accent-mark h-4 w-0.5 shrink-0 rounded-full" aria-hidden />
+              </button>
+              {!mobile && <NotificationBell />}
+            </>
           )}
-          {!collapsed && <NotificationBell />}
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-thin">
@@ -171,6 +190,56 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   >
                     <UsersRound className="h-4 w-4" />
                   </NavLink>
+                  <NavLink
+                    to="/settings"
+                    title="Настройки"
+                    onClick={() => onNavigate?.()}
+                    className={({ isActive }) => navActiveClass(isActive, true)}
+                  >
+                    <Settings className="h-4 w-4" />
+                  </NavLink>
+                  <NavLink
+                    to="/announcements"
+                    title="Объявления"
+                    onClick={() => onNavigate?.()}
+                    className={({ isActive }) => navActiveClass(isActive, true)}
+                  >
+                    <Megaphone className="h-4 w-4" />
+                  </NavLink>
+                  <NavLink
+                    to="/messages"
+                    title="Сообщения"
+                    onClick={() => onNavigate?.()}
+                    className={({ isActive }) => navActiveClass(isActive, true)}
+                  >
+                    <span className="relative">
+                      <MessageCircle className="h-4 w-4" />
+                      {privateUnreadTotal > 0 && (
+                        <span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-primary" />
+                      )}
+                    </span>
+                  </NavLink>
+                  <NavLink
+                    to="/chat"
+                    title="Чат"
+                    onClick={() => onNavigate?.()}
+                    className={({ isActive }) => navActiveClass(isActive, true)}
+                  >
+                    <span className="relative">
+                      <MessageSquare className="h-4 w-4" />
+                      {workspaceChatUnread > 0 && (
+                        <span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-primary" />
+                      )}
+                    </span>
+                  </NavLink>
+                  <NavLink
+                    to="/grok-limit"
+                    title="GROK LIMIT"
+                    onClick={() => onNavigate?.()}
+                    className={({ isActive }) => navActiveClass(isActive, true)}
+                  >
+                    <KeyRound className="h-4 w-4" />
+                  </NavLink>
                   {showUsersNav && (
                     <NavLink
                       to="/users"
@@ -195,6 +264,21 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   </AppNavLink>
                   <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
                     Люди
+                  </AppNavLink>
+                  <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
+                    Настройки
+                  </AppNavLink>
+                  <AppNavLink to="/announcements" icon={Megaphone} onNavigate={onNavigate}>
+                    Объявления
+                  </AppNavLink>
+                  <AppNavLink to="/messages" icon={MessageCircle} onNavigate={onNavigate} badge={privateUnreadTotal}>
+                    Сообщения
+                  </AppNavLink>
+                  <AppNavLink to="/chat" icon={MessageSquare} onNavigate={onNavigate} badge={workspaceChatUnread}>
+                    Чат
+                  </AppNavLink>
+                  <AppNavLink to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
+                    GROK LIMIT
                   </AppNavLink>
                   {showUsersNav && (
                     <AppNavLink to="/users" icon={Users} onNavigate={onNavigate}>
@@ -222,11 +306,17 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
                 Настройки
               </AppNavLink>
-              <AppNavLink to="/messages" icon={MessageCircle} onNavigate={onNavigate}>
+              <AppNavLink to="/announcements" icon={Megaphone} onNavigate={onNavigate}>
+                Объявления
+              </AppNavLink>
+              <AppNavLink to="/messages" icon={MessageCircle} onNavigate={onNavigate} badge={privateUnreadTotal}>
                 Сообщения
               </AppNavLink>
-              <AppNavLink to="/chat" icon={MessageSquare} onNavigate={onNavigate}>
+              <AppNavLink to="/chat" icon={MessageSquare} onNavigate={onNavigate} badge={workspaceChatUnread}>
                 Чат
+              </AppNavLink>
+              <AppNavLink to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
+                GROK LIMIT
               </AppNavLink>
               {showUsersNav && (
                 <AppNavLink to="/users" icon={Users} onNavigate={onNavigate}>
@@ -253,18 +343,23 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               <button
                 type="button"
                 className={cn(
-                  "flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl px-1.5 py-1 text-left hover:bg-sidebar-accent/80",
+                  "relative flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl px-1.5 py-1 text-left hover:bg-sidebar-accent/80",
                   collapsed && "flex-none justify-center px-0"
                 )}
               >
                 {profile ? (
-                  <MemberAvatar
-                    id={profile.uid}
-                    name={profile.name}
-                    nickname={profile.nickname}
-                    photoURL={profile.photoURL}
-                    className="h-8 w-8"
-                  />
+                  <span className="relative shrink-0">
+                    <MemberAvatar
+                      id={profile.uid}
+                      name={profile.name}
+                      nickname={profile.nickname}
+                      photoURL={profile.photoURL}
+                      className="h-8 w-8"
+                    />
+                    {privateUnreadTotal + workspaceChatUnread > 0 && (
+                      <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-primary" />
+                    )}
+                  </span>
                 ) : (
                   <Avatar className="h-8 w-8">
                     <AvatarFallback>
@@ -285,7 +380,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                 {!collapsed && <MoreVertical className="h-4 w-4 shrink-0 text-muted-foreground" />}
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="z-[300] w-56">
+            <DropdownMenuContent align="start" className="z-[330] w-56">
               {workspaces.map((ws) => (
                 <DropdownMenuItem key={ws.id} onClick={() => setActiveWorkspaceId(ws.id)}>
                   {ws.name}
@@ -313,11 +408,13 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               <DropdownMenuItem asChild>
                 <NavLink to="/chat" onClick={() => onNavigate?.()}>
                   <MessageSquare className="h-4 w-4" /> Чат Workspace
+                  {workspaceChatUnread > 0 ? ` · ${workspaceChatUnread > 9 ? "9+" : workspaceChatUnread}` : ""}
                 </NavLink>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <NavLink to="/messages" onClick={() => onNavigate?.()}>
                   <MessageCircle className="h-4 w-4" /> Сообщения
+                  {privateUnreadTotal > 0 ? ` · ${privateUnreadTotal > 9 ? "9+" : privateUnreadTotal}` : ""}
                 </NavLink>
               </DropdownMenuItem>
               {showUsersNav && (

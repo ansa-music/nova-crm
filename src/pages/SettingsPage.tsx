@@ -44,7 +44,6 @@ import {
   updateStatusOptions,
   updateWorkspace,
   updateAccentColor,
-  updateDashboardPages,
   addCustomField,
   renameCustomField,
   updateCustomFieldOptions,

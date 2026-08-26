@@ -9,6 +9,7 @@ import { downloadCsv } from "@/utils/csv";
 import { formatCurrency } from "@/utils/format";
 import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
 import { setPageMonthlyGoal } from "@/services/pageService";
+import { toast } from "@/components/ui/sonner";
 import type { PageColumn, PageRow, WorkspacePage } from "@/types";
 
 export function MyProgressCard({
@@ -40,13 +41,21 @@ export function MyProgressCard({
 
   const [editingGoal, setEditingGoal] = useState(false);
   const [goalInput, setGoalInput] = useState(String(page.monthlyGoal ?? ""));
+  const [isSavingGoal, setIsSavingGoal] = useState(false);
   const goal = page.monthlyGoal ?? 0;
   const goalPercent = goal > 0 ? Math.min(100, Math.round((doneTotal / goal) * 100)) : null;
 
   async function saveGoal() {
     const value = Number(goalInput);
-    await setPageMonthlyGoal(workspaceId, page.id, Number.isFinite(value) && value > 0 ? value : null);
-    setEditingGoal(false);
+    setIsSavingGoal(true);
+    try {
+      await setPageMonthlyGoal(workspaceId, page.id, Number.isFinite(value) && value > 0 ? value : null);
+      setEditingGoal(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить цель");
+    } finally {
+      setIsSavingGoal(false);
+    }
   }
 
   function handleExport() {
@@ -122,8 +131,9 @@ export function MyProgressCard({
                 placeholder="Например, 200000"
                 className="h-9"
                 onKeyDown={(e) => e.code === "Enter" && void saveGoal()}
+                disabled={isSavingGoal}
               />
-              <Button size="sm" className="h-9 rounded-full" onClick={() => void saveGoal()}>
+              <Button size="sm" className="h-9 rounded-full" onClick={() => void saveGoal()} disabled={isSavingGoal}>
                 Сохранить
               </Button>
             </div>

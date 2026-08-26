@@ -87,7 +87,6 @@ export function StatusChart({ title, data }: StatusChartProps) {
                     activeShape={ActiveSlice}
                     onMouseEnter={(_, index) => setActiveIndex(index)}
                     onMouseLeave={() => setActiveIndex(undefined)}
-                    cursor="pointer"
                   >
                     {visible.map((entry) => (
                       <Cell
@@ -104,9 +103,8 @@ export function StatusChart({ title, data }: StatusChartProps) {
             <ul className="mt-1 flex flex-wrap justify-center gap-x-3 gap-y-1 px-1 pb-1">
               {visible.map((entry, i) => (
                 <li key={entry.name}>
-                  <button
-                    type="button"
-                    className="flex items-center gap-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                  <span
+                    className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
                     onMouseEnter={() => setActiveIndex(i)}
                     onMouseLeave={() => setActiveIndex(undefined)}
                   >
@@ -116,7 +114,7 @@ export function StatusChart({ title, data }: StatusChartProps) {
                     />
                     {entry.name}
                     <span className="font-mono tabular">{entry.value}</span>
-                  </button>
+                  </span>
                 </li>
               ))}
             </ul>

@@ -22,10 +22,10 @@ import {
   renamePage,
   setPageAccentColor,
   setPageMonthlyGoal,
-  updateColumnStatusOptions,
   updatePageAppearance,
   updatePageColumns,
 } from "@/services/pageService";
+import { updateStatusOptions } from "@/services/workspaceService";
 import { removeDeskCover, uploadDeskCover } from "@/services/deskCoverService";
 import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { useDeskLayout } from "@/hooks/useDeskLayout";
@@ -133,8 +133,13 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
     }
   }
 
+  // Statuses are workspace-wide (see getColumnOptions) — saving here always
+  // updates the one shared list every desk reads, never a per-column copy.
+  // If THIS desk doesn't have a "Статус" column yet, also add one (unseeded,
+  // it just reads the shared list) so the edited statuses actually show up.
   async function handleSaveStatuses(options: StatusOption[]) {
     if (!page || !permissions.canManageStatusVariants) return;
+    await updateStatusOptions(page.workspaceId, options);
     const target = columns.find((c) => c.type === "status");
     if (!target) {
       const keys = new Set(columns.map((c) => c.key));
@@ -148,12 +153,10 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
         key,
         label: "Статус",
         type: "status",
-        statusOptions: options,
       });
       toast.success("Столбец «Статус» добавлен");
       return;
     }
-    await updateColumnStatusOptions(page.workspaceId, page.id, columns, target.key, options);
     toast.success("Статусы обновлены");
   }
 

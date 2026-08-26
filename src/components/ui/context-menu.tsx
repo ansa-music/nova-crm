@@ -35,7 +35,7 @@ export const ContextMenuSubContent = React.forwardRef<
   <ContextMenuPrimitive.SubContent
     ref={ref}
     className={cn(
-      "z-[130] min-w-[10rem] overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-popover",
+      "z-[340] min-w-[10rem] overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-popover",
       className
     )}
     {...props}
@@ -51,7 +51,7 @@ export const ContextMenuContent = React.forwardRef<
     <ContextMenuPrimitive.Content
       ref={ref}
       className={cn(
-        "z-[130] min-w-[14rem] overflow-hidden rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-popover animate-in fade-in-0 zoom-in-95",
+        "z-[340] min-w-[14rem] overflow-hidden rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-popover animate-in fade-in-0 zoom-in-95",
         className
       )}
       {...props}

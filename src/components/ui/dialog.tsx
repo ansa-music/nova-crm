@@ -15,7 +15,7 @@ export const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-[100] bg-black/60 max-lg:backdrop-blur-none lg:bg-background/70 lg:backdrop-blur-[10px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-280",
+      "fixed inset-0 z-[300] bg-black/60 max-lg:backdrop-blur-none lg:bg-background/70 lg:backdrop-blur-[10px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-280",
       className
     )}
     {...props}
@@ -32,7 +32,14 @@ export const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "glass-float animate-glass-pop fixed left-[50%] top-[50%] z-[110] grid w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 rounded-md p-6 hud-frame",
+        // max-h + overflow-y-auto is load-bearing, not decorative: without
+        // it a dialog taller than the viewport (a long list, a small laptop
+        // screen, a phone) has no scroll mechanism at all — it's centered
+        // via fixed + translate(-50%,-50%), so it simply extends off both
+        // the top and bottom edges with the parts past the edges completely
+        // unreachable. Every dialog built on this component inherits the
+        // fix; don't remove it in a caller's className override.
+        "glass-float animate-glass-pop fixed left-[50%] top-[50%] z-[310] grid max-h-[85vh] w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-md p-6 hud-frame",
         className
       )}
       {...props}
