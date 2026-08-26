@@ -3,17 +3,13 @@ import { Download, Plus, Search, Rows3, Columns3, Table2, Kanban, MoreHorizontal
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/utils/cn";
@@ -80,46 +76,9 @@ export function TableToolbar({
   const [searchOpen, setSearchOpen] = useState(Boolean(searchQuery));
   // A hidden column disappears from the table entirely — its own header
   // (and the "Показать столбец" toggle on it) goes with it — so the ONLY
-  // way back is this "Столбцы" panel. Badge it whenever something's hidden,
-  // otherwise it's undiscoverable: nothing else in the table hints that a
-  // column even exists to bring back.
+  // way back is this menu's "Столбцы" entry. Badge the trigger whenever
+  // something's hidden, otherwise it's undiscoverable.
   const hiddenColumnCount = columns.filter((c) => c.hidden).length;
-  const extraMenu = (
-    <>
-      {viewMode === "table" && (
-        <>
-          {columns.map((c) => (
-            <DropdownMenuItem key={c.id} onClick={() => onGroupByChange(c.key)}>
-              Группировать: {c.label}
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuItem onClick={() => onGroupByChange(null)}>Без группировки</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {(Object.keys(DENSITY_LABELS) as TableToolbarProps["density"][]).map((d) => (
-            <DropdownMenuItem key={d} onClick={() => onDensityChange(d)}>
-              {DENSITY_LABELS[d]}
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuSeparator />
-        </>
-      )}
-      {hasStatusColumn && (
-        <>
-          <DropdownMenuItem onClick={() => onViewModeChange("table")}>Таблица</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onViewModeChange("kanban")}>Канбан</DropdownMenuItem>
-          <DropdownMenuSeparator />
-        </>
-      )}
-      <DropdownMenuItem onClick={onExportCsv}>
-        <Download className="h-3.5 w-3.5" /> CSV
-      </DropdownMenuItem>
-      {canEditStructure && (
-        <DropdownMenuItem onClick={onAddColumn}>
-          <Columns3 className="h-3.5 w-3.5" /> Столбец
-        </DropdownMenuItem>
-      )}
-    </>
-  );
 
   const searchExpanded = searchOpen || Boolean(searchQuery);
 
@@ -128,7 +87,7 @@ export function TableToolbar({
       <div
         className={cn(
           "relative min-w-0",
-          searchExpanded ? "flex-1 sm:w-64 sm:flex-none" : "w-10 shrink-0 sm:w-64 sm:flex-none"
+          searchExpanded ? "flex-1 sm:w-56 sm:flex-none" : "w-10 shrink-0 sm:w-56 sm:flex-none"
         )}
       >
         {!searchExpanded && (
@@ -213,41 +172,8 @@ export function TableToolbar({
         </div>
       )}
 
-      {viewMode === "table" && (
-        <div className="hidden items-center gap-2 sm:flex">
-          <Select value={groupByKey ?? "__none__"} onValueChange={(v) => onGroupByChange(v === "__none__" ? null : v)}>
-            <SelectTrigger className="h-8 w-44 rounded-md">
-              <SelectValue placeholder="Группировка" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">Без группировки</SelectItem>
-              {columns.map((c) => (
-                <SelectItem key={c.id} value={c.key}>
-                  По полю «{c.label}»
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8 gap-1.5 bg-background">
-                <Rows3 className="h-3.5 w-3.5" /> {DENSITY_LABELS[density]}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              {(Object.keys(DENSITY_LABELS) as TableToolbarProps["density"][]).map((d) => (
-                <DropdownMenuItem key={d} onClick={() => onDensityChange(d)}>
-                  {DENSITY_LABELS[d]}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      )}
-
       {hasStatusColumn && (
-        <div className="hidden items-center gap-0.5 rounded-full border border-border bg-background p-0.5 sm:flex">
+        <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-background p-0.5">
           <Button
             variant={viewMode === "table" ? "secondary" : "ghost"}
             size="sm"
@@ -271,44 +197,15 @@ export function TableToolbar({
 
       <div className="hidden flex-1 sm:block" />
 
-      <Button variant="outline" size="sm" className="hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onExportCsv}>
-        <Download className="h-3.5 w-3.5" /> CSV
-      </Button>
-
-      {canEditStructure && (
-        <>
-          <Button variant="outline" size="sm" className="relative hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onOpenSchema ?? onAddColumn}>
-            <SlidersHorizontal className="h-3.5 w-3.5" /> Столбцы
-            {hiddenColumnCount > 0 && (
-              <span
-                className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground"
-                title={`Скрытых столбцов: ${hiddenColumnCount}`}
-              >
-                {hiddenColumnCount}
-              </span>
-            )}
-          </Button>
-          {canManageStatuses && (
-          <Button variant="outline" size="sm" className="hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onManageStatuses}>
-            <Palette className="h-3.5 w-3.5" /> Статусы
-          </Button>
-          )}
-          <Button variant="outline" size="sm" className="hidden h-8 gap-1.5 bg-background sm:inline-flex" onClick={onAddColumn}>
-            <Columns3 className="h-3.5 w-3.5" /> Столбец
-          </Button>
-        </>
-      )}
-
-      {canEditStructure && (
-        <>
-          <Button
-            variant="outline"
-            size="icon"
-            className="relative h-10 w-10 shrink-0 sm:hidden"
-            onClick={onOpenSchema ?? onAddColumn}
-            title="Столбцы"
-          >
-            <SlidersHorizontal className="h-4 w-4" />
+      {/* Everything else — grouping, plotность, CSV, столбцы, статусы —
+          lives behind one menu on every screen size. Nine always-visible
+          buttons made the toolbar noisy and, on narrow screens, pushed the
+          one button people actually reach for (Строка) out of view. One
+          entry point, same features, none of them lost. */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="icon" className="relative h-10 w-10 shrink-0 sm:h-8 sm:w-8" title="Ещё">
+            <MoreHorizontal className="h-4 w-4" />
             {hiddenColumnCount > 0 && (
               <span
                 className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground"
@@ -318,36 +215,67 @@ export function TableToolbar({
               </span>
             )}
           </Button>
-          {canManageStatuses && (
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-10 w-10 shrink-0 sm:hidden"
-            onClick={onManageStatuses}
-            title="Статусы"
-          >
-            <Palette className="h-4 w-4" />
-          </Button>
-          )}
-        </>
-      )}
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="icon" className="h-10 w-10 shrink-0 sm:hidden" title="Ещё">
-            <MoreHorizontal className="h-4 w-4" />
-          </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">{extraMenu}</DropdownMenuContent>
+        <DropdownMenuContent align="end" className="w-56">
+          {viewMode === "table" && (
+            <>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>Группировка{groupByKey ? ": " + (columns.find((c) => c.key === groupByKey)?.label ?? "") : ""}</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <DropdownMenuItem onClick={() => onGroupByChange(null)}>Без группировки</DropdownMenuItem>
+                  {columns.map((c) => (
+                    <DropdownMenuItem key={c.id} onClick={() => onGroupByChange(c.key)}>
+                      {c.label}
+                      {groupByKey === c.key && " ✓"}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Rows3 className="h-3.5 w-3.5" /> Плотность: {DENSITY_LABELS[density]}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {(Object.keys(DENSITY_LABELS) as TableToolbarProps["density"][]).map((d) => (
+                    <DropdownMenuItem key={d} onClick={() => onDensityChange(d)}>
+                      {DENSITY_LABELS[d]}
+                      {density === d && " ✓"}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSeparator />
+            </>
+          )}
+          <DropdownMenuItem onClick={onExportCsv}>
+            <Download className="h-3.5 w-3.5" /> CSV
+          </DropdownMenuItem>
+          {canEditStructure && (
+            <>
+              <DropdownMenuItem onClick={onOpenSchema ?? onAddColumn}>
+                <SlidersHorizontal className="h-3.5 w-3.5" /> Столбцы
+                {hiddenColumnCount > 0 && ` (скрыто: ${hiddenColumnCount})`}
+              </DropdownMenuItem>
+              {canManageStatuses && (
+                <DropdownMenuItem onClick={onManageStatuses}>
+                  <Palette className="h-3.5 w-3.5" /> Статусы
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={onAddColumn}>
+                <Columns3 className="h-3.5 w-3.5" /> Добавить столбец
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
       </DropdownMenu>
 
       {canEdit && (
         // Sticky to the scroll container's right edge: on a phone this toolbar
-        // scrolls horizontally (status chips + group/density/CSV before it), so
-        // without this the single most-used button could sit off-screen with no
-        // visual hint to scroll for it. Sticky keeps it reachable at any scroll
-        // position; sm:static drops the pinning once the toolbar wraps instead
-        // of scrolling.
+        // scrolls horizontally (status chips before it), so without this the
+        // single most-used button could sit off-screen with no visual hint to
+        // scroll for it. Sticky keeps it reachable at any scroll position;
+        // sm:static drops the pinning once the toolbar wraps instead of
+        // scrolling.
         <Button
           size="sm"
           className="sticky right-0 z-20 ml-1 h-10 shrink-0 gap-1.5 shadow-[-8px_0_8px_-4px_hsl(222_55%_6%)] sm:static sm:ml-0 sm:h-8 sm:shadow-none"
