@@ -5,9 +5,26 @@ import { StatusBadge } from "@/components/table/StatusBadge";
 import { DiskLinkChip } from "@/components/table/DiskLinkChip";
 import { formatCurrency } from "@/utils/format";
 import { formatDate } from "@/utils/date";
-import { isOptionColumn } from "@/utils/columnOptions";
+import { DEFAULT_STATUS_OPTIONS, isDoneStatusLabel, isOptionColumn } from "@/utils/columnOptions";
+import { cn } from "@/utils/cn";
 import { parseHttpUrl } from "@/utils/httpUrl";
 import type { PageColumn, PageRow } from "@/types";
+
+
+function isReworkStatusLabel(label: string): boolean {
+  const l = label.toLowerCase();
+  return l.includes("передел") || l.includes("rework") || l.includes("redo");
+}
+
+function headerTintForStatus(label: string): string {
+  if (isReworkStatusLabel(label)) {
+    return "bg-red-500/[0.13] shadow-[inset_0_0_32px_rgba(239,68,68,0.22)]";
+  }
+  if (isDoneStatusLabel(label)) {
+    return "bg-emerald-500/[0.11] shadow-[inset_0_0_32px_rgba(16,185,129,0.18)]";
+  }
+  return "";
+}
 
 export function rowCardLayoutId(rowId: string) {
   return `row-card-${rowId}`;
@@ -50,6 +67,10 @@ export function RowCardSheet({
 
   const statusCol = columns.find((c) => c.type === "status");
   const responsibleCol = columns.find((c) => c.type === "responsible");
+  const statusOptions = statusCol?.statusOptions?.length ? statusCol.statusOptions : DEFAULT_STATUS_OPTIONS;
+  const rawStatus = record && statusCol ? String(record.cells[statusCol.key] ?? "") : "";
+  const statusLabel = statusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
+  const headerTint = headerTintForStatus(statusLabel);
   const identityKeys = new Set([titleCol?.key, statusCol?.key, responsibleCol?.key].filter(Boolean) as string[]);
   const rest = columns.filter((c) => !identityKeys.has(c.key));
 
@@ -100,7 +121,7 @@ export function RowCardSheet({
               className="hud-frame glass-float pointer-events-auto flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-md"
               transition={{ type: "spring", stiffness: 400, damping: 30 }}
             >
-              <div className="border-b border-white/10 px-6 py-6 text-left">
+              <div className={cn("border-b border-white/10 px-6 py-6 text-left", headerTint)}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="eyebrow mb-2 text-primary">Человек</p>
