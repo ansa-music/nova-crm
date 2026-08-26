@@ -81,6 +81,14 @@ export default function GrokAppsPage() {
     toast.success("Подписка удалена");
   }
 
+  const CHIP_TONE: Record<ProviderFilter, string> = {
+    all: "border-primary/50 bg-primary/15 text-primary",
+    elevenlabs: "border-amber-400/50 bg-amber-400/15 text-amber-300",
+    higgsfield: "border-emerald-400/50 bg-emerald-400/15 text-emerald-300",
+    suno: "border-rose-400/50 bg-rose-400/15 text-rose-300",
+    other: "border-violet-400/50 bg-violet-400/15 text-violet-300",
+  };
+
   const filters: { id: ProviderFilter; label: string; count: number }[] = [
     { id: "all", label: "Все", count: counts.all },
     ...GROK_APP_PROVIDERS.map((item) => ({ id: item.id, label: item.label, count: counts[item.id] ?? 0 })),
@@ -113,7 +121,7 @@ export default function GrokAppsPage() {
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
                 provider === item.id
-                  ? "border-primary/50 bg-primary/15 text-primary"
+                  ? CHIP_TONE[item.id]
                   : "border-border bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground"
               )}
             >
