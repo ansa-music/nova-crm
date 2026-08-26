@@ -5,6 +5,11 @@ import { generateId } from "@/utils/id";
 import { normalizeTimestamp } from "@/utils/date";
 import type { GrokAccount } from "@/types";
 
+/** Missing `available` (accounts created before that field existed) reads as available. */
+export function isGrokAccountAvailable(account: GrokAccount): boolean {
+  return account.available ?? true;
+}
+
 function mapAccounts(docs: { id: string; data: () => import("firebase/firestore").DocumentData }[]): GrokAccount[] {
   const items = docs.map((d) => ({ id: d.id, ...d.data() }) as GrokAccount);
   items.forEach((a) => {
@@ -12,8 +17,12 @@ function mapAccounts(docs: { id: string; data: () => import("firebase/firestore"
     a.updatedAt = normalizeTimestamp(a.updatedAt);
     if (a.limitResetAt != null) a.limitResetAt = normalizeTimestamp(a.limitResetAt);
   });
-  // Soonest-to-refresh first, accounts with no known reset time last.
+  // Available accounts first (that's what people are scanning for); among
+  // the unavailable ones, soonest-to-refresh first, unknown reset time last.
   items.sort((a, b) => {
+    const aAvail = isGrokAccountAvailable(a);
+    const bAvail = isGrokAccountAvailable(b);
+    if (aAvail !== bAvail) return aAvail ? -1 : 1;
     if (a.limitResetAt == null && b.limitResetAt == null) return b.createdAt - a.createdAt;
     if (a.limitResetAt == null) return 1;
     if (b.limitResetAt == null) return -1;
@@ -45,6 +54,9 @@ export async function createGrokAccount(input: CreateGrokAccountInput): Promise<
     workspaceId: input.workspaceId,
     email: input.email.trim(),
     password: input.password,
+    // A newly added account is assumed usable until someone says otherwise —
+    // only relevant if a reset time in the future was already typed in.
+    available: input.limitResetAt == null || input.limitResetAt <= now,
     limitResetAt: input.limitResetAt,
     updatedByUid: input.actorUid,
     updatedByName: input.actorName,
@@ -60,6 +72,7 @@ export interface UpdateGrokAccountInput {
   email?: string;
   password?: string;
   limitResetAt?: number | null;
+  available?: boolean;
 }
 
 /** Any edit — including just hitting "Актуализировать" with an empty patch — re-stamps who touched it last. */

@@ -10,7 +10,14 @@ export interface GrokAccount {
   workspaceId: string;
   email: string;
   password: string;
-  /** When the account's limit refreshes — ms epoch, or null if unknown/not set. */
+  /**
+   * The one-tap status — this, not limitResetAt, is what the card's
+   * Доступно/Недоступно button shows and toggles. Optional only because
+   * accounts created before this field existed don't have it yet; treat a
+   * missing value as available (see isGrokAccountAvailable in the page).
+   */
+  available?: boolean;
+  /** When the account's limit refreshes — ms epoch, or null if unknown/not set. Supplementary info, shown alongside the status but doesn't drive it. */
   limitResetAt: number | null;
   updatedByUid: string;
   updatedByName: string;

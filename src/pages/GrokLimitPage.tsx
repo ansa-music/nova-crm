@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Copy, Eye, EyeOff, KeyRound, Plus, RefreshCw, Trash2, Pencil } from "lucide-react";
+import { Ban, CheckCircle2, Copy, Eye, EyeOff, KeyRound, Plus, RefreshCw, Trash2, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { GrokAccountDialog } from "@/components/grok/GrokAccountDialog";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
 import { useGrokAccounts } from "@/hooks/useGrokAccounts";
-import { deleteGrokAccount, updateGrokAccount } from "@/services/grokAccountService";
+import { deleteGrokAccount, isGrokAccountAvailable, updateGrokAccount } from "@/services/grokAccountService";
 import { displayNameOf } from "@/utils/displayName";
 import { formatDate, formatDateTimeManual, parseDateTimeManual, timeAgo, MANUAL_DATETIME_PLACEHOLDER } from "@/utils/date";
 import { cn } from "@/utils/cn";
@@ -50,8 +50,6 @@ export default function GrokLimitPage() {
     toast.success("Аккаунт удалён");
   }
 
-  const now = Date.now();
-
   return (
     <div className="flex h-full flex-col">
       <div className="page-header">
@@ -81,7 +79,6 @@ export default function GrokLimitPage() {
           )}
           {accounts.map((account) => {
             const isRevealed = revealed.has(account.id);
-            const isAvailable = account.limitResetAt == null || account.limitResetAt <= now;
             return (
               <Card key={account.id} className="hud-frame glass-panel">
                 <CardContent className="flex flex-col gap-3 p-4">
@@ -97,14 +94,6 @@ export default function GrokLimitPage() {
                         >
                           <Copy className="h-3.5 w-3.5" />
                         </button>
-                        <span
-                          className={cn(
-                            "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium",
-                            isAvailable ? "bg-success/15 text-success" : "bg-warning/15 text-warning"
-                          )}
-                        >
-                          {isAvailable ? "Доступен" : "Ограничен"}
-                        </span>
                       </div>
 
                       <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
@@ -141,7 +130,8 @@ export default function GrokLimitPage() {
                       </p>
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-1">
+                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                      <AvailabilityToggle account={account} onSaved={reload} />
                       <ActualizePopover account={account} onSaved={reload} />
                       <Button
                         variant="ghost"
@@ -194,10 +184,62 @@ export default function GrokLimitPage() {
 }
 
 /**
- * "Актуализировать" — the whole point of the feature: whoever just checked
- * an account types the new reset time by hand (26.08.2026 17:25) right from
- * the list, no need to open the full edit dialog. "Нет лимита" one-click
- * clears it (account usable right now). Either way it re-stamps who/when.
+ * The one-tap status button asked for: a single click flips Доступно ⇄
+ * Недоступно right on the card, no popover, no typing — for the common
+ * case of "I just tried it, here's the answer" where the exact restore
+ * time isn't the point. Big and unambiguous on purpose (this is the
+ * button people will hit most). Still re-stamps who/when like any other
+ * actualization.
+ */
+function AvailabilityToggle({ account, onSaved }: { account: GrokAccount; onSaved: () => Promise<void> | void }) {
+  const { profile } = useAuth();
+  const { activeWorkspaceId } = useWorkspace();
+  const [isSaving, setIsSaving] = useState(false);
+  const available = isGrokAccountAvailable(account);
+
+  async function toggle() {
+    if (!activeWorkspaceId || !profile) return;
+    setIsSaving(true);
+    try {
+      await updateGrokAccount(
+        activeWorkspaceId,
+        account.id,
+        { available: !available },
+        profile.uid,
+        displayNameOf(profile)
+      );
+      await onSaved();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось обновить");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <Button
+      size="sm"
+      disabled={isSaving}
+      onClick={toggle}
+      title={available ? "Отметить как недоступный" : "Отметить как доступный"}
+      className={cn(
+        "h-8 gap-1.5 border font-medium",
+        available
+          ? "border-success/40 bg-success/15 text-success hover:bg-success/25"
+          : "border-warning/40 bg-warning/15 text-warning hover:bg-warning/25"
+      )}
+    >
+      {available ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />}
+      {available ? "Доступно" : "Недоступно"}
+    </Button>
+  );
+}
+
+/**
+ * "Актуализировать" — type the exact reset time by hand (26.08.2026 17:25)
+ * right from the list, no need to open the full edit dialog. Purely
+ * supplementary info: saving it does NOT itself flip Доступно/Недоступно —
+ * use the button above for that.
  */
 function ActualizePopover({ account, onSaved }: { account: GrokAccount; onSaved: () => Promise<void> | void }) {
   const { profile } = useAuth();
@@ -211,14 +253,17 @@ function ActualizePopover({ account, onSaved }: { account: GrokAccount; onSaved:
     if (next) setValue(formatDateTimeManual(account.limitResetAt));
   }
 
-  async function save(limitResetAt: number | null) {
-    if (!activeWorkspaceId || !profile) return;
+  const parsed = parseDateTimeManual(value);
+  const invalid = parsed === undefined;
+
+  async function save() {
+    if (!activeWorkspaceId || !profile || invalid) return;
     setIsSaving(true);
     try {
       await updateGrokAccount(
         activeWorkspaceId,
         account.id,
-        { limitResetAt },
+        { limitResetAt: parsed ?? null },
         profile.uid,
         displayNameOf(profile)
       );
@@ -232,13 +277,10 @@ function ActualizePopover({ account, onSaved }: { account: GrokAccount; onSaved:
     }
   }
 
-  const parsed = parseDateTimeManual(value);
-  const invalid = parsed === undefined;
-
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 gap-1.5" title="Указать/обновить время восстановления">
+        <Button variant="outline" size="sm" className="h-8 gap-1.5" title="Указать/обновить время восстановления">
           <RefreshCw className="h-3.5 w-3.5" />
           Актуализировать
         </Button>
@@ -252,18 +294,15 @@ function ActualizePopover({ account, onSaved }: { account: GrokAccount; onSaved:
           autoFocus
           className={cn("tabular-nums", invalid && "border-destructive focus-visible:ring-destructive")}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !invalid) save(parsed ?? null);
+            if (e.key === "Enter" && !invalid) save();
           }}
         />
         <p className={cn("mt-1.5 text-xs text-muted-foreground", invalid && "text-destructive")}>
-          {invalid ? `Формат: ${MANUAL_DATETIME_PLACEHOLDER}` : `Формат: ${MANUAL_DATETIME_PLACEHOLDER}`}
+          Формат: {MANUAL_DATETIME_PLACEHOLDER} — оставьте пустым, если неизвестно
         </p>
-        <div className="mt-3 flex items-center justify-between gap-2">
-          <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-muted-foreground" onClick={() => save(null)} disabled={isSaving}>
-            Лимита нет
-          </Button>
-          <Button size="sm" className="h-7 gap-1.5" onClick={() => save(parsed ?? null)} disabled={isSaving || invalid}>
-            <Check className="h-3.5 w-3.5" /> Сохранить
+        <div className="mt-3 flex justify-end">
+          <Button size="sm" className="h-7 gap-1.5" onClick={save} disabled={isSaving || invalid}>
+            Сохранить
           </Button>
         </div>
       </PopoverContent>
