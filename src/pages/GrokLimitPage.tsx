@@ -9,7 +9,7 @@ import { GrokAccountDialog } from "@/components/grok/GrokAccountDialog";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
 import { useGrokAccounts } from "@/hooks/useGrokAccounts";
-import { deleteGrokAccount, isGrokAccountAvailable, updateGrokAccount } from "@/services/grokAccountService";
+import { deleteGrokAccount, getGrokAccountStatus, isGrokAccountAvailable, updateGrokAccount } from "@/services/grokAccountService";
 import { displayNameOf } from "@/utils/displayName";
 import { formatDate, formatDateTimeManual, parseDateTimeManual, timeAgo, MANUAL_DATETIME_PLACEHOLDER } from "@/utils/date";
 import { cn } from "@/utils/cn";
@@ -196,6 +196,7 @@ function AvailabilityToggle({ account, onSaved }: { account: GrokAccount; onSave
   const { activeWorkspaceId } = useWorkspace();
   const [isSaving, setIsSaving] = useState(false);
   const available = isGrokAccountAvailable(account);
+  const status = getGrokAccountStatus(account);
 
   async function toggle() {
     if (!activeWorkspaceId || !profile) return;
@@ -221,12 +222,18 @@ function AvailabilityToggle({ account, onSaved }: { account: GrokAccount; onSave
       size="sm"
       disabled={isSaving}
       onClick={toggle}
-      title={available ? "Отметить как недоступный" : "Отметить как доступный"}
+      title={
+        available
+          ? "Отметить как недоступный"
+          : status === "resetToday"
+            ? "Восстанавливается сегодня — отметить как доступный"
+            : "Отметить как доступный"
+      }
       className={cn(
         "h-8 gap-1.5 border font-medium",
-        available
-          ? "border-success/40 bg-success/15 text-success hover:bg-success/25"
-          : "border-warning/40 bg-warning/15 text-warning hover:bg-warning/25"
+        status === "available" && "border-success/40 bg-success/15 text-success hover:bg-success/25",
+        status === "resetToday" && "border-warning/40 bg-warning/15 text-warning hover:bg-warning/25",
+        status === "unavailable" && "border-destructive/40 bg-destructive/15 text-destructive hover:bg-destructive/25"
       )}
     >
       {available ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />}

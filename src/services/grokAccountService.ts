@@ -2,13 +2,29 @@ import { deleteDoc, getDocs, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
-import { normalizeTimestamp } from "@/utils/date";
+import { isSameLocalDay, normalizeTimestamp } from "@/utils/date";
 import type { GrokAccount } from "@/types";
 
 /** Missing `available` (accounts created before that field existed) reads as available. */
 export function isGrokAccountAvailable(account: GrokAccount): boolean {
   return account.available ?? true;
 }
+
+export type GrokAccountStatus = "available" | "resetToday" | "unavailable";
+
+/**
+ * Three-tier status the card's color and sort position both key off:
+ * green "available" (the Доступно/Недоступно toggle), amber "resetToday"
+ * (still marked unavailable, but its typed reset date is today — worth
+ * checking again soon), red "unavailable" otherwise.
+ */
+export function getGrokAccountStatus(account: GrokAccount, now: number = Date.now()): GrokAccountStatus {
+  if (isGrokAccountAvailable(account)) return "available";
+  if (account.limitResetAt != null && isSameLocalDay(account.limitResetAt, now)) return "resetToday";
+  return "unavailable";
+}
+
+const STATUS_RANK: Record<GrokAccountStatus, number> = { available: 0, resetToday: 1, unavailable: 2 };
 
 function mapAccounts(docs: { id: string; data: () => import("firebase/firestore").DocumentData }[]): GrokAccount[] {
   const items = docs.map((d) => ({ id: d.id, ...d.data() }) as GrokAccount);
@@ -17,12 +33,13 @@ function mapAccounts(docs: { id: string; data: () => import("firebase/firestore"
     a.updatedAt = normalizeTimestamp(a.updatedAt);
     if (a.limitResetAt != null) a.limitResetAt = normalizeTimestamp(a.limitResetAt);
   });
-  // Available accounts first (that's what people are scanning for); among
-  // the unavailable ones, soonest-to-refresh first, unknown reset time last.
+  // Available accounts at the top (that's what people are scanning for),
+  // then ones resetting today, then everything else at the bottom —
+  // soonest-to-refresh first within a tier, unknown reset time last.
+  const now = Date.now();
   items.sort((a, b) => {
-    const aAvail = isGrokAccountAvailable(a);
-    const bAvail = isGrokAccountAvailable(b);
-    if (aAvail !== bAvail) return aAvail ? -1 : 1;
+    const rankDiff = STATUS_RANK[getGrokAccountStatus(a, now)] - STATUS_RANK[getGrokAccountStatus(b, now)];
+    if (rankDiff !== 0) return rankDiff;
     if (a.limitResetAt == null && b.limitResetAt == null) return b.createdAt - a.createdAt;
     if (a.limitResetAt == null) return 1;
     if (b.limitResetAt == null) return -1;

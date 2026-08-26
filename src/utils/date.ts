@@ -39,6 +39,13 @@ export function formatDateTimeManual(ms: number | null | undefined): string {
   return format(new Date(ms), MANUAL_DATETIME_FORMAT);
 }
 
+/** Same calendar day on the device's local clock — not UTC, matches how the manual field is typed/read. */
+export function isSameLocalDay(a: number, b: number): boolean {
+  const da = new Date(a);
+  const db = new Date(b);
+  return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+}
+
 /** Returns null for an empty string ("no date set"), or undefined if the text doesn't parse as a valid date. */
 export function parseDateTimeManual(value: string): number | null | undefined {
   const trimmed = value.trim();
