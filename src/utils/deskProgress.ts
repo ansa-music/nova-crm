@@ -83,6 +83,30 @@ export function monthOrderCounts(
 }
 
 
+
+/** Pieces across every loaded row. No date filter. Status via isDoneStatusLabel. */
+export function nowOrderCounts(
+  desks: PageProgress[],
+  statusOptions: StatusOption[]
+): { open: number; done: number } {
+  let open = 0;
+  let done = 0;
+  for (const desk of desks) {
+    const statusCol = desk.columns.find((c) => c.type === "status");
+    for (const row of desk.rows) {
+      if (!statusCol) {
+        open += 1;
+        continue;
+      }
+      const rawStatus = String(row.cells[statusCol.key] ?? "");
+      const label = statusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
+      if (isDoneStatusLabel(label)) done += 1;
+      else open += 1;
+    }
+  }
+  return { open, done };
+}
+
 export type MonthOrderCount = {
   key: string;
   label: string;

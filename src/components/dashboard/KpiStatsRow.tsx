@@ -1,4 +1,4 @@
-import { DollarSign, LayoutGrid } from "lucide-react";
+import { CheckCircle2, Clock, DollarSign, LayoutGrid } from "lucide-react";
 import { KpiStatCard } from "@/components/dashboard/KpiStatCard";
 import {
   deskCountTrend,
@@ -8,7 +8,7 @@ import {
   weekDelta,
 } from "@/utils/dashboardTrends";
 import { formatCurrency, formatNumber } from "@/utils/format";
-import { monthOrderCountsByMonth, type PageProgress } from "@/utils/deskProgress";
+import { monthOrderCountsByMonth, nowOrderCounts, type PageProgress } from "@/utils/deskProgress";
 import { ymdInTimeZone } from "@/utils/date";
 import type { StatusOption } from "@/types";
 
@@ -29,6 +29,7 @@ export function KpiStatsRow({ desks, statusOptions }: { desks: PageProgress[]; s
   const revTrend = revenueTrend(desks);
 
   const grandTotal = desks.reduce((sum, d) => sum + d.grandTotal, 0);
+  const nowCounts = nowOrderCounts(desks, statusOptions);
   const byMonth = monthOrderCountsByMonth(desks, statusOptions);
   const thisMonth = ymdInTimeZone(Date.now()).slice(0, 7);
 
@@ -54,6 +55,18 @@ export function KpiStatsRow({ desks, statusOptions }: { desks: PageProgress[]; s
           value={formatCompactKzt(grandTotal)}
           trend={revTrend}
           delta={revenueMonthDelta(desks)}
+        />
+        <KpiStatCard
+          icon={Clock}
+          color="42 88% 56%"
+          label="Сейчас в работе"
+          value={formatNumber(nowCounts.open)}
+        />
+        <KpiStatCard
+          icon={CheckCircle2}
+          color="150 48% 46%"
+          label="Сейчас готово"
+          value={formatNumber(nowCounts.done)}
         />
       </div>
       {byMonth.length > 0 ? (
