@@ -28,12 +28,17 @@ service cloud.firestore {
       return memberDoc(workspaceId, request.auth.uid).data.role;
     }
 
+    function isDocOwner(workspaceId) {
+      return signedIn() &&
+        get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '') == request.auth.uid;
+    }
+
     function isOwner(workspaceId) {
-      return isMember(workspaceId) && myRole(workspaceId) == 'owner';
+      return isDocOwner(workspaceId) || (isMember(workspaceId) && myRole(workspaceId) == 'owner');
     }
 
     function isOwnerOrAdmin(workspaceId) {
-      return isMember(workspaceId) && (myRole(workspaceId) == 'owner' || myRole(workspaceId) == 'admin');
+      return isOwner(workspaceId) || (isMember(workspaceId) && myRole(workspaceId) == 'admin');
     }
 
 
@@ -258,6 +263,12 @@ service cloud.firestore {
               getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/managerPageClaims/$(request.auth.uid)).data.pageId == pageId));
 
         allow update: if isOwner(workspaceId);
+        // Responsible person may set their own monthly goal without going
+        // through columnStatusOptionsPreserved (that helper errors on some
+        // legacy column shapes and denied the save).
+        allow update: if isMember(workspaceId)
+          && resource.data.responsibleUserId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['monthlyGoal', 'updatedAt']);
         // Delete: Owner always, or the page's own creator while they're
         // still its responsible person (mirrors canDeletePage client-side).
         allow delete: if isOwner(workspaceId) ||
