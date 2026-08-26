@@ -10,7 +10,7 @@ import {
 import { formatCurrency, formatNumber } from "@/utils/format";
 import { monthOrderCountsByMonth, nowOrderCounts, type PageProgress } from "@/utils/deskProgress";
 import { ymdInTimeZone } from "@/utils/date";
-import type { StatusOption } from "@/types";
+import type { LeaderboardEntry, StatusOption } from "@/types";
 
 /** Mockup-style compact KZT: 3.4M₸, else the usual currency formatter. */
 function formatCompactKzt(value: number): string {
@@ -22,14 +22,41 @@ function formatCompactKzt(value: number): string {
   return formatCurrency(value);
 }
 
-export function KpiStatsRow({ desks, statusOptions }: { desks: PageProgress[]; statusOptions: StatusOption[] }) {
-  if (desks.length === 0) return null;
+
+/** Live rows plus piece counts from hidden desks on /leaderboard. Never money. */
+function nowCountsAcrossStudio(
+  desks: PageProgress[],
+  statusOptions: StatusOption[],
+  board: LeaderboardEntry[]
+): { open: number; done: number } {
+  const live = nowOrderCounts(desks, statusOptions);
+  const liveIds = new Set(desks.map((d) => d.page.id));
+  let open = live.open;
+  let done = live.done;
+  for (const entry of board) {
+    if (liveIds.has(entry.pageId)) continue;
+    open += Number(entry.openCount) || 0;
+    done += Number(entry.doneCount) || 0;
+  }
+  return { open, done };
+}
+
+export function KpiStatsRow({
+  desks,
+  statusOptions,
+  studioBoard = [],
+}: {
+  desks: PageProgress[];
+  statusOptions: StatusOption[];
+  studioBoard?: LeaderboardEntry[];
+}) {
+  const nowCounts = nowCountsAcrossStudio(desks, statusOptions, studioBoard);
+  if (desks.length === 0 && nowCounts.open === 0 && nowCounts.done === 0) return null;
 
   const deskTrend = deskCountTrend(desks.map((d) => d.page));
   const revTrend = revenueTrend(desks);
 
   const grandTotal = desks.reduce((sum, d) => sum + d.grandTotal, 0);
-  const nowCounts = nowOrderCounts(desks, statusOptions);
   const byMonth = monthOrderCountsByMonth(desks, statusOptions);
   const thisMonth = ymdInTimeZone(Date.now()).slice(0, 7);
 

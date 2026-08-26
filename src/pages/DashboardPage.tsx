@@ -29,7 +29,7 @@ import { resolvedCoverUrl, personLabel } from "@/utils/peopleDesks";
 import { greetingByHour, hourInTimeZone } from "@/utils/date";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { isResponsibleForPage } from "@/utils/permissions";
-import { ordersByDateFromDesks, progressForPage, statusDistributionFromDesks } from "@/utils/deskProgress";
+import { nowOrderCounts, ordersByDateFromDesks, progressForPage, statusDistributionFromDesks } from "@/utils/deskProgress";
 import { formatCurrency } from "@/utils/format";
 import { updateLeaderboardEntry } from "@/services/leaderboardService";
 import { useNavigate } from "react-router";
@@ -86,22 +86,29 @@ export default function DashboardPage() {
     [deskProgress, profile]
   );
 
+  const publishDesks = permissions.role === "owner" ? deskProgress : myProgress;
+
   useEffect(() => {
     if (!activeWorkspaceId || !profile) return;
-    myProgress.forEach(({ page, doneTotal, grandTotal, percent }) => {
+    publishDesks.forEach((desk) => {
+      const uid = desk.page.responsibleUserId;
+      if (!uid) return;
+      const pieces = nowOrderCounts([desk], statusOptions);
       updateLeaderboardEntry(activeWorkspaceId, {
-        pageId: page.id,
-        pageName: page.name,
-        responsibleUserId: profile.uid,
-        doneTotal,
-        grandTotal,
-        percent,
+        pageId: desk.page.id,
+        pageName: desk.page.name,
+        responsibleUserId: uid,
+        doneTotal: desk.doneTotal,
+        grandTotal: desk.grandTotal,
+        percent: desk.percent,
+        openCount: pieces.open,
+        doneCount: pieces.done,
       }).catch(() => {
         /* best-effort */
       });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myProgress, activeWorkspaceId, profile?.uid]);
+  }, [publishDesks, activeWorkspaceId, profile?.uid]);
 
   const polledLeaderboard = useLeaderboard(activeWorkspaceId);
 
@@ -118,6 +125,7 @@ export default function DashboardPage() {
       const existing = byPage.get(desk.page.id);
       const liveEmpty = desk.rowCount === 0 && desk.doneTotal === 0 && desk.grandTotal === 0;
       if (liveEmpty && existing) continue;
+      const pieces = nowOrderCounts([desk], statusOptions);
       byPage.set(desk.page.id, {
         pageId: desk.page.id,
         pageName: desk.page.name,
@@ -125,6 +133,8 @@ export default function DashboardPage() {
         doneTotal: desk.doneTotal,
         grandTotal: desk.grandTotal,
         percent: desk.percent,
+        openCount: pieces.open,
+        doneCount: pieces.done,
         updatedAt: Date.now(),
       });
     }
@@ -281,7 +291,7 @@ export default function DashboardPage() {
 
       <StalledRowsPanel desks={chartSource} statusOptions={statusOptions} members={members} />
 
-      <KpiStatsRow desks={chartSource} statusOptions={statusOptions} />
+      <KpiStatsRow desks={chartSource} statusOptions={statusOptions} studioBoard={polledLeaderboard} />
 
       <RecentRowsPanel desks={deskProgress} statusOptions={statusOptions} members={members} />
 

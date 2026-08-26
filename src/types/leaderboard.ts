@@ -13,5 +13,8 @@ export interface LeaderboardEntry {
   doneTotal: number;
   grandTotal: number;
   percent: number;
+  /** Piece counts, not money. Optional on old docs until a dashboard write. */
+  openCount?: number;
+  doneCount?: number;
   updatedAt: number;
 }
