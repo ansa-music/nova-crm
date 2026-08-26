@@ -33,7 +33,7 @@ export async function submitJoinRequest(
   const request: JoinRequest = {
     id: uid,
     uid,
-    email,
+    email: email.trim().toLowerCase(),
     name,
     photoURL: photoURL ?? null,
     workspaceId,

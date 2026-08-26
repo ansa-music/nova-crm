@@ -87,6 +87,7 @@ export default function UsersPage() {
   if (!activeWorkspaceId) return null;
 
   const deskPages = Array.isArray(pages) ? pages : [];
+  const responsibleUids = new Set(deskPages.map((page) => page.responsibleUserId).filter((id): id is string => Boolean(id)));
 
   const joinLink = `${window.location.origin}/join/${activeWorkspaceId}`;
 
@@ -303,6 +304,11 @@ export default function UsersPage() {
         {roster.map((member) => {
           const isOwner = member.role === "owner";
           const isExpanded = expandedUid === member.uid;
+          const noDesk =
+            member.role === "manager" &&
+            member.status === "active" &&
+            Boolean(member.uid) &&
+            !responsibleUids.has(member.uid);
           return (
             <Card key={member.uid || member.email}>
               <div className="flex items-center gap-3 p-4">
@@ -328,6 +334,7 @@ export default function UsersPage() {
                   <p className="truncate text-sm font-medium">
                     {displayNameOf(member)}
                     {member.uid === profile?.uid && <span className="ml-1.5 text-xs text-muted-foreground">(вы)</span>}
+                    {noDesk && <span className="ml-1.5 text-xs text-muted-foreground">стола нет</span>}
                   </p>
                   <p className="truncate text-xs text-muted-foreground">{member.email}</p>
                 </div>

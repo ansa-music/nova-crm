@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Copy, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +30,7 @@ const CARD = {
 export function GrokCredentialCard({
   methodLabel,
   extraChip,
+  nickname,
   email,
   password,
   phone,
@@ -37,15 +40,18 @@ export function GrokCredentialCard({
   updatedByName,
   updatedAt,
   revealed,
+  canRename,
   onToggleReveal,
   onCopy,
   onToggleAvailable,
   onActualize,
+  onRename,
   onEdit,
   onDelete,
 }: {
   methodLabel: string;
   extraChip?: string;
+  nickname?: string;
   email: string;
   password: string;
   phone?: string;
@@ -55,14 +61,43 @@ export function GrokCredentialCard({
   updatedByName: string;
   updatedAt: number;
   revealed: boolean;
+  canRename?: boolean;
   onToggleReveal: () => void;
   onCopy: (text: string, label: string) => void;
   onToggleAvailable: (next: boolean) => Promise<void>;
   onActualize: (next: number | null) => Promise<void>;
+  onRename?: (nickname: string) => Promise<void>;
   onEdit: () => void;
   onDelete: () => void;
 }) {
   const status = getGrokAccountStatus({ available, limitResetAt });
+  const label = nickname?.trim() || email;
+  const named = Boolean(nickname?.trim());
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState(nickname ?? "");
+  const [savingName, setSavingName] = useState(false);
+
+  function startRename() {
+    if (!canRename || !onRename) return;
+    setDraft(nickname ?? "");
+    setRenaming(true);
+  }
+
+  async function commitRename() {
+    if (!onRename) return;
+    const next = draft.trim();
+    if (next === (nickname?.trim() ?? "")) {
+      setRenaming(false);
+      return;
+    }
+    setSavingName(true);
+    try {
+      await onRename(next);
+      setRenaming(false);
+    } finally {
+      setSavingName(false);
+    }
+  }
 
   return (
     <Card className={cn("hud-frame glass-panel overflow-hidden", CARD[status])}>
@@ -71,19 +106,62 @@ export function GrokCredentialCard({
         <div className="flex flex-col gap-3 px-4 py-3.5 pl-5">
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <h2 className="truncate text-[18px] font-semibold leading-snug tracking-[-0.02em] text-foreground">
-                  {email}
-                </h2>
-                <button
-                  type="button"
-                  className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                  title="Копировать email"
-                  onClick={() => onCopy(email, "Email")}
-                >
-                  <Copy className="h-4 w-4" />
-                </button>
-              </div>
+              {renaming ? (
+                <Input
+                  value={draft}
+                  autoFocus
+                  disabled={savingName}
+                  placeholder="Название аккаунта"
+                  className="h-9 text-[18px] font-semibold"
+                  onChange={(e) => setDraft(e.target.value)}
+                  onBlur={() => { void commitRename(); }}
+                  onKeyDown={(e) => {
+                    if (e.code === "Enter") {
+                      e.preventDefault();
+                      void commitRename();
+                    }
+                    if (e.code === "Escape") setRenaming(false);
+                  }}
+                />
+              ) : (
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <h2
+                      className={cn(
+                        "truncate text-[18px] font-semibold leading-snug tracking-[-0.02em] text-foreground",
+                        canRename && "cursor-text rounded-sm hover:bg-accent/50"
+                      )}
+                      title={canRename ? "Нажми, чтобы дать название" : undefined}
+                      onClick={startRename}
+                    >
+                      {label}
+                    </h2>
+                    {!named && (
+                      <button
+                        type="button"
+                        className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                        title="Копировать email"
+                        onClick={() => onCopy(email, "Email")}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                  {named && (
+                    <div className="mt-0.5 flex items-center gap-1.5">
+                      <span className="truncate text-[15px] leading-6 text-foreground">{email}</span>
+                      <button
+                        type="button"
+                        className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                        title="Копировать email"
+                        onClick={() => onCopy(email, "Email")}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                   {methodLabel}
@@ -103,6 +181,12 @@ export function GrokCredentialCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {canRename && onRename && (
+                  <DropdownMenuItem onClick={startRename}>
+                    <Pencil className="mr-2 h-3.5 w-3.5" />
+                    Название
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={onEdit}>
                   <Pencil className="mr-2 h-3.5 w-3.5" />
                   Редактировать

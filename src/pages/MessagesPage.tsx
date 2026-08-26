@@ -17,6 +17,7 @@ import { usePrivateChat } from "@/hooks/usePrivateChat";
 import { useInboxSummary } from "@/hooks/useInboxSummary";
 import { paths } from "@/firebase/firestore";
 import { deleteChatMessage, editChatMessage, sendChatMessage } from "@/services/chatService";
+import { notifyMentions } from "@/services/notificationService";
 import { upsertPrivateChatMeta, markPrivateConversationRead } from "@/services/inboxService";
 import { displayNameOf } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
@@ -89,7 +90,7 @@ export default function MessagesPage() {
   const me = profile;
   const chatRef = chatId ? paths.privateChatMessages(workspaceId, chatId) : null;
 
-  async function handleSend(text: string, replyTo: ChatMessage | null, _mentioned: string[]) {
+  async function handleSend(text: string, replyTo: ChatMessage | null, mentioned: string[]) {
     if (!chatRef || !chatId || !selectedUid) return;
     await sendChatMessage(chatRef, {
       authorUid: me.uid,
@@ -105,6 +106,14 @@ export default function MessagesPage() {
       text,
       me.uid,
       me.nickname || me.name
+    );
+    await notifyMentions(
+      workspaceId,
+      me.uid,
+      me.nickname || me.name,
+      mentioned,
+      text,
+      `/messages/${me.uid}`
     );
   }
 

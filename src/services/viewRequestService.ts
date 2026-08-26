@@ -68,6 +68,8 @@ export async function requestDeskView(input: {
   existing: ViewRequest[];
 }): Promise<ViewRequest | null> {
   if (!db) throw new Error("Firebase не настроен");
+  const toUid = input.page.responsibleUserId;
+  if (!toUid) throw new Error("У стола нет ответственного");
   const current = latestRequestForPage(input.existing, input.page.id, input.fromUid);
   if (current?.status === "pending") return current;
   const id = generateId("viewreq");
@@ -79,7 +81,7 @@ export async function requestDeskView(input: {
     pageName: input.page.name,
     fromUid: input.fromUid,
     fromName: input.fromName,
-    toUid: input.toUid,
+    toUid,
     status: "pending",
     createdAt: now,
     updatedAt: now,
@@ -99,7 +101,7 @@ export async function requestDeskView(input: {
       kind: "view-request",
       viewRequestId: id,
     },
-    [input.toUid]
+    [toUid]
   ).catch(() => {
     /* request itself already saved */
   });
