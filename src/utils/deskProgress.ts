@@ -82,6 +82,53 @@ export function monthOrderCounts(
   return { open, done, total };
 }
 
+
+export type MonthOrderCount = {
+  key: string;
+  label: string;
+  open: number;
+  done: number;
+  total: number;
+};
+
+function monthLabelAlmaty(yearMonth: string): string {
+  const [year, month] = yearMonth.split("-").map(Number);
+  const ms = Date.UTC(year, month - 1, 15);
+  return new Date(ms).toLocaleDateString("ru-RU", { month: "long", year: "numeric", timeZone: "Asia/Almaty" });
+}
+
+/** Pieces per Asia/Almaty month, by order-received date. Months stay separate. */
+export function monthOrderCountsByMonth(
+  desks: PageProgress[],
+  statusOptions: StatusOption[]
+): MonthOrderCount[] {
+  const buckets = new Map<string, { open: number; done: number; total: number }>();
+  for (const desk of desks) {
+    const dateCol = desk.columns.find((c) => c.type === "date");
+    const statusCol = desk.columns.find((c) => c.type === "status");
+    if (!dateCol) continue;
+    for (const row of desk.rows) {
+      const ms = Number(row.cells[dateCol.key]);
+      if (!Number.isFinite(ms) || ms <= 0) continue;
+      const key = ymdInTimeZone(ms).slice(0, 7);
+      const bucket = buckets.get(key) ?? { open: 0, done: 0, total: 0 };
+      bucket.total += 1;
+      if (!statusCol) {
+        bucket.open += 1;
+      } else {
+        const rawStatus = String(row.cells[statusCol.key] ?? "");
+        const label = statusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
+        if (isDoneStatusLabel(label)) bucket.done += 1;
+        else bucket.open += 1;
+      }
+      buckets.set(key, bucket);
+    }
+  }
+  return Array.from(buckets.entries())
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([key, n]) => ({ key, label: monthLabelAlmaty(key), ...n }));
+}
+
 export function statusDistributionFromDesks(desks: PageProgress[], statusOptions: StatusOption[]) {
   const counts = new Map<string, number>();
   const byValue = new Map<string, StatusOption>();
