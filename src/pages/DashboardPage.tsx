@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Settings2 } from "lucide-react";
+import { Settings2, Table2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { DeskChart, GoalVsDoneChart } from "@/components/dashboard/DeskChart";
@@ -210,7 +210,9 @@ export default function DashboardPage() {
         {who ? `, ${who}` : ""}
       </h1>
       <p className="mt-1 mb-6 text-sm text-muted-foreground">
-        Рейтинг и диаграммы по заказам на столах. Сроки как дедлайны сюда не входят — даты на листах это когда заказ пришёл.
+        {isPersonalLanding
+          ? "Твои заказы на сегодня и стол. Нажми строку — откроется она. Дата на листе — когда заказ пришёл, не дедлайн."
+          : "Рейтинг и диаграммы по заказам на столах. Сроки как дедлайны сюда не входят — даты на листах это когда заказ пришёл."}
       </p>
 
       {myDesk ? (
@@ -220,8 +222,21 @@ export default function DashboardPage() {
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
           </button>
           <div className="pointer-events-none absolute inset-0 z-[1] flex flex-col justify-between p-4 sm:p-7">
-            {permissions.canManagePage(myDesk) ? (
-              <div className="pointer-events-auto self-start">
+            <div className="pointer-events-auto flex flex-wrap items-center gap-2 self-start">
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-11 rounded-full border-white/25 bg-white/10 px-4 text-white hover:bg-white/16 hover:text-white"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  navigate(`/page/${myDesk.id}`);
+                }}
+              >
+                <Table2 className="h-3.5 w-3.5" />
+                Открыть стол
+              </Button>
+              {permissions.canManagePage(myDesk) ? (
                 <Button
                   variant="outline"
                   size="sm"
@@ -235,10 +250,8 @@ export default function DashboardPage() {
                   <Settings2 className="h-3.5 w-3.5" />
                   Настроить стол
                 </Button>
-              </div>
-            ) : (
-              <div />
-            )}
+              ) : null}
+            </div>
             <div>
               <p className="font-serif text-[1.65rem] font-medium tracking-[-0.03em] text-white sm:text-[2.15rem]">
                 {myDesk.name}

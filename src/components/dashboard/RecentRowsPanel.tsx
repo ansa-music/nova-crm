@@ -61,7 +61,7 @@ export function RecentRowsPanel({
             row={row}
             members={members}
             statusOptions={statusOptions}
-            onOpen={() => navigate(`/page/${row.pageId}`)}
+            onOpen={() => navigate(`/page/${row.pageId}?row=${encodeURIComponent(row.id)}`)}
           />
         ))}
       </div>
@@ -85,7 +85,7 @@ export function RecentRowsPanel({
                 <tr
                   key={`${row.pageId}:${row.id}`}
                   className="cursor-pointer border-t border-border/70 hover:bg-primary/5"
-                  onClick={() => navigate(`/page/${row.pageId}`)}
+                  onClick={() => navigate(`/page/${row.pageId}?row=${encodeURIComponent(row.id)}`)}
                 >
                   <td className="px-4 py-2.5">
                     <p className="truncate font-medium">{row.title}</p>

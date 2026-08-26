@@ -203,9 +203,10 @@ interface DataTableProps {
   userName: string;
   /** When set, every row/column mutation targets this subpage's nested table instead of the page's own. */
   subPageId?: string;
+  focusRowId?: string | null;
 }
 
-export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId }: DataTableProps) {
+export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId }: DataTableProps) {
   const columns = useMemo(
     () =>
       page.columns
@@ -373,6 +374,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const contextRowIdRef = useRef<string | null>(null);
   const lastCheckedRowIdRef = useRef<string | null>(null);
   const pendingScrollRowIdRef = useRef<string | null>(null);
+  const appliedFocusRowIdRef = useRef<string | null>(null);
   const clipboardRef = useRef<{ matrix: string[][] } | null>(null);
   const resizeStateRef = useRef<
     | { type: "col"; colKey: string; startPos: number; startSize: number; lastValue: number }
@@ -543,6 +545,23 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         ?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
     });
   }, [paginatedRows, rowVirtualizer]);
+
+  useEffect(() => {
+    if (!focusRowId) return;
+    if (appliedFocusRowIdRef.current === focusRowId) return;
+    const idx = processedRows.findIndex((r) => r.id === focusRowId);
+    if (idx < 0) return;
+    appliedFocusRowIdRef.current = focusRowId;
+    if (Number.isFinite(pageSize) && pageSize > 0) {
+      setPageIndex(Math.floor(idx / pageSize));
+    }
+    pendingScrollRowIdRef.current = focusRowId;
+    const colKey = displayColumns[0]?.key ?? "";
+    if (colKey) {
+      setActiveCell({ rowId: focusRowId, colKey });
+      setRangeAnchor({ rowId: focusRowId, colKey });
+    }
+  }, [focusRowId, processedRows, pageSize, displayColumns]);
 
   // ---- Selection bounds ----
   const getSelectionBounds = useCallback(() => {

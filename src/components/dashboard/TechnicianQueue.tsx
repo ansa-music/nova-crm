@@ -89,18 +89,34 @@ export function TechnicianQueue({
   }
 
   const count = pendingRequests.length + todayRows.length;
+  const myDeskPage =
+    desks.find((d) => isResponsibleForPage(d.page, uid))?.page ??
+    pages.find((pg) => isResponsibleForPage(pg, uid)) ??
+    null;
 
   return (
     <Card className="mb-6">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <ClipboardList className="h-4 w-4 text-primary" />
-          На сегодня
-          <Badge variant="outline">{count}</Badge>
-        </CardTitle>
-        <CardDescription>
-          Кто просит смотреть стол и заказы, которые пришли сегодня. Это не дедлайн.
-        </CardDescription>
+      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+        <div className="space-y-1">
+          <CardTitle className="flex items-center gap-2">
+            <ClipboardList className="h-4 w-4 text-primary" />
+            На сегодня
+            <Badge variant="outline">{count}</Badge>
+          </CardTitle>
+          <CardDescription>
+            Кто просит смотреть стол и заказы, которые пришли сегодня. Это не дедлайн.
+          </CardDescription>
+        </div>
+        {myDeskPage ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="shrink-0"
+            onClick={() => navigate(`/page/${myDeskPage.id}`)}
+          >
+            Открыть стол
+          </Button>
+        ) : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {pendingRequests.length > 0 && (
@@ -150,7 +166,7 @@ export function TechnicianQueue({
                 key={`${row.pageId}:${row.id}`}
                 row={row}
                 statusOptions={statusOptions}
-                onOpen={() => navigate(`/page/${row.pageId}`)}
+                onOpen={() => navigate(`/page/${row.pageId}?row=${encodeURIComponent(row.id)}`)}
               />
             ))}
           </div>

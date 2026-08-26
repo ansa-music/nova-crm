@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router";
+import { useParams, useSearchParams } from "react-router";
 import { BarChart3, Eye, EyeOff, History, Lock, Maximize2, MessageSquare, MoreHorizontal, Settings2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -39,6 +39,8 @@ import type { PageIconName, WorkspacePage } from "@/types";
 
 export default function DynamicTablePage() {
   const { pageId } = useParams<{ pageId: string }>();
+  const [searchParams] = useSearchParams();
+  const focusRowId = searchParams.get("row");
   const { activeWorkspaceId, pages, members } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
@@ -488,6 +490,7 @@ export default function DynamicTablePage() {
                 canEditStructure={permissions.canManagePage(page)}
                 userId={profile?.uid ?? ""}
                 userName={displayNameOf(profile)}
+                focusRowId={focusRowId}
               />
             )}
           </div>

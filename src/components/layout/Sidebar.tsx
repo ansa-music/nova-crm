@@ -118,6 +118,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   const myMembership = members.find((m) => m.uid === profile?.uid);
   const showUsersNav = permissions.canManageUsers;
   const homeTo = myDesk ? `/page/${myDesk.id}` : "/";
+  const homeLabel = myDesk && myMembership?.role === "manager" ? "Мой стол" : "Главная";
   const homeActive = location.pathname === "/" || Boolean(myDesk && location.pathname === `/page/${myDesk.id}`);
   function goHome() {
     navigate(homeTo);
@@ -163,7 +164,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
             <nav className="mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
               {collapsed ? (
                 <>
-                  <NavLink to={homeTo} title="Главная" onClick={() => { navigate(homeTo); onNavigate?.(); }} className={navActiveClass(homeActive, true)}>
+                  <NavLink to={homeTo} title={homeLabel} onClick={() => { navigate(homeTo); onNavigate?.(); }} className={navActiveClass(homeActive, true)}>
                     <Home className="h-4 w-4" />
                   </NavLink>
                   <NavLink
@@ -254,7 +255,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               ) : (
                 <>
                   <AppNavLink to={homeTo} icon={Home} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
-                    Главная
+                    {homeLabel}
                   </AppNavLink>
                   <AppNavLink to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
                     Дашборд
@@ -292,7 +293,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
           {mobile && (
             <nav className="mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
               <AppNavLink to={homeTo} icon={Home} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
-                Главная
+                {homeLabel}
               </AppNavLink>
               <AppNavLink to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
                 Дашборд
@@ -373,7 +374,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                       {profile?.nickname || profile?.name}
                     </span>
                     <span className="block truncate text-[11px] text-muted-foreground">
-                      {myMembership?.role === "owner" ? "Владелец" : profile?.email}
+                      {myMembership?.role === "owner" ? "Владелец" : myMembership?.role === "manager" ? "Технар" : profile?.email}
                     </span>
                   </span>
                 )}
