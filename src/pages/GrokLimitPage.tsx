@@ -79,11 +79,19 @@ export default function GrokLimitPage() {
     toast.success("Аккаунт удалён");
   }
 
+  const CHIP_IDLE = "border-border bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground";
+  const CHIP_ACTIVE: Record<StatusFilter, string> = {
+    all: "border-primary/50 bg-primary/15 text-primary",
+    resetToday: "border-amber-500/50 bg-amber-500/15 text-amber-300",
+    available: "border-emerald-500/50 bg-emerald-500/15 text-emerald-300",
+    unavailable: "border-rose-500/50 bg-rose-500/15 text-rose-300",
+  };
+
   const filters: { id: StatusFilter; label: string; count: number }[] = [
     { id: "all", label: "Все", count: counts.all },
-    { id: "available", label: "Доступно", count: counts.available },
-    { id: "resetToday", label: "Сегодня", count: counts.resetToday },
-    { id: "unavailable", label: "Недоступно", count: counts.unavailable },
+    { id: "resetToday", label: "Восстановится сегодня", count: counts.resetToday },
+    { id: "available", label: "Доступен", count: counts.available },
+    { id: "unavailable", label: "Недоступен", count: counts.unavailable },
   ];
 
   return (
@@ -116,9 +124,7 @@ export default function GrokLimitPage() {
               onClick={() => setFilter(item.id)}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                filter === item.id
-                  ? "border-primary/50 bg-primary/15 text-primary"
-                  : "border-border bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground"
+                filter === item.id ? CHIP_ACTIVE[item.id] : CHIP_IDLE
               )}
             >
               {item.label}
