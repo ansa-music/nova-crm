@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import {
   ChevronLeft,
@@ -50,12 +50,63 @@ function navActiveClass(active: boolean, collapsed?: boolean) {
   if (collapsed) {
     return cn(
       "flex h-11 w-11 items-center justify-center rounded-xl",
-      active ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
+      active ? "text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
     );
   }
   return cn(
     "flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[14px] font-medium",
-    active ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
+    active ? "text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
+  );
+}
+
+function pathMatches(pathname: string, to: string, end?: boolean) {
+  if (end || to === "/") return pathname === to;
+  return pathname === to || pathname.startsWith(`${to}/`);
+}
+
+function NavSlide({
+  navRef,
+  watch,
+}: {
+  navRef: RefObject<HTMLElement | null>;
+  watch: unknown;
+}) {
+  const [pos, setPos] = useState({ top: 0, height: 0, shown: false });
+
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+
+    function measure() {
+      if (!nav) return;
+      const el = nav.querySelector<HTMLElement>("[data-nav-active='true']");
+      if (!el) {
+        setPos((prev) => ({ ...prev, shown: false }));
+        return;
+      }
+      setPos({ top: el.offsetTop, height: el.offsetHeight, shown: true });
+    }
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(nav);
+    nav.addEventListener("scroll", measure, { passive: true });
+    return () => {
+      ro.disconnect();
+      nav.removeEventListener("scroll", measure);
+    };
+  }, [navRef, watch]);
+
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute left-0 w-[2px] rounded-full bg-primary",
+        pos.shown ? "opacity-100" : "opacity-0",
+        "transition-[transform,height,opacity] duration-300 ease-out motion-reduce:transition-none"
+      )}
+      style={{ height: pos.height, transform: `translateY(${pos.top}px)` }}
+    />
   );
 }
 
@@ -67,6 +118,8 @@ function AppNavLink({
   onNavigate,
   forceActive,
   badge,
+  collapsed,
+  title,
 }: {
   to: string;
   end?: boolean;
@@ -75,21 +128,36 @@ function AppNavLink({
   onNavigate?: () => void;
   forceActive?: boolean;
   badge?: number;
+  collapsed?: boolean;
+  title?: string;
 }) {
+  const { pathname } = useLocation();
+  const active = forceActive ?? pathMatches(pathname, to, end);
   return (
     <NavLink
       to={to}
       end={end}
+      title={title}
+      data-nav-active={active ? "true" : undefined}
       onClick={() => onNavigate?.()}
-      className={({ isActive }) => navActiveClass(forceActive ?? isActive)}
+      className={navActiveClass(active, collapsed)}
     >
-      <Icon className="h-4 w-4 shrink-0" />
-      <span className="min-w-0 flex-1 truncate">{children}</span>
-      {badge ? (
-        <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
-          {badge > 9 ? "9+" : badge}
+      {collapsed ? (
+        <span className="relative">
+          <Icon className="h-4 w-4" />
+          {badge ? <span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-primary" /> : null}
         </span>
-      ) : null}
+      ) : (
+        <>
+          <Icon className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">{children}</span>
+          {badge ? (
+            <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
+              {badge > 9 ? "9+" : badge}
+            </span>
+          ) : null}
+        </>
+      )}
     </NavLink>
   );
 }
@@ -111,6 +179,8 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   const collapsed = pinnedCollapsed;
   const [createPageOpen, setCreatePageOpen] = useState(false);
   const [createWsOpen, setCreateWsOpen] = useState(false);
+  const desktopNavRef = useRef<HTMLElement>(null);
+  const mobileNavRef = useRef<HTMLElement>(null);
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
   const theme = useUiStore((s) => s.theme);
   const setTheme = useUiStore((s) => s.setTheme);
@@ -161,95 +231,41 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-thin">
           {!mobile && (
-            <nav className="mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
+            <nav ref={desktopNavRef} className="relative mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
+              <NavSlide navRef={desktopNavRef} watch={`${location.pathname}|${collapsed}|${showUsersNav}|${homeTo}`} />
               {collapsed ? (
                 <>
-                  <NavLink to={homeTo} title={homeLabel} onClick={() => { navigate(homeTo); onNavigate?.(); }} className={navActiveClass(homeActive, true)}>
-                    <Home className="h-4 w-4" />
-                  </NavLink>
-                  <NavLink
-                    to="/dashboard"
-                    title="Дашборд"
-                    onClick={() => onNavigate?.()}
-                    className={({ isActive }) => navActiveClass(isActive, true)}
-                  >
-                    <LayoutDashboard className="h-4 w-4" />
-                  </NavLink>
-                  <NavLink
-                    to="/desks"
-                    title="Столы"
-                    onClick={() => onNavigate?.()}
-                    className={({ isActive }) => navActiveClass(isActive, true)}
-                  >
-                    <LayoutGrid className="h-4 w-4" />
-                  </NavLink>
-                  <NavLink
-                    to="/people"
-                    title="Люди"
-                    onClick={() => onNavigate?.()}
-                    className={({ isActive }) => navActiveClass(isActive, true)}
-                  >
-                    <UsersRound className="h-4 w-4" />
-                  </NavLink>
-                  <NavLink
-                    to="/settings"
-                    title="Настройки"
-                    onClick={() => onNavigate?.()}
-                    className={({ isActive }) => navActiveClass(isActive, true)}
-                  >
-                    <Settings className="h-4 w-4" />
-                  </NavLink>
-                  <NavLink
-                    to="/announcements"
-                    title="Объявления"
-                    onClick={() => onNavigate?.()}
-                    className={({ isActive }) => navActiveClass(isActive, true)}
-                  >
-                    <Megaphone className="h-4 w-4" />
-                  </NavLink>
-                  <NavLink
-                    to="/messages"
-                    title="Сообщения"
-                    onClick={() => onNavigate?.()}
-                    className={({ isActive }) => navActiveClass(isActive, true)}
-                  >
-                    <span className="relative">
-                      <MessageCircle className="h-4 w-4" />
-                      {privateUnreadTotal > 0 && (
-                        <span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-primary" />
-                      )}
-                    </span>
-                  </NavLink>
-                  <NavLink
-                    to="/chat"
-                    title="Чат"
-                    onClick={() => onNavigate?.()}
-                    className={({ isActive }) => navActiveClass(isActive, true)}
-                  >
-                    <span className="relative">
-                      <MessageSquare className="h-4 w-4" />
-                      {workspaceChatUnread > 0 && (
-                        <span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-primary" />
-                      )}
-                    </span>
-                  </NavLink>
-                  <NavLink
-                    to="/grok-limit"
-                    title="Грок лимит"
-                    onClick={() => onNavigate?.()}
-                    className={({ isActive }) => navActiveClass(isActive, true)}
-                  >
-                    <KeyRound className="h-4 w-4" />
-                  </NavLink>
+                  <AppNavLink collapsed title={homeLabel} to={homeTo} icon={Home} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
+                    {homeLabel}
+                  </AppNavLink>
+                  <AppNavLink collapsed title="Дашборд" to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
+                    Дашборд
+                  </AppNavLink>
+                  <AppNavLink collapsed title="Столы" to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
+                    Столы
+                  </AppNavLink>
+                  <AppNavLink collapsed title="Люди" to="/people" icon={UsersRound} onNavigate={onNavigate}>
+                    Люди
+                  </AppNavLink>
+                  <AppNavLink collapsed title="Настройки" to="/settings" icon={Settings} onNavigate={onNavigate}>
+                    Настройки
+                  </AppNavLink>
+                  <AppNavLink collapsed title="Объявления" to="/announcements" icon={Megaphone} onNavigate={onNavigate}>
+                    Объявления
+                  </AppNavLink>
+                  <AppNavLink collapsed title="Сообщения" to="/messages" icon={MessageCircle} onNavigate={onNavigate} badge={privateUnreadTotal}>
+                    Сообщения
+                  </AppNavLink>
+                  <AppNavLink collapsed title="Чат" to="/chat" icon={MessageSquare} onNavigate={onNavigate} badge={workspaceChatUnread}>
+                    Чат
+                  </AppNavLink>
+                  <AppNavLink collapsed title="Грок лимит" to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
+                    Грок лимит
+                  </AppNavLink>
                   {showUsersNav && (
-                    <NavLink
-                      to="/users"
-                      title="Пользователи"
-                      onClick={() => onNavigate?.()}
-                      className={({ isActive }) => navActiveClass(isActive, true)}
-                    >
-                      <Users className="h-4 w-4" />
-                    </NavLink>
+                    <AppNavLink collapsed title="Пользователи" to="/users" icon={Users} onNavigate={onNavigate}>
+                      Пользователи
+                    </AppNavLink>
                   )}
                 </>
               ) : (
@@ -291,7 +307,8 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
             </nav>
           )}
           {mobile && (
-            <nav className="mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
+            <nav ref={mobileNavRef} className="relative mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
+              <NavSlide navRef={mobileNavRef} watch={`${location.pathname}|${showUsersNav}|${homeTo}`} />
               <AppNavLink to={homeTo} icon={Home} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                 {homeLabel}
               </AppNavLink>
