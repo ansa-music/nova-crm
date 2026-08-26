@@ -5,6 +5,7 @@ import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { DeskChart, GoalVsDoneChart } from "@/components/dashboard/DeskChart";
 import { LeaderboardWidget } from "@/components/dashboard/LeaderboardWidget";
 import { MyProgressCard } from "@/components/dashboard/MyProgressCard";
+import { KpiStatsRow } from "@/components/dashboard/KpiStatsRow";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { StatusChart } from "@/components/dashboard/StatusChart";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -237,6 +238,8 @@ export default function DashboardPage() {
           />
         </div>
       )}
+
+      <KpiStatsRow desks={chartSource} statusOptions={statusOptions} />
 
       {showCharts && (
         <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
