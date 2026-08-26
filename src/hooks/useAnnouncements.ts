@@ -1,14 +1,24 @@
-import { fetchAnnouncements } from "@/services/announcementService";
-import { usePolledData } from "@/hooks/usePolledData";
+import { useEffect, useState } from "react";
+import { subscribeToAnnouncements } from "@/services/announcementService";
 import type { Announcement } from "@/types";
 
 export function useAnnouncements(workspaceId: string | null) {
-  const { data: announcements, isLoading, reload } = usePolledData<Announcement[]>(
-    Boolean(workspaceId),
-    () => fetchAnnouncements(workspaceId as string),
-    [],
-    [workspaceId]
-  );
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [isLoading, setIsLoading] = useState(Boolean(workspaceId));
 
-  return { announcements, isLoading, reload };
+  useEffect(() => {
+    if (!workspaceId) {
+      setAnnouncements([]);
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    const unsubscribe = subscribeToAnnouncements(workspaceId, (next) => {
+      setAnnouncements(next);
+      setIsLoading(false);
+    });
+    return unsubscribe;
+  }, [workspaceId]);
+
+  return { announcements, isLoading, reload: () => undefined };
 }

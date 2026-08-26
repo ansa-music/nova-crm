@@ -1,4 +1,4 @@
-import { getDocs, query, setDoc, where } from "firebase/firestore";
+import { getDocs, onSnapshot, query, setDoc, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -25,6 +25,34 @@ export async function fetchMyViewRequests(workspaceId: string, uid: string): Pro
   const byId = new Map<string, ViewRequest>();
   for (const row of mapRequests([...fromSnap.docs, ...toSnap.docs])) byId.set(row.id, row);
   return Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export function subscribeToMyViewRequests(
+  workspaceId: string,
+  uid: string,
+  cb: (rows: ViewRequest[]) => void
+) {
+  const fromQ = query(paths.viewRequests(workspaceId), where("fromUid", "==", uid));
+  const toQ = query(paths.viewRequests(workspaceId), where("toUid", "==", uid));
+  let fromRows: ViewRequest[] = [];
+  let toRows: ViewRequest[] = [];
+  const emit = () => {
+    const byId = new Map<string, ViewRequest>();
+    for (const row of [...fromRows, ...toRows]) byId.set(row.id, row);
+    cb(Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt));
+  };
+  const unsubFrom = onSnapshot(fromQ, (snap) => {
+    fromRows = mapRequests(snap.docs);
+    emit();
+  });
+  const unsubTo = onSnapshot(toQ, (snap) => {
+    toRows = mapRequests(snap.docs);
+    emit();
+  });
+  return () => {
+    unsubFrom();
+    unsubTo();
+  };
 }
 
 export function latestRequestForPage(requests: ViewRequest[], pageId: string, fromUid: string): ViewRequest | null {

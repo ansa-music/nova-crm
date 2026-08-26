@@ -1,4 +1,4 @@
-import { deleteDoc, getDocs, serverTimestamp, setDoc } from "firebase/firestore";
+import { deleteDoc, getDocs, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -21,6 +21,12 @@ function mapAnnouncements(docs: { id: string; data: () => import("firebase/fires
 export async function fetchAnnouncements(workspaceId: string): Promise<Announcement[]> {
   const snapshot = await getDocs(paths.announcements(workspaceId));
   return mapAnnouncements(snapshot.docs);
+}
+
+export function subscribeToAnnouncements(workspaceId: string, cb: (items: Announcement[]) => void) {
+  return onSnapshot(paths.announcements(workspaceId), (snapshot) => {
+    cb(mapAnnouncements(snapshot.docs));
+  });
 }
 
 export interface CreateAnnouncementInput {
