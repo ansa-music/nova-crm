@@ -14,13 +14,18 @@ export interface PageColumn {
   width: number;
   order: number;
   /**
-   * Per-column option list — only meaningful for type "status". Set once at
-   * column creation and editable via the type-change flow.
-   * Columns of type "responsible" do NOT use this: their options come from
-   * the single, workspace-wide `Workspace.responsibleOptions` list instead
-   * (managed by the Owner in Настройки → Workspace), so every "Ответственный"
-   * column on the site always shows the same shared, site-wide list. See
-   * `src/utils/columnOptions.ts`.
+   * DEAD for type "status" as of the fix that made statuses fully
+   * workspace-wide again — `getColumnOptions()` never reads this field for
+   * a status column anymore, only `Workspace.statusOptions`. A status
+   * column may still carry a stale value here from before that fix (or a
+   * legacy write); it's inert and safe to ignore. Never write to it for a
+   * new/changed status column — always go through
+   * `updateStatusOptions(workspaceId, options)` instead.
+   * Columns of type "responsible" never used this either: their options
+   * come from the single, workspace-wide `Workspace.responsibleOptions`
+   * list (managed by the Owner in Настройки → Workspace), so every
+   * "Ответственный" column on the site always shows the same shared,
+   * site-wide list. See `src/utils/columnOptions.ts`.
    */
   statusOptions?: StatusOption[];
   /**

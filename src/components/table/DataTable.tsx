@@ -55,7 +55,6 @@ import {
   changeColumnType as changeColumnTypeServiceBase,
   duplicateColumn as duplicateColumnServiceBase,
   deleteColumn as deleteColumnServiceBase,
-  updateColumnStatusOptions as updateColumnStatusOptionsBase,
 } from "@/services/pageService";
 import {
   addSubPageRow,
@@ -70,7 +69,6 @@ import {
   changeSubPageColumnType,
   duplicateSubPageColumn,
   deleteSubPageColumn,
-  updateSubPageColumnStatusOptions,
 } from "@/services/subPageService";
 import { AddColumnDialog } from "@/components/table/AddColumnDialog";
 import { ManageOptionsDialog } from "@/components/table/ManageOptionsDialog";
@@ -82,7 +80,7 @@ import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
 import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
-import { updateResponsibleOptions, updateCustomFieldOptions } from "@/services/workspaceService";
+import { updateResponsibleOptions, updateCustomFieldOptions, updateStatusOptions } from "@/services/workspaceService";
 import { formatCurrency, formatNumber, downloadCsv } from "@/utils";
 import { isSummableColumn, sumNumericCells } from "@/utils/tableAggregates";
 import { clampColumnWidth } from "@/utils/tableLayout";
@@ -260,10 +258,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const deleteColumnService = subPageId
     ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string) => deleteSubPageColumn(wsId, pId, subPageId, cols, colKey)
     : deleteColumnServiceBase;
-  const updateColumnStatusOptions = subPageId
-    ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string, options: StatusOption[]) =>
-        updateSubPageColumnStatusOptions(wsId, pId, subPageId, cols, colKey, options)
-    : updateColumnStatusOptionsBase;
   async function updateRowCell(ctx: Parameters<typeof updateRowCellBase>[0]) {
     if (subPageId) {
       await updateSubPageRowCell(ctx.workspaceId, ctx.pageId, subPageId, ctx.rowId, ctx.field, ctx.newValue);
@@ -1656,8 +1650,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   async function handleChangeColumnType(colKey: string, type: ColumnType, customFieldId?: string) {
     const current = columns.find((c) => c.key === colKey);
     if (!current || (current.type === type && current.customFieldId === customFieldId)) return;
-    const seeded = type === "status" ? DEFAULT_STATUS_OPTIONS : undefined;
-    await changeColumnTypeService(workspaceId, page.id, columns, colKey, type, seeded, customFieldId);
+    // Status never seeds a per-column list — it always reads the shared
+    // workspace.statusOptions (see getColumnOptions), so there's nothing to
+    // seed here for any option type anymore.
+    await changeColumnTypeService(workspaceId, page.id, columns, colKey, type, undefined, customFieldId);
     toast.success("Тип столбца изменён");
   }
 
@@ -1668,8 +1664,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   async function handleSaveColumnOptions(options: StatusOption[]) {
     if (!manageOptionsColumn) return;
     if (manageOptionsColumn.type === "status") {
-      if (!permissions.canManageStatusVariants) throw new Error("Варианты статуса меняет только Owner");
-      await updateColumnStatusOptions(workspaceId, page.id, columns, manageOptionsColumn.key, options);
+      // Workspace-wide, same as Ответственный below — never per-column, so
+      // editing statuses on ANY desk updates the one shared list everyone sees.
+      if (!isOwner) throw new Error("Варианты статуса меняет только Owner");
+      await updateStatusOptions(workspaceId, options);
     } else if (manageOptionsColumn.type === "responsible") {
       if (!isOwner) throw new Error("Список ответственных меняет только Owner");
       await updateResponsibleOptions(workspaceId, options);
@@ -1691,11 +1689,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         key = `status_${i}`;
         i += 1;
       }
+      // No seeded statusOptions — this desk's "Статус" column reads the
+      // shared workspace list, same as every other desk's.
       statusCol = await addColumnService(workspaceId, page.id, columns, {
         key,
         label: "Статус",
         type: "status",
-        statusOptions: DEFAULT_STATUS_OPTIONS,
       });
       toast.success("Столбец «Статус» добавлен");
     }

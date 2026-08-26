@@ -20,10 +20,17 @@ export const DEFAULT_STATUS_OPTIONS: StatusOption[] = [
 /**
  * Resolves selectable options for a column.
  *
- * Status prefers the page's own list (Технар can add «Готово» on their стол
- * via updatePage). If the column has none yet, fall back to the workspace
- * list or DEFAULT_STATUS_OPTIONS (includes Готово).
- * Responsible and custom fields stay workspace-wide (Owner).
+ * Status, like Responsible and custom fields, is fully workspace-wide —
+ * every "Статус" column on every desk shows the exact same Owner-managed
+ * list, with no per-column override. A column's own `statusOptions` field
+ * is deliberately never read here (see the note on that field in
+ * src/types/page.ts) — it used to be preferred when non-empty, which let a
+ * desk's status list quietly diverge from the shared one the moment anyone
+ * created a new "Статус" column (each one seeded its own default list).
+ * The responsible person for a desk can still add/rename/reorder desk
+ * columns freely, just never the shared statuses themselves — that stays
+ * Owner-only, enforced both here (nothing else to read) and in
+ * firestore.rules (columnStatusOptionsPreserved).
  */
 export function ensureDoneStatus(options: StatusOption[]): StatusOption[] {
   if (options.some((o) => isDoneStatusLabel(o.label) || o.value === "done")) return options;
@@ -33,13 +40,7 @@ export function ensureDoneStatus(options: StatusOption[]): StatusOption[] {
 
 export function getColumnOptions(column: PageColumn, workspace: Workspace | null | undefined): StatusOption[] {
   if (column.type === "responsible") return workspace?.responsibleOptions ?? [];
-  if (column.type === "status") {
-    const raw =
-      column.statusOptions && column.statusOptions.length > 0
-        ? column.statusOptions
-        : (workspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS);
-    return ensureDoneStatus(raw);
-  }
+  if (column.type === "status") return ensureDoneStatus(workspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS);
   if (column.type === "custom") {
     return workspace?.customFields?.find((f) => f.id === column.customFieldId)?.options ?? [];
   }
