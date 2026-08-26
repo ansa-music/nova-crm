@@ -19,9 +19,6 @@ export interface RecentRowItem {
   responsibleUid: string | null;
 }
 
-/** 3 calendar days in ms. Stall uses row updatedAt/createdAt, never the order-date column. */
-export const STALL_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
-
 function titleFromRow(desk: PageProgress, cells: Record<string, string | number | null>): string {
   const textCol = desk.columns.find((c) => c.type === "text");
   const raw = textCol ? cells[textCol.key] : null;
@@ -98,30 +95,6 @@ export function collectTodayOrderRows(
   return items;
 }
 
-/**
- * Not «Готово», last touch (updatedAt || createdAt) older than 3 days.
- * Order-date column is ignored for the threshold. Older first.
- */
-export function collectStalledRows(
-  desks: PageProgress[],
-  statusOptions: StatusOption[],
-  members: WorkspaceMember[],
-  nowMs = Date.now(),
-  limit = 8
-): RecentRowItem[] {
-  const cutoff = nowMs - STALL_AFTER_MS;
-  const items: RecentRowItem[] = [];
-  for (const desk of desks) {
-    for (const row of desk.rows) {
-      const item = toRecentRowItem(desk, row, statusOptions, members);
-      if (isDoneStatusLabel(item.statusLabel)) continue;
-      if (!item.updatedAt || item.updatedAt > cutoff) continue;
-      items.push(item);
-    }
-  }
-  items.sort((a, b) => a.updatedAt - b.updatedAt);
-  return items.slice(0, limit);
-}
 
 export function matchesRecentStatusFilter(item: RecentRowItem, filter: string | null): boolean {
   if (!filter || filter === "all") return true;
