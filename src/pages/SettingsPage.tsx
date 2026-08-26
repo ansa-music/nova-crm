@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
+  AlertTriangle,
   Archive,
+  Building2,
   Check,
   Columns3,
   Download,
@@ -18,7 +20,10 @@ import {
   Plus,
   Redo2,
   ShieldCheck,
+  Sparkles,
+  Tags,
   Trash2,
+  User,
   UserCog,
   Users,
 } from "lucide-react";
@@ -123,6 +128,18 @@ const FEATURE_ITEMS = [
     title: "Горячие клавиши",
     description: "Нажмите «?» в любой момент (не во время ввода текста) — откроется полный список сочетаний клавиш.",
   },
+] as const;
+
+const SETTINGS_NAV = [
+  { value: "features", label: "Возможности", icon: Sparkles },
+  { value: "profile", label: "Профиль", icon: User },
+  { value: "workspace", label: "Workspace", icon: Building2 },
+  { value: "lists", label: "Варианты", icon: Tags, owner: true },
+  { value: "fields", label: "Поля", icon: Layers, owner: true },
+  { value: "appearance", label: "Оформление", icon: Palette, owner: true },
+  { value: "backup", label: "Бэкап", icon: Download, owner: true },
+  { value: "danger", label: "Опасная зона", icon: AlertTriangle, owner: true },
+  { value: "members", label: "Роли и доступ", icon: Users },
 ] as const;
 
 export default function SettingsPage() {
@@ -276,18 +293,30 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-6">
+    <div className="mx-auto max-w-5xl p-6">
       <h1 className="mb-6 text-3xl font-light tracking-tight">Настройки</h1>
 
-      <Tabs defaultValue="features">
-        <TabsList>
-          <TabsTrigger value="features">Возможности</TabsTrigger>
-          <TabsTrigger value="profile">Профиль</TabsTrigger>
-          <TabsTrigger value="workspace">Workspace</TabsTrigger>
-          <TabsTrigger value="members">Роли и доступ</TabsTrigger>
+      <Tabs
+        defaultValue="features"
+        orientation="vertical"
+        className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6"
+      >
+        <TabsList className="flex h-auto w-full shrink-0 flex-row gap-1 overflow-x-auto rounded-md bg-transparent p-0 lg:w-52 lg:flex-col lg:overflow-visible">
+          {SETTINGS_NAV.filter((item) => !("owner" in item) || permissions.canManageWorkspace).map((item) => (
+            <TabsTrigger
+              key={item.value}
+              value={item.value}
+              className="w-full justify-start gap-2 rounded-md px-3 py-2 data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
+            >
+              <item.icon className="h-4 w-4 shrink-0" />
+              {item.label}
+            </TabsTrigger>
+          ))}
         </TabsList>
 
-        <TabsContent value="features" className="flex flex-col gap-4">
+        <div className="min-w-0 flex-1">
+
+        <TabsContent value="features" className="mt-0 flex flex-col gap-4">
           <Card>
             <CardHeader>
               <CardTitle>Что умеет Nova CRM</CardTitle>
@@ -312,7 +341,7 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="profile" className="flex flex-col gap-4">
+        <TabsContent value="profile" className="mt-0 flex flex-col gap-4">
           <Card>
             <CardHeader>
               <CardTitle>Личные данные</CardTitle>
@@ -326,7 +355,7 @@ export default function SettingsPage() {
                 </Avatar>
               </div>
 
-              <form onSubmit={profileForm.handleSubmit(onSaveProfile)} className="flex flex-col gap-4">
+              <form onSubmit={profileForm.handleSubmit(onSaveProfile)} className="mt-0 flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="name">Имя</Label>
                   <Input id="name" {...profileForm.register("name")} />
@@ -373,7 +402,7 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="workspace" className="flex flex-col gap-4">
+        <TabsContent value="workspace" className="mt-0 flex flex-col gap-4">
           <Card>
             <CardHeader>
               <CardTitle>Общие настройки</CardTitle>
@@ -397,8 +426,10 @@ export default function SettingsPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
 
-          {permissions.canManageWorkspace && (
+        {permissions.canManageWorkspace && (
+        <TabsContent value="lists" className="mt-0 flex flex-col gap-4">
             <Card>
               <CardHeader>
                 <CardTitle>Общие списки вариантов</CardTitle>
@@ -407,7 +438,7 @@ export default function SettingsPage() {
                   сразу доступно в любом таком столбце на любой странице. Управляет только Овнер.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="flex flex-col gap-4">
+              <CardContent className="mt-0 flex flex-col gap-4">
                 <div className="flex items-center justify-between rounded-lg border border-border p-3">
                   <div>
                     <p className="text-sm font-medium">Статус</p>
@@ -445,9 +476,11 @@ export default function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
-          )}
+        </TabsContent>
+        )}
 
-          {permissions.canManageWorkspace && (
+        {permissions.canManageWorkspace && (
+        <TabsContent value="fields" className="mt-0 flex flex-col gap-4">
             <Card>
               <CardHeader>
                 <CardTitle>Кастомные поля</CardTitle>
@@ -518,7 +551,8 @@ export default function SettingsPage() {
                 )}
               </CardContent>
             </Card>
-          )}
+        </TabsContent>
+        )}
 
           <ManageOptionsDialog
             open={manageOptionsKind !== null && permissions.canManageWorkspace}
@@ -542,7 +576,8 @@ export default function SettingsPage() {
             onSave={handleSaveSharedOptions}
           />
 
-          {permissions.canManageWorkspace && (
+        {permissions.canManageWorkspace && (
+        <TabsContent value="appearance" className="mt-0 flex flex-col gap-4">
             <Card>
               <CardHeader>
                 <CardTitle>Оформление</CardTitle>
@@ -569,9 +604,11 @@ export default function SettingsPage() {
                 })}
               </CardContent>
             </Card>
-          )}
+        </TabsContent>
+        )}
 
-          {permissions.canManageWorkspace && (
+        {permissions.canManageWorkspace && (
+        <TabsContent value="backup" className="mt-0 flex flex-col gap-4">
             <Card>
               <CardHeader>
                 <CardTitle>Резервная копия</CardTitle>
@@ -587,9 +624,11 @@ export default function SettingsPage() {
                 </Button>
               </CardContent>
             </Card>
-          )}
+        </TabsContent>
+        )}
 
-          {permissions.canManageWorkspace && (
+        {permissions.canManageWorkspace && (
+        <TabsContent value="danger" className="mt-0 flex flex-col gap-4">
             <Card className="border-destructive/40">
               <CardHeader>
                 <CardTitle className="text-destructive">Опасная зона</CardTitle>
@@ -601,10 +640,10 @@ export default function SettingsPage() {
                 </Button>
               </CardContent>
             </Card>
-          )}
         </TabsContent>
+        )}
 
-        <TabsContent value="members">
+        <TabsContent value="members" className="mt-0">
           <Card>
             <CardHeader>
               <CardTitle>Участники и роли</CardTitle>
@@ -622,6 +661,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        </div>
       </Tabs>
     </div>
   );
