@@ -24,6 +24,10 @@ function mapDispatch(id: string, raw: Record<string, unknown>): DailyDispatch {
     checkNo: String(raw.checkNo ?? ""),
     technicianName: String(raw.technicianName ?? ""),
     technicianUid: typeof raw.technicianUid === "string" ? raw.technicianUid : null,
+    amount: Number(raw.amount) || 0,
+    minutes: typeof raw.minutes === "number" && Number.isFinite(raw.minutes) ? raw.minutes : null,
+    character: String(raw.character ?? ""),
+    os: String(raw.os ?? ""),
     linkedPageId: typeof raw.linkedPageId === "string" ? raw.linkedPageId : null,
     linkedPageName: typeof raw.linkedPageName === "string" ? raw.linkedPageName : null,
     dayKey: String(raw.dayKey ?? ""),
@@ -46,6 +50,10 @@ export async function createDailyDispatch(input: {
   pageId: string;
   checkNo: string;
   technicianName: string;
+  amount?: number;
+  minutes?: number | null;
+  character?: string;
+  os?: string;
   createdBy: string;
 }): Promise<DailyDispatch> {
   requireDb();
@@ -62,6 +70,10 @@ export async function createDailyDispatch(input: {
     checkNo,
     technicianName,
     technicianUid: null,
+    amount: Number.isFinite(input.amount) ? Number(input.amount) : 0,
+    minutes: typeof input.minutes === "number" && Number.isFinite(input.minutes) ? input.minutes : null,
+    character: (input.character ?? "").trim(),
+    os: (input.os ?? "").trim(),
     linkedPageId: null,
     linkedPageName: null,
     dayKey: ymdInTimeZone(now),

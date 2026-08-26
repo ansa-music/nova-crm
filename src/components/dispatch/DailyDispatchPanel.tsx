@@ -28,9 +28,10 @@ import {
   toggleDailyDispatchMark,
 } from "@/services/dailyDispatchService";
 import { displayNameOf } from "@/utils/displayName";
+import { formatCurrency } from "@/utils/format";
 import { cn } from "@/utils/cn";
 import { almatyNoonMillis, USER_TIMEZONE, ymdInTimeZone } from "@/utils/date";
-import type { DailyDispatch, WorkspaceMember, WorkspacePage } from "@/types";
+import type { DailyDispatch, StatusOption, WorkspaceMember, WorkspacePage } from "@/types";
 
 interface DailyDispatchPanelProps {
   workspaceId: string;
@@ -39,6 +40,8 @@ interface DailyDispatchPanelProps {
   members: WorkspaceMember[];
   pages: WorkspacePage[];
   isOwner: boolean;
+  /** Shared "Ответственный" list — same one every "Ответственный" column on the site draws from. Used only to offer a quick-fill for "ОС", never written back to it. */
+  responsibleOptions: StatusOption[];
 }
 
 function formatDayHeading(dayKey: string): string {
@@ -59,10 +62,15 @@ export function DailyDispatchPanel({
   members,
   pages,
   isOwner,
+  responsibleOptions,
 }: DailyDispatchPanelProps) {
   const { data: entries, isLoading, reload } = useDailyDispatch(workspaceId, pageId, true);
   const [checkNo, setCheckNo] = useState("");
   const [technicianName, setTechnicianName] = useState("");
+  const [amount, setAmount] = useState("");
+  const [minutes, setMinutes] = useState("");
+  const [character, setCharacter] = useState("");
+  const [os, setOs] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [pastOpen, setPastOpen] = useState(false);
   const [bindTarget, setBindTarget] = useState<DailyDispatch | null>(null);
@@ -97,10 +105,18 @@ export function DailyDispatchPanel({
         pageId,
         checkNo,
         technicianName,
+        amount: amount.trim() ? Number(amount) : 0,
+        minutes: minutes.trim() ? Number(minutes) : null,
+        character,
+        os,
         createdBy: uid,
       });
       setCheckNo("");
       setTechnicianName("");
+      setAmount("");
+      setMinutes("");
+      setCharacter("");
+      setOs("");
       await reload();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось добавить выдачу");
@@ -179,7 +195,77 @@ export function DailyDispatchPanel({
                 </Select>
               </div>
             )}
-            <Button type="submit" disabled={submitting || !checkNo.trim() || !technicianName.trim()} className="gap-1.5">
+          </div>
+
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <Label htmlFor="dispatch-amount">Сумма</Label>
+              <Input
+                id="dispatch-amount"
+                type="number"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0"
+                autoComplete="off"
+              />
+            </div>
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <Label htmlFor="dispatch-minutes">Минуты</Label>
+              <Input
+                id="dispatch-minutes"
+                type="number"
+                inputMode="numeric"
+                value={minutes}
+                onChange={(e) => setMinutes(e.target.value)}
+                placeholder="Длительность видео"
+                autoComplete="off"
+              />
+            </div>
+            <div className="min-w-0 flex-[1.4] space-y-1.5">
+              <Label htmlFor="dispatch-character">Персонажи</Label>
+              <Input
+                id="dispatch-character"
+                value={character}
+                onChange={(e) => setCharacter(e.target.value)}
+                placeholder="Кто в видео"
+                autoComplete="off"
+              />
+            </div>
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <Label htmlFor="dispatch-os">ОС</Label>
+              <Input
+                id="dispatch-os"
+                value={os}
+                onChange={(e) => setOs(e.target.value)}
+                placeholder="Свободный текст"
+                autoComplete="off"
+              />
+            </div>
+            {responsibleOptions.length > 0 && (
+              <div className="min-w-[160px] space-y-1.5 sm:w-44">
+                <Label>Подставить ОС</Label>
+                <Select
+                  value=""
+                  onValueChange={(value) => {
+                    const option = responsibleOptions.find((o) => o.value === value);
+                    if (option) setOs(option.label);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="из списка" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {responsibleOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <Button type="submit" disabled={submitting || !checkNo.trim() || !technicianName.trim()} className="shrink-0 gap-1.5">
               <Plus className="h-3.5 w-3.5" /> Добавить
             </Button>
           </div>
@@ -291,6 +377,12 @@ function DispatchRow({
       <div className="min-w-0 flex-1">
         <p className={cn("truncate font-medium", compact ? "text-sm" : "text-base")}>Чек {row.checkNo}</p>
         <p className="truncate text-sm text-muted-foreground">{row.technicianName}</p>
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+          {row.amount > 0 && <span className="tabular">{formatCurrency(row.amount)}</span>}
+          {row.minutes != null && <span>{row.minutes} мин</span>}
+          {row.character && <span className="truncate">{row.character}</span>}
+          {row.os && <span className="truncate">ОС: {row.os}</span>}
+        </div>
         {row.linkedPageName && (
           <p className="truncate text-xs text-primary/80">Лист: {row.linkedPageName}</p>
         )}

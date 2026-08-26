@@ -42,7 +42,7 @@ export default function DynamicTablePage() {
   const { pageId } = useParams<{ pageId: string }>();
   const [searchParams] = useSearchParams();
   const focusRowId = searchParams.get("row");
-  const { activeWorkspaceId, pages, members } = useWorkspace();
+  const { activeWorkspace, activeWorkspaceId, pages, members } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
   const { requestView, latestForPage, reload: reloadViewRequests, isLoading: viewRequestsLoading } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
@@ -491,6 +491,7 @@ export default function DynamicTablePage() {
               members={members}
               pages={pages}
               isOwner={canBindDispatch}
+              responsibleOptions={activeWorkspace?.responsibleOptions ?? []}
             />
           ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
