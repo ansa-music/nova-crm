@@ -1,4 +1,4 @@
-import { getDoc, getDocs, setDoc } from "firebase/firestore";
+import { getDoc, getDocs, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, subscribeToDoc } from "@/firebase/firestore";
 import { deleteInvitedStubIfPresent } from "@/services/memberService";
@@ -65,6 +65,22 @@ export async function fetchJoinRequests(workspaceId: string): Promise<JoinReques
     .map((d) => ({ id: d.id, ...d.data() }) as unknown as JoinRequest)
     .filter((r) => r.status === "pending")
     .sort((a, b) => a.requestedAt - b.requestedAt);
+}
+
+
+export function subscribeJoinRequests(workspaceId: string, cb: (rows: JoinRequest[]) => void) {
+  if (!db) {
+    cb([]);
+    return () => {};
+  }
+  return onSnapshot(paths.joinRequests(workspaceId), (snap) => {
+    cb(
+      snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }) as unknown as JoinRequest)
+        .filter((r) => r.status === "pending")
+        .sort((a, b) => a.requestedAt - b.requestedAt)
+    );
+  });
 }
 
 /**

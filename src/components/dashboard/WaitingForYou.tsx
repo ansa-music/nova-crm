@@ -13,6 +13,7 @@ import {
   DEFAULT_JOIN_ROLE,
   fetchJoinRequests,
   rejectJoinRequest,
+  subscribeJoinRequests,
 } from "@/services/joinRequestService";
 import { resendInvite } from "@/services/memberService";
 import { ROLE_LABELS, type JoinRequest, type WorkspaceMember } from "@/types";
@@ -36,23 +37,7 @@ export function WaitingForYou() {
       setJoinRequests([]);
       return;
     }
-    let cancelled = false;
-    async function load() {
-      try {
-        const requests = await fetchJoinRequests(activeWorkspaceId!);
-        if (!cancelled) setJoinRequests(requests);
-      } catch (error) {
-        console.error("WaitingForYou poll failed:", error);
-      }
-    }
-    void load();
-    const interval = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
-    }, 60_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
+    return subscribeJoinRequests(activeWorkspaceId, setJoinRequests);
   }, [activeWorkspaceId, canShow]);
 
   const joins = useMemo(

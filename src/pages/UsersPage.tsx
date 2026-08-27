@@ -16,7 +16,7 @@ import { InviteMemberForm } from "@/components/members/InviteMemberForm";
 import { RoleSelect } from "@/components/members/RoleSelect";
 import { cancelInvite, changeMemberRole, quietActiveMembers, removeMember, resendInvite, visibleMemberRoster } from "@/services/memberService";
 import { toggleUserPageAccess } from "@/services/pageService";
-import { approveJoinRequest, rejectJoinRequest, fetchJoinRequests, DEFAULT_JOIN_ROLE } from "@/services/joinRequestService";
+import { approveJoinRequest, rejectJoinRequest, fetchJoinRequests, subscribeJoinRequests, DEFAULT_JOIN_ROLE } from "@/services/joinRequestService";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { timeAgo } from "@/utils/date";
 import { useAuth } from "@/hooks/useAuth";
@@ -74,27 +74,20 @@ export default function UsersPage() {
   }, []);
 
   useEffect(() => {
-    if (!activeWorkspaceId || !permissions.canManageUsers) return;
-    let cancelled = false;
-    async function load() {
-      try {
-        const [requests] = await Promise.all([
-          fetchJoinRequests(activeWorkspaceId!),
-          refreshWorkspaceMembers(activeWorkspaceId!),
-        ]);
-        if (!cancelled) setJoinRequests(requests);
-      } catch (error) {
-        console.error("UsersPage poll failed:", error);
-      }
+    if (!activeWorkspaceId || !permissions.canManageUsers) {
+      setJoinRequests([]);
+      return;
     }
-    void load();
+    return subscribeJoinRequests(activeWorkspaceId, setJoinRequests);
+  }, [activeWorkspaceId, permissions.canManageUsers]);
+
+  useEffect(() => {
+    if (!activeWorkspaceId || !permissions.canManageUsers) return;
+    void refreshWorkspaceMembers(activeWorkspaceId);
     const interval = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === "visible") void refreshWorkspaceMembers(activeWorkspaceId!);
     }, 60_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
+    return () => window.clearInterval(interval);
   }, [activeWorkspaceId, permissions.canManageUsers]);
 
   if (!permissions.isResolved) return null;
