@@ -152,6 +152,11 @@ export interface PageRow {
   height?: number;
   createdAt: number;
   updatedAt: number;
+  /** Optional extras that are not table columns (quick order persons/minutes). */
+  extras?: {
+    persons?: number | null;
+    minutes?: number | null;
+  };
 }
 
 /**

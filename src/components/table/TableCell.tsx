@@ -5,6 +5,7 @@ import { DiskLinkChip } from "@/components/table/DiskLinkChip";
 import { DateCalendar } from "@/components/table/DateCalendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatCurrency, formatNumber } from "@/utils/format";
 import { formatOrderDate } from "@/utils/date";
 import { isOptionColumn } from "@/utils/columnOptions";
@@ -33,6 +34,8 @@ interface TableCellProps {
   isLastSticky?: boolean;
   isExpanded?: boolean;
   trailing?: ReactNode;
+  extrasHint?: string | null;
+  coarsePointer?: boolean;
 }
 
 export function TableCell({
@@ -56,10 +59,16 @@ export function TableCell({
   isLastSticky,
   isExpanded,
   trailing,
+  extrasHint,
+  coarsePointer,
 }: TableCellProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [hintOpen, setHintOpen] = useState(false);
+  const longPressRef = useRef<number | null>(null);
+  const lastTapRef = useRef(0);
+  const suppressEditRef = useRef(false);
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
@@ -71,6 +80,10 @@ export function TableCell({
   useEffect(() => {
     if (!isActive) setExpanded(false);
   }, [isActive]);
+
+  useEffect(() => {
+    if (isEditing) setHintOpen(false);
+  }, [isEditing]);
 
   const isNumeric = column.type === "number" || column.type === "currency";
   const stringValue = value === null || value === undefined ? "" : String(value);
@@ -150,8 +163,48 @@ export function TableCell({
         left: stickyLeft,
       }}
       onMouseDown={onMouseDown}
-      onMouseEnter={onMouseEnter}
-      onDoubleClick={onStartEdit}
+      onMouseEnter={() => {
+        onMouseEnter();
+        if (extrasHint && !coarsePointer && !isEditing) setHintOpen(true);
+      }}
+      onMouseLeave={() => {
+        if (!coarsePointer) setHintOpen(false);
+      }}
+      onPointerDown={(e) => {
+        if (!extrasHint || isEditing || e.pointerType !== "touch") return;
+        if (longPressRef.current) window.clearTimeout(longPressRef.current);
+        longPressRef.current = window.setTimeout(() => {
+          setHintOpen(true);
+          suppressEditRef.current = true;
+        }, 450);
+      }}
+      onPointerUp={(e) => {
+        if (longPressRef.current) {
+          window.clearTimeout(longPressRef.current);
+          longPressRef.current = null;
+        }
+        if (!extrasHint || isEditing || e.pointerType !== "touch") return;
+        const now = Date.now();
+        const gap = now - lastTapRef.current;
+        lastTapRef.current = now;
+        if (gap > 320 && gap < 900) {
+          setHintOpen((v) => !v);
+          suppressEditRef.current = true;
+        }
+      }}
+      onPointerCancel={() => {
+        if (longPressRef.current) {
+          window.clearTimeout(longPressRef.current);
+          longPressRef.current = null;
+        }
+      }}
+      onDoubleClick={() => {
+        if (suppressEditRef.current) {
+          suppressEditRef.current = false;
+          return;
+        }
+        onStartEdit();
+      }}
       data-col={column.key}
     >
       {isOptionColumn(column.type) ? (
@@ -302,7 +355,7 @@ export function TableCell({
             isNumeric && "justify-end tabular-nums",
             showFull && "absolute inset-0 z-30 items-start bg-card py-1.5 shadow-md"
           )}
-          title={column.type === "url" ? (diskUrl?.href ?? "") : stringValue}
+          title={extrasHint ? undefined : column.type === "url" ? (diskUrl?.href ?? "") : stringValue}
           onClick={() => {
             if (!isActive) return;
             if (stringValue.length > 36) setExpanded((v) => !v);
@@ -312,6 +365,19 @@ export function TableCell({
         </div>
       )}
       {trailing}
+      {extrasHint && !isEditing && (
+        <Tooltip open={hintOpen} delayDuration={120}>
+          <TooltipTrigger asChild>
+            <span className="pointer-events-none absolute inset-0" aria-hidden />
+          </TooltipTrigger>
+          <TooltipContent
+            side="top"
+            className="hud-frame border border-primary/30 bg-card px-2 py-1 text-[11px] tabular-nums text-foreground"
+          >
+            {extrasHint}
+          </TooltipContent>
+        </Tooltip>
+      )}
     </td>
   );
 }

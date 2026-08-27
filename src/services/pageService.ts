@@ -707,11 +707,13 @@ export async function addRow(
   workspaceId: string,
   pageId: string,
   cells: Record<string, string | number | null>,
-  order: number
+  order: number,
+  extras?: PageRow["extras"]
 ) {
   if (!db) throw new Error("Firebase не настроен");
   const id = generateId("row");
   const row: PageRow = { id, pageId, cells, order, createdAt: Date.now(), updatedAt: Date.now() };
+  if (extras && (extras.persons != null || extras.minutes != null)) row.extras = extras;
   await setDoc(paths.row(workspaceId, pageId, id), row);
   mirrorUpsertRow(workspaceId, pageId, null, row);
   return row;

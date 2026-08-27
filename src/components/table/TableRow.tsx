@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { memo, useState } from "react";
 import { Copy, GripVertical, MoreHorizontal, Trash2 } from "lucide-react";
 import { TableCell } from "@/components/table/TableCell";
+import { formatRowExtrasHint } from "@/utils/quickOrder";
 import { rowCardLayoutId } from "@/components/table/RowCardSheet";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -58,6 +59,7 @@ interface TableRowProps {
   onCopyRow?: (rowId: string) => void;
   expandedColKey?: string | null;
   gutterWidth?: number;
+  extrasHintKey?: string | null;
 }
 
 function TableRowInner({
@@ -100,6 +102,7 @@ function TableRowInner({
   onCopyRow,
   expandedColKey,
   gutterWidth = ROW_GUTTER_WIDTH,
+  extrasHintKey,
 }: TableRowProps) {
   const allowRowDrag = canReorder && !coarsePointer;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -274,6 +277,8 @@ function TableRowInner({
             stickyLeft={stickyLeft}
             isLastSticky={column.key === lastStickyKey}
             isExpanded={expandedColKey === column.key}
+            extrasHint={column.key === extrasHintKey ? formatRowExtrasHint(row.extras) : null}
+            coarsePointer={coarsePointer}
           />
         );
       })}
@@ -307,7 +312,10 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     prev.coarsePointer !== next.coarsePointer ||
     prev.statusTint !== next.statusTint ||
     prev.expandedColKey !== next.expandedColKey ||
-    prev.gutterWidth !== next.gutterWidth
+    prev.gutterWidth !== next.gutterWidth ||
+    prev.extrasHintKey !== next.extrasHintKey ||
+    prev.row.extras?.persons !== next.row.extras?.persons ||
+    prev.row.extras?.minutes !== next.row.extras?.minutes
   ) {
     return false;
   }

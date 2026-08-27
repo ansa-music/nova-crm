@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Plus, Search, Rows3, Columns3, Table2, Kanban, MoreHorizontal, Palette, SlidersHorizontal, Eye, Bookmark } from "lucide-react";
+import { Download, Plus, Search, Rows3, Columns3, Table2, Kanban, MoreHorizontal, Palette, SlidersHorizontal, Eye, Bookmark, ClipboardList } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +26,7 @@ interface TableToolbarProps {
   density: "compact" | "default" | "comfortable";
   onDensityChange: (density: "compact" | "default" | "comfortable") => void;
   onAddRow: () => void;
+  onQuickOrder?: () => void;
   onExportCsv: () => void;
   canEdit: boolean;
   canEditStructure: boolean;
@@ -62,6 +63,7 @@ export function TableToolbar({
   density,
   onDensityChange,
   onAddRow,
+  onQuickOrder,
   onExportCsv,
   canEdit,
   canEditStructure,
@@ -331,6 +333,19 @@ export function TableToolbar({
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {canEdit && onQuickOrder && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-10 shrink-0 gap-1.5 sm:h-8"
+          onClick={onQuickOrder}
+          title="Быстрый заказ в открытую вкладку"
+        >
+          <ClipboardList className="h-3.5 w-3.5" />
+          <span className="hidden xs:inline sm:inline">Заказ</span>
+        </Button>
+      )}
 
       {canEdit && (
         // Sticky to the scroll container's right edge: on a phone this toolbar

@@ -38,6 +38,8 @@ import { ColumnHeaderCell } from "@/components/table/ColumnHeaderCell";
 import { TableRow } from "@/components/table/TableRow";
 import { GroupHeaderRow } from "@/components/table/GroupHeaderRow";
 import { TableToolbar } from "@/components/table/TableToolbar";
+import { QuickOrderDialog } from "@/components/table/QuickOrderDialog";
+import { buildQuickOrderRow, findQuickOrderColumns, type QuickOrderInput } from "@/utils/quickOrder";
 import {
   captureTableView,
   loadSavedTableViews,
@@ -222,8 +224,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // site below keeps using the same short names as before — only these
   // definitions differ.
   const addRowService = subPageId
-    ? (wsId: string, pId: string, cells: Record<string, string | number | null>, order: number) =>
-        addSubPageRow(wsId, pId, subPageId, cells, order)
+    ? (
+        wsId: string,
+        pId: string,
+        cells: Record<string, string | number | null>,
+        order: number,
+        extras?: PageRow["extras"]
+      ) => addSubPageRow(wsId, pId, subPageId, cells, order, extras)
     : addRowServiceBase;
   const deleteRowService = subPageId
     ? (wsId: string, pId: string, rowId: string) => deleteSubPageRow(wsId, pId, subPageId, rowId)
@@ -330,6 +337,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     return columns[0] ? [columns[0].key] : [];
   });
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
+  const [quickOrderOpen, setQuickOrderOpen] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
   // Default to showing every row the page actually has — pagination exists
   // for people who WANT to chunk a big table, not as a hidden cap that
@@ -362,6 +370,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columns, resizePreview, responsibleOptions, sharedStatusOptions, customFields, activeWorkspace]);
+
+  const extrasHintKey = useMemo(
+    () => findQuickOrderColumns(displayColumns).client?.key ?? null,
+    [displayColumns]
+  );
 
   const stickyKeys = useMemo(
     () => pinnedKeys.filter((k) => displayColumns.some((c) => c.key === k)),
@@ -1536,6 +1549,22 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     });
   }
 
+  async function handleQuickOrder(input: QuickOrderInput) {
+    const { cells, extras } = buildQuickOrderRow(columns, displayColumns, input);
+    const newRow = await addRowService(workspaceId, page.id, cells, rows.length, extras);
+    let liveId = newRow.id;
+    const extrasCopy = extras;
+    pushCommand({
+      undo: () => deleteRowService(workspaceId, page.id, liveId),
+      redo: async () => {
+        const restored = await addRowService(workspaceId, page.id, cells, rows.length, extrasCopy);
+        liveId = restored.id;
+      },
+    });
+    pendingScrollRowIdRef.current = newRow.id;
+    toast.success("Заказ в столе");
+  }
+
   function handleContextMenuOpen(rowId: string) {
     contextRowIdRef.current = rowId;
   }
@@ -1920,6 +1949,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onUndoLast={() => void undoLastCommand()}
         isExpanded={expandedRowId === row.id}
         coarsePointer={coarsePointer}
+        extrasHintKey={extrasHintKey}
         statusTint={
           (() => {
             const statusCol = displayColumns.find((c) => c.type === "status");
@@ -1983,6 +2013,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         density={density}
         onDensityChange={handleDensityChange}
         onAddRow={handleAddRow}
+        onQuickOrder={canEdit ? () => setQuickOrderOpen(true) : undefined}
         onExportCsv={handleExportCsv}
         canEdit={canEdit}
         canEditStructure={canEditStructure}
@@ -2416,6 +2447,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onOpenChange={(o) => !o && setExpandedRowId(null)}
         columns={displayColumns}
         row={rows.find((r) => r.id === expandedRowId) ?? null}
+      />
+
+      <QuickOrderDialog
+        open={quickOrderOpen}
+        onOpenChange={setQuickOrderOpen}
+        onSubmit={handleQuickOrder}
       />
 
       <BulkActionBar
