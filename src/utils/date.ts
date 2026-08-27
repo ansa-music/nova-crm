@@ -43,9 +43,10 @@ export function formatResetCountdown(at: number, now: number = Date.now()): stri
   return `через ${hours}ч ${mins}м`;
 }
 
-/** "26.08.2026 17:25" — typed by hand, not picked through a native date widget. Local wall-clock time. */
-export const MANUAL_DATETIME_FORMAT = "dd.MM.yyyy HH:mm";
-export const MANUAL_DATETIME_PLACEHOLDER = "26.08.2026 17:25";
+/** "26.08 17:25" — day, month, time. Year is inferred (this year, or next if that moment already passed). Local wall-clock. */
+export const MANUAL_DATETIME_FORMAT = "dd.MM HH:mm";
+export const MANUAL_DATETIME_PLACEHOLDER = "26.08 17:25";
+const MANUAL_DATETIME_FORMAT_LEGACY = "dd.MM.yyyy HH:mm";
 
 export function formatDateTimeManual(ms: number | null | undefined): string {
   if (ms == null || !Number.isFinite(ms)) return "";
@@ -54,20 +55,30 @@ export function formatDateTimeManual(ms: number | null | undefined): string {
 
 /**
  * Feed this the input's raw value on every keystroke and set the field to
- * the result — strips everything but digits, then re-inserts the dots,
- * space, and colon at fixed positions as you type (26→26.→26.08→26.08.2026
- * →26.08.2026 1→26.08.2026 17:25), so typing is just the 12 digits, never
- * the punctuation by hand. Deleting works the same way in reverse: erasing
- * a digit just re-runs the mask on one fewer digit.
+ * the result — strips everything but digits, then re-inserts the dot, space,
+ * and colon as you type (26→26.→26.08→26.08 1→26.08 17:25). Eight digits,
+ * no year. Pasting the old 12-digit "26.08.2026 17:25" drops the year.
  */
 export function autoFormatManualDateTimeInput(raw: string): string {
-  const digits = raw.replace(/\D/g, "").slice(0, 12);
+  let digits = raw.replace(/\D/g, "");
+  if (digits.length > 8) {
+    digits = digits.slice(0, 4) + digits.slice(8, 12);
+  }
+  digits = digits.slice(0, 8);
   let out = digits.slice(0, 2);
   if (digits.length > 2) out += "." + digits.slice(2, 4);
-  if (digits.length > 4) out += "." + digits.slice(4, 8);
-  if (digits.length > 8) out += " " + digits.slice(8, 10);
-  if (digits.length > 10) out += ":" + digits.slice(10, 12);
+  if (digits.length > 4) out += " " + digits.slice(4, 6);
+  if (digits.length > 6) out += ":" + digits.slice(6, 8);
   return out;
+}
+
+function applyInferredYear(parsed: Date, now: number): Date {
+  const n = new Date(now);
+  let d = new Date(n.getFullYear(), parsed.getMonth(), parsed.getDate(), parsed.getHours(), parsed.getMinutes(), 0, 0);
+  if (d.getTime() < now - 12 * 60 * 60 * 1000) {
+    d = new Date(n.getFullYear() + 1, parsed.getMonth(), parsed.getDate(), parsed.getHours(), parsed.getMinutes(), 0, 0);
+  }
+  return d;
 }
 
 /** Same calendar day on the device's local clock — not UTC, matches how the manual field is typed/read. */
@@ -78,12 +89,16 @@ export function isSameLocalDay(a: number, b: number): boolean {
 }
 
 /** Returns null for an empty string ("no date set"), or undefined if the text doesn't parse as a valid date. */
-export function parseDateTimeManual(value: string): number | null | undefined {
+export function parseDateTimeManual(value: string, now: number = Date.now()): number | null | undefined {
   const trimmed = value.trim();
   if (!trimmed) return null;
-  const parsed = parse(trimmed, MANUAL_DATETIME_FORMAT, new Date());
-  if (!isValid(parsed)) return undefined;
-  return parsed.getTime();
+  const legacy = parse(trimmed, MANUAL_DATETIME_FORMAT_LEGACY, new Date(now));
+  if (isValid(legacy) && format(legacy, MANUAL_DATETIME_FORMAT_LEGACY) === trimmed) {
+    return legacy.getTime();
+  }
+  const parsed = parse(trimmed, MANUAL_DATETIME_FORMAT, new Date(now));
+  if (!isValid(parsed) || format(parsed, MANUAL_DATETIME_FORMAT) !== trimmed) return undefined;
+  return applyInferredYear(parsed, now).getTime();
 }
 
 
