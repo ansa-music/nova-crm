@@ -17,7 +17,10 @@ import { useViewRequests } from "@/hooks/useViewRequests";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { displayNameOf } from "@/utils/displayName";
 import { canOpenDesk, deskOwnerName, resolvedCoverUrl, splitStudioDesks } from "@/utils/peopleDesks";
+import { cn } from "@/utils/cn";
 import type { WorkspacePage } from "@/types";
+
+type DeskChip = "all" | "mine" | "others";
 
 export default function DesksPage() {
   const navigate = useNavigate();
@@ -29,6 +32,7 @@ export default function DesksPage() {
   const leaderboard = useLeaderboard(activeWorkspaceId);
   const [query, setQuery] = useState("");
   const [hiddenOpen, setHiddenOpen] = useState(false);
+  const [chip, setChip] = useState<DeskChip>("all");
 
   const progressByPageId = useMemo(() => {
     const next: Record<string, number> = {};
@@ -54,14 +58,31 @@ export default function DesksPage() {
     [pages, profile?.uid]
   );
 
+  const uid = profile?.uid;
+  const mineVisible = useMemo(
+    () => visible.filter((page) => page.responsibleUserId === uid),
+    [visible, uid]
+  );
+  const othersVisible = useMemo(
+    () => visible.filter((page) => page.responsibleUserId !== uid),
+    [visible, uid]
+  );
+  const scoped = chip === "mine" ? mineVisible : chip === "others" ? othersVisible : visible;
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return visible;
-    return visible.filter((page) => {
+    if (!q) return scoped;
+    return scoped.filter((page) => {
       const who = deskOwnerName(members, page) || "";
       return page.name.toLowerCase().includes(q) || who.toLowerCase().includes(q);
     });
-  }, [visible, members, query]);
+  }, [scoped, members, query]);
+
+  const chips: { id: DeskChip; label: string; count: number }[] = [
+    { id: "all", label: "Все", count: visible.length },
+    { id: "mine", label: "Мои", count: mineVisible.length },
+    { id: "others", label: "Чужие", count: othersVisible.length },
+  ];
 
   function mayOpen(page: WorkspacePage) {
     return canOpenDesk({
@@ -134,6 +155,25 @@ export default function DesksPage() {
         </div>
       </header>
 
+      <div className="mb-4 flex flex-wrap gap-1.5">
+        {chips.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setChip(item.id)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+              chip === item.id
+                ? "border-primary/50 bg-primary/15 text-primary"
+                : "border-border bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground"
+            )}
+          >
+            {item.label}
+            <span className="tabular-nums text-[10px] opacity-80">{item.count}</span>
+          </button>
+        ))}
+      </div>
+
       {filtered.length > 0 ? (
         <DeskCoverGrid
           pages={filtered}
@@ -153,10 +193,10 @@ export default function DesksPage() {
             />
           )}
         />
-      ) : query.trim() || hidden.length === 0 ? (
+      ) : query.trim() || chip !== "all" || hidden.length === 0 ? (
         <EmptyState
           className="rounded-2xl border border-primary/25 bg-card py-16"
-          title={query.trim() ? "Нет таких столов" : "Пока нет столов"}
+          title={query.trim() || chip !== "all" ? "Нет таких столов" : "Пока нет столов"}
         />
       ) : null}
 
