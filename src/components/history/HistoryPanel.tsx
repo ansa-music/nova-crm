@@ -30,6 +30,25 @@ const ACTION_LABEL: Record<HistoryAction, string> = {
   restore: "восстановлено",
 };
 
+type ActionFilter = "all" | HistoryAction;
+
+const CHIP_IDLE = "border-border bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground";
+const CHIP_ACTIVE: Record<ActionFilter, string> = {
+  all: "border-primary/50 bg-primary/15 text-primary",
+  create: "border-success/50 bg-success/15 text-success",
+  update: "border-warning/50 bg-warning/15 text-warning",
+  delete: "border-destructive/50 bg-destructive/15 text-destructive",
+  restore: "border-primary/50 bg-primary/15 text-primary",
+};
+
+const ACTION_CHIPS: { id: ActionFilter; label: string }[] = [
+  { id: "all", label: "Все" },
+  { id: "create", label: "Добавили" },
+  { id: "update", label: "Изменили" },
+  { id: "delete", label: "Удалили" },
+  { id: "restore", label: "Восстановили" },
+];
+
 interface HistoryPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -47,11 +66,13 @@ export function HistoryPanel({ open, onOpenChange, workspaceId, pageId, columns 
   // Resets to the last-10 view every time the panel is (re)opened or the
   // page changes, rather than staying expanded from a previous visit.
   const [visibleCount, setVisibleCount] = useState(PAGE_STEP);
-  const visibleEntries = entries.slice(0, visibleCount);
+  const [actionFilter, setActionFilter] = useState<ActionFilter>("all");
+  const filteredEntries = actionFilter === "all" ? entries : entries.filter((entry) => entry.action === actionFilter);
+  const visibleEntries = filteredEntries.slice(0, visibleCount);
 
   useEffect(() => {
     if (open) setVisibleCount(PAGE_STEP);
-  }, [open, pageId]);
+  }, [open, pageId, actionFilter]);
 
   // Status/responsible cells store the option's internal id ("resp_xxx" /
   // "done"), never the label a person actually typed — so a raw diff like
@@ -94,8 +115,26 @@ export function HistoryPanel({ open, onOpenChange, workspaceId, pageId, columns 
             <History className="h-4 w-4" /> История изменений
           </SheetTitle>
         </SheetHeader>
-        <div className="mt-4 overflow-y-auto scrollbar-thin" style={{ maxHeight: "calc(100vh - 6rem)" }}>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {ACTION_CHIPS.map((chip) => (
+            <button
+              key={chip.id}
+              type="button"
+              onClick={() => setActionFilter(chip.id)}
+              className={cn(
+                "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                actionFilter === chip.id ? CHIP_ACTIVE[chip.id] : CHIP_IDLE
+              )}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-4 overflow-y-auto scrollbar-thin" style={{ maxHeight: "calc(100vh - 8rem)" }}>
           {entries.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">История пуста</p>}
+          {entries.length > 0 && filteredEntries.length === 0 && (
+            <p className="py-8 text-center text-sm text-muted-foreground">Ничего не нашлось по этому фильтру</p>
+          )}
           {visibleEntries.length > 0 && (
             <ol className="relative ml-1">
               <span
@@ -151,14 +190,14 @@ export function HistoryPanel({ open, onOpenChange, workspaceId, pageId, columns 
           )}
         </div>
 
-        {entries.length > visibleCount && (
+        {filteredEntries.length > visibleCount && (
           <Button
             variant="outline"
             size="sm"
             className="mt-2 w-full"
             onClick={() => setVisibleCount((c) => c + PAGE_STEP)}
           >
-            Показать ещё {Math.min(PAGE_STEP, entries.length - visibleCount)}
+            Показать ещё {Math.min(PAGE_STEP, filteredEntries.length - visibleCount)}
           </Button>
         )}
       </SheetContent>
