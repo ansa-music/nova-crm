@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { useDailyDispatch } from "@/hooks/useDailyDispatch";
 import { useDispatchTechnicians } from "@/hooks/useDispatchTechnicians";
+import { DispatchSheetMapDialog } from "@/components/dispatch/DispatchSheetMapDialog";
 import {
   bindDailyDispatchToSheet,
   createDailyDispatch,
@@ -322,6 +323,7 @@ export function DailyDispatchPanel({
                   uid={uid}
                   technicians={technicians}
                   members={members}
+                  pages={pages}
                   isOwner={isOwner}
                   onChanged={reloadTechnicians}
                 />
@@ -375,6 +377,7 @@ function DispatchRow({
           {row.technicianName}
           {row.requestStatus === "pending" && <span className="ml-1.5 text-xs text-warning">· ждёт принятия</span>}
           {row.requestStatus === "accepted" && <span className="ml-1.5 text-xs text-success">· принято</span>}
+          {row.sheetRowId && <span className="ml-1.5 text-xs text-success">· в столе</span>}
         </p>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
           {row.amount > 0 && <span className="tabular">{formatCurrency(row.amount)}</span>}
@@ -412,6 +415,7 @@ function TechnicianRoster({
   uid,
   technicians,
   members,
+  pages,
   isOwner,
   onChanged,
 }: {
@@ -419,11 +423,13 @@ function TechnicianRoster({
   uid: string;
   technicians: DispatchTechnician[];
   members: WorkspaceMember[];
+  pages: WorkspacePage[];
   isOwner: boolean;
   onChanged: () => Promise<void> | void;
 }) {
   const [nickname, setNickname] = useState("");
   const [adding, setAdding] = useState(false);
+  const [mapTarget, setMapTarget] = useState<DispatchTechnician | null>(null);
   const activeMembers = useMemo(
     () => members.filter((m) => m.status === "active").sort((a, b) => displayNameOf(a).localeCompare(displayNameOf(b), "ru")),
     [members]
@@ -505,6 +511,11 @@ function TechnicianRoster({
               </span>
               <div className="flex-1" />
               {isOwner && (
+                <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" onClick={() => setMapTarget(tech)}>
+                  Стол
+                </Button>
+              )}
+              {isOwner && (
                 <Select value={tech.memberUid ?? ""} onValueChange={(v) => handleBind(tech, v)}>
                   <SelectTrigger className="h-8 w-44 shrink-0">
                     <SelectValue placeholder="Привязать к…" />
@@ -546,6 +557,18 @@ function TechnicianRoster({
           <Plus className="h-3.5 w-3.5" /> Добавить
         </Button>
       </form>
+      {mapTarget && (
+        <DispatchSheetMapDialog
+          workspaceId={workspaceId}
+          tech={mapTarget}
+          pages={pages}
+          onClose={() => setMapTarget(null)}
+          onSaved={async () => {
+            setMapTarget(null);
+            await onChanged();
+          }}
+        />
+      )}
     </div>
   );
 }

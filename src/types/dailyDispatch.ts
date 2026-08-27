@@ -26,6 +26,8 @@ export interface DailyDispatch {
    */
   requestStatus: "pending" | "accepted" | null;
   acceptedAt: number | null;
+  /** Row created on the technician desk from this order. Null until written. */
+  sheetRowId: string | null;
   dayKey: string;
   marks: Record<string, true>;
   createdAt: number;
@@ -46,7 +48,34 @@ export interface DispatchTechnician {
   workspaceId: string;
   nickname: string;
   memberUid: string | null;
+  /**
+   * Owner-configured destination desk for this nick.
+   * "own" = the bound account's own desk (responsibleUserId === memberUid).
+   * A page id = that specific desk, still only written if it belongs to the technician.
+   * Null = not configured.
+   */
+  deskTarget: "own" | string | null;
+  /**
+   * Column keys on the destination sheet. All five must be set before
+   * Accept auto-writes a row. Never inferred from column labels.
+   */
+  columnMap: DispatchColumnMap | null;
   createdAt: number;
   createdBy: string;
   updatedAt: number;
+}
+
+/** Keys are PageColumn.key on the destination sheet (current-month tab when the desk hides Основная). */
+export interface DispatchColumnMap {
+  checkNo: string;
+  amount: string;
+  minutes: string;
+  character: string;
+  os: string;
+}
+
+export function isDispatchColumnMapComplete(
+  map: DispatchColumnMap | null | undefined
+): map is DispatchColumnMap {
+  return Boolean(map?.checkNo && map?.amount && map?.minutes && map?.character && map?.os);
 }

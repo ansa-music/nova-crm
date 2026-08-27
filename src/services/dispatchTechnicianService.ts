@@ -1,9 +1,22 @@
-import { deleteDoc, getDocs, setDoc, updateDoc } from "firebase/firestore";
+import { deleteDoc, getDocs, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { normalizeTimestamp } from "@/utils/date";
-import type { DispatchTechnician } from "@/types";
+import type { DispatchColumnMap, DispatchTechnician } from "@/types";
+
+
+function mapColumnMap(raw: unknown): DispatchColumnMap | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const checkNo = typeof o.checkNo === "string" ? o.checkNo : "";
+  const amount = typeof o.amount === "string" ? o.amount : "";
+  const minutes = typeof o.minutes === "string" ? o.minutes : "";
+  const character = typeof o.character === "string" ? o.character : "";
+  const os = typeof o.os === "string" ? o.os : "";
+  if (!checkNo && !amount && !minutes && !character && !os) return null;
+  return { checkNo, amount, minutes, character, os };
+}
 
 function requireDb() {
   if (!db) throw new Error("Firebase не настроен");
@@ -16,6 +29,8 @@ function mapTechnician(id: string, raw: Record<string, unknown>): DispatchTechni
     workspaceId: String(raw.workspaceId ?? ""),
     nickname: String(raw.nickname ?? ""),
     memberUid: typeof raw.memberUid === "string" ? raw.memberUid : null,
+    deskTarget: typeof raw.deskTarget === "string" && raw.deskTarget ? (raw.deskTarget as DispatchTechnician["deskTarget"]) : null,
+    columnMap: mapColumnMap(raw.columnMap),
     createdAt: normalizeTimestamp(raw.createdAt),
     createdBy: String(raw.createdBy ?? ""),
     updatedAt: normalizeTimestamp(raw.updatedAt),
@@ -45,6 +60,8 @@ export async function createDispatchTechnician(input: {
     workspaceId: input.workspaceId,
     nickname,
     memberUid: null,
+    deskTarget: "own",
+    columnMap: null,
     createdAt: now,
     createdBy: input.createdBy,
     updatedAt: now,
@@ -69,4 +86,26 @@ export async function bindDispatchTechnician(workspaceId: string, id: string, me
 export async function deleteDispatchTechnician(workspaceId: string, id: string): Promise<void> {
   requireDb();
   await deleteDoc(paths.dispatchTechnician(workspaceId, id));
+}
+
+export async function getMyDispatchTechnician(workspaceId: string, uid: string): Promise<DispatchTechnician | null> {
+  requireDb();
+  const snap = await getDocs(query(paths.dispatchTechnicians(workspaceId), where("memberUid", "==", uid)));
+  if (snap.empty) return null;
+  return mapTechnician(snap.docs[0].id, snap.docs[0].data() as Record<string, unknown>);
+}
+
+/** Owner-only in the UI. Saves destination desk + column keys. Does not guess columns by label. */
+export async function updateDispatchSheetMapping(
+  workspaceId: string,
+  id: string,
+  deskTarget: DispatchTechnician["deskTarget"],
+  columnMap: DispatchColumnMap | null
+): Promise<void> {
+  requireDb();
+  await updateDoc(paths.dispatchTechnician(workspaceId, id), {
+    deskTarget,
+    columnMap,
+    updatedAt: Date.now(),
+  });
 }

@@ -443,7 +443,7 @@ export default function DynamicTablePage() {
       </div>
 
       {isOwnDesk && !chromeHidden && (
-        <IncomingDispatchBanner workspaceId={page.workspaceId} uid={permissions.uid} />
+        <IncomingDispatchBanner workspaceId={page.workspaceId} uid={permissions.uid} page={page} />
       )}
 
       {personalSpaceOpen ? (

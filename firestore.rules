@@ -540,14 +540,16 @@ service cloud.firestore {
         allow create, delete: if isOwnerOrAdmin(workspaceId);
         allow update: if isOwnerOrAdmin(workspaceId) ||
           (resource.data.get('technicianUid', null) == request.auth.uid &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['requestStatus', 'acceptedAt']));
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['requestStatus', 'acceptedAt', 'sheetRowId']));
       }
 
       // Admin-curated technician nickname roster for Выдача. Nicknames:
       // Admin+. Linking a nickname to a real account (memberUid): Owner
       // only — the same weight as binding a dispatch entry to a desk.
       match /dispatchTechnicians/{techId} {
-        allow read: if isOwnerOrAdmin(workspaceId);
+        allow read: if isOwnerOrAdmin(workspaceId) ||
+          resource.data.get('memberUid', null) == request.auth.uid;
         allow create: if isOwnerOrAdmin(workspaceId) && request.resource.data.createdBy == request.auth.uid;
         allow update: if isOwnerOrAdmin(workspaceId) &&
           (isOwner(workspaceId) ||
