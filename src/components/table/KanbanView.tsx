@@ -98,13 +98,12 @@ export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChang
       </div>
       <DragOverlay>
         {activeRow && (
-          <KanbanCard
+          <KanbanCardFace
             row={activeRow}
             titleColKey={titleColKey}
             currencyColKey={currencyCol?.key}
             responsibleCol={responsibleCol}
-            canEdit={false}
-            overlay
+            className="rotate-2 cursor-grabbing shadow-lg"
           />
         )}
       </DragOverlay>
@@ -163,35 +162,23 @@ function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCo
   );
 }
 
-interface KanbanCardProps {
+interface KanbanCardFaceProps {
   row: PageRow;
   titleColKey?: string;
   currencyColKey?: string;
   responsibleCol?: PageColumn;
-  canEdit: boolean;
-  overlay?: boolean;
+  className?: string;
 }
 
-function KanbanCard({ row, titleColKey, currencyColKey, responsibleCol, canEdit, overlay }: KanbanCardProps) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: row.id, disabled: !canEdit });
-
+/** Dumb visual — no useDraggable. Overlay must not share the source card id. */
+function KanbanCardFace({ row, titleColKey, currencyColKey, responsibleCol, className }: KanbanCardFaceProps) {
   const title = titleColKey ? String(row.cells[titleColKey] ?? "") : "";
   const amount = currencyColKey ? row.cells[currencyColKey] : null;
   const responsibleValue = responsibleCol ? String(row.cells[responsibleCol.key] ?? "") : "";
   const responsibleOption = responsibleCol?.statusOptions?.find((o) => o.value === responsibleValue);
 
   return (
-    <div
-      ref={overlay ? undefined : setNodeRef}
-      {...(overlay ? {} : attributes)}
-      {...(overlay ? {} : listeners)}
-      className={cn(
-        "relative rounded-md border border-border bg-card p-2.5 text-sm shadow-sm",
-        canEdit && "cursor-grab touch-none active:cursor-grabbing",
-        isDragging && !overlay && "opacity-30",
-        overlay && "rotate-2 shadow-lg"
-      )}
-    >
+    <div className={cn("relative rounded-md border border-border bg-card p-2.5 text-sm shadow-sm", className)}>
       {responsibleOption && (
         <MemberAvatar id={responsibleOption.value} name={responsibleOption.label} className="absolute right-2 top-2 h-5 w-5" />
       )}
@@ -199,6 +186,34 @@ function KanbanCard({ row, titleColKey, currencyColKey, responsibleCol, canEdit,
       {currencyColKey && amount !== null && amount !== "" && (
         <p className="mt-1 text-xs text-muted-foreground">{formatCurrency(Number(amount))}</p>
       )}
+    </div>
+  );
+}
+
+interface KanbanCardProps {
+  row: PageRow;
+  titleColKey?: string;
+  currencyColKey?: string;
+  responsibleCol?: PageColumn;
+  canEdit: boolean;
+}
+
+function KanbanCard({ row, titleColKey, currencyColKey, responsibleCol, canEdit }: KanbanCardProps) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: row.id, disabled: !canEdit });
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className={cn(canEdit && "cursor-grab touch-none active:cursor-grabbing", isDragging && "opacity-30")}
+    >
+      <KanbanCardFace
+        row={row}
+        titleColKey={titleColKey}
+        currencyColKey={currencyColKey}
+        responsibleCol={responsibleCol}
+      />
     </div>
   );
 }
