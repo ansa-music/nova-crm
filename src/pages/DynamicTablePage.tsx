@@ -36,7 +36,21 @@ import { canOpenDesk, isRestrictedDeskRole } from "@/utils/peopleDesks";
 import { useUiStore } from "@/store/uiStore";
 import { cn } from "@/utils/cn";
 import { recordRecentPage } from "@/hooks/useUserPageNav";
-import type { PageIconName, WorkspacePage } from "@/types";
+import type { PageIconName, SubPage, WorkspacePage } from "@/types";
+
+
+function visibleSubPages(subPages: SubPage[]) {
+  return subPages.filter((s) => !s.isArchived).sort((a, b) => a.order - b.order);
+}
+
+/** First tab on a desk visit. Hidden Основная is never the fallback. */
+function initialSubPageId(page: WorkspacePage, subPages: SubPage[]): string | null {
+  const visible = visibleSubPages(subPages);
+  const def = page.defaultSubPageId ?? null;
+  if (def && visible.some((s) => s.id === def)) return def;
+  if (page.hideMainTab) return visible[0]?.id ?? null;
+  return null;
+}
 
 export default function DynamicTablePage() {
   const { pageId } = useParams<{ pageId: string }>();
@@ -60,6 +74,7 @@ export default function DynamicTablePage() {
   const [activeSubPageId, setActiveSubPageId] = useState<string | null>(null);
   const [tabsReady, setTabsReady] = useState(false);
   const appliedDefaultForPageRef = useRef<string | null>(null);
+  const userPickedTabRef = useRef(false);
 
   const storePage = pages.find((p) => p.id === pageId);
   const [fetchedPage, setFetchedPage] = useState<WorkspacePage | null>(null);
@@ -115,7 +130,7 @@ export default function DynamicTablePage() {
   // Owner / responsible always open. Технар/viewer: own desk or accepted view-request only.
   // Do not use allowedUsers membership — live pages often list everyone.
   const hasAccess = permissions.isResolved && Boolean(page && personalOpen);
-  const { subPages } = useSubPages(activeWorkspaceId, hasAccess && page ? page.id : null);
+  const { subPages, isLoading: subPagesLoading } = useSubPages(activeWorkspaceId, hasAccess && page ? page.id : null);
   const activeSubPage = subPages.find((s) => s.id === activeSubPageId) ?? null;
   const tabScopeReady = tabsReady && appliedDefaultForPageRef.current === pageId;
   const listenMainRows = Boolean(hasAccess && page && tabScopeReady && !activeSubPageId);
@@ -130,26 +145,39 @@ export default function DynamicTablePage() {
     listenSubRows ? activeSubPageId : null
   );
 
-  // Reset the active tab whenever navigating to a different page entirely
-  // — and apply that page's own "opens by default" tab (defaultSubPageId)
-  // exactly once per visit, as soon as real page data has loaded. Guarded
-  // by the ref (not just [pageId]) because `page` is a fresh object on
-  // every Firestore snapshot, so this effect re-runs on unrelated field
-  // changes too — without the guard it would keep yanking someone back to
-  // the default tab every time the page doc updates for any reason.
+  // Apply the default tab once per desk visit. `page` is a new object on
+  // every snapshot, so a ref (not [page]) is the "already applied" guard —
+  // otherwise later snapshots yank the user back. Wait for subPages: the
+  // first page snapshot often has hideMainTab without defaultSubPageId yet
+  // (seed writes the month tab after the page doc). Changing default on an
+  // already-open desk, or a later snapshot, must not steal a manual click.
   useEffect(() => {
     appliedDefaultForPageRef.current = null;
+    userPickedTabRef.current = false;
     setTabsReady(false);
     setActiveSubPageId(null);
   }, [pageId]);
 
   useEffect(() => {
-    if (!page) return;
+    if (!page || !pageId || !hasAccess) return;
+    if (userPickedTabRef.current) {
+      appliedDefaultForPageRef.current = pageId;
+      setTabsReady(true);
+      return;
+    }
     if (appliedDefaultForPageRef.current === pageId) return;
-    appliedDefaultForPageRef.current = pageId ?? null;
-    setActiveSubPageId(page.defaultSubPageId ?? null);
+    if (subPagesLoading) return;
+    appliedDefaultForPageRef.current = pageId;
+    setActiveSubPageId(initialSubPageId(page, subPages));
     setTabsReady(true);
-  }, [pageId, page]);
+  }, [pageId, page, subPages, subPagesLoading, hasAccess]);
+
+  function handleSelectTab(subPageId: string | null) {
+    userPickedTabRef.current = true;
+    appliedDefaultForPageRef.current = pageId ?? appliedDefaultForPageRef.current;
+    setActiveSubPageId(subPageId);
+    setTabsReady(true);
+  }
 
   // "Продолжить с того места" — remembers the last table page you had open
   // so reopening/reloading the site can jump straight back to it (see the
@@ -463,7 +491,7 @@ export default function DynamicTablePage() {
               page={page}
               subPages={subPages}
               activeSubPageId={activeSubPageId}
-              onSelect={setActiveSubPageId}
+              onSelect={handleSelectTab}
               canManage={canEditData || permissions.canManagePage(page)}
               userId={profile?.uid ?? ""}
             />
