@@ -10,7 +10,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { QuickOrderInput } from "@/utils/quickOrder";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { StatusBadge } from "@/components/table/StatusBadge";
+import { parseOptionalNumber, type QuickOrderInput } from "@/utils/quickOrder";
+import type { StatusOption } from "@/types";
 
 const EMPTY: QuickOrderInput = {
   client: "",
@@ -25,11 +28,14 @@ export function QuickOrderDialog({
   open,
   onOpenChange,
   onSubmit,
+  osOptions,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (input: QuickOrderInput) => Promise<void>;
+  osOptions?: StatusOption[] | null;
 }) {
+  const osSelect = Boolean(osOptions && osOptions.length > 0);
   const [form, setForm] = useState<QuickOrderInput>(EMPTY);
   const [saving, setSaving] = useState(false);
   const clientRef = useRef<HTMLInputElement>(null);
@@ -43,8 +49,8 @@ export function QuickOrderDialog({
   }, [open]);
 
   const client = form.client.trim();
-  const check = form.check.trim();
-  const canSave = Boolean(client && check) && !saving;
+  const checkNum = parseOptionalNumber(form.check);
+  const canSave = Boolean(client && checkNum != null) && !saving;
 
   function setField<K extends keyof QuickOrderInput>(key: K, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -99,12 +105,33 @@ export function QuickOrderDialog({
             </div>
             <div className="flex flex-col gap-1">
               <Label htmlFor="qo-os">ОС</Label>
-              <Input
-                id="qo-os"
-                value={form.os}
-                onChange={(e) => setField("os", e.target.value)}
-                autoComplete="off"
-              />
+              {osSelect ? (
+                <Select
+                  value={form.os || undefined}
+                  onValueChange={(v) => setField("os", v === "__clear__" ? "" : v)}
+                >
+                  <SelectTrigger id="qo-os" className="h-9">
+                    <SelectValue placeholder="—" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {osOptions!.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        <StatusBadge value={opt.value} options={osOptions!} showTick />
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="__clear__" className="text-muted-foreground">
+                      Очистить
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  id="qo-os"
+                  value={form.os}
+                  onChange={(e) => setField("os", e.target.value)}
+                  autoComplete="off"
+                />
+              )}
             </div>
           </div>
           <div className="flex flex-col gap-1">
@@ -114,6 +141,7 @@ export function QuickOrderDialog({
               value={form.check}
               onChange={(e) => setField("check", e.target.value)}
               autoComplete="off"
+              inputMode="numeric"
               required
             />
           </div>

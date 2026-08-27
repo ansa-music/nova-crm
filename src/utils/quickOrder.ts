@@ -21,13 +21,13 @@ export function findQuickOrderColumns(visible: PageColumn[]) {
   const client = firstMatch(visible, /клиент|назван|имя/) ?? visible.find((c) => c.type === "text");
   const number = firstMatch(visible, /номер|тел|phone/);
   const os = firstMatch(visible, /^ос$|\bos\b/);
-  const receipt = firstMatch(visible, /чек/);
+  const receipt = visible.find((c) => c.type === "currency") ?? firstMatch(visible, /цена|сумм|чек/);
   const persons = firstMatch(visible, /перс|персонаж/);
   const minutes = firstMatch(visible, /мин/);
   return { client, number, os, receipt, persons, minutes };
 }
 
-function parseOptionalNumber(raw: string): number | null {
+export function parseOptionalNumber(raw: string): number | null {
   const t = raw.trim().replace(",", ".");
   if (!t) return null;
   const n = Number(t);
@@ -50,11 +50,11 @@ export function buildQuickOrderRow(
   const client = input.client.trim();
   const number = input.number.trim();
   const os = input.os.trim();
-  const check = input.check.trim();
+  const check = parseOptionalNumber(input.check);
   if (cols.client) cells[cols.client.key] = client;
   if (cols.number && number) cells[cols.number.key] = number;
   if (cols.os && os) cells[cols.os.key] = os;
-  if (cols.receipt) cells[cols.receipt.key] = check;
+  if (cols.receipt && check != null) cells[cols.receipt.key] = check;
 
   const persons = parseOptionalNumber(input.persons);
   const minutes = parseOptionalNumber(input.minutes);

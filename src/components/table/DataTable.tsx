@@ -371,10 +371,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columns, resizePreview, responsibleOptions, sharedStatusOptions, customFields, activeWorkspace]);
 
-  const extrasHintKey = useMemo(
-    () => findQuickOrderColumns(displayColumns).client?.key ?? null,
-    [displayColumns]
-  );
+  const quickOrderCols = useMemo(() => findQuickOrderColumns(displayColumns), [displayColumns]);
+  const extrasHintKey = quickOrderCols.client?.key ?? null;
+  const quickOrderOsOptions =
+    quickOrderCols.os && isOptionColumn(quickOrderCols.os.type)
+      ? getColumnOptions(quickOrderCols.os, activeWorkspace)
+      : null;
 
   const stickyKeys = useMemo(
     () => pinnedKeys.filter((k) => displayColumns.some((c) => c.key === k)),
@@ -2453,6 +2455,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         open={quickOrderOpen}
         onOpenChange={setQuickOrderOpen}
         onSubmit={handleQuickOrder}
+        osOptions={quickOrderOsOptions}
       />
 
       <BulkActionBar
