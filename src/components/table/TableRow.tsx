@@ -1,7 +1,7 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
-import { memo } from "react";
+import { memo, useState } from "react";
 import { Copy, GripVertical, MoreHorizontal, Trash2 } from "lucide-react";
 import { TableCell } from "@/components/table/TableCell";
 import { rowCardLayoutId } from "@/components/table/RowCardSheet";
@@ -102,6 +102,7 @@ function TableRowInner({
   gutterWidth = ROW_GUTTER_WIDTH,
 }: TableRowProps) {
   const allowRowDrag = canReorder && !coarsePointer;
+  const [menuOpen, setMenuOpen] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.id,
     disabled: !allowRowDrag,
@@ -119,22 +120,30 @@ function TableRowInner({
   const isNew = Date.now() - row.createdAt < 24 * 60 * 60 * 1000;
 
   const rowMenu = (
-          <DropdownMenu modal={false}>
+          <DropdownMenu modal={false} open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
+                data-row-menu
                 className={cn(
-                  "rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground",
-                  coarsePointer ? "inline-flex" : "hidden group-hover/row:inline-flex"
+                  "inline-flex rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground",
+                  coarsePointer || menuOpen ? "opacity-100" : "opacity-0 group-hover/row:opacity-100"
                 )}
                 title="Действия со строкой"
                 onClick={(e) => e.stopPropagation()}
                 onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
               >
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="z-[320]">
+            <DropdownMenuContent
+              align="start"
+              side="bottom"
+              className="z-[320]"
+              onCloseAutoFocus={(e) => e.preventDefault()}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
               <DropdownMenuItem onClick={() => onInsertRowAbove?.(row.id)} disabled={!canEdit}>
                 Вставить строку выше
               </DropdownMenuItem>
@@ -181,11 +190,14 @@ function TableRowInner({
       onContextMenu={() => onContextMenuOpen(row.id)}
     >
       <td
-        onMouseDown={(e) => onRowNumberMouseDown(row.id, e)}
+        onMouseDown={(e) => {
+          if ((e.target as HTMLElement | null)?.closest("[data-row-menu]")) return;
+          onRowNumberMouseDown(row.id, e);
+        }}
         onDoubleClick={() => onExpandRow(row.id)}
         title="Двойной клик — открыть строку карточкой"
         className={cn(
-          "table-sticky-col sticky left-0 z-[22] overflow-hidden select-none border-b border-r border-border/40 bg-background text-center font-mono text-[11px] tabular text-muted-foreground",
+          "table-sticky-col sticky left-0 z-[22] !overflow-visible select-none border-b border-r border-border/40 bg-background text-center font-mono text-[11px] tabular text-muted-foreground",
           !lastStickyKey && "table-sticky-edge",
           isRowFullySelected && "bg-primary/10 font-medium text-primary"
         )}
