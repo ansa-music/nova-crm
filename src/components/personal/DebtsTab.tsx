@@ -99,13 +99,13 @@ export function DebtsTab({ workspaceId, pageId, uid }: DebtsTabProps) {
 
       <div className="flex flex-col gap-1.5">
         {unpaid.map((d) => (
-          <div key={d.id} className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5">
+          <div key={d.id} className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/5 p-2.5">
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{d.personName}</p>
               {d.note && <p className="truncate text-xs text-muted-foreground">{d.note}</p>}
               <p className="text-xs text-muted-foreground">{formatDate(d.createdAt, "d MMM yyyy")}</p>
             </div>
-            <span className="shrink-0 text-sm font-semibold text-amber-600 dark:text-amber-400">
+            <span className="shrink-0 text-sm font-semibold text-warning">
               {formatMinor(d.amountMinor)}
             </span>
             <Button

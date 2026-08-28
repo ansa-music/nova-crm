@@ -18,10 +18,10 @@ function isReworkStatusLabel(label: string): boolean {
 
 function headerTintForStatus(label: string): string {
   if (isReworkStatusLabel(label)) {
-    return "bg-red-500/[0.13] shadow-[inset_0_0_32px_rgba(239,68,68,0.22)]";
+    return "bg-destructive/[0.13] shadow-[inset_0_0_32px_hsl(var(--destructive)/0.22)]";
   }
   if (isDoneStatusLabel(label)) {
-    return "bg-emerald-500/[0.11] shadow-[inset_0_0_32px_rgba(16,185,129,0.18)]";
+    return "bg-success/[0.11] shadow-[inset_0_0_32px_hsl(var(--success)/0.18)]";
   }
   return "";
 }

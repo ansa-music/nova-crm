@@ -96,7 +96,7 @@ export function FinanceTab({ workspaceId, pageId, uid }: FinanceTabProps) {
             <p className="flex items-center gap-1 text-xs text-muted-foreground">
               <TrendingUp className="h-3 w-3" /> Доход
             </p>
-            <p className="mt-1 text-sm font-semibold text-emerald-500">{formatMinor(income)}</p>
+            <p className="mt-1 text-sm font-semibold text-success">{formatMinor(income)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -104,7 +104,7 @@ export function FinanceTab({ workspaceId, pageId, uid }: FinanceTabProps) {
             <p className="flex items-center gap-1 text-xs text-muted-foreground">
               <TrendingDown className="h-3 w-3" /> Расход
             </p>
-            <p className="mt-1 text-sm font-semibold text-red-500">{formatMinor(expense)}</p>
+            <p className="mt-1 text-sm font-semibold text-destructive">{formatMinor(expense)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -123,7 +123,7 @@ export function FinanceTab({ workspaceId, pageId, uid }: FinanceTabProps) {
             onClick={() => setType("expense")}
             className={cn(
               "flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors",
-              type === "expense" ? "bg-red-500/10 text-red-500" : "bg-muted text-muted-foreground"
+              type === "expense" ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"
             )}
           >
             Расход
@@ -132,7 +132,7 @@ export function FinanceTab({ workspaceId, pageId, uid }: FinanceTabProps) {
             onClick={() => setType("income")}
             className={cn(
               "flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors",
-              type === "income" ? "bg-emerald-500/10 text-emerald-500" : "bg-muted text-muted-foreground"
+              type === "income" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"
             )}
           >
             Доход
@@ -158,7 +158,7 @@ export function FinanceTab({ workspaceId, pageId, uid }: FinanceTabProps) {
             <span
               className={cn(
                 "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium",
-                e.type === "income" ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"
+                e.type === "income" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
               )}
             >
               {e.category}
@@ -167,7 +167,7 @@ export function FinanceTab({ workspaceId, pageId, uid }: FinanceTabProps) {
               <p className="truncate text-sm">{e.description || e.category}</p>
               <p className="text-xs text-muted-foreground">{formatDate(e.createdAt, "d MMM, HH:mm")}</p>
             </div>
-            <span className={cn("shrink-0 text-sm font-medium", e.type === "income" ? "text-emerald-500" : "text-red-500")}>
+            <span className={cn("shrink-0 text-sm font-medium", e.type === "income" ? "text-success" : "text-destructive")}>
               {e.type === "income" ? "+" : "−"} {formatMinor(e.amountMinor)}
             </span>
             <Button

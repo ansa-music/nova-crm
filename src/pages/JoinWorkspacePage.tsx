@@ -114,7 +114,7 @@ export default function JoinWorkspacePage() {
             <Clock className="h-4 w-4" /> Заявка отправлена, ждём подтверждения
           </div>
         ) : ownRequest?.status === "approved" ? (
-          <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-500">
+          <div className="flex items-center gap-2 rounded-lg bg-success/10 px-4 py-2.5 text-sm text-success">
             <Loader2 className="h-4 w-4 animate-spin" /> Доступ открыт, переходим в workspace...
           </div>
         ) : (

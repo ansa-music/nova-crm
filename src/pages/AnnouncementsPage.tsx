@@ -17,7 +17,7 @@ import type { Announcement, AnnouncementPriority } from "@/types";
 
 const PRIORITY_STYLES: Record<AnnouncementPriority, { label: string; badge: string; border: string }> = {
   normal: { label: "Обычный", badge: "bg-muted text-muted-foreground", border: "border-border" },
-  important: { label: "Важный", badge: "bg-amber-500/15 text-amber-500", border: "border-primary/80 [border-color:hsl(var(--primary)/0.72)] shadow-[0_0_16px_hsl(var(--primary)/0.32)]" },
+  important: { label: "Важный", badge: "bg-warning/15 text-warning", border: "border-primary/80 [border-color:hsl(var(--primary)/0.72)] shadow-[0_0_16px_hsl(var(--primary)/0.32)]" },
   urgent: { label: "Срочный", badge: "bg-secondary/20 text-secondary", border: "border-secondary/50" },
 };
 
@@ -58,7 +58,7 @@ export default function AnnouncementsPage() {
 
   const priorityChips: { id: "all" | "important" | "urgent"; label: string; count: number; tone: string }[] = [
     { id: "all", label: "Все", count: counts.all, tone: "border-primary/50 bg-primary/15 text-primary" },
-    { id: "important", label: "Важные", count: counts.important, tone: "border-amber-400/50 bg-amber-400/15 text-amber-300" },
+    { id: "important", label: "Важные", count: counts.important, tone: "border-warning/50 bg-warning/15 text-warning" },
     { id: "urgent", label: "Срочные", count: counts.urgent, tone: "border-secondary/50 bg-secondary/15 text-secondary" },
   ];
 

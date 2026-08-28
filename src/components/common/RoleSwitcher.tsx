@@ -29,7 +29,7 @@ export function SimulationBanner() {
   }
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-600 dark:text-amber-400">
+    <div className="flex shrink-0 items-center gap-2 border-b border-warning/30 bg-warning/10 px-4 py-1.5 text-xs text-warning">
       <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
       <span>
         Режим «{ROLE_LABELS[permissions.role]}» — ваша реальная роль {ROLE_LABELS[permissions.realRole]}.
@@ -116,7 +116,7 @@ export function RoleSwitcher({ embedded = false }: { embedded?: boolean } = {}) 
         <Button
           variant={permissions.isSimulating ? "default" : "ghost"}
           size="sm"
-          className={cn("gap-1.5", permissions.isSimulating && "bg-amber-500 text-white hover:bg-amber-500/90")}
+          className={cn("gap-1.5", permissions.isSimulating && "bg-warning text-warning-foreground hover:bg-warning/90")}
           title="Режим доступа"
         >
           <ShieldCheck className="h-3.5 w-3.5" />

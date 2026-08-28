@@ -83,10 +83,10 @@ export function SubPageStats({ columns, rows }: SubPageStatsProps) {
       </div>
 
       <div className="hidden gap-3 sm:grid sm:grid-cols-3 lg:grid-cols-6">
-        <Card className="glass-panel border-emerald-500/20 bg-emerald-500/5">
+        <Card className="glass-panel border-success/20 bg-success/5">
           <CardContent className="p-3">
             <p className="text-xs text-muted-foreground">Готово</p>
-            <p className="mt-1 text-lg font-semibold text-emerald-500">{formatCurrency(stats.doneTotal)}</p>
+            <p className="mt-1 text-lg font-semibold text-success">{formatCurrency(stats.doneTotal)}</p>
           </CardContent>
         </Card>
         <Card className="glass-panel">
@@ -115,11 +115,11 @@ function StatPill({ label, value, accent }: { label: string; value: number; acce
     <div
       className={cn(
         "glass-panel flex shrink-0 flex-col gap-0.5 rounded-lg border px-3 py-2",
-        accent ? "border-emerald-500/20 bg-emerald-500/5" : "border-border"
+        accent ? "border-success/20 bg-success/5" : "border-border"
       )}
     >
       <span className="text-[10px] text-muted-foreground">{label}</span>
-      <span className={cn("text-sm font-semibold whitespace-nowrap", accent && "text-emerald-500")}>
+      <span className={cn("text-sm font-semibold whitespace-nowrap", accent && "text-success")}>
         {formatCurrency(value)}
       </span>
     </div>
