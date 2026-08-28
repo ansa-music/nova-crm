@@ -50,7 +50,7 @@ export function DeskCoverGrid({
               ratio="thumb"
               progressPercent={progressByPageId?.[page.id] ?? null}
             />
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#070c18] via-[#070c18]/45 to-transparent" />
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background via-background/45 to-transparent" />
 
             {openable ? (
               <button

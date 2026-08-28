@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import {
   ChevronLeft,
@@ -47,68 +47,32 @@ import { usePeopleDesks } from "@/hooks/usePeopleDesks";
 import { useInboxSummary } from "@/hooks/useInboxSummary";
 
 
+/**
+ * Active nav is the spec's "holographic pill": a cyan-to-purple gradient
+ * capsule rather than a tinted row. `nav-link-active` carries the gradient
+ * (see index.css) so this and the desk list in PageNavItem stay one visual
+ * language. Inactive rows slide 3px toward the content on pointer hover.
+ */
 function navActiveClass(active: boolean, collapsed?: boolean) {
   if (collapsed) {
     return cn(
-      "flex h-11 w-11 items-center justify-center rounded-xl",
-      active ? "text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
+      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200",
+      active
+        ? "nav-link-active"
+        : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-primary"
     );
   }
   return cn(
-    "flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[14px] font-medium",
-    active ? "text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/80"
+    "flex min-h-11 w-full items-center gap-2.5 rounded-full px-3 text-left text-[14px] font-medium transition-all duration-200",
+    active
+      ? "nav-link-active"
+      : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-primary motion-safe:hover:translate-x-[3px]"
   );
 }
 
 function pathMatches(pathname: string, to: string, end?: boolean) {
   if (end || to === "/") return pathname === to;
   return pathname === to || pathname.startsWith(`${to}/`);
-}
-
-function NavSlide({
-  navRef,
-  watch,
-}: {
-  navRef: RefObject<HTMLElement | null>;
-  watch: unknown;
-}) {
-  const [pos, setPos] = useState({ top: 0, height: 0, shown: false });
-
-  useLayoutEffect(() => {
-    const nav = navRef.current;
-    if (!nav) return;
-
-    function measure() {
-      if (!nav) return;
-      const el = nav.querySelector<HTMLElement>("[data-nav-active='true']");
-      if (!el) {
-        setPos((prev) => ({ ...prev, shown: false }));
-        return;
-      }
-      setPos({ top: el.offsetTop, height: el.offsetHeight, shown: true });
-    }
-
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(nav);
-    nav.addEventListener("scroll", measure, { passive: true });
-    return () => {
-      ro.disconnect();
-      nav.removeEventListener("scroll", measure);
-    };
-  }, [navRef, watch]);
-
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "pointer-events-none absolute left-0 w-[2px] rounded-full bg-primary",
-        pos.shown ? "opacity-100" : "opacity-0",
-        "transition-[transform,height,opacity] duration-300 ease-out motion-reduce:transition-none"
-      )}
-      style={{ height: pos.height, transform: `translateY(${pos.top}px)` }}
-    />
-  );
 }
 
 function AppNavLink({
@@ -180,8 +144,6 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   const collapsed = pinnedCollapsed;
   const [createPageOpen, setCreatePageOpen] = useState(false);
   const [createWsOpen, setCreateWsOpen] = useState(false);
-  const desktopNavRef = useRef<HTMLElement>(null);
-  const mobileNavRef = useRef<HTMLElement>(null);
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
   const theme = useUiStore((s) => s.theme);
   const setTheme = useUiStore((s) => s.setTheme);
@@ -214,8 +176,18 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
     >
       <div
         className={cn(
-          "relative flex h-full min-h-0 flex-col bg-background/95 text-sidebar-foreground",
-          mobile ? "w-full px-3 py-4" : cn("border-r border-primary/25 px-3 py-4", collapsed ? "w-[72px] items-center px-2" : "w-[248px]")
+          "relative flex h-full min-h-0 flex-col text-sidebar-foreground",
+          // Floating glass pane, per the Neon Holographic spec: the nav reads
+          // as an object suspended over the ground rather than a screen
+          // partition, so it gets its own rounded surface + blur instead of a
+          // full-height divider rule. AppLayout already insets the shell (p-3).
+          mobile
+            ? "w-full bg-background/95 px-3 py-4"
+            : cn(
+                "mr-3 rounded-2xl border border-primary/25 bg-card/60 px-3 py-4 backdrop-blur-xl",
+                "shadow-[0_0_40px_-12px_hsl(0_0%_0%/0.8)]",
+                collapsed ? "w-[72px] items-center px-2" : "w-[248px]"
+              )
         )}
       >
         <div className={cn("mb-5 flex items-center", collapsed ? "justify-center" : "justify-between gap-2 pr-1")}>
@@ -239,8 +211,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-thin">
           {!mobile && (
-            <nav ref={desktopNavRef} className="relative mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
-              <NavSlide navRef={desktopNavRef} watch={`${location.pathname}|${collapsed}|${showUsersNav}|${showDispatchNav}|${homeTo}`} />
+            <nav className="relative mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
               {collapsed ? (
                 <>
                   <AppNavLink collapsed title={homeLabel} to={homeTo} icon={Home} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
@@ -325,8 +296,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
             </nav>
           )}
           {mobile && (
-            <nav ref={mobileNavRef} className="relative mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
-              <NavSlide navRef={mobileNavRef} watch={`${location.pathname}|${showUsersNav}|${showDispatchNav}|${homeTo}`} />
+            <nav className="relative mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
               <AppNavLink to={homeTo} icon={Home} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                 {homeLabel}
               </AppNavLink>

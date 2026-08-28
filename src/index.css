@@ -4,32 +4,45 @@
 
 @layer base {
   /*
-    Design tokens — Nova neon:
-    always dark navy #070C18, cool off-white text, neon cyan primary #70EAFF.
-    Workspace accentColor writes --desk-accent only, never --primary.
+    Design tokens — Nova "Neon Holographic":
+    near-black #050505 ground, cool off-white text, electric-cyan primary
+    #70EAFF with a neon-purple secondary. Workspace accentColor writes
+    --desk-accent only, never --primary.
   */
   :root,
   .dark {
-    --background: 222 55% 6%;
-    --foreground: 210 22% 94%;
+    /*
+      Neon Holographic (Stitch spec): the neutral ramp is a near-black
+      "Deep Space" so cyan and purple read as emitted light rather than as
+      tinted surfaces. Was a navy ramp (222 55% 6%) — every surface token
+      moves together, otherwise cards keep a blue cast the background no
+      longer has and the whole app looks two-toned.
+    */
+    --background: 0 0% 2%;
+    --foreground: 20 5% 89%;
 
-    --card: 222 48% 8%;
-    --card-foreground: 210 22% 94%;
+    --card: 0 0% 7%;
+    --card-foreground: 20 5% 89%;
 
-    --popover: 222 50% 7%;
-    --popover-foreground: 210 22% 94%;
+    --popover: 0 0% 9%;
+    --popover-foreground: 20 5% 89%;
 
+    /* Electric cyan kept as-is: already matches the spec's accent and its
+       dark foreground pairing is contrast-checked across every button. */
     --primary: 189 100% 72%;
-    --primary-foreground: 222 55% 8%;
+    --primary-foreground: 191 100% 7%;
 
-    --secondary: 200 38% 28%;
-    --secondary-foreground: 210 22% 94%;
+    /* Neon purple — the spec's secondary. Drives the active-nav gradient
+       (see .nav-link-active) and premium/category accents. */
+    --secondary: 256 100% 87%;
+    --secondary-foreground: 0 0% 7%;
+    --secondary-deep: 256 76% 46%;
 
-    --muted: 222 32% 12%;
-    --muted-foreground: 210 16% 74%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 191 13% 76%;
 
-    --accent: 222 36% 13%;
-    --accent-foreground: 189 80% 78%;
+    --accent: 0 0% 13%;
+    --accent-foreground: 189 100% 81%;
 
     --destructive: 8 72% 52%;
     --destructive-foreground: 0 0% 100%;
@@ -38,16 +51,16 @@
     --success-foreground: 0 0% 100%;
 
     --warning: 42 88% 56%;
-    --warning-foreground: 222 55% 8%;
+    --warning-foreground: 0 0% 7%;
 
     --border: 189 52% 22%;
     --input: 189 40% 18%;
     --ring: 189 100% 72%;
 
-    --sidebar: 222 55% 6%;
-    --sidebar-foreground: 210 16% 72%;
+    --sidebar: 0 0% 6%;
+    --sidebar-foreground: 191 13% 76%;
     --sidebar-border: 189 50% 20%;
-    --sidebar-accent: 222 40% 12%;
+    --sidebar-accent: 0 0% 13%;
 
     --radius: 0.25rem;
     --os-radius: 8px;
@@ -77,7 +90,7 @@
     font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
     font-optical-sizing: auto;
     letter-spacing: -0.011em;
-    background-color: #070c18;
+    background-color: #050505;
   }
 
   /* HUD toys off site-wide (cyber-grid overlay + scanlines). Phone kill-switch remains. */
@@ -132,15 +145,46 @@
 
 @layer components {
   .nav-link {
-    @apply relative flex items-center gap-2 rounded-sm px-2.5 py-[7px] text-[13px] font-medium text-sidebar-foreground;
-    transition: background-color var(--duration) var(--ease-out), color var(--duration) var(--ease-out);
+    @apply relative flex items-center gap-2 rounded-full px-3 py-[7px] text-[13px] font-medium text-sidebar-foreground;
+    transition:
+      background-color var(--duration) var(--ease-out),
+      color var(--duration) var(--ease-out),
+      transform var(--duration-fast) var(--ease-out);
   }
   .nav-link:hover {
-    @apply bg-sidebar-accent/80 text-foreground;
+    @apply bg-sidebar-accent/80;
+    color: hsl(var(--primary));
   }
+  /* Nudge-on-hover, per spec. Pointer-only: on touch there is no hover to
+     preview, and the shift would fire on tap and read as a glitch. */
+  @media (hover: hover) and (pointer: fine) {
+    .nav-link:not(.nav-link-active):hover {
+      transform: translateX(3px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .nav-link:hover {
+      transform: none;
+    }
+  }
+  /*
+    "Holographic pill" — the spec's signature active state: a cyan-to-purple
+    gradient instead of a flat fill plus an inset rail. The dark foreground
+    is required, not cosmetic: the gradient is light at both ends, so the
+    inherited off-white label would sit at roughly 1.3:1 on it.
+  */
   .nav-link-active {
-    @apply bg-sidebar-accent text-foreground;
-    box-shadow: inset 2px 0 0 hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    background-image: linear-gradient(
+      100deg,
+      hsl(var(--primary)) 0%,
+      hsl(var(--secondary-deep)) 100%
+    );
+    box-shadow: 0 0 16px -2px hsl(var(--primary) / 0.35);
+  }
+  .nav-link-active:hover {
+    color: hsl(var(--primary-foreground));
+    background-color: transparent;
   }
   .nav-link-active::before {
     content: none;
@@ -232,7 +276,7 @@
   .page-header {
     @apply flex items-center gap-2.5 border-b px-5 py-3 sm:px-6;
     border-color: hsl(var(--primary) / 0.25);
-    background: #070c18;
+    background: #050505;
   }
 
   .page-title {
@@ -546,13 +590,17 @@
   }
 }
 
-.desk-cover-placeholder {
-  background:
-    linear-gradient(165deg, hsl(222 40% 16%) 0%, hsl(222 55% 8%) 55%, hsl(222 58% 5%) 100%);
-}
+/* Cover fallback: cyan->purple wash over the near-black ground, so a desk
+   with no photo still reads as part of the holographic palette. */
+.desk-cover-placeholder,
 .dark .desk-cover-placeholder {
   background:
-    linear-gradient(165deg, hsl(222 40% 16%) 0%, hsl(222 55% 8%) 55%, hsl(222 58% 5%) 100%);
+    linear-gradient(
+      165deg,
+      hsl(var(--primary) / 0.22) 0%,
+      hsl(var(--secondary-deep) / 0.28) 55%,
+      hsl(var(--background)) 100%
+    );
 }
 
 .status-pill {
@@ -565,7 +613,7 @@
 
 .table-sticky-col {
   position: sticky;
-  background-color: #070c18;
+  background-color: #050505;
   background-clip: padding-box;
   isolation: isolate;
 }
@@ -578,21 +626,21 @@
   background-color: hsl(var(--background));
 }
 .table-sticky-edge {
-  box-shadow: 8px 0 12px -10px hsl(222 55% 4% / 0.55);
+  box-shadow: 8px 0 12px -10px hsl(0 0% 0% / 0.65);
 }
 
 .table-instrument tbody tr.table-data-row-selected td,
 .table-instrument tbody tr.table-data-row-active td {
-  background-color: color-mix(in srgb, hsl(var(--primary)) 16%, #070c18);
+  background-color: color-mix(in srgb, hsl(var(--primary)) 16%, hsl(var(--background)));
 }
 .table-instrument tbody td.table-sticky-col,
 .table-instrument thead th.table-sticky-col,
 .table-instrument tfoot td.table-sticky-col {
-  background-color: #070c18;
+  background-color: #050505;
 }
 .table-instrument tbody tr.table-data-row-selected td.table-sticky-col,
 .table-instrument tbody tr.table-data-row-active td.table-sticky-col {
-  background-color: color-mix(in srgb, hsl(var(--primary)) 16%, #070c18);
+  background-color: color-mix(in srgb, hsl(var(--primary)) 16%, hsl(var(--background)));
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -601,7 +649,7 @@
     box-shadow: none;
   }
   .table-instrument tbody tr.table-data-row:hover td.table-sticky-col {
-    background-color: color-mix(in srgb, hsl(var(--primary)) 10%, #070c18);
+    background-color: color-mix(in srgb, hsl(var(--primary)) 10%, hsl(var(--background)));
   }
   .status-pill {
     box-shadow: none;
@@ -649,7 +697,7 @@
 .table-instrument td,
 .table-instrument th {
   /* Was hsl(var(--border) / 0.85) — --border is a dark cyan (22% lightness)
-     that sits too close to the near-black #070c18 table background to read
+     that sits too close to the near-black table background to read
      as a grid line at a glance. --muted-foreground is much lighter, so a
      low-opacity slice of it stays subtle but actually separates cells. */
   border-color: hsl(var(--muted-foreground) / 0.22);
@@ -665,7 +713,7 @@
   position: sticky;
   top: 0;
   z-index: 24;
-  background-color: #070c18;
+  background-color: #050505;
   color: hsl(189 70% 82%);
   box-shadow: 0 1px 0 hsl(var(--primary) / 0.4);
 }
@@ -675,7 +723,7 @@
   flex-shrink: 0;
   border-top: 1px solid hsl(var(--primary) / 0.55);
   background:
-    linear-gradient(180deg, hsl(var(--primary) / 0.14) 0%, #070c18 100%);
+    linear-gradient(180deg, hsl(var(--primary) / 0.14) 0%, hsl(var(--background)) 100%);
   padding: 1rem 1.25rem max(1.1rem, env(safe-area-inset-bottom, 0px));
 }
 .table-totals-sum {
