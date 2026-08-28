@@ -9,6 +9,7 @@ import { toast } from "@/components/ui/sonner";
 import { AnnouncementDialog } from "@/components/announcements/AnnouncementDialog";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAnnouncements } from "@/hooks/useAnnouncements";
 import { archiveAnnouncement, deleteAnnouncement, togglePinAnnouncement } from "@/services/announcementService";
 import { formatDate } from "@/utils/date";
@@ -24,7 +25,7 @@ const PRIORITY_STYLES: Record<AnnouncementPriority, { label: string; badge: stri
 export default function AnnouncementsPage() {
   const { activeWorkspaceId } = useWorkspace();
   const permissions = usePermissions();
-  const { announcements, reload } = useAnnouncements(activeWorkspaceId);
+  const { announcements, isLoading, reload } = useAnnouncements(activeWorkspaceId);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Announcement | null>(null);
   const [search, setSearch] = useState("");
@@ -194,7 +195,13 @@ export default function AnnouncementsPage() {
               </Card>
             );
           })}
-          {filtered.length === 0 && (
+          {isLoading && announcements.length === 0 && (
+            <>
+              <Skeleton className="h-28 rounded-xl" />
+              <Skeleton className="h-28 rounded-xl" />
+            </>
+          )}
+          {!isLoading && filtered.length === 0 && (
             <p className="py-16 text-center text-sm text-muted-foreground">
               {inTab.length === 0
                 ? tab === "archived"

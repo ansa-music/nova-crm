@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { RoleSwitcher } from "@/components/common/RoleSwitcher";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -33,8 +33,12 @@ export function Topbar({ title }: { title?: string }) {
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
         <SheetContent
           side="left"
+          aria-describedby={undefined}
           className="h-[100dvh] max-h-[100dvh] w-[min(20rem,88vw)] max-w-[20rem] overflow-hidden bg-background p-0 border-r border-primary/25 backdrop-blur-none"
         >
+          {/* Radix requires a title on every dialog surface for screen readers;
+              the drawer shows the NOVA wordmark instead, so this stays sr-only. */}
+          <SheetTitle className="sr-only">Навигация</SheetTitle>
           <Sidebar mobile onNavigate={() => setMobileNavOpen(false)} />
         </SheetContent>
       </Sheet>
