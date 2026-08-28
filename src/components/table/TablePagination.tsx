@@ -39,19 +39,19 @@ export function TablePagination({ page, pageSize, total, onPageChange, onPageSiz
           {from}–{to} из {total}
         </span>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" disabled={page === 0} onClick={() => onPageChange(0)}>
+          <Button variant="ghost" size="icon" aria-label="Первая страница" disabled={page === 0} onClick={() => onPageChange(0)}>
             <ChevronsLeft className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" disabled={page === 0} onClick={() => onPageChange(page - 1)}>
+          <Button variant="ghost" size="icon" aria-label="Предыдущая страница" disabled={page === 0} onClick={() => onPageChange(page - 1)}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <span className="px-2 text-xs">
             {page + 1} / {pageCount}
           </span>
-          <Button variant="ghost" size="icon" disabled={page >= pageCount - 1} onClick={() => onPageChange(page + 1)}>
+          <Button variant="ghost" size="icon" aria-label="Следующая страница" disabled={page >= pageCount - 1} onClick={() => onPageChange(page + 1)}>
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" disabled={page >= pageCount - 1} onClick={() => onPageChange(pageCount - 1)}>
+          <Button variant="ghost" size="icon" aria-label="Последняя страница" disabled={page >= pageCount - 1} onClick={() => onPageChange(pageCount - 1)}>
             <ChevronsRight className="h-4 w-4" />
           </Button>
         </div>

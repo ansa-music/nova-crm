@@ -119,6 +119,7 @@ export function DebtsTab({ workspaceId, pageId, uid }: DebtsTabProps) {
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Удалить долг"
               className="h-7 w-7 shrink-0 text-muted-foreground"
               onClick={() => handleDelete(d)}
             >
@@ -154,6 +155,7 @@ export function DebtsTab({ workspaceId, pageId, uid }: DebtsTabProps) {
               <Button
                 variant="ghost"
                 size="icon"
+                aria-label="Удалить долг"
                 className="h-7 w-7 shrink-0 text-muted-foreground"
                 onClick={() => handleDelete(d)}
               >

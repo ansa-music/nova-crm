@@ -377,7 +377,7 @@ export default function DynamicTablePage() {
         <div className="flex-1" />
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={() => setChatOpen(true)}>
+            <Button variant="ghost" size="icon" aria-label="Чат страницы" onClick={() => setChatOpen(true)}>
               <MessageSquare className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
@@ -388,6 +388,7 @@ export default function DynamicTablePage() {
             <Button
               variant="ghost"
               size="icon"
+              aria-label={statsOpen ? "Скрыть статистику" : "Показать статистику"}
               className={cn(statsOpen && "bg-primary/10 text-primary")}
               onClick={() => setStatsOpen((v) => !v)}
             >
@@ -398,7 +399,7 @@ export default function DynamicTablePage() {
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={() => { setTableFullscreen(true); setTableImmersive(true); }}>
+            <Button variant="ghost" size="icon" aria-label="На весь экран" onClick={() => { setTableFullscreen(true); setTableImmersive(true); }}>
               <Maximize2 className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
@@ -422,7 +423,7 @@ export default function DynamicTablePage() {
         )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative">
+            <Button variant="ghost" size="icon" aria-label="Ещё" className="relative">
               <MoreHorizontal className="h-4 w-4" />
               {personalSpaceOpen && (
                 <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-primary" />

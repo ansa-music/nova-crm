@@ -173,6 +173,7 @@ export function FinanceTab({ workspaceId, pageId, uid }: FinanceTabProps) {
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Удалить запись"
               className="h-7 w-7 shrink-0 text-muted-foreground"
               onClick={() => deletePersonalFinanceEntry(workspaceId, pageId, uid, e.id)}
             >

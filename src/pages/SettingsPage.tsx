@@ -512,12 +512,13 @@ export default function SettingsPage() {
                       <Button variant="outline" size="sm" onClick={() => setManageOptionsKind(`custom:${field.id}`)}>
                         Варианты
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleRenameCustomField(field.id, field.name)}>
+                      <Button variant="ghost" size="icon" aria-label="Переименовать поле" onClick={() => handleRenameCustomField(field.id, field.name)}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
+                        aria-label="Удалить поле"
                         className="text-destructive hover:text-destructive"
                         onClick={() => handleDeleteCustomField(field.id, field.name)}
                       >

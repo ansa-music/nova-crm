@@ -55,13 +55,13 @@ export function DateCalendar({ value, onChange, onClear }: DateCalendarProps) {
   return (
     <div className="w-64 select-none p-1">
       <div className="mb-2 flex items-center justify-between">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => shiftMonth(-1)}>
+        <Button variant="ghost" size="icon" aria-label="Предыдущий месяц" className="h-8 w-8" onClick={() => shiftMonth(-1)}>
           <ChevronLeft className="h-3.5 w-3.5" />
         </Button>
         <p className="text-sm font-medium">
           {MONTH_LABELS[month]} {year}
         </p>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => shiftMonth(1)}>
+        <Button variant="ghost" size="icon" aria-label="Следующий месяц" className="h-8 w-8" onClick={() => shiftMonth(1)}>
           <ChevronRight className="h-3.5 w-3.5" />
         </Button>
       </div>

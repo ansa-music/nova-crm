@@ -133,6 +133,7 @@ export function PersonalReportTable({ workspaceId, pageId, uid, report, rows }: 
                   <Button
                     variant="ghost"
                     size="icon"
+                    aria-label="Удалить строку"
                     className="h-7 w-7 text-destructive"
                     onClick={() => deletePersonalReportRow(workspaceId, pageId, uid, report.id, row.id)}
                   >
