@@ -5,7 +5,13 @@ export const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDi
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn("rounded-md border border-primary/28 bg-card text-card-foreground", className)}
+      className={cn(
+        // Glassmorphism 2.0: light-defined surface, not an opaque fill.
+        // Border warms toward cyan on hover, per spec.
+        "glass-pane rounded-xl text-card-foreground transition-[border-color,box-shadow] duration-200",
+        "hover:border-primary/30",
+        className
+      )}
       {...props}
     />
   )

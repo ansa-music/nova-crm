@@ -14,7 +14,7 @@ export function Topbar({ title }: { title?: string }) {
   if (!isCompactNav) return null;
 
   return (
-    <header className={`sticky top-0 flex h-12 shrink-0 items-center gap-1.5 border-b border-primary/25 bg-background px-3 ${mobileNavOpen ? "z-[220]" : "z-30"}`}>
+    <header className={`sticky top-0 flex h-12 shrink-0 items-center gap-1.5 border-b border-primary/15 bg-transparent px-3 backdrop-blur-xl ${mobileNavOpen ? "z-[220]" : "z-30"}`}>
       <Button
         type="button"
         variant="ghost"

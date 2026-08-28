@@ -4,17 +4,19 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/utils/cn";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-sm text-sm font-medium select-none touch-manipulation transition-[color,background-color,box-shadow,transform,opacity] duration-200 ease-out active:translate-y-px active:scale-[0.97] motion-reduce:transition-colors motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 disabled:active:translate-y-0 disabled:active:scale-100",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium select-none touch-manipulation transition-[color,background-color,box-shadow,transform,opacity] duration-200 ease-out active:translate-y-px active:scale-[0.97] motion-reduce:transition-colors motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 disabled:active:translate-y-0 disabled:active:scale-100",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80",
+        default:
+          "bg-primary text-primary-foreground hover:bg-primary/90 hover:shadow-[0_0_15px_hsl(var(--primary)/0.35)] active:bg-primary/80",
         destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive/80",
-        outline: "border border-primary/40 bg-transparent text-primary hover:bg-primary/10 hover:text-primary active:bg-primary/16",
+        outline:
+          "border border-primary/20 bg-transparent text-primary hover:border-primary/50 hover:bg-primary/10 hover:text-primary active:bg-primary/16",
         secondary: "border border-primary/30 bg-primary/10 text-primary hover:bg-primary/16 active:bg-primary/22",
         ghost: "text-foreground hover:bg-primary/10 hover:text-primary active:bg-primary/16",
         link: "text-primary underline-offset-4 hover:underline active:scale-100 active:translate-y-0",
-        glass: "border border-primary/40 bg-card/80 text-foreground hover:bg-card hover:border-primary/55",
+        glass: "glass-pane text-foreground hover:border-primary/40 hover:shadow-[0_0_15px_hsl(var(--primary)/0.12)]",
       },
       size: {
         default: "h-9 px-4 py-2",

@@ -118,7 +118,7 @@ export function AppLayout() {
       <GoChordHotkeys />
       <AccentColorSync />
       {!isCompactNav && !isFullscreen && <Sidebar />}
-      <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${isFullscreen ? "" : "rounded-2xl border border-primary/25 bg-card/90"}`}>
+      <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${isFullscreen ? "" : "glass-pane rounded-2xl"}`}>
         {!isFullscreen && <Topbar />}
         {!isFullscreen && <SimulationBanner />}
         {isFullscreen && <TableChromeExit label="Свернуть" />}
