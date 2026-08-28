@@ -7,9 +7,14 @@ export const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDi
       ref={ref}
       className={cn(
         // Glassmorphism 2.0: light-defined surface, not an opaque fill.
-        // Border warms toward cyan on hover, per spec.
-        "glass-pane rounded-xl text-card-foreground transition-[border-color,box-shadow] duration-200",
-        "hover:border-primary/30",
+        // Written as UTILITIES, not the .glass-pane class, on purpose: cn()
+        // is tailwind-merge, which can only dedupe utilities it recognises.
+        // As a custom class .glass-pane would set `border`/`background`
+        // shorthands that silently beat any border-*/bg-* a caller passes
+        // (it sorts later in the sheet), so e.g. Settings' destructive-red
+        // danger card would render cyan.
+        "rounded-xl border border-primary/[0.12] bg-white/[0.04] backdrop-blur-[20px] text-card-foreground",
+        "transition-[border-color,box-shadow] duration-200 hover:border-primary/30",
         className
       )}
       {...props}
