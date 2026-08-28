@@ -52,6 +52,9 @@ interface DailyDispatchPanelProps {
   responsibleOptions: StatusOption[];
 }
 
+/** Sentinel for the "unlink from account" option — see the note at its SelectItem. */
+const UNBOUND_VALUE = "__unbound__";
+
 function formatDayHeading(dayKey: string): string {
   const [year, month, day] = dayKey.split("-").map(Number);
   if (!year || !month || !day) return dayKey;
@@ -516,12 +519,17 @@ function TechnicianRoster({
                 </Button>
               )}
               {isOwner && (
-                <Select value={tech.memberUid ?? ""} onValueChange={(v) => handleBind(tech, v)}>
+                <Select
+                  value={tech.memberUid ?? undefined}
+                  onValueChange={(v) => handleBind(tech, v === UNBOUND_VALUE ? "" : v)}
+                >
                   <SelectTrigger className="h-8 w-44 shrink-0">
                     <SelectValue placeholder="Привязать к…" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Не привязан</SelectItem>
+                    {/* Radix throws if a SelectItem's value is "" (it reserves the
+                        empty string for "cleared"), so "unlink" needs a sentinel. */}
+                    <SelectItem value={UNBOUND_VALUE}>Не привязан</SelectItem>
                     {activeMembers.map((m) => (
                       <SelectItem key={m.uid} value={m.uid}>
                         {displayNameOf(m)}
