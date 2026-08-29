@@ -10,6 +10,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
+import { Plus } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { formatCurrency } from "@/utils/format";
 import { isOptionColumn } from "@/utils/columnOptions";
@@ -28,9 +29,10 @@ interface KanbanViewProps {
   statusColumn: PageColumn;
   canEdit: boolean;
   onStatusChange: (rowId: string, colKey: string, value: string) => void;
+  onAddOrder?: (statusValue: string) => void;
 }
 
-export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChange }: KanbanViewProps) {
+export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChange, onAddOrder }: KanbanViewProps) {
   const options = statusColumn.statusOptions ?? [];
   const titleColKey = columns.find((c) => !isOptionColumn(c.type) && c.type !== "date" && c.type !== "url")?.key;
   const currencyCol = columns.find((c) => c.type === "currency");
@@ -69,10 +71,17 @@ export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChang
     onStatusChange(rowId, statusColumn.key, newValue);
   }
 
+  // At rest hide empty status columns. While dragging, keep them mounted as
+  // drop targets even if they currently have 0 cards.
+  const visibleOptions = dragActive
+    ? options
+    : options.filter((option) => (rowsByStatus.map.get(option.value)?.length ?? 0) > 0);
+  const showUnassigned = rowsByStatus.hasUnassigned || dragActive;
+
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setDragActive(false)}>
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
-        {rowsByStatus.hasUnassigned && (
+        {showUnassigned && (
           <KanbanColumn
             option={{ value: UNASSIGNED_VALUE, label: "Без статуса", color: "240 4% 60%" }}
             rows={rowsByStatus.map.get(UNASSIGNED_VALUE) ?? []}
@@ -83,7 +92,7 @@ export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChang
             dragActive={dragActive}
           />
         )}
-        {options.map((option) => (
+        {visibleOptions.map((option) => (
           <KanbanColumn
             key={option.value}
             option={option}
@@ -93,6 +102,7 @@ export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChang
             responsibleCol={responsibleCol}
             canEdit={canEdit}
             dragActive={dragActive}
+            onAddOrder={onAddOrder}
           />
         ))}
       </div>
@@ -108,10 +118,12 @@ interface KanbanColumnProps {
   responsibleCol?: PageColumn;
   canEdit: boolean;
   dragActive: boolean;
+  onAddOrder?: (statusValue: string) => void;
 }
 
-function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCol, canEdit, dragActive }: KanbanColumnProps) {
+function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCol, canEdit, dragActive, onAddOrder }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: option.value });
+  const isUnassigned = option.value === UNASSIGNED_VALUE;
 
   return (
     <div
@@ -131,6 +143,21 @@ function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCo
         >
           {rows.length}
         </span>
+        {canEdit && onAddOrder && !isUnassigned && (
+          <button
+            type="button"
+            title="Заказ"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddOrder(option.value);
+            }}
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span className="sr-only">Заказ</span>
+          </button>
+        )}
       </div>
       <div
         ref={setNodeRef}
@@ -165,8 +192,9 @@ interface KanbanCardProps {
 
 function KanbanCard({ row, titleColKey, currencyColKey, responsibleCol, canEdit }: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: row.id, disabled: !canEdit });
-  const title = titleColKey ? String(row.cells[titleColKey] ?? "") : "";
+  const title = titleColKey ? String(row.cells[titleColKey] ?? "").trim() : "";
   const amount = currencyColKey ? row.cells[currencyColKey] : null;
+  const hasAmount = amount !== null && amount !== undefined && amount !== "" && !Number.isNaN(Number(amount));
   const responsibleValue = responsibleCol ? String(row.cells[responsibleCol.key] ?? "") : "";
   const responsibleOption = responsibleCol?.statusOptions?.find((o) => o.value === responsibleValue);
 
@@ -189,9 +217,9 @@ function KanbanCard({ row, titleColKey, currencyColKey, responsibleCol, canEdit 
       {responsibleOption && (
         <MemberAvatar id={responsibleOption.value} name={responsibleOption.label} className="absolute right-2 top-2 h-5 w-5" />
       )}
-      <p className="truncate pr-6 font-medium">{title || <span className="italic text-muted-foreground">Без названия</span>}</p>
-      {currencyColKey && amount !== null && amount !== "" && (
-        <p className="mt-1 text-xs text-muted-foreground">{formatCurrency(Number(amount))}</p>
+      {title ? <p className={cn("truncate font-medium", responsibleOption && "pr-6")}>{title}</p> : null}
+      {hasAmount && (
+        <p className={cn("text-xs text-muted-foreground", title && "mt-1")}>{formatCurrency(Number(amount))}</p>
       )}
     </div>
   );
