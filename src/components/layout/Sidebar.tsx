@@ -184,7 +184,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
           mobile
             ? "w-full bg-background/95 px-3 py-4"
             : cn(
-                "mr-3 rounded-2xl border border-primary/25 bg-card/60 px-3 py-4 backdrop-blur-xl",
+                "mr-3 rounded-[28px] border border-primary/25 bg-card/60 px-3 py-4 backdrop-blur-xl",
                 "shadow-[0_0_40px_-12px_hsl(0_0%_0%/0.8)]",
                 collapsed ? "w-[72px] items-center px-2" : "w-[248px]"
               )

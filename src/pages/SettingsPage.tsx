@@ -630,7 +630,7 @@ export default function SettingsPage() {
 
         {permissions.canManageWorkspace && (
         <TabsContent value="danger" className="mt-0 flex flex-col gap-4">
-            <Card className="border-destructive/40">
+            <Card className="border-destructive/40 border-glow-critical">
               <CardHeader>
                 <CardTitle className="text-destructive">Опасная зона</CardTitle>
                 <CardDescription>Удаление workspace необратимо и удалит все страницы и данные.</CardDescription>

@@ -39,7 +39,7 @@ export function DeskCoverGrid({
           <div
             key={page.id}
             className={cn(
-              "relative overflow-hidden rounded-xl border bg-card text-left",
+              "relative overflow-hidden rounded-xl border bg-card text-left reflective-sheen",
               highlighted ? "border-primary/70" : "border-primary/28",
               (openable || !pending) && "transition-colors hover:border-primary/60"
             )}

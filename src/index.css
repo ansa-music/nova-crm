@@ -596,13 +596,84 @@
   }
 }
 
+/*
+ * Spec "Icons": 1.25px stroke everywhere, cyan glow on hover. `stroke-width`
+ * here overrides lucide-react's own `strokeWidth={2}` prop — that prop
+ * compiles to an SVG *presentation attribute*, which loses to any actual
+ * CSS rule regardless of layer/specificity, so this is safe unlayered.
+ * Every lucide-react icon carries a base `.lucide` class (see
+ * node_modules/lucide-react Icon.js) in addition to its per-icon
+ * `.lucide-<name>` class, so this one rule reaches all of them.
+ * Deliberately does NOT force icon `color` on hover (only the glow) —
+ * icons inherit `currentColor`, and plenty of buttons (destructive,
+ * warning) rely on that for a non-cyan hover color; forcing cyan here
+ * would fight that semantic color instead of complementing it.
+ */
+.lucide {
+  stroke-width: 1.25;
+}
+@media (hover: hover) and (pointer: fine) {
+  .lucide {
+    transition: filter 150ms ease;
+  }
+  button:not(:disabled):hover .lucide,
+  a:hover .lucide,
+  [role="button"]:hover .lucide {
+    filter: drop-shadow(0 0 4px hsl(var(--primary) / 0.6));
+  }
+}
+
+@property --border-glow-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+/*
+ * Spec "Border Glow": a moving conic-gradient ring for active/critical
+ * cards, simulating a rotating light beam. A real `border` can't animate a
+ * conic-gradient, so this masks a ::before ring down to just the card's
+ * edge (mask-composite: exclude/xor) and rotates the gradient's origin
+ * angle via @property so the browser can interpolate it smoothly. Purely
+ * decorative and pointer-events: none — does not touch position/blur, so
+ * none of this session's fixed-overlay/backdrop-filter traps apply.
+ */
+.border-glow-critical {
+  position: relative;
+}
+.border-glow-critical::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--border-glow-angle),
+    transparent 0deg,
+    hsl(var(--destructive) / 0.9) 20deg,
+    transparent 60deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: border-glow-rotate 4s linear infinite;
+  pointer-events: none;
+}
+@keyframes border-glow-rotate {
+  to { --border-glow-angle: 360deg; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .neon-pulse,
   .grok-reset-pulse,
   .animate-glass-pop,
   .reflective-sheen::after,
+  .border-glow-critical::before,
   .skeleton::after {
     animation: none !important;
+  }
+  .lucide {
+    transition: none !important;
   }
   .desk-row,
   .desk-card,
