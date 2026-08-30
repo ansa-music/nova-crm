@@ -38,6 +38,7 @@ import { isWorkspaceAdmin } from "@/utils/adminAccess";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
+import { DISPATCH_ENABLED } from "@/config/features";
 import { signOutUser } from "@/firebase/auth";
 import { setActiveRole } from "@/services/memberService";
 import { cn } from "@/utils/cn";
@@ -154,6 +155,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   // RoleSwitcher must lose this link, so effectiveRole (permissions.role)
   // is checked too, same rule DispatchPage itself enforces server-side-ish.
   const showDispatchNav =
+    DISPATCH_ENABLED &&
     permissions.isResolved &&
     (permissions.realRole === "owner" || permissions.realRole === "admin" || permissions.isWorkspaceOwner) &&
     (permissions.role === "owner" || permissions.role === "admin");

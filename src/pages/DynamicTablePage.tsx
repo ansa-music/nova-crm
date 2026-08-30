@@ -21,6 +21,7 @@ import { HistoryPanel } from "@/components/history/HistoryPanel";
 import { PageChatPanel } from "@/components/chat/PageChatPanel";
 import { PersonalSpacePanel } from "@/components/personal/PersonalSpacePanel";
 import { IncomingDispatchBanner } from "@/components/dispatch/IncomingDispatchBanner";
+import { DISPATCH_ENABLED } from "@/config/features";
 import { toast } from "@/components/ui/sonner";
 import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
@@ -471,7 +472,7 @@ export default function DynamicTablePage() {
         </DropdownMenu>
       </div>
 
-      {isOwnDesk && !chromeHidden && (
+      {DISPATCH_ENABLED && isOwnDesk && !chromeHidden && (
         <IncomingDispatchBanner workspaceId={page.workspaceId} uid={permissions.uid} page={page} />
       )}
 

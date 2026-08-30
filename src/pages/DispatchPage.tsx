@@ -1,10 +1,14 @@
 import { ShieldCheck } from "lucide-react";
+import { Navigate } from "react-router";
 import { DailyDispatchPanel } from "@/components/dispatch/DailyDispatchPanel";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { DISPATCH_ENABLED } from "@/config/features";
 
 export default function DispatchPage() {
+  if (!DISPATCH_ENABLED) return <Navigate to="/" replace />;
+
   const { activeWorkspace, activeWorkspaceId, pages, members } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();

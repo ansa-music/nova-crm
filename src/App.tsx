@@ -12,6 +12,7 @@ import { useWorkspaceListBootstrap } from "@/hooks/useWorkspace";
 import { useAppBootstrap } from "@/hooks/useAppBootstrap";
 import { wasGoogleRedirectPending } from "@/firebase/auth";
 import { joinPathAfterLogin, rememberJoinIntentFromPath } from "@/utils/joinIntent";
+import { DISPATCH_ENABLED } from "@/config/features";
 
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
 const HomePage = lazy(() => import("@/pages/HomePage"));
@@ -111,7 +112,7 @@ function AppShell() {
             <Route path="announcements" element={<AnnouncementsPage />} />
             <Route path="grok-limit" element={<GrokLimitPage />} />
             <Route path="grok-limit/apps" element={<GrokAppsPage />} />
-            <Route path="dispatch" element={<DispatchPage />} />
+            <Route path="dispatch" element={DISPATCH_ENABLED ? <DispatchPage /> : <Navigate to="/" replace />} />
             <Route path="chat" element={<WorkspaceChatPage />} />
             <Route path="messages" element={<MessagesPage />} />
             <Route path="messages/:peerUid" element={<MessagesPage />} />

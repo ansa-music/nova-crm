@@ -338,6 +338,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   });
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [quickOrderOpen, setQuickOrderOpen] = useState(false);
+  const [quickOrderStatus, setQuickOrderStatus] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   // Default to showing every row the page actually has — pagination exists
   // for people who WANT to chunk a big table, not as a hidden cap that
@@ -1467,6 +1468,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   function handleSort(colKey: string) {
+    const col = columns.find((c) => c.key === colKey);
+    const hasSortableValue = processedRows.some((row) => !isEmptySortValue(row.cells[colKey], col?.type));
+    if (!hasSortableValue) return;
     setSortState((prev) => {
       const next: SortState =
         prev.colKey !== colKey
@@ -1553,6 +1557,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   async function handleQuickOrder(input: QuickOrderInput) {
     const { cells, extras } = buildQuickOrderRow(columns, displayColumns, input);
+    if (quickOrderStatus) {
+      const statusCol = displayColumns.find((c) => c.type === "status");
+      if (statusCol) cells[statusCol.key] = quickOrderStatus;
+    }
     const newRow = await addRowService(workspaceId, page.id, cells, rows.length, extras);
     let liveId = newRow.id;
     const extrasCopy = extras;
@@ -2015,7 +2023,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         density={density}
         onDensityChange={handleDensityChange}
         onAddRow={handleAddRow}
-        onQuickOrder={canEdit ? () => setQuickOrderOpen(true) : undefined}
+        onQuickOrder={canEdit ? () => { setQuickOrderStatus(null); setQuickOrderOpen(true); } : undefined}
         onExportCsv={handleExportCsv}
         canEdit={canEdit}
         canEditStructure={canEditStructure}
@@ -2047,6 +2055,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           statusColumn={kanbanStatusColumn}
           canEdit={canEdit}
           onStatusChange={handleStatusChange}
+          onAddOrder={
+            canEdit
+              ? (statusValue) => {
+                  setQuickOrderStatus(statusValue);
+                  setQuickOrderOpen(true);
+                }
+              : undefined
+          }
         />
       ) : (
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
@@ -2453,7 +2469,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
       <QuickOrderDialog
         open={quickOrderOpen}
-        onOpenChange={setQuickOrderOpen}
+        onOpenChange={(open) => {
+          setQuickOrderOpen(open);
+          if (!open) setQuickOrderStatus(null);
+        }}
         onSubmit={handleQuickOrder}
         osOptions={quickOrderOsOptions}
       />
