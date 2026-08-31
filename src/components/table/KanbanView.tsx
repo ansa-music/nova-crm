@@ -22,6 +22,7 @@ import type { PageColumn, PageRow, StatusOption } from "@/types";
 // one such row exists, so it never adds visual noise to a page where every
 // row is properly categorized.
 const UNASSIGNED_VALUE = "__unassigned__";
+const UNASSIGNED_OPTION: StatusOption = { value: UNASSIGNED_VALUE, label: "Без статуса", color: "240 4% 60%" };
 
 interface KanbanViewProps {
   columns: PageColumn[];
@@ -71,28 +72,48 @@ export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChang
     onStatusChange(rowId, statusColumn.key, newValue);
   }
 
-  // At rest hide empty status columns. While dragging, keep them mounted as
-  // drop targets even if they currently have 0 cards.
-  const visibleOptions = dragActive
-    ? options
-    : options.filter((option) => (rowsByStatus.map.get(option.value)?.length ?? 0) > 0);
-  const showUnassigned = rowsByStatus.hasUnassigned || dragActive;
+  // Columns visible at rest (non-empty ones, "Без статуса" first if it has
+  // rows) — this order is what's already on screen the instant a drag
+  // starts, and it must never change mid-drag. A dragged card is moved
+  // purely via a raw pointer-delta transform (see KanbanCard), which has no
+  // idea where its column actually sits in the DOM — if an empty column
+  // got inserted BEFORE it right as the drag began, the card would render
+  // at its (now shifted) new position plus the old delta and visibly jump
+  // out from under the cursor. That's the exact "flying card" bug this
+  // file has already been fixed for twice (see git log). So while dragging,
+  // any currently-hidden column that needs to reappear as a drop target is
+  // APPENDED after everything already on screen, never inserted among it.
+  const restColumns = useMemo(() => {
+    const list: StatusOption[] = [];
+    if (rowsByStatus.hasUnassigned) list.push(UNASSIGNED_OPTION);
+    for (const option of options) {
+      if ((rowsByStatus.map.get(option.value)?.length ?? 0) > 0) list.push(option);
+    }
+    return list;
+  }, [options, rowsByStatus]);
+
+  const dragOnlyColumns = useMemo(() => {
+    if (!dragActive) return [];
+    const shown = new Set(restColumns.map((o) => o.value));
+    const extra: StatusOption[] = [];
+    if (!shown.has(UNASSIGNED_VALUE)) extra.push(UNASSIGNED_OPTION);
+    for (const option of options) {
+      if (!shown.has(option.value)) extra.push(option);
+    }
+    return extra;
+  }, [dragActive, options, restColumns]);
+
+  // Never show a totally blank board (e.g. a fresh page with no rows yet) —
+  // fall back to every column so there's always a place to add the first order.
+  const displayedColumns =
+    restColumns.length === 0 && dragOnlyColumns.length === 0
+      ? [UNASSIGNED_OPTION, ...options]
+      : [...restColumns, ...dragOnlyColumns];
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setDragActive(false)}>
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
-        {showUnassigned && (
-          <KanbanColumn
-            option={{ value: UNASSIGNED_VALUE, label: "Без статуса", color: "240 4% 60%" }}
-            rows={rowsByStatus.map.get(UNASSIGNED_VALUE) ?? []}
-            titleColKey={titleColKey}
-            currencyColKey={currencyCol?.key}
-            responsibleCol={responsibleCol}
-            canEdit={canEdit}
-            dragActive={dragActive}
-          />
-        )}
-        {visibleOptions.map((option) => (
+        {displayedColumns.map((option) => (
           <KanbanColumn
             key={option.value}
             option={option}
