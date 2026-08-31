@@ -643,6 +643,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       // person happened to click some other cell. This is almost certainly
       // what made the table feel broadly "broken" rather than one glitch.
       if (!col || isOptionColumn(col.type) || col.type === "date") return;
+      // Re-entering edit mode on the cell that's ALREADY being edited must
+      // be a no-op, not a reset. A real double-click fires two mousedowns
+      // plus a trailing dblclick — each one used to call startEditing()
+      // again and reset editValue back to the row's saved value, silently
+      // wiping out anything typed in the few ms between them. That's the
+      // "double-click and you can't type anything" bug.
+      if (editingCellRef.current?.rowId === rowId && editingCellRef.current?.colKey === colKey) return;
       const row = rows.find((r) => r.id === rowId);
       if (!row) return;
       setEditingCell({ rowId, colKey });
@@ -835,6 +842,28 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   // ---- Selection handlers ----
   function handleCellMouseDown(rowId: string, colKey: string, e: React.MouseEvent) {
+    // Status/date/URL cells open a Radix Select/Popover, which render their
+    // content into a document.body Portal — physically outside this <td>,
+    // but React bubbles synthetic events along the COMPONENT tree, not the
+    // DOM tree, so clicking an option inside that portal still reaches this
+    // handler as if the click landed back on the cell. Left unchecked, that
+    // steals grid focus and resets activeCell/rangeAnchor on every option
+    // click, fighting Radix's own close/commit sequence — this is the
+    // structural cause behind "status dropdown won't close" and generally
+    // janky clicking around any in-cell popover. e.target still points at
+    // the real (portaled) DOM node, so bail out here if it's not actually
+    // inside this table's own DOM.
+    if (e.target instanceof Node && containerRef.current && !containerRef.current.contains(e.target)) return;
+    // A redundant mousedown on the cell that's ALREADY being edited (the
+    // second half of a real double-click, or any stray extra click) must be
+    // a no-op. `containerRef.current.focus()` below steals DOM focus away
+    // from the live edit <input> — that fires the input's onBlur, which
+    // COMMITS AND CLOSES the edit out from under the user before they've
+    // typed anything, which is the actual mechanism behind "double-click
+    // and I can't write anything" (confirmed by reproducing it directly:
+    // the second mousedown alone was enough to null out editingCell via
+    // the blur → onCommitEdit chain, with no dblclick handler involved).
+    if (editingCellRef.current?.rowId === rowId && editingCellRef.current?.colKey === colKey) return;
     const col = columns.find((c) => c.key === colKey);
     const isUrl = col?.type === "url";
     const isSelectLike = Boolean(col && (isOptionColumn(col.type) || col.type === "date"));
