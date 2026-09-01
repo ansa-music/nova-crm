@@ -189,6 +189,23 @@ service cloud.firestore {
           && memberDoc(workspaceId, request.resource.data.email).data.status == 'invited'
           && memberDoc(workspaceId, request.resource.data.email).data.role == request.resource.data.role;
 
+        // Instant join: when the Owner has turned on Workspace.autoApproveJoins,
+        // a brand-new signed-in user may create their OWN member record
+        // directly — skipping the joinRequests pending/approve dance
+        // entirely. Hard-locked to role 'manager' / status 'active' (the
+        // same DEFAULT_JOIN_ROLE approveJoinRequest() always used), so this
+        // can never be used to self-grant admin/owner regardless of what the
+        // client sends. This is the actual security boundary for the
+        // feature — JoinWorkspacePage.tsx only decides whether to attempt
+        // it, this rule decides whether it's allowed.
+        allow create: if signedIn()
+          && request.auth.uid == memberId
+          && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('autoApproveJoins', false) == true
+          && request.auth.token.email is string
+          && request.resource.data.email == authEmailLower()
+          && request.resource.data.role == 'manager'
+          && request.resource.data.status == 'active';
+
         // Cleanup of the placeholder email-keyed invite doc once claimed.
         allow delete: if signedIn()
           && memberId == resource.data.email

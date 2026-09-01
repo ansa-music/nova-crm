@@ -33,6 +33,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Switch } from "@/components/ui/switch";
 import { Link } from "react-router";
 import { toast } from "@/components/ui/sonner";
 import { StatusBadge } from "@/components/table/StatusBadge";
@@ -49,6 +50,7 @@ import {
   updateStatusOptions,
   updateWorkspace,
   updateAccentColor,
+  updateAutoApproveJoins,
   addCustomField,
   renameCustomField,
   updateCustomFieldOptions,
@@ -203,6 +205,21 @@ export default function SettingsPage() {
       toast.error(error instanceof Error ? error.message : "Не удалось сохранить");
     } finally {
       setIsSavingWorkspace(false);
+    }
+  }
+
+  const [isTogglingAutoApprove, setIsTogglingAutoApprove] = useState(false);
+
+  async function handleToggleAutoApproveJoins(checked: boolean) {
+    if (!activeWorkspace) return;
+    setIsTogglingAutoApprove(true);
+    try {
+      await updateAutoApproveJoins(activeWorkspace.id, checked);
+      toast.success(checked ? "Новые пользователи входят сразу" : "Новым пользователям снова нужно одобрение");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить");
+    } finally {
+      setIsTogglingAutoApprove(false);
     }
   }
 
@@ -424,6 +441,31 @@ export default function SettingsPage() {
                   Сохранить
                 </Button>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Новые пользователи</CardTitle>
+              <CardDescription>
+                По ссылке «Присоединиться» новый человек по умолчанию отправляет заявку и ждёт вашего одобрения.
+                Включите, чтобы он сразу попадал в workspace как Технар (со своим одним столом) — без вашего клика.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <label className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Пускать сразу, без одобрения</p>
+                  <p className="text-xs text-muted-foreground">
+                    Заявки на вступление при этом не создаются — роль всегда «Технар», вы можете изменить её потом.
+                  </p>
+                </div>
+                <Switch
+                  checked={Boolean(activeWorkspace?.autoApproveJoins)}
+                  onCheckedChange={handleToggleAutoApproveJoins}
+                  disabled={!permissions.canManageWorkspace || isTogglingAutoApprove}
+                />
+              </label>
             </CardContent>
           </Card>
         </TabsContent>

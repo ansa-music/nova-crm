@@ -35,7 +35,7 @@ const ROLE_CHIPS: { id: Role | "invited"; label: string }[] = [
 
 export default function UsersPage() {
   const { profile } = useAuth();
-  const { activeWorkspaceId, members, pages } = useWorkspace();
+  const { activeWorkspaceId, activeWorkspace, members, pages } = useWorkspace();
   const permissions = usePermissions();
   const [expandedUid, setExpandedUid] = useState<string | null>(null);
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
@@ -235,7 +235,9 @@ export default function UsersPage() {
         <CardHeader>
           <CardTitle>Ссылка для вступления</CardTitle>
           <CardDescription>
-            Новые люди по этой ссылке не создают свой workspace — они отправляют вам заявку, и вы сами решаете, впустить их или нет.
+            {activeWorkspace?.autoApproveJoins
+              ? "Новые люди по этой ссылке сразу попадают в workspace как Технар — без вашего одобрения. Отключить можно в Настройках → Workspace."
+              : "Новые люди по этой ссылке не создают свой workspace — они отправляют вам заявку, и вы сами решаете, впустить их или нет."}
           </CardDescription>
         </CardHeader>
         <CardContent>

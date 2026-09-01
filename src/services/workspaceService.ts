@@ -70,6 +70,11 @@ export async function updateAccentColor(workspaceId: string, accentColor: string
   await updateWorkspace(workspaceId, { accentColor: (accentColor ?? deleteField()) as string });
 }
 
+/** Toggles instant self-join (see Workspace.autoApproveJoins doc comment). Owner-only, same as any other workspace-doc write. */
+export async function updateAutoApproveJoins(workspaceId: string, autoApproveJoins: boolean) {
+  await updateWorkspace(workspaceId, { autoApproveJoins });
+}
+
 export async function updateDashboardPages(
   workspaceId: string,
   input: { clientsPageId?: string | null; projectsPageId?: string | null }

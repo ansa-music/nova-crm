@@ -124,3 +124,44 @@ export async function rejectJoinRequest(workspaceId: string, uid: string) {
   if (!db) return;
   await setDoc(paths.joinRequest(workspaceId, uid), { status: "rejected" }, { merge: true });
 }
+
+/**
+ * The instant-join counterpart to approveJoinRequest — used only when the
+ * workspace has `autoApproveJoins` on (see JoinWorkspacePage). Creates the
+ * real member record directly, with no pending request and no Owner click
+ * in between. Role/status are hard-coded here AND re-enforced by the
+ * Firestore rule that actually authorizes this write (a signed-in user may
+ * only ever create their OWN member doc this way, and only as
+ * role: 'manager', status: 'active') — this function can't be tricked into
+ * granting more than that even if called with different arguments.
+ *
+ * Same defensive re-check as approveJoinRequest: refuses if a member doc
+ * already exists for this uid (e.g. a stale tab racing a second attempt).
+ */
+export async function selfJoinWorkspace(
+  workspaceId: string,
+  uid: string,
+  email: string,
+  name: string,
+  photoURL?: string | null
+): Promise<WorkspaceMember> {
+  if (!db) throw new Error("Firebase не настроен");
+  const existing = await getDoc(paths.member(workspaceId, uid));
+  if (existing.exists()) {
+    return existing.data() as WorkspaceMember;
+  }
+  const member: WorkspaceMember = {
+    uid,
+    email: email.trim().toLowerCase(),
+    name,
+    photoURL: photoURL ?? null,
+    role: DEFAULT_JOIN_ROLE,
+    status: "active",
+    invitedAt: Date.now(),
+    invitedBy: uid,
+    joinedAt: Date.now(),
+  };
+  await setDoc(paths.member(workspaceId, uid), member);
+  await deleteInvitedStubIfPresent(workspaceId, member.email, uid);
+  return member;
+}

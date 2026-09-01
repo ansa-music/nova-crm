@@ -55,6 +55,16 @@ export interface Workspace {
   dashboardProjectsPageId?: string;
   /** Owner-defined custom option fields — see CustomFieldDef above. */
   customFields?: CustomFieldDef[];
+  /**
+   * When true, anyone who opens this workspace's /join/:id link becomes an
+   * active `manager` member immediately — no "Запросить доступ" step, no
+   * Owner approval click. Off (undefined/false) by default, which keeps the
+   * existing join-request-and-approve flow exactly as before. Enforced by a
+   * dedicated Firestore rule (see `members/{memberId}` create rules) that
+   * hard-locks the self-created member's role to 'manager' and status to
+   * 'active' — this flag can never be used to self-grant admin/owner.
+   */
+  autoApproveJoins?: boolean;
 }
 
 export type MemberStatus = "active" | "invited";

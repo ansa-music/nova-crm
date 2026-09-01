@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Building2, Clock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import {
   getPublicWorkspaceInfo,
+  selfJoinWorkspace,
   submitJoinRequest,
   subscribeToOwnJoinRequest,
 } from "@/services/joinRequestService";
@@ -22,6 +23,8 @@ export default function JoinWorkspacePage() {
   const [workspace, setWorkspace] = useState<Workspace | null | undefined>(undefined);
   const [ownRequest, setOwnRequest] = useState<JoinRequest | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [autoJoinFailed, setAutoJoinFailed] = useState(false);
+  const autoJoinAttemptedRef = useRef(false);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -43,6 +46,37 @@ export default function JoinWorkspacePage() {
       navigate("/", { replace: true });
     }
   }, [workspaceId, workspaces, isLoadingWorkspaces, navigate]);
+
+  // Instant join: the workspace has autoApproveJoins on, so skip the
+  // request-and-wait flow entirely — create the member record the moment
+  // we know who's asking, no click needed. Guarded by a ref (not just
+  // state) so a re-render mid-flight — e.g. StrictMode's double-invoke, or
+  // `workspace`/`profile` settling on different ticks — can never fire a
+  // second concurrent attempt; selfJoinWorkspace is separately idempotent
+  // (returns the existing doc if one already exists) as a second layer.
+  useEffect(() => {
+    if (!workspaceId || !workspace?.autoApproveJoins || !profile?.uid) return;
+    if (isLoadingWorkspaces || workspaces.some((w) => w.id === workspaceId)) return;
+    if (autoJoinAttemptedRef.current) return;
+    autoJoinAttemptedRef.current = true;
+    selfJoinWorkspace(workspaceId, profile.uid, profile.email, profile.name, profile.photoURL)
+      .then(() => addOwnWorkspaceId(profile.uid, workspaceId))
+      .then(() => {
+        // Same brief delay as the approved-request path below, for the same
+        // reason: give the workspace-list listener a beat to pick up the
+        // fresh id before navigating in.
+        setTimeout(() => {
+          clearJoinIntent();
+          navigate("/", { replace: true });
+        }, 400);
+      })
+      .catch((error) => {
+        console.error("Не удалось выполнить мгновенный вход:", error);
+        toast.error("Не удалось войти автоматически — отправьте запрос вручную");
+        autoJoinAttemptedRef.current = false;
+        setAutoJoinFailed(true);
+      });
+  }, [workspaceId, workspace?.autoApproveJoins, profile, isLoadingWorkspaces, workspaces, navigate]);
 
   useEffect(() => {
     if (!workspaceId || !profile?.uid) return;
@@ -89,6 +123,19 @@ export default function JoinWorkspacePage() {
       <div className="flex h-screen flex-col items-center justify-center gap-2 bg-background text-center">
         <p className="text-lg font-semibold">Workspace не найден</p>
         <p className="text-sm text-muted-foreground">Проверьте, что ссылка скопирована полностью и без опечаток.</p>
+      </div>
+    );
+  }
+
+  // Instant join is on and hasn't failed — never show "Запросить доступ" at
+  // all, just the brief loading beat while the effect above lets them in.
+  // If it does fail (e.g. a rules deploy lag), autoJoinFailed flips and we
+  // fall through to the normal request-and-wait card below as a safety net.
+  if (workspace.autoApproveJoins && !autoJoinFailed) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-3 bg-background px-4 text-center">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Входим в «{workspace.name}»...</p>
       </div>
     );
   }
