@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import { toast } from "@/components/ui/sonner";
 
 export interface UndoCommand {
@@ -21,10 +22,36 @@ export interface UndoCommand {
 const undoStack: UndoCommand[] = [];
 const redoStack: UndoCommand[] = [];
 
+// Tiny external store so toolbars can render enabled/disabled Undo/Redo
+// buttons (phones have no Ctrl+Z) without every table re-implementing it.
+type UndoSnapshot = { canUndo: boolean; canRedo: boolean; undoCount: number; redoCount: number };
+const listeners = new Set<() => void>();
+let snapshot: UndoSnapshot = { canUndo: false, canRedo: false, undoCount: 0, redoCount: 0 };
+function emit() {
+  snapshot = {
+    canUndo: undoStack.length > 0,
+    canRedo: redoStack.length > 0,
+    undoCount: undoStack.length,
+    redoCount: redoStack.length,
+  };
+  listeners.forEach((l) => l());
+}
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+function getSnapshot() {
+  return snapshot;
+}
+export function useUndoState(): UndoSnapshot {
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
 export function pushUndoCommand(cmd: UndoCommand) {
   undoStack.push(cmd);
   if (undoStack.length > 20) undoStack.shift();
   redoStack.length = 0;
+  emit();
 }
 
 export async function undo() {
@@ -33,8 +60,15 @@ export async function undo() {
     toast.info("Нечего отменять");
     return;
   }
-  await cmd.undo();
-  redoStack.push(cmd);
+  emit();
+  try {
+    await cmd.undo();
+    redoStack.push(cmd);
+  } catch (error) {
+    undoStack.push(cmd);
+    toast.error(error instanceof Error ? error.message : "Не удалось отменить");
+  }
+  emit();
 }
 
 export async function redo() {
@@ -43,6 +77,13 @@ export async function redo() {
     toast.info("Нечего вернуть");
     return;
   }
-  await cmd.redo();
-  undoStack.push(cmd);
+  emit();
+  try {
+    await cmd.redo();
+    undoStack.push(cmd);
+  } catch (error) {
+    redoStack.push(cmd);
+    toast.error(error instanceof Error ? error.message : "Не удалось вернуть");
+  }
+  emit();
 }

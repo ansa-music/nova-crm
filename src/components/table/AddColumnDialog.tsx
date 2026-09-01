@@ -16,8 +16,10 @@ import { toast } from "@/components/ui/sonner";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { addCustomField } from "@/services/workspaceService";
 import { buildColumnTypeChoices, decodeColumnTypeValue, encodeColumnTypeValue } from "@/utils/columnOptions";
+import { ColumnTypeIcon } from "@/components/table/ColumnTypeIcon";
 import type { addColumn } from "@/services/pageService";
 import type { ColumnType, PageColumn } from "@/types";
+import { promptDialog } from "@/utils/appDialog";
 
 interface AddColumnDialogProps {
   open: boolean;
@@ -39,6 +41,19 @@ interface AddColumnDialogProps {
 }
 
 const NEW_CUSTOM_FIELD_VALUE = "__new_custom_field__";
+
+const TYPE_HINTS: Record<ColumnType, string> = {
+  text: "Любой текст — имена, комментарии, адреса.",
+  number: "Число. Можно вводить «1 500» или «2,5» — сохранится как число, в итогах считается.",
+  currency: "Сумма в тенге. Участвует в «Итого», «Готово» и процентах на дашборде.",
+  status: "Цветной статус из общего списка сайта. «Готово» считается на дашборде.",
+  responsible: "Кто отвечает за строку — общий список для всего сайта.",
+  date: "Дата из календаря. Заполняется автоматически при первом вводе в первый столбец, если пусто.",
+  email: "Почта — в ячейке появится кнопка «написать».",
+  phone: "Телефон — в ячейке появится кнопка «позвонить».",
+  url: "Ссылка http(s) на Диск или любой сайт — открывается в новой вкладке.",
+  custom: "Свой список вариантов, общий для всего сайта.",
+};
 
 function slugify(label: string, existingKeys: Set<string>): string {
   const base =
@@ -76,7 +91,7 @@ export function AddColumnDialog({
 
   async function handleTypeSelect(v: string) {
     if (v === NEW_CUSTOM_FIELD_VALUE) {
-      const name = window.prompt("Название нового кастомного поля (например, «Приоритет»):")?.trim();
+      const name = (await promptDialog({ title: "Новое кастомное поле", label: "Название", placeholder: "Например, Приоритет", maxLength: 40, confirmLabel: "Создать" }))?.trim();
       if (!name) return;
       if (!activeWorkspace) return;
       try {
@@ -157,7 +172,10 @@ export function AddColumnDialog({
               <SelectContent>
                 {typeChoices.map((choice) => (
                   <SelectItem key={choice.value} value={choice.value}>
-                    {choice.label}
+                    <span className="flex items-center gap-2">
+                      <ColumnTypeIcon type={choice.type} className="h-3.5 w-3.5" />
+                      {choice.label}
+                    </span>
                   </SelectItem>
                 ))}
                 <SelectSeparator />
@@ -168,6 +186,7 @@ export function AddColumnDialog({
                 </SelectItem>
               </SelectContent>
             </Select>
+            <p className="text-xs leading-5 text-muted-foreground">{TYPE_HINTS[type]}</p>
             {type === "status" && (
               <p className="text-xs text-muted-foreground">
                 Список вариантов статуса (включая «Готово») меняет только Owner.

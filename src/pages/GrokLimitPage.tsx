@@ -17,6 +17,7 @@ import { displayNameOf } from "@/utils/displayName";
 import { grokLoginMethodLabel, grokLoginMethodOf } from "@/types/grokAccount";
 import { cn } from "@/utils/cn";
 import type { GrokAccount } from "@/types";
+import { confirmDialog } from "@/utils/appDialog";
 
 type StatusFilter = "all" | GrokAccountStatus;
 
@@ -74,7 +75,7 @@ export default function GrokLimitPage() {
   }
 
   async function handleDelete(account: GrokAccount) {
-    if (!window.confirm(`Удалить аккаунт «${account.email}»?`)) return;
+    if (!(await confirmDialog({ title: `Удалить аккаунт «${account.email}»?`, destructive: true }))) return;
     await deleteGrokAccount(activeWorkspaceId!, account.id);
     toast.success("Аккаунт удалён");
   }

@@ -62,6 +62,7 @@ import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { ACCENT_PRESETS } from "@/components/common/AccentColorSync";
 import { cn } from "@/utils/cn";
 import type { StatusOption } from "@/types";
+import { confirmDialog, promptDialog } from "@/utils/appDialog";
 
 const FEATURE_ITEMS = [
   {
@@ -225,7 +226,7 @@ export default function SettingsPage() {
 
   async function handleDeleteWorkspace() {
     if (!activeWorkspace) return;
-    if (!window.confirm(`Удалить workspace «${activeWorkspace.name}»? Это действие необратимо.`)) return;
+    if (!(await confirmDialog({ title: `Удалить workspace «${activeWorkspace.name}»?`, description: "Будут удалены все столы, участники и данные. Это действие необратимо.", destructive: true, confirmLabel: "Удалить навсегда" }))) return;
     try {
       await deleteWorkspace(activeWorkspace.id);
       const next = workspaces.find((w) => w.id !== activeWorkspace.id);
@@ -298,14 +299,14 @@ export default function SettingsPage() {
   }
 
   async function handleRenameCustomField(fieldId: string, currentName: string) {
-    const name = window.prompt("Новое название поля:", currentName)?.trim();
+    const name = (await promptDialog({ title: "Переименовать поле", label: "Название", defaultValue: currentName, maxLength: 40 }))?.trim();
     if (!name || !activeWorkspace) return;
     await renameCustomField(activeWorkspace.id, customFields, fieldId, name);
   }
 
   async function handleDeleteCustomField(fieldId: string, name: string) {
     if (!activeWorkspace) return;
-    if (!window.confirm(`Удалить поле «${name}»? Столбцы, которые его используют, останутся без вариантов.`)) return;
+    if (!(await confirmDialog({ title: `Удалить поле «${name}»?`, description: "Столбцы, которые его используют, останутся без вариантов.", destructive: true }))) return;
     await deleteCustomField(activeWorkspace.id, customFields, fieldId);
   }
 

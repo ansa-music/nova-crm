@@ -126,3 +126,38 @@ Roles: `owner` > `admin` > `manager` (label «Технар») > `viewer`. Тол
 ## Дальнейшие идеи, которые обсуждались, но НЕ реализованы
 
 Сохранённые виды (комбинации фильтр+группировка+сортировка), автоматизация «если → то» (уведомления по правилам), импорт из amoCRM/Excel, Telegram-бот, вычисляемые столбцы (формулы), публичная форма захвата лида, клиентский портал, кастомные роли, оффлайн-режим (PWA), свайп-действия на мобильном для произвольных полей (для статуса уже сделано, для остального — сознательно нет, риск конфликта с горизонтальным скроллом широкой таблицы на touch).
+
+## Сборка «Table v2» (сентябрь 2026) — что появилось, чтобы не переделывать заново
+
+Подробный список — в `CHANGELOG.md`. Ключевые архитектурные моменты:
+
+- **`confirmDialog()` / `promptDialog()`** (`src/utils/appDialog.ts`) — единственный способ
+  спросить подтверждение или строку у пользователя. `window.confirm`/`window.prompt` в
+  проекте больше не используются; хост `AppDialogHost` смонтирован в `AppLayout`.
+  Использование: `if (!(await confirmDialog({ title, description, destructive: true }))) return;`
+- **Числа хранятся канонически** (`src/utils/numberInput.ts`, `normalizeNumericInput`):
+  при коммите/вставке в number/currency ячейку строка нормализуется («1 500,50» → «1500.5»).
+  `parseLooseNumber` — единый парсер для итогов, группировок, канбана.
+- **Итоги столбцов** (`src/utils/columnAggregates.ts`) — выбор вида итога per view хранится в
+  `localStorage` (`nova-crm:column-aggregates:<viewKey>`). Ничего не пишется в Firestore.
+- **Фильтр столбца ключуется по RAW-значению ячейки** (`filters[colKey]: Set<rawValue>`),
+  а показывает подпись (`FilterValueEntry { value, label, count, color }`). Не возвращать
+  сравнение по label — это и был старый баг для статус-колонок.
+- **Поиск** сравнивает и raw, и `cellDisplayText()` (подпись статуса / формат даты).
+- **Клавиатура**: `openRequest` (DataTable → TableRow → TableCell) — счётчик, по которому
+  активная picker-ячейка открывает Radix Select (через синтетический keydown Enter, поэтому
+  глобальный обработчик игнорирует `!e.isTrusted`) или календарь. Space открывает карточку.
+  Пока открыта карточка строки (`expandedRowId`), обработчик клавиш таблицы полностью молчит.
+- **RowCardSheet редактируемая** — `onCellChange` = `handleStatusChange` (persist + undo + конфетти).
+- Tailwind: добавлен breakpoint `xs: 420px`.
+
+### Table v2.1
+- **Drag-to-fill**: `handleFillStart` → `fillDragRef` (источник = текущее выделение) →
+  `fillPreview` (только для отрисовки) → `applyFill` пишет все ячейки и кладёт ОДНУ команду
+  в undo. Ручка (`.table-fill-handle`) рисуется внутри td, потому что td `overflow:hidden`.
+- **Быстрые фильтры**: `dateFilter {colKey, preset}` (`src/utils/dateRanges.ts`, дни по Алматы)
+  и `mineOnly` (сопоставление nickname/name с `responsibleOptions[].label`). Оба входят в
+  `hasActiveFilters`/`resetAllFilters` и в чипы `ActiveFiltersBar`.
+- **Дубли**: `normalizeContact()` в DataTable; бейдж в TableCell (`isDuplicate`), клик ставит
+  фильтр столбца на raw-значения с тем же нормализованным контактом.
+- `useUndoState()` в `undoStore.ts` — для кнопок Undo/Redo; `pushUndoCommand` вызывает `emit()`.

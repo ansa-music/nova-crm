@@ -914,3 +914,248 @@ body[data-scroll-locked],
 html body[data-scroll-locked] {
   pointer-events: auto !important;
 }
+
+/* ============================================================================
+ * Table v2 polish — cells, header, footer aggregates, filter bar, group rows,
+ * search highlight, kanban cards, bulk bar. Kept unlayered so it reliably
+ * wins over the base .table-instrument rules above.
+ * ========================================================================== */
+
+/* Header: quiet by default, brightens when the column is sorted/filtered/grouped. */
+.table-header-cell {
+  transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+}
+.table-instrument thead th.table-header-flagged {
+  color: hsl(var(--primary));
+  background-color: color-mix(in srgb, hsl(var(--primary)) 9%, hsl(var(--background)));
+}
+.table-instrument thead th.table-header-selected {
+  background-color: color-mix(in srgb, hsl(var(--primary)) 16%, hsl(var(--background)));
+  color: hsl(var(--primary));
+}
+.table-col-resizer:hover .table-col-resizer-line,
+.table-col-resizer:active .table-col-resizer-line {
+  opacity: 1;
+  background-color: hsl(var(--primary));
+  box-shadow: 0 0 6px hsl(var(--primary) / 0.7);
+}
+
+/* Cells: range wash + a crisp active ring with a soft outer glow. */
+.table-instrument tbody td.table-cell-range {
+  background-color: hsl(var(--primary) / 0.09) !important;
+}
+.table-instrument tbody td.table-cell-active {
+  box-shadow:
+    inset 0 0 0 2px hsl(var(--primary) / 0.85),
+    0 0 0 1px hsl(var(--primary) / 0.25),
+    0 0 12px -2px hsl(var(--primary) / 0.45);
+}
+.table-instrument tbody td.table-cell-editing {
+  box-shadow: inset 0 0 0 2px hsl(var(--primary)), 0 0 16px -2px hsl(var(--primary) / 0.5);
+  overflow: visible;
+}
+.table-instrument tbody td.table-cell-editing input {
+  border-radius: 0;
+}
+
+/* Search highlight inside cells. */
+.table-search-mark {
+  background: hsl(var(--warning) / 0.35);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+  box-shadow: 0 0 0 1px hsl(var(--warning) / 0.25);
+}
+
+/* Contact links (tel:/mailto:) inside phone/email cells. */
+.table-contact-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+}
+.table-contact-link:hover {
+  background: hsl(var(--primary) / 0.14);
+}
+
+/* Footer aggregates row. */
+.table-instrument tfoot td.table-footer-cell {
+  border-top: 1px solid hsl(var(--primary) / 0.35);
+  background: linear-gradient(180deg, hsl(var(--primary) / 0.05) 0%, hsl(var(--background)) 100%);
+  padding: 0;
+}
+.table-instrument tfoot td.table-footer-cell button {
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+/* Filter chip bar under the toolbar. */
+.table-filter-bar {
+  background: linear-gradient(180deg, hsl(var(--primary) / 0.05) 0%, transparent 100%);
+}
+.table-filter-chip {
+  transition: transform var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .table-filter-chip:hover {
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.3), 0 0 10px -3px hsl(var(--primary) / 0.5);
+  }
+}
+.table-chip {
+  transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
+}
+
+/* Group header rows: color rail on the left, subtle gradient, sums right-aligned. */
+.table-instrument tbody tr.table-group-row td.table-group-cell {
+  background: linear-gradient(90deg, hsl(var(--primary) / 0.1) 0%, hsl(var(--muted) / 0.55) 40%, hsl(var(--muted) / 0.35) 100%);
+  overflow: visible;
+}
+/* The toggle itself sticks to the left edge, so a group's name and sum stay
+   readable however far the wide table is scrolled horizontally. Was split
+   across two separate `.table-group-toggle` rules — the second one's own
+   `position: relative` (not actually needed; nothing here anchors a
+   pseudo-element) cascaded over this block's `position: sticky` since same
+   selector + later in the file always wins, silently undoing the sticky
+   behavior this comment promises. Merged into one rule so that can't happen
+   again. */
+.table-group-toggle {
+  position: sticky;
+  left: 0;
+  width: auto;
+  min-width: 280px;
+  max-width: 100%;
+  box-shadow: inset 3px 0 0 hsl(var(--group-color, var(--primary)));
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+.table-instrument tbody tr.table-group-row:hover td {
+  background-color: transparent;
+  box-shadow: none;
+}
+.table-group-toggle:hover {
+  background-color: hsl(var(--primary) / 0.08);
+}
+
+/* Kanban. */
+.kanban-column {
+  transition: width var(--duration) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
+}
+.kanban-card {
+  transition: border-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .kanban-card:hover {
+    border-color: hsl(var(--primary) / 0.55);
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.2), 0 8px 24px -14px hsl(var(--primary) / 0.5);
+    transform: translateY(-1px);
+  }
+}
+
+/* Bulk action panel: glass + glow so it reads as a floating command bar. */
+.bulk-action-panel {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: hsl(var(--card) / 0.92);
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.18),
+    0 16px 40px -18px hsl(var(--primary) / 0.55),
+    0 12px 32px -20px hsl(0 0% 0% / 0.8);
+  animation: glass-pop 200ms var(--ease-out);
+}
+
+/* Row card: editable fields hint. */
+.row-card-editable {
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+/* Saving progress bar keyframe lives in tailwind.config; give it a glow. */
+.table-toolbar {
+  box-shadow: 0 1px 0 hsl(var(--primary) / 0.08);
+}
+
+@media (max-width: 767px), (hover: none), (pointer: coarse) {
+  .table-instrument tbody td.table-cell-active {
+    box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.85);
+  }
+  .bulk-action-panel {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.25);
+  }
+  .table-filter-bar {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bulk-action-panel,
+  .kanban-column,
+  .kanban-card,
+  .table-filter-chip {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+/* ---- Table v2.1: drag-to-fill, row rail, ghost add-row ------------------ */
+
+/* The little square on the bottom-right corner of the selection. */
+.table-fill-handle {
+  /* Kept INSIDE the cell box: the td is overflow:hidden, so a corner square
+     that pokes outside would simply be clipped. */
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: hsl(var(--primary));
+  border: 1.5px solid hsl(var(--background));
+  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.6), 0 0 8px hsl(var(--primary) / 0.5);
+  cursor: crosshair;
+  z-index: 30;
+  touch-action: none;
+}
+.table-fill-handle:hover {
+  transform: scale(1.25);
+}
+.table-instrument tbody td.table-cell-fill {
+  background-color: hsl(var(--primary) / 0.13) !important;
+  box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.55);
+}
+
+/* Status rail in the gutter cell. */
+.table-row-rail {
+  opacity: 0.85;
+  border-top-left-radius: 0;
+}
+.table-instrument tbody tr.table-data-row:hover .table-row-rail {
+  opacity: 1;
+}
+
+/* Ghost "+ Новая строка" at the bottom of the grid. */
+.table-instrument tbody tr.table-add-row td {
+  background: transparent;
+  border-bottom: 0;
+}
+.table-add-row-button {
+  width: 100%;
+  max-width: 320px;
+  transition: color var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out);
+}
+.table-add-row-button:hover {
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.06);
+}
+
+@media (hover: none), (pointer: coarse) {
+  .table-fill-handle {
+    width: 14px;
+    height: 14px;
+    right: 1px;
+    bottom: 1px;
+  }
+}

@@ -20,7 +20,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Plus } from "lucide-react";
+import { CheckCheck, Copy, CopyPlus, Filter, FilterX, Maximize2, Plus, Trash2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { LayoutGroup } from "framer-motion";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -48,7 +48,23 @@ import {
 } from "@/utils/savedTableViews";
 import { KanbanView } from "@/components/table/KanbanView";
 import { TablePagination } from "@/components/table/TablePagination";
-import { FilterPopover } from "@/components/table/FilterPopover";
+import { FilterPopover, type FilterValueEntry } from "@/components/table/FilterPopover";
+import { ActiveFiltersBar, type ActiveFilterChip } from "@/components/table/ActiveFiltersBar";
+import { FooterAggregateCell } from "@/components/table/FooterAggregateCell";
+import type { BulkOptionColumn } from "@/components/table/BulkActionBar";
+import {
+  aggregateKindsForColumn,
+  computeAggregate,
+  defaultAggregateFor,
+  loadColumnAggregates,
+  summarizeSelection,
+  writeColumnAggregates,
+  type AggregateKind,
+} from "@/utils/columnAggregates";
+import { normalizeNumericInput, parseLooseNumber } from "@/utils/numberInput";
+import { confirmDialog, promptDialog } from "@/utils/appDialog";
+import { DATE_PRESET_LABELS, isInDatePreset, type DatePreset } from "@/utils/dateRanges";
+import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/components/ui/sonner";
 import {
   addRow as addRowServiceBase,
@@ -90,6 +106,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { updateResponsibleOptions, updateCustomFieldOptions, updateStatusOptions } from "@/services/workspaceService";
 import { formatCurrency, formatNumber, downloadCsv } from "@/utils";
+import { formatOrderDate } from "@/utils/date";
 import { isSummableColumn, sumNumericCells } from "@/utils/tableAggregates";
 import { clampColumnWidth } from "@/utils/tableLayout";
 import { getColumnOptions, isDoneStatusLabel, isOptionColumn, DEFAULT_STATUS_OPTIONS, NOT_DONE_STATUS_FILTER, findDoneStatusOption } from "@/utils/columnOptions";
@@ -208,6 +225,18 @@ interface DataTableProps {
   focusRowId?: string | null;
 }
 
+/** Phone: digits only (8 → +7 normalised); email: lowercase trimmed. */
+function normalizeContact(raw: string, type: "phone" | "email" | string): string {
+  const v = raw.trim();
+  if (!v) return "";
+  if (type === "phone") {
+    let digits = v.replace(/\D/g, "");
+    if (digits.length === 11 && digits.startsWith("8")) digits = "7" + digits.slice(1);
+    return digits.length >= 7 ? digits : "";
+  }
+  return v.toLowerCase();
+}
+
 export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId }: DataTableProps) {
   const columns = useMemo(
     () =>
@@ -291,6 +320,23 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const [filterPopover, setFilterPopover] = useState<{ colKey: string; x: number; y: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  // Quick date-period filter on one date column ("Сегодня", "Эта неделя", …).
+  const [dateFilter, setDateFilter] = useState<{ colKey: string; preset: DatePreset } | null>(null);
+  // "Мои": only rows whose Ответственный matches the signed-in person.
+  const [mineOnly, setMineOnly] = useState(false);
+  // Drag-to-fill (the little square on the selection corner).
+  const fillDragRef = useRef<{
+    colKeys: string[];
+    sourceRowIds: string[];
+    rowStart: number;
+    rowEnd: number;
+  } | null>(null);
+  const [fillPreview, setFillPreviewState] = useState<{ colKeys: string[]; rowStart: number; rowEnd: number } | null>(null);
+  const fillPreviewRef = useRef<{ colKeys: string[]; rowStart: number; rowEnd: number } | null>(null);
+  const setFillPreview = (next: { colKeys: string[]; rowStart: number; rowEnd: number } | null) => {
+    fillPreviewRef.current = next;
+    setFillPreviewState(next);
+  };
   const [groupByKey, setGroupByKey] = useState<string | null>(null);
   const [savedViews, setSavedViews] = useState<SavedTableView[]>(() => loadSavedTableViews(tableViewKey));
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -351,9 +397,36 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     | null
   >(null);
 
+  // Bumped to ask the ACTIVE picker cell (status/date) to open from the
+  // keyboard (Enter / Space) — see TableCell's openRequest effect.
+  const [openRequest, setOpenRequest] = useState(0);
+  // Bumped by Ctrl+F so the toolbar search grabs focus.
+  const [focusSearchToken, setFocusSearchToken] = useState(0);
+  // Per-view footer summary choice (Сумма / Среднее / Заполнено / …).
+  const [columnAggregates, setColumnAggregates] = useState<Record<string, AggregateKind>>(() =>
+    loadColumnAggregates(tableViewKey)
+  );
+  // Where "Добавить столбец справа" should slot the new column.
+  const insertAfterKeyRef = useRef<string | null>(null);
+
   const { activeWorkspace } = useWorkspace();
+  const { profile } = useAuth();
   const permissions = usePermissions();
   const isOwner = permissions.role === "owner";
+
+  // Which Ответственный option is "me": matched by nickname / name against
+  // the workspace-wide responsible list (options aren't tied to accounts).
+  const myResponsibleValues = useMemo(() => {
+    const names = [profile?.nickname, profile?.name].map((n) => (n ?? "").trim().toLowerCase()).filter(Boolean);
+    if (names.length === 0) return [] as string[];
+    const opts = activeWorkspace?.responsibleOptions ?? [];
+    return opts
+      .filter((o) => {
+        const l = o.label.trim().toLowerCase();
+        return names.some((n) => l === n || l.startsWith(n + " ") || n.startsWith(l + " "));
+      })
+      .map((o) => o.value);
+  }, [profile?.nickname, profile?.name, activeWorkspace?.responsibleOptions]);
   const canManageVariants = permissions.canManageStatusVariants;
   const responsibleOptions = activeWorkspace?.responsibleOptions ?? [];
   const sharedStatusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
@@ -423,7 +496,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setStatusFilter(null);
     setGroupByKey(null);
     setSavedViews(loadSavedTableViews(tableViewKey));
+    setColumnAggregates(loadColumnAggregates(tableViewKey));
     setSelectedRowIds(new Set());
+    setDateFilter(null);
+    setMineOnly(false);
     setPageIndex(0);
   }, [page.id, tableViewKey]);
 
@@ -443,12 +519,37 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const [gridFocused, setGridFocused] = useState(false);
   const [expandedTextCell, setExpandedTextCell] = useState<CellAddress | null>(null);
 
+  // Human-readable text of a cell — option LABEL (not the stored value id),
+  // formatted date, money — so search/filter/copy see what the person sees.
+  const cellDisplayText = useCallback(
+    (row: PageRow, column: (typeof columns)[number]): string => {
+      const raw = row.cells[column.key];
+      const str = raw === null || raw === undefined ? "" : String(raw);
+      if (!str) return "";
+      if (isOptionColumn(column.type)) {
+        return getColumnOptions(column, activeWorkspace).find((o) => o.value === str)?.label ?? str;
+      }
+      if (column.type === "date") {
+        const n = Number(str);
+        return Number.isFinite(n) && n > 0 ? formatOrderDate(n) : str;
+      }
+      return str;
+    },
+    [activeWorkspace]
+  );
+
   // ---- Filtering + search + sort ----
   const processedRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     let result = rows.filter((row) => {
       if (q) {
-        const matches = columns.some((c) => String(row.cells[c.key] ?? "").toLowerCase().includes(q));
+        const matches = columns.some((c) => {
+          if (c.hidden) return false;
+          const raw = String(row.cells[c.key] ?? "").toLowerCase();
+          if (raw.includes(q)) return true;
+          const shown = cellDisplayText(row, c).toLowerCase();
+          return shown !== raw && shown.includes(q);
+        });
         if (!matches) return false;
       }
       for (const colKey of Object.keys(filters)) {
@@ -470,6 +571,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
             return false;
           }
         }
+      }
+      if (dateFilter && !isInDatePreset(row.cells[dateFilter.colKey], dateFilter.preset)) return false;
+      if (mineOnly && myResponsibleValues.length > 0) {
+        const respCol = columns.find((c) => c.type === "responsible");
+        if (respCol && !myResponsibleValues.includes(String(row.cells[respCol.key] ?? ""))) return false;
       }
       return true;
     });
@@ -493,7 +599,40 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       result = [...result].sort(compareRowsByCreatedAt);
     }
     return result;
-  }, [rows, columns, searchQuery, filters, sortState, statusFilter, activeWorkspace]);
+  }, [rows, columns, searchQuery, filters, sortState, statusFilter, activeWorkspace, cellDisplayText, dateFilter, mineOnly, myResponsibleValues]);
+
+  // Per-status row counts for the toolbar chips (respecting search + column
+  // filters, but NOT the status chip itself — otherwise every other chip
+  // would read 0 the moment one is active).
+  const statusCounts = useMemo(() => {
+    const statusCol = columns.find((c) => c.type === "status");
+    if (!statusCol) return undefined;
+    const q = searchQuery.trim().toLowerCase();
+    const options = getColumnOptions(statusCol, activeWorkspace);
+    const counts: Record<string, number> = {};
+    let notDone = 0;
+    for (const row of rows) {
+      if (q) {
+        const matches = columns.some((c) => !c.hidden && cellDisplayText(row, c).toLowerCase().includes(q));
+        if (!matches) continue;
+      }
+      let excludedByFilter = false;
+      for (const colKey of Object.keys(filters)) {
+        const excluded = filters[colKey];
+        if (excluded && excluded.size > 0 && excluded.has(String(row.cells[colKey] ?? ""))) {
+          excludedByFilter = true;
+          break;
+        }
+      }
+      if (excludedByFilter) continue;
+      const raw = String(row.cells[statusCol.key] ?? "");
+      counts[raw] = (counts[raw] ?? 0) + 1;
+      const opt = options.find((o) => o.value === raw);
+      if (!opt || !isDoneStatusLabel(opt.label)) notDone += 1;
+    }
+    counts[NOT_DONE_STATUS_FILTER] = notDone;
+    return counts;
+  }, [rows, columns, searchQuery, filters, activeWorkspace, cellDisplayText]);
 
   // Visual order is createdAt (or an explicit header sort), not `order`.
   // Dragging would rewrite `order` without moving rows — and status/cell
@@ -536,6 +675,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }, [processedRows, pageIndex, pageSize, groups]);
 
   const rowIds = useMemo(() => paginatedRows.map((r) => r.id), [paginatedRows]);
+  // Row-card prev/next/"N of total" must walk the full filtered+sorted view,
+  // not just the current pagination page — `rowIds` above is intentionally
+  // page-scoped for the grid itself, but the card's own row lookup already
+  // reads from the full `rows` prop regardless of pagination (see the
+  // RowCardSheet render below), so its nav index has to match that.
+  const processedRowIds = useMemo(() => processedRows.map((r) => r.id), [processedRows]);
   const allOrderedRowIds = useMemo(() => [...rows].sort(compareRowsByCreatedAt).map((r) => r.id), [rows]);
 
   // ---- Virtualized rendering (flat, non-grouped view only) ----
@@ -806,6 +951,21 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           return;
         }
       }
+      if (col?.type === "number" || col?.type === "currency") {
+        // "1 500,50" / "2.000" / "12 000 ₸" → canonical "1500.5" / "2000" /
+        // "12000", so sums, sorting and formatting all agree on the value.
+        const trimmed = editValue.trim();
+        if (trimmed && parseLooseNumber(trimmed) === null) {
+          toast.warning("Это не похоже на число — сохранено как текст", {
+            description: "В итогах и сортировке такая ячейка не участвует.",
+          });
+          newValue = trimmed;
+        } else {
+          newValue = normalizeNumericInput(trimmed);
+        }
+      } else if (col?.type !== "text") {
+        newValue = editValue.trim();
+      }
       setEditingCell(null);
       if (oldValue !== newValue) {
         persistCellEdit(rowId, colKey, oldValue, newValue);
@@ -882,6 +1042,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setRangeAnchor(addr);
     setActiveCell(addr);
     isSelectingRef.current = !isUrl && !isSelectLike && e.button === 0;
+    // Right/middle click only moves the active cell (so the context menu
+    // knows which value was clicked) — it must never start text editing.
+    if (e.button !== 0) return;
     if (!canEdit || !col) return;
     if (isSelectLike) return;
     const row = rows.find((r) => r.id === rowId);
@@ -996,7 +1159,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const missingRows = startRowIdx + matrix.length - rowIds.length;
     let effectiveRowIds = rowIds;
     if (missingRows > 0) {
-      if (!window.confirm(`Вставка требует ещё ${missingRows} строк(и) — создать их?`)) {
+      const create = await confirmDialog({
+        title: `Создать ещё ${missingRows} строк(и)?`,
+        description: "Во вставленных данных больше строк, чем осталось в таблице ниже выбранной ячейки.",
+        confirmLabel: "Создать и вставить",
+        cancelLabel: "Вставить без новых строк",
+      });
+      if (!create) {
         matrix = matrix.slice(0, rowIds.length - startRowIdx);
       } else {
         const newIds: string[] = [];
@@ -1023,6 +1192,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         if (isOptionColumn(col.type)) {
           const match = col.statusOptions?.find((o) => o.label.toLowerCase() === val.trim().toLowerCase());
           newValue = match ? match.value : oldValue;
+        } else if (col.type === "number" || col.type === "currency") {
+          newValue = normalizeNumericInput(val);
+        } else if (col.type !== "text") {
+          newValue = val.trim();
         }
         if (newValue !== oldValue) {
           persistCellEdit(rowId, col.key, oldValue, newValue);
@@ -1094,6 +1267,133 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (direction === "left") nc = Math.max(0, cIdx - 1);
     if (direction === "right") nc = Math.min(displayColumns.length - 1, cIdx + 1);
     const next = { rowId: rowIds[nr], colKey: displayColumns[nc].key };
+    setActiveCell(next);
+    if (!extend) setRangeAnchor(next);
+    else if (!rangeAnchor) setRangeAnchor(activeCell);
+    revealCell(next.rowId, next.colKey, nr);
+  }
+
+  // ---- Drag-to-fill ----
+  // Pointer down on the corner square → the selection becomes the source
+  // block; dragging over rows previews the target; release writes every
+  // cell in ONE undo command, repeating the source pattern (2 rows selected
+  // → A,B,A,B,…) the way spreadsheets do.
+  function handleFillStart(_rowId: string, _colKey: string, e: React.PointerEvent) {
+    if (!canEdit) return;
+    const bounds = getSelectionBounds();
+    if (!bounds) return;
+    const colKeys = displayColumns.slice(bounds.colStart, bounds.colEnd + 1).map((c) => c.key);
+    const sourceRowIds = rowIds.slice(bounds.rowStart, bounds.rowEnd + 1);
+    fillDragRef.current = { colKeys, sourceRowIds, rowStart: bounds.rowStart, rowEnd: bounds.rowEnd };
+    setFillPreview(null);
+    (e.target as HTMLElement | null)?.setPointerCapture?.(e.pointerId);
+    const onMove = (ev: PointerEvent) => {
+      const drag = fillDragRef.current;
+      if (!drag) return;
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+      const tr = el?.closest<HTMLElement>("tr[data-row-id]");
+      const rowId = tr?.dataset.rowId;
+      if (!rowId) return;
+      const idx = rowIds.indexOf(rowId);
+      if (idx === -1) return;
+      if (idx > drag.rowEnd) setFillPreview({ colKeys: drag.colKeys, rowStart: drag.rowEnd + 1, rowEnd: idx });
+      else if (idx < drag.rowStart) setFillPreview({ colKeys: drag.colKeys, rowStart: idx, rowEnd: drag.rowStart - 1 });
+      else setFillPreview(null);
+      const container = containerRef.current;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        if (ev.clientY > rect.bottom - 24) container.scrollTop += 12;
+        else if (ev.clientY < rect.top + 60) container.scrollTop -= 12;
+      }
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      const drag = fillDragRef.current;
+      const preview = fillPreviewRef.current;
+      fillDragRef.current = null;
+      setFillPreview(null);
+      if (drag && preview) applyFill(drag, preview);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }
+
+  function applyFill(
+    drag: { colKeys: string[]; sourceRowIds: string[] },
+    target: { colKeys: string[]; rowStart: number; rowEnd: number }
+  ) {
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const edits: { rowId: string; colKey: string; oldValue: string; newValue: string }[] = [];
+    const n = drag.sourceRowIds.length;
+    const targetIds = rowIds.slice(target.rowStart, target.rowEnd + 1);
+    targetIds.forEach((destId, i) => {
+      const srcRow = byId.get(drag.sourceRowIds[i % n]);
+      const dest = byId.get(destId);
+      if (!srcRow || !dest) return;
+      for (const colKey of drag.colKeys) {
+        const newValue = String(srcRow.cells[colKey] ?? "");
+        const oldValue = String(dest.cells[colKey] ?? "");
+        if (newValue !== oldValue) edits.push({ rowId: destId, colKey, oldValue, newValue });
+      }
+    });
+    if (edits.length === 0) return;
+    for (const e of edits) persistCellEdit(e.rowId, e.colKey, e.oldValue, e.newValue);
+    pushCommand({
+      undo: async () => {
+        await Promise.all(edits.map((e) => persistCellEdit(e.rowId, e.colKey, e.newValue, e.oldValue)));
+      },
+      redo: async () => {
+        await Promise.all(edits.map((e) => persistCellEdit(e.rowId, e.colKey, e.oldValue, e.newValue)));
+      },
+    });
+    // Extend the selection over the filled block so a second drag continues it.
+    const last = targetIds[targetIds.length - 1];
+    const first = drag.sourceRowIds[0];
+    const lastCol = drag.colKeys[drag.colKeys.length - 1];
+    const firstCol = drag.colKeys[0];
+    if (target.rowEnd > rowIds.indexOf(drag.sourceRowIds[n - 1])) {
+      setRangeAnchor({ rowId: first, colKey: firstCol });
+      setActiveCell({ rowId: last, colKey: lastCol });
+    } else {
+      setRangeAnchor({ rowId: drag.sourceRowIds[n - 1], colKey: lastCol });
+      setActiveCell({ rowId: targetIds[0], colKey: firstCol });
+    }
+    toast.success(`Заполнено ячеек: ${edits.length}`, { action: { label: "Отменить", onClick: () => undoLastCommand() } });
+  }
+
+  function selectAllCells() {
+    if (rowIds.length === 0 || displayColumns.length === 0) return;
+    setRangeAnchor({ rowId: rowIds[0], colKey: displayColumns[0].key });
+    setActiveCell({ rowId: rowIds[rowIds.length - 1], colKey: displayColumns[displayColumns.length - 1].key });
+  }
+
+  /** Ctrl+Arrow: jump to the table edge in that direction (Shift extends). */
+  function jumpToEdge(direction: "up" | "down" | "left" | "right", extend: boolean) {
+    if (!activeCell) return;
+    const rIdx = rowIds.indexOf(activeCell.rowId);
+    const cIdx = displayColumns.findIndex((c) => c.key === activeCell.colKey);
+    if (rIdx === -1 || cIdx === -1) return;
+    const nr = direction === "up" ? 0 : direction === "down" ? rowIds.length - 1 : rIdx;
+    const nc = direction === "left" ? 0 : direction === "right" ? displayColumns.length - 1 : cIdx;
+    const next = { rowId: rowIds[nr], colKey: displayColumns[nc].key };
+    setActiveCell(next);
+    if (!extend) setRangeAnchor(next);
+    else if (!rangeAnchor) setRangeAnchor(activeCell);
+    revealCell(next.rowId, next.colKey, nr);
+  }
+
+  /** PageUp/PageDown: move by one viewport of rows. */
+  function movePage(direction: "up" | "down", extend: boolean) {
+    if (!activeCell) return;
+    const rIdx = rowIds.indexOf(activeCell.rowId);
+    if (rIdx === -1) return;
+    const viewport = containerRef.current?.clientHeight ?? 600;
+    const step = Math.max(1, Math.floor(viewport / rowHeight) - 1);
+    const nr = direction === "up" ? Math.max(0, rIdx - step) : Math.min(rowIds.length - 1, rIdx + step);
+    const next = { rowId: rowIds[nr], colKey: activeCell.colKey };
     setActiveCell(next);
     if (!extend) setRangeAnchor(next);
     else if (!rangeAnchor) setRangeAnchor(activeCell);
@@ -1238,6 +1538,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
   handleKeyDownRef.current = function handleKeyDown(e: KeyboardEvent) {
+      // Synthetic keydowns (e.g. the one TableCell dispatches to open a
+      // Radix Select from the keyboard) are not the person typing.
+      if (!e.isTrusted) return;
       const isCtrl = e.ctrlKey || e.metaKey;
 
       // Ctrl+Z/Ctrl+Y are handled by a single, app-wide listener now
@@ -1252,6 +1555,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         return;
       }
       if (e.isComposing || e.key === "Process") return;
+      // The row card owns the keyboard while it's open (←/→ navigate rows,
+      // Esc closes) — grid shortcuts must not fire underneath it.
+      if (expandedRowId) return;
       if (e.key === "Escape" && !editingCellRef.current) {
         const pop = document.querySelector("[data-radix-popper-content-wrapper], [role=listbox], [data-radix-select-content]");
         if (pop) return;
@@ -1264,6 +1570,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           e.preventDefault();
           setActiveCell(null);
           setRangeAnchor(null);
+          return;
+        }
+        if (selectedRowIds.size > 0) {
+          e.preventDefault();
+          setSelectedRowIds(new Set());
         }
         return;
       }
@@ -1273,8 +1584,19 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       if (containerRef.current && !containerRef.current.contains(document.activeElement)) {
         if (document.activeElement !== document.body && document.activeElement !== containerRef.current) return;
       }
+      // Ctrl+F: focus the table search instead of the browser's find bar.
+      if (isCtrl && !e.shiftKey && !e.altKey && e.code === "KeyF" && viewMode === "table") {
+        e.preventDefault();
+        setFocusSearchToken((n) => n + 1);
+        return;
+      }
       if (!activeCell) return;
 
+      if (isCtrl && !e.shiftKey && !e.altKey && e.code === "KeyA") {
+        e.preventDefault();
+        selectAllCells();
+        return;
+      }
       if (isCtrl && e.altKey && e.code === "KeyC") {
         e.preventDefault();
         handleCopyRow(activeCell.rowId);
@@ -1323,22 +1645,47 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       }
       if (e.key === "Enter" || e.key === "F2") {
         e.preventDefault();
+        const col = columns.find((c) => c.key === activeCell.colKey);
+        if (col && (isOptionColumn(col.type) || col.type === "date")) {
+          if (canEdit) setOpenRequest((n) => n + 1);
+          return;
+        }
         startEditing(activeCell.rowId, activeCell.colKey);
+        return;
+      }
+      if (e.code === "Space" && !isCtrl && !e.shiftKey && !e.altKey) {
+        // Airtable-style: Space expands the row into its card; on a picker
+        // cell it opens the picker instead.
+        e.preventDefault();
+        const col = columns.find((c) => c.key === activeCell.colKey);
+        if (col && canEdit && (isOptionColumn(col.type) || col.type === "date")) {
+          setOpenRequest((n) => n + 1);
+          return;
+        }
+        setExpandedRowId(activeCell.rowId);
+        return;
+      }
+      if (e.key === "PageUp" || e.key === "PageDown") {
+        e.preventDefault();
+        movePage(e.key === "PageUp" ? "up" : "down", e.shiftKey);
         return;
       }
       if (arrowCode || e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
         const dir = arrowCode ?? (e.key === "ArrowUp" ? "up" : e.key === "ArrowDown" ? "down" : e.key === "ArrowLeft" ? "left" : "right");
-        moveSelection(dir, e.shiftKey);
+        if (isCtrl) jumpToEdge(dir, e.shiftKey);
+        else moveSelection(dir, e.shiftKey);
         return;
       }
       if (e.key === "Home") {
         e.preventDefault();
         const first = displayColumns[0]?.key;
         if (first) {
-          const next = { rowId: activeCell.rowId, colKey: first };
+          const rowId = isCtrl ? rowIds[0] : activeCell.rowId;
+          const next = { rowId, colKey: first };
           setActiveCell(next);
           if (!e.shiftKey) setRangeAnchor(next);
+          revealCell(next.rowId, next.colKey, rowIds.indexOf(rowId));
         }
         return;
       }
@@ -1346,9 +1693,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         e.preventDefault();
         const last = displayColumns[displayColumns.length - 1]?.key;
         if (last) {
-          const next = { rowId: activeCell.rowId, colKey: last };
+          const rowId = isCtrl ? rowIds[rowIds.length - 1] : activeCell.rowId;
+          const next = { rowId, colKey: last };
           setActiveCell(next);
           if (!e.shiftKey) setRangeAnchor(next);
+          revealCell(next.rowId, next.colKey, rowIds.indexOf(rowId));
         }
         return;
       }
@@ -1452,6 +1801,20 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     void updatePageColumns(workspaceId, page.id, newColumns);
   }
 
+  function handleAutoSizeAll() {
+    const next = columns.map((col) => {
+      if (col.hidden) return col;
+      let maxPx = col.label.length * 9 + 64;
+      for (const row of rows) {
+        const text = cellDisplayText(row, col);
+        maxPx = Math.max(maxPx, Math.min(420, 28 + text.length * 7.4));
+      }
+      return { ...col, width: clampColumnWidth(col.type, maxPx) };
+    });
+    void updatePageColumns(workspaceId, page.id, next);
+    toast.success("Ширина столбцов подогнана");
+  }
+
   function markRowDone(rowId: string) {
     const statusCol = displayColumns.find((c) => c.type === "status");
     if (!statusCol || !canEdit) return;
@@ -1466,8 +1829,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     writeSavedTableViews(tableViewKey, next);
   }
 
-  function handleSaveTableView() {
-    const name = window.prompt("Название вида");
+  async function handleSaveTableView() {
+    const name = await promptDialog({
+      title: "Сохранить вид",
+      description: "Запомнит текущие фильтры, группировку и сортировку этого стола.",
+      label: "Название вида",
+      placeholder: "Например, Только в работе",
+      maxLength: 40,
+      confirmLabel: "Сохранить",
+    });
     if (name == null) return;
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -1512,14 +1882,85 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     });
   }
 
+  function handleSortDirection(colKey: string, direction: "asc" | "desc" | null) {
+    const next: SortState = direction ? { colKey, direction } : { colKey: null, direction: null };
+    setSortState(next);
+    localStorage.setItem(sortStorageKey(tableViewKey), JSON.stringify(next));
+  }
+
+  function clearColumnFilter(colKey: string) {
+    setFilters((prev) => {
+      const next = { ...prev };
+      delete next[colKey];
+      return next;
+    });
+    setPageIndex(0);
+  }
+
+  // Filters that can HIDE a freshly added row (sort/group only reorder).
+  const hasNarrowingFilters =
+    Boolean(searchQuery.trim()) ||
+    Boolean(statusFilter) ||
+    Boolean(dateFilter) ||
+    mineOnly ||
+    Object.values(filters).some((set) => set.size > 0);
+
+  const hasActiveFilters =
+    Boolean(searchQuery.trim()) ||
+    Boolean(statusFilter) ||
+    Boolean(dateFilter) ||
+    mineOnly ||
+    Boolean(groupByKey) ||
+    Boolean(sortState.colKey) ||
+    Object.values(filters).some((set) => set.size > 0);
+
+  function resetAllFilters() {
+    setSearchQuery("");
+    setStatusFilter(null);
+    setDateFilter(null);
+    setMineOnly(false);
+    setGroupByKey(null);
+    setFilters({});
+    setSortState({ colKey: null, direction: null });
+    localStorage.removeItem(sortStorageKey(tableViewKey));
+    setPageIndex(0);
+    setFilterPopover(null);
+  }
+
+  // Filter by value keyed on the STORED cell value (ids for option columns),
+  // but shown/compared by display label — see filterValueEntries below.
+  function filterOnlyCellValue(rowId: string, colKey: string, mode: "only" | "exclude") {
+    const col = displayColumns.find((c) => c.key === colKey);
+    const row = rows.find((r) => r.id === rowId);
+    if (!col || !row) return;
+    const target = String(row.cells[colKey] ?? "");
+    const allValues = new Set(rows.map((r) => String(r.cells[colKey] ?? "")));
+    setFilters((prev) => {
+      const next = { ...prev };
+      if (mode === "only") {
+        const excluded = new Set<string>();
+        allValues.forEach((v) => {
+          if (v !== target) excluded.add(v);
+        });
+        next[colKey] = excluded;
+      } else {
+        const set = new Set(next[colKey] ?? []);
+        set.add(target);
+        next[colKey] = set;
+      }
+      return next;
+    });
+    setPageIndex(0);
+  }
+
   function handleFilterClick(colKey: string, e: React.MouseEvent) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     // FilterPopover renders as a fixed-position, fixed-width (224px) panel —
     // anchoring it to the button's raw left/bottom with no clamping sent it
     // straight off the right/bottom edge for any column near there (which is
     // most of them, on a wide table). Clamp into the viewport with a margin.
-    const POPOVER_WIDTH = 224;
-    const POPOVER_MAX_HEIGHT = 260;
+    const POPOVER_WIDTH = 256;
+    const POPOVER_MAX_HEIGHT = 380;
     const margin = 8;
     const x = Math.min(Math.max(margin, rect.left), window.innerWidth - POPOVER_WIDTH - margin);
     const y =
@@ -1731,8 +2172,116 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     });
   }
 
+  /** Generic bulk write for any option column (Ответственный / custom field). */
+  function handleBulkOptionValue(colKey: string, value: string) {
+    const col = displayColumns.find((c) => c.key === colKey);
+    if (!col || !canEdit) return;
+    const changes: { rowId: string; oldValue: string }[] = [];
+    selectedRowIds.forEach((id) => {
+      const row = rows.find((r) => r.id === id);
+      if (!row) return;
+      const oldValue = String(row.cells[colKey] ?? "");
+      if (oldValue === value) return;
+      changes.push({ rowId: id, oldValue });
+      persistCellEdit(id, colKey, oldValue, value);
+    });
+    if (changes.length === 0) return;
+    pushCommand({
+      undo: async () => {
+        await Promise.all(changes.map((c) => persistCellEdit(c.rowId, colKey, value, c.oldValue)));
+      },
+      redo: async () => {
+        await Promise.all(changes.map((c) => persistCellEdit(c.rowId, colKey, c.oldValue, value)));
+      },
+    });
+    toast.success(`Обновлено строк: ${changes.length}`);
+  }
+
+  function handleBulkMarkDone() {
+    const statusCol = displayColumns.find((c) => c.type === "status");
+    if (!statusCol) return;
+    const done = findDoneStatusOption(statusCol.statusOptions ?? []);
+    if (done) handleBulkStatus(done.value);
+  }
+
+  function selectedRowsInViewOrder(): PageRow[] {
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    return rowIds.map((id) => byId.get(id)).filter((r): r is PageRow => Boolean(r && selectedRowIds.has(r.id)));
+  }
+
+  function handleCopySelectedRows() {
+    const selected = selectedRowsInViewOrder();
+    if (selected.length === 0) return;
+    const matrix = selected.map((row) => displayColumns.map((c) => cellDisplayText(row, c)));
+    clipboardRef.current = { matrix };
+    navigator.clipboard?.writeText(matrix.map((l) => l.join("\t")).join("\n")).catch(() => {});
+    toast.success(`Скопировано строк: ${selected.length}`);
+  }
+
+  async function handleDuplicateSelected() {
+    if (!canEdit) return;
+    const selected = selectedRowsInViewOrder();
+    if (selected.length === 0) return;
+    const copies: PageRow[] = [];
+    for (let i = 0; i < selected.length; i++) {
+      const copy = await duplicateRowService(workspaceId, page.id, selected[i], rows.length + i);
+      if (copy) copies.push(copy);
+    }
+    const liveIds = copies.map((c) => c.id);
+    pushCommand({
+      undo: async () => {
+        await Promise.all(liveIds.map((id) => deleteRowService(workspaceId, page.id, id)));
+      },
+      redo: async () => {
+        const restored = await Promise.all(selected.map((r, i) => duplicateRowService(workspaceId, page.id, r, rows.length + i)));
+        restored.forEach((r, i) => {
+          if (r) liveIds[i] = r.id;
+        });
+      },
+    });
+    setSelectedRowIds(new Set());
+    toast.success(`Продублировано строк: ${copies.length}`);
+  }
+
+  function handleExportSelectedCsv() {
+    const selected = selectedRowsInViewOrder();
+    if (selected.length === 0) return;
+    const header = displayColumns.map((c) => c.label);
+    const lines = selected.map((row) =>
+      displayColumns.map((c) => {
+        if (c.type === "currency") {
+          const raw = String(row.cells[c.key] ?? "");
+          return raw ? formatCurrency(Number(raw)) : "";
+        }
+        return cellDisplayText(row, c);
+      })
+    );
+    downloadCsv(`${page.name} — выбранные.csv`, header, lines);
+  }
+
+  function selectAllFilteredRows() {
+    setSelectedRowIds(new Set(processedRows.map((r) => r.id)));
+  }
+
+  function handleCopyTable() {
+    const header = displayColumns.map((c) => c.label);
+    const lines = processedRows.map((row) => displayColumns.map((c) => cellDisplayText(row, c)));
+    const text = [header, ...lines].map((l) => l.join("\t")).join("\n");
+    navigator.clipboard?.writeText(text).then(
+      () => toast.success(`Таблица скопирована (${processedRows.length} стр.) — вставьте в Excel или Google Sheets`),
+      () => toast.error("Не удалось скопировать")
+    );
+  }
+
   async function handleDeleteSelected() {
-    if (!window.confirm(`Удалить выбранные строки (${selectedRowIds.size})?`)) return;
+    const n = selectedRowIds.size;
+    if (n === 0) return;
+    const ok = await confirmDialog({
+      title: `Удалить ${n} ${n === 1 ? "строку" : n < 5 ? "строки" : "строк"}?`,
+      description: "Сразу после удаления действие можно отменить через Ctrl+Z.",
+      destructive: true,
+    });
+    if (!ok) return;
     const deletedRows = rows.filter((r) => selectedRowIds.has(r.id));
     // liveIds[i] tracks whichever id currently exists for deletedRows[i] —
     // recreating a row on undo always gets a fresh Firestore-generated id,
@@ -1760,9 +2309,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const lines = processedRows.map((row) =>
       displayColumns.map((c) => {
         const raw = String(row.cells[c.key] ?? "");
-        if (isOptionColumn(c.type)) return c.statusOptions?.find((o) => o.value === raw)?.label ?? "";
         if (c.type === "currency" && raw) return formatCurrency(Number(raw));
-        return raw;
+        return cellDisplayText(row, c);
       })
     );
     downloadCsv(`${page.name}.csv`, header, lines);
@@ -1771,10 +2319,44 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   async function handleRenameColumn(colKey: string) {
     const current = columns.find((c) => c.key === colKey);
     if (!current) return;
-    const newLabel = window.prompt("Новое название столбца", current.label);
+    const newLabel = await promptDialog({ title: "Переименовать столбец", label: "Название", defaultValue: current.label, maxLength: 60 });
     if (!newLabel || !newLabel.trim() || newLabel.trim() === current.label) return;
     await renameColumnService(workspaceId, page.id, columns, colKey, newLabel.trim());
     toast.success("Столбец переименован");
+  }
+
+  async function handleRenameColumnInline(colKey: string, label: string) {
+    const current = columns.find((c) => c.key === colKey);
+    const next = label.trim();
+    if (!current || !next || next === current.label) return;
+    try {
+      await renameColumnService(workspaceId, page.id, columns, colKey, next);
+      toast.success("Столбец переименован");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось переименовать");
+    }
+  }
+
+  function handleInsertColumnAfter(colKey: string) {
+    insertAfterKeyRef.current = colKey;
+    setAddColumnOpen(true);
+  }
+
+  async function handleColumnCreated(created: (typeof columns)[number]) {
+    const afterKey = insertAfterKeyRef.current;
+    insertAfterKeyRef.current = null;
+    if (!afterKey) return;
+    const rest = columns.filter((c) => c.key !== created.key);
+    const idx = rest.findIndex((c) => c.key === afterKey);
+    if (idx < 0) return;
+    const next = [...rest];
+    next.splice(idx + 1, 0, created);
+    await updatePageColumns(workspaceId, page.id, next.map((c, i) => ({ ...c, order: i })));
+  }
+
+  function handleShowAllColumns() {
+    if (!columns.some((c) => c.hidden)) return;
+    void updatePageColumns(workspaceId, page.id, columns.map((c) => (c.hidden ? { ...c, hidden: false } : c)));
   }
 
   async function handleChangeColumnType(colKey: string, type: ColumnType, customFieldId?: string) {
@@ -1860,7 +2442,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   async function handleDeleteColumn(colKey: string) {
     const current = columns.find((c) => c.key === colKey);
     if (!current) return;
-    if (!window.confirm(`Удалить столбец «${current.label}»? Данные в нём будут скрыты.`)) return;
+    const ok = await confirmDialog({
+      title: `Удалить столбец «${current.label}»?`,
+      description: "Столбец исчезнет из таблицы. Значения в ячейках не стираются — вернуть столбец можно через Ctrl+Z сразу после удаления.",
+      destructive: true,
+    });
+    if (!ok) return;
     const originalIndex = columns.findIndex((c) => c.key === colKey);
     await deleteColumnService(workspaceId, page.id, columns, colKey);
     toast("Столбец удалён", { action: { label: "Отменить", onClick: () => undoLastCommand() } });
@@ -1880,6 +2467,33 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       redo: () => deleteColumnService(workspaceId, page.id, columns, colKey),
     });
   }
+
+  const footerStatusColumn = columns.find((c) => c.type === "status") ?? null;
+
+  function aggregateKindFor(column: (typeof columns)[number]): AggregateKind {
+    return columnAggregates[column.key] ?? defaultAggregateFor(column.type);
+  }
+
+  function setAggregateKind(colKey: string, kind: AggregateKind) {
+    setColumnAggregates((prev) => {
+      const next = { ...prev, [colKey]: kind };
+      writeColumnAggregates(tableViewKey, next);
+      return next;
+    });
+  }
+
+  const footerAggregates = useMemo(() => {
+    const out: Record<string, ReturnType<typeof computeAggregate>> = {};
+    for (const column of displayColumns) {
+      const kind = columnAggregates[column.key] ?? defaultAggregateFor(column.type);
+      out[column.key] = computeAggregate(column, processedRows, kind, {
+        statusColumn: footerStatusColumn,
+        statusOptions: sharedStatusOptions,
+        isDoneLabel: isDoneStatusLabel,
+      });
+    }
+    return out;
+  }, [displayColumns, processedRows, columnAggregates, footerStatusColumn, sharedStatusOptions]);
 
   // Sticky footer totals: FILTERED/searched rows only. Currency and number
   // columns sum; dates are notes and are never summed or marked overdue.
@@ -1913,31 +2527,188 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     return { sum: tot.sum, done: tot.done ?? 0 };
   }, [columns, columnTotals]);
 
-  const selectionNumericSum = useMemo(() => {
+  const selectionStats = useMemo(() => {
     const bounds = getSelectionBounds();
     if (!bounds) return null;
+    if (bounds.rowEnd === bounds.rowStart && bounds.colEnd === bounds.colStart) return null;
+    const selRows = paginatedRows.slice(bounds.rowStart, bounds.rowEnd + 1);
+    const selCols = displayColumns.slice(bounds.colStart, bounds.colEnd + 1);
+    return summarizeSelection(selRows, selCols);
+  }, [getSelectionBounds, paginatedRows, displayColumns]);
+
+  // Money total per group for grouped views (shown on the group header).
+  const groupCurrencyCol = columns.find((c) => c.type === "currency" && !c.hidden) ?? null;
+  function groupSums(groupRows: PageRow[]): { sumText: string | null; doneText: string | null } {
+    if (!groupCurrencyCol) return { sumText: null, doneText: null };
     let sum = 0;
-    let count = 0;
-    for (let r = bounds.rowStart; r <= bounds.rowEnd; r++) {
-      const row = paginatedRows[r];
-      if (!row) continue;
-      for (let c = bounds.colStart; c <= bounds.colEnd; c++) {
-        const col = displayColumns[c];
-        if (!col || !isSummableColumn(col.type)) continue;
-        const n = Number(String(row.cells[col.key] ?? "").replace(/\s/g, "").replace(",", "."));
-        if (!Number.isFinite(n)) continue;
-        sum += n;
-        count += 1;
+    let done = 0;
+    for (const row of groupRows) {
+      const n = parseLooseNumber(String(row.cells[groupCurrencyCol.key] ?? ""));
+      if (n === null) continue;
+      sum += n;
+      if (footerStatusColumn) {
+        const rawStatus = String(row.cells[footerStatusColumn.key] ?? "");
+        const label = sharedStatusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
+        if (isDoneStatusLabel(label)) done += n;
       }
     }
-    return count > 1 ? sum : null;
-  }, [getSelectionBounds, paginatedRows, displayColumns]);
+    if (sum === 0 && done === 0) return { sumText: null, doneText: null };
+    return { sumText: formatCurrency(sum), doneText: footerStatusColumn && done > 0 ? formatCurrency(done) : null };
+  }
+
+  // Row card navigation follows the current view order.
+  const expandedRowIndex = expandedRowId ? processedRowIds.indexOf(expandedRowId) : -1;
+  function openRowAt(index: number) {
+    const id = processedRowIds[index];
+    if (!id) return;
+    setExpandedRowId(id);
+    const colKey = activeCell?.colKey ?? displayColumns[0]?.key;
+    if (colKey) {
+      setActiveCell({ rowId: id, colKey });
+      setRangeAnchor({ rowId: id, colKey });
+    }
+  }
+
+  const bulkOtherOptionColumns: BulkOptionColumn[] = displayColumns
+    .filter((c) => isOptionColumn(c.type) && c.type !== "status")
+    .map((c) => ({ column: c, options: c.statusOptions ?? [] }));
+
+  // Chips for everything that narrows or reorders the view.
+  const activeFilterChips: ActiveFilterChip[] = [];
+  if (searchQuery.trim()) {
+    activeFilterChips.push({
+      id: "search",
+      kind: "search",
+      label: `«${searchQuery.trim()}»`,
+      onRemove: () => setSearchQuery(""),
+      onClick: () => setFocusSearchToken((n) => n + 1),
+    });
+  }
+  if (statusFilter) {
+    const opt = kanbanStatusColumnForChips()?.statusOptions?.find((o) => o.value === statusFilter);
+    activeFilterChips.push({
+      id: "status",
+      kind: "status",
+      label: statusFilter === NOT_DONE_STATUS_FILTER ? "Не готово" : (opt?.label ?? statusFilter),
+      color: opt?.color,
+      onRemove: () => setStatusFilter(null),
+    });
+  }
+  if (dateFilter) {
+    const col = columns.find((c) => c.key === dateFilter.colKey);
+    activeFilterChips.push({
+      id: "date",
+      kind: "date",
+      label: `${col?.label ?? "Дата"}: ${DATE_PRESET_LABELS[dateFilter.preset]}`,
+      onRemove: () => setDateFilter(null),
+    });
+  }
+  if (mineOnly) {
+    activeFilterChips.push({ id: "mine", kind: "mine", label: "Только мои", onRemove: () => setMineOnly(false) });
+  }
+  for (const [colKey, excluded] of Object.entries(filters)) {
+    if (!excluded || excluded.size === 0) continue;
+    const col = columns.find((c) => c.key === colKey);
+    if (!col) continue;
+    const labels = Array.from(excluded).map((v) => {
+      if (isOptionColumn(col.type)) return getColumnOptions(col, activeWorkspace).find((o) => o.value === v)?.label ?? v;
+      return v || "(пусто)";
+    });
+    activeFilterChips.push({
+      id: `col:${colKey}`,
+      kind: "column",
+      label: `${col.label}: скрыто ${excluded.size}`,
+      detail: `Скрыто: ${labels.join(", ")}`,
+      onRemove: () => clearColumnFilter(colKey),
+    });
+  }
+  if (groupByKey) {
+    const col = columns.find((c) => c.key === groupByKey);
+    activeFilterChips.push({
+      id: "group",
+      kind: "group",
+      label: `Группы: ${col?.label ?? groupByKey}`,
+      onRemove: () => setGroupByKey(null),
+    });
+  }
+  if (sortState.colKey && sortState.direction) {
+    const col = columns.find((c) => c.key === sortState.colKey);
+    activeFilterChips.push({
+      id: "sort",
+      kind: "sort",
+      label: `${col?.label ?? sortState.colKey} ${sortState.direction === "asc" ? "↑" : "↓"}`,
+      detail: sortState.direction,
+      onRemove: () => handleSortDirection(sortState.colKey!, null),
+      onClick: () => handleSortDirection(sortState.colKey!, sortState.direction === "asc" ? "desc" : "asc"),
+    });
+  }
+
+  function kanbanStatusColumnForChips() {
+    return displayColumns.find((c) => c.type === "status") ?? null;
+  }
 
   const virtualItems = shouldVirtualize ? rowVirtualizer.getVirtualItems() : [];
   const totalSize = shouldVirtualize ? rowVirtualizer.getTotalSize() : 0;
   const paddingTop = shouldVirtualize && virtualItems.length > 0 ? virtualItems[0].start : 0;
   const paddingBottom =
     shouldVirtualize && virtualItems.length > 0 ? totalSize - virtualItems[virtualItems.length - 1].end : 0;
+
+  // Status colour per row for the gutter rail.
+  const railStatusCol = columns.find((c) => c.type === "status" && !c.hidden) ?? null;
+  const railColorByValue = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const o of sharedStatusOptions) map.set(o.value, o.color);
+    return map;
+  }, [sharedStatusOptions]);
+  function rowAccentColor(row: PageRow): string | undefined {
+    if (!railStatusCol) return undefined;
+    const raw = String(row.cells[railStatusCol.key] ?? "");
+    return raw ? railColorByValue.get(raw) : undefined;
+  }
+
+  // Duplicate phones/emails across the whole desk (not just the filtered
+  // view): a repeated contact in a CRM usually means a double-entered order.
+  const duplicateContactKeys = useMemo(() => {
+    const contactCols = displayColumns.filter((c) => c.type === "phone" || c.type === "email");
+    const result = new Map<string, string[]>();
+    for (const col of contactCols) {
+      const seen = new Map<string, number>();
+      for (const row of rows) {
+        const norm = normalizeContact(String(row.cells[col.key] ?? ""), col.type);
+        if (!norm) continue;
+        seen.set(norm, (seen.get(norm) ?? 0) + 1);
+      }
+      for (const row of rows) {
+        const norm = normalizeContact(String(row.cells[col.key] ?? ""), col.type);
+        if (norm && (seen.get(norm) ?? 0) > 1) {
+          const list = result.get(row.id) ?? [];
+          list.push(col.key);
+          result.set(row.id, list);
+        }
+      }
+    }
+    return result;
+  }, [rows, displayColumns]);
+
+  function handleFindDuplicates(rowId: string, colKey: string) {
+    const col = displayColumns.find((c) => c.key === colKey);
+    const row = rows.find((r) => r.id === rowId);
+    if (!col || !row) return;
+    const target = normalizeContact(String(row.cells[colKey] ?? ""), col.type);
+    if (!target) return;
+    const excluded = new Set<string>();
+    for (const r of rows) {
+      const raw = String(r.cells[colKey] ?? "");
+      if (normalizeContact(raw, col.type) !== target) excluded.add(raw);
+    }
+    setFilters((prev) => ({ ...prev, [colKey]: excluded }));
+    setPageIndex(0);
+  }
+
+  // The fill handle sits on the bottom-right cell of the selection.
+  const selBoundsForHandle = getSelectionBounds();
+  const fillHandleRowId = selBoundsForHandle && !editingCell && viewMode === "table" ? rowIds[selBoundsForHandle.rowEnd] : null;
+  const fillHandleColKey = selBoundsForHandle ? displayColumns[selBoundsForHandle.colEnd]?.key ?? null : null;
 
   function renderRow(row: PageRow, index: number) {
     const effectiveRowHeight =
@@ -2002,6 +2773,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onInsertRowBelow={(id) => void insertRowRelative(id, "below")}
         onCopyRow={(id) => handleCopyRow(id)}
         expandedColKey={expandedTextCell?.rowId === row.id ? expandedTextCell.colKey : null}
+        searchQuery={searchQuery}
+        openRequest={openRequest}
+        accentColor={rowAccentColor(row)}
+        fillHandleColKey={fillHandleRowId === row.id ? fillHandleColKey : null}
+        onFillStart={canEdit ? handleFillStart : undefined}
+        fillColKeys={fillPreview && index >= fillPreview.rowStart && index <= fillPreview.rowEnd ? fillPreview.colKeys : null}
+        duplicateColKeys={duplicateContactKeys.get(row.id) ?? null}
+        onFindDuplicates={handleFindDuplicates}
       />
     );
   }
@@ -2047,19 +2826,32 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           setSearchQuery(v);
           setPageIndex(0);
         }}
+        focusSearchToken={focusSearchToken}
         groupByKey={groupByKey}
-        onGroupByChange={setGroupByKey}
+        onGroupByChange={(key) => {
+          setGroupByKey(key);
+          setCollapsedGroups(new Set());
+        }}
+        onCollapseAllGroups={() => setCollapsedGroups(new Set(groups?.entries.map(([label]) => label) ?? []))}
+        onExpandAllGroups={() => setCollapsedGroups(new Set())}
         density={density}
         onDensityChange={handleDensityChange}
         onAddRow={handleAddRow}
         onQuickOrder={canEdit ? () => { setQuickOrderStatus(null); setQuickOrderOpen(true); } : undefined}
         onExportCsv={handleExportCsv}
+        onCopyTable={handleCopyTable}
         canEdit={canEdit}
         canEditStructure={canEditStructure}
-        onAddColumn={() => setAddColumnOpen(true)}
+        onAddColumn={() => {
+          insertAfterKeyRef.current = null;
+          setAddColumnOpen(true);
+        }}
         onOpenSchema={() => setSchemaOpen(true)}
         onManageStatuses={() => void handleManageStatuses()}
         canManageStatuses={canManageVariants}
+        onShowColumn={(key) => void handleToggleHiddenColumn(key)}
+        onShowAllColumns={handleShowAllColumns}
+        onAutoSizeAll={canEditStructure ? handleAutoSizeAll : undefined}
         selectedCount={selectedRowIds.size}
         onDeleteSelected={handleDeleteSelected}
         hasStatusColumn={Boolean(kanbanStatusColumn)}
@@ -2069,13 +2861,42 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           setStatusFilter(v);
           setPageIndex(0);
         }}
+        statusCounts={statusCounts}
         viewMode={viewMode}
         onViewModeChange={handleViewModeChange}
         savedViews={savedViews}
-        onSaveView={handleSaveTableView}
+        onSaveView={() => void handleSaveTableView()}
         onApplyView={handleApplyTableView}
         onDeleteView={handleDeleteTableView}
+        hasActiveFilters={hasActiveFilters}
+        onResetFilters={resetAllFilters}
+        pageSize={pageSize}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPageIndex(0);
+        }}
+        visibleCount={processedRows.length}
+        totalCount={rows.length}
+        dateFilter={dateFilter}
+        onDateFilterChange={(next) => {
+          setDateFilter(next);
+          setPageIndex(0);
+        }}
+        canFilterMine={myResponsibleValues.length > 0 && displayColumns.some((c) => c.type === "responsible")}
+        mineOnly={mineOnly}
+        onMineOnlyChange={(next) => {
+          setMineOnly(next);
+          setPageIndex(0);
+        }}
       />
+      {viewMode === "table" && (
+        <ActiveFiltersBar
+          chips={activeFilterChips}
+          visibleCount={processedRows.length}
+          totalCount={rows.length}
+          onClearAll={resetAllFilters}
+        />
+      )}
 
       {viewMode === "kanban" && kanbanStatusColumn ? (
         <KanbanView
@@ -2084,6 +2905,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           statusColumn={kanbanStatusColumn}
           canEdit={canEdit}
           onStatusChange={handleStatusChange}
+          onOpenRow={setExpandedRowId}
           onAddOrder={
             canEdit
               ? (statusValue) => {
@@ -2137,10 +2959,20 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       column={column}
                       sortState={sortState}
                       onSort={handleSort}
+                      onSortDirection={handleSortDirection}
                       onFilterClick={handleFilterClick}
                       hasActiveFilter={(filters[column.key]?.size ?? 0) > 0}
+                      onClearFilter={clearColumnFilter}
                       onResizeStart={handleColumnResizeStart}
                       onAutoSize={handleAutoSizeColumn}
+                      isGrouped={groupByKey === column.key}
+                      onGroupBy={(key) => {
+                        setGroupByKey(key);
+                        setCollapsedGroups(new Set());
+                      }}
+                      onRenameCommit={canEditStructure ? handleRenameColumnInline : undefined}
+                      onInsertColumnAfter={canEditStructure ? handleInsertColumnAfter : undefined}
+                      hint={footerAggregates[column.key]?.title}
                       isPinned={pinnedKeys.includes(column.key)}
                       onTogglePin={togglePin}
                       stickyLeft={
@@ -2182,14 +3014,17 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                   {groups ? (
                     groups.entries.map(([label, groupRows]) => {
                       const collapsed = collapsedGroups.has(label);
+                      const sums = groupSums(groupRows);
                       return (
                         <Fragment key={label}>
                           <GroupHeaderRow
                             label={label}
                             count={groupRows.length}
-                            colSpan={columns.length}
+                            colSpan={displayColumns.length}
                             collapsed={collapsed}
                             color={groups.col?.statusOptions?.find((o) => o.label === label)?.color}
+                            sumText={sums.sumText}
+                            doneText={sums.doneText}
                             onToggle={() =>
                               setCollapsedGroups((prev) => {
                                 const next = new Set(prev);
@@ -2207,7 +3042,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                     <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
                       {paddingTop > 0 && (
                         <tr>
-                          <td colSpan={columns.length + 1} style={{ height: paddingTop }} />
+                          <td colSpan={displayColumns.length + 1} style={{ height: paddingTop }} />
                         </tr>
                       )}
                       {(shouldVirtualize ? virtualItems.map((virtualRow) => virtualRow.index) : paginatedRows.map((_, i) => i)).map((index) => {
@@ -2217,18 +3052,33 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       })}
                       {paddingBottom > 0 && (
                         <tr>
-                          <td colSpan={columns.length + 1} style={{ height: paddingBottom }} />
+                          <td colSpan={displayColumns.length + 1} style={{ height: paddingBottom }} />
+                        </tr>
+                      )}
+                      {canEdit && processedRows.length > 0 && !hasNarrowingFilters && (!Number.isFinite(pageSize) || pageIndex >= Math.ceil(processedRows.length / pageSize) - 1) && (
+                        <tr className="table-add-row">
+                          <td colSpan={displayColumns.length + 1} className="p-0">
+                            <button
+                              type="button"
+                              onClick={() => void handleAddRow()}
+                              className="table-add-row-button sticky left-0 flex h-9 items-center gap-2 px-3 text-[12px] text-muted-foreground"
+                              title="Добавить строку (Ctrl+Enter)"
+                            >
+                              <Plus className="h-3.5 w-3.5" /> Новая строка
+                            </button>
+                          </td>
                         </tr>
                       )}
                     </SortableContext>
                   )}
                   {processedRows.length === 0 && (
                     <tr>
-                      <td colSpan={columns.length + 1}>
+                      <td colSpan={displayColumns.length + 1}>
                         {rows.length === 0 ? (
                           <EmptyState
                             className="py-12"
                             title="Пока пусто"
+                            description={canEdit ? "Добавьте первую строку — или вставьте данные из Excel через Ctrl+V." : undefined}
                             action={
                               canEdit ? (
                                 <Button size="sm" className="gap-1.5" onClick={handleAddRow}>
@@ -2238,14 +3088,56 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                             }
                           />
                         ) : (
-                          <EmptyState className="py-12" title="Ничего не найдено" />
+                          <EmptyState
+                            className="py-12"
+                            title="Ничего не найдено"
+                            description={`В столе ${rows.length} стр., но под текущие фильтры не подходит ни одна.`}
+                            action={
+                              <Button variant="outline" size="sm" className="gap-1.5" onClick={resetAllFilters}>
+                                <FilterX className="h-3.5 w-3.5" /> Сбросить фильтры
+                              </Button>
+                            }
+                          />
                         )}
                       </td>
                     </tr>
                   )}
                 </tbody>
               </ContextMenuTrigger>
-              <ContextMenuContent>
+              <ContextMenuContent className="w-64">
+                {selectedRowIds.size > 1 && (
+                  <>
+                    <ContextMenuItem onClick={handleCopySelectedRows}>
+                      <Copy className="h-3.5 w-3.5" /> Копировать выбранные ({selectedRowIds.size})
+                    </ContextMenuItem>
+                    <ContextMenuItem onClick={() => void handleDuplicateSelected()} disabled={!canEdit}>
+                      <CopyPlus className="h-3.5 w-3.5" /> Дублировать выбранные
+                    </ContextMenuItem>
+                    {kanbanStatusColumn && (
+                      <ContextMenuItem onClick={handleBulkMarkDone} disabled={!canEdit}>
+                        <CheckCheck className="h-3.5 w-3.5" /> Выбранные → «Готово»
+                      </ContextMenuItem>
+                    )}
+                    <ContextMenuItem onClick={() => void handleDeleteSelected()} disabled={!canEdit} className="text-destructive focus:text-destructive">
+                      <Trash2 className="h-3.5 w-3.5" /> Удалить выбранные ({selectedRowIds.size})
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                  </>
+                )}
+                <ContextMenuItem onClick={() => setExpandedRowId(contextRowIdRef.current ?? activeCell?.rowId ?? null)}>
+                  <Maximize2 className="h-3.5 w-3.5" /> Открыть карточку <ContextMenuShortcut>Space</ContextMenuShortcut>
+                </ContextMenuItem>
+                {kanbanStatusColumn && canEdit && (
+                  <ContextMenuItem
+                    onClick={() => {
+                      const id = contextRowIdRef.current ?? activeCell?.rowId;
+                      if (id) markRowDone(id);
+                    }}
+                  >
+                    <CheckCheck className="h-3.5 w-3.5" /> Отметить «Готово»
+                  </ContextMenuItem>
+                )}
+                <ContextMenuSeparator />
                 <ContextMenuItem onClick={handleCopy}>
                   Копировать <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
                 </ContextMenuItem>
@@ -2253,8 +3145,19 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                   Вставить <ContextMenuShortcut>Ctrl+V</ContextMenuShortcut>
                 </ContextMenuItem>
                 <ContextMenuItem onClick={() => handleCopyRow()}>
-                  Копировать строку
+                  Копировать строку <ContextMenuShortcut>Ctrl+Alt+C</ContextMenuShortcut>
                 </ContextMenuItem>
+                {activeCell && (
+                  <>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem onClick={() => filterOnlyCellValue(activeCell.rowId, activeCell.colKey, "only")}>
+                      <Filter className="h-3.5 w-3.5" /> Показать только с таким значением
+                    </ContextMenuItem>
+                    <ContextMenuItem onClick={() => filterOnlyCellValue(activeCell.rowId, activeCell.colKey, "exclude")}>
+                      <FilterX className="h-3.5 w-3.5" /> Скрыть строки с таким значением
+                    </ContextMenuItem>
+                  </>
+                )}
                 <ContextMenuSeparator />
                 <ContextMenuItem onClick={handleDuplicateRow} disabled={!canEdit}>
                   Дублировать строку <ContextMenuShortcut>Ctrl+Shift+D</ContextMenuShortcut>
@@ -2294,44 +3197,30 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                   >
                     <div className="flex flex-col items-center gap-0.5">
                       <span>{processedRows.length}</span>
-                      {selectionNumericSum != null && (
-                        <span className="text-[10px] text-primary" title="Сумма выделенных чисел">
-                          Σ {formatNumber(selectionNumericSum)}
+                      {selectionStats && selectionStats.count > 0 && (
+                        <span className="text-[10px] text-primary" title={`Выделено ${selectionStats.cells} яч. · сумма ${formatNumber(selectionStats.sum)} · среднее ${formatNumber(Math.round(selectionStats.avg * 100) / 100)}`}>
+                          Σ {formatNumber(selectionStats.sum)}
                         </span>
                       )}
                     </div>
                   </td>
                   {displayColumns.map((column) => {
-                    const tot = columnTotals[column.key];
                     const stickyLeft = stickyKeys.includes(column.key)
                       ? gutterWidth +
                         pinnedOrder.slice(0, pinnedOrder.findIndex((c) => c.key === column.key)).reduce((sum, c) => sum + c.width, 0)
                       : undefined;
                     return (
-                      <td
+                      <FooterAggregateCell
                         key={`total-${column.id}`}
-                        className={`overflow-visible whitespace-normal border-r border-border/35 px-2 py-2 text-right text-sm leading-tight tabular-nums ${
-                          stickyLeft !== undefined ? "table-sticky-col sticky z-[25] bg-background" : "bg-background"
-                        } ${pinnedOrder.length && column.key === pinnedOrder[pinnedOrder.length - 1].key ? "table-sticky-edge" : ""}`}
-                        style={{
-                          width: column.width,
-                          minWidth: column.width,
-                          left: stickyLeft,
-                        }}
-                      >
-                        {column.type === "date" ? null : tot ? (
-                          <div className="flex min-w-0 flex-col items-end">
-                            <span
-                              className="block max-w-full truncate text-[13px] font-semibold tabular-nums"
-                              title={column.type === "currency" ? formatCurrency(tot.sum) : formatNumber(tot.sum)}
-                            >
-                              {column.type === "currency" ? formatCurrency(tot.sum) : formatNumber(tot.sum)}
-                            </span>
-                          </div>
-                        ) : column.key === displayColumns[0]?.key ? (
-                          <span className="block text-left text-[12px] text-muted-foreground">Итого</span>
-                        ) : null}
-                      </td>
+                        column={column}
+                        kind={aggregateKindFor(column)}
+                        result={footerAggregates[column.key] ?? null}
+                        choices={aggregateKindsForColumn(column.type, Boolean(footerStatusColumn))}
+                        onChange={(kind) => setAggregateKind(column.key, kind)}
+                        stickyLeft={stickyLeft}
+                        isLastSticky={pinnedOrder.length > 0 && column.key === pinnedOrder[pinnedOrder.length - 1].key}
+                        isFirst={column.key === displayColumns[0]?.key}
+                      />
                     );
                   })}
                 </tr>
@@ -2339,36 +3228,69 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
             )}
           </table>
 
-          {filterPopover && (
-            <FilterPopover
-              x={filterPopover.x}
-              y={filterPopover.y}
-              values={Array.from(
-                new Set(
-                  rows.map((r) => {
-                    const col = displayColumns.find((c) => c.key === filterPopover.colKey);
-                    const raw = String(r.cells[filterPopover.colKey] ?? "");
-                    return col && isOptionColumn(col.type)
-                      ? col.statusOptions?.find((o) => o.value === raw)?.label ?? raw
-                      : raw;
-                  })
-                )
-              ).sort((a, b) => a.localeCompare(b, "ru"))}
-              excluded={filters[filterPopover.colKey] ?? new Set()}
-              onToggleValue={(value) =>
-                setFilters((prev) => {
-                  const next = { ...prev };
-                  const set = new Set(next[filterPopover.colKey] ?? []);
-                  if (set.has(value)) set.delete(value);
-                  else set.add(value);
-                  next[filterPopover.colKey] = set;
-                  return next;
-                })
-              }
-              onSelectAll={() => setFilters((prev) => ({ ...prev, [filterPopover.colKey]: new Set() }))}
-              onClose={() => setFilterPopover(null)}
-            />
-          )}
+          {filterPopover && (() => {
+            const col = displayColumns.find((c) => c.key === filterPopover.colKey);
+            const counts = new Map<string, number>();
+            for (const r of rows) {
+              const raw = String(r.cells[filterPopover.colKey] ?? "");
+              counts.set(raw, (counts.get(raw) ?? 0) + 1);
+            }
+            const entries: FilterValueEntry[] = Array.from(counts.entries()).map(([raw, count]) => {
+              const opt = col && isOptionColumn(col.type) ? col.statusOptions?.find((o) => o.value === raw) : undefined;
+              const label = col ? (opt?.label ?? (col.type === "date" && raw ? formatOrderDate(Number(raw)) : raw)) : raw;
+              return { value: raw, label, count, color: opt?.color };
+            });
+            if (col && isOptionColumn(col.type)) {
+              const order = new Map((col.statusOptions ?? []).map((o, i) => [o.value, i]));
+              entries.sort((a, b) => (order.get(a.value) ?? 999) - (order.get(b.value) ?? 999));
+            } else if (col && (col.type === "number" || col.type === "currency" || col.type === "date")) {
+              entries.sort((a, b) => (parseLooseNumber(a.value) ?? 0) - (parseLooseNumber(b.value) ?? 0));
+            } else {
+              entries.sort((a, b) => a.label.localeCompare(b.label, "ru"));
+            }
+            const allRaw = entries.map((e) => e.value);
+            const key = filterPopover.colKey;
+            return (
+              <FilterPopover
+                x={filterPopover.x}
+                y={filterPopover.y}
+                columnLabel={col?.label ?? ""}
+                values={entries}
+                excluded={filters[key] ?? new Set()}
+                onToggleValue={(value) => {
+                  setFilters((prev) => {
+                    const next = { ...prev };
+                    const set = new Set(next[key] ?? []);
+                    if (set.has(value)) set.delete(value);
+                    else set.add(value);
+                    next[key] = set;
+                    return next;
+                  });
+                  setPageIndex(0);
+                }}
+                onSelectAll={() => {
+                  setFilters((prev) => ({ ...prev, [key]: new Set() }));
+                  setPageIndex(0);
+                }}
+                onSelectNone={() => {
+                  setFilters((prev) => ({ ...prev, [key]: new Set(allRaw) }));
+                  setPageIndex(0);
+                }}
+                onInvert={() => {
+                  setFilters((prev) => {
+                    const current = prev[key] ?? new Set<string>();
+                    return { ...prev, [key]: new Set(allRaw.filter((v) => !current.has(v))) };
+                  });
+                  setPageIndex(0);
+                }}
+                onOnlyValue={(value) => {
+                  setFilters((prev) => ({ ...prev, [key]: new Set(allRaw.filter((v) => v !== value)) }));
+                  setPageIndex(0);
+                }}
+                onClose={() => setFilterPopover(null)}
+              />
+            );
+          })()}
         </div>
         {hFade.left && (
           <div className="pointer-events-none absolute inset-y-0 left-0 z-40 w-7 bg-gradient-to-r from-background to-transparent" aria-hidden />
@@ -2425,6 +3347,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         pageId={page.id}
         existingColumns={columns}
         createColumn={addColumnService}
+        onCreated={(col) => void handleColumnCreated(col)}
       />
 
       <Sheet open={schemaOpen} onOpenChange={setSchemaOpen}>
@@ -2494,6 +3417,16 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onOpenChange={(o) => !o && setExpandedRowId(null)}
         columns={displayColumns}
         row={rows.find((r) => r.id === expandedRowId) ?? null}
+        canEdit={canEdit}
+        onCellChange={handleStatusChange}
+        onPrev={() => openRowAt(expandedRowIndex - 1)}
+        onNext={() => openRowAt(expandedRowIndex + 1)}
+        hasPrev={expandedRowIndex > 0}
+        hasNext={expandedRowIndex >= 0 && expandedRowIndex < processedRowIds.length - 1}
+        position={expandedRowIndex >= 0 ? { index: expandedRowIndex + 1, total: processedRowIds.length } : null}
+        onMarkDone={kanbanStatusColumn ? markRowDone : undefined}
+        onDuplicate={(id) => void handleDuplicateRowById(id)}
+        onDelete={(id) => void handleDeleteRowById(id)}
       />
 
       <QuickOrderDialog
@@ -2508,11 +3441,19 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
       <BulkActionBar
         count={selectedRowIds.size}
+        total={processedRows.length}
         onDelete={handleDeleteSelected}
         onClear={() => setSelectedRowIds(new Set())}
+        onSelectAll={selectAllFilteredRows}
         canEdit={canEdit}
         statusOptions={kanbanStatusColumn?.statusOptions}
         onSetStatus={handleBulkStatus}
+        onMarkDone={kanbanStatusColumn ? handleBulkMarkDone : undefined}
+        otherOptionColumns={bulkOtherOptionColumns}
+        onSetOptionValue={handleBulkOptionValue}
+        onCopy={handleCopySelectedRows}
+        onDuplicate={() => void handleDuplicateSelected()}
+        onExportCsv={handleExportSelectedCsv}
       />
     </div>
     </LayoutGroup>

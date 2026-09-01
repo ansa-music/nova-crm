@@ -45,6 +45,14 @@ export function DateCalendar({ value, onChange, onClear }: DateCalendarProps) {
     setView({ year: today.year, month: today.month });
   }
 
+  /** ±N calendar days from today, in Almaty wall-clock. */
+  function pickRelative(deltaDays: number) {
+    const base = almatyNoonMillis(today.year, today.month, today.day) + deltaDays * 24 * 60 * 60 * 1000;
+    const parts = ymdPartsInTimeZone(base, USER_TIMEZONE);
+    onChange(almatyNoonMillis(parts.year, parts.month, parts.day));
+    setView({ year: parts.year, month: parts.month });
+  }
+
   function shiftMonth(delta: number) {
     const next = month + delta;
     if (next < 0) setView({ year: year - 1, month: 11 });
@@ -58,9 +66,14 @@ export function DateCalendar({ value, onChange, onClear }: DateCalendarProps) {
         <Button variant="ghost" size="icon" aria-label="Предыдущий месяц" className="h-8 w-8" onClick={() => shiftMonth(-1)}>
           <ChevronLeft className="h-3.5 w-3.5" />
         </Button>
-        <p className="text-sm font-medium">
+        <button
+          type="button"
+          className="rounded px-2 py-0.5 text-sm font-medium hover:bg-accent"
+          onClick={() => setView({ year: today.year, month: today.month })}
+          title="К текущему месяцу"
+        >
           {MONTH_LABELS[month]} {year}
-        </p>
+        </button>
         <Button variant="ghost" size="icon" aria-label="Следующий месяц" className="h-8 w-8" onClick={() => shiftMonth(1)}>
           <ChevronRight className="h-3.5 w-3.5" />
         </Button>
@@ -94,9 +107,17 @@ export function DateCalendar({ value, onChange, onClear }: DateCalendarProps) {
       </div>
 
       <div className="mt-2 flex items-center justify-between border-t border-border pt-2">
-        <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={pickToday}>
-          Сегодня
-        </Button>
+        <div className="flex items-center gap-0.5">
+          <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => pickRelative(-1)} title="Вчера">
+            Вчера
+          </Button>
+          <Button variant="secondary" size="sm" className="h-8 px-2.5 text-xs" onClick={pickToday}>
+            Сегодня
+          </Button>
+          <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => pickRelative(1)} title="Завтра">
+            Завтра
+          </Button>
+        </div>
         {onClear && (
           <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={onClear}>
             Очистить

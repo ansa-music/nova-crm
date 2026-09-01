@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, CopyCheck, Mail, Phone } from "lucide-react";
 import { StatusBadge } from "@/components/table/StatusBadge";
+import { HighlightText } from "@/components/table/HighlightText";
 import { DiskLinkChip } from "@/components/table/DiskLinkChip";
 import { DateCalendar } from "@/components/table/DateCalendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -36,6 +37,29 @@ interface TableCellProps {
   trailing?: ReactNode;
   extrasHint?: string | null;
   coarsePointer?: boolean;
+  /** Current table search — matching substrings get highlighted. */
+  searchQuery?: string;
+  /** Row is a dropdown/calendar "picker" cell and the grid asked it to open (Enter/Space). */
+  openRequest?: number;
+  /** Show the drag-to-fill handle (bottom-right square of the selection). */
+  showFillHandle?: boolean;
+  onFillStart?: (colKey: string, e: React.PointerEvent) => void;
+  /** Cell is inside the live drag-to-fill preview range. */
+  isInFill?: boolean;
+  /** Same phone/email exists in another row — shows a small badge. */
+  isDuplicate?: boolean;
+  onFindDuplicates?: () => void;
+}
+
+/** Digits-only tel: href; keeps a leading + for international numbers. */
+function telHref(raw: string): string | null {
+  const digits = raw.replace(/[^\d+]/g, "");
+  if (digits.replace(/\D/g, "").length < 5) return null;
+  return `tel:${digits}`;
+}
+
+function looksLikeEmail(raw: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw.trim());
 }
 
 export function TableCell({
@@ -61,8 +85,16 @@ export function TableCell({
   trailing,
   extrasHint,
   coarsePointer,
+  searchQuery = "",
+  openRequest,
+  showFillHandle,
+  onFillStart,
+  isInFill,
+  isDuplicate,
+  onFindDuplicates,
 }: TableCellProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const tdRef = useRef<HTMLTableCellElement>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [hintOpen, setHintOpen] = useState(false);
@@ -85,8 +117,56 @@ export function TableCell({
     if (isEditing) setHintOpen(false);
   }, [isEditing]);
 
+  // Keyboard "open picker": DataTable bumps `openRequest` on Enter/Space for
+  // the active status/date cell. Radix Select opens on click when its
+  // pointerType ref is not "mouse" (it starts as "touch"), and the date
+  // popover trigger is a plain button, so a synthetic click does the job
+  // for both without reaching into Radix internals.
+  useEffect(() => {
+    if (!openRequest || !isActive || !canEdit) return;
+    const td = tdRef.current;
+    if (!td) return;
+    if (column.type === "date") {
+      setDatePickerOpen(true);
+      return;
+    }
+    if (isOptionColumn(column.type)) {
+      const trigger = td.querySelector<HTMLElement>(".table-status-trigger");
+      if (!trigger) return;
+      // Radix Select opens on Enter/Space keydown regardless of which
+      // pointer type was last used on it (a plain .click() is ignored after
+      // a mouse interaction). The grid's own listener skips untrusted
+      // events, so this can't re-trigger itself.
+      trigger.focus();
+      trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequest]);
+
+  // When a picker closes, hand keyboard focus back to the grid (not the
+  // trigger button) — otherwise the next ArrowDown would reopen the picker
+  // instead of moving the selection.
+  function refocusGrid(e: Event) {
+    e.preventDefault();
+    tdRef.current?.closest<HTMLElement>(".table-grid-scroll")?.focus({ preventScroll: true });
+  }
+
   const isNumeric = column.type === "number" || column.type === "currency";
   const stringValue = value === null || value === undefined ? "" : String(value);
+  const duplicateBadge = isDuplicate ? (
+    <button
+      type="button"
+      className="table-dup-badge ml-auto inline-flex h-4 shrink-0 items-center gap-0.5 rounded-full border border-warning/40 bg-warning/12 px-1 text-[9px] font-medium uppercase tracking-wide text-warning"
+      title="Такое же значение есть в других строках — нажмите, чтобы показать их"
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onFindDuplicates?.();
+      }}
+    >
+      <CopyCheck className="h-2.5 w-2.5" /> дубль
+    </button>
+  ) : null;
   const isNegative = isNumeric && stringValue !== "" && Number(stringValue) < 0;
   const diskUrl = column.type === "url" ? parseHttpUrl(stringValue) : null;
   const showFull = expanded || Boolean(isExpanded);
@@ -105,6 +185,50 @@ export function TableCell({
     }
     if (column.type === "date" && stringValue) {
       return <span className="truncate">{formatOrderDate(Number(stringValue))}</span>;
+    }
+    if (column.type === "phone" && stringValue) {
+      const href = telHref(stringValue);
+      return (
+        <span className="flex min-w-0 items-center gap-1.5">
+          {href ? (
+            <a
+              href={href}
+              className="table-contact-link shrink-0 text-muted-foreground hover:text-primary"
+              title="Позвонить"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Phone className="h-3 w-3" />
+            </a>
+          ) : null}
+          <span className="truncate tabular-nums">
+            <HighlightText text={stringValue} query={searchQuery} />
+          </span>
+          {duplicateBadge}
+        </span>
+      );
+    }
+    if (column.type === "email" && stringValue) {
+      const ok = looksLikeEmail(stringValue);
+      return (
+        <span className="flex min-w-0 items-center gap-1.5">
+          {ok ? (
+            <a
+              href={`mailto:${stringValue.trim()}`}
+              className="table-contact-link shrink-0 text-muted-foreground hover:text-primary"
+              title="Написать письмо"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Mail className="h-3 w-3" />
+            </a>
+          ) : null}
+          <span className={cn("truncate", !ok && "text-warning")} title={ok ? undefined : "Не похоже на email"}>
+            <HighlightText text={stringValue} query={searchQuery} />
+          </span>
+          {duplicateBadge}
+        </span>
+      );
     }
     if (column.type === "url") {
       if (diskUrl) {
@@ -141,19 +265,22 @@ export function TableCell({
     }
     return (
       <span className={cn(isExpanded ? "whitespace-normal break-words leading-snug" : "line-clamp-2 whitespace-normal break-words leading-snug")}>
-        {stringValue}
+        <HighlightText text={stringValue} query={searchQuery} />
       </span>
     );
   }
 
   return (
     <td
+      ref={tdRef}
       className={cn(
-        "relative min-w-0 overflow-hidden select-none border-b border-r border-border/35 p-0 align-middle",
+        "table-cell relative min-w-0 overflow-hidden select-none border-b border-r border-border/35 p-0 align-middle",
         stickyLeft !== undefined && "table-sticky-col sticky z-[22] isolate bg-background",
         isLastSticky && "table-sticky-edge",
-        isInRange && !isEditing && "bg-primary/[0.07]",
-        isActive && !isEditing && "z-10 shadow-[inset_0_0_0_2px_hsl(var(--primary)/0.7)]"
+        isInRange && !isEditing && "table-cell-range",
+        isActive && !isEditing && "table-cell-active z-10",
+        isEditing && "table-cell-editing z-20",
+        isInFill && "table-cell-fill"
       )}
       style={{
         width: column.width,
@@ -237,7 +364,7 @@ export function TableCell({
           >
             <SelectValue placeholder="">{renderDisplay()}</SelectValue>
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent onCloseAutoFocus={refocusGrid}>
             {(column.statusOptions ?? []).map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
                 <StatusBadge value={opt.value} options={column.statusOptions ?? []} showTick={column.type === "status"} />
@@ -260,7 +387,7 @@ export function TableCell({
               {stringValue ? renderDisplay() : <span className="text-muted-foreground">—</span>}
             </button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-2" align="start">
+          <PopoverContent className="w-auto p-2" align="start" onCloseAutoFocus={refocusGrid}>
             <DateCalendar
               value={stringValue ? Number(stringValue) : null}
               onChange={(millis) => {
@@ -317,7 +444,7 @@ export function TableCell({
             if (e.nativeEvent.isComposing || e.key === "Process") return;
             if (e.key === "Enter") {
               e.preventDefault();
-              onCommitEdit("down");
+              onCommitEdit(e.shiftKey ? "none" : "down");
             } else if (e.key === "Tab") {
               e.preventDefault();
               onCommitEdit(e.shiftKey ? "left" : "right");
@@ -361,7 +488,13 @@ export function TableCell({
             if (stringValue.length > 36) setExpanded((v) => !v);
           }}
         >
-          {showFull ? <span className="whitespace-pre-wrap break-words text-sm">{stringValue}</span> : renderDisplay()}
+          {showFull ? (
+            <span className="whitespace-pre-wrap break-words text-sm">
+              <HighlightText text={stringValue} query={searchQuery} />
+            </span>
+          ) : (
+            renderDisplay()
+          )}
         </div>
       )}
       {trailing}
@@ -377,6 +510,21 @@ export function TableCell({
             {extrasHint}
           </TooltipContent>
         </Tooltip>
+      )}
+      {showFillHandle && canEdit && !isEditing && onFillStart && (
+        <span
+          className="table-fill-handle"
+          title="Потяните вниз, чтобы заполнить"
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            onFillStart(column.key, e);
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+        />
       )}
     </td>
   );

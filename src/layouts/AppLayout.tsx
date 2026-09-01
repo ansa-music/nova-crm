@@ -15,6 +15,7 @@ import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { ShortcutsHelpDialog } from "@/components/common/ShortcutsHelpDialog";
 import { GlobalUndoHotkeys } from "@/components/common/GlobalUndoHotkeys";
 import { GoChordHotkeys } from "@/components/common/GoChordHotkeys";
+import { AppDialogHost } from "@/components/common/AppDialogHost";
 import { AccentColorSync } from "@/components/common/AccentColorSync";
 import { Button } from "@/components/ui/button";
 import { TableChromeExit } from "@/components/table/TableChromeExit";
@@ -116,6 +117,7 @@ export function AppLayout() {
       <ShortcutsHelpDialog />
       <GlobalUndoHotkeys />
       <GoChordHotkeys />
+      <AppDialogHost />
       <AccentColorSync />
       {!isCompactNav && !isFullscreen && <Sidebar />}
       <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${isFullscreen ? "" : "rounded-2xl border border-primary/[0.12] bg-white/[0.04]"}`}>

@@ -46,6 +46,7 @@ import { setDefaultSubPage } from "@/services/pageService";
 import { snapshotSubPage, restoreSubPageSnapshot } from "@/services/pageSnapshotService";
 import { pushUndoCommand, undo } from "@/utils/undoStore";
 import type { PageIconName, SubPage, WorkspacePage } from "@/types";
+import { confirmDialog, promptDialog } from "@/utils/appDialog";
 
 interface SubPageTabsProps {
   workspaceId: string;
@@ -75,7 +76,7 @@ export function SubPageTabs({
   const archivedCount = subPages.filter((s) => s.isArchived).length;
 
   async function handleAddTab() {
-    const name = window.prompt("Название вкладки", `Вкладка ${subPages.length + 1}`);
+    const name = await promptDialog({ title: "Новая вкладка", label: "Название", defaultValue: `Вкладка ${subPages.length + 1}`, maxLength: 60, confirmLabel: "Создать" });
     if (!name || !name.trim()) return;
     try {
       const created = await createSubPage({
@@ -106,7 +107,7 @@ export function SubPageTabs({
   }
 
   async function handleRename(sub: SubPage) {
-    const name = window.prompt("Новое название", sub.name);
+    const name = await promptDialog({ title: "Переименовать вкладку", label: "Название", defaultValue: sub.name, maxLength: 60 });
     if (!name || !name.trim() || name.trim() === sub.name) return;
     await renameSubPage(workspaceId, page.id, sub.id, name.trim());
   }
@@ -118,7 +119,7 @@ export function SubPageTabs({
   }
 
   async function handleDelete(sub: SubPage) {
-    if (!window.confirm(`Удалить вкладку «${sub.name}» вместе со всеми данными? Это необратимо.`)) return;
+    if (!(await confirmDialog({ title: `Удалить вкладку «${sub.name}»?`, description: "Вкладка удаляется вместе со всеми строками. Сразу после удаления действие можно отменить через Ctrl+Z.", destructive: true }))) return;
     const snapshot = await snapshotSubPage(workspaceId, page.id, sub.id);
     await deleteSubPage(workspaceId, page.id, sub.id);
     if (activeSubPageId === sub.id) selectAwayFrom(sub.id);

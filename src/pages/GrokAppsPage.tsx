@@ -17,6 +17,7 @@ import { displayNameOf } from "@/utils/displayName";
 import { grokLoginMethodLabel, grokLoginMethodOf } from "@/types/grokAccount";
 import { GROK_APP_PROVIDERS, grokAppProviderLabel, type GrokAppAccount, type GrokAppProvider } from "@/types/grokAppAccount";
 import { cn } from "@/utils/cn";
+import { confirmDialog } from "@/utils/appDialog";
 
 type ProviderFilter = "all" | GrokAppProvider;
 
@@ -76,7 +77,7 @@ export default function GrokAppsPage() {
 
   async function handleDelete(account: GrokAppAccount) {
     const name = grokAppProviderLabel(account.provider, account.providerOther);
-    if (!window.confirm(`Удалить ${name} «${account.email}»?`)) return;
+    if (!(await confirmDialog({ title: `Удалить ${name} «${account.email}»?`, destructive: true }))) return;
     await deleteGrokAppAccount(activeWorkspaceId!, account.id);
     toast.success("Подписка удалена");
   }

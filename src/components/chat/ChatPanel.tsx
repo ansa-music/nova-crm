@@ -13,6 +13,7 @@ import { toast } from "@/components/ui/sonner";
 import { cn } from "@/utils/cn";
 import { formatMessageWrittenAt } from "@/utils/date";
 import type { ChatMessage } from "@/types";
+import { confirmDialog } from "@/utils/appDialog";
 
 const EMOJI = ["😀", "😂", "❤️", "👍", "👎", "🎉", "🔥", "😢", "😮", "🙏", "👏", "✅"];
 
@@ -129,7 +130,7 @@ export function ChatPanel({
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm("Удалить сообщение?")) return;
+    if (!(await confirmDialog({ title: "Удалить сообщение?", description: "Сообщение исчезнет у всех участников чата.", destructive: true }))) return;
     try {
       await onDelete(id);
     } catch (error) {

@@ -10,6 +10,9 @@ export default {
       padding: "1.5rem",
     },
     extend: {
+      screens: {
+        xs: "420px",
+      },
       fontFamily: {
         serif: [
           "Fraunces",

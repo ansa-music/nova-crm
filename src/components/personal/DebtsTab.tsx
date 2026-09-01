@@ -14,6 +14,7 @@ import {
 import { parseAmount } from "@/utils/money";
 import { formatDate } from "@/utils/date";
 import { cn } from "@/utils/cn";
+import { confirmDialog } from "@/utils/appDialog";
 
 interface DebtsTabProps {
   workspaceId: string;
@@ -64,7 +65,7 @@ export function DebtsTab({ workspaceId, pageId, uid }: DebtsTabProps) {
   }
 
   async function handleDelete(debt: PersonalDebt) {
-    if (!window.confirm(`Удалить запись «${debt.personName}»?`)) return;
+    if (!(await confirmDialog({ title: `Удалить запись «${debt.personName}»?`, destructive: true }))) return;
     await deletePersonalDebt(workspaceId, pageId, uid, debt.id);
   }
 

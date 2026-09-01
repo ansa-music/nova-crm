@@ -40,6 +40,7 @@ import { formatCurrency } from "@/utils/format";
 import { cn } from "@/utils/cn";
 import { almatyNoonMillis, USER_TIMEZONE, ymdInTimeZone } from "@/utils/date";
 import type { DailyDispatch, DispatchTechnician, StatusOption, WorkspaceMember, WorkspacePage } from "@/types";
+import { confirmDialog, promptDialog } from "@/utils/appDialog";
 
 interface DailyDispatchPanelProps {
   workspaceId: string;
@@ -454,7 +455,7 @@ function TechnicianRoster({
   }
 
   async function handleRename(tech: DispatchTechnician) {
-    const name = window.prompt("Новый ник", tech.nickname);
+    const name = await promptDialog({ title: "Переименовать технаря", label: "Ник", defaultValue: tech.nickname, maxLength: 40 });
     if (!name || !name.trim() || name.trim() === tech.nickname) return;
     try {
       await renameDispatchTechnician(workspaceId, tech.id, name.trim());
@@ -475,7 +476,7 @@ function TechnicianRoster({
   }
 
   async function handleDelete(tech: DispatchTechnician) {
-    if (!window.confirm(`Убрать «${tech.nickname}» из списка технарей?`)) return;
+    if (!(await confirmDialog({ title: `Убрать «${tech.nickname}» из списка технарей?`, destructive: true, confirmLabel: "Убрать" }))) return;
     try {
       await deleteDispatchTechnician(workspaceId, tech.id);
       await onChanged();

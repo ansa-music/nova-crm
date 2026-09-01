@@ -60,6 +60,19 @@ interface TableRowProps {
   expandedColKey?: string | null;
   gutterWidth?: number;
   extrasHintKey?: string | null;
+  searchQuery?: string;
+  /** Bumped by DataTable when Enter/Space should open the active picker cell. */
+  openRequest?: number;
+  /** Status colour (hsl triplet) for the thin rail on the gutter. */
+  accentColor?: string;
+  /** Column key whose bottom-right selection corner sits on this row (fill handle). */
+  fillHandleColKey?: string | null;
+  onFillStart?: (rowId: string, colKey: string, e: React.PointerEvent) => void;
+  /** Column keys of this row inside the drag-to-fill preview. */
+  fillColKeys?: string[] | null;
+  /** Phone/email columns whose value in this row repeats elsewhere. */
+  duplicateColKeys?: string[] | null;
+  onFindDuplicates?: (rowId: string, colKey: string) => void;
 }
 
 function TableRowInner({
@@ -103,6 +116,14 @@ function TableRowInner({
   expandedColKey,
   gutterWidth = ROW_GUTTER_WIDTH,
   extrasHintKey,
+  searchQuery = "",
+  openRequest,
+  accentColor,
+  fillHandleColKey,
+  onFillStart,
+  fillColKeys,
+  duplicateColKeys,
+  onFindDuplicates,
 }: TableRowProps) {
   const allowRowDrag = canReorder && !coarsePointer;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -185,6 +206,7 @@ function TableRowInner({
         backgroundColor: statusTint ? `hsl(${statusTint} / 0.08)` : undefined,
       }}
       data-row-id={row.id}
+      data-row-number={rowNumber}
       className={cn(
         "group/row table-data-row relative",
         (isRowFullySelected || isChecked) && "table-data-row-selected",
@@ -214,9 +236,16 @@ function TableRowInner({
               transition={{ type: "spring", stiffness: 400, damping: 30 }}
             />
           )}
+          {accentColor && (
+            <span
+              className="table-row-rail pointer-events-none absolute left-0 top-0 h-full w-[3px]"
+              style={{ backgroundColor: `hsl(${accentColor})` }}
+              aria-hidden
+            />
+          )}
           {isNew && (
             <span
-              className="absolute left-0 top-1/2 h-3.5 w-[3px] -translate-y-1/2 rounded-full bg-primary"
+              className={cn("absolute top-1/2 h-3.5 w-[3px] -translate-y-1/2 rounded-full bg-primary", accentColor ? "left-[4px]" : "left-0")}
               title="Добавлено недавно"
             />
           )}
@@ -279,6 +308,13 @@ function TableRowInner({
             isExpanded={expandedColKey === column.key}
             extrasHint={column.key === extrasHintKey ? formatRowExtrasHint(row.extras) : null}
             coarsePointer={coarsePointer}
+            searchQuery={searchQuery}
+            openRequest={isActive ? openRequest : undefined}
+            showFillHandle={fillHandleColKey === column.key}
+            onFillStart={onFillStart ? (colKey, e) => onFillStart(row.id, colKey, e) : undefined}
+            isInFill={Boolean(fillColKeys && fillColKeys.includes(column.key))}
+            isDuplicate={Boolean(duplicateColKeys && duplicateColKeys.includes(column.key))}
+            onFindDuplicates={onFindDuplicates ? () => onFindDuplicates(row.id, column.key) : undefined}
           />
         );
       })}
@@ -314,6 +350,11 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     prev.expandedColKey !== next.expandedColKey ||
     prev.gutterWidth !== next.gutterWidth ||
     prev.extrasHintKey !== next.extrasHintKey ||
+    prev.searchQuery !== next.searchQuery ||
+    prev.accentColor !== next.accentColor ||
+    prev.fillHandleColKey !== next.fillHandleColKey ||
+    (prev.fillColKeys?.join(",") ?? "") !== (next.fillColKeys?.join(",") ?? "") ||
+    (prev.duplicateColKeys?.join(",") ?? "") !== (next.duplicateColKeys?.join(",") ?? "") ||
     prev.row.extras?.persons !== next.row.extras?.persons ||
     prev.row.extras?.minutes !== next.row.extras?.minutes
   ) {
@@ -322,7 +363,7 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
   const prevActive = addrOnRow(prev.activeCell, prev.row.id);
   const nextActive = addrOnRow(next.activeCell, next.row.id);
   if (prevActive !== nextActive) return false;
-  if (nextActive && (prev.activeCell?.colKey !== next.activeCell?.colKey)) return false;
+  if (nextActive && (prev.activeCell?.colKey !== next.activeCell?.colKey || prev.openRequest !== next.openRequest)) return false;
   const prevEditing = addrOnRow(prev.editingCell, prev.row.id);
   const nextEditing = addrOnRow(next.editingCell, next.row.id);
   if (prevEditing !== nextEditing) return false;

@@ -16,7 +16,7 @@ const GROUPS: ShortcutGroup[] = [
       { keys: ["G", "D"], label: "Перейти на главную" },
       { keys: ["G", "S"], label: "Открыть закреплённый или первый стол" },
       { keys: ["?"], label: "Показать эту подсказку" },
-      { keys: ["Esc"], label: "Закрыть текущее окно/диалог" },
+      { keys: ["Esc"], label: "Закрыть окно / снять выделение" },
     ],
   },
   {
@@ -24,25 +24,43 @@ const GROUPS: ShortcutGroup[] = [
     items: [
       { keys: ["↑", "↓", "←", "→"], label: "Перейти к соседней ячейке" },
       { keys: ["Shift", "↑↓←→"], label: "Выделить диапазон ячеек" },
-      { keys: ["Tab"], label: "Перейти к следующей ячейке" },
-      { keys: ["Enter"], label: "Начать редактирование ячейки" },
-      { keys: ["F2"], label: "Редактировать ячейку" },
-      { keys: ["Home", "End"], label: "К первому/последнему столбцу строки" },
+      { keys: ["Ctrl", "↑↓←→"], label: "Прыгнуть к краю таблицы" },
+      { keys: ["PgUp", "PgDn"], label: "На экран вверх / вниз" },
+      { keys: ["Tab"], label: "Следующая ячейка (в конце — новая строка)" },
+      { keys: ["Home", "End"], label: "К первому / последнему столбцу" },
+      { keys: ["Ctrl", "Home"], label: "К первой ячейке таблицы" },
+      { keys: ["Ctrl", "End"], label: "К последней ячейке таблицы" },
+      { keys: ["Ctrl", "F"], label: "Поиск по столу" },
     ],
   },
   {
     title: "В таблице — редактирование",
     items: [
+      { keys: ["Enter"], label: "Редактировать / открыть список или календарь" },
+      { keys: ["F2"], label: "Редактировать ячейку" },
+      { keys: ["Space"], label: "Открыть карточку строки" },
+      { keys: ["Shift", "Enter"], label: "Сохранить, не переходя вниз" },
       { keys: ["Ctrl", "C"], label: "Скопировать выделенные ячейки" },
-      { keys: ["Ctrl", "V"], label: "Вставить в выделенные ячейки" },
+      { keys: ["Ctrl", "V"], label: "Вставить (в т.ч. из Excel)" },
+      { keys: ["Ctrl", "A"], label: "Выделить все ячейки" },
       { keys: ["Delete"], label: "Очистить выделенные ячейки" },
       { keys: ["Ctrl", "Z"], label: "Отменить последнее действие" },
       { keys: ["Ctrl", "Y"], label: "Вернуть отменённое действие" },
       { keys: ["Ctrl", "D"], label: "Заполнить вниз из ячейки сверху" },
       { keys: ["Ctrl", "Enter"], label: "Добавить строку" },
       { keys: ["Ctrl", "Shift", "Enter"], label: "Вставить строку сверху" },
+      { keys: ["Ctrl", "Shift", "D"], label: "Дублировать строку" },
       { keys: ["Ctrl", "Space"], label: "Выделить столбец" },
-      { keys: ["Ctrl", "Alt", "C"], label: "Копировать строку" },
+      { keys: ["Shift", "Space"], label: "Выделить строку" },
+      { keys: ["Ctrl", "Alt", "C"], label: "Копировать строку целиком" },
+      { keys: ["Буква"], label: "На ячейке статуса — выбрать вариант по первой букве" },
+    ],
+  },
+  {
+    title: "В карточке строки",
+    items: [
+      { keys: ["←", "→"], label: "Предыдущая / следующая строка" },
+      { keys: ["Esc"], label: "Закрыть карточку" },
     ],
   },
 ];
@@ -72,14 +90,14 @@ export function ShortcutsHelpDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Keyboard className="h-4 w-4" /> Горячие клавиши
           </DialogTitle>
           <DialogDescription>Нажмите «?» в любой момент, чтобы открыть эту подсказку снова.</DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-5">
+        <div className="grid gap-5 sm:grid-cols-2">
           {GROUPS.map((group) => (
             <div key={group.title}>
               <p className="eyebrow mb-2">{group.title}</p>

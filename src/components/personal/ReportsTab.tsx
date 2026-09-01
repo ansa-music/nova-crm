@@ -13,6 +13,7 @@ import {
 } from "@/services/personalSpaceService";
 import { cn } from "@/utils/cn";
 import type { PageColumn, SubPage } from "@/types";
+import { confirmDialog, promptDialog } from "@/utils/appDialog";
 
 const DEFAULT_REPORT_COLUMNS: PageColumn[] = [
   { id: "c1", key: "name", label: "Клиент", type: "text", width: 200, order: 0 },
@@ -63,7 +64,7 @@ export function ReportsTab({ workspaceId, pageId, uid }: ReportsTabProps) {
   const active = reports.find((r) => r.id === activeId) ?? null;
 
   async function handleCreate() {
-    const name = window.prompt("Название отчёта", "Новый отчёт");
+    const name = await promptDialog({ title: "Новый отчёт", label: "Название", defaultValue: "Новый отчёт", maxLength: 60, confirmLabel: "Создать" });
     if (!name?.trim()) return;
     try {
       const created = await createPersonalMonthlyReport({
@@ -92,7 +93,7 @@ export function ReportsTab({ workspaceId, pageId, uid }: ReportsTabProps) {
   }
 
   async function handleDelete(report: SubPage) {
-    if (!window.confirm(`Удалить отчёт «${report.name}»?`)) return;
+    if (!(await confirmDialog({ title: `Удалить отчёт «${report.name}»?`, description: "Все строки отчёта будут удалены.", destructive: true }))) return;
     await deletePersonalReport(workspaceId, pageId, uid, report.id);
     if (activeId === report.id) setActiveId(null);
   }

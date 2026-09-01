@@ -16,6 +16,7 @@ import { pushUndoCommand, undo } from "@/utils/undoStore";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { cn } from "@/utils/cn";
 import type { PageIconName, WorkspacePage } from "@/types";
+import { confirmDialog } from "@/utils/appDialog";
 
 interface PageNavItemProps {
   page: WorkspacePage;
@@ -100,7 +101,7 @@ export function PageNavItem({
   }
 
   async function handleDelete() {
-    if (!window.confirm(`Удалить страницу «${page.name}»? Это действие необратимо.`)) return;
+    if (!(await confirmDialog({ title: `Удалить стол «${page.name}»?`, description: "Все вкладки и строки стола будут удалены. Сразу после удаления действие можно отменить через Ctrl+Z.", destructive: true }))) return;
     // Snapshot everything BEFORE deleting — deletePage is a hard delete
     // (page doc + rows + subpages + their rows, all gone), so without this
     // there'd be nothing left to restore from on Ctrl+Z.

@@ -10,10 +10,12 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { Plus } from "lucide-react";
+import { CalendarDays, Maximize2, Phone, Plus } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { formatCurrency } from "@/utils/format";
+import { formatOrderDate } from "@/utils/date";
 import { isOptionColumn } from "@/utils/columnOptions";
+import { parseLooseNumber } from "@/utils/numberInput";
 import { cn } from "@/utils/cn";
 import type { PageColumn, PageRow, StatusOption } from "@/types";
 
@@ -31,13 +33,17 @@ interface KanbanViewProps {
   canEdit: boolean;
   onStatusChange: (rowId: string, colKey: string, value: string) => void;
   onAddOrder?: (statusValue: string) => void;
+  /** Open the row card (click on a card). */
+  onOpenRow?: (rowId: string) => void;
 }
 
-export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChange, onAddOrder }: KanbanViewProps) {
+export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChange, onAddOrder, onOpenRow }: KanbanViewProps) {
   const options = statusColumn.statusOptions ?? [];
-  const titleColKey = columns.find((c) => !isOptionColumn(c.type) && c.type !== "date" && c.type !== "url")?.key;
+  const titleColKey = columns.find((c) => !isOptionColumn(c.type) && c.type !== "date" && c.type !== "url" && c.type !== "phone" && c.type !== "email" && c.type !== "number" && c.type !== "currency")?.key ?? columns.find((c) => !isOptionColumn(c.type))?.key;
   const currencyCol = columns.find((c) => c.type === "currency");
   const responsibleCol = columns.find((c) => c.type === "responsible");
+  const dateCol = columns.find((c) => c.type === "date");
+  const phoneCol = columns.find((c) => c.type === "phone");
 
   const [dragActive, setDragActive] = useState(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -121,9 +127,12 @@ export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChang
             titleColKey={titleColKey}
             currencyColKey={currencyCol?.key}
             responsibleCol={responsibleCol}
+            dateColKey={dateCol?.key}
+            phoneColKey={phoneCol?.key}
             canEdit={canEdit}
             dragActive={dragActive}
             onAddOrder={onAddOrder}
+            onOpenRow={onOpenRow}
           />
         ))}
       </div>
@@ -137,26 +146,65 @@ interface KanbanColumnProps {
   titleColKey?: string;
   currencyColKey?: string;
   responsibleCol?: PageColumn;
+  dateColKey?: string;
+  phoneColKey?: string;
   canEdit: boolean;
   dragActive: boolean;
   onAddOrder?: (statusValue: string) => void;
+  onOpenRow?: (rowId: string) => void;
 }
 
-function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCol, canEdit, dragActive, onAddOrder }: KanbanColumnProps) {
+function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCol, dateColKey, phoneColKey, canEdit, dragActive, onAddOrder, onOpenRow }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: option.value });
   const isUnassigned = option.value === UNASSIGNED_VALUE;
+  const [collapsed, setCollapsed] = useState(false);
+  const sum = useMemo(() => {
+    if (!currencyColKey) return null;
+    let total = 0;
+    for (const row of rows) {
+      const n = parseLooseNumber(String(row.cells[currencyColKey] ?? ""));
+      if (n !== null) total += n;
+    }
+    return total;
+  }, [rows, currencyColKey]);
 
   return (
     <div
-      className={cn("flex h-full w-72 shrink-0 flex-col rounded-lg", dragActive ? "overflow-visible" : "overflow-hidden")}
-      style={{ backgroundColor: `hsl(${option.color} / 0.05)` }}
+      className={cn(
+        "kanban-column flex h-full shrink-0 flex-col rounded-lg border border-transparent",
+        collapsed && !dragActive ? "w-12" : "w-72",
+        dragActive ? "overflow-visible" : "overflow-hidden"
+      )}
+      style={{ backgroundColor: `hsl(${option.color} / 0.05)`, borderColor: isOver ? `hsl(${option.color} / 0.5)` : undefined }}
     >
       <div
         className="h-[3px] shrink-0"
         style={{ backgroundColor: `hsl(${option.color})`, boxShadow: `0 0 10px -1px hsl(${option.color} / 0.65)` }}
       />
-      <div className="flex items-center gap-2 px-3 py-2.5">
-        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: `hsl(${option.color})` }} />
+      {collapsed && !dragActive ? (
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="flex flex-1 flex-col items-center gap-2 py-3 text-xs text-muted-foreground hover:text-foreground"
+          title={`Развернуть «${option.label}»`}
+        >
+          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: `hsl(${option.color})` }} />
+          <span className="tabular rounded-full px-1.5 py-0.5 text-[11px] font-medium" style={{ backgroundColor: `hsl(${option.color} / 0.16)`, color: `hsl(${option.color})` }}>
+            {rows.length}
+          </span>
+          <span className="[writing-mode:vertical-rl] truncate text-[11px] font-medium text-foreground" style={{ maxHeight: 160 }}>
+            {option.label}
+          </span>
+        </button>
+      ) : null}
+      <div className={cn("flex items-center gap-2 px-3 py-2.5", collapsed && !dragActive && "hidden")}>
+        <button
+          type="button"
+          onClick={() => setCollapsed(true)}
+          className="h-2 w-2 shrink-0 rounded-full ring-offset-2 ring-offset-background hover:ring-2"
+          style={{ backgroundColor: `hsl(${option.color})`, "--tw-ring-color": `hsl(${option.color} / 0.5)` } as React.CSSProperties}
+          title="Свернуть колонку"
+        />
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{option.label}</span>
         <span
           className="tabular shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium"
@@ -164,6 +212,11 @@ function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCo
         >
           {rows.length}
         </span>
+        {sum !== null && sum !== 0 && (
+          <span className="tabular shrink-0 text-[11px] text-muted-foreground" title="Сумма по колонке">
+            {formatCurrency(sum)}
+          </span>
+        )}
         {canEdit && onAddOrder && !isUnassigned && (
           <button
             type="button"
@@ -184,7 +237,8 @@ function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCo
         ref={setNodeRef}
         className={cn(
           "flex-1 space-y-2 rounded-md border border-dashed border-transparent px-2 pb-2 transition-colors",
-          dragActive ? "overflow-visible" : "overflow-y-auto"
+          dragActive ? "overflow-visible" : "overflow-y-auto",
+          collapsed && !dragActive && "hidden"
         )}
         style={isOver ? { borderColor: `hsl(${option.color} / 0.5)`, backgroundColor: `hsl(${option.color} / 0.08)` } : undefined}
       >
@@ -195,9 +249,15 @@ function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCo
             titleColKey={titleColKey}
             currencyColKey={currencyColKey}
             responsibleCol={responsibleCol}
+            dateColKey={dateColKey}
+            phoneColKey={phoneColKey}
             canEdit={canEdit}
+            onOpenRow={onOpenRow}
           />
         ))}
+        {rows.length === 0 && !dragActive && (
+          <p className="px-2 py-6 text-center text-[11px] text-muted-foreground">Пусто</p>
+        )}
       </div>
     </div>
   );
@@ -208,16 +268,21 @@ interface KanbanCardProps {
   titleColKey?: string;
   currencyColKey?: string;
   responsibleCol?: PageColumn;
+  dateColKey?: string;
+  phoneColKey?: string;
   canEdit: boolean;
+  onOpenRow?: (rowId: string) => void;
 }
 
-function KanbanCard({ row, titleColKey, currencyColKey, responsibleCol, canEdit }: KanbanCardProps) {
+function KanbanCard({ row, titleColKey, currencyColKey, responsibleCol, dateColKey, phoneColKey, canEdit, onOpenRow }: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: row.id, disabled: !canEdit });
   const title = titleColKey ? String(row.cells[titleColKey] ?? "").trim() : "";
   const amount = currencyColKey ? row.cells[currencyColKey] : null;
   const hasAmount = amount !== null && amount !== undefined && amount !== "" && !Number.isNaN(Number(amount));
   const responsibleValue = responsibleCol ? String(row.cells[responsibleCol.key] ?? "") : "";
   const responsibleOption = responsibleCol?.statusOptions?.find((o) => o.value === responsibleValue);
+  const dateValue = dateColKey ? Number(row.cells[dateColKey] ?? 0) : 0;
+  const phone = phoneColKey ? String(row.cells[phoneColKey] ?? "").trim() : "";
 
   return (
     <div
@@ -230,18 +295,46 @@ function KanbanCard({ row, titleColKey, currencyColKey, responsibleCol, canEdit 
       {...attributes}
       {...listeners}
       className={cn(
-        "relative rounded-md border border-border bg-card p-2.5 text-sm shadow-sm",
+        "kanban-card group/card relative rounded-md border border-border bg-card p-2.5 text-sm shadow-sm",
         canEdit && "cursor-grab touch-none active:cursor-grabbing",
         isDragging && "opacity-30 shadow-lg"
       )}
+      onDoubleClick={() => onOpenRow?.(row.id)}
     >
       {responsibleOption && (
         <MemberAvatar id={responsibleOption.value} name={responsibleOption.label} className="absolute right-2 top-2 h-5 w-5" />
       )}
-      {title ? <p className={cn("truncate font-medium", responsibleOption && "pr-6")}>{title}</p> : null}
-      {hasAmount && (
-        <p className={cn("text-xs text-muted-foreground", title && "mt-1")}>{formatCurrency(Number(amount))}</p>
+      {onOpenRow && (
+        <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenRow(row.id);
+          }}
+          className={cn(
+            "absolute bottom-1.5 right-1.5 rounded p-1 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover/card:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
+            !canEdit && "opacity-100"
+          )}
+          title="Открыть карточку"
+        >
+          <Maximize2 className="h-3 w-3" />
+        </button>
       )}
+      {title ? <p className={cn("line-clamp-2 font-medium leading-snug", responsibleOption && "pr-6")}>{title}</p> : <p className="italic text-muted-foreground">Без названия</p>}
+      <div className={cn("mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground")}>
+        {hasAmount && <span className="tabular text-foreground">{formatCurrency(Number(amount))}</span>}
+        {dateValue > 0 && (
+          <span className="inline-flex items-center gap-1 tabular">
+            <CalendarDays className="h-3 w-3" /> {formatOrderDate(dateValue)}
+          </span>
+        )}
+        {phone && (
+          <span className="inline-flex items-center gap-1 tabular">
+            <Phone className="h-3 w-3" /> {phone}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

@@ -31,6 +31,7 @@ import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { useDeskLayout } from "@/hooks/useDeskLayout";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { PageIconName, StatusOption, WorkspacePage } from "@/types";
+import { confirmDialog, promptDialog } from "@/utils/appDialog";
 
 interface DeskStudioSheetProps {
   page: WorkspacePage | null;
@@ -79,7 +80,7 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
     if (!page || !canEditPreview) return;
     const current = columns.find((c) => c.key === colKey);
     if (!current) return;
-    const newLabel = window.prompt("Новое название столбца", current.label);
+    const newLabel = await promptDialog({ title: "Переименовать столбец", label: "Название", defaultValue: current.label, maxLength: 60 });
     if (!newLabel || !newLabel.trim() || newLabel.trim() === current.label) return;
     try {
       await renameColumn(page.workspaceId, page.id, columns, colKey, newLabel.trim());
@@ -124,7 +125,7 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
     if (!page || !canEditPreview) return;
     const current = columns.find((c) => c.key === colKey);
     if (!current) return;
-    if (!window.confirm(`Удалить столбец «${current.label}»? Данные в нём будут скрыты.`)) return;
+    if (!(await confirmDialog({ title: `Удалить столбец «${current.label}»?`, description: "Столбец исчезнет из таблицы. Данные в ячейках не стираются — вернуть их можно через Ctrl+Z сразу после удаления.", destructive: true }))) return;
     try {
       await deleteColumn(page.workspaceId, page.id, columns, colKey);
       toast.success("Столбец удалён");

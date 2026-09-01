@@ -15,6 +15,7 @@ import { archiveAnnouncement, deleteAnnouncement, togglePinAnnouncement } from "
 import { formatDate } from "@/utils/date";
 import { cn } from "@/utils/cn";
 import type { Announcement, AnnouncementPriority } from "@/types";
+import { confirmDialog } from "@/utils/appDialog";
 
 const PRIORITY_STYLES: Record<AnnouncementPriority, { label: string; badge: string; border: string }> = {
   normal: { label: "Обычный", badge: "bg-muted text-muted-foreground", border: "border-border" },
@@ -75,7 +76,7 @@ export default function AnnouncementsPage() {
     toast.success(a.isArchived ? "Объявление восстановлено" : "Объявление в архиве");
   }
   async function handleDelete(a: Announcement) {
-    if (!window.confirm(`Удалить объявление «${a.title}»?`)) return;
+    if (!(await confirmDialog({ title: `Удалить объявление «${a.title}»?`, destructive: true }))) return;
     await deleteAnnouncement(activeWorkspaceId!, a.id);
     void reload();
     toast.success("Объявление удалено");

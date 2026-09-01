@@ -23,6 +23,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { JoinRequest, PageIconName, Role } from "@/types";
+import { confirmDialog } from "@/utils/appDialog";
 
 
 const ROLE_CHIPS: { id: Role | "invited"; label: string }[] = [
@@ -168,7 +169,7 @@ export default function UsersPage() {
       toast.error("Нет email для отмены приглашения");
       return;
     }
-    if (!window.confirm(`Отменить приглашение для ${normalized}?`)) return;
+    if (!(await confirmDialog({ title: `Отменить приглашение для ${normalized}?`, destructive: true, confirmLabel: "Отменить приглашение", cancelLabel: "Оставить" }))) return;
     try {
       await cancelInvite(activeWorkspaceId!, normalized);
       await refreshWorkspaceMembers(activeWorkspaceId!);
@@ -184,7 +185,7 @@ export default function UsersPage() {
       toast.error("Нельзя удалить: у записи нет id");
       return;
     }
-    if (!window.confirm(`Убрать ${name} из workspace? Он потеряет доступ ко всем страницам.`)) return;
+    if (!(await confirmDialog({ title: `Убрать ${name} из workspace?`, description: "Участник потеряет доступ ко всем столам и данным.", destructive: true, confirmLabel: "Убрать" }))) return;
     try {
       await removeMember(activeWorkspaceId!, id);
       await refreshWorkspaceMembers(activeWorkspaceId!);

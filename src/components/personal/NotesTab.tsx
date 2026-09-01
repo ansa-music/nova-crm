@@ -13,6 +13,7 @@ import {
 import { generateId } from "@/utils/id";
 import { formatDate } from "@/utils/date";
 import { cn } from "@/utils/cn";
+import { confirmDialog } from "@/utils/appDialog";
 
 interface NotesTabProps {
   workspaceId: string;
@@ -66,7 +67,7 @@ export function NotesTab({ workspaceId, pageId, uid }: NotesTabProps) {
   }
 
   async function handleDelete(note: PersonalNote) {
-    if (!window.confirm(`Удалить заметку «${note.title}»?`)) return;
+    if (!(await confirmDialog({ title: `Удалить заметку «${note.title}»?`, destructive: true }))) return;
     await deletePersonalNote(workspaceId, pageId, uid, note.id);
     if (selectedId === note.id) handleNew();
   }
