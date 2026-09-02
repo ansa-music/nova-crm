@@ -58,7 +58,11 @@ export function BulkActionBar({
 
   return (
     <div className="bulk-action-bar pointer-events-none absolute inset-x-0 bottom-5 z-30 flex justify-center px-3 pb-[env(safe-area-inset-bottom)]">
-      <div className="bulk-action-panel pointer-events-auto flex max-w-full items-center gap-1.5 overflow-x-auto rounded-lg border border-primary/40 bg-card px-2 py-1.5 scrollbar-thin">
+      {/* Sheen needs overflow:hidden on the surface it sweeps — kept on this
+          outer, non-scrolling shell so the inner row can still scroll
+          horizontally on narrow screens (the button row can overflow there). */}
+      <div className="bulk-action-panel reflective-sheen pointer-events-auto max-w-full rounded-lg border border-primary/40 bg-card px-2 py-1.5">
+        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin">
         <span className="shrink-0 pl-1.5 font-mono text-[11px] tabular text-muted-foreground">
           <span className="text-foreground">{count}</span>
           {total > count && onSelectAll ? (
@@ -157,6 +161,7 @@ export function BulkActionBar({
         >
           <X className="h-3.5 w-3.5" />
         </button>
+        </div>
       </div>
     </div>
   );
