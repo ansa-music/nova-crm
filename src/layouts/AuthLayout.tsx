@@ -23,6 +23,14 @@ export function AuthLayout({ children }: { children: React.ReactNode }) {
         />
       </div>
       <div className="relative z-10 w-full max-w-[420px] rounded-md border border-border bg-card/95 p-7 sm:p-8">
+        {/* Corner accents — a cheap, static "high-tech instrument" detail from
+            the terminal-login mockup. Kept purely decorative (no motion, no
+            perf cost) unlike the mockup's shader/scanline background, which
+            this app already declined site-wide. */}
+        <span className="pointer-events-none absolute left-0 top-0 h-4 w-4 rounded-tl-md border-l border-t border-primary/40" aria-hidden />
+        <span className="pointer-events-none absolute right-0 top-0 h-4 w-4 rounded-tr-md border-r border-t border-primary/40" aria-hidden />
+        <span className="pointer-events-none absolute bottom-0 left-0 h-4 w-4 rounded-bl-md border-b border-l border-primary/40" aria-hidden />
+        <span className="pointer-events-none absolute bottom-0 right-0 h-4 w-4 rounded-br-md border-b border-r border-primary/40" aria-hidden />
         <BrandMark className="mb-8" />
         {children}
       </div>

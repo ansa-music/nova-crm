@@ -49,8 +49,13 @@ function GoogleIcon() {
   );
 }
 
-const fieldClass =
-  "h-10 rounded-sm border border-input bg-background px-3 font-sans tracking-normal placeholder:font-sans placeholder:text-muted-foreground";
+// Only the genuine login-specific customization (a touch taller than the
+// shared Input's default h-9) — used to also pin rounded-sm/border-input/
+// bg-background/font-sans here, which fought Input's own cyan-glass border
+// and focus glow (added in the Neon Holographic pass) and quietly reverted
+// this one screen to the pre-redesign flat look. Input already carries
+// rounded-lg, the glass background and font-sans by default.
+const fieldClass = "h-10";
 
 function readFormValue(form: HTMLFormElement | undefined, name: string, fallback: string) {
   if (!form) return fallback;
