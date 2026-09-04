@@ -403,7 +403,9 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
               placeholder="Например, 200000"
               onChange={(e) => setGoalInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.code === "Enter") {
+                // NumpadEnter is a distinct e.code from the main Enter key —
+                // easy to reach for on a numeric field like this one.
+                if (e.code === "Enter" || e.code === "NumpadEnter") {
                   e.preventDefault();
                   void saveGoalNow();
                 }

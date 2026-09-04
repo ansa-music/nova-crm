@@ -77,9 +77,29 @@ export async function renameDispatchTechnician(workspaceId: string, id: string, 
   await updateDoc(paths.dispatchTechnician(workspaceId, id), { nickname: trimmed, updatedAt: Date.now() });
 }
 
-/** Manually links (or unlinks, with memberUid null) a roster nickname to a real account. Owner-only, enforced by the caller/UI and by firestore.rules. */
+/**
+ * Manually links (or unlinks, with memberUid null) a roster nickname to a
+ * real account. Owner-only, enforced by the caller/UI and by
+ * firestore.rules.
+ *
+ * Refuses to bind an account that's already bound to a DIFFERENT roster
+ * entry: getMyDispatchTechnician() resolves "which mapping applies to this
+ * technician" via `where("memberUid", "==", uid)` and just takes
+ * `docs[0]` — an arbitrary pick with no error if two entries ever matched.
+ * A stray double-bind (rename/rebind mistake, or two Owners racing) would
+ * silently route that technician's accepted orders through whichever of
+ * the two column mappings Firestore happened to return first, with no
+ * warning anywhere. Blocking the second bind up front is cheap and keeps
+ * that "which one wins" question from ever being able to come up.
+ */
 export async function bindDispatchTechnician(workspaceId: string, id: string, memberUid: string | null): Promise<void> {
   requireDb();
+  if (memberUid) {
+    const existing = await getMyDispatchTechnician(workspaceId, memberUid);
+    if (existing && existing.id !== id) {
+      throw new Error(`Этот аккаунт уже привязан к «${existing.nickname}» — сначала отвяжите его там`);
+    }
+  }
   await updateDoc(paths.dispatchTechnician(workspaceId, id), { memberUid, updatedAt: Date.now() });
 }
 

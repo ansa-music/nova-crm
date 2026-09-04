@@ -1,8 +1,14 @@
-import { updateDoc } from "firebase/firestore";
+import { getDoc, runTransaction } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
-import { addRow, fetchPageIfAccessible, fetchRows } from "@/services/pageService";
-import { addSubPageRow, currentMonthTabName, fetchSubPageRows, fetchSubPages } from "@/services/subPageService";
+import { addRow, deleteRow, fetchPageIfAccessible, fetchRows } from "@/services/pageService";
+import {
+  addSubPageRow,
+  currentMonthTabName,
+  deleteSubPageRow,
+  fetchSubPageRows,
+  fetchSubPages,
+} from "@/services/subPageService";
 import { getMyDispatchTechnician } from "@/services/dispatchTechnicianService";
 import { isDispatchColumnMapComplete } from "@/types/dailyDispatch";
 import type { DailyDispatch, DispatchColumnMap, PageColumn, StatusOption, WorkspacePage } from "@/types";
@@ -49,8 +55,16 @@ export async function tryWriteDispatchOrderToSheet(input: {
   pages: WorkspacePage[];
   responsibleOptions: StatusOption[];
 }): Promise<WriteDispatchResult> {
-  requireDb();
+  const database = requireDb();
   if (input.entry.sheetRowId) return { ok: false, reason: "already" };
+  // The caller's `entry` can be stale — IncomingDispatchBanner refreshes
+  // its request list on a 60s poll (Spark listener limits), not a live
+  // subscription, so two tabs/devices on the same technician account can
+  // both still see sheetRowId as null well after one of them already wrote
+  // the row. Re-check against the server before doing any of the (much
+  // more expensive) desk/column lookup work below.
+  const freshSnap = await getDoc(paths.dailyDispatch(input.workspaceId, input.entry.id));
+  if ((freshSnap.data() as DailyDispatch | undefined)?.sheetRowId) return { ok: false, reason: "already" };
 
   const tech = await getMyDispatchTechnician(input.workspaceId, input.uid);
   if (!tech || !isDispatchColumnMapComplete(tech.columnMap)) {
@@ -76,6 +90,7 @@ export async function tryWriteDispatchOrderToSheet(input: {
   const hidden = target.columns.filter((c) => !c.hidden);
   let columns: PageColumn[] = hidden;
   let write: (cells: Record<string, string | number | null>, order: number) => Promise<{ id: string }>;
+  let cleanup: (rowId: string) => Promise<void>;
   let order = 0;
 
   if (target.defaultSubPageId || target.hideMainTab) {
@@ -91,10 +106,12 @@ export async function tryWriteDispatchOrderToSheet(input: {
     const rows = await fetchSubPageRows(input.workspaceId, target.id, sub.id);
     order = rows.length;
     write = (cells, ord) => addSubPageRow(input.workspaceId, target.id, sub.id, cells, ord);
+    cleanup = (rowId) => deleteSubPageRow(input.workspaceId, target.id, sub.id, rowId);
   } else {
     const rows = await fetchRows(input.workspaceId, target.id);
     order = rows.length;
     write = (cells, ord) => addRow(input.workspaceId, target.id, cells, ord);
+    cleanup = (rowId) => deleteRow(input.workspaceId, target.id, rowId);
   }
 
   const byKey = new Map(columns.map((c) => [c.key, c]));
@@ -108,7 +125,26 @@ export async function tryWriteDispatchOrderToSheet(input: {
   });
 
   const row = await write(cells, order);
-  await updateDoc(paths.dailyDispatch(input.workspaceId, input.entry.id), { sheetRowId: row.id });
+  // The desk row itself can't be created transactionally (addRow/
+  // addSubPageRow go through the normal service layer, including the
+  // Supabase mirror), so this can't be a single atomic "check dailyDispatch,
+  // then create the row" operation end to end. What CAN be atomic is the
+  // final claim: read+check+set sheetRowId inside a transaction. If a
+  // concurrent call from another tab/device already claimed it first (both
+  // passed the earlier checks and both got this far before either claimed),
+  // this one lost the race — clean up the now-orphaned duplicate row it just
+  // created instead of leaving two rows on the desk for one accepted order.
+  const dispatchRef = paths.dailyDispatch(input.workspaceId, input.entry.id);
+  const won = await runTransaction(database, async (tx) => {
+    const snap = await tx.get(dispatchRef);
+    if ((snap.data() as DailyDispatch | undefined)?.sheetRowId) return false;
+    tx.update(dispatchRef, { sheetRowId: row.id });
+    return true;
+  });
+  if (!won) {
+    await cleanup(row.id).catch(() => undefined);
+    return { ok: false, reason: "already" };
+  }
   return { ok: true, rowId: row.id };
 }
 

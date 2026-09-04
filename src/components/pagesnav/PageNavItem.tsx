@@ -121,7 +121,7 @@ export function PageNavItem({
       onChange={(e) => setDraftName(e.target.value)}
       onBlur={commitRename}
       onKeyDown={(e) => {
-        if (e.code === "Enter") e.currentTarget.blur();
+        if (e.code === "Enter" || e.code === "NumpadEnter") e.currentTarget.blur();
         if (e.code === "Escape") {
           setDraftName(page.name);
           setIsRenaming(false);
