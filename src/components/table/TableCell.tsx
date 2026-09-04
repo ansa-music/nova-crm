@@ -102,6 +102,18 @@ export function TableCell({
   const lastTapRef = useRef(0);
   const suppressEditRef = useRef(false);
 
+  // The long-press timer (armed on touch pointerdown, see onPointerDown
+  // below) is cleared on pointerup/pointercancel, but a cell can also
+  // disappear mid-touch without either of those firing — scrolled out by
+  // virtualization, or removed by a filter/sort/tab switch while a finger
+  // is still down. Without this, the timeout still fires 450ms later and
+  // calls setState on an unmounted component.
+  useEffect(() => {
+    return () => {
+      if (longPressRef.current) window.clearTimeout(longPressRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     if (isEditing && inputRef.current) {
       inputRef.current.focus();

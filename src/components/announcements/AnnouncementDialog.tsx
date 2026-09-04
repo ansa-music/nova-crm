@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -39,15 +39,41 @@ export function AnnouncementDialog({ open, onOpenChange, editing }: Announcement
   const { profile } = useAuth();
   const { activeWorkspaceId, members, pages } = useWorkspace();
   const permissions = usePermissions();
-  const [title, setTitle] = useState(editing?.title ?? "");
-  const [body, setBody] = useState(editing?.body ?? "");
-  const [priority, setPriority] = useState<AnnouncementPriority>(editing?.priority ?? "normal");
-  const [pinned, setPinned] = useState(editing?.pinned ?? false);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [priority, setPriority] = useState<AnnouncementPriority>("normal");
+  const [pinned, setPinned] = useState(false);
   const [notify, setNotify] = useState(false);
   const [target, setTarget] = useState<NotificationTargetKind>("all");
   const [selectedUids, setSelectedUids] = useState<string[]>([]);
   const [targetRole, setTargetRole] = useState<Role>("manager");
   const [isSaving, setIsSaving] = useState(false);
+  const wasShownRef = useRef(false);
+
+  // Re-sync ONLY on the closed→open transition, never while already open —
+  // same pattern/reasoning as ManageOptionsDialog.tsx. This dialog is
+  // mounted once by AnnouncementsPage and just toggles `open`/`editing`, so
+  // without this its useState initializers only ever ran on the very first
+  // render (while `editing` was still null): every "Редактировать" click
+  // opened a BLANK form, and saving it wrote priority: "normal", pinned:
+  // false over the real announcement regardless of what it actually held.
+  useEffect(() => {
+    if (!open) {
+      wasShownRef.current = false;
+      return;
+    }
+    if (wasShownRef.current) return;
+    wasShownRef.current = true;
+    setTitle(editing?.title ?? "");
+    setBody(editing?.body ?? "");
+    setPriority(editing?.priority ?? "normal");
+    setPinned(editing?.pinned ?? false);
+    setNotify(false);
+    setTarget("all");
+    setSelectedUids([]);
+    setTargetRole("manager");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const otherMembers = useMemo(
     () => members.filter((m) => m.status === "active" && m.uid !== profile?.uid),

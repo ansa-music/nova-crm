@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency } from "@/utils/format";
+import { normalizeNumericInput, parseLooseNumber } from "@/utils/numberInput";
 import {
   addPersonalReportRow,
   deletePersonalReportRow,
@@ -41,7 +42,15 @@ export function PersonalReportTable({ workspaceId, pageId, uid, report, rows }: 
 
   async function commitEdit() {
     if (!editing) return;
-    await updatePersonalReportRowCell(workspaceId, pageId, uid, report.id, editing.rowId, editing.colKey, editValue);
+    const col = columns.find((c) => c.key === editing.colKey);
+    // Same canonical parsing every other number/currency cell in the app
+    // uses (src/utils/numberInput.ts) — without it, "2 000" or "1500,50"
+    // (the way people actually type amounts on a Russian keyboard) fails
+    // Number()'s bare parse later, silently rendering as "0 ₸" and dropping
+    // out of "Общая сумма" entirely.
+    const value =
+      col && (col.type === "currency" || col.type === "number") ? normalizeNumericInput(editValue) : editValue;
+    await updatePersonalReportRowCell(workspaceId, pageId, uid, report.id, editing.rowId, editing.colKey, value);
     setEditing(null);
   }
 
@@ -50,7 +59,7 @@ export function PersonalReportTable({ workspaceId, pageId, uid, report, rows }: 
   }
 
   const total = priceColumn
-    ? rows.reduce((sum, row) => sum + (Number(row.cells[priceColumn.key]) || 0), 0)
+    ? rows.reduce((sum, row) => sum + (parseLooseNumber(String(row.cells[priceColumn.key] ?? "")) ?? 0), 0)
     : 0;
 
   return (
@@ -123,7 +132,9 @@ export function PersonalReportTable({ workspaceId, pageId, uid, report, rows }: 
                         />
                       ) : (
                         <div className={cn("min-h-8 cursor-text px-2 py-1.5", !value && "text-muted-foreground")}>
-                          {c.type === "currency" && value ? formatCurrency(Number(value)) : String(value ?? "—")}
+                          {c.type === "currency" && value
+                            ? formatCurrency(parseLooseNumber(String(value)) ?? 0)
+                            : String(value ?? "—")}
                         </div>
                       )}
                     </td>
