@@ -194,19 +194,24 @@ export async function duplicateSubPage(
   if (includeData) {
     const rowsSnap = await getDocs(paths.subPageRows(workspaceId, pageId, source.id));
     const batch = writeBatch(db);
+    const newRows: PageRow[] = [];
     rowsSnap.docs.forEach((d, i) => {
       const data = d.data() as PageRow;
       const newRowId = generateId("row");
-      batch.set(paths.subPageRow(workspaceId, pageId, copy.id, newRowId), {
+      const row: PageRow = {
         ...data,
         id: newRowId,
         pageId: copy.id,
         order: i,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-      });
+      };
+      batch.set(paths.subPageRow(workspaceId, pageId, copy.id, newRowId), row);
+      newRows.push(row);
     });
     await batch.commit();
+    // Mirror after the batch commits, same as every other row-creating write.
+    newRows.forEach((row) => mirrorUpsertRow(workspaceId, pageId, copy.id, row));
   }
   return copy;
 }

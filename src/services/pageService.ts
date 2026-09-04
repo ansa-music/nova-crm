@@ -676,11 +676,17 @@ export async function duplicatePage(workspaceId: string, page: WorkspacePage, ne
   const batch = writeBatch(db);
   batch.set(paths.page(workspaceId, newId), duplicated);
   const rowsSnapshot = await getDocs(paths.rows(workspaceId, page.id));
+  const newRows: PageRow[] = [];
   rowsSnapshot.docs.forEach((d) => {
     const rowId = generateId("row");
-    batch.set(paths.row(workspaceId, newId, rowId), { ...d.data(), id: rowId, pageId: newId });
+    const row = { ...(d.data() as PageRow), id: rowId, pageId: newId };
+    batch.set(paths.row(workspaceId, newId, rowId), row);
+    newRows.push(row);
   });
   await batch.commit();
+  // Mirror after the batch commits, same as every other row-creating write —
+  // best-effort, never blocks/throws (see mirrorUpsertRow).
+  newRows.forEach((row) => mirrorUpsertRow(workspaceId, newId, null, row));
   return duplicated;
 }
 
