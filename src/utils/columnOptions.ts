@@ -47,8 +47,19 @@ export function getColumnOptions(column: PageColumn, workspace: Workspace | null
   return column.statusOptions ?? [];
 }
 
+/**
+ * A plain substring match on "готов"/"done"/"успеш"/"закрыт" also matches
+ * negated statuses like "Не готово" or "Ещё не готово" (both contain
+ * "готов"), which would wrongly count them as done everywhere this is used
+ * (confetti, notDone filter/counter, leaderboard, markRowDone picking the
+ * wrong option). Bail out first if a standalone "не" token appears
+ * anywhere in the label — negation in Russian status names is written as
+ * a separate word ("не готово"), so this doesn't affect real done labels
+ * like "Готово"/"Закрыто"/"Отменено" (none contain a standalone "не").
+ */
 export function isDoneStatusLabel(label: string): boolean {
   const l = label.toLowerCase();
+  if (/(^|[\s-])не([\s-]|$)/.test(l)) return false;
   return l.includes("готов") || l.includes("done") || l.includes("успеш") || l.includes("закрыт");
 }
 

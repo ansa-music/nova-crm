@@ -995,7 +995,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const col = columns.find((c) => c.key === colKey);
     if (col?.type === "status") {
       const options = getColumnOptions(col, activeWorkspace);
-      const isDone = (v: string) => (options.find((o) => o.value === v)?.label ?? v).toLowerCase().includes("готов");
+      const isDone = (v: string) => isDoneStatusLabel(options.find((o) => o.value === v)?.label ?? v);
       if (isDone(value) && !isDone(oldValue)) celebrateDone();
     }
   }
