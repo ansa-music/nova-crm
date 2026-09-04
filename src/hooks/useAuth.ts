@@ -81,15 +81,27 @@ export function useAuthBootstrap() {
         console.error("Failed to obtain ID token:", tokenError);
       }
 
+      // A slow/suspended call (flaky connection) can still be awaiting the
+      // above when a sign-out + sign-in-as-someone-else fires a second,
+      // faster applyUser for a different uid. Bail out of this call's
+      // remaining side effects once a newer call has taken over —
+      // otherwise this stale call's setProfile/subscription would land
+      // AFTER the newer one and overwrite the live session with the
+      // previous user's data, and leak its own profile listener (never
+      // unsubscribed) on top of it.
+      if (lastAppliedUid !== uid) return;
+
       try {
         if (user) {
           const profile = await ensureUserProfile(user);
+          if (lastAppliedUid !== uid) return;
           setProfile(profile);
           setProfileResolved(true);
 
           unsubscribeProfileRef.current = subscribeToDoc<AppUser>(
             paths.user(user.uid),
             (liveProfile) => {
+              if (lastAppliedUid !== uid) return;
               if (liveProfile) setProfile(liveProfile);
             },
             (error) => {
@@ -160,7 +172,20 @@ export function useAuthBootstrap() {
       const redirectPromise = completeGoogleRedirectIfNeeded();
 
       if (pendingGoogle && !auth?.currentUser) {
-        await redirectPromise;
+        // The "pending" flag can be up to REDIRECT_FLAG_MAX_AGE_MS (10min)
+        // stale — e.g. the user backed out of the Google redirect without
+        // completing it, then reloaded and is now trying plain email+
+        // password login. completeGoogleRedirectIfNeeded()'s own timeout is
+        // REDIRECT_RESULT_TIMEOUT_MS (20s), which would otherwise block the
+        // whole login screen (RedirectIfAuthed keeps showing AppBootScreen
+        // until initialAuthReady flips) for that long on every such reload.
+        // Cap the actual wait here much shorter — a genuine in-flight
+        // redirect result resolves almost immediately once Auth is ready,
+        // and if it doesn't, subscribeToAuthChanges below already re-applies
+        // the user the moment Firebase eventually reports one (its pending-
+        // aware guard skips a premature "signed out" in the meantime), so
+        // nothing is lost by not blocking the UI on the slow path.
+        await Promise.race([redirectPromise, new Promise((resolve) => window.setTimeout(resolve, 4000))]);
       } else {
         void redirectPromise;
       }
