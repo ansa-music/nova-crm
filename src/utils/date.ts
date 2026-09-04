@@ -150,6 +150,20 @@ export function almatyNoonMillis(year: number, monthIndex: number, day: number):
   return new Date(`${year}-${m}-${d}T12:00:00+05:00`).getTime();
 }
 
+/**
+ * Midnight (00:00) on `ms`'s calendar day in Asia/Almaty — the shared day
+ * boundary for anything bucketing timestamps by Almaty calendar day (daily
+ * trend sparklines, "this week"/"this month" filters). Use this instead of
+ * `new Date(ms).setHours(0,0,0,0)`, which reads the VIEWER's own device
+ * timezone — fine for a manual-entry field the person is looking at on
+ * their own clock (see isSameLocalDay above), wrong for anything meant to
+ * look the same to every viewer regardless of where they are.
+ */
+export function almatyMidnightMillis(ms: number): number {
+  const p = ymdPartsInTimeZone(ms, USER_TIMEZONE);
+  return almatyNoonMillis(p.year, p.month, p.day) - 12 * 60 * 60 * 1000;
+}
+
 
 /** Soft greeting glow: cold cyan in the morning, warmer toward evening. Asia/Almaty hour. */
 export function greetingGlowShadow(hour: number): string {

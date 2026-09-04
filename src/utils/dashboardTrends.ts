@@ -1,5 +1,6 @@
 import { isDoneStatusLabel } from "@/utils/columnOptions";
-import { USER_TIMEZONE } from "@/utils/date";
+import { USER_TIMEZONE, almatyMidnightMillis, almatyNoonMillis, ymdPartsInTimeZone } from "@/utils/date";
+import { parseLooseNumber } from "@/utils/numberInput";
 import type { PageProgress } from "@/utils/deskProgress";
 import type { StatusOption, WorkspacePage } from "@/types";
 
@@ -19,22 +20,20 @@ const MONTHS_DATIVE = [
   "декабрю",
 ];
 
-function localMidnight(ms: number): number {
-  const d = new Date(ms);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
 /**
  * Buckets dateMs+value pairs into `days` daily totals ending today (oldest
- * first), zero-filled where nothing happened.
+ * first), zero-filled where nothing happened. Bucketed by Asia/Almaty
+ * calendar day (almatyMidnightMillis), not the viewer's own device
+ * timezone — this trend shape is shown to every viewer regardless of where
+ * they are, and a device-local day boundary would shift which bucket an
+ * order near midnight lands in depending on who's looking.
  */
 export function dailyTotals(entries: { dateMs: number; value: number }[], days = 14): number[] {
-  const today = localMidnight(Date.now());
+  const today = almatyMidnightMillis(Date.now());
   const start = today - (days - 1) * DAY_MS;
   const buckets = new Array(days).fill(0) as number[];
   for (const { dateMs, value } of entries) {
-    const day = localMidnight(dateMs);
+    const day = almatyMidnightMillis(dateMs);
     if (day < start || day > today) continue;
     const idx = Math.round((day - start) / DAY_MS);
     buckets[idx] += value;
@@ -44,9 +43,9 @@ export function dailyTotals(entries: { dateMs: number; value: number }[], days =
 
 /** Same as dailyTotals, but running-total — for "growth so far" shapes like desk count or cumulative revenue. */
 export function cumulativeDailyTotals(entries: { dateMs: number; value: number }[], days = 14): number[] {
-  const today = localMidnight(Date.now());
+  const today = almatyMidnightMillis(Date.now());
   const start = today - (days - 1) * DAY_MS;
-  const before = entries.filter((e) => localMidnight(e.dateMs) < start).reduce((sum, e) => sum + e.value, 0);
+  const before = entries.filter((e) => almatyMidnightMillis(e.dateMs) < start).reduce((sum, e) => sum + e.value, 0);
   let running = before;
   return dailyTotals(entries, days).map((v) => (running += v));
 }
@@ -68,7 +67,7 @@ function orderEntries(desks: PageProgress[]): { dateMs: number; value: number }[
     for (const row of desk.rows) {
       const ms = Number(row.cells[dateCol.key]);
       if (!Number.isFinite(ms) || ms <= 0) continue;
-      entries.push({ dateMs: ms, value: Number(row.cells[priceCol?.key ?? ""] ?? 0) || 0 });
+      entries.push({ dateMs: ms, value: parseLooseNumber(String(row.cells[priceCol?.key ?? ""] ?? "")) ?? 0 });
     }
   }
   return entries;
@@ -97,7 +96,7 @@ export function doneTrend(desks: PageProgress[], statusOptions: StatusOption[], 
       const rawStatus = String(row.cells[statusCol.key] ?? "");
       const label = statusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
       if (!isDoneStatusLabel(label)) continue;
-      entries.push({ dateMs: ms, value: Number(row.cells[priceCol?.key ?? ""] ?? 0) || 0 });
+      entries.push({ dateMs: ms, value: parseLooseNumber(String(row.cells[priceCol?.key ?? ""] ?? "")) ?? 0 });
     }
   }
   return cumulativeDailyTotals(entries, days);
@@ -137,22 +136,30 @@ export function countMonthCaption(kind: string, now = Date.now()): string {
   return `${kind} · ${name}`;
 }
 
-/** "Выручка · август" — current month, nominative, from local clock. */
-export function revenueMonthCaption(now = new Date()): string {
-  const name = now.toLocaleDateString("ru-RU", { month: "long" });
+/** "Выручка · август" — current month in Asia/Almaty, nominative. */
+export function revenueMonthCaption(now: number = Date.now()): string {
+  const name = new Date(now).toLocaleDateString("ru-RU", { month: "long", timeZone: USER_TIMEZONE });
   return `Выручка · ${name}`;
 }
 
+function almatyMonthStart(year: number, monthIndex: number): number {
+  return almatyNoonMillis(year, monthIndex, 1) - 12 * 60 * 60 * 1000;
+}
+
 /**
- * Month-over-month % from the same order-received date column.
+ * Month-over-month % from the same order-received date column, using
+ * Asia/Almaty month boundaries — was `now.getFullYear()`/`getMonth()`, the
+ * VIEWER's own device timezone, so this delta and the "Выручка · <месяц>"
+ * label right above it (and KpiStatsRow's own `thisMonth` highlight,
+ * already Almaty-based) could each name a different month for the same
+ * viewer near a month boundary.
  * "+18.5% к июлю" — still computed from already-loaded rows, no new writes.
  */
-export function revenueMonthDelta(desks: PageProgress[], now = new Date()): { text: string; tone: "up" | "down" | "flat" } {
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const thisStart = new Date(year, month, 1).getTime();
-  const nextStart = new Date(year, month + 1, 1).getTime();
-  const prevStart = new Date(year, month - 1, 1).getTime();
+export function revenueMonthDelta(desks: PageProgress[], now: number = Date.now()): { text: string; tone: "up" | "down" | "flat" } {
+  const { year, month } = ymdPartsInTimeZone(now, USER_TIMEZONE);
+  const thisStart = almatyMonthStart(year, month);
+  const nextStart = month === 11 ? almatyMonthStart(year + 1, 0) : almatyMonthStart(year, month + 1);
+  const prevStart = month === 0 ? almatyMonthStart(year - 1, 11) : almatyMonthStart(year, month - 1);
   let current = 0;
   let previous = 0;
   for (const { dateMs, value } of orderEntries(desks)) {

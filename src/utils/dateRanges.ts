@@ -1,4 +1,4 @@
-import { USER_TIMEZONE, almatyNoonMillis, ymdPartsInTimeZone } from "@/utils/date";
+import { USER_TIMEZONE, almatyMidnightMillis, almatyNoonMillis, ymdPartsInTimeZone } from "@/utils/date";
 
 /**
  * Quick date-column filters. Every preset resolves to an inclusive
@@ -23,10 +23,7 @@ export const DATE_PRESET_ORDER: DatePreset[] = ["today", "yesterday", "thisWeek"
 
 const DAY = 24 * 60 * 60 * 1000;
 
-function dayStart(ms: number): number {
-  const p = ymdPartsInTimeZone(ms, USER_TIMEZONE);
-  return almatyNoonMillis(p.year, p.month, p.day) - 12 * 60 * 60 * 1000;
-}
+const dayStart = almatyMidnightMillis;
 
 /** Monday-based weekday index (0 = Monday) for an Almaty day. */
 function weekdayIndex(ms: number): number {

@@ -137,17 +137,24 @@ export function isApprovedViewRequest(request: ViewRequest | null | undefined): 
 /**
  * Whether this user may OPEN the table (navigate to /page/:id), not merely see the cover.
  * Owner: every desk. Responsible: always their own (even if hidden).
- * Технар/viewer: own desk, OR — for a HIDDEN desk specifically — only an
- * approved view-request (allowedUsers is deliberately not enough there, see
- * WorkspacePage.hiddenByResponsible: hidden must stay hidden from everyone
- * but Owner/responsible until the responsible person explicitly approves a
- * request, even if their uid still lingers in allowedUsers from before it
- * was hidden). For a desk that ISN'T hidden, an explicit allowedUsers grant
- * (e.g. the Owner toggling a member on in "Доступ") is real access on its
- * own and must open it without forcing a request first — the previous
- * version ignored allowedUsers entirely for Технар/viewer, so anyone added
- * straight to allowedUsers on a visible (non-hidden) desk still saw
- * "Запросить доступ" forever, since only an approved request ever counted.
+ * Технар/viewer: own desk, OR — for a HIDDEN desk specifically — an
+ * approved view-request AND still being in allowedUsers. Both are required:
+ * a stale allowedUsers entry from before the desk was hidden must NOT be
+ * enough on its own (see WorkspacePage.hiddenByResponsible — hidden must
+ * stay hidden until an explicit approval), but an approval ALONE must not
+ * be permanent either. resolveDeskViewRequest() adds the requester to
+ * allowedUsers the moment it approves, specifically so that revoking is
+ * just removing them from allowedUsers again (the same "Доступ" toggle the
+ * Owner already uses for every other desk) — without this second check,
+ * unchecking that toggle on a hidden desk was a complete no-op: the
+ * approved request alone kept granting access forever, with no way in the
+ * product to undo it. For a desk that ISN'T hidden, an explicit
+ * allowedUsers grant (e.g. the Owner toggling a member on in "Доступ") is
+ * real access on its own and must open it without forcing a request first
+ * — the previous version ignored allowedUsers entirely for Технар/viewer,
+ * so anyone added straight to allowedUsers on a visible (non-hidden) desk
+ * still saw "Запросить доступ" forever, since only an approved request
+ * ever counted.
  */
 export function canOpenDesk(opts: {
   page: WorkspacePage;
@@ -161,7 +168,9 @@ export function canOpenDesk(opts: {
   if (opts.isOwner) return true;
   if (opts.page.responsibleUserId === uid) return true;
   if (isRestrictedDeskRole(opts.role)) {
-    if (opts.page.hiddenByResponsible) return isApprovedViewRequest(opts.latestRequest);
+    if (opts.page.hiddenByResponsible) {
+      return isApprovedViewRequest(opts.latestRequest) && Boolean(opts.page.allowedUsers?.includes(uid));
+    }
     return Boolean(opts.page.allowedUsers?.includes(uid)) || isApprovedViewRequest(opts.latestRequest);
   }
   return Boolean(opts.page.allowedUsers?.includes(uid));

@@ -4,6 +4,7 @@ import type { StatusOption, WorkspaceMember } from "@/types";
 import { ymdInTimeZone } from "@/utils/date";
 import { personLabel } from "@/utils/peopleDesks";
 import { isResponsibleForPage } from "@/utils/permissions";
+import { parseLooseNumber } from "@/utils/numberInput";
 
 export interface RecentRowItem {
   id: string;
@@ -46,7 +47,7 @@ function toRecentRowItem(
     title: titleFromRow(desk, row.cells),
     statusValue: rawStatus,
     statusLabel: opt?.label ?? rawStatus,
-    price: Number(row.cells[priceCol?.key ?? ""] ?? 0) || 0,
+    price: parseLooseNumber(String(row.cells[priceCol?.key ?? ""] ?? "")) ?? 0,
     dateMs: Number.isFinite(ms) && ms > 0 ? ms : null,
     updatedAt: row.updatedAt || row.createdAt || 0,
     responsibleLabel: personLabel(owner) || "—",

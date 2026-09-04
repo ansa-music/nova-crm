@@ -2,7 +2,7 @@ import { deleteDoc, getDocs, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
-import { isSameLocalDay, normalizeTimestamp } from "@/utils/date";
+import { normalizeTimestamp, ymdInTimeZone } from "@/utils/date";
 import type { GrokAccount, GrokLoginMethod } from "@/types";
 import { grokLoginMethodOf } from "@/types/grokAccount";
 
@@ -21,7 +21,11 @@ export type GrokAccountStatus = "available" | "resetToday" | "unavailable";
  */
 export function getGrokAccountStatus(account: { available?: boolean; limitResetAt: number | null }, now: number = Date.now()): GrokAccountStatus {
   if (isGrokAccountAvailable(account)) return "available";
-  if (account.limitResetAt != null && isSameLocalDay(account.limitResetAt, now)) return "resetToday";
+  // Asia/Almaty, not isSameLocalDay's device-local day — this status is
+  // shared across everyone viewing the same account pool, and comparing by
+  // the viewer's own OS timezone let two people looking at the exact same
+  // account disagree on whether it "resets today."
+  if (account.limitResetAt != null && ymdInTimeZone(account.limitResetAt) === ymdInTimeZone(now)) return "resetToday";
   return "unavailable";
 }
 

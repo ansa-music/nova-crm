@@ -5,6 +5,7 @@ import { formatCurrency } from "@/utils/format";
 import { cn } from "@/utils/cn";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { DEFAULT_STATUS_OPTIONS, getColumnOptions, isDoneStatusLabel } from "@/utils/columnOptions";
+import { parseLooseNumber } from "@/utils/numberInput";
 import type { PageColumn, PageRow } from "@/types";
 
 const PERCENTS = [5, 8, 10, 12];
@@ -28,7 +29,7 @@ export function SubPageStats({ columns, rows }: SubPageStatsProps) {
     let grandTotal = 0;
     let doneTotal = 0;
     for (const row of rows) {
-      const raw = Number(row.cells[priceCol.key] ?? 0) || 0;
+      const raw = parseLooseNumber(String(row.cells[priceCol.key] ?? "")) ?? 0;
       grandTotal += raw;
       if (statusCol) {
         const rawStatus = String(row.cells[statusCol.key] ?? "");

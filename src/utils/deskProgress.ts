@@ -1,5 +1,6 @@
-import { formatDate, ymdInTimeZone } from "@/utils/date";
+import { ymdInTimeZone } from "@/utils/date";
 import { isDoneStatusLabel } from "@/utils/columnOptions";
+import { parseLooseNumber } from "@/utils/numberInput";
 import type { PageColumn, PageRow, StatusOption, SubPage, WorkspacePage } from "@/types";
 
 export interface PageProgress {
@@ -32,7 +33,7 @@ export function progressForPage(
   let doneTotal = 0;
   let openCount = 0;
   for (const row of rows) {
-    const raw = Number(row.cells[priceCol?.key ?? "price"] ?? 0) || 0;
+    const raw = parseLooseNumber(String(row.cells[priceCol?.key ?? "price"] ?? "")) ?? 0;
     grandTotal += raw;
     if (statusCol) {
       const rawStatus = String(row.cells[statusCol.key] ?? "");
@@ -185,9 +186,14 @@ export function ordersByDateFromDesks(desks: PageProgress[]) {
     for (const row of desk.rows) {
       const ms = Number(row.cells[dateCol.key]);
       if (!Number.isFinite(ms) || ms <= 0) continue;
-      const sortKey = formatDate(ms, "yyyy-MM");
-      const label = formatDate(ms, "LLL yyyy");
-      const amount = Number(row.cells[priceCol?.key ?? ""] ?? 0) || 0;
+      // Asia/Almaty, like every other order-date bucketing in this file
+      // (monthOrderCountsByMonth right above) — formatDate() has no
+      // timeZone option and reads the VIEWER's own device clock, so an
+      // order near midnight Almaty time could land in a different
+      // month here than in the "По месяцам, штуки" card right below it.
+      const sortKey = ymdInTimeZone(ms).slice(0, 7);
+      const label = monthLabelAlmaty(sortKey);
+      const amount = parseLooseNumber(String(row.cells[priceCol?.key ?? ""] ?? "")) ?? 0;
       const prev = buckets.get(sortKey);
       buckets.set(sortKey, { label, value: (prev?.value ?? 0) + amount });
     }
