@@ -17,6 +17,13 @@ export function useInboxSummary(
   const [workspaceMessages, setWorkspaceMessages] = useState<ChatMessage[]>([]);
   const [conversations, setConversations] = useState<PrivateChatMeta[]>([]);
   const [readMarkers, setReadMarkers] = useState<Record<string, number>>({});
+  // conversations/readMarkers are two independent onSnapshot subscriptions
+  // with no ordering guarantee — on a cold load, conversations can deliver
+  // first while readMarkers is still empty, which would make lastRead
+  // default to 0 and flash an already-read conversation as unread until
+  // the readMarkers snapshot catches up a moment later. Gate unread
+  // computation on this instead of trusting an empty readMarkers map.
+  const [readMarkersLoaded, setReadMarkersLoaded] = useState(false);
 
   useEffect(() => {
     setOptimisticReads({});
@@ -27,8 +34,10 @@ export function useInboxSummary(
       setWorkspaceMessages([]);
       setConversations([]);
       setReadMarkers({});
+      setReadMarkersLoaded(false);
       return;
     }
+    setReadMarkersLoaded(false);
     const unsubs: Array<() => void> = [];
     if (includeWorkspaceChat) {
       unsubs.push(subscribeToChat(paths.workspaceChat(workspaceId), setWorkspaceMessages));
@@ -36,7 +45,12 @@ export function useInboxSummary(
       setWorkspaceMessages([]);
     }
     unsubs.push(subscribeMyConversations(workspaceId, uid, setConversations));
-    unsubs.push(subscribeReadMarkers(workspaceId, uid, setReadMarkers));
+    unsubs.push(
+      subscribeReadMarkers(workspaceId, uid, (map) => {
+        setReadMarkers(map);
+        setReadMarkersLoaded(true);
+      })
+    );
     return () => unsubs.forEach((u) => u());
   }, [active, workspaceId, uid, includeWorkspaceChat]);
 
@@ -54,18 +68,20 @@ export function useInboxSummary(
   );
 
   const workspaceChatUnread = useMemo(() => {
+    if (!readMarkersLoaded) return 0;
     const lastRead = mergedReads["workspaceChat"] ?? 0;
     return workspaceMessages.filter((m) => m.authorUid !== uid && m.createdAt > lastRead && !m.deleted).length;
-  }, [workspaceMessages, mergedReads, uid]);
+  }, [workspaceMessages, mergedReads, uid, readMarkersLoaded]);
 
   const conversationsWithUnread = useMemo(
     () =>
       conversations.map((c) => {
+        if (!readMarkersLoaded) return { ...c, unread: false };
         const lastRead = mergedReads[`private:${c.id}`] ?? 0;
         const unread = c.lastMessageFromUid !== uid && c.lastMessageAt > lastRead;
         return { ...c, unread };
       }),
-    [conversations, mergedReads, uid]
+    [conversations, mergedReads, uid, readMarkersLoaded]
   );
 
   const privateUnreadTotal = conversationsWithUnread.filter((c) => c.unread).length;
