@@ -27,6 +27,12 @@ export function RowCommentsPanel({ open, onOpenChange, workspaceId, pageId, rowI
   );
 
   useEffect(() => {
+    // Clear on every rowId change, not just when the sheet closes — the
+    // context menu can pick a DIFFERENT row's "Комментарии" while this
+    // sheet is already open for another row (it's always mounted, `open`/
+    // `rowId` just toggle), which otherwise briefly shows the previous
+    // row's comments under the new row's title.
+    setMessages([]);
     if (!open || !rowId) return;
     return subscribeToChat(paths.rowComments(workspaceId, pageId, rowId), setMessages, (error) =>
       console.error("subscribeToChat(rowComments) denied:", error.code, error.message)
@@ -55,7 +61,14 @@ export function RowCommentsPanel({ open, onOpenChange, workspaceId, pageId, rowI
                 text,
                 replyTo,
               });
-              await notifyMentions(workspaceId, profile.uid, profile.nickname || profile.name, mentionedUids, text);
+              await notifyMentions(
+                workspaceId,
+                profile.uid,
+                profile.nickname || profile.name,
+                mentionedUids,
+                text,
+                `/page/${pageId}`
+              );
             }}
             onEdit={(id, text) => editChatMessage(ref, id, text)}
             onDelete={(id) => deleteChatMessage(ref, id)}

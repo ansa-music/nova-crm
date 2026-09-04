@@ -33,11 +33,22 @@ interface ChatPanelProps {
   mentionableUsers?: MentionableUser[];
 }
 
+/**
+ * One combined alternation, LONGEST name first, so "@Bob Smith" can never
+ * also match a shorter "Bob" that happens to be a prefix of it — matching
+ * independently per-name (as extractMentionedUids used to) would match
+ * BOTH names on that text and notify the wrong person too.
+ */
+function buildMentionPattern(mentionableUsers: MentionableUser[]): RegExp | null {
+  if (mentionableUsers.length === 0) return null;
+  const names = mentionableUsers.map((u) => u.name).sort((a, b) => b.length - a.length);
+  return new RegExp(`@(${names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`, "g");
+}
+
 /** Renders message text with "@Name" occurrences (matching a known mentionable user) highlighted. */
 function renderTextWithMentions(text: string, mentionableUsers: MentionableUser[]) {
-  if (mentionableUsers.length === 0) return text;
-  const names = mentionableUsers.map((u) => u.name).sort((a, b) => b.length - a.length);
-  const pattern = new RegExp(`@(${names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`, "g");
+  const pattern = buildMentionPattern(mentionableUsers);
+  if (!pattern) return text;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -57,7 +68,16 @@ function renderTextWithMentions(text: string, mentionableUsers: MentionableUser[
 
 /** Extracts the uids of every mentionable user whose "@Name" appears in the text. */
 function extractMentionedUids(text: string, mentionableUsers: MentionableUser[]): string[] {
-  return mentionableUsers.filter((u) => new RegExp(`@${u.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(text)).map((u) => u.uid);
+  const pattern = buildMentionPattern(mentionableUsers);
+  if (!pattern) return [];
+  const byName = new Map(mentionableUsers.map((u) => [u.name, u.uid]));
+  const uids = new Set<string>();
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text))) {
+    const uid = byName.get(match[1]);
+    if (uid) uids.add(uid);
+  }
+  return Array.from(uids);
 }
 
 export function ChatPanel({
@@ -77,9 +97,24 @@ export function ChatPanel({
   const [search, setSearch] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // Starts true so the very first load still lands at the bottom. Updated
+  // on every scroll (see the container's onScroll below), NOT computed
+  // inside the messages.length effect itself — by the time that effect
+  // runs, the DOM already reflects the new message, so scrollHeight
+  // already includes it and can't tell "was already at the bottom" from
+  // "just scrolled up to read something."
+  const isNearBottomRef = useRef(true);
 
   useEffect(() => {
+    // A new message while the user has scrolled up to read older ones
+    // must NOT yank them back down to the bottom — only auto-follow when
+    // they were already there, or it's their own outgoing message (they'd
+    // want to see that land regardless of where they'd scrolled to).
+    const last = messages[messages.length - 1];
+    if (!isNearBottomRef.current && last?.authorUid !== currentUid) return;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length]);
 
   // Mention autocomplete: look at the text right before the cursor for an
@@ -170,7 +205,14 @@ export function ChatPanel({
           <span className="shrink-0 text-xs text-muted-foreground">{displayedMessages.length} найдено</span>
         )}
       </div>
-      <div className="flex-1 overflow-y-auto scrollbar-thin p-4">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto scrollbar-thin p-4"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          isNearBottomRef.current = el.scrollHeight - (el.scrollTop + el.clientHeight) < 120;
+        }}
+      >
         {displayedMessages.length === 0 && (
           <p className="py-12 text-center text-sm text-muted-foreground">
             {search.trim() ? "Ничего не найдено" : emptyMessage ?? "Сообщений пока нет"}

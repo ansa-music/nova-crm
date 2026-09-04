@@ -28,6 +28,13 @@ export function PageChatPanel({ open, onOpenChange, workspaceId, pageId, pageNam
   );
 
   useEffect(() => {
+    // Clear on every pageId change too — DynamicTablePage is mounted once
+    // at the /page/:pageId route with no key, so React Router reuses this
+    // same component instance across desk navigations. If the chat sheet
+    // is open while the user switches desks, `open` stays true and only
+    // `pageId` changes, which otherwise left the PREVIOUS desk's chat
+    // messages on screen under the new desk's title.
+    setMessages([]);
     if (!open) return;
     return subscribeToChat(chatRef, setMessages, (error) =>
       console.error("subscribeToChat(pageChat) denied:", error.code, error.message)

@@ -54,12 +54,17 @@ export async function markPrivateConversationRead(
   await markContextRead(workspaceId, uid, `private:${chatId}`);
   const href = `/messages/${peerUid}`;
   const notifs = await fetchMyNotifications(workspaceId, uid);
-  const related = notifs.filter((n) => {
-    if (n.read) return false;
-    if (typeof n.href === "string" && n.href.startsWith("/messages/") && n.href === href) return true;
-    if (n.fromUid === peerUid && !n.relatedAnnouncementId && !n.pageId) return true;
-    return false;
-  });
+  // Match by href alone. The old second branch ("from peerUid, not an
+  // announcement, no pageId") was meant to catch private-chat
+  // notifications, but notifyMentions() never sets pageId for ANY mention
+  // — a workspace-chat or row-comment mention from this same person is
+  // just as "no pageId" as an actual DM mention, so opening a private chat
+  // with someone silently marked read every pending mention from them
+  // ANYWHERE in the app, including ones the person never saw. href is
+  // already the precise, unambiguous signal (set correctly by every
+  // notifyMentions call site — see RowCommentsPanel/PageChatPanel/
+  // MessagesPage), so nothing else is needed.
+  const related = notifs.filter((n) => !n.read && typeof n.href === "string" && n.href === href);
   for (const n of related) {
     await markNotificationRead(workspaceId, n.id);
   }
