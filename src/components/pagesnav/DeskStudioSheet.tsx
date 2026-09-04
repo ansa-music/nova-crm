@@ -55,9 +55,28 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
   const [coverBusy, setCoverBusy] = useState(false);
   const [coverDrag, setCoverDrag] = useState(false);
   const coverInputRef = useRef<HTMLInputElement>(null);
+  const wasShownRef = useRef(false);
+  const shownForPageIdRef = useRef<string | null>(null);
 
+  // Re-sync ONLY on the closed→open transition (or when the desk itself
+  // changes while open), never on every re-render. `page` is a fresh object
+  // reference on every live Firestore snapshot of the workspace's page
+  // list, which fires on ANY page-doc field changing — not just the ones
+  // this sheet edits. Re-running on every `page` change (the old
+  // dependency) meant: open Desk Studio, start typing a new "Название", use
+  // any other control in the same sheet that writes immediately (reorder/
+  // rename/hide a column, press Enter in "Цель") — the resulting snapshot
+  // update silently reset the still-unsaved name back to the server value.
+  // Same failure class already fixed in ManageOptionsDialog.tsx.
   useEffect(() => {
-    if (!page || !open) return;
+    if (!page || !open) {
+      wasShownRef.current = false;
+      shownForPageIdRef.current = null;
+      return;
+    }
+    if (wasShownRef.current && shownForPageIdRef.current === page.id) return;
+    wasShownRef.current = true;
+    shownForPageIdRef.current = page.id;
     setName(page.name);
     setIcon(page.icon ?? "LayoutGrid");
     setColor(page.color ?? "189 100% 72%");

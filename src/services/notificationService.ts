@@ -55,7 +55,14 @@ export async function sendNotification(input: SendNotificationInput, targetUids:
   if (!db) throw new Error("Firebase не настроен");
   if (targetUids.length === 0) return;
   const batch = writeBatch(db);
-  const uniqueTargets = Array.from(new Set(targetUids));
+  // Never notify the sender about their own action — every target-resolution
+  // path is expected to already exclude them, but "responsible" (see
+  // resolveNotificationTargets below) derives its list from raw page data
+  // instead of the caller-filtered member list the other branches use, so
+  // an Owner/Admin who is themselves responsible for a desk got notified
+  // about their own announcement. Excluding here covers every call site
+  // uniformly instead of re-fixing each target-resolution branch.
+  const uniqueTargets = Array.from(new Set(targetUids)).filter((uid) => uid !== input.fromUid);
   for (const targetUid of uniqueTargets) {
     const id = generateId("notif");
     const notification: Notification = {
