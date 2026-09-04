@@ -31,7 +31,7 @@ export const workspaceSchema = z.object({
 export type WorkspaceFormValues = z.infer<typeof workspaceSchema>;
 
 export const pageSchema = z.object({
-  name: z.string().min(1, "Введите название").max(40, "Максимум 40 символов"),
+  name: z.string().trim().min(1, "Введите название").max(40, "Максимум 40 символов"),
 });
 export type PageFormValues = z.infer<typeof pageSchema>;
 

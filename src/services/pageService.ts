@@ -308,10 +308,16 @@ export async function createPageForCurrentRole(
       order: input.order,
     });
   }
+  // firestore.rules' create rule requires an Admin's own page create to
+  // set responsibleUserId to themselves and include themselves in
+  // allowedUsers — same contract as Manager, just without the one-page
+  // quota. Only a real Owner create should end up with responsibleUserId
+  // null (an Owner has blanket workspace access regardless).
+  const selfAssign = input.role === "manager" || input.role === "admin";
   return createPage({
     ...input,
-    responsibleUserId: input.responsibleUserId ?? (input.role === "manager" ? input.uid : null),
-    allowedUsers: Array.from(new Set([...input.allowedUsers, ...(input.role === "manager" ? [input.uid] : [])])),
+    responsibleUserId: input.responsibleUserId ?? (selfAssign ? input.uid : null),
+    allowedUsers: Array.from(new Set([...input.allowedUsers, ...(selfAssign ? [input.uid] : [])])),
   });
 }
 
