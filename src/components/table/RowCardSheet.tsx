@@ -7,7 +7,7 @@ import { DateCalendar } from "@/components/table/DateCalendar";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { formatCurrency, formatNumber } from "@/utils/format";
+import { formatCurrencyCell, formatNumber } from "@/utils/format";
 import { formatDate, formatOrderDate } from "@/utils/date";
 import { DEFAULT_STATUS_OPTIONS, isDoneStatusLabel, isOptionColumn } from "@/utils/columnOptions";
 import { normalizeNumericInput } from "@/utils/numberInput";
@@ -264,7 +264,7 @@ export function RowCardSheet({
         return href ? <DiskLinkChip href={href.href} /> : <span className="text-sm text-muted-foreground">{stringValue || "—"}</span>;
       }
       if (col.type === "currency" && stringValue) {
-        return <span className="display text-xl tabular">{formatCurrency(Number(stringValue))}</span>;
+        return <span className="display text-xl tabular">{formatCurrencyCell(stringValue)}</span>;
       }
       if (col.type === "number" && stringValue) {
         const n = Number(stringValue);

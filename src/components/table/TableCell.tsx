@@ -7,7 +7,7 @@ import { DateCalendar } from "@/components/table/DateCalendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatCurrency, formatNumber } from "@/utils/format";
+import { formatCurrencyCell, formatNumber } from "@/utils/format";
 import { formatOrderDate } from "@/utils/date";
 import { isOptionColumn } from "@/utils/columnOptions";
 import { parseHttpUrl } from "@/utils/httpUrl";
@@ -188,7 +188,7 @@ export function TableCell({
       return <StatusBadge value={stringValue} options={column.statusOptions ?? []} showTick={column.type === "status"} />;
     }
     if (column.type === "currency" && stringValue) {
-      return <span className={cn("tabular-nums", isNegative && "font-medium text-destructive")}>{formatCurrency(Number(stringValue))}</span>;
+      return <span className={cn("tabular-nums", isNegative && "font-medium text-destructive")}>{formatCurrencyCell(stringValue)}</span>;
     }
     if (column.type === "number" && stringValue) {
       const n = Number(String(stringValue).replace(/\s/g, "").replace(",", "."));

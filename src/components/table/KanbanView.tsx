@@ -278,7 +278,8 @@ function KanbanCard({ row, titleColKey, currencyColKey, responsibleCol, dateColK
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: row.id, disabled: !canEdit });
   const title = titleColKey ? String(row.cells[titleColKey] ?? "").trim() : "";
   const amount = currencyColKey ? row.cells[currencyColKey] : null;
-  const hasAmount = amount !== null && amount !== undefined && amount !== "" && !Number.isNaN(Number(amount));
+  const parsedAmount = amount === null || amount === undefined || amount === "" ? null : parseLooseNumber(String(amount));
+  const hasAmount = parsedAmount !== null;
   const responsibleValue = responsibleCol ? String(row.cells[responsibleCol.key] ?? "") : "";
   const responsibleOption = responsibleCol?.statusOptions?.find((o) => o.value === responsibleValue);
   const dateValue = dateColKey ? Number(row.cells[dateColKey] ?? 0) : 0;
@@ -323,7 +324,7 @@ function KanbanCard({ row, titleColKey, currencyColKey, responsibleCol, dateColK
       )}
       {title ? <p className={cn("line-clamp-2 font-medium leading-snug", responsibleOption && "pr-6")}>{title}</p> : <p className="italic text-muted-foreground">Без названия</p>}
       <div className={cn("mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground")}>
-        {hasAmount && <span className="tabular text-foreground">{formatCurrency(Number(amount))}</span>}
+        {hasAmount && <span className="tabular text-foreground">{formatCurrency(parsedAmount)}</span>}
         {dateValue > 0 && (
           <span className="inline-flex items-center gap-1 tabular">
             <CalendarDays className="h-3 w-3" /> {formatOrderDate(dateValue)}

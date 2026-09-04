@@ -6,8 +6,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/utils/cn";
 import { downloadCsv } from "@/utils/csv";
-import { formatCurrency } from "@/utils/format";
+import { formatCurrency, formatCurrencyCell } from "@/utils/format";
+import { formatOrderDate } from "@/utils/date";
+import { isOptionColumn, getColumnOptions } from "@/utils/columnOptions";
 import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
+import { useWorkspace } from "@/hooks/useWorkspace";
 import { setPageMonthlyGoal } from "@/services/pageService";
 import { toast } from "@/components/ui/sonner";
 import type { PageColumn, PageRow, WorkspacePage } from "@/types";
@@ -35,6 +38,7 @@ export function MyProgressCard({
   large?: boolean;
   onCustomize?: () => void;
 }) {
+  const { activeWorkspace } = useWorkspace();
   const animatedDone = useAnimatedNumber(doneTotal);
   const animatedTotal = useAnimatedNumber(grandTotal);
   const animatedPercent = useAnimatedNumber(percent);
@@ -60,7 +64,22 @@ export function MyProgressCard({
 
   function handleExport() {
     const header = columns.map((c) => c.label);
-    const lines = rows.map((row) => columns.map((c) => String(row.cells[c.key] ?? "")));
+    const lines = rows.map((row) =>
+      columns.map((c) => {
+        const raw = row.cells[c.key];
+        const str = raw === null || raw === undefined ? "" : String(raw);
+        if (!str) return "";
+        if (isOptionColumn(c.type)) {
+          return getColumnOptions(c, activeWorkspace).find((o) => o.value === str)?.label ?? str;
+        }
+        if (c.type === "currency") return formatCurrencyCell(str);
+        if (c.type === "date") {
+          const n = Number(str);
+          return Number.isFinite(n) && n > 0 ? formatOrderDate(n) : str;
+        }
+        return str;
+      })
+    );
     downloadCsv(`${page.name}.csv`, header, lines);
   }
 

@@ -105,7 +105,7 @@ import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { updateResponsibleOptions, updateCustomFieldOptions, updateStatusOptions } from "@/services/workspaceService";
-import { formatCurrency, formatNumber, downloadCsv } from "@/utils";
+import { formatCurrency, formatCurrencyCell, formatNumber, downloadCsv } from "@/utils";
 import { formatOrderDate } from "@/utils/date";
 import { isSummableColumn, sumNumericCells } from "@/utils/tableAggregates";
 import { clampColumnWidth } from "@/utils/tableLayout";
@@ -1179,6 +1179,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       }
     }
 
+    // Collect every changed cell first and push ONE undo command covering
+    // the whole paste — pushing one command per cell (as this used to)
+    // meant a single Ctrl+Z after a multi-cell paste only restored the
+    // LAST cell touched, leaving the rest of the pasted block in place.
+    const edits: { rowId: string; colKey: string; oldValue: string; newValue: string }[] = [];
     matrix.forEach((line, ri) => {
       const rowId = effectiveRowIds[startRowIdx + ri];
       if (!rowId) return;
@@ -1197,14 +1202,18 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         } else if (col.type !== "text") {
           newValue = val.trim();
         }
-        if (newValue !== oldValue) {
-          persistCellEdit(rowId, col.key, oldValue, newValue);
-          pushCommand({
-            undo: () => persistCellEdit(rowId, col.key, newValue, oldValue),
-            redo: () => persistCellEdit(rowId, col.key, oldValue, newValue),
-          });
-        }
+        if (newValue !== oldValue) edits.push({ rowId, colKey: col.key, oldValue, newValue });
       });
+    });
+    if (edits.length === 0) return;
+    for (const e of edits) persistCellEdit(e.rowId, e.colKey, e.oldValue, e.newValue);
+    pushCommand({
+      undo: async () => {
+        await Promise.all(edits.map((e) => persistCellEdit(e.rowId, e.colKey, e.newValue, e.oldValue)));
+      },
+      redo: async () => {
+        await Promise.all(edits.map((e) => persistCellEdit(e.rowId, e.colKey, e.oldValue, e.newValue)));
+      },
     });
   }
 
@@ -1226,6 +1235,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (!canEdit) return;
     const bounds = getSelectionBounds();
     if (!bounds) return;
+    // Batch all cleared cells into ONE undo command (see the same fix and
+    // rationale on applyMatrixPasteAt above) — one command per cell meant
+    // a single Ctrl+Z after clearing a block only restored the last cell.
+    const edits: { rowId: string; colKey: string; oldValue: string }[] = [];
     for (let r = bounds.rowStart; r <= bounds.rowEnd; r++) {
       const row = rows.find((rr) => rr.id === rowIds[r]);
       if (!row) continue;
@@ -1233,15 +1246,19 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         const col = displayColumns[c];
         if (!col) continue;
         const oldValue = String(row.cells[col.key] ?? "");
-        if (oldValue) {
-          persistCellEdit(row.id, col.key, oldValue, "");
-          pushCommand({
-            undo: () => persistCellEdit(row.id, col.key, "", oldValue),
-            redo: () => persistCellEdit(row.id, col.key, oldValue, ""),
-          });
-        }
+        if (oldValue) edits.push({ rowId: row.id, colKey: col.key, oldValue });
       }
     }
+    if (edits.length === 0) return;
+    for (const e of edits) persistCellEdit(e.rowId, e.colKey, e.oldValue, "");
+    pushCommand({
+      undo: async () => {
+        await Promise.all(edits.map((e) => persistCellEdit(e.rowId, e.colKey, "", e.oldValue)));
+      },
+      redo: async () => {
+        await Promise.all(edits.map((e) => persistCellEdit(e.rowId, e.colKey, e.oldValue, "")));
+      },
+    });
   }
 
   // ---- Keyboard navigation ----
@@ -1447,6 +1464,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (!canEdit || !activeCell) return;
     const bounds = getSelectionBounds();
     if (bounds && bounds.rowEnd > bounds.rowStart) {
+      // Batch into ONE undo command — see applyMatrixPasteAt/clearSelectedCells
+      // above for why one command per cell breaks Ctrl+Z on a multi-cell op.
+      const edits: { rowId: string; colKey: string; oldValue: string; newValue: string }[] = [];
       for (let c = bounds.colStart; c <= bounds.colEnd; c++) {
         const col = displayColumns[c];
         if (!col) continue;
@@ -1456,15 +1476,19 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           const destId = rowIds[r];
           const dest = rows.find((rr) => rr.id === destId);
           const old = String(dest?.cells[col.key] ?? "");
-          if (old !== src) {
-            persistCellEdit(destId, col.key, old, src);
-            pushCommand({
-              undo: () => persistCellEdit(destId, col.key, src, old),
-              redo: () => persistCellEdit(destId, col.key, old, src),
-            });
-          }
+          if (old !== src) edits.push({ rowId: destId, colKey: col.key, oldValue: old, newValue: src });
         }
       }
+      if (edits.length === 0) return;
+      for (const e of edits) persistCellEdit(e.rowId, e.colKey, e.oldValue, e.newValue);
+      pushCommand({
+        undo: async () => {
+          await Promise.all(edits.map((e) => persistCellEdit(e.rowId, e.colKey, e.newValue, e.oldValue)));
+        },
+        redo: async () => {
+          await Promise.all(edits.map((e) => persistCellEdit(e.rowId, e.colKey, e.oldValue, e.newValue)));
+        },
+      });
       return;
     }
     const rIdx = rowIds.indexOf(activeCell.rowId);
@@ -2251,7 +2275,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       displayColumns.map((c) => {
         if (c.type === "currency") {
           const raw = String(row.cells[c.key] ?? "");
-          return raw ? formatCurrency(Number(raw)) : "";
+          return raw ? formatCurrencyCell(raw) : "";
         }
         return cellDisplayText(row, c);
       })
@@ -2309,7 +2333,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const lines = processedRows.map((row) =>
       displayColumns.map((c) => {
         const raw = String(row.cells[c.key] ?? "");
-        if (c.type === "currency" && raw) return formatCurrency(Number(raw));
+        if (c.type === "currency" && raw) return formatCurrencyCell(raw);
         return cellDisplayText(row, c);
       })
     );
@@ -2450,6 +2474,20 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (!ok) return;
     const originalIndex = columns.findIndex((c) => c.key === colKey);
     await deleteColumnService(workspaceId, page.id, columns, colKey);
+    // A filter/quick-filter left pointing at a now-deleted column keeps
+    // silently affecting processedRows (row.cells[colKey] values aren't
+    // erased by column deletion) with no chip left to explain or remove
+    // it — the chip-rendering loop below already skips a missing column,
+    // so without this the table can end up quietly showing fewer rows
+    // than expected with only the generic "Сбросить фильтры" button as a
+    // clue. Drop any filter state referencing the deleted column.
+    setFilters((prev) => {
+      if (!(colKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[colKey];
+      return next;
+    });
+    setDateFilter((prev) => (prev?.colKey === colKey ? null : prev));
     toast("Столбец удалён", { action: { label: "Отменить", onClick: () => undoLastCommand() } });
     pushCommand({
       undo: async () => {
