@@ -32,12 +32,21 @@ interface CreatePageDialogProps {
 
 const BLANK_COLUMNS: Omit<PageColumn, "id">[] = [
   { key: "name", label: "Название", type: "text", width: 220, order: 0 },
-  { key: "status", label: "Статус", type: "status", width: 150, order: 1, statusOptions: [
+  { key: "number", label: "Номер", type: "text", width: 140, order: 1 },
+  { key: "status", label: "Статус", type: "status", width: 150, order: 2, statusOptions: [
     { value: "todo", label: "К выполнению", color: "240 4% 46%" },
     { value: "active", label: "В работе", color: "38 92% 50%" },
     { value: "done", label: "Готово", color: "142 71% 45%" },
   ] },
-  { key: "note", label: "Примечание", type: "text", width: 220, order: 2 },
+  // "price" and "status" are the conventional keys other utils fall back to
+  // when a page has no explicit currency/status column configured (see
+  // calculateReportAggregates in reportAggregates.ts) — keeping them here
+  // means a freshly created desk works with those out of the box.
+  { key: "price", label: "Цена", type: "currency", width: 140, order: 3 },
+  // "responsible" — workspace-wide assignee list (src/utils/columnOptions.ts),
+  // labeled "ОС" to match the same abbreviation the dispatch sheet mapping
+  // already uses for this exact concept (src/types/dailyDispatch.ts).
+  { key: "responsible", label: "ОС", type: "responsible", width: 160, order: 4 },
 ];
 
 export function CreatePageDialog({ open, onOpenChange }: CreatePageDialogProps) {

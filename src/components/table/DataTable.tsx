@@ -3044,6 +3044,18 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                     />
                   ))}
                 </SortableContext>
+                {canEditStructure && (
+                  <th className="border-b border-border/50 bg-background p-0" style={{ width: 44, minWidth: 44 }}>
+                    <button
+                      type="button"
+                      onClick={() => setAddColumnOpen(true)}
+                      title="Добавить столбец"
+                      className="flex h-11 w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:h-9 sm:w-9"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </th>
+                )}
               </tr>
             </thead>
             <ContextMenu>
@@ -3058,7 +3070,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                           <GroupHeaderRow
                             label={label}
                             count={groupRows.length}
-                            colSpan={displayColumns.length}
+                            colSpan={displayColumns.length + (canEditStructure ? 1 : 0)}
                             collapsed={collapsed}
                             color={groups.col?.statusOptions?.find((o) => o.label === label)?.color}
                             sumText={sums.sumText}
@@ -3080,7 +3092,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                     <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
                       {paddingTop > 0 && (
                         <tr>
-                          <td colSpan={displayColumns.length + 1} style={{ height: paddingTop }} />
+                          <td colSpan={displayColumns.length + 1 + (canEditStructure ? 1 : 0)} style={{ height: paddingTop }} />
                         </tr>
                       )}
                       {(shouldVirtualize ? virtualItems.map((virtualRow) => virtualRow.index) : paginatedRows.map((_, i) => i)).map((index) => {
@@ -3090,12 +3102,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       })}
                       {paddingBottom > 0 && (
                         <tr>
-                          <td colSpan={displayColumns.length + 1} style={{ height: paddingBottom }} />
+                          <td colSpan={displayColumns.length + 1 + (canEditStructure ? 1 : 0)} style={{ height: paddingBottom }} />
                         </tr>
                       )}
                       {canEdit && processedRows.length > 0 && !hasNarrowingFilters && (!Number.isFinite(pageSize) || pageIndex >= Math.ceil(processedRows.length / pageSize) - 1) && (
                         <tr className="table-add-row">
-                          <td colSpan={displayColumns.length + 1} className="p-0">
+                          <td colSpan={displayColumns.length + 1 + (canEditStructure ? 1 : 0)} className="p-0">
                             <button
                               type="button"
                               onClick={() => void handleAddRow()}
@@ -3111,7 +3123,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                   )}
                   {processedRows.length === 0 && (
                     <tr>
-                      <td colSpan={displayColumns.length + 1}>
+                      <td colSpan={displayColumns.length + 1 + (canEditStructure ? 1 : 0)}>
                         {rows.length === 0 ? (
                           <EmptyState
                             className="py-12"
