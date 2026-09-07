@@ -330,10 +330,27 @@ service cloud.firestore {
           && columnStatusOptionsPreserved();
 
         // Admin (not Owner, who already has full rights above) may assign
-        // or reassign who's responsible for this page — and only that field.
+        // or reassign who's responsible for this page. setPageResponsible()
+        // (the only caller of this rule branch) always writes
+        // responsibleUserId together with allowedUsers (merges the new
+        // responsible person in) and hiddenByResponsible (force-unhides the
+        // page) in the SAME call — this used to require the diff to be
+        // EXACTLY ['responsibleUserId','updatedAt'], which silently
+        // rejected the write (permission-denied) the moment the new
+        // responsible person wasn't already in allowedUsers or the page was
+        // hidden — i.e. the normal case of assigning someone new. The
+        // freshly-assigned person then genuinely had no responsibleUserId
+        // recorded and, correctly, none of a responsible person's rights.
+        // Still requires responsibleUserId itself to actually be part of
+        // the change, so this stays scoped to "reassigning responsibility"
+        // and can't be used to twiddle allowedUsers/hiddenByResponsible on
+        // a page Admin isn't touching responsibility on (Admin otherwise
+        // has NO blanket page access — see the top-of-file comment).
         allow update: if isMember(workspaceId)
           && myRole(workspaceId) == 'admin'
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['responsibleUserId', 'updatedAt']);
+          && 'responsibleUserId' in request.resource.data.diff(resource.data).affectedKeys()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['responsibleUserId', 'allowedUsers', 'hiddenByResponsible', 'updatedAt']);
 
         match /rows/{rowId} {
           allow read: if isMember(workspaceId) &&
