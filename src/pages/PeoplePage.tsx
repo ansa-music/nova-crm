@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { usePeopleDesks } from "@/hooks/usePeopleDesks";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -74,15 +75,23 @@ export default function PeoplePage() {
       uid: profile?.uid,
       isOwner,
       role: permissions.role,
-      latestRequest: latestForPage(page.id),
     });
   }
 
+  // Callers fire this from an onClick with `void`, so anything thrown here
+  // used to surface as an unhandled rejection and nothing else — no toast on
+  // failure, and no confirmation on success either. /desks already wraps the
+  // identical call this way.
   async function sendRequest(page: WorkspacePage) {
-    const toUid = page.responsibleUserId || ownerId;
-    if (!toUid) throw new Error("Нет ответственного у стола");
-    await requestView(page, displayNameOf(profile), toUid);
-    await reload();
+    try {
+      const toUid = page.responsibleUserId || ownerId;
+      if (!toUid) throw new Error("Нет ответственного у стола");
+      await requestView(page, displayNameOf(profile), toUid);
+      await reload();
+      toast.success("Запрос на просмотр отправлен");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось отправить запрос");
+    }
   }
 
   if (isLoadingWorkspaceData) {

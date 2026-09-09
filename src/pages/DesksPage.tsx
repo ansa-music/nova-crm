@@ -90,7 +90,6 @@ export default function DesksPage() {
       uid: profile?.uid,
       isOwner,
       role: permissions.role,
-      latestRequest: latestForPage(page.id),
     });
   }
 

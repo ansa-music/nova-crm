@@ -125,11 +125,10 @@ export default function DynamicTablePage() {
         uid: permissions.uid,
         isOwner: isWorkspaceOwner,
         role: permissions.role,
-        latestRequest: latestForPage(page.id),
       })
     : false;
-  // Owner / responsible always open. Технар/viewer: own desk or accepted view-request only.
-  // Do not use allowedUsers membership — live pages often list everyone.
+  // Owner / responsible / allowedUsers — the same three cases canAccessPage
+  // authorizes in firestore.rules, so the screen and the server agree.
   const hasAccess = permissions.isResolved && Boolean(page && personalOpen);
   const { subPages, isLoading: subPagesLoading } = useSubPages(activeWorkspaceId, hasAccess && page ? page.id : null);
   const activeSubPage = subPages.find((s) => s.id === activeSubPageId) ?? null;

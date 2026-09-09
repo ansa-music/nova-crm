@@ -118,14 +118,23 @@ export async function resolveDeskViewRequest(input: {
   actorName: string;
 }) {
   if (!db) throw new Error("Firebase не настроен");
+  // Grant BEFORE flipping the status. The access itself is the allowedUsers
+  // entry — the request doc is just the paper trail — and the Принять /
+  // Отклонить buttons only render while the request is still `pending`. With
+  // the status written first, a failing grant left the request permanently
+  // `approved` with no allowedUsers entry and no way to retry: the requester
+  // was "approved" yet still locked out, and the approver had no button left
+  // to press. This way a failed grant throws with the request untouched, so
+  // the caller's error toast is honest and Принять can simply be clicked
+  // again.
+  if (input.status === "approved" && input.page) {
+    await toggleUserPageAccess(input.workspaceId, input.page, input.request.fromUid, true);
+  }
   await setDoc(
     paths.viewRequest(input.workspaceId, input.request.id),
     { status: input.status, updatedAt: Date.now() },
     { merge: true }
   );
-  if (input.status === "approved" && input.page) {
-    await toggleUserPageAccess(input.workspaceId, input.page, input.request.fromUid, true);
-  }
   await sendNotification(
     {
       workspaceId: input.workspaceId,

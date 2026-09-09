@@ -105,7 +105,6 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
             uid: profile?.uid,
             isOwner,
             role: permissions.role,
-            latestRequest: latestForPage(p.id),
           })
         )
         .filter((p) => !q || p.name.toLowerCase().includes(q))
@@ -137,7 +136,6 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
             uid: profile?.uid,
             isOwner,
             role: permissions.role,
-            latestRequest: latestForPage(page.id),
           })
         );
         return {

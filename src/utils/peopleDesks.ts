@@ -1,4 +1,4 @@
-import type { Role, ViewRequest, WorkspaceMember, WorkspacePage } from "@/types";
+import type { Role, WorkspaceMember, WorkspacePage } from "@/types";
 
 export function personLabel(member?: { name?: string; nickname?: string } | null) {
   if (!member) return "";
@@ -130,49 +130,46 @@ export function isRestrictedDeskRole(role: Role): boolean {
   return role === "manager" || role === "viewer";
 }
 
-export function isApprovedViewRequest(request: ViewRequest | null | undefined): boolean {
-  return request?.status === "approved";
-}
-
 /**
  * Whether this user may OPEN the table (navigate to /page/:id), not merely see the cover.
- * Owner: every desk. Responsible: always their own (even if hidden).
- * Технар/viewer: own desk, OR — for a HIDDEN desk specifically — an
- * approved view-request AND still being in allowedUsers. Both are required:
- * a stale allowedUsers entry from before the desk was hidden must NOT be
- * enough on its own (see WorkspacePage.hiddenByResponsible — hidden must
- * stay hidden until an explicit approval), but an approval ALONE must not
- * be permanent either. resolveDeskViewRequest() adds the requester to
- * allowedUsers the moment it approves, specifically so that revoking is
- * just removing them from allowedUsers again (the same "Доступ" toggle the
- * Owner already uses for every other desk) — without this second check,
- * unchecking that toggle on a hidden desk was a complete no-op: the
- * approved request alone kept granting access forever, with no way in the
- * product to undo it. For a desk that ISN'T hidden, an explicit
- * allowedUsers grant (e.g. the Owner toggling a member on in "Доступ") is
- * real access on its own and must open it without forcing a request first
- * — the previous version ignored allowedUsers entirely for Технар/viewer,
- * so anyone added straight to allowedUsers on a visible (non-hidden) desk
- * still saw "Запросить доступ" forever, since only an approved request
- * ever counted.
+ *
+ * Deliberately the exact mirror of canAccessPage() in firestore.rules:
+ * Owner, the desk's responsible person, or membership in `allowedUsers` —
+ * nothing else. The view-request status is NOT part of this decision, and
+ * `hiddenByResponsible` does not change it either.
+ *
+ * That is not a loosening: an approved view-request has never been access
+ * by itself, it is only the mechanism that PUTS you in allowedUsers
+ * (resolveDeskViewRequest calls toggleUserPageAccess on approval), and
+ * hiding a desk (togglePageVisibility with show=false) empties
+ * allowedUsers down to the responsible person, so "a stale allowedUsers
+ * entry left over from before the desk was hidden" — the case earlier
+ * versions tried to defend against by also requiring an approved request —
+ * cannot actually occur through the product.
+ *
+ * Requiring both produced two real bugs instead. On a hidden desk the
+ * Owner's «Доступ» toggle in /people writes allowedUsers and nothing else,
+ * so with no request in existence (and no UI anywhere to create an
+ * approved one on someone's behalf) the grantee stayed stuck on «Стол
+ * скрыт — запросите просмотр»: the Owner could not grant access to a
+ * hidden desk at all. And on a visible desk the old OR meant a request
+ * that was approved once kept the desk open forever after the Owner
+ * unticked «Доступ» — nothing ever clears an approved request — so the
+ * client said "open" while Firestore denied the rows, landing the user on
+ * an empty table plus a «Нет доступа к части данных» toast. Matching the
+ * server rule exactly fixes both directions at once: adding someone to
+ * allowedUsers grants, removing them revokes, hidden or not.
  */
 export function canOpenDesk(opts: {
   page: WorkspacePage;
   uid?: string | null;
   isOwner: boolean;
   role: Role;
-  latestRequest?: ViewRequest | null;
 }): boolean {
   const uid = opts.uid ?? "";
   if (!uid) return false;
   if (opts.isOwner) return true;
   if (opts.page.responsibleUserId === uid) return true;
-  if (isRestrictedDeskRole(opts.role)) {
-    if (opts.page.hiddenByResponsible) {
-      return isApprovedViewRequest(opts.latestRequest) && Boolean(opts.page.allowedUsers?.includes(uid));
-    }
-    return Boolean(opts.page.allowedUsers?.includes(uid)) || isApprovedViewRequest(opts.latestRequest);
-  }
   return Boolean(opts.page.allowedUsers?.includes(uid));
 }
 
