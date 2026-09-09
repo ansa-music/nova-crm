@@ -270,13 +270,19 @@ function TableRowInner({
           />
           <span className="flex min-w-[1.1rem] items-center justify-center text-[11px]">{rowNumber}</span>
           {rowMenu}
-          <div
-            onMouseDown={(e) => {
-              e.stopPropagation();
-              onRowResizeStart(row.id, e);
-            }}
-            className="absolute -bottom-[1px] left-0 h-[3px] w-full cursor-row-resize opacity-0 hover:opacity-100 hover:bg-primary"
-          />
+          {/* Row height is a write on the row doc — a pure viewer (allowedUsers
+              without editableUsers) could grab this, see the height follow the
+              drag, then watch it snap back when the rejected write never
+              landed. Every other row action here is already !canEdit-gated. */}
+          {canEdit && (
+            <div
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                onRowResizeStart(row.id, e);
+              }}
+              className="absolute -bottom-[1px] left-0 h-[3px] w-full cursor-row-resize opacity-0 hover:opacity-100 hover:bg-primary"
+            />
+          )}
         </div>
       </td>
       {columns.map((column) => {

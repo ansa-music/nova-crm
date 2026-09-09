@@ -639,6 +639,18 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // edits must not reshuffle the ledger.
   const canReorderRows = false;
 
+  // Every column write (reorder, width, auto-fit) lands on a DIFFERENT doc
+  // depending on where we are, and firestore.rules gates those two docs
+  // differently — so the client gate has to differ too:
+  //   • inside a subpage tab -> subpages/{id}, allowed for anyone canEditPage
+  //     covers (the page's editableUsers included);
+  //   • on the main tab      -> the pages/{pageId} doc itself, which only
+  //     Owner or the desk's responsible person may update.
+  // Gating these on plain `canEdit` (the DATA right) let an editor drag a
+  // column or resize one on the main tab, get the write rejected server-side
+  // with nothing surfaced, and watch it silently snap back.
+  const canEditColumns = subPageId ? canEdit : canEditStructure;
+
   // ---- Grouping ----
   const groups = useMemo(() => {
     if (!groupByKey) return null;
@@ -2007,6 +2019,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
     const colIds = columns.map((c) => c.id);
     if (colIds.includes(String(active.id))) {
+      if (!canEditColumns) return;
       const oldIndex = columns.findIndex((c) => c.id === active.id);
       const newIndex = columns.findIndex((c) => c.id === over.id);
       const reordered = arrayMove(columns, oldIndex, newIndex).map((c, i) => ({ ...c, order: i }));
@@ -2889,7 +2902,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         canManageStatuses={canManageVariants}
         onShowColumn={(key) => void handleToggleHiddenColumn(key)}
         onShowAllColumns={handleShowAllColumns}
-        onAutoSizeAll={canEditStructure ? handleAutoSizeAll : undefined}
+        onAutoSizeAll={canEditColumns ? handleAutoSizeAll : undefined}
         selectedCount={selectedRowIds.size}
         onDeleteSelected={handleDeleteSelected}
         hasStatusColumn={Boolean(kanbanStatusColumn)}
@@ -3001,8 +3014,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       onFilterClick={handleFilterClick}
                       hasActiveFilter={(filters[column.key]?.size ?? 0) > 0}
                       onClearFilter={clearColumnFilter}
-                      onResizeStart={handleColumnResizeStart}
-                      onAutoSize={handleAutoSizeColumn}
+                      onResizeStart={canEditColumns ? handleColumnResizeStart : undefined}
+                      onAutoSize={canEditColumns ? handleAutoSizeColumn : undefined}
                       isGrouped={groupByKey === column.key}
                       onGroupBy={(key) => {
                         setGroupByKey(key);
@@ -3020,7 +3033,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                           : undefined
                       }
                       isLastSticky={pinnedOrder.length > 0 && column.key === pinnedOrder[pinnedOrder.length - 1].key}
-                      canReorder={canEdit && !coarsePointer && !editingCell}
+                      canReorder={canEditColumns && !coarsePointer && !editingCell}
                       compactChrome={coarsePointer}
                       canEditStructure={canEditStructure}
                       canManageOptions={canManageVariants}

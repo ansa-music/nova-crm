@@ -71,6 +71,9 @@ export async function fetchMembers(workspaceId: string): Promise<WorkspaceMember
  * Does not listen to the rest of the members collection — presence heartbeats
  * on other docs would otherwise fan out a billed snapshot to every client.
  */
+/** Backoff before re-attaching the own-member listener after a failed snapshot. */
+const OWN_MEMBER_RETRY_DELAYS_MS = [1500, 4000, 10000];
+
 export function subscribeToOwnMember(
   workspaceId: string,
   uid: string,
@@ -79,34 +82,61 @@ export function subscribeToOwnMember(
 ) {
   let cancelled = false;
   let emittedOnce = false;
+  let attempt = 0;
+  let unsubscribe: (() => void) | null = null;
+  let retryTimer: number | null = null;
 
-  const unsubscribe = onSnapshot(
-    paths.member(workspaceId, uid),
-    (snapshot) => {
-      if (cancelled) return;
-      // Same race as the old collection listener: a missing cache doc is not "not a member".
-      if (snapshot.metadata.fromCache && !snapshot.exists() && !emittedOnce) {
-        return;
+  function attach() {
+    unsubscribe = onSnapshot(
+      paths.member(workspaceId, uid),
+      (snapshot) => {
+        if (cancelled) return;
+        // Same race as the old collection listener: a missing cache doc is not "not a member".
+        if (snapshot.metadata.fromCache && !snapshot.exists() && !emittedOnce) {
+          return;
+        }
+        emittedOnce = true;
+        attempt = 0;
+        onData(snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as unknown as WorkspaceMember) : null);
+      },
+      (error) => {
+        if (cancelled) return;
+        // A denied read is NOT the same fact as "this account has no member
+        // row". It used to be reported through onData(null) — the SUCCESS
+        // path — which made useWorkspace mark members as CONFIRMED-ready with
+        // no member data at all, so findOwnMembership found nothing and the
+        // role silently fell back to "viewer": a fully authorized Технар saw
+        // «нет доступа» / read-only everywhere. The Owner never reproduced it
+        // because usePermissions short-circuits them via isOwnerOfWorkspace
+        // (read off the workspace doc, not the member doc). Current rules do
+        // allow reading your own member doc even when it doesn't exist, so a
+        // denial here means something anomalous (usually the auth token not
+        // attached yet on a cold boot) — report it as unconfirmed and retry,
+        // never as an authoritative "no membership".
+        //
+        // onSnapshot does not re-attach itself after an error, so without
+        // this retry an unconfirmed state was terminal until a full reload.
+        unsubscribe?.();
+        unsubscribe = null;
+        const delay = OWN_MEMBER_RETRY_DELAYS_MS[attempt];
+        if (delay !== undefined) {
+          attempt += 1;
+          retryTimer = window.setTimeout(() => {
+            retryTimer = null;
+            if (!cancelled) attach();
+          }, delay);
+        }
+        withErrorReporting(onError)(error);
       }
-      emittedOnce = true;
-      onData(snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as unknown as WorkspaceMember) : null);
-    },
-    (error) => {
-      if (cancelled) return;
-      // Missing members/{uid} is permission-denied under older rules (get of a
-      // non-existent doc). Do not toast — treat as "no own member row" so
-      // fetchMembers roster can still resolve the role.
-      if (error.code === "permission-denied") {
-        onData(null);
-        return;
-      }
-      withErrorReporting(onError)(error);
-    }
-  );
+    );
+  }
+
+  attach();
 
   return () => {
     cancelled = true;
-    unsubscribe();
+    if (retryTimer !== null) window.clearTimeout(retryTimer);
+    unsubscribe?.();
   };
 }
 

@@ -495,6 +495,7 @@ export default function DynamicTablePage() {
               activeSubPageId={activeSubPageId}
               onSelect={handleSelectTab}
               canManage={canEditData || permissions.canManagePage(page)}
+              canSetDefault={permissions.canManagePage(page)}
               userId={profile?.uid ?? ""}
             />
           </div>

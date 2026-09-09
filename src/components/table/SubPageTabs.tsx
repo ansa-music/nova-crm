@@ -54,7 +54,15 @@ interface SubPageTabsProps {
   subPages: SubPage[];
   activeSubPageId: string | null;
   onSelect: (subPageId: string | null) => void;
+  /** May manage the tabs themselves (create/rename/archive/reorder) — every one of those writes only the subpage doc, which any page editor may do. */
   canManage: boolean;
+  /**
+   * May mark a tab as the one the desk opens on. Deliberately separate from
+   * canManage: this single action writes `defaultSubPageId` on the PAGE doc,
+   * which firestore.rules only lets the Owner or the desk's responsible
+   * person update — an editor's write is rejected outright.
+   */
+  canSetDefault: boolean;
   userId: string;
 }
 
@@ -65,6 +73,7 @@ export function SubPageTabs({
   activeSubPageId,
   onSelect,
   canManage,
+  canSetDefault,
   userId,
 }: SubPageTabsProps) {
   const [showArchived, setShowArchived] = useState(false);
@@ -173,8 +182,14 @@ export function SubPageTabs({
   }
 
   async function handleSetDefault(subPageId: string | null) {
-    await setDefaultSubPage(workspaceId, page.id, subPageId);
-    toast.success(subPageId ? "Эта вкладка теперь открывается по умолчанию" : "«Основная» теперь открывается по умолчанию");
+    try {
+      await setDefaultSubPage(workspaceId, page.id, subPageId);
+      toast.success(subPageId ? "Эта вкладка теперь открывается по умолчанию" : "«Основная» теперь открывается по умолчанию");
+    } catch (error) {
+      // Was unhandled: a rejected write left the star where it was with no
+      // toast at all, so the action just looked like it did nothing.
+      toast.error(error instanceof Error ? error.message : "Не удалось изменить вкладку по умолчанию");
+    }
   }
 
   const mainTab = (
@@ -194,7 +209,7 @@ export function SubPageTabs({
 
   return (
     <div className="flex items-center gap-1.5 border-b border-border bg-muted/10 px-3 py-2">
-      {!hideMain && (canManage ? (
+      {!hideMain && (canSetDefault ? (
         <ContextMenu>
           <ContextMenuTrigger asChild>{mainTab}</ContextMenuTrigger>
           <ContextMenuContent>
@@ -226,7 +241,7 @@ export function SubPageTabs({
                 onNextMonth={() => handleNextMonth(sub)}
                 onArchiveToggle={() => handleArchiveToggle(sub)}
                 onDelete={() => handleDelete(sub)}
-                onSetDefault={() => handleSetDefault(sub.id)}
+                onSetDefault={canSetDefault ? () => handleSetDefault(sub.id) : undefined}
               />
             ))}
           </div>
@@ -320,7 +335,8 @@ interface SortableTabProps {
   onNextMonth: () => void;
   onArchiveToggle: () => void;
   onDelete: () => void;
-  onSetDefault: () => void;
+  /** Omitted when this viewer may not write the page doc (see canSetDefault). */
+  onSetDefault?: () => void;
 }
 
 function SortableTab({
@@ -371,9 +387,11 @@ function SortableTab({
       <ContextMenuTrigger asChild>{tab}</ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onClick={onRename}>Переименовать</ContextMenuItem>
-        <ContextMenuItem onClick={onSetDefault} disabled={isDefault}>
-          <Star className="h-3.5 w-3.5" /> Сделать открываемой по умолчанию
-        </ContextMenuItem>
+        {onSetDefault && (
+          <ContextMenuItem onClick={onSetDefault} disabled={isDefault}>
+            <Star className="h-3.5 w-3.5" /> Сделать открываемой по умолчанию
+          </ContextMenuItem>
+        )}
         <ContextMenuItem onClick={onDuplicate}>
           <Copy className="h-3.5 w-3.5" /> Дублировать
         </ContextMenuItem>

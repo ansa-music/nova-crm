@@ -61,7 +61,8 @@ interface ColumnHeaderCellProps {
   onFilterClick: (colKey: string, e: MouseEvent) => void;
   hasActiveFilter: boolean;
   onClearFilter?: (colKey: string) => void;
-  onResizeStart: (colKey: string, e: PointerEvent) => void;
+  /** Omitted when this viewer may not write columns — the resizer is then not rendered at all. */
+  onResizeStart?: (colKey: string, e: PointerEvent) => void;
   onAutoSize?: (colKey: string) => void;
   isPinned: boolean;
   onTogglePin: (colKey: string) => void;
@@ -426,23 +427,25 @@ export function ColumnHeaderCell({
               </button>
             )}
           </div>
-          <div
-            onPointerDown={(e) => {
-              if (e.button !== 0) return;
-              e.preventDefault();
-              e.stopPropagation();
-              onResizeStart(column.key, e);
-            }}
-            onDoubleClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onAutoSize?.(column.key);
-            }}
-            className="table-col-resizer absolute -right-1.5 top-0 z-10 h-full w-4 cursor-col-resize touch-none sm:w-2.5"
-            title="Ширина столбца — двойной клик подогнать"
-          >
-            <span className="table-col-resizer-line absolute right-[3px] top-1.5 h-[calc(100%-12px)] w-px bg-border opacity-0 group-hover:opacity-100" />
-          </div>
+          {onResizeStart && (
+            <div
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                e.stopPropagation();
+                onResizeStart(column.key, e);
+              }}
+              onDoubleClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onAutoSize?.(column.key);
+              }}
+              className="table-col-resizer absolute -right-1.5 top-0 z-10 h-full w-4 cursor-col-resize touch-none sm:w-2.5"
+              title="Ширина столбца — двойной клик подогнать"
+            >
+              <span className="table-col-resizer-line absolute right-[3px] top-1.5 h-[calc(100%-12px)] w-px bg-border opacity-0 group-hover:opacity-100" />
+            </div>
+          )}
         </th>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-60">
