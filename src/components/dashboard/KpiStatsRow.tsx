@@ -2,6 +2,8 @@ import { CheckCircle2, Clock, DollarSign, LayoutGrid } from "lucide-react";
 import { KpiStatCard } from "@/components/dashboard/KpiStatCard";
 import {
   deskCountTrend,
+  doneTrend,
+  openCountTrend,
   revenueMonthCaption,
   revenueMonthDelta,
   revenueTrend,
@@ -55,6 +57,8 @@ export function KpiStatsRow({
 
   const deskTrend = deskCountTrend(desks.map((d) => d.page));
   const revTrend = revenueTrend(desks);
+  const openTrend = openCountTrend(desks, statusOptions);
+  const doneTrendData = doneTrend(desks, statusOptions);
 
   const grandTotal = desks.reduce((sum, d) => sum + d.grandTotal, 0);
   const byMonth = monthOrderCountsByMonth(desks, statusOptions);
@@ -88,12 +92,16 @@ export function KpiStatsRow({
           color="42 88% 56%"
           label="Сейчас в работе"
           value={formatNumber(nowCounts.open)}
+          trend={openTrend}
+          delta={weekDelta(openTrend)}
         />
         <KpiStatCard
           icon={CheckCircle2}
           color="150 48% 46%"
           label="Сейчас готово"
           value={formatNumber(nowCounts.done)}
+          trend={doneTrendData}
+          delta={weekDelta(doneTrendData)}
         />
       </div>
       {byMonth.length > 0 ? (
