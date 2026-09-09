@@ -82,7 +82,7 @@ export function DispatchSheetMapDialog({
         workspaceId,
         tech.id,
         deskTarget === "own" ? "own" : deskTarget || null,
-        isDispatchColumnMapComplete(map) ? map : map
+        map
       );
       toast.success(isDispatchColumnMapComplete(map) ? "Маппинг сохранён" : "Стол сохранён, столбцы ещё не полные");
       await onSaved();

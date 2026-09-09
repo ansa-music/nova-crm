@@ -20,7 +20,7 @@ function requireDb() {
 
 export type WriteDispatchResult =
   | { ok: true; rowId: string }
-  | { ok: false; reason: "no-mapping" | "not-own" | "no-sheet" | "bad-columns" | "already" };
+  | { ok: false; reason: "not-linked" | "no-mapping" | "not-own" | "no-sheet" | "bad-columns" | "already" };
 
 function cellFor(
   key: keyof DispatchColumnMap,
@@ -66,8 +66,14 @@ export async function tryWriteDispatchOrderToSheet(input: {
   const freshSnap = await getDoc(paths.dailyDispatch(input.workspaceId, input.entry.id));
   if ((freshSnap.data() as DailyDispatch | undefined)?.sheetRowId) return { ok: false, reason: "already" };
 
+  // Two different problems with two different fixes on the Owner's side:
+  // no roster entry is linked to this account at all, versus a linked entry
+  // whose column mapping the Owner never finished. Collapsing both into
+  // "no-mapping" sent the technician (and whoever they asked) chasing the
+  // column mapping when the actual fix was to link their account.
   const tech = await getMyDispatchTechnician(input.workspaceId, input.uid);
-  if (!tech || !isDispatchColumnMapComplete(tech.columnMap)) {
+  if (!tech) return { ok: false, reason: "not-linked" };
+  if (!isDispatchColumnMapComplete(tech.columnMap)) {
     return { ok: false, reason: "no-mapping" };
   }
   const map = tech.columnMap;

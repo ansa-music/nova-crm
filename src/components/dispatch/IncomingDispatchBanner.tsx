@@ -45,7 +45,9 @@ export function IncomingDispatchBanner({
     if (result.ok) {
       return true;
     }
-    if (result.reason === "no-mapping" || result.reason === "bad-columns") {
+    if (result.reason === "not-linked") {
+      toast.error("Ваш аккаунт не привязан к никнейму в Выдаче — попросите Owner привязать");
+    } else if (result.reason === "no-mapping" || result.reason === "bad-columns") {
       toast.error("Owner ещё не настроил столбцы в Выдаче");
     } else if (result.reason === "not-own") {
       toast.error("Этот заказ не на твой стол");
@@ -59,14 +61,34 @@ export function IncomingDispatchBanner({
 
   async function handleAccept(row: DailyDispatch) {
     setBusyId(row.id);
+    let accepted = false;
     try {
       await acceptDispatchRequest(workspaceId, row.id);
+      accepted = true;
       const written = await writeRow({ ...row, requestStatus: "accepted", acceptedAt: Date.now() });
       toast.success(written ? `Заказ по чеку ${row.checkNo} принят и в столе` : `Заказ по чеку ${row.checkNo} принят`);
-      await reload();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось принять заказ");
+      const code = (error as { code?: string } | null)?.code;
+      if (accepted) {
+        // The accept itself landed — only writing the row onto the desk
+        // failed. Saying «Не удалось принять заказ» here was simply untrue
+        // and sent the technician looking for a button that is now gone.
+        toast.error("Заказ принят, но записать его в стол не удалось");
+      } else if (code === "permission-denied") {
+        // This list refreshes on a 60s poll, not a live subscription, so it
+        // can be showing an order the Owner has since deleted or handed to
+        // someone else. Both fail exactly this way; the raw Firebase string
+        // ("Missing or insufficient permissions.") is meaningless here and
+        // was being shown verbatim in an otherwise Russian UI.
+        toast.error("Этот заказ уже не ваш — список обновлён");
+      } else {
+        toast.error(error instanceof Error ? error.message : "Не удалось принять заказ");
+      }
     } finally {
+      // Resync on every path, not just success: after any of the outcomes
+      // above the polled list is stale (accepted, gone, or reassigned) and
+      // would otherwise keep offering «Принять» until the next 60s tick.
+      await reload().catch(() => undefined);
       setBusyId(null);
     }
   }
@@ -76,10 +98,12 @@ export function IncomingDispatchBanner({
     try {
       const written = await writeRow(row);
       if (written) toast.success(`Чек ${row.checkNo} в столе`);
-      await reload();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось добавить в стол");
     } finally {
+      // Same reason as handleAccept: the 60s-polled list is stale after any
+      // outcome here, so resync regardless of success.
+      await reload().catch(() => undefined);
       setBusyId(null);
     }
   }
