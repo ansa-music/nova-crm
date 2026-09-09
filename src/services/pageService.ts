@@ -602,8 +602,19 @@ export async function changeColumnType(
   statusOptions?: StatusOption[],
   customFieldId?: string
 ) {
+  // Preserve the column's existing statusOptions when the caller doesn't
+  // pass a new list, instead of dropping the field entirely. A legacy
+  // "status"-type column can still carry a stale non-empty statusOptions
+  // value from before status became fully workspace-wide (see
+  // src/types/page.ts) — dropping it here changes the diff Firestore
+  // rules' columnStatusOptionsPreserved() sees for that column key from
+  // "unchanged" to "removed", which fails the check and silently rejects
+  // the whole column-type change for any non-Owner responsible person
+  // (Owner is unaffected, they bypass that check).
   const columns = existingColumns.map((c) =>
-    c.key === columnKey ? stripUndefined({ ...c, type: newType, statusOptions, customFieldId }) : c
+    c.key === columnKey
+      ? stripUndefined({ ...c, type: newType, statusOptions: statusOptions ?? c.statusOptions, customFieldId })
+      : c
   );
   await updatePageColumns(workspaceId, pageId, columns);
 }

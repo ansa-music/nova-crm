@@ -481,8 +481,15 @@ export async function changeSubPageColumnType(
   statusOptions?: StatusOption[],
   customFieldId?: string
 ) {
+  // See changeColumnType in pageService.ts — preserve the existing
+  // statusOptions when the caller doesn't pass a new list, instead of
+  // dropping the field, or a legacy status column's stale non-empty
+  // statusOptions trips columnStatusOptionsPreserved() and silently
+  // rejects the whole write for a non-Owner responsible person.
   const columns = existingColumns.map((c) =>
-    c.key === columnKey ? stripUndefined({ ...c, type: newType, statusOptions, customFieldId }) : c
+    c.key === columnKey
+      ? stripUndefined({ ...c, type: newType, statusOptions: statusOptions ?? c.statusOptions, customFieldId })
+      : c
   );
   await updateSubPageColumns(workspaceId, pageId, subPageId, columns);
 }

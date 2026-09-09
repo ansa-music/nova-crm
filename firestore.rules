@@ -686,5 +686,36 @@ service cloud.firestore {
         allow create, update: if isMember(workspaceId) && request.resource.data.uid == request.auth.uid;
       }
     }
+
+    // -----------------------------------------------------------------
+    // Collection-group read for claimPendingInvites() (memberService.ts):
+    // on every login it runs collectionGroup(db, "members") filtered to
+    // its OWN email + status=='invited', to find a pending invite in ANY
+    // workspace at once (there's no other way to discover "which
+    // workspaces invited me" without knowing every workspace id up
+    // front). A nested `match /workspaces/{workspaceId}/members/{id}`
+    // rule does NOT authorize a collection-group query — Firestore only
+    // applies a rule to a collection-group query when it's written with
+    // the recursive `{path=**}` wildcard, and this file had none for
+    // "members". That made the query ALWAYS permission-denied, for every
+    // user, on every login — silently, since useAuth.ts's catch around
+    // this call specifically swallows permission-denied here (to avoid
+    // toasting an error on a normal reload with nothing to claim). Net
+    // effect: an admin-issued email invite (inviteMember(), the
+    // "Пригласить" flow on /people) was NEVER auto-claimed when the
+    // invited person actually signed in — they were stuck as a
+    // status:'invited' stub forever, with no real membership ever
+    // created, no matter how many times they logged in. Only the
+    // separate self-join-by-link flow (selfJoinWorkspace/
+    // approveJoinRequest, which never goes through this query) worked.
+    // Mirrors the read condition already granted per-workspace by the
+    // nested members read rule's 3rd clause above — only ever exposes a
+    // doc matching the caller's OWN email that's still status:'invited'.
+    match /{path=**}/members/{memberId} {
+      allow read: if signedIn()
+        && request.auth.token.email is string
+        && resource.data.email == authEmailLower()
+        && resource.data.status == 'invited';
+    }
   }
 }
