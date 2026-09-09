@@ -1,3 +1,4 @@
+import { parseLooseNumber } from "@/utils/numberInput";
 export type FinanceType = "income" | "expense";
 export type FinanceCategory = "Еда" | "Транспорт" | "Покупки" | "Дом" | "Здоровье" | "Развлечения" | "Другое";
 
@@ -25,10 +26,19 @@ export interface ParsedFinanceInput {
   categoryGuessed: boolean;
 }
 
+/**
+ * The amount is embedded in free text ("2000 \u0442\u0430\u043a\u0441\u0438"), so pull the numeric
+ * run out first and hand THAT to the shared parser \u2014 the old inline version
+ * ("," -> "." then take the first \d+(\.\d+)? match) read "2.000 \u0435\u0434\u0430" as 2,
+ * making the entry, the \u00ab\u0420\u0430\u0441\u0445\u043e\u0434\u00bb/\u00ab\u0411\u0430\u043b\u0430\u043d\u0441 \u0437\u0430 \u043c\u0435\u0441\u044f\u0446\u00bb totals and \u00ab\u0412\u0441\u0435\u0433\u043e \u0443 \u0432\u0430\u0441
+ * \u0435\u0441\u0442\u044c\u00bb all short by 1998 \u20b8 with nothing to notice. "2 000 \u0435\u0434\u0430" worked, so
+ * the bug only appeared once someone typed a dot.
+ */
 function amountMajor(input: string): number {
-  const normalized = input.replace(/[\s\u00a0\u202f]/g, "").replace(/,/g, ".");
-  const match = normalized.match(/\d+(?:\.\d+)?/);
-  return match ? Number(match[0]) : Number.NaN;
+  const match = input.match(/-?[\d\s\u00a0\u202f.,]*\d/);
+  if (!match) return Number.NaN;
+  const value = parseLooseNumber(match[0]);
+  return value === null ? Number.NaN : value;
 }
 
 export function parseFinanceInput(raw: string, forcedType: FinanceType = "expense"): ParsedFinanceInput {

@@ -110,7 +110,11 @@ export function RecentRowsPanel({
                   </td>
                   <td className="px-3 py-2.5 tabular-nums">{formatCurrency(row.price)}</td>
                   <td className="px-3 py-2.5 text-xs text-muted-foreground">
-                    {row.dateMs ? formatDate(row.dateMs, "d MMM") : "—"}
+                    {/* formatOrderDate (Almaty), not device-local formatDate —
+                        order dates are stored as Almaty noon, so west of
+                        Almaty this table showed a different day than the
+                        mobile card and the queue for the very same row. */}
+                    {row.dateMs ? formatOrderDate(row.dateMs) : "—"}
                   </td>
                   <td className="px-4 py-2.5 text-xs text-muted-foreground">
                     {row.updatedAt ? timeAgo(row.updatedAt) : "—"}

@@ -2560,7 +2560,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         for (const row of processedRows) {
           const rawStatus = String(row.cells[statusCol.key] ?? "");
           const label = sharedStatusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
-          if (label.toLowerCase().includes("готов")) {
+          // isDoneStatusLabel, not a raw includes("готов") — the bare
+          // substring also matches «Не готово», so this footer counted
+          // not-done money as done while footerAggregates right above (which
+          // already passes isDoneLabel) and the dashboard did not. Two
+          // totals on the same screen disagreed about the same rows.
+          if (isDoneStatusLabel(label)) {
             done += sumNumericCells([row], col.key);
           }
         }

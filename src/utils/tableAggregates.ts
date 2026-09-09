@@ -1,6 +1,7 @@
 // PATH: src/utils/tableAggregates.ts  (NEW FILE)
 import { percentOfMinor, sumMinor, toMinor } from "@/utils/money";
 import type { PageColumn, PageRow } from "@/types";
+import { parseLooseNumber } from "@/utils/numberInput";
 
 /**
  * Derived table totals. NOTHING here is persisted — totals are always computed
@@ -106,7 +107,12 @@ export function sumNumericCells(rows: PageRow[], colKey: string): number {
   for (const row of rows) {
     const raw = row.cells[colKey];
     if (raw === null || raw === undefined || raw === "") continue;
-    const n = typeof raw === "number" ? raw : Number(String(raw).replace(/\s/g, "").replace(",", "."));
+    // parseLooseNumber, not a local strip-and-Number: the inline version
+    // dropped "12 000 ₸" (currency suffix survives, Number gives NaN) and
+    // "1.500,50" (both separators) entirely, so this footer total came out
+    // LOWER than the dashboard's total over the very same rows, which reads
+    // the same cells through parseLooseNumber.
+    const n = typeof raw === "number" ? raw : (parseLooseNumber(String(raw)) ?? Number.NaN);
     if (Number.isFinite(n)) sum += n;
   }
   return sum;

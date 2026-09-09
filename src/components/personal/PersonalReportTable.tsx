@@ -31,7 +31,12 @@ export function PersonalReportTable({ workspaceId, pageId, uid, report, rows }: 
   async function handleAddRow() {
     const cells: Record<string, string | number | null> = {};
     columns.forEach((c) => (cells[c.key] = ""));
-    await addPersonalReportRow(workspaceId, pageId, uid, report.id, cells, rows.length);
+    // rows.length reused an order that already exists once anything was
+    // deleted (0,1,2 minus the middle leaves 0,2 with length 2), and the
+    // subscription sorts by order alone — the tied rows then fall back to
+    // document id, so a new row could appear above an older one.
+    const nextOrder = rows.reduce((max, r) => Math.max(max, r.order), -1) + 1;
+    await addPersonalReportRow(workspaceId, pageId, uid, report.id, cells, nextOrder);
   }
 
   function startEdit(rowId: string, col: PageColumn, current: string | number | null) {

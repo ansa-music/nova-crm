@@ -11,7 +11,7 @@ import {
   type PersonalFinanceEntry,
 } from "@/services/personalSpaceService";
 import { parseFinanceInput, type FinanceType } from "@/utils/financeParser";
-import { formatDate } from "@/utils/date";
+import { formatDate, ymdInTimeZone } from "@/utils/date";
 import { cn } from "@/utils/cn";
 
 interface FinanceTabProps {
@@ -20,9 +20,18 @@ interface FinanceTabProps {
   uid: string;
 }
 
+/**
+ * Almaty, not the device clock. This key is BOTH the write key and the read
+ * filter, so a device on another timezone could file an entry made just after
+ * midnight Almaty under the previous month — every correctly-clocked client
+ * then filters it out of the current month, and since the list only ever
+ * renders the current month, the entry simply disappears from «Расход» and
+ * «Баланс за месяц» with no way to see it again.
+ */
 function currentMonthKey(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  // ymdInTimeZone gives "YYYY-MM-DD" in Almaty; the first 7 chars are exactly
+  // this key's "YYYY-MM" shape (same trick as ordersByDateFromDesks).
+  return ymdInTimeZone(Date.now()).slice(0, 7);
 }
 
 function formatMinor(minor: number): string {

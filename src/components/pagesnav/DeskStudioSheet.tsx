@@ -32,6 +32,7 @@ import { useDeskLayout } from "@/hooks/useDeskLayout";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { PageIconName, StatusOption, WorkspacePage } from "@/types";
 import { confirmDialog, promptDialog } from "@/utils/appDialog";
+import { parseLooseNumber } from "@/utils/numberInput";
 
 interface DeskStudioSheetProps {
   page: WorkspacePage | null;
@@ -200,8 +201,16 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
       if (accentColor !== page.accentColor) {
         await setPageAccentColor(page.workspaceId, page.id, accentColor ?? null);
       }
-      const value = Number(goalInput.replace(",", "."));
-      const nextGoal = Number.isFinite(value) && value > 0 ? value : null;
+      // Same trap as MyProgressCard: Number("200 000") is NaN, which used to
+      // be written straight through as null — silently wiping the goal while
+      // toasting «Стол обновлён». Unparseable text now aborts the save.
+      const rawGoal = goalInput.trim();
+      const parsedGoal = rawGoal ? parseLooseNumber(rawGoal) : null;
+      if (rawGoal && parsedGoal === null) {
+        toast.error("Не понял сумму цели — введите число, например 200 000");
+        return;
+      }
+      const nextGoal = parsedGoal !== null && parsedGoal > 0 ? parsedGoal : null;
       const prevGoal = page.monthlyGoal ?? null;
       if (nextGoal !== prevGoal) {
         await setPageMonthlyGoal(page.workspaceId, page.id, nextGoal);
@@ -243,8 +252,13 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
 
   async function saveGoalNow() {
     if (!page || !canEditPreview) return;
-    const value = Number(goalInput.replace(",", "."));
-    const nextGoal = Number.isFinite(value) && value > 0 ? value : null;
+    const rawGoal = goalInput.trim();
+    const parsedGoal = rawGoal ? parseLooseNumber(rawGoal) : null;
+    if (rawGoal && parsedGoal === null) {
+      toast.error("Не понял сумму цели — введите число, например 200 000");
+      return;
+    }
+    const nextGoal = parsedGoal !== null && parsedGoal > 0 ? parsedGoal : null;
     try {
       await setPageMonthlyGoal(page.workspaceId, page.id, nextGoal);
       toast.success(nextGoal ? "Цель записана" : "Цель убрана");
@@ -415,7 +429,7 @@ export function DeskStudioSheet({ page, open, onOpenChange, uid }: DeskStudioShe
               <p className="text-xs text-muted-foreground">На месяц. Enter — сразу записать.</p>
             </div>
             <Input
-              type="number"
+              type="text"
               inputMode="decimal"
               value={goalInput}
               disabled={!canEdit}

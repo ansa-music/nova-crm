@@ -14,6 +14,8 @@
  * number as MAJOR units, so old rows keep reading correctly with no migration.
  */
 
+import { parseLooseNumber } from "@/utils/numberInput";
+
 export const MINOR_UNITS_PER_MAJOR = 100;
 
 /** Major units (₸, possibly fractional) -> integer minor units. Half-up. */
@@ -52,14 +54,15 @@ export function percentOfMinor(minor: number, percent: number): number {
  * "user typed nothing numeric" from "user typed 0".
  */
 export function parseAmount(input: string): number {
-  const cleaned = input
-    .replace(/[\s\u00a0\u202f]/g, "")   // spaces incl. non-breaking/narrow
-    .replace(/[₸$€₽]/g, "")
-    .replace(/,/g, ".");
-  const match = cleaned.match(/-?\d+(?:\.\d+)?/);
-  if (!match) return Number.NaN;
-  const value = Number(match[0]);
-  return Number.isFinite(value) ? value : Number.NaN;
+  // Delegates to the app-wide parser (src/utils/numberInput.ts) rather than
+  // its own regex, which broke the exact forms the doc comment above
+  // promises to accept: a blanket ","->"." plus "any dot is a decimal
+  // point" turned "2.000" and "2,000" into 2, "1.500,50" into 1.5 and
+  // "1.234.567" into 1.234. A debt typed as "150.000" was stored as 150 ₸
+  // and shown as «150 ₸» under «Всего мне должны» — it passes the
+  // `major > 0` guard, so nothing ever flagged it.
+  const value = parseLooseNumber(input);
+  return value === null ? Number.NaN : value;
 }
 
 /** Display: 200000 (minor) -> "2 000 ₸". Never used for storage. */

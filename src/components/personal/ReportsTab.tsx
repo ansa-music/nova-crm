@@ -44,20 +44,27 @@ export function ReportsTab({ workspaceId, pageId, uid }: ReportsTabProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [rows, setRows] = useState<PersonalReportRow[]>([]);
 
-  useEffect(
-    () =>
-      subscribeToPersonalReports(workspaceId, pageId, uid, (data) => {
-        setReports(data);
-        setActiveId((current) => current ?? data[0]?.id ?? null);
-      }),
-    [workspaceId, pageId, uid]
-  );
+  // The route (`page/:pageId`) and PersonalSpacePanel are both unkeyed, so
+  // switching desks with Personal Space open REUSES this component. Without
+  // clearing here, `current ?? …` kept the previous desk's report id: the new
+  // desk's list loaded but nothing matched, so it showed «Выберите отчёт»
+  // even though that desk has reports — and the row subscription below was
+  // pointed at desk B's path with desk A's report id.
+  useEffect(() => {
+    setReports([]);
+    setActiveId(null);
+    return subscribeToPersonalReports(workspaceId, pageId, uid, (data) => {
+      setReports(data);
+      setActiveId((current) => current ?? data[0]?.id ?? null);
+    });
+  }, [workspaceId, pageId, uid]);
 
   useEffect(() => {
-    if (!activeId) {
-      setRows([]);
-      return;
-    }
+    // Clear at the top, not only when activeId goes falsy — otherwise the
+    // previous report's rows stay on screen under the new report's header
+    // until the new subscription delivers.
+    setRows([]);
+    if (!activeId) return;
     return subscribeToPersonalReportRows(workspaceId, pageId, uid, activeId, setRows);
   }, [workspaceId, pageId, uid, activeId]);
 

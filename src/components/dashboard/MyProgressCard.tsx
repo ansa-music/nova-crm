@@ -8,6 +8,7 @@ import { cn } from "@/utils/cn";
 import { downloadCsv } from "@/utils/csv";
 import { formatCurrency, formatCurrencyCell } from "@/utils/format";
 import { formatOrderDate } from "@/utils/date";
+import { parseLooseNumber } from "@/utils/numberInput";
 import { isOptionColumn, getColumnOptions } from "@/utils/columnOptions";
 import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -50,10 +51,19 @@ export function MyProgressCard({
   const goalPercent = goal > 0 ? Math.min(100, Math.round((doneTotal / goal) * 100)) : null;
 
   async function saveGoal() {
-    const value = Number(goalInput);
+    // Number("200 000") is NaN, and the old code turned that straight into
+    // null — i.e. typing the goal the way people write it silently DELETED
+    // the goal instead of saving it, with no error. Refuse to write on
+    // unparseable input; an empty field still means "clear the goal".
+    const raw = goalInput.trim();
+    const parsed = raw ? parseLooseNumber(raw) : null;
+    if (raw && parsed === null) {
+      toast.error("Не понял сумму — введите число, например 200 000");
+      return;
+    }
     setIsSavingGoal(true);
     try {
-      await setPageMonthlyGoal(workspaceId, page.id, Number.isFinite(value) && value > 0 ? value : null);
+      await setPageMonthlyGoal(workspaceId, page.id, parsed !== null && parsed > 0 ? parsed : null);
       setEditingGoal(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось сохранить цель");
@@ -144,10 +154,15 @@ export function MyProgressCard({
             <div className="flex items-center gap-2">
               <Input
                 autoFocus
-                type="number"
+                // Not type="number": the browser blanks the value for
+                // anything it considers invalid, so "200 000" reached the
+                // handler as "" and read as "clear the goal". Plain text +
+                // a numeric keypad lets parseLooseNumber handle the spaces.
+                type="text"
+                inputMode="decimal"
                 value={goalInput}
                 onChange={(e) => setGoalInput(e.target.value)}
-                placeholder="Например, 200000"
+                placeholder="Например, 200 000"
                 className="h-9"
                 onKeyDown={(e) => e.code === "Enter" && void saveGoal()}
                 disabled={isSavingGoal}
