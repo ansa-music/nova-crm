@@ -1,3 +1,4 @@
+import { parseLooseNumber } from "@/utils/numberInput";
 import type { PageColumn, PageRow } from "@/types";
 
 export type QuickOrderInput = {
@@ -27,11 +28,17 @@ export function findQuickOrderColumns(visible: PageColumn[]) {
   return { client, number, os, receipt, persons, minutes };
 }
 
+/**
+ * Same loose parser the table cells use, so the quick-order form accepts
+ * exactly what a person actually types. The old comma→dot + Number() version
+ * handled "1500,5" and nothing else: "12 000" and "12 000 ₸" came back null,
+ * and since the Save button is enabled only when the чек parses, typing a
+ * perfectly normal amount with a thousands space left the form refusing to
+ * submit with nothing explaining why. Worse, "2.000" (thousands dot) parsed
+ * as 2 — a silently 1000x wrong amount written straight into the desk.
+ */
 export function parseOptionalNumber(raw: string): number | null {
-  const t = raw.trim().replace(",", ".");
-  if (!t) return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
+  return parseLooseNumber(raw);
 }
 
 export function buildQuickOrderRow(
