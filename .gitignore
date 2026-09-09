@@ -5,3 +5,8 @@ dist
 .env.local
 .env*.local
 .firebase
+
+# graphify knowledge graph — regenerated locally (AST-only, no API cost)
+# via `graphify update .`; not committed to avoid bloating the repo with
+# a large regenerable build artifact (graph.json/graph.html run ~5-6MB).
+graphify-out/
