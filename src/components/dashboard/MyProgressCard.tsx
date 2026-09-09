@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowRight, Download, Pencil, Settings2 } from "lucide-react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,8 @@ import { downloadCsv } from "@/utils/csv";
 import { formatCurrency, formatCurrencyCell } from "@/utils/format";
 import { formatOrderDate } from "@/utils/date";
 import { parseLooseNumber } from "@/utils/numberInput";
-import { isOptionColumn, getColumnOptions } from "@/utils/columnOptions";
+import { doneMonthTotal } from "@/utils/dashboardTrends";
+import { DEFAULT_STATUS_OPTIONS, isOptionColumn, getColumnOptions } from "@/utils/columnOptions";
 import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { setPageMonthlyGoal } from "@/services/pageService";
@@ -40,6 +41,7 @@ export function MyProgressCard({
   onCustomize?: () => void;
 }) {
   const { activeWorkspace } = useWorkspace();
+  const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
   const animatedDone = useAnimatedNumber(doneTotal);
   const animatedTotal = useAnimatedNumber(grandTotal);
   const animatedPercent = useAnimatedNumber(percent);
@@ -48,7 +50,15 @@ export function MyProgressCard({
   const [goalInput, setGoalInput] = useState(String(page.monthlyGoal ?? ""));
   const [isSavingGoal, setIsSavingGoal] = useState(false);
   const goal = page.monthlyGoal ?? 0;
-  const goalPercent = goal > 0 ? Math.min(100, Math.round((doneTotal / goal) * 100)) : null;
+  // «На месяц» must be measured against THIS month's «Готово», not the
+  // desk's lifetime doneTotal — see doneMonthTotal. Desks that keep each
+  // month in its own subpage tab were accidentally correct before, which is
+  // why two otherwise identical desks disagreed about the same goal.
+  const doneThisMonth = useMemo(
+    () => doneMonthTotal([{ columns, rows, doneTotal }], statusOptions),
+    [columns, rows, doneTotal, statusOptions]
+  );
+  const goalPercent = goal > 0 ? Math.min(100, Math.round((doneThisMonth / goal) * 100)) : null;
 
   async function saveGoal() {
     // Number("200 000") is NaN, and the old code turned that straight into

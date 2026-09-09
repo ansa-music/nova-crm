@@ -33,6 +33,7 @@ import { formatCurrency } from "@/utils/format";
 import { updateLeaderboardEntry } from "@/services/leaderboardService";
 import { useNavigate } from "react-router";
 import type { LeaderboardEntry } from "@/types";
+import { doneMonthTotal } from "@/utils/dashboardTrends";
 
 export default function DashboardPage() {
   const { activeWorkspace, activeWorkspaceId, members } = useWorkspace();
@@ -181,9 +182,14 @@ export default function DashboardPage() {
     : deskBarData;
 
   const myDeskGoal = myDeskProgress?.page.monthlyGoal ?? 0;
+  // monthlyGoal is a per-MONTH target, so compare it against this month's
+  // «Готово», not the desk's lifetime doneTotal (see doneMonthTotal).
+  const myDeskDoneThisMonth = myDeskProgress
+    ? doneMonthTotal([myDeskProgress], statusOptions)
+    : 0;
   const myDeskGoalPercent =
     myDeskProgress && myDeskGoal > 0
-      ? Math.min(100, Math.round((myDeskProgress.doneTotal / myDeskGoal) * 100))
+      ? Math.min(100, Math.round((myDeskDoneThisMonth / myDeskGoal) * 100))
       : null;
 
   const myProgressIds = new Set(myProgress.map((p) => p.page.id));
@@ -328,7 +334,14 @@ export default function DashboardPage() {
           <StatusChart title={isPersonalLanding ? "На моём столе" : "На столах"} data={chartStatus} />
           {chartSource.some((p) => (p.page.monthlyGoal ?? 0) > 0) ? (
             <GoalVsDoneChart
-              doneTotal={chartSource.reduce((sum, p) => sum + p.doneTotal, 0)}
+              // Both sides over the SAME desks (only those that set a goal)
+              // and the same period (this month) — summing every desk's
+              // lifetime «Готово» against only the goal-setting desks' goals
+              // produced percentages like "130% к цели", clamped to 100%.
+              doneTotal={doneMonthTotal(
+                chartSource.filter((p) => (p.page.monthlyGoal ?? 0) > 0),
+                statusOptions
+              )}
               goal={chartSource.reduce((sum, p) => sum + (p.page.monthlyGoal ?? 0), 0)}
             />
           ) : (

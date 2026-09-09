@@ -147,6 +147,74 @@ function almatyMonthStart(year: number, monthIndex: number): number {
 }
 
 /**
+ * Revenue for the CURRENT Almaty month, using the same "order received" date
+ * column and the same month boundaries revenueMonthDelta compares against —
+ * so the tile's value, its «Выручка · <месяц>» caption and its delta all
+ * describe the same period. The tile used to show the sum of every loaded
+ * row (PageProgress.grandTotal has no date filter at all), i.e. an all-time
+ * figure under a monthly label and next to a monthly delta.
+ */
+/**
+ * «Готово» money for the CURRENT Almaty month, same order-date basis and
+ * month boundaries as revenueMonthTotal, and the same workspace-wide status
+ * resolution as doneTrend/progressForPage.
+ *
+ * This exists because `monthlyGoal` is explicitly a per-MONTH target ("На
+ * месяц", "Готово и цель на месяц") while PageProgress.doneTotal is the
+ * lifetime sum of every loaded row: a desk that hit 150k in August and 20k
+ * in September showed 85% of a 200k September goal instead of 10%, and once
+ * two good months had accumulated it sat pinned at 100% forever (the
+ * Math.min(100, …) hid the overflow rather than fixing it). Desks that keep
+ * each month in its own subpage tab were accidentally right, which is
+ * exactly why the two kinds of desk disagreed.
+ *
+ * Falls back to the desk's own doneTotal when it has no date column at all —
+ * there is no month to filter by, and showing 0% for such a desk would be
+ * worse than the old behaviour.
+ */
+export function doneMonthTotal(
+  // Only the three fields it actually reads, so callers with a single desk
+  // in hand don't have to fabricate the rest of PageProgress.
+  desks: Pick<PageProgress, "columns" | "rows" | "doneTotal">[],
+  statusOptions: StatusOption[],
+  now: number = Date.now()
+): number {
+  const { year, month } = ymdPartsInTimeZone(now, USER_TIMEZONE);
+  const thisStart = almatyMonthStart(year, month);
+  const nextStart = month === 11 ? almatyMonthStart(year + 1, 0) : almatyMonthStart(year, month + 1);
+  let total = 0;
+  for (const desk of desks) {
+    const dateCol = desk.columns.find((c) => c.type === "date");
+    const statusCol = desk.columns.find((c) => c.type === "status");
+    if (!dateCol || !statusCol) {
+      total += desk.doneTotal;
+      continue;
+    }
+    const priceCol = desk.columns.find((c) => c.type === "currency");
+    for (const row of desk.rows) {
+      const ms = Number(row.cells[dateCol.key]);
+      if (!Number.isFinite(ms) || ms < thisStart || ms >= nextStart) continue;
+      const rawStatus = String(row.cells[statusCol.key] ?? "");
+      const label = statusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
+      if (!isDoneStatusLabel(label)) continue;
+      total += parseLooseNumber(String(row.cells[priceCol?.key ?? ""] ?? "")) ?? 0;
+    }
+  }
+  return total;
+}
+
+export function revenueMonthTotal(desks: PageProgress[], now: number = Date.now()): number {
+  const { year, month } = ymdPartsInTimeZone(now, USER_TIMEZONE);
+  const thisStart = almatyMonthStart(year, month);
+  const nextStart = month === 11 ? almatyMonthStart(year + 1, 0) : almatyMonthStart(year, month + 1);
+  let total = 0;
+  for (const { dateMs, value } of orderEntries(desks)) {
+    if (dateMs >= thisStart && dateMs < nextStart) total += value;
+  }
+  return total;
+}
+
+/**
  * Month-over-month % from the same order-received date column, using
  * Asia/Almaty month boundaries — was `now.getFullYear()`/`getMonth()`, the
  * VIEWER's own device timezone, so this delta and the "Выручка · <месяц>"

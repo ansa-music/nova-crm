@@ -4,6 +4,7 @@ import {
   deskCountTrend,
   revenueMonthCaption,
   revenueMonthDelta,
+  revenueMonthTotal,
   revenueTrend,
   weekDelta,
 } from "@/utils/dashboardTrends";
@@ -56,7 +57,6 @@ export function KpiStatsRow({
   const deskTrend = deskCountTrend(desks.map((d) => d.page));
   const revTrend = revenueTrend(desks);
 
-  const grandTotal = desks.reduce((sum, d) => sum + d.grandTotal, 0);
   const byMonth = monthOrderCountsByMonth(desks, statusOptions);
   const thisMonth = ymdInTimeZone(Date.now()).slice(0, 7);
 
@@ -79,7 +79,7 @@ export function KpiStatsRow({
           icon={DollarSign}
           color="271 81% 56%"
           label={revenueMonthCaption()}
-          value={formatCompactKzt(grandTotal)}
+          value={formatCompactKzt(revenueMonthTotal(desks))}
           trend={revTrend}
           delta={revenueMonthDelta(desks)}
         />
