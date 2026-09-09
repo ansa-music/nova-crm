@@ -1,4 +1,4 @@
-import { arrayRemove, arrayUnion, doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { arrayRemove, arrayUnion, doc, getDoc, setDoc } from "firebase/firestore";
 import type { User } from "firebase/auth";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
@@ -20,7 +20,13 @@ export async function ensureUserProfile(user: User): Promise<AppUser> {
     createdAt: Date.now(),
     workspaceIds: [],
   };
-  await setDoc(ref, { ...profile, createdAt: serverTimestamp() });
+  // Date.now() here, not serverTimestamp() — createdAt is typed `number` on
+  // AppUser and gets read back both by this function's own existing-doc
+  // branch (snapshot.data() as AppUser) and by useAuth.ts's live
+  // subscribeToDoc<AppUser> listener. A serverTimestamp() sentinel resolves
+  // to a Firestore Timestamp object once persisted, silently mismatching
+  // that number type on every later read.
+  await setDoc(ref, profile);
   return profile;
 }
 

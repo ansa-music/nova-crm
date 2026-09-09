@@ -126,8 +126,6 @@ export function findOwnMembership(
   if (uid) {
     const active = members.find((m) => m.uid === uid && m.status !== "invited");
     if (active) return active;
-    const anyUid = members.find((m) => m.uid === uid && m.status !== "invited");
-    if (anyUid) return anyUid;
   }
   if (!normalizedEmail) return null;
   // Invite stubs are email-keyed and have no uid / status invited — never treat them as the signed-in row.
