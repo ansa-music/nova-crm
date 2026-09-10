@@ -649,6 +649,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // Gating these on plain `canEdit` (the DATA right) let an editor drag a
   // column or resize one on the main tab, get the write rejected server-side
   // with nothing surfaced, and watch it silently snap back.
+  //
+  // The mirror mistake is gating them on `canEditStructure` (= canManagePage,
+  // i.e. Owner or the desk's responsible person): every structural write in
+  // this component already routes through the subPageId-aware service alias
+  // above, so inside a month tab the rules permit anyone canEditPage covers.
+  // Since a Технар's desk is created with hideMainTab and opens on its month
+  // tab, that gate hid «плюс», rename and hide/show from an editor for whom
+  // the write would have succeeded — the "can't add or edit columns" report.
   const canEditColumns = subPageId ? canEdit : canEditStructure;
 
   // ---- Grouping ----
@@ -2363,6 +2371,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   async function handleRenameColumnInline(colKey: string, label: string) {
+    if (!canEditColumns) return;
     const current = columns.find((c) => c.key === colKey);
     const next = label.trim();
     if (!current || !next || next === current.label) return;
@@ -2375,11 +2384,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   function handleInsertColumnAfter(colKey: string) {
+    if (!canEditColumns) return;
     insertAfterKeyRef.current = colKey;
     setAddColumnOpen(true);
   }
 
   async function handleColumnCreated(created: (typeof columns)[number]) {
+    if (!canEditColumns) return;
     const afterKey = insertAfterKeyRef.current;
     insertAfterKeyRef.current = null;
     if (!afterKey) return;
@@ -2392,11 +2403,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   function handleShowAllColumns() {
+    if (!canEditColumns) return;
     if (!columns.some((c) => c.hidden)) return;
     void updatePageColumns(workspaceId, page.id, columns.map((c) => (c.hidden ? { ...c, hidden: false } : c)));
   }
 
   async function handleChangeColumnType(colKey: string, type: ColumnType, customFieldId?: string) {
+    if (!canEditColumns) return;
     const current = columns.find((c) => c.key === colKey);
     if (!current || (current.type === type && current.customFieldId === customFieldId)) return;
     // Status never seeds a per-column list — it always reads the shared
@@ -2451,11 +2464,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   async function handleToggleHiddenColumn(colKey: string) {
+    if (!canEditColumns) return;
     const next = columns.map((c) => (c.key === colKey ? { ...c, hidden: !c.hidden } : c));
     await updatePageColumns(workspaceId, page.id, next);
   }
 
   async function handleMoveColumn(colKey: string, direction: -1 | 1) {
+    if (!canEditColumns) return;
     const ordered = [...columns].sort((a, b) => a.order - b.order);
     const index = ordered.findIndex((c) => c.key === colKey);
     const nextIndex = index + direction;
@@ -2472,11 +2487,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   async function handleDuplicateColumn(colKey: string) {
+    if (!canEditColumns) return;
     const copy = await duplicateColumnService(workspaceId, page.id, columns, colKey);
     toast.success(`Столбец «${copy.label}» создан`);
   }
 
   async function handleDeleteColumn(colKey: string) {
+    if (!canEditColumns) return;
     const current = columns.find((c) => c.key === colKey);
     if (!current) return;
     const ok = await confirmDialog({
@@ -2897,7 +2914,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onExportCsv={handleExportCsv}
         onCopyTable={handleCopyTable}
         canEdit={canEdit}
-        canEditStructure={canEditStructure}
+        canEditStructure={canEditColumns}
         onAddColumn={() => {
           insertAfterKeyRef.current = null;
           setAddColumnOpen(true);
@@ -3026,8 +3043,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                         setGroupByKey(key);
                         setCollapsedGroups(new Set());
                       }}
-                      onRenameCommit={canEditStructure ? handleRenameColumnInline : undefined}
-                      onInsertColumnAfter={canEditStructure ? handleInsertColumnAfter : undefined}
+                      onRenameCommit={canEditColumns ? handleRenameColumnInline : undefined}
+                      onInsertColumnAfter={canEditColumns ? handleInsertColumnAfter : undefined}
                       hint={footerAggregates[column.key]?.title}
                       isPinned={pinnedKeys.includes(column.key)}
                       onTogglePin={togglePin}
@@ -3040,9 +3057,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       isLastSticky={pinnedOrder.length > 0 && column.key === pinnedOrder[pinnedOrder.length - 1].key}
                       canReorder={canEditColumns && !coarsePointer && !editingCell}
                       compactChrome={coarsePointer}
-                      canEditStructure={canEditStructure}
+                      canEditStructure={canEditColumns}
                       canManageOptions={canManageVariants}
-                      onToggleHidden={canEditStructure ? handleToggleHiddenColumn : undefined}
+                      onToggleHidden={canEditColumns ? handleToggleHiddenColumn : undefined}
                       onRename={handleRenameColumn}
                       onChangeType={handleChangeColumnType}
                       onManageOptions={canManageVariants ? setManageOptionsColKey : undefined}
@@ -3062,7 +3079,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                     />
                   ))}
                 </SortableContext>
-                {canEditStructure && (
+                {canEditColumns && (
                   <th className="border-b border-border/50 bg-background p-0" style={{ width: 44, minWidth: 44 }}>
                     <button
                       type="button"

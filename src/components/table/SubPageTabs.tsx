@@ -170,7 +170,12 @@ export function SubPageTabs({
   }
 
   const isDefaultMain = !page.defaultSubPageId;
-  const hideMain = Boolean(page.hideMainTab);
+  // hideMainTab is written on the page doc the moment a desk is created, and
+  // the month tab lands a write later — so a desk whose seeding never
+  // finished (or whose last tab was deleted) has hideMainTab with nothing to
+  // show instead, and the tab bar renders empty with no way back to
+  // «Основная». Hiding the main tab only makes sense when another tab exists.
+  const hideMain = Boolean(page.hideMainTab) && visible.length > 0;
 
   function selectAwayFrom(subId: string) {
     const next = visible.find((s) => s.id !== subId);

@@ -265,21 +265,52 @@ export async function createPage(input: CreatePageInput): Promise<WorkspacePage>
   return seedCurrentMonthDesk(page);
 }
 
-/** After the page doc exists: month tab, then default. Never part of the manager claim batch. */
+/**
+ * After the page doc exists: month tab, then default. Never part of the
+ * manager claim batch.
+ *
+ * MUST NOT reject. Both callers reach this line with the page doc already
+ * committed — and for a Manager, with the one-shot managerPageClaims/{uid}
+ * doc committed alongside it in the same batch. Letting a failure here
+ * propagate made desk creation self-locking for a Технар: the dialog toasted
+ * «Не удалось создать страницу» while the page and its quota claim were
+ * already durable, so every retry from then on hit «Достигнут лимит страниц»
+ * and the account could never create its desk again. The desk is also left
+ * with hideMainTab and no month tab, i.e. no visible tab at all — so on
+ * failure clear hideMainTab and hand back a desk that opens on «Основная».
+ */
 export async function seedCurrentMonthDesk(page: WorkspacePage): Promise<WorkspacePage> {
   const { createSubPage, currentMonthTabName } = await import("@/services/subPageService");
-  const sub = await createSubPage({
-    workspaceId: page.workspaceId,
-    pageId: page.id,
-    name: currentMonthTabName(),
-    color: page.color,
-    icon: page.icon,
-    columns: page.columns,
-    order: 0,
-    createdBy: page.createdBy,
-  });
-  await setDefaultSubPage(page.workspaceId, page.id, sub.id);
-  return { ...page, defaultSubPageId: sub.id, hideMainTab: true };
+  try {
+    const sub = await createSubPage({
+      workspaceId: page.workspaceId,
+      pageId: page.id,
+      name: currentMonthTabName(),
+      color: page.color,
+      icon: page.icon,
+      columns: page.columns,
+      order: 0,
+      createdBy: page.createdBy,
+    });
+    await setDefaultSubPage(page.workspaceId, page.id, sub.id);
+    return { ...page, defaultSubPageId: sub.id, hideMainTab: true };
+  } catch (error) {
+    console.error(`seedCurrentMonthDesk failed for page ${page.id}; falling back to the main tab:`, error);
+    // Best-effort repair only — the desk is usable either way, and the
+    // creation itself must still be reported as the success it was.
+    try {
+      if (db) {
+        await setDoc(
+          paths.page(page.workspaceId, page.id),
+          { hideMainTab: false, updatedAt: Date.now() },
+          { merge: true }
+        );
+      }
+    } catch (repairError) {
+      console.error(`Could not clear hideMainTab on page ${page.id}:`, repairError);
+    }
+    return { ...page, hideMainTab: false };
+  }
 }
 
 /**
