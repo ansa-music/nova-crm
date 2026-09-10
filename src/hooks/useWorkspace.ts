@@ -125,8 +125,18 @@ export function useActiveWorkspaceDataBootstrap() {
     // Live listener is only the current user's member doc — needed for access/role.
     let roster: import("@/types").WorkspaceMember[] = [];
     let ownMember: import("@/types").WorkspaceMember | null = null;
+    // Membership positively CONFIRMED by either source. Once true, a later
+    // listener error must not drag the state back to "unconfirmed" — for a
+    // non-owner that would switch every capability in usePermissions off.
+    let membersConfirmed = false;
     function publishMembers() {
       setMembers(mergeOwnMember(roster, ownMember));
+    }
+    function confirmMembers() {
+      membersConfirmed = true;
+      setMembersLoadState("ready");
+      membersLoaded = true;
+      maybeDone();
     }
 
     void fetchMembers(activeWorkspaceId)
@@ -134,6 +144,15 @@ export function useActiveWorkspaceDataBootstrap() {
         if (generation !== generationRef.current) return;
         roster = list;
         publishMembers();
+        // The roster read is independent proof of membership: its Firestore
+        // rule requires isMember(workspaceId), so a successful list that
+        // contains this uid means the account IS a member — regardless of
+        // what the own-member listener did. This is what actually resolved
+        // the role before the listener's denial path was corrected, and
+        // without it a denied own-member snapshot leaves a fully authorized
+        // Технар with isResolved=false, i.e. no rights anywhere: can't
+        // create a desk, can't add/rename/drag columns on their own desk.
+        if (!membersConfirmed && uid && findOwnMembership(list, uid)) confirmMembers();
       })
       .catch((error) => {
         if (generation !== generationRef.current) return;
@@ -148,14 +167,17 @@ export function useActiveWorkspaceDataBootstrap() {
             if (generation !== generationRef.current) return;
             ownMember = own;
             publishMembers();
-            setMembersLoadState("ready");
-            membersLoaded = true;
-            maybeDone();
+            confirmMembers();
           },
           (error) => {
             if (generation !== generationRef.current) return;
             console.error(`subscribeToOwnMember denied for workspace ${activeWorkspaceId}:`, error.code, error.message);
-            // permission-denied ≠ signed out and ≠ "not a member". Keep boot moving.
+            // permission-denied ≠ signed out and ≠ "not a member". Keep boot
+            // moving, but never downgrade a membership the roster already
+            // confirmed — "unconfirmed" turns every capability off for a
+            // non-owner, so claiming it after we have proof would lock a
+            // legitimate member out of their own desk.
+            if (membersConfirmed) return;
             setMembersLoadState("unconfirmed");
             membersLoaded = true;
             maybeDone();
