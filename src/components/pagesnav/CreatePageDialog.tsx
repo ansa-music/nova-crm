@@ -33,11 +33,14 @@ interface CreatePageDialogProps {
 const BLANK_COLUMNS: Omit<PageColumn, "id">[] = [
   { key: "name", label: "Название", type: "text", width: 220, order: 0 },
   { key: "number", label: "Номер", type: "text", width: 140, order: 1 },
-  { key: "status", label: "Статус", type: "status", width: 150, order: 2, statusOptions: [
-    { value: "todo", label: "К выполнению", color: "240 4% 46%" },
-    { value: "active", label: "В работе", color: "38 92% 50%" },
-    { value: "done", label: "Готово", color: "142 71% 45%" },
-  ] },
+  // No per-column statusOptions on purpose. A "status" column always reads
+  // the shared workspace.statusOptions (getColumnOptions ignores this field
+  // for that type), so the three values seeded here were never displayed —
+  // they only handed every new desk the stale-private-list shape that
+  // columnStatusOptionsPreserved() in firestore.rules has to keep carrying,
+  // and that changeColumnType has explicit code to preserve. Owner edits the
+  // real list once in «Варианты статуса» and every desk follows.
+  { key: "status", label: "Статус", type: "status", width: 150, order: 2 },
   // "price" and "status" are the conventional keys other utils fall back to
   // when a page has no explicit currency/status column configured (see
   // calculateReportAggregates in reportAggregates.ts) — keeping them here
