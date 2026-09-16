@@ -47,7 +47,7 @@ export function InviteMemberForm({ workspaceId }: { workspaceId: string }) {
         control={form.control}
         name="role"
         render={({ field }) => (
-          <RoleSelect value={field.value} onChange={field.onChange} assignableRoles={["admin", "manager", "os", "viewer"]} />
+          <RoleSelect value={field.value} onChange={field.onChange} assignableRoles={["teamlead", "admin", "manager", "os", "viewer"]} />
         )}
       />
       <Button type="submit" disabled={isSubmitting} className="gap-1.5">

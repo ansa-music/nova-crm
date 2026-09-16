@@ -34,7 +34,7 @@ export function GrokAppDialog({ open, onOpenChange, editing, accounts }: GrokApp
   const { profile } = useAuth();
   const { activeWorkspaceId } = useWorkspace();
   const { role } = usePermissions();
-  const canName = role === "owner" || role === "admin";
+  const canName = role === "owner" || role === "teamlead" || role === "admin";
   const [provider, setProvider] = useState<GrokAppProvider>(editing?.provider ?? "elevenlabs");
   const [providerOther, setProviderOther] = useState(editing?.providerOther ?? "");
   const [email, setEmail] = useState(editing?.email ?? "");

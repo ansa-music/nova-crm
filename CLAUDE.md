@@ -29,8 +29,15 @@ Nova CRM — production SaaS, написанная с помощью Claude. О�
 
 Внутренний код (типы, роли, коллекции Firestore) не переименован — это чисто UI-слой:
 
-- `Role = "owner" | "admin" | "manager" | "os" | "viewer"`, но `ROLE_LABELS.manager === "Технар"`
+- `Role = "owner" | "teamlead" | "admin" | "manager" | "os" | "viewer"`, но `ROLE_LABELS.manager === "Технар"`
   (`src/types/role.ts`) — везде в UI роль `manager` подписана «Технар».
+- Роль **`teamlead` («Тимлид»)** — права Owner: все столы, участники, заявки, роли, настройки,
+  история (`hasFullAccess()` в `utils/permissions.ts` и в `firestore.rules`). Только Owner:
+  удаление workspace и любые записи об Owner (его member-док, роль `owner`, `ownerId`). Правка
+  таблиц у Тимлида заперта на клиенте, пока не нажата «Редактировать» (`uiStore.teamleadEditMode`,
+  не сохраняется; `usePermissions` гасит `canEditPageData`/`canManagePage`/`canDeletePage`/
+  `canEditPageStructure`/`canRestoreHistory`), доступы к столам (`canManagePageAccess`) — без замка.
+  Правила про замок не знают. Для «может открыть любой стол» на клиенте — `hasFullDeskAccess`.
 - Роль **`os` («ОС»)** — без своего стола: не создаёт столы, не управляет чужими, `/` ведёт
   на «Технари», в меню скрыты «Дашборд» и «Столы». Owner/Admin могут симулировать её через
   RoleSwitcher (списки в `allowedSimulatedRoles` и в правиле `activeRole` синхронны).
@@ -86,12 +93,12 @@ Firebase Storage не используется (нет Blaze) — файлы и�
 
 ## Модель прав (кратко)
 
-Roles: `owner` > `admin` > `manager` («Технар») > `os` («ОС») / `viewer`. Только Owner проходит `isOwner()`
-безусловно. `canEditPage(page) = owner || responsibleUserId == uid || (canAccessPage && uid in editableUsers)`.
-`canAccessPage(page) = owner || isResponsiblePage || uid in allowedUsers`. `allowedUsers`
+Roles: `owner` > `teamlead` («Тимлид») > `admin` > `manager` («Технар») > `os` («ОС») / `viewer`. Owner и
+Тимлид проходят `hasFullAccess()` безусловно (`isOwner()` — только Owner: удаление workspace). `canEditPage(page) = owner/тимлид || responsibleUserId == uid || (canAccessPage && uid in editableUsers)`.
+`canAccessPage(page) = owner/тимлид || isResponsiblePage || uid in allowedUsers`. `allowedUsers`
 (просмотр) и `editableUsers` (редактирование) — разные права. `responsibleUserId` даёт
 админ-права в рамках конкретной страницы + доступ на чтение даже без `allowedUsers`, но не
-доступ на уровне workspace. История изменений (`/history`) — только Owner.
+доступ на уровне workspace. История изменений (`/history`) — Owner и Тимлид.
 
 ## Критические уроки и подводные камни (НЕ повторять)
 

@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { DISPATCH_ENABLED } from "@/config/features";
+import { hasFullAccess } from "@/utils/permissions";
 
 export default function DispatchPage() {
   if (!DISPATCH_ENABLED) return <Navigate to="/" replace />;
@@ -18,9 +19,9 @@ export default function DispatchPage() {
   // (permissions.role) is checked too, same as the old per-desk tab's rule.
   const canSeeDispatch =
     permissions.isResolved &&
-    (permissions.realRole === "owner" || permissions.realRole === "admin" || permissions.isWorkspaceOwner) &&
-    (permissions.role === "owner" || permissions.role === "admin");
-  const canBindDispatch = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+    (permissions.hasFullDeskAccess || permissions.realRole === "admin") &&
+    (hasFullAccess(permissions.role) || permissions.role === "admin");
+  const canBindDispatch = permissions.hasFullDeskAccess;
 
   if (!permissions.isResolved) return null;
 

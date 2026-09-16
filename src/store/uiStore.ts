@@ -11,6 +11,12 @@ interface UiState {
   tableImmersive: boolean;
   /** Session-only: which person is selected on the home rail/hero. */
   selectedPersonKey: string | null;
+  /**
+   * Session-only «Редактировать» switch for a Тимлид: tables stay read-only
+   * until it's on. Never persisted — every reload starts locked.
+   */
+  teamleadEditMode: boolean;
+  setTeamleadEditMode: (on: boolean) => void;
   setTheme: (theme: ThemeMode) => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -29,6 +35,8 @@ export const useUiStore = create<UiState>()(
       tableFullscreen: false,
       tableImmersive: false,
       selectedPersonKey: null,
+      teamleadEditMode: false,
+      setTeamleadEditMode: (teamleadEditMode) => set({ teamleadEditMode }),
       setTheme: (theme) => set({ theme }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),

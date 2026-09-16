@@ -21,7 +21,7 @@ export type SignupFormValues = z.infer<typeof signupSchema>;
 
 export const inviteSchema = z.object({
   email: z.string().min(1, "Введите email").email("Некорректный email"),
-  role: z.enum(["admin", "manager", "os", "viewer"]),
+  role: z.enum(["teamlead", "admin", "manager", "os", "viewer"]),
 });
 export type InviteFormValues = z.infer<typeof inviteSchema>;
 

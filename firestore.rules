@@ -1,7 +1,8 @@
 rules_version = '2';
 
 // ---------------------------------------------------------------------------
-// Access model: the workspace Owner has blanket access to everything. Every
+// Access model: the workspace Owner — and a Тимлид (role teamlead), see
+// hasFullAccess — has blanket access to everything. Every
 // other member — regardless of role — can only read/write a page (and its
 // rows) if their uid is explicitly listed in that page's `allowedUsers`
 // array. This is the actual security boundary; the React app's own checks
@@ -42,8 +43,21 @@ service cloud.firestore {
       return isDocOwner(workspaceId) || (isMember(workspaceId) && myRole(workspaceId) == 'owner');
     }
 
+    // Тимлид: the Owner's blanket access — every desk, rows, members, join
+    // requests, roles, workspace settings, history — with two exceptions kept
+    // for the Owner alone: deleting the workspace, and creating/changing/
+    // removing an Owner membership (see the workspaces and members blocks).
+    function isTeamLead(workspaceId) {
+      return isMember(workspaceId) && myRole(workspaceId) == 'teamlead';
+    }
+
+    function hasFullAccess(workspaceId) {
+      return isOwner(workspaceId) || isTeamLead(workspaceId);
+    }
+
+    // Owner, Тимлид or Admin.
     function isOwnerOrAdmin(workspaceId) {
-      return isOwner(workspaceId) || (isMember(workspaceId) && myRole(workspaceId) == 'admin');
+      return hasFullAccess(workspaceId) || (isMember(workspaceId) && myRole(workspaceId) == 'admin');
     }
 
 
@@ -71,7 +85,7 @@ service cloud.firestore {
     // deliberately NOT sufficient here — Personal Space is a stricter,
     // separate gate on top of the parent page ACL.
     function canUsePersonalZone(workspaceId, pageData, zoneUid) {
-      return isOwner(workspaceId)
+      return hasFullAccess(workspaceId)
         || (isResponsiblePage(workspaceId, pageData) && zoneUid == request.auth.uid)
         || (isMember(workspaceId) && zoneUid == request.auth.uid
             && request.auth.uid in pageData.get('personalZoneAllowedUsers', []));
@@ -80,7 +94,7 @@ service cloud.firestore {
     // Owner: every page. Responsible person: their own desk even if hidden
     // or missing from allowedUsers. Everyone else: explicit allowedUsers grant.
     function canAccessPage(workspaceId, pageData) {
-      return isOwner(workspaceId) ||
+      return hasFullAccess(workspaceId) ||
         isResponsiblePage(workspaceId, pageData) ||
         (isMember(workspaceId) && request.auth.uid in pageData.get('allowedUsers', []));
     }
@@ -91,7 +105,7 @@ service cloud.firestore {
     // editableUsers too — a separate grant the Owner or this page's
     // responsible person controls independently of plain view access.
     function canEditPage(workspaceId, pageData) {
-      return isOwner(workspaceId) ||
+      return hasFullAccess(workspaceId) ||
         pageData.get('responsibleUserId', null) == request.auth.uid ||
         (canAccessPage(workspaceId, pageData) && request.auth.uid in pageData.get('editableUsers', []));
     }
@@ -122,6 +136,10 @@ service cloud.firestore {
         && request.resource.data.ownerId == request.auth.uid
         && request.auth.token.email == 'nurpro2005@gmail.com';
       allow update: if isOwner(workspaceId);
+      // Тимлид: every workspace setting, never the ownership itself.
+      allow update: if isTeamLead(workspaceId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['ownerId']);
+      // Deleting the workspace stays Owner-only — no Тимлид branch.
       allow delete: if isOwner(workspaceId);
 
       // -----------------------------------------------------------------
@@ -148,8 +166,9 @@ service cloud.firestore {
         // `role` field (resource.data.role — never writable by this same
         // rule, since 'role' is not in the allowed affectedKeys set below,
         // so it can only ever reflect what the Owner actually granted):
-        //   role == owner  -> activeRole in [owner, admin, manager, os, viewer]
-        //   role == admin  -> activeRole in [admin, manager, os, viewer]  (never owner)
+        //   role == owner    -> activeRole in [owner, teamlead, admin, manager, os, viewer]
+        //   role == teamlead -> activeRole in [teamlead, admin, manager, os, viewer]  (never owner)
+        //   role == admin    -> activeRole in [admin, manager, os, viewer]  (never owner/teamlead)
         //   role == manager, os or viewer -> may not set activeRole at all
         // This is the actual security boundary for the feature — nothing
         // else in this file ever reads activeRole, so even a raw DevTools
@@ -163,13 +182,30 @@ service cloud.firestore {
             !('activeRole' in request.resource.data.diff(resource.data).affectedKeys())
             || request.resource.data.activeRole == null
             || (resource.data.role == 'owner' &&
-                request.resource.data.activeRole in ['owner', 'admin', 'manager', 'os', 'viewer'])
+                request.resource.data.activeRole in ['owner', 'teamlead', 'admin', 'manager', 'os', 'viewer'])
+            || (resource.data.role == 'teamlead' &&
+                request.resource.data.activeRole in ['teamlead', 'admin', 'manager', 'os', 'viewer'])
             || (resource.data.role == 'admin' &&
                 request.resource.data.activeRole in ['admin', 'manager', 'os', 'viewer'])
           );
 
         // Owner manages any membership record: invite, change role, remove.
         allow create, update, delete: if isOwner(workspaceId);
+
+        // Тимлид manages membership the same way — invites, join approvals,
+        // role changes, removal — except anything touching an Owner: never
+        // the workspace's ownerId doc, never a record whose role is or
+        // becomes 'owner'. (delete has no request.resource — only resource.)
+        allow create: if isTeamLead(workspaceId)
+          && request.resource.data.get('role', '') != 'owner'
+          && memberId != get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '');
+        allow update: if isTeamLead(workspaceId)
+          && resource.data.get('role', '') != 'owner'
+          && request.resource.data.get('role', '') != 'owner'
+          && memberId != get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '');
+        allow delete: if isTeamLead(workspaceId)
+          && resource.data.get('role', '') != 'owner'
+          && memberId != get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '');
 
         // Bootstrap: the workspace creator may create their own Owner record.
         allow create: if signedIn()
@@ -222,7 +258,7 @@ service cloud.firestore {
       // record separately), or reject.
       // -----------------------------------------------------------------
       match /joinRequests/{uid} {
-        allow read: if isOwner(workspaceId) || (signedIn() && request.auth.uid == uid);
+        allow read: if hasFullAccess(workspaceId) || (signedIn() && request.auth.uid == uid);
         allow create: if signedIn()
           && request.auth.uid == uid
           && request.resource.data.uid == uid
@@ -230,7 +266,7 @@ service cloud.firestore {
           && request.resource.data.email is string
           && request.auth.token.email is string
           && request.resource.data.email == authEmailLower();
-        allow update: if isOwner(workspaceId)
+        allow update: if hasFullAccess(workspaceId)
           || (signedIn()
             && request.auth.uid == uid
             && resource.data.uid == uid
@@ -240,7 +276,7 @@ service cloud.firestore {
             && request.resource.data.email is string
             && request.auth.token.email is string
             && request.resource.data.email == authEmailLower());
-        allow delete: if isOwner(workspaceId) || (signedIn() && request.auth.uid == uid);
+        allow delete: if hasFullAccess(workspaceId) || (signedIn() && request.auth.uid == uid);
       }
 
       // -----------------------------------------------------------------
@@ -256,7 +292,7 @@ service cloud.firestore {
       // grant a second page.
       // -----------------------------------------------------------------
       match /managerPageClaims/{uid} {
-        allow read: if isOwner(workspaceId) || (isMember(workspaceId) && uid == request.auth.uid);
+        allow read: if hasFullAccess(workspaceId) || (isMember(workspaceId) && uid == request.auth.uid);
         allow create: if isMember(workspaceId)
           && uid == request.auth.uid
           && myRole(workspaceId) == 'manager'
@@ -264,10 +300,16 @@ service cloud.firestore {
           && existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId))
           && getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId)).data.createdBy == request.auth.uid
           && request.resource.data.uid == request.auth.uid;
-        allow update: if isOwner(workspaceId);
+        allow update: if hasFullAccess(workspaceId);
+        // changeMemberRole(manager) records the claim for someone who already
+        // has exactly one desk — a create on the Owner/Тимлид side, which the
+        // self-only create rule above can never allow.
+        allow create: if hasFullAccess(workspaceId)
+          && request.resource.data.uid == uid
+          && request.resource.data.pageId is string;
         // Manager may drop own claim only in the same batch as deleting that page,
         // so deleting the last own desk lets them create one again.
-        allow delete: if isOwner(workspaceId) || (
+        allow delete: if hasFullAccess(workspaceId) || (
           isMember(workspaceId)
           && uid == request.auth.uid
           && resource.data.pageId is string
@@ -293,7 +335,7 @@ service cloud.firestore {
         // that claim exists a second create for the same uid is rejected —
         // including from a second tab or a repeated direct write.
         allow create: if isMember(workspaceId) && request.resource.data.workspaceId == workspaceId &&
-          (isOwner(workspaceId) ||
+          (hasFullAccess(workspaceId) ||
             (myRole(workspaceId) == 'admin' &&
               request.resource.data.responsibleUserId == request.auth.uid &&
               request.auth.uid in request.resource.data.get('allowedUsers', [])) ||
@@ -305,7 +347,7 @@ service cloud.firestore {
               existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/managerPageClaims/$(request.auth.uid)) &&
               getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/managerPageClaims/$(request.auth.uid)).data.pageId == pageId));
 
-        allow update: if isOwner(workspaceId);
+        allow update: if hasFullAccess(workspaceId);
         // Responsible person may set their own monthly goal without going
         // through columnStatusOptionsPreserved (that helper errors on some
         // legacy column shapes and denied the save).
@@ -323,7 +365,7 @@ service cloud.firestore {
             .hasOnly(['defaultSubPageId', 'autoMonthKey', 'autoMonthSubPageId', 'updatedAt']);
         // Delete: Owner always, or the page's own creator while they're
         // still its responsible person (mirrors canDeletePage client-side).
-        allow delete: if isOwner(workspaceId) ||
+        allow delete: if hasFullAccess(workspaceId) ||
           (resource.data.createdBy == request.auth.uid && resource.data.responsibleUserId == request.auth.uid);
 
         // The person assigned as this page's "responsible" gets full control
@@ -393,7 +435,7 @@ service cloud.firestore {
             canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
           allow update: if isMember(workspaceId) &&
             canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
-            (isOwner(workspaceId) || columnStatusOptionsPreserved());
+            (hasFullAccess(workspaceId) || columnStatusOptionsPreserved());
 
           match /rows/{rowId} {
             allow read: if isMember(workspaceId) &&
@@ -525,9 +567,9 @@ service cloud.firestore {
       // pages they have access to, they just can't browse the full log).
       // -----------------------------------------------------------------
       match /history/{entryId} {
-        allow read: if isOwner(workspaceId);
+        allow read: if hasFullAccess(workspaceId);
         allow create: if isMember(workspaceId) && myRole(workspaceId) != 'viewer';
-        allow delete: if isOwner(workspaceId);
+        allow delete: if hasFullAccess(workspaceId);
       }
 
       // -----------------------------------------------------------------
@@ -543,7 +585,7 @@ service cloud.firestore {
       match /leaderboard/{pageId} {
         allow read: if isMember(workspaceId);
         allow write: if isMember(workspaceId) &&
-          (isOwner(workspaceId) ||
+          (hasFullAccess(workspaceId) ||
             get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId))
               .data.get('responsibleUserId', null) == request.auth.uid);
       }
@@ -608,7 +650,7 @@ service cloud.firestore {
           resource.data.get('memberUid', null) == request.auth.uid;
         allow create: if isOwnerOrAdmin(workspaceId) && request.resource.data.createdBy == request.auth.uid;
         allow update: if isOwnerOrAdmin(workspaceId) &&
-          (isOwner(workspaceId) ||
+          (hasFullAccess(workspaceId) ||
             !('memberUid' in request.resource.data.diff(resource.data).affectedKeys()));
         allow delete: if isOwnerOrAdmin(workspaceId);
       }

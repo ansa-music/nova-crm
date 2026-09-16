@@ -6,6 +6,11 @@ import type { Role, WorkspacePage } from "@/types";
  * that Manager is now a real author instead of a de-facto Viewer):
  *
  *  - Owner: blanket, implicit access to everything in the workspace.
+ *  - Тимлид (teamlead): the same blanket access as Owner — every desk, members,
+ *    join requests, roles, workspace settings, history — except deleting the
+ *    workspace and touching the Owner's own membership (firestore.rules). On
+ *    the client, editing tables additionally waits for «Редактировать»
+ *    (usePermissions' edit lock); the rules don't know about that switch.
  *  - Admin: workspace administration (assigning who's responsible for a page),
  *    but NO blanket page access. This is deliberate: the non-owner pages list
  *    query is `where("allowedUsers","array-contains",uid)`, and Firestore can
@@ -22,25 +27,35 @@ import type { Role, WorkspacePage } from "@/types";
  * only line of defense.
  */
 
+/** Owner or Тимлид — mirrors hasFullAccess() in firestore.rules. */
+export function hasFullAccess(role: Role): boolean {
+  return role === "owner" || role === "teamlead";
+}
+
 export function canManageWorkspace(role: Role): boolean {
+  return hasFullAccess(role);
+}
+
+/** Deleting the whole workspace stays with the Owner alone. */
+export function canDeleteWorkspace(role: Role): boolean {
   return role === "owner";
 }
 
-/** Status/select option lists (add/edit/delete/reorder «Готово» etc.) — Owner only. */
+/** Status/select option lists (add/edit/delete/reorder «Готово» etc.) — Owner and Тимлид. */
 export function canManageStatusVariants(role: Role): boolean {
-  return role === "owner";
+  return hasFullAccess(role);
 }
 
 export function canInviteMembers(role: Role): boolean {
-  return role === "owner";
+  return hasFullAccess(role);
 }
 
 export function canChangeRoles(role: Role): boolean {
-  return role === "owner";
+  return hasFullAccess(role);
 }
 
 export function canRemoveMembers(role: Role): boolean {
-  return role === "owner";
+  return hasFullAccess(role);
 }
 
 /**
@@ -50,7 +65,7 @@ export function canRemoveMembers(role: Role): boolean {
  * never create a page they don't own or that is invisible to them.
  */
 export function canCreatePages(role: Role): boolean {
-  return role === "owner" || role === "admin" || role === "manager";
+  return hasFullAccess(role) || role === "admin" || role === "manager";
 }
 
 /**
@@ -58,24 +73,24 @@ export function canCreatePages(role: Role): boolean {
  * page is `canManagePage(page, role, uid)` — always prefer that at call sites.
  */
 export function canEditPageStructure(role: Role): boolean {
-  return role === "owner" || role === "admin" || role === "manager";
+  return hasFullAccess(role) || role === "admin" || role === "manager";
 }
 
 export function canManagePagePermissions(role: Role): boolean {
-  return role === "owner";
+  return hasFullAccess(role);
 }
 
 export function canViewHistory(role: Role): boolean {
-  return role === "owner";
+  return hasFullAccess(role);
 }
 
 export function canRestoreHistory(role: Role): boolean {
-  return role === "owner";
+  return hasFullAccess(role);
 }
 
-/** Owner and Admin may post/edit/pin/archive/delete announcements. */
+/** Owner, Тимлид and Admin may post/edit/pin/archive/delete announcements. */
 export function canManageAnnouncements(role: Role): boolean {
-  return role === "owner" || role === "admin";
+  return hasFullAccess(role) || role === "admin";
 }
 
 /** «Технари» (who is free / busy this month): everyone except Viewer. */
@@ -83,15 +98,16 @@ export function canSeeTechnicians(role: Role): boolean {
   return role !== "viewer";
 }
 
-/** Only the Owner may send notifications (as opposed to merely posting an announcement). */
+/** Owner and Тимлид may send notifications (as opposed to merely posting an announcement). */
 export function canSendNotifications(role: Role): boolean {
-  return role === "owner";
+  return hasFullAccess(role);
 }
 
 /**
  * Whether a given user may open a specific workspace page at all.
- * Owner (role or workspace.ownerId) always. The responsible person always —
- * hiddenByResponsible / view-requests must never lock them out of their own desk.
+ * Owner (role or workspace.ownerId) and Тимлид always. The responsible person
+ * always — hiddenByResponsible / view-requests must never lock them out of
+ * their own desk.
  */
 export function canAccessPage(
   page: WorkspacePage,
@@ -101,7 +117,7 @@ export function canAccessPage(
 ): boolean {
   if (!uid) return false;
   if (workspaceOwnerId && uid === workspaceOwnerId) return true;
-  if (role === "owner") return true;
+  if (hasFullAccess(role)) return true;
   if (isResponsibleForPage(page, uid)) return true;
   return Boolean(page.allowedUsers?.includes(uid));
 }
@@ -109,11 +125,11 @@ export function canAccessPage(
 /**
  * Whether a user may edit row data on a specific page (not just view it).
  * Being in `allowedUsers` alone is not enough — edit rights are a separate,
- * explicit grant (`editableUsers`). Owner and the responsible person can
- * always edit regardless of that list.
+ * explicit grant (`editableUsers`). Owner, Тимлид and the responsible person
+ * can always edit regardless of that list.
  */
 export function canEditPageData(page: WorkspacePage, role: Role, uid: string): boolean {
-  if (role === "owner") return true;
+  if (hasFullAccess(role)) return true;
   if (isResponsibleForPage(page, uid)) return true;
   if (!canAccessPage(page, role, uid)) return false;
   return Boolean(page.editableUsers?.includes(uid));
@@ -126,23 +142,23 @@ export function isResponsibleForPage(page: WorkspacePage, uid: string): boolean 
 /**
  * Page-scoped "administrator" rights: full control over THIS ONE page
  * (rename, colour/icon, columns, subpages, who has access) without any
- * workspace-wide Owner powers. Owner always qualifies; otherwise only the
- * person assigned as this page's responsible — which, for a page a Manager
- * created, is that Manager.
+ * workspace-wide Owner powers. Owner and Тимлид always qualify; otherwise only
+ * the person assigned as this page's responsible — which, for a page a
+ * Manager created, is that Manager.
  */
 export function canManagePage(page: WorkspacePage, role: Role, uid: string): boolean {
   // Use the *effective* role (RoleSwitcher preview). Owner uid must not keep
   // page-admin UI while simulating Viewer. A real/preview Manager still
   // manages desks they are responsible for — status *variants* stay Owner-only
   // via canManageStatusVariants(effectiveRole), never this check.
-  if (role === "owner") return true;
+  if (hasFullAccess(role)) return true;
   if (role === "viewer" || role === "os") return false;
   return isResponsibleForPage(page, uid);
 }
 
-/** Only Owner or Admin may assign/change who is responsible for a page. */
+/** Owner, Тимлид or Admin may assign/change who is responsible for a page. */
 export function canAssignResponsible(role: Role): boolean {
-  return role === "owner" || role === "admin";
+  return hasFullAccess(role) || role === "admin";
 }
 
 /**
@@ -152,12 +168,14 @@ export function canAssignResponsible(role: Role): boolean {
  * actual security boundary lives there, not here (this copy is for UI only —
  * hiding options the person couldn't set anyway).
  *
- *   Owner  -> owner, admin, manager, os, viewer
- *   Admin  -> admin, manager, os, viewer   (never owner)
+ *   Owner   -> owner, teamlead, admin, manager, os, viewer
+ *   Тимлид  -> teamlead, admin, manager, os, viewer   (never owner)
+ *   Admin   -> admin, manager, os, viewer   (never owner/teamlead)
  *   Manager, ОС, Viewer -> not allowed to simulate anything
  */
 export function allowedSimulatedRoles(realRole: Role): Role[] {
-  if (realRole === "owner") return ["owner", "admin", "manager", "os", "viewer"];
+  if (realRole === "owner") return ["owner", "teamlead", "admin", "manager", "os", "viewer"];
+  if (realRole === "teamlead") return ["teamlead", "admin", "manager", "os", "viewer"];
   if (realRole === "admin") return ["admin", "manager", "os", "viewer"];
   return [];
 }
@@ -167,9 +185,10 @@ export function canSimulateRole(realRole: Role, targetRole: Role): boolean {
 }
 /**
  * Whether a page created by `uid` may be deleted by them. Mirrors the rules:
- * Owner always; otherwise only the creator who is still its responsible person.
+ * Owner and Тимлид always; otherwise only the creator who is still its
+ * responsible person.
  */
 export function canDeletePage(page: WorkspacePage, role: Role, uid: string): boolean {
-  if (role === "owner") return true;
+  if (hasFullAccess(role)) return true;
   return isResponsibleForPage(page, uid) && page.createdBy === uid;
 }

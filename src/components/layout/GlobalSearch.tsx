@@ -43,7 +43,8 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
   const { latestForPage } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const { selectPerson, peopleGroups } = usePeopleDesks();
   const navigate = useNavigate();
-  const isOwner = Boolean(permissions.isWorkspaceOwner || permissions.realRole === "owner");
+  // Owner or Тимлид: may open every desk.
+  const isOwner = permissions.hasFullDeskAccess;
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {

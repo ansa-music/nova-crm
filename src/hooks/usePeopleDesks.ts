@@ -3,7 +3,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useUiStore } from "@/store/uiStore";
-import { isResponsibleForPage } from "@/utils/permissions";
+import { hasFullAccess, isResponsibleForPage } from "@/utils/permissions";
 import {
   coverGridPages,
   findMyDesk,
@@ -25,7 +25,7 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
     [pages, permissions]
   );
 
-  const isPersonalLanding = permissions.role !== "owner" && permissions.role !== "admin";
+  const isPersonalLanding = !hasFullAccess(permissions.role) && permissions.role !== "admin";
 
   const studioPages = useMemo(() => {
     if (isPersonalLanding && profile) {

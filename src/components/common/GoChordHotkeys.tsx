@@ -43,7 +43,7 @@ export function GoChordHotkeys() {
   function firstDeskHref(): string | null {
     const uid = uidRef.current;
     const perms = permissionsRef.current;
-    const isOwner = Boolean(perms.isWorkspaceOwner || perms.realRole === "owner");
+    const isOwner = perms.hasFullDeskAccess;
     const own = uid ? pagesRef.current.find((p) => p.responsibleUserId === uid) : undefined;
     if (own) return `/page/${own.id}`;
     if (!isOwner) return null;

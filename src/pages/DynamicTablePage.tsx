@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
-import { BarChart3, Eye, EyeOff, History, Lock, Maximize2, MessageSquare, MoreHorizontal, Settings2, User } from "lucide-react";
+import { BarChart3, Eye, EyeOff, History, Lock, LockOpen, Maximize2, MessageSquare, MoreHorizontal, PencilLine, Settings2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -34,6 +34,7 @@ import { useViewRequests } from "@/hooks/useViewRequests";
 import { ensureDiskColumn, ensurePriceColumn, fetchPageIfAccessible, togglePageVisibility } from "@/services/pageService";
 import { displayNameOf } from "@/utils/displayName";
 import { canOpenDesk, isRestrictedDeskRole } from "@/utils/peopleDesks";
+import { hasFullAccess } from "@/utils/permissions";
 import { useUiStore } from "@/store/uiStore";
 import { cn } from "@/utils/cn";
 import { recordRecentPage } from "@/hooks/useUserPageNav";
@@ -68,6 +69,8 @@ export default function DynamicTablePage() {
   const setTableImmersive = useUiStore((s) => s.setTableImmersive);
   const tableFullscreen = useUiStore((s) => s.tableFullscreen);
   const tableImmersive = useUiStore((s) => s.tableImmersive);
+  const teamleadEditMode = useUiStore((s) => s.teamleadEditMode);
+  const setTeamleadEditMode = useUiStore((s) => s.setTeamleadEditMode);
   const chromeHidden = tableFullscreen || tableImmersive;
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -121,12 +124,13 @@ export default function DynamicTablePage() {
   ]);
 
   const isOwnDesk = Boolean(page && permissions.uid && page.responsibleUserId === permissions.uid);
-  const isWorkspaceOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  // Owner or Тимлид: every desk opens for them.
+  const hasFullDeskAccess = permissions.hasFullDeskAccess;
   const personalOpen = page
     ? canOpenDesk({
         page,
         uid: permissions.uid,
-        isOwner: isWorkspaceOwner,
+        isOwner: hasFullDeskAccess,
         role: permissions.role,
       })
     : false;
@@ -144,7 +148,7 @@ export default function DynamicTablePage() {
     page &&
       hasAccess &&
       page.autoMonthKey !== monthKey &&
-      (isWorkspaceOwner || isOwnDesk) &&
+      (hasFullDeskAccess || isOwnDesk) &&
       isMonthlyDesk(page, members)
   );
   const [monthWaitExpired, setMonthWaitExpired] = useState(false);
@@ -312,7 +316,7 @@ export default function DynamicTablePage() {
     viewRequestsLoading &&
     isRestrictedDeskRole(permissions.role) &&
     !isOwnDesk &&
-    !isWorkspaceOwner
+    !hasFullDeskAccess
   ) {
     return (
       <div className="p-5">
@@ -364,13 +368,15 @@ export default function DynamicTablePage() {
 
   const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid;
   const canEditData = permissions.canEditPageData(page);
+  // Тимлид gets the «Редактировать» switch instead of a «Только просмотр» badge.
+  const isTeamlead = permissions.role === "teamlead";
   const isResponsible = permissions.isResponsibleForPage(page);
   // Personal Space is visible only to whoever is actually responsible for
   // THIS page (or explicitly whitelisted) — being a Manager elsewhere in the
   // workspace does not grant it. Owner keeps oversight, matching how every
   // other "responsible person" page-scoped feature in this app works.
   const canUsePersonalSpace =
-    permissions.role === "owner" ||
+    hasFullAccess(permissions.role) ||
     isResponsible ||
     Boolean(page.personalZoneAllowedUsers?.includes(permissions.uid));
 
@@ -404,8 +410,28 @@ export default function DynamicTablePage() {
           ) : null}
         </span>
         <h1 className="page-title">{page.name}</h1>
-        {!canEditData && (
+        {!canEditData && !isTeamlead && (
           <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Только просмотр</span>
+        )}
+        {isTeamlead && (
+          <Button
+            variant="outline"
+            size="sm"
+            aria-pressed={teamleadEditMode}
+            title={
+              teamleadEditMode
+                ? "Правка таблиц включена на всех столах до перезагрузки — нажмите, чтобы выключить"
+                : "Таблицы открыты только для просмотра — нажмите, чтобы править"
+            }
+            className={cn(
+              "h-8 shrink-0 gap-1.5",
+              teamleadEditMode && "border-warning/60 bg-warning/15 text-warning hover:bg-warning/25 hover:text-warning"
+            )}
+            onClick={() => setTeamleadEditMode(!teamleadEditMode)}
+          >
+            {teamleadEditMode ? <LockOpen className="h-3.5 w-3.5" /> : <PencilLine className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">{teamleadEditMode ? "Правка включена" : "Редактировать"}</span>
+          </Button>
         )}
         <div className="flex-1" />
         <Tooltip>

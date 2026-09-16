@@ -48,7 +48,8 @@ export default function DesksPage() {
   }, [leaderboard]);
 
   const ownerId = ownerUid ?? members.find((m) => m.role === "owner")?.uid ?? null;
-  const isOwner = Boolean(permissions.isWorkspaceOwner || permissions.realRole === "owner");
+  // Owner or Тимлид: may open every desk.
+  const isOwner = permissions.hasFullDeskAccess;
 
   const { visible, hidden } = useMemo(
     () =>

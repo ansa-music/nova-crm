@@ -34,7 +34,7 @@ export function GrokAccountDialog({ open, onOpenChange, editing, accounts }: Gro
   const { profile } = useAuth();
   const { activeWorkspaceId } = useWorkspace();
   const { role } = usePermissions();
-  const canName = role === "owner" || role === "admin";
+  const canName = role === "owner" || role === "teamlead" || role === "admin";
   const [nickname, setNickname] = useState(editing?.nickname ?? "");
   const [email, setEmail] = useState(editing?.email ?? "");
   const [password, setPassword] = useState(editing?.password ?? "");

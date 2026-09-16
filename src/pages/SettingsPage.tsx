@@ -320,7 +320,11 @@ export default function SettingsPage() {
         className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6"
       >
         <TabsList className="flex h-auto w-full shrink-0 flex-row gap-1 overflow-x-auto rounded-md bg-transparent p-0 lg:w-52 lg:flex-col lg:overflow-visible">
-          {SETTINGS_NAV.filter((item) => !("owner" in item) || permissions.canManageWorkspace).map((item) => (
+          {SETTINGS_NAV.filter(
+            (item) =>
+              (!("owner" in item) || permissions.canManageWorkspace) &&
+              (item.value !== "danger" || permissions.canDeleteWorkspace)
+          ).map((item) => (
             <TabsTrigger
               key={item.value}
               value={item.value}
@@ -671,7 +675,7 @@ export default function SettingsPage() {
         </TabsContent>
         )}
 
-        {permissions.canManageWorkspace && (
+        {permissions.canDeleteWorkspace && (
         <TabsContent value="danger" className="mt-0 flex flex-col gap-4">
             <Card className="border-destructive/40 border-glow-critical">
               <CardHeader>

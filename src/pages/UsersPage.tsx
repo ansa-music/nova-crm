@@ -28,6 +28,7 @@ import { confirmDialog } from "@/utils/appDialog";
 
 const ROLE_CHIPS: { id: Role | "invited"; label: string }[] = [
   { id: "owner", label: "Owner" },
+  { id: "teamlead", label: "Тимлид" },
   { id: "manager", label: "Технар" },
   { id: "os", label: "ОС" },
   { id: "admin", label: "admin" },
@@ -99,7 +100,7 @@ export default function UsersPage() {
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
         <ShieldCheck className="h-8 w-8 text-muted-foreground" />
         <p className="text-lg font-semibold">Доступ ограничен</p>
-        <p className="text-sm text-muted-foreground">Управление пользователями доступно только Owner.</p>
+        <p className="text-sm text-muted-foreground">Управление пользователями доступно только Owner и Тимлиду.</p>
       </div>
     );
   }
@@ -228,8 +229,8 @@ export default function UsersPage() {
       <div className="mb-6">
         <h1 className="text-3xl font-light tracking-tight">Workspace → Пользователи</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Приглашайте сотрудников и выберите, какие страницы каждому из них видно. Owner
-          видит все страницы всегда — остальным доступ нужно выдать явно.
+          Приглашайте сотрудников и выберите, какие страницы каждому из них видно. Owner и Тимлид
+          видят все страницы всегда — остальным доступ нужно выдать явно.
         </p>
       </div>
 

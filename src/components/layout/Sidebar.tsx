@@ -22,6 +22,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { Role } from "@/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,7 +41,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { DISPATCH_ENABLED } from "@/config/features";
-import { canSeeTechnicians } from "@/utils/permissions";
+import { canSeeTechnicians, hasFullAccess } from "@/utils/permissions";
 import { signOutUser } from "@/firebase/auth";
 import { setActiveRole } from "@/services/memberService";
 import { cn } from "@/utils/cn";
@@ -72,6 +73,14 @@ function navActiveClass(active: boolean, collapsed?: boolean) {
       : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-primary motion-safe:hover:translate-x-[3px]"
   );
 }
+
+/** Account card caption under the name; roles without one show the email. */
+const ROLE_CAPTIONS: Partial<Record<Role, string>> = {
+  owner: "Владелец",
+  teamlead: "Тимлид",
+  manager: "Технар",
+  os: "ОС",
+};
 
 function pathMatches(pathname: string, to: string, end?: boolean) {
   if (end || to === "/") return pathname === to;
@@ -159,8 +168,8 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   const showDispatchNav =
     DISPATCH_ENABLED &&
     permissions.isResolved &&
-    (permissions.realRole === "owner" || permissions.realRole === "admin" || permissions.isWorkspaceOwner) &&
-    (permissions.role === "owner" || permissions.role === "admin");
+    (permissions.hasFullDeskAccess || permissions.realRole === "admin") &&
+    (hasFullAccess(permissions.role) || permissions.role === "admin");
   // ОС has no desk: «Технари» is their home, and the desk-centric sections
   // (Дашборд, Столы) are hidden — there is nothing of theirs on them.
   const isOs = permissions.isResolved && permissions.role === "os";
@@ -424,13 +433,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                       {profile?.nickname || profile?.name}
                     </span>
                     <span className="block truncate text-[11px] text-muted-foreground">
-                      {myMembership?.role === "owner"
-                        ? "Владелец"
-                        : myMembership?.role === "manager"
-                          ? "Технар"
-                          : myMembership?.role === "os"
-                            ? "ОС"
-                            : profile?.email}
+                      {(myMembership && ROLE_CAPTIONS[myMembership.role]) || profile?.email}
                     </span>
                   </span>
                 )}

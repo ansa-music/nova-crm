@@ -77,7 +77,8 @@ export default function TechniciansPage() {
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
 
   const canSee = permissions.isResolved && canSeeTechnicians(permissions.role);
-  const isOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  // Owner or Тимлид: recounts every desk and maps statuses.
+  const isOwner = permissions.hasFullDeskAccess;
   const uid = profile?.uid ?? "";
 
   useEffect(() => {

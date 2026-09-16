@@ -412,7 +412,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const { activeWorkspace } = useWorkspace();
   const { profile } = useAuth();
   const permissions = usePermissions();
-  const isOwner = permissions.role === "owner";
+  // Shared option lists (statuses, Ответственный, custom fields) — Owner/Тимлид.
+  // Inside a table they wait for the Тимлид «Редактировать» switch like the
+  // rest of the table; Настройки → Варианты stays open regardless.
+  const canEditSharedLists = permissions.canManageStatusVariants && !permissions.isEditLocked;
 
   // Which Ответственный option is "me": matched by nickname / name against
   // the workspace-wide responsible list (options aren't tied to accounts).
@@ -427,7 +430,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       })
       .map((o) => o.value);
   }, [profile?.nickname, profile?.name, activeWorkspace?.responsibleOptions]);
-  const canManageVariants = permissions.canManageStatusVariants;
+  const canManageVariants = canEditSharedLists;
   const responsibleOptions = activeWorkspace?.responsibleOptions ?? [];
   const sharedStatusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
   const customFields = activeWorkspace?.customFields ?? [];
@@ -2428,20 +2431,20 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (manageOptionsColumn.type === "status") {
       // Workspace-wide, same as Ответственный below — never per-column, so
       // editing statuses on ANY desk updates the one shared list everyone sees.
-      if (!isOwner) throw new Error("Варианты статуса меняет только Owner");
+      if (!canEditSharedLists) throw new Error("Варианты статуса меняет только Owner или Тимлид");
       await updateStatusOptions(workspaceId, options);
     } else if (manageOptionsColumn.type === "responsible") {
-      if (!isOwner) throw new Error("Список ответственных меняет только Owner");
+      if (!canEditSharedLists) throw new Error("Список ответственных меняет только Owner или Тимлид");
       await updateResponsibleOptions(workspaceId, options);
     } else if (manageOptionsColumn.type === "custom" && manageOptionsColumn.customFieldId) {
-      if (!isOwner) throw new Error("Кастомные поля меняет только Owner");
+      if (!canEditSharedLists) throw new Error("Кастомные поля меняет только Owner или Тимлид");
       await updateCustomFieldOptions(workspaceId, customFields, manageOptionsColumn.customFieldId, options);
     }
     toast.success("Варианты обновлены");
   }
 
   async function handleManageStatuses() {
-    if (!permissions.canManageStatusVariants) return;
+    if (!canEditSharedLists) return;
     let statusCol = columns.find((c) => c.type === "status");
     if (!statusCol) {
       const keys = new Set(columns.map((c) => c.key));

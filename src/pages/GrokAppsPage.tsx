@@ -24,7 +24,7 @@ type ProviderFilter = "all" | GrokAppProvider;
 export default function GrokAppsPage() {
   const { profile } = useAuth();
   const { role } = usePermissions();
-  const canName = role === "owner" || role === "admin";
+  const canName = role === "owner" || role === "teamlead" || role === "admin";
   const { activeWorkspaceId } = useWorkspace();
   const { accounts, isLoading } = useGrokAppAccounts(activeWorkspaceId);
   const [dialogOpen, setDialogOpen] = useState(false);
