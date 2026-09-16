@@ -136,7 +136,7 @@ export function canManagePage(page: WorkspacePage, role: Role, uid: string): boo
   // manages desks they are responsible for — status *variants* stay Owner-only
   // via canManageStatusVariants(effectiveRole), never this check.
   if (role === "owner") return true;
-  if (role === "viewer") return false;
+  if (role === "viewer" || role === "os") return false;
   return isResponsibleForPage(page, uid);
 }
 
@@ -152,13 +152,13 @@ export function canAssignResponsible(role: Role): boolean {
  * actual security boundary lives there, not here (this copy is for UI only —
  * hiding options the person couldn't set anyway).
  *
- *   Owner  -> owner, admin, manager, viewer
- *   Admin  -> admin, manager, viewer   (never owner)
- *   Manager, Viewer -> not allowed to simulate anything
+ *   Owner  -> owner, admin, manager, os, viewer
+ *   Admin  -> admin, manager, os, viewer   (never owner)
+ *   Manager, ОС, Viewer -> not allowed to simulate anything
  */
 export function allowedSimulatedRoles(realRole: Role): Role[] {
-  if (realRole === "owner") return ["owner", "admin", "manager", "viewer"];
-  if (realRole === "admin") return ["admin", "manager", "viewer"];
+  if (realRole === "owner") return ["owner", "admin", "manager", "os", "viewer"];
+  if (realRole === "admin") return ["admin", "manager", "os", "viewer"];
   return [];
 }
 

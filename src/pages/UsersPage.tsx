@@ -29,6 +29,7 @@ import { confirmDialog } from "@/utils/appDialog";
 const ROLE_CHIPS: { id: Role | "invited"; label: string }[] = [
   { id: "owner", label: "Owner" },
   { id: "manager", label: "Технар" },
+  { id: "os", label: "ОС" },
   { id: "admin", label: "admin" },
   { id: "viewer", label: "Viewer" },
   { id: "invited", label: "invited" },

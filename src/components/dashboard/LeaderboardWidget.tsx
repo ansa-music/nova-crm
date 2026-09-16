@@ -66,7 +66,8 @@ export function LeaderboardWidget({
   // into one row.
   const ranked = useMemo(() => {
     return members
-      .filter((m) => m.status === "active")
+      // ОС never has a desk of their own — a permanent «нет листа» row at 0 is noise.
+      .filter((m) => m.status === "active" && m.role !== "os")
       .map((member) => {
         const myEntries = entries.filter((e) => e.responsibleUserId === member.uid);
         const doneTotal = myEntries.reduce((sum, e) => sum + e.doneTotal, 0);

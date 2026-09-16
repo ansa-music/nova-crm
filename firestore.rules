@@ -148,9 +148,9 @@ service cloud.firestore {
         // `role` field (resource.data.role — never writable by this same
         // rule, since 'role' is not in the allowed affectedKeys set below,
         // so it can only ever reflect what the Owner actually granted):
-        //   role == owner  -> activeRole in [owner, admin, manager, viewer]
-        //   role == admin  -> activeRole in [admin, manager, viewer]  (never owner)
-        //   role == manager or viewer -> may not set activeRole at all
+        //   role == owner  -> activeRole in [owner, admin, manager, os, viewer]
+        //   role == admin  -> activeRole in [admin, manager, os, viewer]  (never owner)
+        //   role == manager, os or viewer -> may not set activeRole at all
         // This is the actual security boundary for the feature — nothing
         // else in this file ever reads activeRole, so even a raw DevTools
         // Firestore write can't grant real elevated access, only flip this
@@ -163,9 +163,9 @@ service cloud.firestore {
             !('activeRole' in request.resource.data.diff(resource.data).affectedKeys())
             || request.resource.data.activeRole == null
             || (resource.data.role == 'owner' &&
-                request.resource.data.activeRole in ['owner', 'admin', 'manager', 'viewer'])
+                request.resource.data.activeRole in ['owner', 'admin', 'manager', 'os', 'viewer'])
             || (resource.data.role == 'admin' &&
-                request.resource.data.activeRole in ['admin', 'manager', 'viewer'])
+                request.resource.data.activeRole in ['admin', 'manager', 'os', 'viewer'])
           );
 
         // Owner manages any membership record: invite, change role, remove.

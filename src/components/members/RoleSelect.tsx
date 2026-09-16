@@ -12,7 +12,7 @@ function isRole(value: unknown): value is Role {
   return typeof value === "string" && (ALL_ROLES as readonly string[]).includes(value);
 }
 
-export function RoleSelect({ value, onChange, disabled, assignableRoles = ["admin", "manager", "viewer"] }: RoleSelectProps) {
+export function RoleSelect({ value, onChange, disabled, assignableRoles = ["admin", "manager", "os", "viewer"] }: RoleSelectProps) {
   // Radix Select throws on "" / unknown values. UsersPage is lazy-loaded, so
   // that throw is caught by the app ErrorBoundary and looks like "the site broke".
   const selectValue: Role = isRole(value) ? value : "viewer";

@@ -29,8 +29,11 @@ Nova CRM — production SaaS, написанная с помощью Claude. О�
 
 Внутренний код (типы, роли, коллекции Firestore) не переименован — это чисто UI-слой:
 
-- `Role = "owner" | "admin" | "manager" | "viewer"`, но `ROLE_LABELS.manager === "Технар"`
+- `Role = "owner" | "admin" | "manager" | "os" | "viewer"`, но `ROLE_LABELS.manager === "Технар"`
   (`src/types/role.ts`) — везде в UI роль `manager` подписана «Технар».
+- Роль **`os` («ОС»)** — без своего стола: не создаёт столы, не управляет чужими, `/` ведёт
+  на «Технари», в меню скрыты «Дашборд» и «Столы». Owner/Admin могут симулировать её через
+  RoleSwitcher (списки в `allowedSimulatedRoles` и в правиле `activeRole` синхронны).
 - «Страница» (`WorkspacePage`, коллекция `pages`) в UI — **«стол»** (desk). Код/типы остаются
   `page`/`WorkspacePage`, но роуты/сервисы часто используют «desk»/«стол» (`DesksPage.tsx`,
   `deskCoverService.ts`, `/desks`).
@@ -83,7 +86,7 @@ Firebase Storage не используется (нет Blaze) — файлы и�
 
 ## Модель прав (кратко)
 
-Roles: `owner` > `admin` > `manager` («Технар») > `viewer`. Только Owner проходит `isOwner()`
+Roles: `owner` > `admin` > `manager` («Технар») > `os` («ОС») / `viewer`. Только Owner проходит `isOwner()`
 безусловно. `canEditPage(page) = owner || responsibleUserId == uid || (canAccessPage && uid in editableUsers)`.
 `canAccessPage(page) = owner || isResponsiblePage || uid in allowedUsers`. `allowedUsers`
 (просмотр) и `editableUsers` (редактирование) — разные права. `responsibleUserId` даёт

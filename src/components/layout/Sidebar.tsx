@@ -161,10 +161,18 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
     permissions.isResolved &&
     (permissions.realRole === "owner" || permissions.realRole === "admin" || permissions.isWorkspaceOwner) &&
     (permissions.role === "owner" || permissions.role === "admin");
-  const showTechniciansNav = permissions.isResolved && canSeeTechnicians(permissions.role);
-  const homeTo = myDesk ? `/page/${myDesk.id}` : "/";
-  const homeLabel = myDesk && myMembership?.role === "manager" ? "Мой стол" : "Главная";
-  const homeActive = location.pathname === "/" || Boolean(myDesk && location.pathname === `/page/${myDesk.id}`);
+  // ОС has no desk: «Технари» is their home, and the desk-centric sections
+  // (Дашборд, Столы) are hidden — there is nothing of theirs on them.
+  const isOs = permissions.isResolved && permissions.role === "os";
+  const showDeskNav = !isOs;
+  const showTechniciansNav = permissions.isResolved && canSeeTechnicians(permissions.role) && !isOs;
+  const homeTo = isOs ? "/technicians" : myDesk ? `/page/${myDesk.id}` : "/";
+  const homeLabel = isOs ? "Технари" : myDesk && myMembership?.role === "manager" ? "Мой стол" : "Главная";
+  const HomeIcon = isOs ? HardHat : Home;
+  const homeActive =
+    location.pathname === "/" ||
+    location.pathname === homeTo ||
+    Boolean(myDesk && location.pathname === `/page/${myDesk.id}`);
   function goHome() {
     navigate(homeTo);
     onNavigate?.();
@@ -219,15 +227,19 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
             <nav className="relative mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
               {collapsed ? (
                 <>
-                  <AppNavLink collapsed title={homeLabel} to={homeTo} icon={Home} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
+                  <AppNavLink collapsed title={homeLabel} to={homeTo} icon={HomeIcon} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                     {homeLabel}
                   </AppNavLink>
-                  <AppNavLink collapsed title="Дашборд" to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
-                    Дашборд
-                  </AppNavLink>
-                  <AppNavLink collapsed title="Столы" to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
-                    Столы
-                  </AppNavLink>
+                  {showDeskNav && (
+                    <>
+                      <AppNavLink collapsed title="Дашборд" to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
+                        Дашборд
+                      </AppNavLink>
+                      <AppNavLink collapsed title="Столы" to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
+                        Столы
+                      </AppNavLink>
+                    </>
+                  )}
                   <AppNavLink collapsed title="Люди" to="/people" icon={UsersRound} onNavigate={onNavigate}>
                     Люди
                   </AppNavLink>
@@ -264,15 +276,19 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                 </>
               ) : (
                 <>
-                  <AppNavLink to={homeTo} icon={Home} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
+                  <AppNavLink to={homeTo} icon={HomeIcon} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                     {homeLabel}
                   </AppNavLink>
-                  <AppNavLink to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
-                    Дашборд
-                  </AppNavLink>
-                  <AppNavLink to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
-                    Столы
-                  </AppNavLink>
+                  {showDeskNav && (
+                    <>
+                      <AppNavLink to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
+                        Дашборд
+                      </AppNavLink>
+                      <AppNavLink to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
+                        Столы
+                      </AppNavLink>
+                    </>
+                  )}
                   <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
                     Люди
                   </AppNavLink>
@@ -312,15 +328,19 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
           )}
           {mobile && (
             <nav className="relative mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
-              <AppNavLink to={homeTo} icon={Home} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
+              <AppNavLink to={homeTo} icon={HomeIcon} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                 {homeLabel}
               </AppNavLink>
-              <AppNavLink to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
-                Дашборд
-              </AppNavLink>
-              <AppNavLink to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
-                Столы
-              </AppNavLink>
+              {showDeskNav && (
+                <>
+                  <AppNavLink to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
+                    Дашборд
+                  </AppNavLink>
+                  <AppNavLink to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
+                    Столы
+                  </AppNavLink>
+                </>
+              )}
               <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
                 Люди
               </AppNavLink>
@@ -404,7 +424,13 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                       {profile?.nickname || profile?.name}
                     </span>
                     <span className="block truncate text-[11px] text-muted-foreground">
-                      {myMembership?.role === "owner" ? "Владелец" : myMembership?.role === "manager" ? "Технар" : profile?.email}
+                      {myMembership?.role === "owner"
+                        ? "Владелец"
+                        : myMembership?.role === "manager"
+                          ? "Технар"
+                          : myMembership?.role === "os"
+                            ? "ОС"
+                            : profile?.email}
                     </span>
                   </span>
                 )}

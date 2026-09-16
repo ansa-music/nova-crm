@@ -127,7 +127,7 @@ export function coverGridPages(
 }
 
 export function isRestrictedDeskRole(role: Role): boolean {
-  return role === "manager" || role === "viewer";
+  return role === "manager" || role === "os" || role === "viewer";
 }
 
 /**

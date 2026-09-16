@@ -16,7 +16,7 @@ import { db } from "@/firebase/firebase";
 import { paths, subscribe, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { logChange } from "@/services/historyService";
-import type { PageColumn, PageIconName, PageRow, StatusOption, WorkspacePage } from "@/types";
+import type { PageColumn, PageIconName, PageRow, Role, StatusOption, WorkspacePage } from "@/types";
 import {
   mirrorDeleteRow,
   mirrorDeleteRowsForPage,
@@ -327,12 +327,13 @@ export async function seedCurrentMonthDesk(page: WorkspacePage): Promise<Workspa
  */
 export async function createPageForCurrentRole(
   input: CreatePageInput & {
-    role: "owner" | "admin" | "manager" | "viewer";
+    role: Role;
     uid: string;
     hasElevatedCreatePermission?: boolean;
   }
 ): Promise<WorkspacePage> {
   if (input.role === "viewer") throw new Error("Viewer не может создавать страницы");
+  if (input.role === "os") throw new Error("У ОС нет своего стола");
   if (input.role === "manager" && !input.hasElevatedCreatePermission) {
     const { createManagerOwnedPage } = await import("@/services/managerPageQuota");
     return createManagerOwnedPage({

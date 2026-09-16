@@ -23,6 +23,7 @@ import type { Role, WorkspacePage } from "@/types";
 const ROLE_CHIPS: { id: Role; label: string }[] = [
   { id: "owner", label: "Owner" },
   { id: "manager", label: "Технар" },
+  { id: "os", label: "ОС" },
   { id: "admin", label: "admin" },
   { id: "viewer", label: "Viewer" },
 ];
@@ -33,9 +34,11 @@ function RoleBadge({ role }: { role: Role }) {
       ? "border-primary/40 bg-primary/12 text-primary"
       : role === "manager"
         ? "border-teal-400/40 bg-teal-400/12 text-teal-200"
-        : role === "admin"
-          ? "border-sky-400/40 bg-sky-400/12 text-sky-200"
-          : "border-border bg-muted/60 text-muted-foreground";
+        : role === "os"
+          ? "border-amber-400/40 bg-amber-400/12 text-amber-200"
+          : role === "admin"
+            ? "border-sky-400/40 bg-sky-400/12 text-sky-200"
+            : "border-border bg-muted/60 text-muted-foreground";
   return (
     <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em]", tone)}>
       {ROLE_LABELS[role]}
