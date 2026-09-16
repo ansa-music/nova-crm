@@ -3049,6 +3049,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         fillColKeys={fillPreview && index >= fillPreview.rowStart && index <= fillPreview.rowEnd ? fillPreview.colKeys : null}
         duplicateColKeys={duplicateContactKeys.get(row.id) ?? null}
         onFindDuplicates={handleFindDuplicates}
+        blank={isBlankRow(displayRow)}
       />
     );
   }

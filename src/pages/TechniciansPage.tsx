@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AtSign, HardHat, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { AtSign, HardHat, LayoutGrid, ListOrdered, Search, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { Link } from "react-router";
+import { MemberAvatar } from "@/components/common/MemberAvatar";
+import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/common/EmptyState";
 import { TechLoadStatusDialog } from "@/components/technicians/TechLoadStatusDialog";
 import {
   TechnicianCard,
+  type TechnicianOrderItem,
+  type TechnicianOsShare,
   type TechnicianRater,
   type TechnicianRatingDetail,
 } from "@/components/technicians/TechnicianCard";
@@ -16,11 +21,13 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { refreshDeskLoadFromRows, subscribeDeskLoads } from "@/services/deskLoadService";
 import { osNickLabel } from "@/services/memberService";
+import { subscribeMyOsOrders } from "@/services/osOrdersService";
 import { currentMonthSubPageId, isMonthlyDesk } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
 import { deleteTechRating, rateTechnician, subscribeTechRatings } from "@/services/techRatingService";
 import { confirmDialog } from "@/utils/appDialog";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
+import { formatOrderDate, timeAgo } from "@/utils/date";
 import { personLabel } from "@/utils/peopleDesks";
 import {
   addStatusCounts,
@@ -31,13 +38,24 @@ import {
   statusBreakdown,
   summarizeDeskLoad,
   techLoadKindForOption,
+  NO_STATUS_KEY,
   type StatusBreakdownItem,
   type TechLoadSummary,
 } from "@/utils/techLoad";
 import { cn } from "@/utils/cn";
-import { memberHasRole, type DeskLoad, type StatusOption, type TechRating, type WorkspaceMember, type WorkspacePage } from "@/types";
+import {
+  memberHasRole,
+  type DeskLoad,
+  type OsOrders,
+  type StatusOption,
+  type TechRating,
+  type WorkspaceMember,
+  type WorkspacePage,
+} from "@/types";
 
 type Filter = "all" | "free" | "busy" | "mine";
+/** ОС only: the technician cards, or their own orders as one list. */
+type View = "techs" | "orders";
 
 interface TechnicianRow {
   member: WorkspaceMember;
@@ -48,7 +66,9 @@ interface TechnicianRow {
   /** Newest count among this person's desks; 0 when nothing was counted this month yet. */
   updatedAt: number;
   /** Viewer is an ОС with a nick: their orders at this Технар this month. */
-  myOrders: { summary: TechLoadSummary; breakdown: StatusBreakdownItem[] } | null;
+  myOrders: { summary: TechLoadSummary; breakdown: StatusBreakdownItem[]; items: TechnicianOrderItem[] } | null;
+  /** Management view: orders per ОС this month. */
+  osShares: TechnicianOsShare[] | null;
   ratings: TechRating[];
   /** A desk of this Технар with a recent order from the viewing ОС — proof for a first rating. */
   rateDeskId: string | null;
@@ -88,7 +108,10 @@ export default function TechniciansPage() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [ratings, setRatings] = useState<TechRating[] | null>(null);
   const [ratingsFailed, setRatingsFailed] = useState(false);
+  const [osOrderDocs, setOsOrderDocs] = useState<OsOrders[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
+  const [view, setView] = useState<View>("techs");
+  const [orderQuery, setOrderQuery] = useState("");
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
@@ -197,6 +220,24 @@ export default function TechniciansPage() {
   const myOsValue = isOsViewer ? myMember?.osNickValue ?? null : null;
   const myOsNick = isOsViewer ? osNickLabel(myMember, responsibleOptions) : null;
 
+  // The ОС's own order lists, one doc per desk — only their nick's docs
+  // are readable, so the query filters on exactly that.
+  useEffect(() => {
+    setOsOrderDocs([]);
+    if (!activeWorkspaceId || !canSee || !myOsValue) return;
+    return subscribeMyOsOrders(activeWorkspaceId, myOsValue, setOsOrderDocs, () => setOsOrderDocs([]));
+  }, [activeWorkspaceId, canSee, myOsValue]);
+
+  const statusMeta = useMemo(() => {
+    const byValue = new Map(statusOptions.map((o) => [o.value, o]));
+    const byLabel = new Map(statusOptions.map((o) => [o.label.trim().toLowerCase(), o]));
+    return (raw: string): { label: string; color: string | null; key: string } => {
+      if (!raw) return { label: "Без статуса", color: null, key: NO_STATUS_KEY };
+      const option = byValue.get(raw) ?? byLabel.get(raw.toLowerCase());
+      return option ? { label: option.label, color: option.color, key: option.value } : { label: raw, color: null, key: raw };
+    };
+  }, [statusOptions]);
+
   const technicians = useMemo<TechnicianRow[]>(() => {
     const loadByPage = new Map((loads ?? []).map((l) => [l.pageId, l]));
     // Технари, plus anyone whose desk the Owner marked «Стол технаря».
@@ -218,6 +259,8 @@ export default function TechniciansPage() {
         let rateDeskId: string | null = null;
         const statusCounts: Record<string, number> = {};
         const myStatusCounts: Record<string, number> = {};
+        const myItems: TechnicianOrderItem[] = [];
+        const osCounts: Record<string, number> = {};
         for (const desk of desks) {
           const load = loadByPage.get(desk.id);
           if (!load) continue;
@@ -232,12 +275,35 @@ export default function TechniciansPage() {
           if (!subPageId || load.monthKey !== monthKey || load.subPageId !== subPageId) continue;
           summary = addTechLoad(summary, summarizeDeskLoad(load, statusOptions, kinds));
           addStatusCounts(statusCounts, load.statusCounts);
-          if (myOsValue) {
+          addStatusCounts(osCounts, load.osCounts);
+          if (myOsValue && (load.osCounts?.[myOsValue] ?? 0) > 0) {
             myTotal += load.osCounts?.[myOsValue] ?? 0;
             addStatusCounts(myStatusCounts, load.osStatusCounts?.[myOsValue]);
+            // The list is trusted only next to live counts for the same tab.
+            const doc = osOrderDocs.find((d) => d.pageId === desk.id);
+            if (doc && doc.monthKey === monthKey && doc.subPageId === subPageId) {
+              for (const order of doc.orders) {
+                const meta = statusMeta(order.status);
+                myItems.push({
+                  rowId: order.rowId,
+                  title: order.title,
+                  statusLabel: meta.label,
+                  statusColor: meta.color,
+                  date: order.date,
+                  updatedAt: order.updatedAt,
+                });
+              }
+            }
           }
           updatedAt = Math.max(updatedAt, load.updatedAt ?? 0);
         }
+        myItems.sort((a, b) => b.updatedAt - a.updatedAt);
+        const osShares: TechnicianOsShare[] = Object.entries(osCounts)
+          .map(([osValue, count]) => {
+            const option = responsibleOptions.find((o) => o.value === osValue);
+            return { osValue, label: option?.label ?? osValue, color: option?.color ?? null, count };
+          })
+          .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "ru"));
         return {
           member,
           desks,
@@ -249,16 +315,20 @@ export default function TechniciansPage() {
             ? {
                 summary: summarizeDeskLoad({ total: myTotal, statusCounts: myStatusCounts }, statusOptions, kinds),
                 breakdown: statusBreakdown(myStatusCounts, statusOptions, kinds),
+                items: myItems,
               }
             : null,
+          osShares: canSeeRatingDetails ? osShares : null,
           ratings: (ratings ?? []).filter((r) => r.technicianUid === member.uid),
           rateDeskId,
         };
       })
-      // Whoever can take an order soonest comes first: free, free with a
-      // rework pending, busy (fewest in work first), and people without a
-      // desk last — they can't take orders at all yet.
+      // Your own card first. Then whoever can take an order soonest: free,
+      // free with a rework pending, busy (fewest in work first), and people
+      // without a desk last — they can't take orders at all yet.
       .sort((a, b) => {
+        if (a.member.uid === uid) return -1;
+        if (b.member.uid === uid) return 1;
         const rank = (t: TechnicianRow) => (t.desks.length === 0 ? 3 : t.busy ? 2 : t.summary.rework > 0 ? 1 : 0);
         return (
           rank(a) - rank(b) ||
@@ -267,7 +337,36 @@ export default function TechniciansPage() {
           personLabel(a.member).localeCompare(personLabel(b.member), "ru")
         );
       });
-  }, [loads, ratings, members, pages, monthKey, statusOptions, kinds, myOsValue, now]);
+  }, [loads, ratings, members, pages, monthKey, statusOptions, kinds, myOsValue, now, osOrderDocs, statusMeta, responsibleOptions, canSeeRatingDetails, uid]);
+
+  // «Мои заказы»: every order of the viewing ОС across technicians, grouped by
+  // status in the shared list's order, newest first inside a group.
+  const myOrderGroups = useMemo(() => {
+    if (!myOsValue) return [];
+    const q = orderQuery.trim().toLowerCase();
+    const groups = new Map<string, { label: string; color: string | null; rank: number; items: (TechnicianOrderItem & { member: WorkspaceMember })[] }>();
+    for (const t of technicians) {
+      for (const item of t.myOrders?.items ?? []) {
+        if (q && !item.title.toLowerCase().includes(q) && !personLabel(t.member).toLowerCase().includes(q)) continue;
+        const key = item.statusLabel;
+        const group = groups.get(key) ?? {
+          label: item.statusLabel,
+          color: item.statusColor,
+          rank: (() => {
+            const idx = statusOptions.findIndex((o) => o.label === item.statusLabel);
+            return idx < 0 ? statusOptions.length + (item.statusColor ? 0 : 1) : idx;
+          })(),
+          items: [],
+        };
+        group.items.push({ ...item, member: t.member });
+        groups.set(key, group);
+      }
+    }
+    return [...groups.values()]
+      .map((g) => ({ ...g, items: g.items.sort((a, b) => b.updatedAt - a.updatedAt) }))
+      .sort((a, b) => a.rank - b.rank);
+  }, [technicians, myOsValue, orderQuery, statusOptions]);
+  const myOrderItemsCount = myOrderGroups.reduce((n, g) => n + g.items.length, 0);
 
   const withDesk = technicians.filter((t) => t.desks.length > 0);
   const freeCount = withDesk.filter((t) => !t.busy).length;
@@ -392,6 +491,37 @@ export default function TechniciansPage() {
           <p className="text-[11px] text-muted-foreground">Заказы за {monthTabNameForKey(monthKey).toLowerCase()}</p>
         </div>
         <div className="flex-1" />
+        {isOsViewer && myOsValue && (
+          <div className="flex shrink-0 rounded-lg border border-border p-0.5" role="tablist" aria-label="Вид">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "techs"}
+              onClick={() => setView("techs")}
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium transition-colors",
+                view === "techs" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Технари</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "orders"}
+              onClick={() => setView("orders")}
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium transition-colors",
+                view === "orders" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <ListOrdered className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Мои заказы</span>
+              <span className="tabular-nums opacity-80">{myOrdersTotal}</span>
+            </button>
+          </div>
+        )}
         {canMapStatuses && activeWorkspaceId && (
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setStatusDialogOpen(true)}>
             <SlidersHorizontal className="h-3.5 w-3.5" />
@@ -400,7 +530,7 @@ export default function TechniciansPage() {
         )}
       </div>
 
-      <div className="flex flex-wrap gap-1.5 border-b border-border px-4 py-3 sm:px-6">
+      <div className={cn("flex flex-wrap gap-1.5 border-b border-border px-4 py-3 sm:px-6", view === "orders" && "hidden")}>
         {filters.map((item) => (
           <button
             key={item.id}
@@ -465,7 +595,76 @@ export default function TechniciansPage() {
             </div>
           )}
 
-          {loads !== null && technicians.length === 0 && (
+          {view === "orders" && myOsValue && loads !== null && (
+            <div className="flex flex-col gap-3">
+              <div className="relative max-w-sm">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={orderQuery}
+                  onChange={(e) => setOrderQuery(e.target.value)}
+                  placeholder="Клиент или технарь"
+                  className="h-9 pl-8"
+                />
+              </div>
+              {myOrderGroups.length === 0 && (
+                <p className="py-12 text-center text-sm text-muted-foreground">
+                  {orderQuery
+                    ? "Ничего не нашли."
+                    : myOrdersTotal > 0
+                      ? "Список появится, когда технари откроют свои столы."
+                      : "В этом месяце у технарей нет заказов с вашим ником."}
+                </p>
+              )}
+              {myOrderGroups.map((group) => (
+                <section key={group.label} className="overflow-hidden rounded-2xl border border-border/70 bg-card/70">
+                  <header className="flex items-center gap-2 border-b border-border/60 px-4 py-2">
+                    <span
+                      className={cn("h-2 w-2 shrink-0 rounded-full", !group.color && "bg-muted-foreground/60")}
+                      style={group.color ? { backgroundColor: `hsl(${group.color})` } : undefined}
+                    />
+                    <span className="text-sm font-medium">{group.label}</span>
+                    <span className="font-mono text-xs tabular-nums text-muted-foreground">{group.items.length}</span>
+                  </header>
+                  <ul className="divide-y divide-border/50">
+                    {group.items.map((item) => (
+                      <li key={`${item.member.uid}:${item.rowId}`} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                        <MemberAvatar
+                          id={item.member.uid}
+                          name={item.member.name}
+                          nickname={item.member.nickname}
+                          photoURL={item.member.photoURL}
+                          className="h-7 w-7 shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate" title={item.title || undefined}>
+                            {item.title || <span className="italic text-muted-foreground">Без названия</span>}
+                          </p>
+                          <p className="truncate text-[11px] text-muted-foreground">
+                            {personLabel(item.member)}
+                            {item.date !== null ? ` · ${formatOrderDate(item.date)}` : ""}
+                            {item.updatedAt ? ` · изменено ${timeAgo(item.updatedAt)}` : ""}
+                          </p>
+                        </div>
+                        <Link
+                          to={`/messages/${item.member.uid}`}
+                          className="shrink-0 text-[11px] font-medium text-primary hover:underline"
+                        >
+                          Написать
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+              {myOrderItemsCount > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  Показаны заказы за {monthTabNameForKey(monthKey).toLowerCase()}; список каждый технарь обновляет, работая в своём столе.
+                </p>
+              )}
+            </div>
+          )}
+
+          {view === "techs" && loads !== null && technicians.length === 0 && (
             <EmptyState
               eyebrow="Технари"
               title="Пока нет технарей"
@@ -473,7 +672,7 @@ export default function TechniciansPage() {
             />
           )}
 
-          {loads !== null && technicians.length > 0 && visible.length === 0 && (
+          {view === "techs" && loads !== null && technicians.length > 0 && visible.length === 0 && (
             <p className="py-16 text-center text-sm text-muted-foreground">
               {filter === "busy"
                 ? "Сейчас все свободны."
@@ -483,7 +682,7 @@ export default function TechniciansPage() {
             </p>
           )}
 
-          {loads !== null && visible.length > 0 && (
+          {view === "techs" && loads !== null && visible.length > 0 && (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
               {visible.map((t) => (
                 <TechnicianCard
@@ -498,6 +697,7 @@ export default function TechniciansPage() {
                   breakdown={t.breakdown}
                   updatedAt={t.updatedAt}
                   myOrders={t.myOrders}
+                  osShares={t.osShares}
                   rating={{
                     average: ratingsFailed || t.ratings.length === 0 ? null : t.ratings.reduce((n, r) => n + r.stars, 0) / t.ratings.length,
                     count: ratingsFailed ? 0 : t.ratings.length,

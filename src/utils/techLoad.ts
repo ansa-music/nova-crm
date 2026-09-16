@@ -1,6 +1,7 @@
 import { isBlankRow } from "@/utils/blankRow";
 import { isDoneStatusLabel, isFreezeStatusLabel } from "@/utils/columnOptions";
-import type { DeskLoad, PageColumn, PageRow, StatusOption, TechLoadKind, Workspace } from "@/types";
+import { findQuickOrderColumns } from "@/utils/quickOrder";
+import type { DeskLoad, OsOrderItem, PageColumn, PageRow, StatusOption, TechLoadKind, Workspace } from "@/types";
 
 /**
  * Key for orders with an empty status. Not "__none__": Firestore reserves
@@ -35,6 +36,18 @@ function millisOf(value: unknown): number {
   return 0;
 }
 
+/** ОС columns of a desk: every «Ответственный» column plus a text column named «ОС». */
+export function osColumnsOf(columns: PageColumn[]): PageColumn[] {
+  return columns.filter((c) => c.type === "responsible" || (c.type === "text" && OS_COLUMN_LABEL.test(c.label.trim())));
+}
+
+function osOptionMaps(responsibleOptions: StatusOption[]) {
+  return {
+    byValue: new Map(responsibleOptions.map((o) => [o.value, o])),
+    byLabel: new Map(responsibleOptions.map((o) => [o.label.trim().toLowerCase(), o])),
+  };
+}
+
 /** Resolves the ОС cells of one row to «Ответственный» option values. */
 function rowOsValues(
   cells: PageRow["cells"],
@@ -64,11 +77,8 @@ export function countDeskLoad(
   responsibleOptions: StatusOption[] = []
 ): DeskLoadCounts {
   const statusCol = columns.find((c) => c.type === "status");
-  const osColumns = columns.filter(
-    (c) => c.type === "responsible" || (c.type === "text" && OS_COLUMN_LABEL.test(c.label.trim()))
-  );
-  const byValue = new Map(responsibleOptions.map((o) => [o.value, o]));
-  const byLabel = new Map(responsibleOptions.map((o) => [o.label.trim().toLowerCase(), o]));
+  const osColumns = osColumnsOf(columns);
+  const { byValue, byLabel } = osOptionMaps(responsibleOptions);
   const statusCounts: Record<string, number> = {};
   const osCounts: Record<string, number> = {};
   const osStatusCounts: Record<string, Record<string, number>> = {};
@@ -92,6 +102,55 @@ export function countDeskLoad(
     }
   }
   return { total, statusCounts, osCounts, osStatusCounts, osLastOrderAt };
+}
+
+/** Most orders one OsOrders doc carries — a Firestore doc is 1 MiB, an ОС rarely gives more a month. */
+const OS_ORDERS_LIMIT = 150;
+
+/**
+ * This month's orders per ОС (by option value): title from the «Клиент»/
+ * first text column, raw status, order date. Newest first. Blank rows are
+ * skipped like everywhere else.
+ */
+export function collectOsOrders(
+  columns: PageColumn[],
+  rows: PageRow[],
+  responsibleOptions: StatusOption[] = []
+): Record<string, OsOrderItem[]> {
+  const visible = columns.filter((c) => !c.hidden);
+  const titleCol = findQuickOrderColumns(visible).client ?? visible[0] ?? columns[0];
+  const statusCol = columns.find((c) => c.type === "status");
+  const dateCol = columns.find((c) => c.type === "date");
+  const osColumns = osColumnsOf(columns);
+  const { byValue, byLabel } = osOptionMaps(responsibleOptions);
+  const out: Record<string, OsOrderItem[]> = {};
+  if (osColumns.length === 0) return out;
+  for (const row of rows) {
+    if (isBlankRow(row)) continue;
+    const cells = row.cells ?? {};
+    const values = rowOsValues(cells, osColumns, byValue, byLabel);
+    if (values.size === 0) continue;
+    const dateRaw = dateCol ? Number(cells[dateCol.key]) : NaN;
+    const item: OsOrderItem = {
+      rowId: row.id,
+      title: titleCol ? String(cells[titleCol.key] ?? "").trim().slice(0, 120) : "",
+      status: statusCol ? String(cells[statusCol.key] ?? "").trim() : "",
+      date: Number.isFinite(dateRaw) && dateRaw > 0 ? dateRaw : null,
+      createdAt: millisOf(row.createdAt),
+      updatedAt: Math.max(millisOf(row.createdAt), millisOf(row.updatedAt)),
+    };
+    for (const os of values) (out[os] ??= []).push(item);
+  }
+  for (const os of Object.keys(out)) {
+    out[os].sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt);
+    if (out[os].length > OS_ORDERS_LIMIT) out[os] = out[os].slice(0, OS_ORDERS_LIMIT);
+  }
+  return out;
+}
+
+/** Stable comparison key of one ОС's published order list. */
+export function osOrdersSignature(orders: OsOrderItem[], subPageId: string, monthKey: string): string {
+  return JSON.stringify([monthKey, subPageId, orders.map((o) => [o.rowId, o.title, o.status, o.date, o.updatedAt])]);
 }
 
 function sortedEntries<T>(record: Record<string, T> | undefined): [string, T][] {

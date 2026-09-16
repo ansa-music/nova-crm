@@ -50,6 +50,8 @@ interface TableCellProps {
   /** Same phone/email exists in another row — shows a small badge. */
   isDuplicate?: boolean;
   onFindDuplicates?: () => void;
+  /** Muted hint shown in an empty text-like cell (a blank row's first column). */
+  placeholder?: string;
 }
 
 /** Digits-only tel: href; keeps a leading + for international numbers. */
@@ -94,6 +96,7 @@ export function TableCell({
   isInFill,
   isDuplicate,
   onFindDuplicates,
+  placeholder,
 }: TableCellProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const tdRef = useRef<HTMLTableCellElement>(null);
@@ -195,6 +198,9 @@ export function TableCell({
   const showFull = expanded || Boolean(isExpanded);
 
   function renderDisplay() {
+    if (placeholder && !stringValue && !isOptionColumn(column.type) && column.type !== "date") {
+      return <span className="truncate text-[12px] italic text-muted-foreground/55">{placeholder}</span>;
+    }
     if (isOptionColumn(column.type)) {
       return <StatusBadge value={stringValue} options={column.statusOptions ?? []} showTick={column.type === "status"} />;
     }

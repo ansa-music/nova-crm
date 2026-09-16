@@ -789,6 +789,11 @@
   box-shadow: 8px 0 12px -10px hsl(0 0% 0% / 0.65);
 }
 
+/* A blank row is a free slot: no tint, softer rules, it recedes until typed into. */
+.table-instrument tbody tr.table-row-blank:not(.table-data-row-active):not(.table-data-row-selected) td {
+  border-bottom-style: dashed;
+  border-bottom-color: hsl(var(--border) / 0.55);
+}
 .table-instrument tbody tr.table-data-row-selected td,
 .table-instrument tbody tr.table-data-row-active td {
   background-color: color-mix(in srgb, hsl(var(--primary)) 16%, hsl(var(--background)));

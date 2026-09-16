@@ -3,7 +3,8 @@ import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
 import { currentMonthSubPageId } from "@/services/monthTabService";
 import { fetchSubPageRows } from "@/services/subPageService";
-import { countDeskLoad, deskLoadNeedsPublish, mergeOsLastOrderAt } from "@/utils/techLoad";
+import { publishOsOrders } from "@/services/osOrdersService";
+import { collectOsOrders, countDeskLoad, deskLoadNeedsPublish, mergeOsLastOrderAt } from "@/utils/techLoad";
 import type { DeskLoad, StatusOption, SubPage, WorkspacePage } from "@/types";
 
 /**
@@ -49,16 +50,21 @@ export async function refreshDeskLoadFromRows(
     fetchSubPageRows(page.workspaceId, page.id, subPageId),
   ]);
   if (!subSnap.exists()) return;
-  const counts = countDeskLoad((subSnap.data() as SubPage).columns ?? [], rows, responsibleOptions);
+  const columns = (subSnap.data() as SubPage).columns ?? [];
+  const counts = countDeskLoad(columns, rows, responsibleOptions);
   const next = { ...counts, subPageId, monthKey };
   if (!deskLoadNeedsPublish(current, next)) return;
-  await publishDeskLoad({
-    pageId: page.id,
-    workspaceId: page.workspaceId,
-    responsibleUserId: page.responsibleUserId,
-    updatedBy: uid,
-    ...next,
-  });
+  const base = { pageId: page.id, workspaceId: page.workspaceId, responsibleUserId: page.responsibleUserId, updatedBy: uid };
+  await publishDeskLoad({ ...base, ...next });
+  // The ОС order lists go with the counts — same trigger, same desk.
+  const osOrders = collectOsOrders(columns, rows, responsibleOptions);
+  await Promise.all(
+    Object.entries(osOrders).map(([osValue, orders]) =>
+      publishOsOrders({ ...base, osValue, monthKey, subPageId, orders }).catch((error) =>
+        console.warn(`Не удалось обновить заказы ОС «${osValue}» на столе ${page.id}:`, error)
+      )
+    )
+  );
 }
 
 /**

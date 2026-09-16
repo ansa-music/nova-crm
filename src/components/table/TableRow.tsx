@@ -2,7 +2,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
 import { memo, useState } from "react";
-import { Copy, GripVertical, MoreHorizontal, Trash2 } from "lucide-react";
+import { Copy, GripVertical, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { TableCell } from "@/components/table/TableCell";
 import { formatRowExtrasHint } from "@/utils/quickOrder";
 import { rowCardLayoutId } from "@/components/table/RowCardSheet";
@@ -74,6 +74,12 @@ interface TableRowProps {
   /** Phone/email columns whose value in this row repeats elsewhere. */
   duplicateColKeys?: string[] | null;
   onFindDuplicates?: (rowId: string, colKey: string) => void;
+  /**
+   * Nothing typed into this row yet: a free slot, not an order. Drawn
+   * muted, with a «+» for a number and a hint in the first column — the
+   * counts, footer and «Технари» skip it (see utils/blankRow.ts).
+   */
+  blank?: boolean;
 }
 
 function TableRowInner({
@@ -126,6 +132,7 @@ function TableRowInner({
   fillColKeys,
   duplicateColKeys,
   onFindDuplicates,
+  blank = false,
 }: TableRowProps) {
   const allowRowDrag = canReorder && !coarsePointer;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -214,6 +221,7 @@ function TableRowInner({
       data-row-number={rowNumber}
       className={cn(
         "group/row table-data-row relative",
+        blank && "table-row-blank",
         (isRowFullySelected || isChecked) && "table-data-row-selected",
         activeCell?.rowId === row.id && "table-data-row-active"
       )}
@@ -277,7 +285,9 @@ function TableRowInner({
             }}
             className={cn("h-4 w-4 max-md:h-5 max-md:w-5", coarsePointer && !isChecked && "hidden", !isChecked && !coarsePointer && "opacity-0 group-hover/row:opacity-100")}
           />
-          <span className="flex min-w-[1.1rem] items-center justify-center text-[11px]">{rowNumber}</span>
+          <span className="flex min-w-[1.1rem] items-center justify-center text-[11px]" title={blank ? "Пустая строка — не считается заказом" : undefined}>
+            {blank ? <Plus className="h-3 w-3 text-muted-foreground/60" aria-label="Пустая строка" /> : rowNumber}
+          </span>
           {rowMenu}
           {/* Row height is a write on the row doc — a pure viewer (allowedUsers
               without editableUsers) could grab this, see the height follow the
@@ -328,6 +338,7 @@ function TableRowInner({
             openRequest={isActive ? openRequest : undefined}
             showFillHandle={fillHandleColKey === column.key}
             onFillStart={onFillStart ? (colKey, e) => onFillStart(row.id, colKey, e) : undefined}
+            placeholder={blank && canEdit && column.key === columns[0]?.key ? "Новый заказ — начните печатать" : undefined}
             isInFill={Boolean(fillColKeys && fillColKeys.includes(column.key))}
             isDuplicate={Boolean(duplicateColKeys && duplicateColKeys.includes(column.key))}
             onFindDuplicates={onFindDuplicates ? () => onFindDuplicates(row.id, column.key) : undefined}
@@ -352,6 +363,7 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
   }
   if (
     prev.rowNumber !== next.rowNumber ||
+    prev.blank !== next.blank ||
     prev.columns !== next.columns ||
     prev.rowHeight !== next.rowHeight ||
     prev.canEdit !== next.canEdit ||

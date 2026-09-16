@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { AtSign, Loader2, MessageCircle, Star, Trash2 } from "lucide-react";
+import { AtSign, ChevronDown, Loader2, MessageCircle, Star, Trash2 } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { StarRating } from "@/components/technicians/StarRating";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/utils/cn";
-import { timeAgo } from "@/utils/date";
+import { formatOrderDate, timeAgo } from "@/utils/date";
 import { personLabel } from "@/utils/peopleDesks";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
 import type { StatusBreakdownItem, TechLoadSummary } from "@/utils/techLoad";
@@ -16,6 +16,25 @@ export type TechnicianRater =
   | { state: "not-eligible"; nick: string }
   /** `mine` set: already rated — the stars can change any time. */
   | { state: "can-rate"; nick: string; mine: TechRating | null };
+
+/** One of the viewing ОС's orders at this Технар, with its status resolved for display. */
+export interface TechnicianOrderItem {
+  rowId: string;
+  title: string;
+  statusLabel: string;
+  /** HSL triplet, or null for «без статуса». */
+  statusColor: string | null;
+  date: number | null;
+  updatedAt: number;
+}
+
+/** Orders per ОС on this desk this month — for Owner/Тимлид/Admin. */
+export interface TechnicianOsShare {
+  osValue: string;
+  label: string;
+  color: string | null;
+  count: number;
+}
 
 export interface TechnicianRatingDetail {
   id: string;
@@ -38,7 +57,9 @@ export interface TechnicianCardProps {
   /** Newest count among the desks; 0 = nothing counted this month yet. */
   updatedAt: number;
   /** Viewer is an ОС with a nick: their own orders at this Технар this month. */
-  myOrders: { summary: TechLoadSummary; breakdown: StatusBreakdownItem[] } | null;
+  myOrders: { summary: TechLoadSummary; breakdown: StatusBreakdownItem[]; items: TechnicianOrderItem[] } | null;
+  /** Management view: which ОС gave this month's orders. */
+  osShares: TechnicianOsShare[] | null;
   rating: { average: number | null; count: number };
   rater: TechnicianRater | null;
   onRate?: (stars: number) => Promise<void>;
@@ -124,6 +145,7 @@ export function TechnicianCard({
   breakdown,
   updatedAt,
   myOrders,
+  osShares,
   rating,
   rater,
   onRate,
@@ -131,6 +153,8 @@ export function TechnicianCard({
   onDeleteRating,
 }: TechnicianCardProps) {
   const [saving, setSaving] = useState<number | null>(null);
+  const [ordersOpen, setOrdersOpen] = useState(false);
+  const ORDERS_PREVIEW = 4;
   const presence = member.lastActiveAt ? getPresenceStatus(member.lastActiveAt) : "offline";
   const name = personLabel(member) || member.email || "—";
   const noDesk = desks.length === 0;
@@ -276,6 +300,22 @@ export function TechnicianCard({
         )}
       </div>
 
+      {osShares && osShares.length > 0 && (
+        <div className="mx-4 mt-3 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="text-muted-foreground">По ОС:</span>
+          {osShares.map((share) => (
+            <span
+              key={share.osValue}
+              className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2 py-0.5 leading-4"
+            >
+              <AtSign className="h-3 w-3 shrink-0" style={share.color ? { color: `hsl(${share.color})` } : undefined} />
+              <span className="truncate">{share.label}</span>
+              <span className="font-mono tabular-nums text-muted-foreground">{share.count}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
       {myOrders && (
         <div className="mx-4 mt-3 rounded-xl border border-primary/25 bg-primary/[0.06] px-3 py-2">
           <p className="flex items-center justify-between gap-2 text-[11px] font-medium text-primary">
@@ -283,9 +323,59 @@ export function TechnicianCard({
             <span className="font-mono tabular-nums">{myOrders.summary.total}</span>
           </p>
           {myOrders.summary.total > 0 ? (
-            <div className="mt-1.5">
-              <StatusChips items={myOrders.breakdown} compact />
-            </div>
+            <>
+              <div className="mt-1.5">
+                <StatusChips items={myOrders.breakdown} compact />
+              </div>
+              {myOrders.items.length > 0 && (
+                <ul className="mt-2 flex flex-col divide-y divide-primary/10 border-t border-primary/15">
+                  {(ordersOpen ? myOrders.items : myOrders.items.slice(0, ORDERS_PREVIEW)).map((item) => (
+                    <li key={item.rowId} className="flex items-center gap-2 py-1.5 text-[12px]">
+                      <span className="min-w-0 flex-1 truncate" title={item.title || undefined}>
+                        {item.title || <span className="italic text-muted-foreground">Без названия</span>}
+                      </span>
+                      {item.date !== null && (
+                        <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+                          {formatOrderDate(item.date)}
+                        </span>
+                      )}
+                      <span
+                        className={cn(
+                          "inline-flex max-w-[45%] shrink-0 items-center gap-1 truncate rounded-full border px-1.5 py-px text-[10px] font-medium leading-4",
+                          !item.statusColor && "border-border/60 text-muted-foreground"
+                        )}
+                        style={
+                          item.statusColor
+                            ? {
+                                backgroundColor: `hsl(${item.statusColor} / 0.16)`,
+                                color: `hsl(${item.statusColor})`,
+                                borderColor: `hsl(${item.statusColor} / 0.3)`,
+                              }
+                            : undefined
+                        }
+                      >
+                        <span className="truncate">{item.statusLabel}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {myOrders.items.length > ORDERS_PREVIEW && (
+                <button
+                  type="button"
+                  onClick={() => setOrdersOpen((v) => !v)}
+                  className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                >
+                  <ChevronDown className={cn("h-3 w-3 transition-transform", ordersOpen && "rotate-180")} />
+                  {ordersOpen ? "Свернуть" : `Показать все ${myOrders.items.length}`}
+                </button>
+              )}
+              {myOrders.items.length === 0 && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Список заказов появится, когда технарь откроет свой стол.
+                </p>
+              )}
+            </>
           ) : (
             <p className="mt-0.5 text-[11px] text-muted-foreground">У этого технаря пока нет ваших заказов.</p>
           )}

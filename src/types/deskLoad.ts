@@ -49,3 +49,36 @@ export interface DeskLoad {
   updatedAt: number;
   updatedBy: string;
 }
+
+/** One of an ОС's orders, as the desk publishes it for that ОС to see. */
+export interface OsOrderItem {
+  rowId: string;
+  /** First text column («Клиент»/«Название»); may be empty. */
+  title: string;
+  /** Raw status cell value (option value or a legacy label); "" when none. */
+  status: string;
+  /** Order date column (ms) when the desk has one and it's filled. */
+  date: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * This month's orders from one ОС on one desk. Readable by that ОС only
+ * (members.osNickValue == osValue) and by the Owner — never by a Тимлид
+ * or another ОС. Doc id `${pageId}_${osValue}`. Written by the desk
+ * next to its DeskLoad; the ОС screen trusts it only while
+ * deskLoad.osCounts[osValue] > 0 for the same month tab, so a stale doc
+ * from an ОС whose orders were all reassigned never shows.
+ */
+export interface OsOrders {
+  pageId: string;
+  workspaceId: string;
+  responsibleUserId: string;
+  osValue: string;
+  monthKey: string;
+  subPageId: string;
+  orders: OsOrderItem[];
+  updatedAt: number;
+  updatedBy: string;
+}

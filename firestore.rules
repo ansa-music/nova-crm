@@ -640,6 +640,29 @@ service cloud.firestore {
       }
 
       // -----------------------------------------------------------------
+      // ОС order lists («Технари» → «Ваши заказы»): one doc per desk per ОС
+      // nick, id "<pageId>_<osValue>", with the titles/statuses/dates of
+      // this month's orders that carry that nick. Only that ОС (their
+      // members.osNickValue) and the Owner read it — a Тимлид sees no desk
+      // content, another ОС sees no one else's orders. The ОС screen
+      // queries where("osValue","==",myNick), which is exactly what the
+      // read rule proves. Written like deskLoad: by whoever may edit the
+      // desk's rows, for that desk and its real responsible person only.
+      // -----------------------------------------------------------------
+      match /osOrders/{docId} {
+        allow read: if isOwner(workspaceId)
+          || (isMember(workspaceId)
+            && memberDoc(workspaceId, request.auth.uid).data.get('osNickValue', '') != ''
+            && resource.data.osValue == memberDoc(workspaceId, request.auth.uid).data.get('osNickValue', ''));
+        allow create, update: if isMember(workspaceId)
+          && request.resource.data.pageId is string
+          && request.resource.data.osValue is string
+          && docId == request.resource.data.pageId + '_' + request.resource.data.osValue
+          && canEditPage(workspaceId, deskPageData(workspaceId, request.resource.data.pageId))
+          && request.resource.data.get('responsibleUserId', '') == deskPageData(workspaceId, request.resource.data.pageId).get('responsibleUserId', '');
+      }
+
+      // -----------------------------------------------------------------
       // Оценки технарей («Технари»). One doc per ОС per Технар, id
       // "<osUid>_<technicianUid>", 1–5 stars. Only a real ОС rates, and only
       // with an ОС nick from a Тимлид (members.osNickValue — not
