@@ -1,6 +1,6 @@
 import { isBlankRow } from "@/utils/blankRow";
 import { isDoneStatusLabel, isFreezeStatusLabel } from "@/utils/columnOptions";
-import type { DeskLoad, PageColumn, PageRow, StatusOption, TechLoadKind } from "@/types";
+import type { DeskLoad, PageColumn, PageRow, StatusOption, TechLoadKind, Workspace } from "@/types";
 
 /**
  * Key for orders with an empty status. Not "__none__": Firestore reserves
@@ -153,7 +153,13 @@ export const TECH_LOAD_KIND_LABELS: Record<TechLoadKind, string> = {
   busy: "Занят",
   rework: "Переделка",
   freeze: "Заморозка",
+  payment: "Ждём оплату",
 };
+
+/** «Ждём оплату», «Ждем оплату», «Ожидание оплаты», «Ждёт оплаты»… — not «Оплачено». */
+export function isAwaitingPaymentLabel(label: string): boolean {
+  return /(ожид|жд[её]|жду).{0,12}оплат/i.test(label);
+}
 
 function isCancelledStatus(label: string, value: string): boolean {
   const l = label.toLowerCase();
@@ -165,6 +171,7 @@ export function autoTechLoadKind(label: string, value: string): TechLoadKind {
   const l = label.toLowerCase();
   if (isFreezeStatusLabel(label) || value === "freeze") return "freeze";
   if (l.includes("передел")) return "rework";
+  if (isAwaitingPaymentLabel(label)) return "payment";
   if (isDoneStatusLabel(label) || value === "done") return "free";
   if (isCancelledStatus(label, value)) return "free";
   return "busy";
@@ -174,17 +181,37 @@ export function techLoadKindForOption(option: StatusOption, kinds: Record<string
   return kinds?.[option.value] ?? autoTechLoadKind(option.label, option.value);
 }
 
+/**
+ * The Owner's status mapping as it should be read now. A map saved before
+ * version 2 recorded every status, including ones never touched — and back
+ * then «Ждём оплату» fell into «Занят» on its own. Those entries go back to
+ * the automatic kind; everything else the Owner saved stays.
+ */
+export function effectiveTechLoadKinds(
+  workspace: Pick<Workspace, "techLoadStatusKinds" | "techLoadStatusKindsVersion" | "statusOptions"> | null | undefined
+): Record<string, TechLoadKind> | undefined {
+  const kinds = workspace?.techLoadStatusKinds;
+  if (!kinds || (workspace?.techLoadStatusKindsVersion ?? 0) >= 2) return kinds;
+  const next = { ...kinds };
+  for (const option of workspace?.statusOptions ?? []) {
+    if (next[option.value] === "busy" && autoTechLoadKind(option.label, option.value) === "payment") delete next[option.value];
+  }
+  return next;
+}
+
 export interface TechLoadSummary {
   total: number;
   busy: number;
   free: number;
   rework: number;
   freeze: number;
+  /** «Ждём оплату» — separate, never busy. */
+  payment: number;
   /** Finished orders: `free` statuses except cancelled ones and orders without a status. */
   done: number;
 }
 
-export const EMPTY_TECH_LOAD: TechLoadSummary = { total: 0, busy: 0, free: 0, rework: 0, freeze: 0, done: 0 };
+export const EMPTY_TECH_LOAD: TechLoadSummary = { total: 0, busy: 0, free: 0, rework: 0, freeze: 0, payment: 0, done: 0 };
 
 function findStatusOption(raw: string, statusOptions: StatusOption[]): StatusOption | undefined {
   const lower = raw.toLowerCase();
@@ -222,6 +249,7 @@ export function addTechLoad(a: TechLoadSummary, b: TechLoadSummary): TechLoadSum
     free: a.free + b.free,
     rework: a.rework + b.rework,
     freeze: a.freeze + b.freeze,
+    payment: a.payment + b.payment,
     done: a.done + b.done,
   };
 }

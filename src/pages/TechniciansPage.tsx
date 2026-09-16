@@ -26,10 +26,12 @@ import { personLabel } from "@/utils/peopleDesks";
 import {
   addStatusCounts,
   addTechLoad,
+  effectiveTechLoadKinds,
   EMPTY_TECH_LOAD,
   hasRecentOsOrder,
   statusBreakdown,
   summarizeDeskLoad,
+  techLoadKindForOption,
   type StatusBreakdownItem,
   type TechLoadSummary,
 } from "@/utils/techLoad";
@@ -147,7 +149,12 @@ export default function TechniciansPage() {
 
   const responsibleOptions = activeWorkspace?.responsibleOptions ?? NO_OPTIONS;
   const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
-  const kinds = activeWorkspace?.techLoadStatusKinds;
+  const kinds = useMemo(() => effectiveTechLoadKinds(activeWorkspace), [activeWorkspace]);
+  // The «Ждём оплату» tile only where some status actually means it.
+  const showPayment = useMemo(
+    () => statusOptions.some((o) => techLoadKindForOption(o, kinds) === "payment"),
+    [statusOptions, kinds]
+  );
 
   const loadsRef = useRef<DeskLoad[] | null>(null);
   loadsRef.current = loads;
@@ -486,6 +493,7 @@ export default function TechniciansPage() {
                   isMe={t.member.uid === uid}
                   desks={t.desks}
                   deskLinks={isOwner}
+                  showPayment={showPayment}
                   busy={t.busy}
                   summary={t.summary}
                   breakdown={t.breakdown}

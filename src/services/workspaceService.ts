@@ -1,10 +1,10 @@
-import { deleteDoc, deleteField, DocumentData, onSnapshot, runTransaction, serverTimestamp, setDoc } from "firebase/firestore";
+import { deleteDoc, deleteField, DocumentData, onSnapshot, runTransaction, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { addOwnWorkspaceId } from "@/services/authService";
 import { DEFAULT_STATUS_OPTIONS, FREEZE_STATUS_OPTION, isFreezeStatusLabel } from "@/utils/columnOptions";
-import type { CustomFieldDef, StatusOption, Workspace } from "@/types";
+import type { CustomFieldDef, StatusOption, TechLoadKind, Workspace } from "@/types";
 
 export interface CreateWorkspaceInput {
   name: string;
@@ -89,6 +89,17 @@ export async function ensureFreezeStatus(workspaceId: string) {
     }
     tx.set(ref, patch, { merge: true });
   });
+}
+
+/**
+ * Saves the Owner's «Технари» status mapping — only statuses that differ from
+ * the automatic guess. updateDoc, not setDoc merge: merge would keep every
+ * key of the previous map, so a status set back to automatic could never
+ * leave it.
+ */
+export async function saveTechLoadStatusKinds(workspaceId: string, overrides: Record<string, TechLoadKind>) {
+  if (!db) return;
+  await updateDoc(paths.workspace(workspaceId), { techLoadStatusKinds: overrides, techLoadStatusKindsVersion: 2 });
 }
 
 export async function updateAccentColor(workspaceId: string, accentColor: string | null) {

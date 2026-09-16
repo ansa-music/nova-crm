@@ -78,6 +78,12 @@ export interface Workspace {
    * (autoTechLoadKind in src/utils/techLoad.ts).
    */
   techLoadStatusKinds?: Record<string, TechLoadKind>;
+  /**
+   * 2 = `techLoadStatusKinds` holds only the Owner's deliberate choices.
+   * Older maps froze every status's automatic kind at save time — back when
+   * «Ждём оплату» still counted as «Занят» — see effectiveTechLoadKinds.
+   */
+  techLoadStatusKindsVersion?: number;
 }
 
 export type MemberStatus = "active" | "invited";

@@ -3,9 +3,11 @@
  * free — done/closed, doesn't occupy the Технар;
  * busy — work in progress;
  * rework — «Переделка»: shown next to the state with its count, not busy;
- * freeze — «Заморозка»: shown next to the state with its count, not busy.
+ * freeze — «Заморозка»: shown next to the state with its count, not busy;
+ * payment — «Ждём оплату»: work is done, money isn't in yet — its own green
+ *   count, not busy.
  */
-export type TechLoadKind = "free" | "busy" | "rework" | "freeze";
+export type TechLoadKind = "free" | "busy" | "rework" | "freeze" | "payment";
 
 /**
  * Per-desk order counts for the current month's tab — the privacy-preserving

@@ -30,6 +30,8 @@ export interface TechnicianCardProps {
   desks: WorkspacePage[];
   /** Owner: desk names open the desk. */
   deskLinks: boolean;
+  /** Some status counts as «Ждём оплату»: show its tile. */
+  showPayment: boolean;
   busy: boolean;
   summary: TechLoadSummary;
   breakdown: StatusBreakdownItem[];
@@ -61,10 +63,11 @@ function ratingsWord(n: number) {
   return "оценок";
 }
 
-const METRICS: { key: keyof TechLoadSummary; label: string; tone: string }[] = [
+const METRICS: { key: keyof TechLoadSummary; label: string; tone: string; box?: string }[] = [
   { key: "busy", label: "В работе", tone: "text-destructive" },
   { key: "rework", label: "Переделка", tone: "text-warning" },
   { key: "freeze", label: "Заморозка", tone: "text-cyan-300" },
+  { key: "payment", label: "Ждём оплату", tone: "text-emerald-300", box: "border-emerald-400/45 bg-emerald-400/10" },
   { key: "done", label: "Готово", tone: "text-success" },
 ];
 
@@ -115,6 +118,7 @@ export function TechnicianCard({
   isMe,
   desks,
   deskLinks,
+  showPayment,
   busy,
   summary,
   breakdown,
@@ -231,18 +235,29 @@ export function TechnicianCard({
         </div>
       </header>
 
-      <div className="grid grid-cols-4 gap-1.5 px-4">
-        {METRICS.map((metric) => {
+      <div className={cn("grid px-4", showPayment ? "grid-cols-5 gap-1" : "grid-cols-4 gap-1.5")}>
+        {METRICS.filter((metric) => showPayment || metric.key !== "payment").map((metric) => {
           const value = summary[metric.key];
           return (
             <div
               key={metric.key}
-              className="min-w-0 rounded-lg border border-border/60 bg-background/40 px-1 py-1.5 text-center"
+              className={cn(
+                "flex min-w-0 flex-col items-center rounded-lg border border-border/60 bg-background/40 px-0.5 py-1.5 text-center",
+                value > 0 && metric.box
+              )}
             >
               <p className={cn("font-mono text-lg leading-none tabular-nums", value > 0 ? metric.tone : "text-muted-foreground/50")}>
                 {value}
               </p>
-              <p className="mt-1 truncate text-[10px] leading-3 text-muted-foreground">{metric.label}</p>
+              <p
+                className={cn(
+                  "mt-1 flex min-h-[1.5rem] w-full items-start justify-center break-words leading-3",
+                  showPayment ? "text-[9.5px]" : "text-[10px]",
+                  value > 0 && metric.box ? metric.tone : "text-muted-foreground"
+                )}
+              >
+                {metric.label}
+              </p>
             </div>
           );
         })}

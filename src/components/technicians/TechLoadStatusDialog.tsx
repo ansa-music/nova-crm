@@ -11,11 +11,11 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/components/ui/sonner";
-import { updateWorkspace } from "@/services/workspaceService";
-import { TECH_LOAD_KIND_LABELS, techLoadKindForOption } from "@/utils/techLoad";
+import { saveTechLoadStatusKinds, updateWorkspace } from "@/services/workspaceService";
+import { autoTechLoadKind, TECH_LOAD_KIND_LABELS, techLoadKindForOption } from "@/utils/techLoad";
 import type { StatusOption, TechLoadKind } from "@/types";
 
-const KINDS: TechLoadKind[] = ["busy", "free", "rework", "freeze"];
+const KINDS: TechLoadKind[] = ["busy", "free", "payment", "rework", "freeze"];
 
 /** Owner-only: how each shared status counts on «Технари». Workspace writes are Owner-only in firestore.rules. */
 export function TechLoadStatusDialog({
@@ -37,7 +37,14 @@ export function TechLoadStatusDialog({
   async function handleSave() {
     setSaving(true);
     try {
-      await updateWorkspace(workspaceId, { techLoadStatusKinds: draft });
+      // Only what differs from the automatic guess: statuses nobody touched
+      // keep following their names when those rules improve.
+      const overrides = Object.fromEntries(
+        statusOptions
+          .filter((o) => draft[o.value] && draft[o.value] !== autoTechLoadKind(o.label, o.value))
+          .map((o) => [o.value, draft[o.value]])
+      );
+      await saveTechLoadStatusKinds(workspaceId, overrides);
       toast.success("Статусы для «Технари» сохранены");
       onClose();
     } catch (error) {
@@ -52,6 +59,7 @@ export function TechLoadStatusDialog({
     try {
       await updateWorkspace(workspaceId, {
         techLoadStatusKinds: deleteField() as unknown as Record<string, TechLoadKind>,
+        techLoadStatusKindsVersion: deleteField() as unknown as number,
       });
       toast.success("Вернули автоматическое распределение");
       onClose();
@@ -69,7 +77,8 @@ export function TechLoadStatusDialog({
           <DialogTitle>Статусы на «Технари»</DialogTitle>
           <DialogDescription>
             Технар «Занят», если в этом месяце у него есть хоть один заказ в статусе «Занят». «Свободен» — заказ
-            закрыт. «Переделка» и «Заморозка» не занимают, их число видно рядом. Заказ без статуса не занимает.
+            закрыт. «Ждём оплату», «Переделка» и «Заморозка» не занимают, их число видно отдельно. Заказ без статуса
+            не занимает.
           </DialogDescription>
         </DialogHeader>
         <div className="flex min-w-0 flex-col gap-2">
