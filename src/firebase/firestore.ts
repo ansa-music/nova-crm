@@ -99,6 +99,9 @@ export const paths = {
   historyEntry: (workspaceId: string, entryId: string) =>
     doc(requireDb(), "workspaces", workspaceId, "history", entryId),
 
+  deskLoads: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "deskLoad"),
+  deskLoad: (workspaceId: string, pageId: string) => doc(requireDb(), "workspaces", workspaceId, "deskLoad", pageId),
+
   leaderboard: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "leaderboard"),
   leaderboardEntry: (workspaceId: string, pageId: string) =>
     doc(requireDb(), "workspaces", workspaceId, "leaderboard", pageId),

@@ -78,6 +78,11 @@ export function canManageAnnouncements(role: Role): boolean {
   return role === "owner" || role === "admin";
 }
 
+/** «Технари» (who is free / busy this month): everyone except Viewer. */
+export function canSeeTechnicians(role: Role): boolean {
+  return role !== "viewer";
+}
+
 /** Only the Owner may send notifications (as opposed to merely posting an announcement). */
 export function canSendNotifications(role: Role): boolean {
   return role === "owner";

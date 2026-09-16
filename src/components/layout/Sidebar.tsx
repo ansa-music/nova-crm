@@ -3,6 +3,7 @@ import { NavLink, useLocation, useNavigate } from "react-router";
 import {
   ChevronLeft,
   ChevronRight,
+  HardHat,
   Keyboard,
   KeyRound,
   Home,
@@ -39,6 +40,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { DISPATCH_ENABLED } from "@/config/features";
+import { canSeeTechnicians } from "@/utils/permissions";
 import { signOutUser } from "@/firebase/auth";
 import { setActiveRole } from "@/services/memberService";
 import { cn } from "@/utils/cn";
@@ -159,6 +161,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
     permissions.isResolved &&
     (permissions.realRole === "owner" || permissions.realRole === "admin" || permissions.isWorkspaceOwner) &&
     (permissions.role === "owner" || permissions.role === "admin");
+  const showTechniciansNav = permissions.isResolved && canSeeTechnicians(permissions.role);
   const homeTo = myDesk ? `/page/${myDesk.id}` : "/";
   const homeLabel = myDesk && myMembership?.role === "manager" ? "Мой стол" : "Главная";
   const homeActive = location.pathname === "/" || Boolean(myDesk && location.pathname === `/page/${myDesk.id}`);
@@ -228,6 +231,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink collapsed title="Люди" to="/people" icon={UsersRound} onNavigate={onNavigate}>
                     Люди
                   </AppNavLink>
+                  {showTechniciansNav && (
+                    <AppNavLink collapsed title="Технари" to="/technicians" icon={HardHat} onNavigate={onNavigate}>
+                      Технари
+                    </AppNavLink>
+                  )}
                   <AppNavLink collapsed title="Настройки" to="/settings" icon={Settings} onNavigate={onNavigate}>
                     Настройки
                   </AppNavLink>
@@ -268,6 +276,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
                     Люди
                   </AppNavLink>
+                  {showTechniciansNav && (
+                    <AppNavLink to="/technicians" icon={HardHat} onNavigate={onNavigate}>
+                      Технари
+                    </AppNavLink>
+                  )}
                   <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
                     Настройки
                   </AppNavLink>
@@ -311,6 +324,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
                 Люди
               </AppNavLink>
+              {showTechniciansNav && (
+                <AppNavLink to="/technicians" icon={HardHat} onNavigate={onNavigate}>
+                  Технари
+                </AppNavLink>
+              )}
               <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
                 Настройки
               </AppNavLink>

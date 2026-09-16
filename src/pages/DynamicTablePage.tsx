@@ -38,6 +38,7 @@ import { useUiStore } from "@/store/uiStore";
 import { cn } from "@/utils/cn";
 import { recordRecentPage } from "@/hooks/useUserPageNav";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useDeskLoadPublisher } from "@/hooks/useDeskLoadPublisher";
 import { isMonthlyDesk } from "@/services/monthTabService";
 import type { PageIconName, SubPage, WorkspacePage } from "@/types";
 
@@ -218,6 +219,15 @@ export default function DynamicTablePage() {
 
   const rows = activeSubPageId ? subPageRows : pageRows;
   const rowsLoading = !tabsReady || (activeSubPageId ? subPageRowsLoading : pageRowsLoading);
+
+  useDeskLoadPublisher({
+    page: hasAccess ? page : null,
+    subPage: activeSubPage,
+    rows,
+    rowsLoading,
+    canEdit: Boolean(page && permissions.canEditPageData(page)),
+    uid: permissions.uid,
+  });
 
   // Retrofit: pages created before "Цена" / "Диск" became standard columns
   // don't have them. If an Owner/Admin opens such a page, silently add

@@ -549,6 +549,19 @@ service cloud.firestore {
       }
 
       // -----------------------------------------------------------------
+      // Desk load («Технари») — per-desk order COUNTS for the current month,
+      // never row data, so every member (incl. an ОС with no desk access)
+      // may read them. Written by anyone who may edit that desk's rows
+      // (canEditPage against the real page doc), for that page id only.
+      // -----------------------------------------------------------------
+      match /deskLoad/{pageId} {
+        allow read: if isMember(workspaceId);
+        allow create, update: if isMember(workspaceId)
+          && request.resource.data.pageId == pageId
+          && canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
+      }
+
+      // -----------------------------------------------------------------
       // Announcements — any member may read; only Owner/Admin may post,
       // edit, pin, archive, or delete.
       // -----------------------------------------------------------------

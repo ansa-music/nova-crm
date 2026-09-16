@@ -1,5 +1,6 @@
 import type { Role } from "@/types/role";
 import type { StatusOption } from "@/types/page";
+import type { TechLoadKind } from "@/types/deskLoad";
 
 /**
  * An Owner-defined custom option field — the same idea as the built-in
@@ -71,6 +72,12 @@ export interface Workspace {
    * get it re-added on the next load.
    */
   freezeStatusSeeded?: boolean;
+  /**
+   * Owner's explicit mapping of status option value → how it counts on
+   * «Технари». A status missing here falls back to its label
+   * (autoTechLoadKind in src/utils/techLoad.ts).
+   */
+  techLoadStatusKinds?: Record<string, TechLoadKind>;
 }
 
 export type MemberStatus = "active" | "invited";
