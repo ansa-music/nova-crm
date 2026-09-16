@@ -37,6 +37,8 @@ import { canOpenDesk, isRestrictedDeskRole } from "@/utils/peopleDesks";
 import { useUiStore } from "@/store/uiStore";
 import { cn } from "@/utils/cn";
 import { recordRecentPage } from "@/hooks/useUserPageNav";
+import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { isMonthlyDesk } from "@/services/monthTabService";
 import type { PageIconName, SubPage, WorkspacePage } from "@/types";
 
 
@@ -131,6 +133,26 @@ export default function DynamicTablePage() {
   // authorizes in firestore.rules, so the screen and the server agree.
   const hasAccess = permissions.isResolved && Boolean(page && personalOpen);
   const { subPages, isLoading: subPagesLoading } = useSubPages(activeWorkspaceId, hasAccess && page ? page.id : null);
+  // First visit of a new month: the month autopilot (AppLayout) is about to
+  // create/adopt this month's tab and make it default. Hold the initial tab
+  // choice until the page doc says it's done, so the desk opens on the new
+  // month instead of last month's tab — capped, so a failed write can't
+  // leave the desk loading forever.
+  const monthKey = useCurrentMonthKey();
+  const awaitingMonthTab = Boolean(
+    page &&
+      hasAccess &&
+      page.autoMonthKey !== monthKey &&
+      (isWorkspaceOwner || isOwnDesk) &&
+      isMonthlyDesk(page, members)
+  );
+  const [monthWaitExpired, setMonthWaitExpired] = useState(false);
+  useEffect(() => {
+    setMonthWaitExpired(false);
+    if (!awaitingMonthTab) return;
+    const timer = window.setTimeout(() => setMonthWaitExpired(true), 5000);
+    return () => window.clearTimeout(timer);
+  }, [awaitingMonthTab, pageId]);
   const activeSubPage = subPages.find((s) => s.id === activeSubPageId) ?? null;
   const tabScopeReady = tabsReady && appliedDefaultForPageRef.current === pageId;
   const listenMainRows = Boolean(hasAccess && page && tabScopeReady && !activeSubPageId);
@@ -167,10 +189,11 @@ export default function DynamicTablePage() {
     }
     if (appliedDefaultForPageRef.current === pageId) return;
     if (subPagesLoading) return;
+    if (awaitingMonthTab && !monthWaitExpired) return;
     appliedDefaultForPageRef.current = pageId;
     setActiveSubPageId(initialSubPageId(page, subPages));
     setTabsReady(true);
-  }, [pageId, page, subPages, subPagesLoading, hasAccess]);
+  }, [pageId, page, subPages, subPagesLoading, hasAccess, awaitingMonthTab, monthWaitExpired]);
 
   function handleSelectTab(subPageId: string | null) {
     userPickedTabRef.current = true;

@@ -65,6 +65,12 @@ export interface Workspace {
    * 'active' — this flag can never be used to self-grant admin/owner.
    */
   autoApproveJoins?: boolean;
+  /**
+   * Set once the «Заморозка» status has been added to `statusOptions`
+   * automatically — so an Owner who later deletes it on purpose doesn't
+   * get it re-added on the next load.
+   */
+  freezeStatusSeeded?: boolean;
 }
 
 export type MemberStatus = "active" | "invited";

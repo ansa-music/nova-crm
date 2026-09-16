@@ -280,20 +280,26 @@ export async function createPage(input: CreatePageInput): Promise<WorkspacePage>
  * failure clear hideMainTab and hand back a desk that opens on «Основная».
  */
 export async function seedCurrentMonthDesk(page: WorkspacePage): Promise<WorkspacePage> {
-  const { createSubPage, currentMonthTabName } = await import("@/services/subPageService");
+  const { createSubPage, monthTabNameForKey } = await import("@/services/subPageService");
+  const { currentMonthKey, markMonthTab, monthTabId } = await import("@/services/monthTabService");
   try {
+    // Same id/monthKey the month autopilot uses, so it recognizes this tab
+    // as the month's instead of adding a second one.
+    const monthKey = currentMonthKey();
     const sub = await createSubPage({
       workspaceId: page.workspaceId,
       pageId: page.id,
-      name: currentMonthTabName(),
+      id: monthTabId(monthKey),
+      monthKey,
+      name: monthTabNameForKey(monthKey),
       color: page.color,
       icon: page.icon,
       columns: page.columns,
       order: 0,
       createdBy: page.createdBy,
     });
-    await setDefaultSubPage(page.workspaceId, page.id, sub.id);
-    return { ...page, defaultSubPageId: sub.id, hideMainTab: true };
+    await markMonthTab(page.workspaceId, page.id, sub.id, monthKey);
+    return { ...page, defaultSubPageId: sub.id, autoMonthKey: monthKey, autoMonthSubPageId: sub.id, hideMainTab: true };
   } catch (error) {
     console.error(`seedCurrentMonthDesk failed for page ${page.id}; falling back to the main tab:`, error);
     // Best-effort repair only — the desk is usable either way, and the

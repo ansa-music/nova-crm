@@ -312,6 +312,15 @@ service cloud.firestore {
         allow update: if isMember(workspaceId)
           && resource.data.responsibleUserId == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['monthlyGoal', 'updatedAt']);
+        // Month autopilot (monthTabService.markMonthTab) and «сделать вкладку
+        // по умолчанию» (setDefaultSubPage) — same reason as monthlyGoal: a
+        // Технар on a legacy desk must not be blocked by
+        // columnStatusOptionsPreserved() for a write that never touches columns.
+        // Keep this list EXACTLY what those two functions write.
+        allow update: if isMember(workspaceId)
+          && resource.data.responsibleUserId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['defaultSubPageId', 'autoMonthKey', 'autoMonthSubPageId', 'updatedAt']);
         // Delete: Owner always, or the page's own creator while they're
         // still its responsible person (mirrors canDeletePage client-side).
         allow delete: if isOwner(workspaceId) ||

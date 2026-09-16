@@ -23,6 +23,7 @@ import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorksp
 import { useAppBootstrap } from "@/hooks/useAppBootstrap";
 import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
 import { useOpenApprovedDesk } from "@/hooks/useOpenApprovedDesk";
+import { useMonthTabAutopilot } from "@/hooks/useMonthTabAutopilot";
 import { useAuth } from "@/hooks/useAuth";
 import { useIsTablet } from "@/hooks/useMediaQuery";
 import { useUiStore } from "@/store/uiStore";
@@ -41,6 +42,7 @@ export function AppLayout() {
   useActiveWorkspaceDataBootstrap();
   usePresenceHeartbeat();
   useOpenApprovedDesk();
+  useMonthTabAutopilot();
   const location = useLocation();
 
   const { phase } = useAppBootstrap();

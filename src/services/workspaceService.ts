@@ -1,8 +1,9 @@
-import { deleteDoc, deleteField, DocumentData, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { deleteDoc, deleteField, DocumentData, onSnapshot, runTransaction, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { addOwnWorkspaceId } from "@/services/authService";
+import { DEFAULT_STATUS_OPTIONS, FREEZE_STATUS_OPTION, isFreezeStatusLabel } from "@/utils/columnOptions";
 import type { CustomFieldDef, StatusOption, Workspace } from "@/types";
 
 export interface CreateWorkspaceInput {
@@ -64,6 +65,30 @@ export async function updateResponsibleOptions(workspaceId: string, options: Sta
 /** Same idea as updateResponsibleOptions, for the shared "Статус" list. */
 export async function updateStatusOptions(workspaceId: string, options: StatusOption[]) {
   await updateWorkspace(workspaceId, { statusOptions: options });
+}
+
+/**
+ * One-time: appends «Заморозка» to the shared status list (Owner session
+ * only — workspace writes are Owner-only). A transaction so two open Owner
+ * tabs can't both append it; `freezeStatusSeeded` makes it one-time, so a
+ * deliberately deleted «Заморозка» never comes back.
+ */
+export async function ensureFreezeStatus(workspaceId: string) {
+  if (!db) return;
+  const firestore = db;
+  const ref = paths.workspace(workspaceId);
+  await runTransaction(firestore, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) return;
+    const data = snap.data() as Partial<Workspace>;
+    if (data.freezeStatusSeeded) return;
+    const current = data.statusOptions ?? DEFAULT_STATUS_OPTIONS;
+    const patch: Partial<Workspace> = { freezeStatusSeeded: true };
+    if (!current.some((o) => isFreezeStatusLabel(o.label) || o.value === FREEZE_STATUS_OPTION.value)) {
+      patch.statusOptions = [...current, FREEZE_STATUS_OPTION];
+    }
+    tx.set(ref, patch, { merge: true });
+  });
 }
 
 export async function updateAccentColor(workspaceId: string, accentColor: string | null) {

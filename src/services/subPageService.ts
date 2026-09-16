@@ -81,6 +81,10 @@ export interface CreateSubPageInput {
   columns: PageColumn[];
   order: number;
   createdBy: string;
+  /** Fixed document id instead of a generated one — month tabs use `month-YYYY-MM` so two clients can't create the same month twice. */
+  id?: string;
+  /** "YYYY-MM" for a month tab — see monthTabService.ts. */
+  monthKey?: string;
   /** Marks this subpage as a Personal Space monthly report, not an ordinary shared one — see canAccessSubPage in firestore.rules. */
   personalOwnerUid?: string;
   personalAllowedUsers?: string[];
@@ -88,7 +92,7 @@ export interface CreateSubPageInput {
 
 export async function createSubPage(input: CreateSubPageInput): Promise<SubPage> {
   if (!db) throw new Error("Firebase не настроен");
-  const id = generateId("sub");
+  const id = input.id ?? generateId("sub");
   const subPage: SubPage = {
     id,
     pageId: input.pageId,
@@ -98,6 +102,7 @@ export async function createSubPage(input: CreateSubPageInput): Promise<SubPage>
     icon: input.icon,
     order: input.order,
     isArchived: false,
+    monthKey: input.monthKey,
     personalOwnerUid: input.personalOwnerUid,
     personalAllowedUsers: input.personalAllowedUsers,
     columns: stripUndefined(input.columns),
@@ -229,6 +234,12 @@ function titleMonth(word: string): string {
 export function currentMonthTabName(now: number = Date.now()): string {
   const { year, month } = ymdPartsInTimeZone(now);
   return `${titleMonth(MONTHS_RU[month])} ${year}`;
+}
+
+/** "2026-09" → "Сентябрь 2026", same shape as currentMonthTabName. */
+export function monthTabNameForKey(monthKey: string): string {
+  const [year, month] = monthKey.split("-").map(Number);
+  return `${titleMonth(MONTHS_RU[month - 1])} ${year}`;
 }
 
 /** Guesses "next month" from a subpage name like "Январь" or "Июль 2026", falling back to a generic name if it doesn't recognize a month. */

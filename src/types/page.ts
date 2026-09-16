@@ -100,6 +100,17 @@ export interface WorkspacePage {
    */
   defaultSubPageId?: string | null;
   /**
+   * Month autopilot (see src/services/monthTabService.ts): the "YYYY-MM"
+   * Almaty month whose tab was last ensured on this desk, and that tab's
+   * subpage id. When `autoMonthKey` equals the current month, the tab
+   * already exists and was made default once — the autopilot never
+   * touches this desk again until the month changes, so a manual default
+   * picked afterwards sticks. Only orders in `autoMonthSubPageId` count
+   * toward the current month on the «Технари» screen.
+   */
+  autoMonthKey?: string;
+  autoMonthSubPageId?: string;
+  /**
    * New desks hide the "Основная" tab (page rows). Set only at create time.
    * Older desks omit this and keep Основная plus their existing rows.
    */
@@ -176,6 +187,8 @@ export interface SubPage {
   icon: PageIconName;
   order: number;
   isArchived?: boolean;
+  /** "YYYY-MM" — set on month tabs created by the month autopilot. */
+  monthKey?: string;
   /**
    * When set, this subpage is a Personal Space monthly report — NOT an
    * ordinary shared subpage. It must never be visible to a regular page

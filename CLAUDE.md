@@ -37,6 +37,12 @@ Nova CRM — production SaaS, написанная с помощью Claude. О�
 - Экраны: `/dashboard` (графики/рейтинг/KPI), `/desks` (грид обложек столов), `/people`
   (участники), `/page/:pageId` (сам стол). `HomePage` (`/`) — если есть свой ответственный
   стол, сразу открывает его, иначе дашборд-лендинг.
+- **Месячные вкладки** (`monthTabService.ts`, хук `useMonthTabAutopilot` в `AppLayout`): у
+  каждого стола Технара одна вкладка на месяц по Алматы. В новом месяце вкладка создаётся
+  (id `month-YYYY-MM`) или подхватывается существующая «Сентябрь 2026»/«сентябрь» и один раз
+  делается вкладкой по умолчанию; на странице пишутся `autoMonthKey`/`autoMonthSubPageId`.
+  Сессия Owner обслуживает все столы Технарей, сессия Технара — свой. Старые вкладки не
+  трогаются, заказы Технар переносит сам.
 
 ## Стек
 
@@ -103,6 +109,12 @@ Roles: `owner` > `admin` > `manager` («Технар») > `viewer`. Только
   responsible писал `allowedUsers`+`hiddenByResponsible` вместе с `responsibleUserId`;
   `changeColumnType` ронял `statusOptions`) — при правке ЛЮБОГО `hasOnly`-правила или функции,
   которая под него попадает, перепроверяй оба конца.
+- **В языке Firestore rules нет `list.filter()`/`list.all()`/лямбд.** `columnStatusOptionsPreserved()`
+  на них построен: файл «компилируется» (только warnings), но в рантайме функция падает, и
+  любая ветка правила, которая её вызывает, для не-Owner всегда отказывает. Поэтому узкие
+  записи ответственного на документ стола идут через отдельные `hasOnly`-ветки (`monthlyGoal`;
+  `defaultSubPageId`+`autoMonthKey`+`autoMonthSubPageId`). Правила проверяй через
+  `firebase deploy --only firestore:rules --dry-run` и читай warnings, а не только «compiled».
 - Квоты на количество страниц у менеджера — только atomic Firestore batch writes, не
   читай-потом-пиши (race condition).
 - **`activeRole`** (симуляция роли) — чисто клиентское UI-поле, Firestore rules никогда не
