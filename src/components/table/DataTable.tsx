@@ -72,6 +72,7 @@ import {
   duplicateRow as duplicateRowServiceBase,
   reorderRows as reorderRowsBase,
   updateRowCell as updateRowCellBase,
+  updateRowCellsBulk as updateRowCellsBulkBase,
   updateRowHeight as updateRowHeightBase,
   updatePageColumns as updatePageColumnsBase,
   addColumn as addColumnServiceBase,
@@ -86,6 +87,7 @@ import {
   duplicateSubPageRow,
   reorderSubPageRows,
   updateSubPageRowCell,
+  updateSubPageRowCellsBulk,
   updateSubPageRowHeight,
   updateSubPageColumns,
   setTabRowOrderManual,
@@ -109,6 +111,7 @@ import { updateResponsibleOptions, updateCustomFieldOptions, updateStatusOptions
 import { formatCurrency, formatCurrencyCell, formatNumber, downloadCsv } from "@/utils";
 import { formatOrderDate } from "@/utils/date";
 import { isSummableColumn, sumNumericCells } from "@/utils/tableAggregates";
+import { isBlankRow, isFilledCellValue } from "@/utils/blankRow";
 import { clampColumnWidth } from "@/utils/tableLayout";
 import { getColumnOptions, isDoneStatusLabel, isOptionColumn, DEFAULT_STATUS_OPTIONS, NOT_DONE_STATUS_FILTER, findDoneStatusOption } from "@/utils/columnOptions";
 import { isHttpUrl, parseHttpUrl } from "@/utils/httpUrl";
@@ -294,6 +297,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const updateRowHeight = subPageId
     ? (wsId: string, pId: string, rowId: string, height: number) => updateSubPageRowHeight(wsId, pId, subPageId, rowId, height)
     : updateRowHeightBase;
+  const fillRowService = subPageId
+    ? (
+        wsId: string,
+        pId: string,
+        rowId: string,
+        patch: Record<string, string | number | null>,
+        extras?: PageRow["extras"] | null
+      ) => updateSubPageRowCellsBulk(wsId, pId, subPageId, rowId, patch, extras)
+    : updateRowCellsBulkBase;
   const updatePageColumns = subPageId
     ? (wsId: string, pId: string, cols: typeof page.columns) => updateSubPageColumns(wsId, pId, subPageId, cols)
     : updatePageColumnsBase;
@@ -570,9 +582,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   );
 
   // ---- Filtering + search + sort ----
-  const processedRows = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    let result = rows.filter((row) => {
+  // Everything that can hide a row; `q` is the lowercased search query.
+  const rowPassesFilters = useCallback(
+    (row: PageRow, q: string) => {
       if (q) {
         const matches = columns.some((c) => {
           if (c.hidden) return false;
@@ -609,7 +621,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         if (respCol && !myResponsibleValues.includes(String(row.cells[respCol.key] ?? ""))) return false;
       }
       return true;
-    });
+    },
+    [columns, filters, statusFilter, activeWorkspace, cellDisplayText, dateFilter, mineOnly, myResponsibleValues]
+  );
+
+  const processedRows = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    let result = rows.filter((row) => rowPassesFilters(row, q));
 
     if (sortState.colKey && sortState.direction) {
       const col = columns.find((c) => c.key === sortState.colKey);
@@ -636,7 +654,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       result = [...result].sort(manualRowOrder ? compareRowsByOrder : compareRowsByCreatedAt);
     }
     return result;
-  }, [rows, columns, searchQuery, filters, sortState, statusFilter, activeWorkspace, cellDisplayText, dateFilter, mineOnly, myResponsibleValues, manualRowOrder, optimisticRowOrder]);
+  }, [rows, columns, searchQuery, sortState, rowPassesFilters, manualRowOrder, optimisticRowOrder]);
+
+  // Blank rows are free slots, not orders: kept on screen to type into, left
+  // out of every count, footer and the kanban board.
+  const filledProcessedRows = useMemo(() => processedRows.filter((row) => !isBlankRow(row)), [processedRows]);
+  const filledRowCount = useMemo(() => rows.reduce((n, row) => n + (isBlankRow(row) ? 0 : 1), 0), [rows]);
 
   // Per-status row counts for the toolbar chips (respecting search + column
   // filters, but NOT the status chip itself — otherwise every other chip
@@ -649,6 +672,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const counts: Record<string, number> = {};
     let notDone = 0;
     for (const row of rows) {
+      if (isBlankRow(row)) continue;
       if (q) {
         const matches = columns.some((c) => !c.hidden && cellDisplayText(row, c).toLowerCase().includes(q));
         if (!matches) continue;
@@ -696,6 +720,56 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     let max = -1;
     for (const r of rows) if (typeof r.order === "number" && Number.isFinite(r.order)) max = Math.max(max, r.order);
     return Math.max(Math.floor(max) + 1, rows.length);
+  }
+
+  // Blank including cell writes still on their way to Firestore, and the
+  // value being committed right now (`edit`).
+  function isBlankRowNow(row: PageRow, edit?: { colKey: string; value: string }): boolean {
+    if (row.attachments && row.attachments.length > 0) return false;
+    if (row.extras && (row.extras.persons != null || row.extras.minutes != null)) return false;
+    const keys = new Set([...Object.keys(row.cells ?? {}), ...columns.map((c) => c.key)]);
+    for (const key of keys) {
+      const value = edit && edit.colKey === key ? edit.value : pendingWrites.resolve(row.id, key, row.cells?.[key] ?? null);
+      if (isFilledCellValue(value)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Where new data goes first: the topmost blank row the table would show
+   * once the search box is cleared — instead of one more row appended under
+   * the blank ones.
+   */
+  function firstBlankRow(): PageRow | null {
+    const blanks = rows.filter((row) => isBlankRowNow(row) && rowPassesFilters(row, ""));
+    if (blanks.length === 0) return null;
+    blanks.sort(!sortState.colKey && manualRowOrder ? compareRowsByOrder : compareRowsByCreatedAt);
+    return blanks[0];
+  }
+
+  /** Selects the first column of that row and opens the editor there (text-like columns), scrolling it into view. */
+  function startEntryInRow(rowId: string) {
+    const firstCol = displayColumns[0];
+    if (!firstCol) return;
+    const addr = { rowId, colKey: firstCol.key };
+    if (Number.isFinite(pageSize) && pageSize > 0 && !searchQuery) {
+      const idx = processedRows.findIndex((r) => r.id === rowId);
+      if (idx >= 0) setPageIndex(Math.floor(idx / pageSize));
+    }
+    pendingScrollRowIdRef.current = rowId;
+    requestAnimationFrame(() => {
+      setActiveCell(addr);
+      setRangeAnchor(addr);
+      if (!isOptionColumn(firstCol.type) && firstCol.type !== "date") {
+        setEditingCell(addr);
+        setEditValue("");
+      }
+      const idx = paginatedRowsRef.current.findIndex((r) => r.id === rowId);
+      if (idx >= 0) {
+        pendingScrollRowIdRef.current = null;
+        revealCell(rowId, firstCol.key, idx);
+      }
+    });
   }
 
   async function persistManualOrder(orderedIds: string[]) {
@@ -759,6 +833,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }, [processedRows, pageIndex, pageSize, groups]);
 
   const rowIds = useMemo(() => paginatedRows.map((r) => r.id), [paginatedRows]);
+  const paginatedRowsRef = useRef(paginatedRows);
+  paginatedRowsRef.current = paginatedRows;
   // Row-card prev/next/"N of total" must walk the full filtered+sorted view,
   // not just the current pagination page — `rowIds` above is intentionally
   // page-scoped for the grid itself, but the card's own row lookup already
@@ -942,7 +1018,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     }
   }
 
-  async function moveActiveAfterCommit(direction: "down" | "right" | "left" | "none") {
+  async function moveActiveAfterCommit(direction: "down" | "right" | "left" | "none", rowIsBlank = false) {
     if (direction === "none" || !activeCell) return;
     const navCols = displayColumns;
     const rIdx = rowIds.indexOf(activeCell.rowId);
@@ -975,13 +1051,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     // Enter on the last row: auto-create a fresh empty row and jump straight
     // into editing the same column on it — matches Google Sheets/Airtable's
     // "just keep typing" flow instead of getting stuck on the last row.
+    // …unless this last row is still blank: one empty slot at the bottom is
+    // enough, pressing Enter on it must not stack up more.
     if (direction === "down" && rIdx === rowIds.length - 1) {
-      await createRowAndGo(activeCell.colKey);
+      if (!rowIsBlank) await createRowAndGo(activeCell.colKey);
       return;
     }
 
     if (direction === "right" && cIdx >= navCols.length - 1 && rIdx === rowIds.length - 1) {
-      await createRowAndGo(navCols[0]?.key ?? activeCell.colKey);
+      if (!rowIsBlank) await createRowAndGo(navCols[0]?.key ?? activeCell.colKey);
       return;
     }
 
@@ -1050,6 +1128,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         newValue = editValue.trim();
       }
       setEditingCell(null);
+      const rowIsBlank = row ? isBlankRowNow(row, { colKey, value: newValue }) : false;
       if (oldValue !== newValue) {
         persistCellEdit(rowId, colKey, oldValue, newValue);
         pushCommand({
@@ -1057,7 +1136,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           redo: () => persistCellEdit(rowId, colKey, oldValue, newValue),
         });
       }
-      moveActiveAfterCommit(direction);
+      moveActiveAfterCommit(direction, rowIsBlank);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [editingCell, editValue, rows]
@@ -1533,6 +1612,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       return;
     }
     if (!canEdit) return;
+    const lastRow = rows.find((r) => r.id === activeCell.rowId);
+    if (lastRow && isBlankRowNow(lastRow)) return;
     const cells: Record<string, string | number | null> = {};
     columns.forEach((c) => (cells[c.key] = ""));
     const newRow = await addRowService(workspaceId, page.id, cells, nextRowOrder());
@@ -2137,7 +2218,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   // ---- Row-level actions ----
   async function handleAddRow() {
+    // A blank row already waiting? Type there instead of adding one more.
+    const blank = firstBlankRow();
     setSearchQuery("");
+    if (blank) {
+      startEntryInRow(blank.id);
+      return;
+    }
     setPageIndex(0);
     const cells: Record<string, string | number | null> = {};
     columns.forEach((c) => (cells[c.key] = ""));
@@ -2167,6 +2254,21 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (quickOrderStatus) {
       const statusCol = displayColumns.find((c) => c.type === "status");
       if (statusCol) cells[statusCol.key] = quickOrderStatus;
+    }
+    const blank = firstBlankRow();
+    if (blank) {
+      // Same as a new order, just into the first blank row.
+      const patch: Record<string, string | number | null> = {};
+      for (const [key, value] of Object.entries(cells)) if (isFilledCellValue(value)) patch[key] = value;
+      const cleared = Object.fromEntries(Object.keys(patch).map((key) => [key, ""]));
+      await fillRowService(workspaceId, page.id, blank.id, patch, extras ?? null);
+      pushCommand({
+        undo: () => fillRowService(workspaceId, page.id, blank.id, cleared, null),
+        redo: () => fillRowService(workspaceId, page.id, blank.id, patch, extras ?? null),
+      });
+      pendingScrollRowIdRef.current = blank.id;
+      toast.success("Заказ в столе", { description: "Записан в первую пустую строку" });
+      return;
     }
     const newRow = await addRowService(workspaceId, page.id, cells, nextRowOrder(), extras);
     let liveId = newRow.id;
@@ -2646,14 +2748,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const out: Record<string, ReturnType<typeof computeAggregate>> = {};
     for (const column of displayColumns) {
       const kind = columnAggregates[column.key] ?? defaultAggregateFor(column.type);
-      out[column.key] = computeAggregate(column, processedRows, kind, {
+      out[column.key] = computeAggregate(column, filledProcessedRows, kind, {
         statusColumn: footerStatusColumn,
         statusOptions: sharedStatusOptions,
         isDoneLabel: isDoneStatusLabel,
       });
     }
     return out;
-  }, [displayColumns, processedRows, columnAggregates, footerStatusColumn, sharedStatusOptions]);
+  }, [displayColumns, filledProcessedRows, columnAggregates, footerStatusColumn, sharedStatusOptions]);
 
   // Sticky footer totals: FILTERED/searched rows only. Currency and number
   // columns sum; dates are notes and are never summed or marked overdue.
@@ -3044,8 +3146,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           setPageSize(size);
           setPageIndex(0);
         }}
-        visibleCount={processedRows.length}
-        totalCount={rows.length}
+        visibleCount={filledProcessedRows.length}
+        totalCount={filledRowCount}
         dateFilter={dateFilter}
         onDateFilterChange={(next) => {
           setDateFilter(next);
@@ -3061,8 +3163,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       {viewMode === "table" && (
         <ActiveFiltersBar
           chips={activeFilterChips}
-          visibleCount={processedRows.length}
-          totalCount={rows.length}
+          visibleCount={filledProcessedRows.length}
+          totalCount={filledRowCount}
           onClearAll={resetAllFilters}
         />
       )}
@@ -3070,7 +3172,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       {viewMode === "kanban" && kanbanStatusColumn ? (
         <KanbanView
           columns={displayColumns}
-          rows={processedRows}
+          rows={filledProcessedRows}
           statusColumn={kanbanStatusColumn}
           canEdit={canEdit}
           onStatusChange={handleStatusChange}
@@ -3362,10 +3464,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                   <td
                     className="table-sticky-col sticky left-0 z-30 border-r border-border/50 bg-background px-1 py-2 text-center font-mono text-[11px] tabular text-muted-foreground"
                     style={{ width: gutterWidth, minWidth: gutterWidth }}
-                    title="Строк в фильтре"
+                    title="Заказов в фильтре (пустые строки не считаются)"
                   >
                     <div className="flex flex-col items-center gap-0.5">
-                      <span>{processedRows.length}</span>
+                      <span>{filledProcessedRows.length}</span>
                       {selectionStats && selectionStats.count > 0 && (
                         <span className="text-[10px] text-primary" title={`Выделено ${selectionStats.cells} яч. · сумма ${formatNumber(selectionStats.sum)} · среднее ${formatNumber(Math.round(selectionStats.avg * 100) / 100)}`}>
                           Σ {formatNumber(selectionStats.sum)}

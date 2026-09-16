@@ -120,6 +120,15 @@ export interface WorkspaceMember {
    * rule. Absent/null means "not simulating — use my real role".
    */
   activeRole?: Role | null;
+  /**
+   * ОС nick, given by a Тимлид (or the Owner) — never self-writable. It lives
+   * in the shared «Ответственный» list as the option `osNickValue`, so a
+   * Технар picks it in the order's ОС column; the ОС rates Технари by it.
+   * The option's label is the source of truth for display (Owner may rename
+   * it in Настройки); `osNick` is the label as last saved.
+   */
+  osNick?: string;
+  osNickValue?: string;
 }
 
 export type JoinRequestStatus = "pending" | "approved" | "rejected";

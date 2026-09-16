@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useUiStore } from "@/store/uiStore";
 import { useWorkspaceStore } from "@/store/workspaceStore";
-import { Check, ChevronDown, ChevronRight, Clock3, Copy, Link2, Mail, Search, ShieldCheck, Trash2, X } from "lucide-react";
+import { AlertTriangle, AtSign, Check, ChevronDown, ChevronRight, Clock3, Copy, Link2, Mail, Pencil, Search, ShieldCheck, Trash2, X } from "lucide-react";
 import { displayNameOf } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
 import { cn } from "@/utils/cn";
@@ -14,7 +14,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/sonner";
 import { InviteMemberForm } from "@/components/members/InviteMemberForm";
 import { RoleSelect } from "@/components/members/RoleSelect";
-import { cancelInvite, changeMemberRole, quietActiveMembers, removeMember, resendInvite, visibleMemberRoster } from "@/services/memberService";
+import {
+  cancelInvite,
+  changeMemberRole,
+  osNickLabel,
+  quietActiveMembers,
+  removeMember,
+  resendInvite,
+  visibleMemberRoster,
+} from "@/services/memberService";
+import { OsNickDialog } from "@/components/members/OsNickDialog";
 import { toggleUserPageAccess } from "@/services/pageService";
 import { approveJoinRequest, rejectJoinRequest, fetchJoinRequests, subscribeJoinRequests, DEFAULT_JOIN_ROLE } from "@/services/joinRequestService";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
@@ -22,7 +31,7 @@ import { timeAgo } from "@/utils/date";
 import { useAuth } from "@/hooks/useAuth";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
-import type { JoinRequest, PageIconName, Role } from "@/types";
+import type { JoinRequest, PageIconName, Role, WorkspaceMember } from "@/types";
 import { confirmDialog } from "@/utils/appDialog";
 
 
@@ -45,6 +54,9 @@ export default function UsersPage() {
   const [linkCopied, setLinkCopied] = useState(false);
   const [query, setQuery] = useState("");
   const [roleChip, setRoleChip] = useState<Role | "invited" | null>(null);
+  // Ник ОС: only Тимлид/Owner reach this page (canManageUsers); rules
+  // enforce the same on the member doc and the shared «Ответственный» list.
+  const [osNickMember, setOsNickMember] = useState<WorkspaceMember | null>(null);
 
   const roster = useMemo(
     () =>
@@ -367,6 +379,12 @@ export default function UsersPage() {
             member.status === "active" &&
             Boolean(member.uid) &&
             !responsibleUids.has(member.uid);
+          const showOsNick = member.role === "os" && member.status === "active" && Boolean(member.uid);
+          const osNick = showOsNick ? osNickLabel(member, activeWorkspace?.responsibleOptions) : null;
+          const osNickMissing =
+            showOsNick &&
+            Boolean(member.osNickValue) &&
+            !activeWorkspace?.responsibleOptions?.some((o) => o.value === member.osNickValue);
           return (
             <Card key={member.uid || member.email}>
               <div className="flex items-center gap-3 p-4">
@@ -395,6 +413,32 @@ export default function UsersPage() {
                     {noDesk && <span className="ml-1.5 text-xs text-muted-foreground">стола нет</span>}
                   </p>
                   <p className="truncate text-xs text-muted-foreground">{member.email}</p>
+                  {showOsNick && (
+                    <button
+                      type="button"
+                      onClick={() => setOsNickMember(member)}
+                      title={osNick ? "Сменить или открепить ник ОС" : "Закрепить ник ОС"}
+                      className={cn(
+                        "mt-1.5 inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                        osNickMissing
+                          ? "border-warning/50 bg-warning/10 text-warning hover:bg-warning/15"
+                          : osNick
+                            ? "border-amber-400/40 bg-amber-400/10 text-amber-300 hover:bg-amber-400/15"
+                            : "border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                      )}
+                    >
+                      {osNickMissing ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <AtSign className="h-3 w-3 shrink-0" />}
+                      {osNick ? (
+                        <span className="truncate">
+                          ник ОС: <span className="font-semibold">{osNick}</span>
+                          {osNickMissing ? " — удалён из «Ответственный»" : ""}
+                        </span>
+                      ) : (
+                        <span>Закрепить ник ОС</span>
+                      )}
+                      <Pencil className="h-3 w-3 shrink-0 opacity-70" />
+                    </button>
+                  )}
                 </div>
                 {member.status === "invited" && <Badge variant="warning">Приглашён</Badge>}
                 <span className="hidden text-xs text-muted-foreground sm:block">
@@ -466,6 +510,17 @@ export default function UsersPage() {
           );
         })}
       </div>
+
+      {osNickMember && (
+        <OsNickDialog
+          workspaceId={activeWorkspaceId}
+          member={osNickMember}
+          members={Array.isArray(members) ? members : []}
+          options={activeWorkspace?.responsibleOptions ?? []}
+          onClose={() => setOsNickMember(null)}
+          onSaved={() => refreshWorkspaceMembers(activeWorkspaceId)}
+        />
+      )}
     </div>
   );
 }

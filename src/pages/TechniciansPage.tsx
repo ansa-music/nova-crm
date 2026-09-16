@@ -1,35 +1,59 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { HardHat, ShieldCheck, SlidersHorizontal } from "lucide-react";
-import { MemberAvatar } from "@/components/common/MemberAvatar";
+import { AtSign, HardHat, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { EmptyState } from "@/components/common/EmptyState";
 import { TechLoadStatusDialog } from "@/components/technicians/TechLoadStatusDialog";
+import {
+  TechnicianCard,
+  type TechnicianRater,
+  type TechnicianRatingDetail,
+} from "@/components/technicians/TechnicianCard";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import { usePermissions } from "@/hooks/usePermissions";
-import { useWorkspace } from "@/hooks/useWorkspace";
+import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { refreshDeskLoadFromRows, subscribeDeskLoads } from "@/services/deskLoadService";
+import { osNickLabel } from "@/services/memberService";
 import { currentMonthSubPageId, isMonthlyDesk } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
+import { deleteTechRating, rateTechnician, subscribeTechRatings } from "@/services/techRatingService";
+import { confirmDialog } from "@/utils/appDialog";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
-import { timeAgo } from "@/utils/date";
 import { canSeeTechnicians } from "@/utils/permissions";
 import { personLabel } from "@/utils/peopleDesks";
-import { addTechLoad, EMPTY_TECH_LOAD, summarizeDeskLoad, type TechLoadSummary } from "@/utils/techLoad";
+import {
+  addStatusCounts,
+  addTechLoad,
+  EMPTY_TECH_LOAD,
+  hasRecentOsOrder,
+  statusBreakdown,
+  summarizeDeskLoad,
+  type StatusBreakdownItem,
+  type TechLoadSummary,
+} from "@/utils/techLoad";
 import { cn } from "@/utils/cn";
-import type { DeskLoad, WorkspaceMember, WorkspacePage } from "@/types";
+import type { DeskLoad, StatusOption, TechRating, WorkspaceMember, WorkspacePage } from "@/types";
 
-type Filter = "all" | "free" | "busy";
+type Filter = "all" | "free" | "busy" | "mine";
 
 interface TechnicianRow {
   member: WorkspaceMember;
   desks: WorkspacePage[];
   summary: TechLoadSummary;
+  breakdown: StatusBreakdownItem[];
   busy: boolean;
   /** Newest count among this person's desks; 0 when nothing was counted this month yet. */
   updatedAt: number;
+  /** Viewer is an ОС with a nick: their orders at this Технар this month. */
+  myOrders: { summary: TechLoadSummary; breakdown: StatusBreakdownItem[] } | null;
+  ratings: TechRating[];
+  /** A desk of this Технар with a recent order from the viewing ОС — proof for a first rating. */
+  rateDeskId: string | null;
 }
+
+const NO_OPTIONS: StatusOption[] = [];
 
 // Owner-only background recount: each desk's month tab at most this often
 // per page load. Keyed by the tab, so a desk the month autopilot rolls over
@@ -45,26 +69,14 @@ function ordersWord(n: number) {
   return "заказов";
 }
 
-function Pill({ tone, children }: { tone: "free" | "busy" | "rework" | "freeze"; children: React.ReactNode }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium leading-4",
-        tone === "free" && "border-success/45 bg-success/12 text-success",
-        tone === "busy" && "border-destructive/45 bg-destructive/12 text-destructive",
-        tone === "rework" && "border-warning/45 bg-warning/12 text-warning",
-        tone === "freeze" && "border-cyan-400/45 bg-cyan-400/12 text-cyan-300"
-      )}
-    >
-      {children}
-    </span>
-  );
+function isPermissionDenied(error: unknown) {
+  return typeof error === "object" && error !== null && (error as { code?: string }).code === "permission-denied";
 }
 
 /**
- * «Технари» — who of the Технари is free right now, from this month's
- * orders only. Reads the DeskLoad aggregates, never anyone's rows, so it
- * works for an ОС who can't open a single desk.
+ * «Технари» — визитки Технарей: who is free right now, this month's orders
+ * by status, ratings from ОС. Reads the DeskLoad aggregates, never anyone's
+ * rows, so it works for an ОС who can't open a single desk.
  */
 export default function TechniciansPage() {
   const { activeWorkspace, activeWorkspaceId, members, pages } = useWorkspace();
@@ -73,15 +85,35 @@ export default function TechniciansPage() {
   const monthKey = useCurrentMonthKey();
   const [loads, setLoads] = useState<DeskLoad[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [ratings, setRatings] = useState<TechRating[] | null>(null);
+  const [ratingsFailed, setRatingsFailed] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
 
   const canSee = permissions.isResolved && canSeeTechnicians(permissions.role);
   // Owner reads every desk and recounts them; the status mapping is a
   // workspace setting (Owner or Тимлид).
   const isOwner = permissions.hasFullDeskAccess;
   const canMapStatuses = permissions.canManageStatusVariants;
+  // Ratings: Owner/Тимлид see who rated and may remove a rating (rules:
+  // hasFullAccess by the REAL role, like canManageUsers); Admin only sees.
+  const canModerateRatings = permissions.canManageUsers;
+  const canSeeRatingDetails = canModerateRatings || permissions.role === "admin";
+  const isOsViewer = permissions.role === "os";
   const uid = profile?.uid ?? "";
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  // Other members' docs aren't live — refresh once so nicks, desks and
+  // "last seen" are current when the screen opens.
+  useEffect(() => {
+    if (!activeWorkspaceId || !canSee) return;
+    void refreshWorkspaceMembers(activeWorkspaceId).catch(() => undefined);
+  }, [activeWorkspaceId, canSee]);
 
   useEffect(() => {
     setLoads(null);
@@ -99,22 +131,42 @@ export default function TechniciansPage() {
     );
   }, [activeWorkspaceId, canSee]);
 
+  useEffect(() => {
+    setRatings(null);
+    setRatingsFailed(false);
+    if (!activeWorkspaceId || !canSee) return;
+    return subscribeTechRatings(
+      activeWorkspaceId,
+      (next) => {
+        setRatings(next);
+        setRatingsFailed(false);
+      },
+      () => setRatingsFailed(true)
+    );
+  }, [activeWorkspaceId, canSee]);
+
+  const responsibleOptions = activeWorkspace?.responsibleOptions ?? NO_OPTIONS;
+  const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
+  const kinds = activeWorkspace?.techLoadStatusKinds;
+
   const loadsRef = useRef<DeskLoad[] | null>(null);
   loadsRef.current = loads;
   const loadsReady = loads !== null;
+  const responsibleOptionsRef = useRef(responsibleOptions);
+  responsibleOptionsRef.current = responsibleOptions;
 
   // Owner can read every desk: recount the month tabs directly so desks
   // nobody opened lately still show the truth. Everyone else relies on the
   // counts each desk publishes while its Технар works in it.
   useEffect(() => {
     if (!isOwner || !activeWorkspaceId || !uid || !loadsReady) return;
-    const now = Date.now();
+    const startedAt = Date.now();
     const desks = pages.filter((p) => {
       const subPageId = currentMonthSubPageId(p, monthKey);
       if (!subPageId || !isMonthlyDesk(p, members)) return false;
       const key = `${p.id}:${subPageId}`;
-      if (now - (lastRefreshAt.get(key) ?? 0) < REFRESH_EVERY_MS) return false;
-      lastRefreshAt.set(key, now);
+      if (startedAt - (lastRefreshAt.get(key) ?? 0) < REFRESH_EVERY_MS) return false;
+      lastRefreshAt.set(key, startedAt);
       return true;
     });
     if (desks.length === 0) return;
@@ -126,7 +178,8 @@ export default function TechniciansPage() {
               desk,
               monthKey,
               uid,
-              loadsRef.current?.find((l) => l.pageId === desk.id)
+              loadsRef.current?.find((l) => l.pageId === desk.id),
+              responsibleOptionsRef.current
             ).catch((error) => console.warn(`Не удалось пересчитать стол ${desk.id}:`, error))
           )
         );
@@ -134,8 +187,9 @@ export default function TechniciansPage() {
     })();
   }, [isOwner, activeWorkspaceId, uid, loadsReady, members, pages, monthKey]);
 
-  const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
-  const kinds = activeWorkspace?.techLoadStatusKinds;
+  const myMember = useMemo(() => members.find((m) => m.uid === uid) ?? null, [members, uid]);
+  const myOsValue = isOsViewer ? myMember?.osNickValue ?? null : null;
+  const myOsNick = isOsViewer ? osNickLabel(myMember, responsibleOptions) : null;
 
   const technicians = useMemo<TechnicianRow[]>(() => {
     const loadByPage = new Map((loads ?? []).map((l) => [l.pageId, l]));
@@ -154,16 +208,46 @@ export default function TechniciansPage() {
           .sort((a, b) => a.order - b.order);
         let summary = EMPTY_TECH_LOAD;
         let updatedAt = 0;
+        let myTotal = 0;
+        let rateDeskId: string | null = null;
+        const statusCounts: Record<string, number> = {};
+        const myStatusCounts: Record<string, number> = {};
         for (const desk of desks) {
-          const subPageId = currentMonthSubPageId(desk, monthKey);
           const load = loadByPage.get(desk.id);
+          if (!load) continue;
+          // Rating proof may come from last month's counts too: the desk
+          // keeps each ОС's last order day across the rollover.
+          if (myOsValue && !rateDeskId && load.responsibleUserId === member.uid && hasRecentOsOrder(load, myOsValue, now)) {
+            rateDeskId = desk.id;
+          }
+          const subPageId = currentMonthSubPageId(desk, monthKey);
           // No month tab yet, or counts from another month/tab: nothing
           // counted for this month on this desk.
-          if (!subPageId || !load || load.monthKey !== monthKey || load.subPageId !== subPageId) continue;
+          if (!subPageId || load.monthKey !== monthKey || load.subPageId !== subPageId) continue;
           summary = addTechLoad(summary, summarizeDeskLoad(load, statusOptions, kinds));
+          addStatusCounts(statusCounts, load.statusCounts);
+          if (myOsValue) {
+            myTotal += load.osCounts?.[myOsValue] ?? 0;
+            addStatusCounts(myStatusCounts, load.osStatusCounts?.[myOsValue]);
+          }
           updatedAt = Math.max(updatedAt, load.updatedAt ?? 0);
         }
-        return { member, desks, summary, busy: summary.busy > 0, updatedAt };
+        return {
+          member,
+          desks,
+          summary,
+          breakdown: statusBreakdown(statusCounts, statusOptions, kinds),
+          busy: summary.busy > 0,
+          updatedAt,
+          myOrders: myOsValue
+            ? {
+                summary: summarizeDeskLoad({ total: myTotal, statusCounts: myStatusCounts }, statusOptions, kinds),
+                breakdown: statusBreakdown(myStatusCounts, statusOptions, kinds),
+              }
+            : null,
+          ratings: (ratings ?? []).filter((r) => r.technicianUid === member.uid),
+          rateDeskId,
+        };
       })
       // Whoever can take an order soonest comes first: free, free with a
       // rework pending, busy (fewest in work first), and people without a
@@ -177,18 +261,97 @@ export default function TechniciansPage() {
           personLabel(a.member).localeCompare(personLabel(b.member), "ru")
         );
       });
-  }, [loads, members, pages, monthKey, statusOptions, kinds]);
+  }, [loads, ratings, members, pages, monthKey, statusOptions, kinds, myOsValue, now]);
 
-  const freeCount = technicians.filter((t) => !t.busy).length;
-  const busyCount = technicians.length - freeCount;
-  const visible = technicians.filter((t) => filter === "all" || (filter === "busy" ? t.busy : !t.busy));
+  const withDesk = technicians.filter((t) => t.desks.length > 0);
+  const freeCount = withDesk.filter((t) => !t.busy).length;
+  const busyCount = withDesk.length - freeCount;
+  const mineCount = technicians.filter((t) => (t.myOrders?.summary.total ?? 0) > 0).length;
+  const myOrdersTotal = technicians.reduce((n, t) => n + (t.myOrders?.summary.total ?? 0), 0);
+  const visible = technicians.filter((t) => {
+    if (filter === "free") return t.desks.length > 0 && !t.busy;
+    if (filter === "busy") return t.busy;
+    if (filter === "mine") return (t.myOrders?.summary.total ?? 0) > 0;
+    return true;
+  });
+
+  function raterFor(t: TechnicianRow): TechnicianRater | null {
+    if (!isOsViewer || ratings === null || ratingsFailed || t.member.uid === uid) return null;
+    const mine = t.ratings.find((r) => r.osUid === uid) ?? null;
+    if (mine) return { state: "can-rate", nick: myOsNick ?? "", mine };
+    if (!myOsValue || !myOsNick) return { state: "no-nick" };
+    if (t.rateDeskId) return { state: "can-rate", nick: myOsNick, mine: null };
+    return { state: "not-eligible", nick: myOsNick };
+  }
+
+  async function handleRate(t: TechnicianRow, stars: number) {
+    if (!activeWorkspaceId) return;
+    const mine = t.ratings.find((r) => r.osUid === uid) ?? null;
+    const osValue = mine?.osValue ?? myOsValue;
+    const pageId = mine?.pageId ?? t.rateDeskId;
+    if (!osValue || !pageId) return;
+    try {
+      await rateTechnician({
+        workspaceId: activeWorkspaceId,
+        osUid: uid,
+        technicianUid: t.member.uid,
+        stars,
+        osValue,
+        pageId,
+        existing: mine,
+      });
+      toast.success(mine ? "Оценка изменена" : "Оценка поставлена");
+    } catch (error) {
+      toast.error(
+        isPermissionDenied(error)
+          ? "Не получилось: у технаря нет недавнего заказа с вашим ником ОС"
+          : "Не удалось сохранить оценку"
+      );
+    }
+  }
+
+  function raterLabel(rating: TechRating): string {
+    const rater = members.find((m) => m.uid === rating.osUid);
+    return (
+      osNickLabel(rater, responsibleOptions) ??
+      responsibleOptions.find((o) => o.value === rating.osValue)?.label ??
+      (rater ? personLabel(rater) : null) ??
+      "Бывший участник"
+    );
+  }
+
+  function ratingDetailsFor(t: TechnicianRow): TechnicianRatingDetail[] | null {
+    if (!canSeeRatingDetails) return null;
+    return t.ratings
+      .map((r) => ({ id: r.id, raterLabel: raterLabel(r), stars: r.stars, updatedAt: r.updatedAt }))
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  async function handleDeleteRating(t: TechnicianRow, ratingId: string) {
+    if (!activeWorkspaceId) return;
+    const rating = t.ratings.find((r) => r.id === ratingId);
+    const ok = await confirmDialog({
+      title: "Удалить оценку?",
+      description: rating
+        ? `${raterLabel(rating)} → ${personLabel(t.member)}: ${rating.stars} из 5. ОС сможет оценить снова, если у технаря будет его недавний заказ.`
+        : undefined,
+      confirmLabel: "Удалить",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteTechRating(activeWorkspaceId, ratingId);
+      toast.success("Оценка удалена");
+    } catch {
+      toast.error("Не удалось удалить оценку");
+    }
+  }
 
   if (!permissions.isResolved) {
     return (
-      <div className="mx-auto flex max-w-3xl flex-col gap-2.5 p-5">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-16 rounded-xl" />
-        <Skeleton className="h-16 rounded-xl" />
+      <div className="mx-auto grid max-w-6xl grid-cols-1 gap-3 p-5 md:grid-cols-2">
+        <Skeleton className="h-64 rounded-2xl" />
+        <Skeleton className="h-64 rounded-2xl" />
       </div>
     );
   }
@@ -208,6 +371,9 @@ export default function TechniciansPage() {
     { id: "free", label: "Свободны", count: freeCount, active: "border-success/50 bg-success/15 text-success" },
     { id: "busy", label: "Заняты", count: busyCount, active: "border-destructive/50 bg-destructive/15 text-destructive" },
   ];
+  if (isOsViewer && myOsValue) {
+    filters.push({ id: "mine", label: "С моими заказами", count: mineCount, active: "border-amber-400/50 bg-amber-400/15 text-amber-300" });
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -248,19 +414,49 @@ export default function TechniciansPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-        <div className="mx-auto flex max-w-3xl flex-col gap-2">
+        <div className="mx-auto flex max-w-6xl flex-col gap-3">
+          {isOsViewer &&
+            (myOsValue && myOsNick ? (
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 font-medium text-amber-300">
+                  <AtSign className="h-3 w-3" />
+                  {myOsNick}
+                </span>
+                <span>
+                  ваш ник ОС — технари ставят его у ваших заказов · в этом месяце:{" "}
+                  <span className="font-mono tabular-nums text-foreground">{myOrdersTotal}</span> {ordersWord(myOrdersTotal)}
+                </span>
+              </p>
+            ) : (
+              <div className="flex items-start gap-2.5 rounded-xl border border-amber-400/35 bg-amber-400/10 px-3 py-2.5 text-sm">
+                <AtSign className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                <p className="text-[13px] leading-5">
+                  <span className="font-medium text-amber-200">У вас пока нет ника ОС.</span>{" "}
+                  <span className="text-muted-foreground">
+                    Его выдаёт Тимлид. Технари ставят ник у ваших заказов — тогда здесь будут видны ваши заказы и
+                    можно будет оценивать технарей.
+                  </span>
+                </p>
+              </div>
+            ))}
+
           {loadFailed && (
             <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               Не удалось загрузить загрузку технарей. Обновите страницу.
             </p>
           )}
+          {ratingsFailed && !loadFailed && (
+            <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              Не удалось загрузить оценки. Обновите страницу.
+            </p>
+          )}
 
           {!loadFailed && loads === null && (
-            <>
-              <Skeleton className="h-[4.5rem] rounded-xl" />
-              <Skeleton className="h-[4.5rem] rounded-xl" />
-              <Skeleton className="h-[4.5rem] rounded-xl" />
-            </>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+              <Skeleton className="h-64 rounded-2xl" />
+              <Skeleton className="h-64 rounded-2xl" />
+              <Skeleton className="h-64 rounded-2xl" />
+            </div>
           )}
 
           {loads !== null && technicians.length === 0 && (
@@ -273,52 +469,40 @@ export default function TechniciansPage() {
 
           {loads !== null && technicians.length > 0 && visible.length === 0 && (
             <p className="py-16 text-center text-sm text-muted-foreground">
-              {filter === "busy" ? "Сейчас все свободны." : "Сейчас все заняты."}
+              {filter === "busy"
+                ? "Сейчас все свободны."
+                : filter === "mine"
+                  ? "В этом месяце ваших заказов у технарей нет."
+                  : "Сейчас все заняты."}
             </p>
           )}
 
-          {loads !== null &&
-            visible.map(({ member, desks, summary, busy, updatedAt }) => {
-              const mine = member.uid === uid;
-              const details = [
-                desks.length > 0 ? desks.map((d) => d.name).join(", ") : "стола нет",
-                busy ? `в работе ${summary.busy}` : null,
-                desks.length > 0 ? (updatedAt ? `обновлено ${timeAgo(updatedAt)}` : "в этом месяце ещё не открывал стол") : null,
-              ].filter(Boolean);
-              return (
-                <div
-                  key={member.uid}
-                  className={cn(
-                    "flex items-center gap-3 rounded-xl border border-border/60 bg-card/60 px-3 py-3 sm:px-4",
-                    mine && "ring-1 ring-primary/30"
-                  )}
-                >
-                  <MemberAvatar
-                    id={member.uid}
-                    name={member.name}
-                    nickname={member.nickname}
-                    photoURL={member.photoURL}
-                    className="h-9 w-9 shrink-0"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <p className="min-w-0 truncate text-sm font-medium">
-                        {personLabel(member) || member.email || "—"}
-                        {mine ? " · ты" : ""}
-                      </p>
-                      {busy ? <Pill tone="busy">Занят</Pill> : <Pill tone="free">Свободен</Pill>}
-                      {summary.rework > 0 && <Pill tone="rework">переделка {summary.rework}</Pill>}
-                      {summary.freeze > 0 && <Pill tone="freeze">заморозка {summary.freeze}</Pill>}
-                    </div>
-                    <p className="mt-1 truncate text-[11px] text-muted-foreground">{details.join(" · ")}</p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="font-mono text-lg leading-none tabular-nums">{summary.total}</p>
-                    <p className="mt-1 text-[10px] text-muted-foreground">{ordersWord(summary.total)}</p>
-                  </div>
-                </div>
-              );
-            })}
+          {loads !== null && visible.length > 0 && (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+              {visible.map((t) => (
+                <TechnicianCard
+                  key={t.member.uid}
+                  member={t.member}
+                  isMe={t.member.uid === uid}
+                  desks={t.desks}
+                  deskLinks={isOwner}
+                  busy={t.busy}
+                  summary={t.summary}
+                  breakdown={t.breakdown}
+                  updatedAt={t.updatedAt}
+                  myOrders={t.myOrders}
+                  rating={{
+                    average: ratingsFailed || t.ratings.length === 0 ? null : t.ratings.reduce((n, r) => n + r.stars, 0) / t.ratings.length,
+                    count: ratingsFailed ? 0 : t.ratings.length,
+                  }}
+                  rater={raterFor(t)}
+                  onRate={(stars) => handleRate(t, stars)}
+                  ratingDetails={ratingDetailsFor(t)}
+                  onDeleteRating={canModerateRatings ? (id) => void handleDeleteRating(t, id) : undefined}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

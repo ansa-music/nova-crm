@@ -1,3 +1,4 @@
+import { isBlankRow } from "@/utils/blankRow";
 import { isDoneStatusLabel } from "@/utils/columnOptions";
 import type { PageProgress } from "@/utils/deskProgress";
 import type { StatusOption, WorkspaceMember } from "@/types";
@@ -64,6 +65,7 @@ export function collectRecentRows(
   const items: RecentRowItem[] = [];
   for (const desk of desks) {
     for (const row of desk.rows) {
+      if (isBlankRow(row)) continue;
       items.push(toRecentRowItem(desk, row, statusOptions, members));
     }
   }

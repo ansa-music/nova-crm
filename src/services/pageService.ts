@@ -829,16 +829,22 @@ export async function updateRowCell(ctx: UpdateCellContext) {
   }
 }
 
+/** `extras`: undefined leaves them alone, null removes them. */
 export async function updateRowCellsBulk(
   workspaceId: string,
   pageId: string,
   rowId: string,
-  patch: Record<string, string | number | null>
+  patch: Record<string, string | number | null>,
+  extras?: PageRow["extras"] | null
 ) {
   if (!db) return;
   await setDoc(
     paths.row(workspaceId, pageId, rowId),
-    { cells: patch, updatedAt: Date.now() },
+    {
+      cells: patch,
+      updatedAt: Date.now(),
+      ...(extras === undefined ? {} : { extras: extras ?? deleteField() }),
+    },
     { merge: true }
   );
   mirrorPatchRowCellsBulk(rowId, patch);

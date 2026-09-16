@@ -1,15 +1,32 @@
-import { getDoc, onSnapshot, setDoc, type FirestoreError } from "firebase/firestore";
+import { getDoc, onSnapshot, runTransaction, type FirestoreError } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
 import { currentMonthSubPageId } from "@/services/monthTabService";
 import { fetchSubPageRows } from "@/services/subPageService";
-import { countDeskLoad, deskLoadSignature } from "@/utils/techLoad";
-import type { DeskLoad, SubPage, WorkspacePage } from "@/types";
+import { countDeskLoad, deskLoadNeedsPublish, mergeOsLastOrderAt } from "@/utils/techLoad";
+import type { DeskLoad, StatusOption, SubPage, WorkspacePage } from "@/types";
 
-/** Overwrites the desk's month counts. Allowed for anyone who can edit the desk's rows (firestore.rules → deskLoad). */
+/**
+ * Overwrites the desk's month counts. Allowed for anyone who can edit the
+ * desk's rows (firestore.rules → deskLoad). A transaction, because the
+ * stored ОС activity outlives the month tab: ОС whose orders left the tab
+ * keep their last order day until it's too old to rate by.
+ */
 export async function publishDeskLoad(load: Omit<DeskLoad, "updatedAt">) {
   if (!db) return;
-  await setDoc(paths.deskLoad(load.workspaceId, load.pageId), { ...load, updatedAt: Date.now() });
+  const ref = paths.deskLoad(load.workspaceId, load.pageId);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const previous = snap.exists() ? (snap.data() as Partial<DeskLoad>) : null;
+    const now = Date.now();
+    tx.set(ref, {
+      ...load,
+      osCounts: load.osCounts ?? {},
+      osStatusCounts: load.osStatusCounts ?? {},
+      osLastOrderAt: mergeOsLastOrderAt(previous?.osLastOrderAt, load.osLastOrderAt ?? {}, now),
+      updatedAt: now,
+    });
+  });
 }
 
 /**
@@ -22,7 +39,8 @@ export async function refreshDeskLoadFromRows(
   page: WorkspacePage,
   monthKey: string,
   uid: string,
-  current: DeskLoad | undefined
+  current: DeskLoad | undefined,
+  responsibleOptions: StatusOption[]
 ) {
   const subPageId = currentMonthSubPageId(page, monthKey);
   if (!db || !subPageId || !page.responsibleUserId) return;
@@ -31,9 +49,9 @@ export async function refreshDeskLoadFromRows(
     fetchSubPageRows(page.workspaceId, page.id, subPageId),
   ]);
   if (!subSnap.exists()) return;
-  const counts = countDeskLoad((subSnap.data() as SubPage).columns ?? [], rows);
+  const counts = countDeskLoad((subSnap.data() as SubPage).columns ?? [], rows, responsibleOptions);
   const next = { ...counts, subPageId, monthKey };
-  if (current && deskLoadSignature(current) === deskLoadSignature(next)) return;
+  if (!deskLoadNeedsPublish(current, next)) return;
   await publishDeskLoad({
     pageId: page.id,
     workspaceId: page.workspaceId,

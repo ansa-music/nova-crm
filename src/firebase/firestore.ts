@@ -102,6 +102,10 @@ export const paths = {
   deskLoads: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "deskLoad"),
   deskLoad: (workspaceId: string, pageId: string) => doc(requireDb(), "workspaces", workspaceId, "deskLoad", pageId),
 
+  techRatings: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "techRatings"),
+  techRating: (workspaceId: string, ratingId: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "techRatings", ratingId),
+
   leaderboard: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "leaderboard"),
   leaderboardEntry: (workspaceId: string, pageId: string) =>
     doc(requireDb(), "workspaces", workspaceId, "leaderboard", pageId),

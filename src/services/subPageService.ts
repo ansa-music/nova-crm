@@ -1,5 +1,6 @@
 import {
   deleteDoc,
+  deleteField,
   getDoc,
   getDocs,
   onSnapshot,
@@ -342,17 +343,23 @@ export async function updateSubPageRowCell(
   mirrorPatchRowCells(rowId, field, newValue);
 }
 
+/** `extras`: undefined leaves them alone, null removes them. */
 export async function updateSubPageRowCellsBulk(
   workspaceId: string,
   pageId: string,
   subPageId: string,
   rowId: string,
-  patch: Record<string, string | number | null>
+  patch: Record<string, string | number | null>,
+  extras?: PageRow["extras"] | null
 ) {
   if (!db) return;
   await setDoc(
     paths.subPageRow(workspaceId, pageId, subPageId, rowId),
-    { cells: patch, updatedAt: Date.now() },
+    {
+      cells: patch,
+      updatedAt: Date.now(),
+      ...(extras === undefined ? {} : { extras: extras ?? deleteField() }),
+    },
     { merge: true }
   );
   mirrorPatchRowCellsBulk(rowId, patch);

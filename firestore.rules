@@ -595,13 +595,63 @@ service cloud.firestore {
       // Desk load («Технари») — per-desk order COUNTS for the current month,
       // never row data, so every member (incl. an ОС with no desk access)
       // may read them. Written by anyone who may edit that desk's rows
-      // (canEditPage against the real page doc), for that page id only.
+      // (canEditPage against the real page doc), for that page id and its
+      // real responsible person only — techRatings trusts both.
       // -----------------------------------------------------------------
+      function deskPageData(workspaceId, pageId) {
+        return get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data;
+      }
+
       match /deskLoad/{pageId} {
         allow read: if isMember(workspaceId);
         allow create, update: if isMember(workspaceId)
           && request.resource.data.pageId == pageId
-          && canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
+          && canEditPage(workspaceId, deskPageData(workspaceId, pageId))
+          && request.resource.data.get('responsibleUserId', '') == deskPageData(workspaceId, pageId).get('responsibleUserId', '');
+      }
+
+      // -----------------------------------------------------------------
+      // Оценки технарей («Технари»). One doc per ОС per Технар, id
+      // "<osUid>_<technicianUid>", 1–5 stars. Only a real ОС rates, and only
+      // with an ОС nick from a Тимлид (members.osNickValue — not
+      // self-writable). The FIRST rating needs a recent order from that nick
+      // on the Технар's desk: deskLoad.osLastOrderAt[nick] within 30 days
+      // (OS_RATING_WINDOW_MS in src/utils/techLoad.ts). Changing the stars
+      // later is always allowed. Owner/Тимлид may delete an unfair rating.
+      // -----------------------------------------------------------------
+      function isValidStars(stars) {
+        return stars is int && stars >= 1 && stars <= 5;
+      }
+
+      function hasRecentOrderFrom(workspaceId, rating) {
+        let me = memberDoc(workspaceId, request.auth.uid).data;
+        let load = get(/databases/$(database)/documents/workspaces/$(workspaceId)/deskLoad/$(rating.pageId)).data;
+        return me.get('osNickValue', '') != ''
+          && rating.osValue == me.get('osNickValue', '')
+          && load.get('responsibleUserId', '') == rating.technicianUid
+          && load.get('osLastOrderAt', {}).get(rating.osValue, 0) > request.time.toMillis() - 2592000000;
+      }
+
+      match /techRatings/{ratingId} {
+        allow read: if isMember(workspaceId) && myRole(workspaceId) != 'viewer';
+        allow create: if isMember(workspaceId)
+          && myRole(workspaceId) == 'os'
+          && request.resource.data.keys().hasOnly(['workspaceId', 'osUid', 'technicianUid', 'stars', 'osValue', 'pageId', 'createdAt', 'updatedAt'])
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.osUid == request.auth.uid
+          && request.resource.data.technicianUid is string
+          && request.resource.data.technicianUid != request.auth.uid
+          && ratingId == request.auth.uid + '_' + request.resource.data.technicianUid
+          && request.resource.data.pageId is string
+          && request.resource.data.osValue is string
+          && isValidStars(request.resource.data.stars)
+          && hasRecentOrderFrom(workspaceId, request.resource.data);
+        allow update: if isMember(workspaceId)
+          && myRole(workspaceId) == 'os'
+          && resource.data.osUid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stars', 'updatedAt'])
+          && isValidStars(request.resource.data.stars);
+        allow delete: if hasFullAccess(workspaceId);
       }
 
       // -----------------------------------------------------------------

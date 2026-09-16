@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef } from "react";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import { publishDeskLoad } from "@/services/deskLoadService";
 import { countDeskLoad, deskLoadSignature } from "@/utils/techLoad";
-import type { PageRow, SubPage, WorkspacePage } from "@/types";
+import type { PageRow, StatusOption, SubPage, WorkspacePage } from "@/types";
+
+const NO_OPTIONS: StatusOption[] = [];
 
 /**
  * Keeps «Технари» current from the desk itself: while this month's tab is
@@ -18,6 +20,7 @@ export function useDeskLoadPublisher({
   rowsLoading,
   canEdit,
   uid,
+  responsibleOptions = NO_OPTIONS,
 }: {
   page: WorkspacePage | null;
   subPage: SubPage | null;
@@ -25,6 +28,8 @@ export function useDeskLoadPublisher({
   rowsLoading: boolean;
   canEdit: boolean;
   uid: string;
+  /** Shared «Ответственный» list — resolves ОС columns to option values. */
+  responsibleOptions?: StatusOption[];
 }) {
   const monthKey = useCurrentMonthKey();
   const lastSignatureRef = useRef("");
@@ -38,8 +43,8 @@ export function useDeskLoadPublisher({
   const active = isMonthTab && canEdit && !rowsLoading && Boolean(uid);
 
   const counts = useMemo(
-    () => (active && subPage ? countDeskLoad(subPage.columns, rows) : null),
-    [active, subPage, rows]
+    () => (active && subPage ? countDeskLoad(subPage.columns, rows, responsibleOptions) : null),
+    [active, subPage, rows, responsibleOptions]
   );
 
   const pageId = page?.id;
@@ -61,6 +66,9 @@ export function useDeskLoadPublisher({
         subPageId,
         total: counts.total,
         statusCounts: counts.statusCounts,
+        osCounts: counts.osCounts,
+        osStatusCounts: counts.osStatusCounts,
+        osLastOrderAt: counts.osLastOrderAt,
         updatedBy: uid,
       }).catch((error) => {
         lastSignatureRef.current = "";

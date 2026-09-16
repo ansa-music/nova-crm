@@ -29,6 +29,21 @@ export interface DeskLoad {
    * desk having to republish. Empty status → NO_STATUS_KEY.
    */
   statusCounts: Record<string, number>;
+  /**
+   * Orders per ОС this month, keyed by the «Ответственный» option value the
+   * Технар picked in the order's ОС column (an ОС nick is such an option).
+   * Absent on docs published before ОС nicks existed.
+   */
+  osCounts?: Record<string, number>;
+  /** The same orders per ОС, split by raw status like `statusCounts`. */
+  osStatusCounts?: Record<string, Record<string, number>>;
+  /**
+   * Day (UTC midnight, ms) of the newest order from each ОС — created or last
+   * edited. Kept for a while after the order leaves the month tab, so an ОС
+   * can still rate right after the month rolls over. firestore.rules reads it
+   * before letting an ОС rate this desk's Технар (OS_RATING_WINDOW_MS).
+   */
+  osLastOrderAt?: Record<string, number>;
   updatedAt: number;
   updatedBy: string;
 }

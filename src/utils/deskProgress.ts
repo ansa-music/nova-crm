@@ -1,3 +1,4 @@
+import { isBlankRow } from "@/utils/blankRow";
 import { ymdInTimeZone } from "@/utils/date";
 import { isDoneStatusLabel } from "@/utils/columnOptions";
 import { parseLooseNumber } from "@/utils/numberInput";
@@ -32,7 +33,11 @@ export function progressForPage(
   let grandTotal = 0;
   let doneTotal = 0;
   let openCount = 0;
+  let rowCount = 0;
   for (const row of rows) {
+    // A blank row is a free slot, not an order.
+    if (isBlankRow(row)) continue;
+    rowCount += 1;
     const raw = parseLooseNumber(String(row.cells[priceCol?.key ?? "price"] ?? "")) ?? 0;
     grandTotal += raw;
     if (statusCol) {
@@ -47,7 +52,7 @@ export function progressForPage(
     }
   }
   const percent = grandTotal > 0 ? Math.round((doneTotal / grandTotal) * 100) : 0;
-  return { page, doneTotal, grandTotal, percent, rowCount: rows.length, openCount, columns, rows };
+  return { page, doneTotal, grandTotal, percent, rowCount, openCount, columns, rows };
 }
 
 
@@ -95,6 +100,7 @@ export function nowOrderCounts(
   for (const desk of desks) {
     const statusCol = desk.columns.find((c) => c.type === "status");
     for (const row of desk.rows) {
+      if (isBlankRow(row)) continue;
       if (!statusCol) {
         open += 1;
         continue;

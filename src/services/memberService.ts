@@ -1,9 +1,11 @@
-import { deleteDoc, getDoc, getDocs, onSnapshot, query, setDoc, where, writeBatch } from "firebase/firestore";
+import { deleteDoc, deleteField, getDoc, getDocs, onSnapshot, query, runTransaction, setDoc, where, writeBatch } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
+import { COLOR_PRESETS } from "@/components/common/ColorPicker";
+import { displayNameOf } from "@/utils/displayName";
 import { generateId } from "@/utils/id";
 import { addOwnWorkspaceId } from "@/services/authService";
-import type { Role, WorkspaceMember } from "@/types";
+import type { Role, StatusOption, Workspace, WorkspaceMember } from "@/types";
 
 function sortMembers(members: WorkspaceMember[]) {
   return members.sort((a, b) => a.invitedAt - b.invitedAt);
@@ -282,6 +284,80 @@ export async function changeMemberRole(workspaceId: string, uid: string, role: R
     }
   }
   await setDoc(paths.member(workspaceId, uid), { role }, { merge: true });
+}
+
+export const OS_NICK_MAX_LENGTH = 32;
+
+/** The ОС nick as shown everywhere: its «Ответственный» option's current label, else the saved nick. */
+export function osNickLabel(
+  member: Pick<WorkspaceMember, "osNick" | "osNickValue"> | null | undefined,
+  responsibleOptions: StatusOption[] | undefined
+): string | null {
+  if (!member?.osNickValue) return null;
+  const option = responsibleOptions?.find((o) => o.value === member.osNickValue);
+  return option?.label.trim() || member.osNick?.trim() || null;
+}
+
+/**
+ * Pins an ОС account to its nick — an option of the shared «Ответственный»
+ * list — or unpins it (`target` null). Тимлид/Owner only: the self-service
+ * member rule doesn't allow these fields. Existing options are never renamed
+ * or removed: nicks already in the list may sit on months of orders, and
+ * pinning one makes all of them this ОС's at once.
+ *   { optionValue } — an option already in the list;
+ *   { newNick }     — reuses an option with that name, else appends one
+ *                     (with the ОС's old value if the Owner had deleted it).
+ * Returns the pinned option value.
+ */
+export async function linkMemberOsNick(input: {
+  workspaceId: string;
+  uid: string;
+  target: { optionValue: string } | { newNick: string } | null;
+  members: WorkspaceMember[];
+}): Promise<string | null> {
+  if (!db) return null;
+  const workspaceRef = paths.workspace(input.workspaceId);
+  const memberRef = paths.member(input.workspaceId, input.uid);
+  return runTransaction(db, async (tx) => {
+    const workspaceSnap = await tx.get(workspaceRef);
+    const memberSnap = await tx.get(memberRef);
+    if (!memberSnap.exists()) throw new Error("Участник не найден");
+    const member = memberSnap.data() as WorkspaceMember;
+    if (!input.target) {
+      tx.set(memberRef, { osNick: deleteField(), osNickValue: deleteField() }, { merge: true });
+      return null;
+    }
+    const options = (workspaceSnap.data() as Partial<Workspace> | undefined)?.responsibleOptions ?? [];
+    let option: StatusOption | undefined;
+    let appended = false;
+    if ("optionValue" in input.target) {
+      const value = input.target.optionValue;
+      option = options.find((o) => o.value === value);
+      if (!option) throw new Error("Этого ника уже нет в списке «Ответственный»");
+    } else {
+      const nick = input.target.newNick.trim().slice(0, OS_NICK_MAX_LENGTH);
+      if (!nick) throw new Error("Введите ник");
+      const lower = nick.toLowerCase();
+      option = options.find((o) => o.label.trim().toLowerCase() === lower);
+      if (!option) {
+        const oldValueFree =
+          member.osNickValue &&
+          !options.some((o) => o.value === member.osNickValue) &&
+          (member.osNick ?? "").trim().toLowerCase() === lower;
+        option = {
+          value: oldValueFree ? member.osNickValue! : generateId("opt"),
+          label: nick,
+          color: COLOR_PRESETS[options.length % COLOR_PRESETS.length],
+        };
+        appended = true;
+      }
+    }
+    const takenBy = input.members.find((m) => m.uid !== input.uid && m.osNickValue === option!.value);
+    if (takenBy) throw new Error(`Ник «${option.label}» уже закреплён за другим ОС: ${displayNameOf(takenBy)}`);
+    if (appended) tx.set(workspaceRef, { responsibleOptions: [...options, option] }, { merge: true });
+    tx.set(memberRef, { osNick: option.label, osNickValue: option.value }, { merge: true });
+    return option.value;
+  });
 }
 
 /**
