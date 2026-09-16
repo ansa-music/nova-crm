@@ -322,6 +322,10 @@ export function TableCell({
         if (!coarsePointer) setHintOpen(false);
       }}
       onPointerDown={(e) => {
+        // Radix Select cancels the mouse pointerdown on its trigger, so the
+        // browser never sends mousedown and the cell was never selected —
+        // arrows then started from the previously selected cell.
+        if (e.pointerType === "mouse" && isOptionColumn(column.type)) onMouseDown(e);
         if (!extrasHint || isEditing || e.pointerType !== "touch") return;
         if (longPressRef.current) window.clearTimeout(longPressRef.current);
         longPressRef.current = window.setTimeout(() => {

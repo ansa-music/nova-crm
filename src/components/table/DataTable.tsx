@@ -1633,7 +1633,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       undo: () => deleteRowService(workspaceId, page.id, newRow.id),
       redo: async () => { await addRowService(workspaceId, page.id, cells, order); },
     });
-    setActiveCell({ rowId: newRow.id, colKey: columns[0]?.key ?? "" });
+    const newAddr = { rowId: newRow.id, colKey: columns[0]?.key ?? "" };
+    setActiveCell(newAddr);
+    setRangeAnchor(newAddr);
   }
 
   function handleCopyRow(rowId?: string | null) {
@@ -1753,8 +1755,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       }
       if (isCtrl && (e.code === "Enter" || e.key === "Enter")) {
         e.preventDefault();
-        if (e.shiftKey) void insertRowRelative(activeCell.rowId, "above");
-        else void handleAddRow();
+        // Same as the row menu: Ctrl+Enter below, Ctrl+Shift+Enter above.
+        void insertRowRelative(activeCell.rowId, e.shiftKey ? "above" : "below");
         return;
       }
       if (isCtrl && e.code === "Space") {

@@ -654,7 +654,7 @@ export function TableToolbar({
           size="sm"
           className="sticky right-0 z-20 ml-1 h-10 shrink-0 gap-1.5 shadow-[-8px_0_8px_-4px_hsl(0_0%_2%)] sm:static sm:ml-0 sm:h-8 sm:shadow-none"
           onClick={onAddRow}
-          title="Добавить строку (Ctrl+Enter)"
+          title="Добавить строку в конец (Ctrl+Enter — под выделенной)"
         >
           <Plus className="h-3.5 w-3.5" />
           <span className="hidden xs:inline">Строка</span>
