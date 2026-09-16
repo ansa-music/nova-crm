@@ -889,12 +889,12 @@
   border-top: 1px solid hsl(var(--primary) / 0.55);
   background:
     linear-gradient(180deg, hsl(var(--primary) / 0.14) 0%, hsl(var(--background)) 100%);
-  padding: 1rem 1.25rem max(1.1rem, env(safe-area-inset-bottom, 0px));
+  padding: 0.55rem 1.25rem max(0.6rem, env(safe-area-inset-bottom, 0px));
 }
 .table-totals-sum {
-  font-size: 28px;
+  font-size: 20px;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1.15;
   letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
@@ -902,11 +902,11 @@
 }
 @media (min-width: 640px) {
   .table-totals-sum {
-    font-size: 32px;
+    font-size: 22px;
   }
 }
 .has-table-totals .bulk-action-bar {
-  bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+  bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
 }
 
 /* iOS: Radix scroll-lock must not freeze the sheet or leak clicks through the overlay. */

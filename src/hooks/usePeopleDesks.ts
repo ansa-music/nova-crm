@@ -3,7 +3,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useUiStore } from "@/store/uiStore";
-import { hasFullAccess, isResponsibleForPage } from "@/utils/permissions";
+import { isBlockedFromDesks, isResponsibleForPage } from "@/utils/permissions";
 import {
   coverGridPages,
   findMyDesk,
@@ -25,14 +25,16 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
     [pages, permissions]
   );
 
-  const isPersonalLanding = !hasFullAccess(permissions.role) && permissions.role !== "admin";
+  const isPersonalLanding = permissions.role !== "owner" && permissions.role !== "admin";
 
   const studioPages = useMemo(() => {
+    // Тимлид reads no desk rows — nothing to chart or count for them.
+    if (isBlockedFromDesks(permissions.role)) return [];
     if (isPersonalLanding && profile) {
       return pages.filter((p) => isResponsibleForPage(p, profile.uid));
     }
     return visiblePages;
-  }, [pages, visiblePages, isPersonalLanding, profile]);
+  }, [pages, visiblePages, isPersonalLanding, profile, permissions.role]);
 
   const groups = useMemo(() => groupDesksByPerson(studioPages, members), [studioPages, members]);
   // People tab: every member, even if their desk is hidden / not in studioPages.

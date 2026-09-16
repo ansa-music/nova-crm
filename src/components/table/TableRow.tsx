@@ -35,6 +35,7 @@ interface TableRowProps {
   pinnedKeys: string[];
   onToggleChecked: (rowId: string, shiftKey?: boolean) => void;
   onCellMouseDown: (rowId: string, colKey: string, e: React.MouseEvent) => void;
+  onCellClick: (rowId: string, colKey: string) => void;
   onCellMouseEnter: (rowId: string, colKey: string) => void;
   onCellStartEdit: (rowId: string, colKey: string) => void;
   onEditValueChange: (value: string) => void;
@@ -91,6 +92,7 @@ function TableRowInner({
   pinnedKeys,
   onToggleChecked,
   onCellMouseDown,
+  onCellClick,
   onCellMouseEnter,
   onCellStartEdit,
   onEditValueChange,
@@ -200,9 +202,12 @@ function TableRowInner({
       ref={setNodeRef}
       style={{
         height: rowHeight,
-        transform: isDragging ? CSS.Transform.toString(transform) : undefined,
-        transition: isDragging ? transition : undefined,
-        opacity: isDragging ? 0.5 : 1,
+        // Rows being passed over shift too, so the drop position is visible.
+        transform: allowRowDrag && transform ? CSS.Translate.toString(transform) : undefined,
+        transition: allowRowDrag ? transition : undefined,
+        position: isDragging ? "relative" : undefined,
+        zIndex: isDragging ? 35 : undefined,
+        opacity: isDragging ? 0.75 : 1,
         backgroundColor: statusTint ? `hsl(${statusTint} / 0.08)` : undefined,
       }}
       data-row-id={row.id}
@@ -216,7 +221,9 @@ function TableRowInner({
     >
       <td
         onMouseDown={(e) => {
-          if ((e.target as HTMLElement | null)?.closest("[data-row-menu]")) return;
+          // The row menu and the drag grip live in this cell; grabbing them
+          // must not also select the whole row.
+          if ((e.target as HTMLElement | null)?.closest("[data-row-menu], [data-row-drag]")) return;
           onRowNumberMouseDown(row.id, e);
         }}
         onDoubleClick={() => onExpandRow(row.id)}
@@ -253,6 +260,8 @@ function TableRowInner({
           <button
             {...attributes}
             {...listeners}
+            type="button"
+            data-row-drag
             className="hidden cursor-grab touch-none text-muted-foreground group-hover/row:block active:cursor-grabbing"
             title="Перетащить строку"
           >
@@ -301,6 +310,7 @@ function TableRowInner({
             editValue={editValue}
             canEdit={canEdit}
             onMouseDown={(e) => onCellMouseDown(row.id, column.key, e)}
+            onClick={() => onCellClick(row.id, column.key)}
             onMouseEnter={() => onCellMouseEnter(row.id, column.key)}
             onStartEdit={() => onCellStartEdit(row.id, column.key)}
             onEditValueChange={onEditValueChange}

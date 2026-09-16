@@ -27,7 +27,7 @@ import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialog";
 import { resolvedCoverUrl, personLabel } from "@/utils/peopleDesks";
 import { greetingByHour, greetingGlowShadow, hourInTimeZone } from "@/utils/date";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
-import { hasFullAccess, isResponsibleForPage } from "@/utils/permissions";
+import { isResponsibleForPage } from "@/utils/permissions";
 import { nowOrderCounts, ordersByDateFromDesks, progressForPage, statusDistributionFromDesks } from "@/utils/deskProgress";
 import { formatCurrency } from "@/utils/format";
 import { updateLeaderboardEntry } from "@/services/leaderboardService";
@@ -86,7 +86,7 @@ export default function DashboardPage() {
     [deskProgress, profile]
   );
 
-  const publishDesks = hasFullAccess(permissions.role) ? deskProgress : myProgress;
+  const publishDesks = permissions.role === "owner" ? deskProgress : myProgress;
 
   useEffect(() => {
     if (!activeWorkspaceId || !profile) return;

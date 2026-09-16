@@ -88,6 +88,7 @@ import {
   updateSubPageRowCell,
   updateSubPageRowHeight,
   updateSubPageColumns,
+  setTabRowOrderManual,
   addSubPageColumn,
   renameSubPageColumn,
   changeSubPageColumnType,
@@ -114,7 +115,7 @@ import { isHttpUrl, parseHttpUrl } from "@/utils/httpUrl";
 import { parseClipboardMatrix } from "@/utils/clipboardMatrix";
 import { celebrateDone } from "@/utils/confetti";
 import { pushUndoCommand, undo as undoLastCommand } from "@/utils/undoStore";
-import type { CellAddress, ColumnType, PageRow, SortState, StatusOption, WorkspacePage } from "@/types";
+import type { CellAddress, ColumnType, CustomFieldDef, PageRow, SortState, StatusOption, WorkspacePage } from "@/types";
 
 const DENSITY_ROW_HEIGHT: Record<"compact" | "default" | "comfortable", number> = {
   compact: 36,
@@ -123,6 +124,9 @@ const DENSITY_ROW_HEIGHT: Record<"compact" | "default" | "comfortable", number> 
 };
 
 type CellValue = string | number | null | undefined;
+
+const NO_OPTIONS: StatusOption[] = [];
+const NO_CUSTOM_FIELDS: CustomFieldDef[] = [];
 
 function isEmptySortValue(value: CellValue, type?: ColumnType): boolean {
   if (value === null || value === undefined) return true;
@@ -205,6 +209,17 @@ function compareRowsByCreatedAt(a: PageRow, b: PageRow): number {
   return a.id.localeCompare(b.id);
 }
 
+function rowOrderValue(row: PageRow): number {
+  return typeof row.order === "number" && Number.isFinite(row.order) ? row.order : 0;
+}
+
+/** Manual order (after someone dragged/inserted rows on this tab); ties fall back to the ledger. */
+function compareRowsByOrder(a: PageRow, b: PageRow): number {
+  const delta = rowOrderValue(a) - rowOrderValue(b);
+  if (delta !== 0) return delta;
+  return compareRowsByCreatedAt(a, b);
+}
+
 function compareColumnsBySchema(a: { order: number }, b: { order: number }, ai: number, bi: number): number {
   const ao = typeof a.order === "number" && Number.isFinite(a.order) ? a.order : ai;
   const bo = typeof b.order === "number" && Number.isFinite(b.order) ? b.order : bi;
@@ -223,6 +238,12 @@ interface DataTableProps {
   /** When set, every row/column mutation targets this subpage's nested table instead of the page's own. */
   subPageId?: string;
   focusRowId?: string | null;
+  /**
+   * This tab keeps a hand-made row order (`rowOrder: "manual"` on the tab
+   * doc, set the first time someone drags or inserts a row). Otherwise rows
+   * follow the createdAt ledger — see compareRowsByOrder / nextRowOrder.
+   */
+  manualRowOrder?: boolean;
 }
 
 /** Phone: digits only (8 → +7 normalised); email: lowercase trimmed. */
@@ -237,7 +258,7 @@ function normalizeContact(raw: string, type: "phone" | "email" | string): string
   return v.toLowerCase();
 }
 
-export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId }: DataTableProps) {
+export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false }: DataTableProps) {
   const columns = useMemo(
     () =>
       page.columns
@@ -386,6 +407,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const [quickOrderOpen, setQuickOrderOpen] = useState(false);
   const [quickOrderStatus, setQuickOrderStatus] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
+  // Row ids in the order of a drop that's still being written.
+  const [optimisticRowOrder, setOptimisticRowOrder] = useState<string[] | null>(null);
   // Default to showing every row the page actually has — pagination exists
   // for people who WANT to chunk a big table, not as a hidden cap that
   // silently hides the last few rows (e.g. 26 rows defaulting to a 25 page
@@ -412,10 +435,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const { activeWorkspace } = useWorkspace();
   const { profile } = useAuth();
   const permissions = usePermissions();
-  // Shared option lists (statuses, Ответственный, custom fields) — Owner/Тимлид.
-  // Inside a table they wait for the Тимлид «Редактировать» switch like the
-  // rest of the table; Настройки → Варианты stays open regardless.
-  const canEditSharedLists = permissions.canManageStatusVariants && !permissions.isEditLocked;
+  // Shared option lists (statuses, Ответственный, custom fields) — Owner only
+  // here: a Тимлид manages them in Настройки but never opens a desk table.
+  const canEditSharedLists = permissions.canManageStatusVariants;
 
   // Which Ответственный option is "me": matched by nickname / name against
   // the workspace-wide responsible list (options aren't tied to accounts).
@@ -431,9 +453,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       .map((o) => o.value);
   }, [profile?.nickname, profile?.name, activeWorkspace?.responsibleOptions]);
   const canManageVariants = canEditSharedLists;
-  const responsibleOptions = activeWorkspace?.responsibleOptions ?? [];
+  // Stable fallbacks: a fresh `[]` on every render invalidated displayColumns
+  // each time, which re-rendered every row and re-armed the scroll-fade
+  // ResizeObserver in a loop.
+  const responsibleOptions = activeWorkspace?.responsibleOptions ?? NO_OPTIONS;
   const sharedStatusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
-  const customFields = activeWorkspace?.customFields ?? [];
+  const customFields = activeWorkspace?.customFields ?? NO_CUSTOM_FIELDS;
 
   const displayColumns = useMemo(() => {
     return columns
@@ -462,6 +487,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const containerRef = useRef<HTMLDivElement>(null);
   const [hFade, setHFade] = useState({ left: false, right: false });
   const isSelectingRef = useRef(false);
+  // Set on mousedown over the ALREADY-selected text cell; the click that
+  // follows (same cell, no drag) opens the editor.
+  const clickToEditRef = useRef<CellAddress | null>(null);
   const editingCellRef = useRef<CellAddress | null>(null);
   const contextRowIdRef = useRef<string | null>(null);
   const lastCheckedRowIdRef = useRef<string | null>(null);
@@ -598,11 +626,17 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         if (cmp !== 0) return cmp;
         return compareRowsByCreatedAt(a, b);
       });
+    } else if (optimisticRowOrder) {
+      // Just dropped a row: show the new order until Firestore catches up.
+      const position = new Map(optimisticRowOrder.map((id, i) => [id, i]));
+      result = [...result].sort(
+        (a, b) => (position.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (position.get(b.id) ?? Number.MAX_SAFE_INTEGER) || compareRowsByOrder(a, b)
+      );
     } else {
-      result = [...result].sort(compareRowsByCreatedAt);
+      result = [...result].sort(manualRowOrder ? compareRowsByOrder : compareRowsByCreatedAt);
     }
     return result;
-  }, [rows, columns, searchQuery, filters, sortState, statusFilter, activeWorkspace, cellDisplayText, dateFilter, mineOnly, myResponsibleValues]);
+  }, [rows, columns, searchQuery, filters, sortState, statusFilter, activeWorkspace, cellDisplayText, dateFilter, mineOnly, myResponsibleValues, manualRowOrder, optimisticRowOrder]);
 
   // Per-status row counts for the toolbar chips (respecting search + column
   // filters, but NOT the status chip itself — otherwise every other chip
@@ -637,10 +671,37 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     return counts;
   }, [rows, columns, searchQuery, filters, activeWorkspace, cellDisplayText]);
 
-  // Visual order is createdAt (or an explicit header sort), not `order`.
-  // Dragging would rewrite `order` without moving rows — and status/cell
-  // edits must not reshuffle the ledger.
-  const canReorderRows = false;
+  // Filters that can HIDE rows (sort/group only reorder).
+  const hasNarrowingFilters =
+    Boolean(searchQuery.trim()) ||
+    Boolean(statusFilter) ||
+    Boolean(dateFilter) ||
+    mineOnly ||
+    Object.values(filters).some((set) => set.size > 0);
+  // Rows follow the createdAt ledger until someone drags (or inserts) a row
+  // on this tab; that renumbers every row's `order` once and flips the tab
+  // to manual order, so older tables with messy `order` values never
+  // reshuffle on their own. Only in the plain view — dragging inside a
+  // sorted, grouped or filtered view has no well-defined target position.
+  // Switching a tab to manual writes the tab doc: subpage docs follow the
+  // data right (canEdit), the page doc («Основная») needs canEditStructure.
+  const canReorderRows =
+    canEdit &&
+    !sortState.colKey &&
+    !groupByKey &&
+    !hasNarrowingFilters &&
+    (manualRowOrder || Boolean(subPageId) || canEditStructure);
+
+  function nextRowOrder(): number {
+    let max = -1;
+    for (const r of rows) if (typeof r.order === "number" && Number.isFinite(r.order)) max = Math.max(max, r.order);
+    return Math.max(Math.floor(max) + 1, rows.length);
+  }
+
+  async function persistManualOrder(orderedIds: string[]) {
+    await reorderRows(workspaceId, page.id, orderedIds);
+    if (!manualRowOrder) await setTabRowOrderManual(workspaceId, page.id, subPageId ?? null);
+  }
 
   // Every column write (reorder, width, auto-fit) lands on a DIFFERENT doc
   // depending on where we are, and firestore.rules gates those two docs
@@ -704,7 +765,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // reads from the full `rows` prop regardless of pagination (see the
   // RowCardSheet render below), so its nav index has to match that.
   const processedRowIds = useMemo(() => processedRows.map((r) => r.id), [processedRows]);
-  const allOrderedRowIds = useMemo(() => [...rows].sort(compareRowsByCreatedAt).map((r) => r.id), [rows]);
 
   // ---- Virtualized rendering (flat, non-grouped view only) ----
   const shouldVirtualize = !groups && paginatedRows.length > 80;
@@ -892,11 +952,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       if (!canEdit) return;
       const cells: Record<string, string | number | null> = {};
       columns.forEach((c) => (cells[c.key] = ""));
-      const newRow = await addRowService(workspaceId, page.id, cells, rows.length);
+      const newRow = await addRowService(workspaceId, page.id, cells, nextRowOrder());
       pushCommand({
         undo: () => deleteRowService(workspaceId, page.id, newRow.id),
         redo: () => {
-          addRowService(workspaceId, page.id, cells, rows.length);
+          addRowService(workspaceId, page.id, cells, nextRowOrder());
         },
       });
       const nextAddr = { rowId: newRow.id, colKey };
@@ -1086,9 +1146,21 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       }
       return;
     }
-    if (already && longText && !(expandedTextCell?.rowId === rowId && expandedTextCell?.colKey === colKey)) {
-      setExpandedTextCell({ rowId, colKey });
-    }
+    // Desktop: the first click only SELECTS. Editing on mousedown (as this
+    // used to) turned every click into an open editor — no drag-selecting
+    // a range, no arrow keys, no Ctrl+C/V or fill handle on cells. A click
+    // on the cell that's already selected edits (handleCellClick, after the
+    // mouse comes back up without dragging); so do double-click, Enter/F2
+    // and just starting to type.
+    clickToEditRef.current = already ? addr : null;
+  }
+
+  function handleCellClick(rowId: string, colKey: string) {
+    const pending = clickToEditRef.current;
+    clickToEditRef.current = null;
+    if (!pending || pending.rowId !== rowId || pending.colKey !== colKey) return;
+    // A drag that wandered off and came back still moved the selection.
+    if (rangeAnchor && (rangeAnchor.rowId !== rowId || rangeAnchor.colKey !== colKey)) return;
     startEditing(rowId, colKey);
   }
 
@@ -1195,7 +1267,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         for (let i = 0; i < missingRows; i++) {
           const cells: Record<string, string | number | null> = {};
           columns.forEach((c) => (cells[c.key] = ""));
-          const newRow = await addRowService(workspaceId, page.id, cells, rows.length + i);
+          const newRow = await addRowService(workspaceId, page.id, cells, nextRowOrder() + i);
           newIds.push(newRow.id);
         }
         effectiveRowIds = [...rowIds, ...newIds];
@@ -1463,11 +1535,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (!canEdit) return;
     const cells: Record<string, string | number | null> = {};
     columns.forEach((c) => (cells[c.key] = ""));
-    const newRow = await addRowService(workspaceId, page.id, cells, rows.length);
+    const newRow = await addRowService(workspaceId, page.id, cells, nextRowOrder());
     pushCommand({
       undo: () => deleteRowService(workspaceId, page.id, newRow.id),
       redo: () => {
-        addRowService(workspaceId, page.id, cells, rows.length);
+        addRowService(workspaceId, page.id, cells, nextRowOrder());
       },
     });
     const nextAddr = { rowId: newRow.id, colKey: displayColumns[0]?.key ?? columns[0].key };
@@ -1530,14 +1602,24 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   async function insertRowRelative(anchorId: string, where: "above" | "below") {
     if (!canEdit) return;
-    const ordered = [...rows].sort((a, b) => a.order - b.order);
+    // Position follows what's on screen in the ledger view, and needs a
+    // manual order to stick. The ledger alone would have put the new row at
+    // the bottom whatever "above"/"below" said.
+    const ordered = [...rows].sort(manualRowOrder ? compareRowsByOrder : compareRowsByCreatedAt);
     const idx = ordered.findIndex((r) => r.id === anchorId);
-    if (idx < 0) {
+    if (idx < 0 || (!manualRowOrder && !subPageId && !canEditStructure)) {
       await handleAddRow();
       return;
     }
-    const prev = where === "above" ? ordered[idx - 1] : ordered[idx];
-    const next = where === "above" ? ordered[idx] : ordered[idx + 1];
+    let neighbours = ordered;
+    const hasDuplicateOrders = new Set(ordered.map(rowOrderValue)).size !== ordered.length;
+    if (!manualRowOrder || hasDuplicateOrders) {
+      const ids = ordered.map((r) => r.id);
+      await persistManualOrder(ids);
+      neighbours = ordered.map((r, i) => ({ ...r, order: i }));
+    }
+    const prev = where === "above" ? neighbours[idx - 1] : neighbours[idx];
+    const next = where === "above" ? neighbours[idx] : neighbours[idx + 1];
     let order: number;
     if (prev && next) order = (prev.order + next.order) / 2;
     else if (next) order = next.order - 1;
@@ -1944,14 +2026,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setPageIndex(0);
   }
 
-  // Filters that can HIDE a freshly added row (sort/group only reorder).
-  const hasNarrowingFilters =
-    Boolean(searchQuery.trim()) ||
-    Boolean(statusFilter) ||
-    Boolean(dateFilter) ||
-    mineOnly ||
-    Object.values(filters).some((set) => set.size > 0);
-
   const hasActiveFilters =
     Boolean(searchQuery.trim()) ||
     Boolean(statusFilter) ||
@@ -2038,11 +2112,24 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       return;
     }
 
-    if (canReorderRows && allOrderedRowIds.includes(String(active.id))) {
-      const oldIndex = allOrderedRowIds.indexOf(String(active.id));
-      const newIndex = allOrderedRowIds.indexOf(String(over.id));
-      const reordered = arrayMove(allOrderedRowIds, oldIndex, newIndex);
-      await reorderRows(workspaceId, page.id, reordered);
+    // canReorderRows guarantees the plain view: processedRows is every row,
+    // in exactly the order on screen.
+    const visibleIds = processedRows.map((r) => r.id);
+    if (canReorderRows && visibleIds.includes(String(active.id)) && visibleIds.includes(String(over.id))) {
+      const reordered = arrayMove(visibleIds, visibleIds.indexOf(String(active.id)), visibleIds.indexOf(String(over.id)));
+      const before = visibleIds;
+      setOptimisticRowOrder(reordered);
+      try {
+        await persistManualOrder(reordered);
+        pushCommand({
+          undo: () => reorderRows(workspaceId, page.id, before),
+          redo: () => reorderRows(workspaceId, page.id, reordered),
+        });
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Не удалось переставить строку");
+      } finally {
+        setOptimisticRowOrder(null);
+      }
     }
   }
 
@@ -2052,12 +2139,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setPageIndex(0);
     const cells: Record<string, string | number | null> = {};
     columns.forEach((c) => (cells[c.key] = ""));
-    const newRow = await addRowService(workspaceId, page.id, cells, rows.length);
+    const newRow = await addRowService(workspaceId, page.id, cells, nextRowOrder());
     let liveId = newRow.id;
     pushCommand({
       undo: () => deleteRowService(workspaceId, page.id, liveId),
       redo: async () => {
-        const restored = await addRowService(workspaceId, page.id, cells, rows.length);
+        const restored = await addRowService(workspaceId, page.id, cells, nextRowOrder());
         liveId = restored.id;
       },
     });
@@ -2079,13 +2166,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       const statusCol = displayColumns.find((c) => c.type === "status");
       if (statusCol) cells[statusCol.key] = quickOrderStatus;
     }
-    const newRow = await addRowService(workspaceId, page.id, cells, rows.length, extras);
+    const newRow = await addRowService(workspaceId, page.id, cells, nextRowOrder(), extras);
     let liveId = newRow.id;
     const extrasCopy = extras;
     pushCommand({
       undo: () => deleteRowService(workspaceId, page.id, liveId),
       redo: async () => {
-        const restored = await addRowService(workspaceId, page.id, cells, rows.length, extrasCopy);
+        const restored = await addRowService(workspaceId, page.id, cells, nextRowOrder(), extrasCopy);
         liveId = restored.id;
       },
     });
@@ -2101,13 +2188,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (!rowId || !canEdit) return;
     const row = rows.find((r) => r.id === rowId);
     if (!row) return;
-    const copy = await duplicateRowService(workspaceId, page.id, row, rows.length);
+    const copy = await duplicateRowService(workspaceId, page.id, row, nextRowOrder());
     if (!copy) return;
     let liveId = copy.id;
     pushCommand({
       undo: () => deleteRowService(workspaceId, page.id, liveId),
       redo: async () => {
-        const restored = await duplicateRowService(workspaceId, page.id, row, rows.length);
+        const restored = await duplicateRowService(workspaceId, page.id, row, nextRowOrder());
         if (restored) liveId = restored.id;
       },
     });
@@ -2272,7 +2359,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (selected.length === 0) return;
     const copies: PageRow[] = [];
     for (let i = 0; i < selected.length; i++) {
-      const copy = await duplicateRowService(workspaceId, page.id, selected[i], rows.length + i);
+      const copy = await duplicateRowService(workspaceId, page.id, selected[i], nextRowOrder() + i);
       if (copy) copies.push(copy);
     }
     const liveIds = copies.map((c) => c.id);
@@ -2281,7 +2368,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         await Promise.all(liveIds.map((id) => deleteRowService(workspaceId, page.id, id)));
       },
       redo: async () => {
-        const restored = await Promise.all(selected.map((r, i) => duplicateRowService(workspaceId, page.id, r, rows.length + i)));
+        const restored = await Promise.all(selected.map((r, i) => duplicateRowService(workspaceId, page.id, r, nextRowOrder() + i)));
         restored.forEach((r, i) => {
           if (r) liveIds[i] = r.id;
         });
@@ -2818,6 +2905,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         gutterWidth={gutterWidth}
         onToggleChecked={toggleRowChecked}
         onCellMouseDown={handleCellMouseDown}
+        onCellClick={handleCellClick}
         onCellMouseEnter={handleCellMouseEnter}
         onCellStartEdit={(rowId, colKey) => startEditing(rowId, colKey)}
         onEditValueChange={setEditValue}
@@ -2865,10 +2953,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const el = containerRef.current;
     if (!el || viewMode !== "table") return;
     const update = () => {
-      setHFade({
-        left: el.scrollLeft > 8,
-        right: el.scrollLeft + el.clientWidth < el.scrollWidth - 8,
-      });
+      const left = el.scrollLeft > 8;
+      const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 8;
+      // Only a real change may set state. A fresh object on every
+      // ResizeObserver callback re-rendered the table, which resized it,
+      // which fired the observer again — "Maximum update depth exceeded"
+      // hundreds of times, freezing clicks, selection and drags.
+      setHFade((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
     };
     update();
     el.addEventListener("scroll", update, { passive: true });
@@ -3143,25 +3234,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                           <td colSpan={displayColumns.length + 1 + (canEditStructure ? 1 : 0)} style={{ height: paddingBottom }} />
                         </tr>
                       )}
-                      {canEdit && processedRows.length > 0 && !hasNarrowingFilters && (!Number.isFinite(pageSize) || pageIndex >= Math.ceil(processedRows.length / pageSize) - 1) && (
-                        <tr className="table-add-row">
-                          <td colSpan={displayColumns.length + 1 + (canEditStructure ? 1 : 0)} className="p-0">
-                            <button
-                              type="button"
-                              onClick={() => void handleAddRow()}
-                              className="table-add-row-button sticky left-0 flex h-9 items-center gap-2 px-3 text-[12px] text-muted-foreground"
-                              title="Добавить строку (Ctrl+Enter)"
-                            >
-                              <Plus className="h-3.5 w-3.5" /> Новая строка
-                            </button>
-                          </td>
-                        </tr>
-                      )}
                     </SortableContext>
                   )}
                   {processedRows.length === 0 && (
                     <tr>
                       <td colSpan={displayColumns.length + 1 + (canEditStructure ? 1 : 0)}>
+                        <div className="sticky left-0 w-full max-w-[min(100vw,44rem)]">
                         {rows.length === 0 ? (
                           <EmptyState
                             className="py-12"
@@ -3187,6 +3265,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                             }
                           />
                         )}
+                        </div>
                       </td>
                     </tr>
                   )}
@@ -3276,7 +3355,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
               </ContextMenuContent>
             </ContextMenu>
             {processedRows.length > 0 && (
-              <tfoot className="sticky bottom-0 z-20 overflow-visible">
+              <tfoot className="sticky bottom-0 z-[25] overflow-visible">
                 <tr className="border-t border-border/70 bg-background">
                   <td
                     className="table-sticky-col sticky left-0 z-30 border-r border-border/50 bg-background px-1 py-2 text-center font-mono text-[11px] tabular text-muted-foreground"
@@ -3415,15 +3494,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
       {grandTotals && (
         <div className="table-totals-bar z-20">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="min-w-0">
-              <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Общий</p>
-              <p className="table-totals-sum text-foreground">{formatCurrency(grandTotals.sum)}</p>
-            </div>
-            <div className="min-w-0">
-              <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-success">Готово</p>
-              <p className="table-totals-sum text-success">{formatCurrency(grandTotals.done)}</p>
-            </div>
+          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+            <p className="flex min-w-0 items-baseline gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Общий</span>
+              <span className="table-totals-sum text-foreground">{formatCurrency(grandTotals.sum)}</span>
+            </p>
+            <p className="flex min-w-0 items-baseline gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-success">Готово</span>
+              <span className="table-totals-sum text-success">{formatCurrency(grandTotals.done)}</span>
+            </p>
           </div>
         </div>
       )}

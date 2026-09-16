@@ -170,14 +170,23 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
     permissions.isResolved &&
     (permissions.hasFullDeskAccess || permissions.realRole === "admin") &&
     (hasFullAccess(permissions.role) || permissions.role === "admin");
-  // ОС has no desk: «Технари» is their home, and the desk-centric sections
-  // (Дашборд, Столы) are hidden — there is nothing of theirs on them.
+  // ОС has no desk: «Технари» is their home. A Тимлид manages people, not
+  // desk tables: «Пользователи» is theirs. For both, the desk-centric
+  // sections (Дашборд, Столы) are hidden — there is nothing for them there.
   const isOs = permissions.isResolved && permissions.role === "os";
-  const showDeskNav = !isOs;
+  const isTeamlead = permissions.isResolved && permissions.role === "teamlead";
+  const showDeskNav = !isOs && !isTeamlead;
+  const showGrokNav = !isOs;
   const showTechniciansNav = permissions.isResolved && canSeeTechnicians(permissions.role) && !isOs;
-  const homeTo = isOs ? "/technicians" : myDesk ? `/page/${myDesk.id}` : "/";
-  const homeLabel = isOs ? "Технари" : myDesk && myMembership?.role === "manager" ? "Мой стол" : "Главная";
-  const HomeIcon = isOs ? HardHat : Home;
+  const homeTo = isOs ? "/technicians" : isTeamlead ? "/users" : myDesk ? `/page/${myDesk.id}` : "/";
+  const homeLabel = isOs
+    ? "Технари"
+    : isTeamlead
+      ? "Пользователи"
+      : myDesk && myMembership?.role === "manager"
+        ? "Мой стол"
+        : "Главная";
+  const HomeIcon = isOs ? HardHat : isTeamlead ? Users : Home;
   const homeActive =
     location.pathname === "/" ||
     location.pathname === homeTo ||
@@ -269,15 +278,17 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink collapsed title="Чат" to="/chat" icon={MessageSquare} onNavigate={onNavigate} badge={workspaceChatUnread}>
                     Чат
                   </AppNavLink>
-                  <AppNavLink collapsed title="Грок лимит" to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
-                    Грок лимит
-                  </AppNavLink>
+                  {showGrokNav && (
+                    <AppNavLink collapsed title="Грок лимит" to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
+                      Грок лимит
+                    </AppNavLink>
+                  )}
                   {showDispatchNav && (
                     <AppNavLink collapsed title="Выдача" to="/dispatch" icon={PackageCheck} onNavigate={onNavigate}>
                       Выдача
                     </AppNavLink>
                   )}
-                  {showUsersNav && (
+                  {showUsersNav && !isTeamlead && (
                     <AppNavLink collapsed title="Пользователи" to="/users" icon={Users} onNavigate={onNavigate}>
                       Пользователи
                     </AppNavLink>
@@ -318,15 +329,17 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink to="/chat" icon={MessageSquare} onNavigate={onNavigate} badge={workspaceChatUnread}>
                     Чат
                   </AppNavLink>
-                  <AppNavLink to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
-                    Грок лимит
-                  </AppNavLink>
+                  {showGrokNav && (
+                    <AppNavLink to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
+                      Грок лимит
+                    </AppNavLink>
+                  )}
                   {showDispatchNav && (
                     <AppNavLink to="/dispatch" icon={PackageCheck} onNavigate={onNavigate}>
                       Выдача
                     </AppNavLink>
                   )}
-                  {showUsersNav && (
+                  {showUsersNav && !isTeamlead && (
                     <AppNavLink to="/users" icon={Users} onNavigate={onNavigate}>
                       Пользователи
                     </AppNavLink>
@@ -370,15 +383,17 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               <AppNavLink to="/chat" icon={MessageSquare} onNavigate={onNavigate} badge={workspaceChatUnread}>
                 Чат
               </AppNavLink>
-              <AppNavLink to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
-                Грок лимит
-              </AppNavLink>
+              {showGrokNav && (
+                <AppNavLink to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
+                  Грок лимит
+                </AppNavLink>
+              )}
               {showDispatchNav && (
                 <AppNavLink to="/dispatch" icon={PackageCheck} onNavigate={onNavigate}>
                   Выдача
                 </AppNavLink>
               )}
-              {showUsersNav && (
+              {showUsersNav && !isTeamlead && (
                 <AppNavLink to="/users" icon={Users} onNavigate={onNavigate}>
                   Пользователи
                 </AppNavLink>

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { KeyRound, Plus, Search } from "lucide-react";
+import { KeyRound, Plus, Search, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,10 +23,11 @@ type ProviderFilter = "all" | GrokAppProvider;
 
 export default function GrokAppsPage() {
   const { profile } = useAuth();
-  const { role } = usePermissions();
+  const { role, isResolved } = usePermissions();
   const canName = role === "owner" || role === "teamlead" || role === "admin";
+  const isOs = isResolved && role === "os";
   const { activeWorkspaceId } = useWorkspace();
-  const { accounts, isLoading } = useGrokAppAccounts(activeWorkspaceId);
+  const { accounts, isLoading } = useGrokAppAccounts(isOs ? null : activeWorkspaceId);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<GrokAppAccount | null>(null);
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
@@ -51,6 +52,17 @@ export default function GrokAppsPage() {
   }, [accounts, provider, query]);
 
   if (!activeWorkspaceId) return null;
+
+  // ОС doesn't use Грок лимит (firestore.rules deny the collection to them too).
+  if (isOs) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+        <ShieldCheck className="h-8 w-8 text-muted-foreground" />
+        <p className="text-lg font-semibold">Доступ ограничен</p>
+        <p className="text-sm text-muted-foreground">Грок лимит недоступен для роли ОС.</p>
+      </div>
+    );
+  }
 
   function openCreate() {
     setEditing(null);

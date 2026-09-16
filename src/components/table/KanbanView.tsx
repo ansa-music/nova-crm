@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import {
   DndContext,
-  PointerSensor,
+  DragOverlay,
+  MouseSensor,
+  TouchSensor,
   useDraggable,
   useDroppable,
   useSensor,
@@ -9,7 +11,6 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
 import { CalendarDays, Maximize2, Phone, Plus } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { formatCurrency } from "@/utils/format";
@@ -45,8 +46,14 @@ export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChang
   const dateCol = columns.find((c) => c.type === "date");
   const phoneCol = columns.find((c) => c.type === "phone");
 
-  const [dragActive, setDragActive] = useState(false);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const [draggingRowId, setDraggingRowId] = useState<string | null>(null);
+  const dragActive = draggingRowId !== null;
+  // Mouse drags right away; a finger has to hold the card first, so a
+  // normal swipe still scrolls the board instead of grabbing a card.
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } })
+  );
 
   const rowsByStatus = useMemo(() => {
     const map = new Map<string, PageRow[]>();
@@ -61,12 +68,12 @@ export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChang
     return { map, hasUnassigned };
   }, [rows, statusColumn.key, options]);
 
-  function handleDragStart(_event: DragStartEvent) {
-    setDragActive(true);
+  function handleDragStart(event: DragStartEvent) {
+    setDraggingRowId(String(event.active.id));
   }
 
   function handleDragEnd(event: DragEndEvent) {
-    setDragActive(false);
+    setDraggingRowId(null);
     const { active, over } = event;
     if (!over) return;
     const rowId = String(active.id);
@@ -79,15 +86,9 @@ export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChang
   }
 
   // Columns visible at rest (non-empty ones, "Без статуса" first if it has
-  // rows) — this order is what's already on screen the instant a drag
-  // starts, and it must never change mid-drag. A dragged card is moved
-  // purely via a raw pointer-delta transform (see KanbanCard), which has no
-  // idea where its column actually sits in the DOM — if an empty column
-  // got inserted BEFORE it right as the drag began, the card would render
-  // at its (now shifted) new position plus the old delta and visibly jump
-  // out from under the cursor. That's the exact "flying card" bug this
-  // file has already been fixed for twice (see git log). So while dragging,
-  // any currently-hidden column that needs to reappear as a drop target is
+  // rows) — this order must not change mid-drag, or the columns under the
+  // pointer shift and the drop lands in the wrong one. While dragging, any
+  // currently-hidden column that needs to reappear as a drop target is
   // APPENDED after everything already on screen, never inserted among it.
   const restColumns = useMemo(() => {
     const list: StatusOption[] = [];
@@ -116,8 +117,17 @@ export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChang
       ? [UNASSIGNED_OPTION, ...options]
       : [...restColumns, ...dragOnlyColumns];
 
+  const draggingRow = draggingRowId ? rows.find((r) => r.id === draggingRowId) ?? null : null;
+  const cardFields = {
+    titleColKey,
+    currencyColKey: currencyCol?.key,
+    responsibleCol,
+    dateColKey: dateCol?.key,
+    phoneColKey: phoneCol?.key,
+  };
+
   return (
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setDragActive(false)}>
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setDraggingRowId(null)}>
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
         {displayedColumns.map((option) => (
           <KanbanColumn
@@ -136,6 +146,11 @@ export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChang
           />
         ))}
       </div>
+      {/* The card follows the pointer in a portal overlay, so it is never
+          clipped by the scrolling board or hidden behind another column. */}
+      <DragOverlay dropAnimation={null}>
+        {draggingRow ? <KanbanCardBody row={draggingRow} {...cardFields} className="rotate-1 cursor-grabbing shadow-xl ring-1 ring-primary/40" /> : null}
+      </DragOverlay>
     </DndContext>
   );
 }
@@ -171,9 +186,8 @@ function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCo
   return (
     <div
       className={cn(
-        "kanban-column flex h-full shrink-0 flex-col rounded-lg border border-transparent",
-        collapsed && !dragActive ? "w-12" : "w-72",
-        dragActive ? "overflow-visible" : "overflow-hidden"
+        "kanban-column flex h-full shrink-0 flex-col overflow-hidden rounded-lg border border-transparent",
+        collapsed && !dragActive ? "w-12" : "w-72"
       )}
       style={{ backgroundColor: `hsl(${option.color} / 0.05)`, borderColor: isOver ? `hsl(${option.color} / 0.5)` : undefined }}
     >
@@ -236,8 +250,7 @@ function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCo
       <div
         ref={setNodeRef}
         className={cn(
-          "flex-1 space-y-2 rounded-md border border-dashed border-transparent px-2 pb-2 transition-colors",
-          dragActive ? "overflow-visible" : "overflow-y-auto",
+          "flex-1 space-y-2 overflow-y-auto rounded-md border border-dashed border-transparent px-2 pb-2 transition-colors",
           collapsed && !dragActive && "hidden"
         )}
         style={isOver ? { borderColor: `hsl(${option.color} / 0.5)`, backgroundColor: `hsl(${option.color} / 0.08)` } : undefined}
@@ -263,52 +276,42 @@ function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCo
   );
 }
 
-interface KanbanCardProps {
-  row: PageRow;
+interface KanbanCardFields {
   titleColKey?: string;
   currencyColKey?: string;
   responsibleCol?: PageColumn;
   dateColKey?: string;
   phoneColKey?: string;
+}
+
+interface KanbanCardProps extends KanbanCardFields {
+  row: PageRow;
   canEdit: boolean;
   onOpenRow?: (rowId: string) => void;
 }
 
-function KanbanCard({ row, titleColKey, currencyColKey, responsibleCol, dateColKey, phoneColKey, canEdit, onOpenRow }: KanbanCardProps) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: row.id, disabled: !canEdit });
-  const title = titleColKey ? String(row.cells[titleColKey] ?? "").trim() : "";
-  const amount = currencyColKey ? row.cells[currencyColKey] : null;
-  const parsedAmount = amount === null || amount === undefined || amount === "" ? null : parseLooseNumber(String(amount));
-  const hasAmount = parsedAmount !== null;
-  const responsibleValue = responsibleCol ? String(row.cells[responsibleCol.key] ?? "") : "";
-  const responsibleOption = responsibleCol?.statusOptions?.find((o) => o.value === responsibleValue);
-  const dateValue = dateColKey ? Number(row.cells[dateColKey] ?? 0) : 0;
-  const phone = phoneColKey ? String(row.cells[phoneColKey] ?? "").trim() : "";
-
+function KanbanCard({ row, canEdit, onOpenRow, ...fields }: KanbanCardProps) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: row.id, disabled: !canEdit });
   return (
     <div
       ref={setNodeRef}
-      style={{
-        transform: CSS.Translate.toString(transform),
-        zIndex: isDragging ? 50 : undefined,
-        position: isDragging ? "relative" : undefined,
-      }}
       {...attributes}
       {...listeners}
       className={cn(
-        "kanban-card group/card relative rounded-md border border-border bg-card p-2.5 text-sm shadow-sm",
-        canEdit && "cursor-grab touch-none active:cursor-grabbing",
-        isDragging && "opacity-30 shadow-lg"
+        "group/card relative",
+        canEdit && "cursor-grab touch-manipulation active:cursor-grabbing",
+        // The moving copy lives in DragOverlay; this one marks the origin.
+        isDragging && "opacity-30"
       )}
       onDoubleClick={() => onOpenRow?.(row.id)}
     >
-      {responsibleOption && (
-        <MemberAvatar id={responsibleOption.value} name={responsibleOption.label} className="absolute right-2 top-2 h-5 w-5" />
-      )}
+      <KanbanCardBody row={row} {...fields} />
       {onOpenRow && (
         <button
           type="button"
           onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
             onOpenRow(row.id);
@@ -322,8 +325,35 @@ function KanbanCard({ row, titleColKey, currencyColKey, responsibleCol, dateColK
           <Maximize2 className="h-3 w-3" />
         </button>
       )}
+    </div>
+  );
+}
+
+function KanbanCardBody({
+  row,
+  titleColKey,
+  currencyColKey,
+  responsibleCol,
+  dateColKey,
+  phoneColKey,
+  className,
+}: KanbanCardFields & { row: PageRow; className?: string }) {
+  const title = titleColKey ? String(row.cells[titleColKey] ?? "").trim() : "";
+  const amount = currencyColKey ? row.cells[currencyColKey] : null;
+  const parsedAmount = amount === null || amount === undefined || amount === "" ? null : parseLooseNumber(String(amount));
+  const hasAmount = parsedAmount !== null;
+  const responsibleValue = responsibleCol ? String(row.cells[responsibleCol.key] ?? "") : "";
+  const responsibleOption = responsibleCol?.statusOptions?.find((o) => o.value === responsibleValue);
+  const dateValue = dateColKey ? Number(row.cells[dateColKey] ?? 0) : 0;
+  const phone = phoneColKey ? String(row.cells[phoneColKey] ?? "").trim() : "";
+
+  return (
+    <div className={cn("kanban-card relative rounded-md border border-border bg-card p-2.5 text-sm shadow-sm", className)}>
+      {responsibleOption && (
+        <MemberAvatar id={responsibleOption.value} name={responsibleOption.label} className="absolute right-2 top-2 h-5 w-5" />
+      )}
       {title ? <p className={cn("line-clamp-2 font-medium leading-snug", responsibleOption && "pr-6")}>{title}</p> : <p className="italic text-muted-foreground">Без названия</p>}
-      <div className={cn("mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground")}>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground">
         {hasAmount && <span className="tabular text-foreground">{formatCurrency(parsedAmount)}</span>}
         {dateValue > 0 && (
           <span className="inline-flex items-center gap-1 tabular">

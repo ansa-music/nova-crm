@@ -12,7 +12,7 @@ import { db } from "@/firebase/firebase";
 import { paths, subscribe, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { ymdPartsInTimeZone } from "@/utils/date";
-import { stripUndefined } from "@/services/pageService";
+import { ROW_REORDER_CHUNK, stripUndefined } from "@/services/pageService";
 import type { PageColumn, PageIconName, PageRow, StatusOption, SubPage } from "@/types";
 import {
   mirrorDeleteRow,
@@ -403,12 +403,24 @@ export async function reorderSubPageRows(
   orderedRowIds: string[]
 ) {
   if (!db) return;
-  const batch = writeBatch(db);
-  orderedRowIds.forEach((rowId, index) => {
-    batch.set(paths.subPageRow(workspaceId, pageId, subPageId, rowId), { order: index }, { merge: true });
-  });
-  await batch.commit();
+  for (let start = 0; start < orderedRowIds.length; start += ROW_REORDER_CHUNK) {
+    const batch = writeBatch(db);
+    orderedRowIds.slice(start, start + ROW_REORDER_CHUNK).forEach((rowId, i) => {
+      batch.set(paths.subPageRow(workspaceId, pageId, subPageId, rowId), { order: start + i }, { merge: true });
+    });
+    await batch.commit();
+  }
   mirrorReorderRows(orderedRowIds);
+}
+
+/**
+ * Marks a tab as hand-ordered (see DataTable.manualRowOrder). subPageId null
+ * means the page's own «Основная» table, whose flag lives on the page doc.
+ */
+export async function setTabRowOrderManual(workspaceId: string, pageId: string, subPageId: string | null) {
+  if (!db) return;
+  const ref = subPageId ? paths.subPage(workspaceId, pageId, subPageId) : paths.page(workspaceId, pageId);
+  await setDoc(ref, { rowOrder: "manual", updatedAt: Date.now() }, { merge: true });
 }
 
 // ---------------------------------------------------------------------------

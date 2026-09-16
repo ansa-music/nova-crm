@@ -323,7 +323,8 @@ export default function SettingsPage() {
           {SETTINGS_NAV.filter(
             (item) =>
               (!("owner" in item) || permissions.canManageWorkspace) &&
-              (item.value !== "danger" || permissions.canDeleteWorkspace)
+              (item.value !== "danger" || permissions.canDeleteWorkspace) &&
+              (item.value !== "backup" || permissions.canExportWorkspace)
           ).map((item) => (
             <TabsTrigger
               key={item.value}
@@ -655,7 +656,7 @@ export default function SettingsPage() {
         </TabsContent>
         )}
 
-        {permissions.canManageWorkspace && (
+        {permissions.canExportWorkspace && (
         <TabsContent value="backup" className="mt-0 flex flex-col gap-4">
             <Card>
               <CardHeader>

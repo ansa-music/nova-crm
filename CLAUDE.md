@@ -31,15 +31,16 @@ Nova CRM — production SaaS, написанная с помощью Claude. О�
 
 - `Role = "owner" | "teamlead" | "admin" | "manager" | "os" | "viewer"`, но `ROLE_LABELS.manager === "Технар"`
   (`src/types/role.ts`) — везде в UI роль `manager` подписана «Технар».
-- Роль **`teamlead` («Тимлид»)** — права Owner: все столы, участники, заявки, роли, настройки,
-  история (`hasFullAccess()` в `utils/permissions.ts` и в `firestore.rules`). Только Owner:
-  удаление workspace и любые записи об Owner (его member-док, роль `owner`, `ownerId`). Правка
-  таблиц у Тимлида заперта на клиенте, пока не нажата «Редактировать» (`uiStore.teamleadEditMode`,
-  не сохраняется; `usePermissions` гасит `canEditPageData`/`canManagePage`/`canDeletePage`/
-  `canEditPageStructure`/`canRestoreHistory`), доступы к столам (`canManagePageAccess`) — без замка.
-  Правила про замок не знают. Для «может открыть любой стол» на клиенте — `hasFullDeskAccess`.
+- Роль **`teamlead` («Тимлид»)** — ведёт людей: участники, заявки, роли, доступы к столам
+  (allowedUsers/editableUsers/ответственный), настройки workspace, объявления
+  (`hasFullAccess()` в `utils/permissions.ts` и в `firestore.rules`). **Таблиц столов не видит
+  вообще**: `canAccessPage`/`canEditPage`/`canUsePersonalZone` в правилах исключают
+  `isTeamLead`, на клиенте `isBlockedFromDesks` + `canOpenDesk`; дашборд и «Столы» скрыты, `/`
+  ведёт на «Пользователи». Только Owner: удаление workspace, бэкап, история, любые записи об
+  Owner. `hasFullDeskAccess` на клиенте = только Owner.
 - Роль **`os` («ОС»)** — без своего стола: не создаёт столы, не управляет чужими, `/` ведёт
-  на «Технари», в меню скрыты «Дашборд» и «Столы». Owner/Admin могут симулировать её через
+  на «Технари», в меню скрыты «Дашборд», «Столы» и «Грок лимит» (коллекции Grok закрыты и в
+  правилах, `canUseGrok`). Owner/Admin могут симулировать её через
   RoleSwitcher (списки в `allowedSimulatedRoles` и в правиле `activeRole` синхронны).
 - «Страница» (`WorkspacePage`, коллекция `pages`) в UI — **«стол»** (desk). Код/типы остаются
   `page`/`WorkspacePage`, но роуты/сервисы часто используют «desk»/«стол» (`DesksPage.tsx`,
@@ -52,7 +53,14 @@ Nova CRM — production SaaS, написанная с помощью Claude. О�
   (id `month-YYYY-MM`) или подхватывается существующая «Сентябрь 2026»/«сентябрь» и один раз
   делается вкладкой по умолчанию; на странице пишутся `autoMonthKey`/`autoMonthSubPageId`.
   Сессия Owner обслуживает все столы Технарей, сессия Технара — свой. Старые вкладки не
-  трогаются, заказы Технар переносит сам.
+  трогаются, заказы Технар переносит сам. Owner может отметить любой стол (например, свой)
+  «Стол технаря» (`page.technicianDesk`) — тогда у него тоже месячные вкладки и строка на «Технари».
+- **Таблица стола** (`DataTable.tsx`): первый клик выделяет ячейку, второй клик по выделенной,
+  двойной клик, Enter/F2 или ввод символа — правка. Редактор на mousedown ломал выделение
+  диапазона, стрелки, Ctrl+C/V и маркер заполнения — не возвращать. Строки идут по createdAt,
+  пока на вкладке никто не перетащил/не вставил строку: тогда `order` у всех строк
+  перенумеровывается и на документ вкладки пишется `rowOrder: "manual"` (старые столы с кривым
+  `order` так не перемешиваются). Новые строки — `nextRowOrder()` (max+1), не `rows.length`.
 - **«Технари»** (`/technicians`, `TechniciansPage.tsx`): кто из Технарей свободен/занят по
   заказам текущего месяца. Читает только агрегаты `deskLoad/{pageId}` (счётчики по сырому
   значению статуса), никогда строки — поэтому работает и без доступа к столам. Счётчики пишет
@@ -126,12 +134,16 @@ Roles: `owner` > `teamlead` («Тимлид») > `admin` > `manager` («Техн
   responsible писал `allowedUsers`+`hiddenByResponsible` вместе с `responsibleUserId`;
   `changeColumnType` ронял `statusOptions`) — при правке ЛЮБОГО `hasOnly`-правила или функции,
   которая под него попадает, перепроверяй оба конца.
-- **В языке Firestore rules нет `list.filter()`/`list.all()`/лямбд.** `columnStatusOptionsPreserved()`
-  на них построен: файл «компилируется» (только warnings), но в рантайме функция падает, и
-  любая ветка правила, которая её вызывает, для не-Owner всегда отказывает. Поэтому узкие
-  записи ответственного на документ стола идут через отдельные `hasOnly`-ветки (`monthlyGoal`;
-  `defaultSubPageId`+`autoMonthKey`+`autoMonthSubPageId`). Правила проверяй через
-  `firebase deploy --only firestore:rules --dry-run` и читай warnings, а не только «compiled».
+- **В языке Firestore rules нет `list.filter()`/`list.all()`/лямбд.** Был
+  `columnStatusOptionsPreserved()` на них: файл «компилировался» (только warnings), а в рантайме
+  функция падала, и Технари месяцами не могли сохранить столбцы, переименовать стол, скрыть его
+  и т.п. — молча. Удалён; ответственный правит свой стол целиком, кроме
+  `responsibleUserId`/`createdBy`/`workspaceId`, редактор — вкладки, кроме их идентичности.
+  Правила проверяй через `firebase deploy --only firestore:rules --dry-run`: warnings должно
+  быть ноль, «compiled successfully» не значит, что правило работает.
+- **Не создавай новый объект в setState из ResizeObserver/scroll без сравнения** и не давай
+  `?? []` в зависимости useMemo — в `DataTable` это давало бесконечный цикл «Maximum update
+  depth exceeded»: страница тормозила, клики и перетаскивания терялись.
 - Квоты на количество страниц у менеджера — только atomic Firestore batch writes, не
   читай-потом-пиши (race condition).
 - **`activeRole`** (симуляция роли) — чисто клиентское UI-поле, Firestore rules никогда не

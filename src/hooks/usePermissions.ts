@@ -10,6 +10,7 @@ import {
   canCreatePages,
   canDeletePage,
   canDeleteWorkspace,
+  canExportWorkspace,
   canEditPageData,
   canEditPageStructure,
   canInviteMembers,
@@ -26,7 +27,6 @@ import {
   hasFullAccess,
   isResponsibleForPage,
 } from "@/utils/permissions";
-import { useUiStore } from "@/store/uiStore";
 import { findOwnMembership } from "@/services/memberService";
 import { managerHasReachedPageQuota } from "@/services/managerPageQuota";
 import type { Role, WorkspacePage } from "@/types";
@@ -81,11 +81,6 @@ export function usePermissions() {
   // Empty members before the first CONFIRMED snapshot is loading, not "not a member".
   const isResolved = isReady && (membersLoadState === "ready" || isOwnerOfWorkspace);
   const hasMembership = Boolean(membership) || isOwnerOfWorkspace;
-  // Тимлид edits tables only after «Редактировать». A client-side safety
-  // catch, not a permission: firestore.rules let a Тимлид write regardless.
-  // Applies to the effective role, so an Owner previewing Тимлид sees it too.
-  const teamleadEditMode = useUiStore((s) => s.teamleadEditMode);
-  const isEditLocked = effectiveRole === "teamlead" && !teamleadEditMode;
 
   return useMemo(
     () => ({
@@ -108,6 +103,8 @@ export function usePermissions() {
       canManageWorkspace: isResolved && canManageWorkspace(effectiveRole),
       /** Delete the workspace — the Owner only, never a Тимлид. */
       canDeleteWorkspace: isResolved && canDeleteWorkspace(effectiveRole),
+      /** Full backup of every desk — the Owner only. */
+      canExportWorkspace: isResolved && canExportWorkspace(effectiveRole),
       // Users admin follows the REAL role, not RoleSwitcher preview — otherwise
       // Owner/Тимлид can lose accept/roles UI while simulating Технар/Viewer.
       canManageUsers: isResolved && (isOwnerOfWorkspace || hasFullAccess(realRole)),
@@ -118,42 +115,38 @@ export function usePermissions() {
       canCreatePages:
         isResolved &&
         canCreatePages(effectiveRole) &&
-        (hasFullAccess(effectiveRole) ||
+        (effectiveRole === "owner" ||
           effectiveRole === "admin" ||
           (effectiveRole === "manager" && !managerHasReachedPageQuota(pages, uid))),
-      canEditPageStructure: isResolved && !isEditLocked && canEditPageStructure(effectiveRole),
+      canEditPageStructure: isResolved && canEditPageStructure(effectiveRole),
       canManagePagePermissions: isResolved && canManagePagePermissions(effectiveRole),
       canViewHistory: isResolved && canViewHistory(effectiveRole),
-      canRestoreHistory: isResolved && !isEditLocked && canRestoreHistory(effectiveRole),
+      canRestoreHistory: isResolved && canRestoreHistory(effectiveRole),
       canAssignResponsible: isResolved && canAssignResponsible(effectiveRole),
       canManageAnnouncements: isResolved && canManageAnnouncements(effectiveRole),
       canSendNotifications: isResolved && canSendNotifications(effectiveRole),
-      /** Owner/Тимлид/Admin create pages freely; a plain Manager is limited to one owned page (see managerPageQuota.ts). */
-      hasElevatedCreatePermission: isResolved && (hasFullAccess(effectiveRole) || effectiveRole === "admin"),
+      /** Owner/Admin create pages freely; a plain Manager is limited to one owned page (see managerPageQuota.ts). */
+      hasElevatedCreatePermission: isResolved && (effectiveRole === "owner" || effectiveRole === "admin"),
 
       /** Workspace doc owner — true even if the members roster has a stale invite stub. */
       isWorkspaceOwner: isOwnerOfWorkspace,
       /**
-       * Owner or Тимлид by REAL role — every desk opens, background upkeep
-       * (month tabs, «Технари» recounts) runs. Like isWorkspaceOwner, not
-       * narrowed by a role simulation.
+       * Owner by REAL role — every desk opens, background upkeep (month tabs,
+       * «Технари» recounts) runs. Like isWorkspaceOwner, not narrowed by a
+       * role simulation. A Тимлид never has it: no desk tables for them.
        */
-      hasFullDeskAccess: isOwnerOfWorkspace || hasFullAccess(realRole),
-      /** A Тимлид who hasn't pressed «Редактировать»: every table-editing capability below is off. */
-      isEditLocked: isResolved && isEditLocked,
+      hasFullDeskAccess: isOwnerOfWorkspace || realRole === "owner",
 
       canAccessPage: (page: WorkspacePage) => {
         if (!isResolved || !uid) return false;
         if (isOwnerOfWorkspace || isResponsibleForPage(page, uid)) return true;
         return canAccessPage(page, effectiveRole, uid, activeWorkspace?.ownerId);
       },
-      canEditPageData: (page: WorkspacePage) => isResolved && !isEditLocked && canEditPageData(page, effectiveRole, uid),
+      canEditPageData: (page: WorkspacePage) => isResolved && canEditPageData(page, effectiveRole, uid),
       isResponsibleForPage: (page: WorkspacePage) => Boolean(uid) && isResponsibleForPage(page, uid),
-      canManagePage: (page: WorkspacePage) => isResolved && !isEditLocked && canManagePage(page, effectiveRole, uid),
-      /** Who can see/edit this desk (allowedUsers/editableUsers) — user control, so NOT behind the Тимлид edit lock. */
-      canManagePageAccess: (page: WorkspacePage) => isResolved && canManagePage(page, effectiveRole, uid),
-      canDeletePage: (page: WorkspacePage) => isResolved && !isEditLocked && canDeletePage(page, effectiveRole, uid),
+      canManagePage: (page: WorkspacePage) => isResolved && canManagePage(page, effectiveRole, uid),
+      canDeletePage: (page: WorkspacePage) => isResolved && canDeletePage(page, effectiveRole, uid),
     }),
-    [effectiveRole, realRole, activeRole, isSimulating, uid, isResolved, hasMembership, isOwnerOfWorkspace, activeWorkspace?.ownerId, pages, isEditLocked]
+    [effectiveRole, realRole, activeRole, isSimulating, uid, isResolved, hasMembership, isOwnerOfWorkspace, activeWorkspace?.ownerId, pages]
   );
 }

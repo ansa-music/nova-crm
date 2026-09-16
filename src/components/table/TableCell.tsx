@@ -23,6 +23,7 @@ interface TableCellProps {
   editValue: string;
   canEdit: boolean;
   onMouseDown: (e: React.MouseEvent) => void;
+  onClick?: () => void;
   onMouseEnter: () => void;
   onStartEdit: () => void;
   onEditValueChange: (value: string) => void;
@@ -71,6 +72,7 @@ export function TableCell({
   editValue,
   canEdit,
   onMouseDown,
+  onClick,
   onMouseEnter,
   onStartEdit,
   onEditValueChange,
@@ -116,9 +118,18 @@ export function TableCell({
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
+      const input = inputRef.current;
+      input.focus();
+      // Editing started by typing a character: keep it and put the caret
+      // after it — selecting it made the very next keystroke replace it.
+      if (editValue !== stringValue) {
+        const end = input.value.length;
+        input.setSelectionRange(end, end);
+      } else {
+        input.select();
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditing]);
 
   useEffect(() => {
@@ -302,6 +313,7 @@ export function TableCell({
         left: stickyLeft,
       }}
       onMouseDown={onMouseDown}
+      onClick={onClick}
       onMouseEnter={() => {
         onMouseEnter();
         if (extrasHint && !coarsePointer && !isEditing) setHintOpen(true);
@@ -496,7 +508,9 @@ export function TableCell({
           )}
           title={extrasHint ? undefined : column.type === "url" ? (diskUrl?.href ?? "") : stringValue}
           onClick={() => {
-            if (!isActive) return;
+            // An editor opens the full text in the input on this same click
+            // (DataTable.handleCellClick); only read-only viewers expand.
+            if (!isActive || canEdit) return;
             if (stringValue.length > 36) setExpanded((v) => !v);
           }}
         >

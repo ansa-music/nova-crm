@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
+import { usePermissions } from "@/hooks/usePermissions";
 import { cn } from "@/utils/cn";
 import type { ViewRequest, WorkspacePage } from "@/types";
 
@@ -18,8 +19,12 @@ export function RequestDeskViewButton({
   className?: string;
 }) {
   const [busy, setBusy] = useState(false);
+  const { role } = usePermissions();
   const approved = mine?.status === "approved";
   const pending = mine?.status === "pending";
+
+  // A Тимлид never opens desk tables, so asking for view access is pointless.
+  if (role === "teamlead") return null;
 
   if (canOpen && approved) {
     return (

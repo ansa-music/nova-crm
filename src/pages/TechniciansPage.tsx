@@ -10,7 +10,7 @@ import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { refreshDeskLoadFromRows, subscribeDeskLoads } from "@/services/deskLoadService";
-import { currentMonthSubPageId } from "@/services/monthTabService";
+import { currentMonthSubPageId, isMonthlyDesk } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { timeAgo } from "@/utils/date";
@@ -77,8 +77,10 @@ export default function TechniciansPage() {
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
 
   const canSee = permissions.isResolved && canSeeTechnicians(permissions.role);
-  // Owner or Тимлид: recounts every desk and maps statuses.
+  // Owner reads every desk and recounts them; the status mapping is a
+  // workspace setting (Owner or Тимлид).
   const isOwner = permissions.hasFullDeskAccess;
+  const canMapStatuses = permissions.canManageStatusVariants;
   const uid = profile?.uid ?? "";
 
   useEffect(() => {
@@ -106,11 +108,10 @@ export default function TechniciansPage() {
   // counts each desk publishes while its Технар works in it.
   useEffect(() => {
     if (!isOwner || !activeWorkspaceId || !uid || !loadsReady) return;
-    const technicianUids = new Set(members.filter((m) => m.role === "manager").map((m) => m.uid));
     const now = Date.now();
     const desks = pages.filter((p) => {
       const subPageId = currentMonthSubPageId(p, monthKey);
-      if (!subPageId || !p.responsibleUserId || !technicianUids.has(p.responsibleUserId)) return false;
+      if (!subPageId || !isMonthlyDesk(p, members)) return false;
       const key = `${p.id}:${subPageId}`;
       if (now - (lastRefreshAt.get(key) ?? 0) < REFRESH_EVERY_MS) return false;
       lastRefreshAt.set(key, now);
@@ -138,11 +139,18 @@ export default function TechniciansPage() {
 
   const technicians = useMemo<TechnicianRow[]>(() => {
     const loadByPage = new Map((loads ?? []).map((l) => [l.pageId, l]));
+    // Технари, plus anyone whose desk the Owner marked «Стол технаря».
+    const flaggedOwners = new Set(pages.filter((p) => p.technicianDesk && p.responsibleUserId).map((p) => p.responsibleUserId));
     return members
-      .filter((m) => m.status === "active" && m.role === "manager")
+      .filter((m) => m.status === "active" && (m.role === "manager" || flaggedOwners.has(m.uid)))
       .map((member) => {
         const desks = pages
-          .filter((p) => p.responsibleUserId === member.uid && !p.isDashboard)
+          .filter(
+            (p) =>
+              p.responsibleUserId === member.uid &&
+              !p.isDashboard &&
+              (member.role === "manager" || Boolean(p.technicianDesk))
+          )
           .sort((a, b) => a.order - b.order);
         let summary = EMPTY_TECH_LOAD;
         let updatedAt = 0;
@@ -212,7 +220,7 @@ export default function TechniciansPage() {
           <p className="text-[11px] text-muted-foreground">Заказы за {monthTabNameForKey(monthKey).toLowerCase()}</p>
         </div>
         <div className="flex-1" />
-        {isOwner && activeWorkspaceId && (
+        {canMapStatuses && activeWorkspaceId && (
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setStatusDialogOpen(true)}>
             <SlidersHorizontal className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Статусы</span>

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
-import { BarChart3, Eye, EyeOff, History, Lock, LockOpen, Maximize2, MessageSquare, MoreHorizontal, PencilLine, Settings2, User } from "lucide-react";
+import { BarChart3, Eye, EyeOff, HardHat, History, Lock, Maximize2, MessageSquare, MoreHorizontal, Settings2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -31,10 +32,9 @@ import { useSubPages, useSubPageRows } from "@/hooks/useSubPageData";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
 import { useViewRequests } from "@/hooks/useViewRequests";
-import { ensureDiskColumn, ensurePriceColumn, fetchPageIfAccessible, togglePageVisibility } from "@/services/pageService";
+import { ensureDiskColumn, ensurePriceColumn, fetchPageIfAccessible, setPageTechnicianDesk, togglePageVisibility } from "@/services/pageService";
 import { displayNameOf } from "@/utils/displayName";
 import { canOpenDesk, isRestrictedDeskRole } from "@/utils/peopleDesks";
-import { hasFullAccess } from "@/utils/permissions";
 import { useUiStore } from "@/store/uiStore";
 import { cn } from "@/utils/cn";
 import { recordRecentPage } from "@/hooks/useUserPageNav";
@@ -69,8 +69,6 @@ export default function DynamicTablePage() {
   const setTableImmersive = useUiStore((s) => s.setTableImmersive);
   const tableFullscreen = useUiStore((s) => s.tableFullscreen);
   const tableImmersive = useUiStore((s) => s.tableImmersive);
-  const teamleadEditMode = useUiStore((s) => s.teamleadEditMode);
-  const setTeamleadEditMode = useUiStore((s) => s.setTeamleadEditMode);
   const chromeHidden = tableFullscreen || tableImmersive;
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -338,6 +336,19 @@ export default function DynamicTablePage() {
     );
   }
 
+  if (!hasAccess && permissions.role === "teamlead") {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+        <Lock className="h-8 w-8 text-primary" />
+        <p className="page-title">Таблицы закрыты</p>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          Тимлид ведёт людей и доступы, а не заказы: таблицы столов ему не открываются. Доступы к «{page.name}»
+          настраиваются в «Пользователях».
+        </p>
+      </div>
+    );
+  }
+
   if (!hasAccess) {
     const toUid = page.responsibleUserId || members.find((m) => m.role === "owner")?.uid || "";
     const hidden = Boolean(page.hiddenByResponsible);
@@ -368,17 +379,29 @@ export default function DynamicTablePage() {
 
   const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid;
   const canEditData = permissions.canEditPageData(page);
-  // Тимлид gets the «Редактировать» switch instead of a «Только просмотр» badge.
-  const isTeamlead = permissions.role === "teamlead";
   const isResponsible = permissions.isResponsibleForPage(page);
   // Personal Space is visible only to whoever is actually responsible for
   // THIS page (or explicitly whitelisted) — being a Manager elsewhere in the
   // workspace does not grant it. Owner keeps oversight, matching how every
   // other "responsible person" page-scoped feature in this app works.
   const canUsePersonalSpace =
-    hasFullAccess(permissions.role) ||
+    permissions.role === "owner" ||
     isResponsible ||
     Boolean(page.personalZoneAllowedUsers?.includes(permissions.uid));
+
+  async function handleToggleTechnicianDesk(next: boolean) {
+    if (!page) return;
+    try {
+      await setPageTechnicianDesk(page.workspaceId, page.id, next);
+      toast.success(
+        next
+          ? "Это стол технаря: вкладка месяца и строка на «Технари»"
+          : "Стол больше не считается столом технаря"
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось изменить стол");
+    }
+  }
 
   async function handleToggleVisibility() {
     if (!page) return;
@@ -410,28 +433,8 @@ export default function DynamicTablePage() {
           ) : null}
         </span>
         <h1 className="page-title">{page.name}</h1>
-        {!canEditData && !isTeamlead && (
+        {!canEditData && (
           <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Только просмотр</span>
-        )}
-        {isTeamlead && (
-          <Button
-            variant="outline"
-            size="sm"
-            aria-pressed={teamleadEditMode}
-            title={
-              teamleadEditMode
-                ? "Правка таблиц включена на всех столах до перезагрузки — нажмите, чтобы выключить"
-                : "Таблицы открыты только для просмотра — нажмите, чтобы править"
-            }
-            className={cn(
-              "h-8 shrink-0 gap-1.5",
-              teamleadEditMode && "border-warning/60 bg-warning/15 text-warning hover:bg-warning/25 hover:text-warning"
-            )}
-            onClick={() => setTeamleadEditMode(!teamleadEditMode)}
-          >
-            {teamleadEditMode ? <LockOpen className="h-3.5 w-3.5" /> : <PencilLine className="h-3.5 w-3.5" />}
-            <span className="hidden sm:inline">{teamleadEditMode ? "Правка включена" : "Редактировать"}</span>
-          </Button>
         )}
         <div className="flex-1" />
         <Tooltip>
@@ -526,6 +529,16 @@ export default function DynamicTablePage() {
                 <Settings2 className="h-4 w-4" /> Доступ к листу
               </DropdownMenuItem>
             )}
+            {/* Owner-only: Технар desks get month tabs and a row on «Технари»
+                on their own; any other desk (e.g. the Owner's) opts in here. */}
+            {permissions.role === "owner" && page.responsibleUserId && (
+              <DropdownMenuCheckboxItem
+                checked={Boolean(page.technicianDesk)}
+                onCheckedChange={(checked) => void handleToggleTechnicianDesk(checked === true)}
+              >
+                <HardHat className="h-4 w-4" /> Стол технаря
+              </DropdownMenuCheckboxItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -579,6 +592,7 @@ export default function DynamicTablePage() {
                 workspaceId={page.workspaceId}
                 page={activeSubPage ? { ...page, columns: activeSubPage.columns } : page}
                 subPageId={activeSubPage?.id}
+                manualRowOrder={(activeSubPage ? activeSubPage.rowOrder : page.rowOrder) === "manual"}
                 rows={rows}
                 canEdit={canEditData}
                 canEditStructure={permissions.canManagePage(page)}

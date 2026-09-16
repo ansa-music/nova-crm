@@ -110,6 +110,14 @@ export interface WorkspacePage {
    */
   autoMonthKey?: string;
   autoMonthSubPageId?: string;
+  /** «Основная» keeps a hand-made row order — see DataTable.manualRowOrder. */
+  rowOrder?: "manual";
+  /**
+   * Owner switch: treat this desk like a Технар's even though its
+   * responsible person isn't one (e.g. the Owner's own desk) — month tabs
+   * and a row on «Технари». Desks of real Технари don't need it.
+   */
+  technicianDesk?: boolean;
   /**
    * New desks hide the "Основная" tab (page rows). Set only at create time.
    * Older desks omit this and keep Основная plus their existing rows.
@@ -189,6 +197,8 @@ export interface SubPage {
   isArchived?: boolean;
   /** "YYYY-MM" — set on month tabs created by the month autopilot. */
   monthKey?: string;
+  /** This tab keeps a hand-made row order — see DataTable.manualRowOrder. */
+  rowOrder?: "manual";
   /**
    * When set, this subpage is a Personal Space monthly report — NOT an
    * ordinary shared subpage. It must never be visible to a regular page

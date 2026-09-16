@@ -374,6 +374,16 @@ export async function setDefaultSubPage(workspaceId: string, pageId: string, sub
   );
 }
 
+/** Owner opts a non-Технар desk (e.g. their own) into month tabs and «Технари» — see monthTabService.isMonthlyDesk. */
+export async function setPageTechnicianDesk(workspaceId: string, pageId: string, technicianDesk: boolean) {
+  if (!db) return;
+  await setDoc(
+    paths.page(workspaceId, pageId),
+    { technicianDesk: (technicianDesk ? true : deleteField()) as boolean, updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
 /** Personal monthly revenue target — purely a motivational number for the page's own responsible person. */
 export async function setPageMonthlyGoal(workspaceId: string, pageId: string, goal: number | null) {
   if (!db) return;
@@ -865,12 +875,17 @@ export async function duplicateRow(workspaceId: string, pageId: string, row: Pag
   return copy;
 }
 
+/** Firestore batches cap at 500 writes; long desks renumber in chunks. */
+export const ROW_REORDER_CHUNK = 450;
+
 export async function reorderRows(workspaceId: string, pageId: string, orderedRowIds: string[]) {
   if (!db) return;
-  const batch = writeBatch(db);
-  orderedRowIds.forEach((rowId, index) => {
-    batch.set(paths.row(workspaceId, pageId, rowId), { order: index }, { merge: true });
-  });
-  await batch.commit();
+  for (let start = 0; start < orderedRowIds.length; start += ROW_REORDER_CHUNK) {
+    const batch = writeBatch(db);
+    orderedRowIds.slice(start, start + ROW_REORDER_CHUNK).forEach((rowId, i) => {
+      batch.set(paths.row(workspaceId, pageId, rowId), { order: start + i }, { merge: true });
+    });
+    await batch.commit();
+  }
   mirrorReorderRows(orderedRowIds);
 }

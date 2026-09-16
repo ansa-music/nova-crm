@@ -29,7 +29,7 @@ export function useMonthTabAutopilot() {
   const permissions = usePermissions();
   const monthKey = useCurrentMonthKey();
   const uid = permissions.uid;
-  // Owner or Тимлид: maintains every Технар desk.
+  // The Owner maintains every Технар desk (a Тимлид reads no desks).
   const isOwner = permissions.hasFullDeskAccess;
   const ready = permissions.isResolved && Boolean(uid && activeWorkspaceId);
 

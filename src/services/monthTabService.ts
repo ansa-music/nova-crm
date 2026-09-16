@@ -35,9 +35,10 @@ export function monthTabId(monthKey: string): string {
   return `month-${monthKey}`;
 }
 
-/** Desks the autopilot maintains: a Технар is responsible for them. */
+/** Desks the autopilot maintains: a Технар is responsible for them, or the Owner marked the desk «Стол технаря». */
 export function isMonthlyDesk(page: WorkspacePage, members: WorkspaceMember[]): boolean {
   if (!page.responsibleUserId || page.isDashboard) return false;
+  if (page.technicianDesk) return true;
   return members.some((m) => m.uid === page.responsibleUserId && m.role === "manager");
 }
 
@@ -162,11 +163,7 @@ async function createMonthTabOnce(page: WorkspacePage, subPages: SubPage[], mont
   });
 }
 
-/**
- * Records the month on the desk and makes its tab the default — one write,
- * matching the dedicated responsible-person rule in firestore.rules
- * (defaultSubPageId / autoMonthKey / autoMonthSubPageId / updatedAt only).
- */
+/** Records the month on the desk and makes its tab the default — one page-doc write. */
 export async function markMonthTab(workspaceId: string, pageId: string, subPageId: string, monthKey: string) {
   if (!db) return;
   await setDoc(

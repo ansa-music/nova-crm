@@ -1,8 +1,9 @@
 rules_version = '2';
 
 // ---------------------------------------------------------------------------
-// Access model: the workspace Owner — and a Тимлид (role teamlead), see
-// hasFullAccess — has blanket access to everything. Every
+// Access model: the workspace Owner has blanket access to everything. A
+// Тимлид (role 'teamlead') manages people and settings like the Owner but
+// never sees desk tables — see isTeamLead/hasFullAccess. Every
 // other member — regardless of role — can only read/write a page (and its
 // rows) if their uid is explicitly listed in that page's `allowedUsers`
 // array. This is the actual security boundary; the React app's own checks
@@ -43,10 +44,11 @@ service cloud.firestore {
       return isDocOwner(workspaceId) || (isMember(workspaceId) && myRole(workspaceId) == 'owner');
     }
 
-    // Тимлид: the Owner's blanket access — every desk, rows, members, join
-    // requests, roles, workspace settings, history — with two exceptions kept
-    // for the Owner alone: deleting the workspace, and creating/changing/
-    // removing an Owner membership (see the workspaces and members blocks).
+    // Тимлид: people and settings like the Owner — members, join requests,
+    // roles, desk ACLs, workspace settings, announcements — but NO desk
+    // tables: canAccessPage/canEditPage/canUsePersonalZone exclude them even
+    // if they end up responsible for or listed on a desk. Owner-only on top
+    // of that: deleting the workspace and any Owner membership.
     function isTeamLead(workspaceId) {
       return isMember(workspaceId) && myRole(workspaceId) == 'teamlead';
     }
@@ -55,24 +57,22 @@ service cloud.firestore {
       return isOwner(workspaceId) || isTeamLead(workspaceId);
     }
 
-    // Owner, Тимлид or Admin.
+    // Owner or Admin (Выдача carries order data, so not Тимлид).
     function isOwnerOrAdmin(workspaceId) {
+      return isOwner(workspaceId) || (isMember(workspaceId) && myRole(workspaceId) == 'admin');
+    }
+
+    // Owner, Тимлид or Admin: announcements, Grok card titles.
+    function isManagement(workspaceId) {
       return hasFullAccess(workspaceId) || (isMember(workspaceId) && myRole(workspaceId) == 'admin');
     }
 
-
-    // Existing columns may change labels/width/order, but their statusOptions
-    // lists (status variants) are Owner-only. New columns may ship with a
-    // seeded list; editing that list later still requires Owner.
-    function columnStatusOptionsPreserved() {
-      let before = resource.data.get('columns', []);
-      let after = request.resource.data.get('columns', []);
-      return after.all(newCol,
-        before.filter(oldCol, oldCol.get('key', '') == newCol.get('key', '')).size() == 0 ||
-        before.filter(oldCol, oldCol.get('key', '') == newCol.get('key', ''))[0].get('statusOptions', [])
-          == newCol.get('statusOptions', [])
-      );
-    }
+    // NOTE: the rules language has no list comprehensions (filter/all/map).
+    // A former columnStatusOptionsPreserved() helper was built on them; it
+    // "compiled" with warnings but threw at runtime, silently denying every
+    // non-Owner write that reached it. Per-column statusOptions are dead
+    // anyway (status lists are workspace-wide, Owner-managed on the
+    // workspace doc), so column edits need no such check.
 
     function isResponsiblePage(workspaceId, pageData) {
       return isMember(workspaceId) && pageData.get('responsibleUserId', null) == request.auth.uid;
@@ -85,18 +85,21 @@ service cloud.firestore {
     // deliberately NOT sufficient here — Personal Space is a stricter,
     // separate gate on top of the parent page ACL.
     function canUsePersonalZone(workspaceId, pageData, zoneUid) {
-      return hasFullAccess(workspaceId)
-        || (isResponsiblePage(workspaceId, pageData) && zoneUid == request.auth.uid)
-        || (isMember(workspaceId) && zoneUid == request.auth.uid
-            && request.auth.uid in pageData.get('personalZoneAllowedUsers', []));
+      return isOwner(workspaceId)
+        || (!isTeamLead(workspaceId) && (
+          (isResponsiblePage(workspaceId, pageData) && zoneUid == request.auth.uid)
+          || (isMember(workspaceId) && zoneUid == request.auth.uid
+              && request.auth.uid in pageData.get('personalZoneAllowedUsers', []))));
     }
 
-    // Owner: every page. Responsible person: their own desk even if hidden
-    // or missing from allowedUsers. Everyone else: explicit allowedUsers grant.
+    // Owner: every page. Тимлид: none. Responsible person: their own desk
+    // even if hidden or missing from allowedUsers. Everyone else: explicit
+    // allowedUsers grant.
     function canAccessPage(workspaceId, pageData) {
-      return hasFullAccess(workspaceId) ||
-        isResponsiblePage(workspaceId, pageData) ||
-        (isMember(workspaceId) && request.auth.uid in pageData.get('allowedUsers', []));
+      return isOwner(workspaceId) ||
+        (!isTeamLead(workspaceId) && (
+          isResponsiblePage(workspaceId, pageData) ||
+          (isMember(workspaceId) && request.auth.uid in pageData.get('allowedUsers', []))));
     }
 
     // Viewers can open a page but never write row data on it.
@@ -105,9 +108,10 @@ service cloud.firestore {
     // editableUsers too — a separate grant the Owner or this page's
     // responsible person controls independently of plain view access.
     function canEditPage(workspaceId, pageData) {
-      return hasFullAccess(workspaceId) ||
-        pageData.get('responsibleUserId', null) == request.auth.uid ||
-        (canAccessPage(workspaceId, pageData) && request.auth.uid in pageData.get('editableUsers', []));
+      return isOwner(workspaceId) ||
+        (!isTeamLead(workspaceId) && (
+          pageData.get('responsibleUserId', null) == request.auth.uid ||
+          (canAccessPage(workspaceId, pageData) && request.auth.uid in pageData.get('editableUsers', []))));
     }
 
     // ---------------------------------------------------------------------
@@ -335,7 +339,7 @@ service cloud.firestore {
         // that claim exists a second create for the same uid is rejected —
         // including from a second tab or a repeated direct write.
         allow create: if isMember(workspaceId) && request.resource.data.workspaceId == workspaceId &&
-          (hasFullAccess(workspaceId) ||
+          (isOwner(workspaceId) ||
             (myRole(workspaceId) == 'admin' &&
               request.resource.data.responsibleUserId == request.auth.uid &&
               request.auth.uid in request.resource.data.get('allowedUsers', [])) ||
@@ -347,25 +351,17 @@ service cloud.firestore {
               existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/managerPageClaims/$(request.auth.uid)) &&
               getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/managerPageClaims/$(request.auth.uid)).data.pageId == pageId));
 
-        allow update: if hasFullAccess(workspaceId);
-        // Responsible person may set their own monthly goal without going
-        // through columnStatusOptionsPreserved (that helper errors on some
-        // legacy column shapes and denied the save).
-        allow update: if isMember(workspaceId)
-          && resource.data.responsibleUserId == request.auth.uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['monthlyGoal', 'updatedAt']);
-        // Month autopilot (monthTabService.markMonthTab) and «сделать вкладку
-        // по умолчанию» (setDefaultSubPage) — same reason as monthlyGoal: a
-        // Технар on a legacy desk must not be blocked by
-        // columnStatusOptionsPreserved() for a write that never touches columns.
-        // Keep this list EXACTLY what those two functions write.
-        allow update: if isMember(workspaceId)
-          && resource.data.responsibleUserId == request.auth.uid
+        allow update: if isOwner(workspaceId);
+        // Тимлид: who sees, edits and answers for a desk — never its content
+        // (columns, name, tabs). Keep in sync with the access writes in
+        // pageService (updatePagePermissions, updatePageEditableUsers,
+        // setPageResponsible, togglePageVisibility).
+        allow update: if isTeamLead(workspaceId)
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['defaultSubPageId', 'autoMonthKey', 'autoMonthSubPageId', 'updatedAt']);
+            .hasOnly(['allowedUsers', 'editableUsers', 'responsibleUserId', 'hiddenByResponsible', 'personalZoneAllowedUsers', 'updatedAt']);
         // Delete: Owner always, or the page's own creator while they're
         // still its responsible person (mirrors canDeletePage client-side).
-        allow delete: if hasFullAccess(workspaceId) ||
+        allow delete: if isOwner(workspaceId) ||
           (resource.data.createdBy == request.auth.uid && resource.data.responsibleUserId == request.auth.uid);
 
         // The person assigned as this page's "responsible" gets full control
@@ -375,10 +371,11 @@ service cloud.firestore {
         // deliberately a plain per-field diff check, not a read/list rule,
         // so it carries none of the "list query" safety constraints that
         // apply to canAccessPage/the pages list query elsewhere in this file.
+        // createdBy decides delete rights and workspaceId ties the doc to
+        // this workspace, so neither may be rewritten here either.
         allow update: if isMember(workspaceId)
           && resource.data.responsibleUserId == request.auth.uid
-          && !('responsibleUserId' in request.resource.data.diff(resource.data).affectedKeys())
-          && columnStatusOptionsPreserved();
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['responsibleUserId', 'createdBy', 'workspaceId']);
 
         // Admin (not Owner, who already has full rights above) may assign
         // or reassign who's responsible for this page. setPageResponsible()
@@ -433,9 +430,13 @@ service cloud.firestore {
             canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
           allow create, delete: if isMember(workspaceId) &&
             canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
+          // Editors may rename, archive, reorder and re-column a tab; its
+          // identity and Personal Space markers stay put.
           allow update: if isMember(workspaceId) &&
             canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
-            (hasFullAccess(workspaceId) || columnStatusOptionsPreserved());
+            (isOwner(workspaceId) ||
+              !request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['pageId', 'workspaceId', 'createdBy', 'personalOwnerUid', 'personalAllowedUsers']));
 
           match /rows/{rowId} {
             allow read: if isMember(workspaceId) &&
@@ -567,9 +568,9 @@ service cloud.firestore {
       // pages they have access to, they just can't browse the full log).
       // -----------------------------------------------------------------
       match /history/{entryId} {
-        allow read: if hasFullAccess(workspaceId);
+        allow read: if isOwner(workspaceId);
         allow create: if isMember(workspaceId) && myRole(workspaceId) != 'viewer';
-        allow delete: if hasFullAccess(workspaceId);
+        allow delete: if isOwner(workspaceId);
       }
 
       // -----------------------------------------------------------------
@@ -585,7 +586,7 @@ service cloud.firestore {
       match /leaderboard/{pageId} {
         allow read: if isMember(workspaceId);
         allow write: if isMember(workspaceId) &&
-          (hasFullAccess(workspaceId) ||
+          (isOwner(workspaceId) ||
             get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId))
               .data.get('responsibleUserId', null) == request.auth.uid);
       }
@@ -609,8 +610,8 @@ service cloud.firestore {
       // -----------------------------------------------------------------
       match /announcements/{announcementId} {
         allow read: if isMember(workspaceId);
-        allow create: if isOwnerOrAdmin(workspaceId) && request.resource.data.authorUid == request.auth.uid;
-        allow update, delete: if isOwnerOrAdmin(workspaceId);
+        allow create: if isManagement(workspaceId) && request.resource.data.authorUid == request.auth.uid;
+        allow update, delete: if isManagement(workspaceId);
       }
 
       // -----------------------------------------------------------------
@@ -624,7 +625,11 @@ service cloud.firestore {
         return request.resource.data.get('nickname', '') == resource.data.get('nickname', '');
       }
       function grokCreateNicknameOk(workspaceId) {
-        return isOwnerOrAdmin(workspaceId) || request.resource.data.get('nickname', '') == '';
+        return isManagement(workspaceId) || request.resource.data.get('nickname', '') == '';
+      }
+      // ОС doesn't see Грок лимит at all.
+      function canUseGrok(workspaceId) {
+        return isMember(workspaceId) && myRole(workspaceId) != 'os';
       }
 
       // Daily dispatch board (Выдача) — standalone sidebar section, not tied
@@ -650,33 +655,33 @@ service cloud.firestore {
           resource.data.get('memberUid', null) == request.auth.uid;
         allow create: if isOwnerOrAdmin(workspaceId) && request.resource.data.createdBy == request.auth.uid;
         allow update: if isOwnerOrAdmin(workspaceId) &&
-          (hasFullAccess(workspaceId) ||
+          (isOwner(workspaceId) ||
             !('memberUid' in request.resource.data.diff(resource.data).affectedKeys()));
         allow delete: if isOwnerOrAdmin(workspaceId);
       }
 
       match /grokAccounts/{accountId} {
-        allow read: if isMember(workspaceId);
-        allow create: if isMember(workspaceId)
+        allow read: if canUseGrok(workspaceId);
+        allow create: if canUseGrok(workspaceId)
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.updatedByUid == request.auth.uid
           && grokCreateNicknameOk(workspaceId);
-        allow update: if isMember(workspaceId)
+        allow update: if canUseGrok(workspaceId)
           && request.resource.data.updatedByUid == request.auth.uid
-          && (isOwnerOrAdmin(workspaceId) || grokNicknamePreserved());
-        allow delete: if isMember(workspaceId);
+          && (isManagement(workspaceId) || grokNicknamePreserved());
+        allow delete: if canUseGrok(workspaceId);
       }
 
       match /grokAppAccounts/{accountId} {
-        allow read: if isMember(workspaceId);
-        allow create: if isMember(workspaceId)
+        allow read: if canUseGrok(workspaceId);
+        allow create: if canUseGrok(workspaceId)
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.updatedByUid == request.auth.uid
           && grokCreateNicknameOk(workspaceId);
-        allow update: if isMember(workspaceId)
+        allow update: if canUseGrok(workspaceId)
           && request.resource.data.updatedByUid == request.auth.uid
-          && (isOwnerOrAdmin(workspaceId) || grokNicknamePreserved());
-        allow delete: if isMember(workspaceId);
+          && (isManagement(workspaceId) || grokNicknamePreserved());
+        allow delete: if canUseGrok(workspaceId);
       }
 
       // -----------------------------------------------------------------

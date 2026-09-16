@@ -72,7 +72,7 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
   // responsible for THIS page — everyone else who can merely open the
   // dialog (e.g. an Admin, only to reassign who's responsible) gets a
   // read-only view of general/access.
-  const canEdit = permissions.canManagePageAccess(page);
+  const canEdit = permissions.canManagePage(page);
   const canAssignResponsible = permissions.canAssignResponsible;
 
   function toggleAccess(uid: string) {

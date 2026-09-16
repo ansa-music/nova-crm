@@ -169,6 +169,8 @@ export function canOpenDesk(opts: {
   const uid = opts.uid ?? "";
   if (!uid) return false;
   if (opts.isOwner) return true;
+  // Тимлид: no desk tables, whatever the ACL says (firestore.rules agrees).
+  if (opts.role === "teamlead") return false;
   if (opts.page.responsibleUserId === uid) return true;
   return Boolean(opts.page.allowedUsers?.includes(uid));
 }
