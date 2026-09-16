@@ -36,6 +36,15 @@ export function isBlockedFromDesks(role: Role): boolean {
   return role === "teamlead";
 }
 
+/**
+ * For all of a person's roles together: a Тимлид opens desk tables only if
+ * they are a Технар too (a Тимлид + ОС still doesn't). Mirrors isDeskBlocked()
+ * in firestore.rules.
+ */
+export function isDeskBlockedFor(roles: Role[]): boolean {
+  return roles.includes("teamlead") && !roles.includes("manager") && !roles.includes("owner");
+}
+
 export function canManageWorkspace(role: Role): boolean {
   return hasFullAccess(role);
 }

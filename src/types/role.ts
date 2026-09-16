@@ -30,6 +30,37 @@ export const ROLE_RANK: Record<Role, number> = {
 
 export const ALL_ROLES: Role[] = ["owner", "teamlead", "admin", "manager", "os", "viewer"];
 
+/**
+ * Roles a person can hold on top of their main one — Owner + Технар,
+ * Тимлид + Технар, Тимлид + ОС. Rights add up; the main role stays the one
+ * that decides people/settings access (firestore.rules reads `role` for that
+ * and `extraRoles` only for desks, Грок and ratings).
+ */
+export const EXTRA_ROLES: Role[] = ["manager", "os"];
+
+type RoleHolder = { role: Role; extraRoles?: readonly Role[] | null };
+
+/** Main role first, then the valid add-ons (never the main role twice). */
+export function rolesOf(member: RoleHolder | null | undefined): Role[] {
+  if (!member) return [];
+  const roles: Role[] = [member.role];
+  for (const role of member.extraRoles ?? []) {
+    if (EXTRA_ROLES.includes(role) && !roles.includes(role)) roles.push(role);
+  }
+  return roles;
+}
+
+export function memberHasRole(member: RoleHolder | null | undefined, role: Role): boolean {
+  return rolesOf(member).includes(role);
+}
+
+/** «Тимлид + Технар». */
+export function rolesLabel(member: RoleHolder | null | undefined): string {
+  return rolesOf(member)
+    .map((role) => ROLE_LABELS[role])
+    .join(" + ");
+}
+
 /** True if `role` has at least the privilege level of `min`. */
 export function roleAtLeast(role: Role, min: Role): boolean {
   return ROLE_RANK[role] >= ROLE_RANK[min];

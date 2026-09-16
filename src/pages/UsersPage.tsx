@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useUiStore } from "@/store/uiStore";
 import { useWorkspaceStore } from "@/store/workspaceStore";
-import { AlertTriangle, AtSign, Check, ChevronDown, ChevronRight, Clock3, Copy, Link2, Mail, Pencil, Search, ShieldCheck, Trash2, X } from "lucide-react";
+import { AlertTriangle, AtSign, Check, ChevronDown, ChevronRight, Clock3, Copy, Link2, Lock, Mail, Pencil, Plus, Search, ShieldCheck, Trash2, X } from "lucide-react";
 import { displayNameOf } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
 import { cn } from "@/utils/cn";
@@ -21,8 +21,16 @@ import {
   quietActiveMembers,
   removeMember,
   resendInvite,
+  setMemberExtraRoles,
   visibleMemberRoster,
 } from "@/services/memberService";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { OsNickDialog } from "@/components/members/OsNickDialog";
 import { toggleUserPageAccess } from "@/services/pageService";
 import { approveJoinRequest, rejectJoinRequest, fetchJoinRequests, subscribeJoinRequests, DEFAULT_JOIN_ROLE } from "@/services/joinRequestService";
@@ -31,7 +39,7 @@ import { timeAgo } from "@/utils/date";
 import { useAuth } from "@/hooks/useAuth";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
-import type { JoinRequest, PageIconName, Role, WorkspaceMember } from "@/types";
+import { EXTRA_ROLES, memberHasRole, ROLE_LABELS, rolesOf, type JoinRequest, type PageIconName, type Role, type WorkspaceMember } from "@/types";
 import { confirmDialog } from "@/utils/appDialog";
 
 
@@ -70,7 +78,7 @@ export default function UsersPage() {
     const q = query.trim().toLowerCase();
     return roster.filter((member) => {
       if (roleChip === "invited" && member.status !== "invited") return false;
-      if (roleChip && roleChip !== "invited" && member.role !== roleChip) return false;
+      if (roleChip && roleChip !== "invited" && !memberHasRole(member, roleChip)) return false;
       if (!q) return true;
       const hay = [member.name, member.nickname, member.email, displayNameOf(member)]
         .filter(Boolean)
@@ -119,6 +127,8 @@ export default function UsersPage() {
 
   if (!activeWorkspaceId) return null;
 
+  // Real Owner (never a role preview): may edit their own add-on roles too.
+  const viewerIsOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
   const deskPages = Array.isArray(pages) ? pages : [];
   const responsibleUids = new Set(deskPages.map((page) => page.responsibleUserId).filter((id): id is string => Boolean(id)));
 
@@ -162,18 +172,31 @@ export default function UsersPage() {
     }
   }
 
-  async function handleRoleChange(uid: string, role: Parameters<typeof changeMemberRole>[2]) {
+  async function handleRoleChange(uid: string, role: Parameters<typeof changeMemberRole>[2], currentExtraRoles?: Role[]) {
     const id = uid.trim();
     if (!id) {
       toast.error("Нельзя сменить роль: у записи нет id");
       return;
     }
     try {
-      await changeMemberRole(activeWorkspaceId!, id, role);
+      await changeMemberRole(activeWorkspaceId!, id, role, currentExtraRoles);
       await refreshWorkspaceMembers(activeWorkspaceId!);
       toast.success("Роль обновлена");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось сменить роль");
+    }
+  }
+
+  async function handleExtraRoles(member: WorkspaceMember, next: Role[]) {
+    try {
+      await setMemberExtraRoles(activeWorkspaceId!, member.uid, member.role, next);
+      await refreshWorkspaceMembers(activeWorkspaceId!);
+      const label = rolesOf({ role: member.role, extraRoles: next })
+        .map((r) => ROLE_LABELS[r])
+        .join(" + ");
+      toast.success(`Роли: ${label}`, { description: displayNameOf(member) });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить роли");
     }
   }
 
@@ -375,11 +398,18 @@ export default function UsersPage() {
           const isOwner = member.role === "owner";
           const isExpanded = expandedUid === member.uid;
           const noDesk =
-            member.role === "manager" &&
+            memberHasRole(member, "manager") &&
             member.status === "active" &&
             Boolean(member.uid) &&
             !responsibleUids.has(member.uid);
-          const showOsNick = member.role === "os" && member.status === "active" && Boolean(member.uid);
+          // A Тимлид never changes their own roles, nick or membership — the
+          // Owner or another Тимлид does (firestore.rules enforce the same).
+          const selfLocked = member.uid === profile?.uid && !viewerIsOwner;
+          const extraRoles = rolesOf(member).slice(1);
+          const addableRoles = EXTRA_ROLES.filter((r) => r !== member.role && !extraRoles.includes(r));
+          const canEditExtraRoles =
+            member.status === "active" && Boolean(member.uid) && !selfLocked && (!isOwner || viewerIsOwner);
+          const showOsNick = memberHasRole(member, "os") && member.status === "active" && Boolean(member.uid);
           const osNick = showOsNick ? osNickLabel(member, activeWorkspace?.responsibleOptions) : null;
           const osNickMissing =
             showOsNick &&
@@ -413,13 +443,70 @@ export default function UsersPage() {
                     {noDesk && <span className="ml-1.5 text-xs text-muted-foreground">стола нет</span>}
                   </p>
                   <p className="truncate text-xs text-muted-foreground">{member.email}</p>
+                  {(extraRoles.length > 0 || (canEditExtraRoles && addableRoles.length > 0)) && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                      {extraRoles.map((role) => (
+                        <span
+                          key={role}
+                          className="inline-flex items-center gap-1 rounded-full border border-teal-400/40 bg-teal-400/10 py-0.5 pl-2 pr-1 text-[11px] font-medium text-teal-200"
+                        >
+                          + {ROLE_LABELS[role]}
+                          {canEditExtraRoles ? (
+                            <button
+                              type="button"
+                              title={`Убрать роль «${ROLE_LABELS[role]}»`}
+                              onClick={() => void handleExtraRoles(member, extraRoles.filter((r) => r !== role))}
+                              className="flex h-4 w-4 items-center justify-center rounded-full hover:bg-teal-400/20"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          ) : (
+                            <span className="w-1" />
+                          )}
+                        </span>
+                      ))}
+                      {canEditExtraRoles && addableRoles.length > 0 && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+                            >
+                              <Plus className="h-3 w-3" />
+                              роль
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" className="w-56">
+                            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                              Вторая роль — права складываются
+                            </DropdownMenuLabel>
+                            {addableRoles.map((role) => (
+                              <DropdownMenuItem key={role} onSelect={() => void handleExtraRoles(member, [...extraRoles, role])}>
+                                {ROLE_LABELS[role]}
+                                <span className="ml-auto text-[10px] text-muted-foreground">
+                                  {role === "manager" ? "свой стол, таблицы" : "ник, оценки"}
+                                </span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
+                  )}
+                  {member.uid === profile?.uid && selfLocked && (
+                    <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Lock className="h-3 w-3 shrink-0" />
+                      Свои роли и ник меняет Owner или другой Тимлид
+                    </p>
+                  )}
                   {showOsNick && (
                     <button
                       type="button"
                       onClick={() => setOsNickMember(member)}
-                      title={osNick ? "Сменить или открепить ник ОС" : "Закрепить ник ОС"}
+                      disabled={selfLocked}
+                      title={selfLocked ? "Свой ник ОС закрепляет Owner или другой Тимлид" : osNick ? "Сменить или открепить ник ОС" : "Закрепить ник ОС"}
                       className={cn(
-                        "mt-1.5 inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                        "mt-1.5 inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-60",
                         osNickMissing
                           ? "border-warning/50 bg-warning/10 text-warning hover:bg-warning/15"
                           : osNick
@@ -447,7 +534,13 @@ export default function UsersPage() {
                 {isOwner ? (
                   <Badge variant="outline">Owner</Badge>
                 ) : (
-                  <RoleSelect value={member.role} onChange={(role) => handleRoleChange(member.status === "invited" ? member.email : member.uid, role)} />
+                  <RoleSelect
+                    value={member.role}
+                    disabled={selfLocked}
+                    onChange={(role) =>
+                      handleRoleChange(member.status === "invited" ? member.email : member.uid, role, member.extraRoles)
+                    }
+                  />
                 )}
                 {member.status === "invited" && (
                   <Button variant="ghost" size="icon" title="Отправить снова" onClick={() => handleResend(member.email)}>
@@ -459,7 +552,7 @@ export default function UsersPage() {
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 ) : (
-                  !isOwner && (
+                  !isOwner && !selfLocked && (
                     <Button variant="ghost" size="icon" title="Удалить" onClick={() => handleRemove(member.uid, displayNameOf(member))}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>

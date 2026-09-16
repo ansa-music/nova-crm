@@ -3,7 +3,7 @@ import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { normalizeTimestamp } from "@/utils/date";
-import type { Notification, NotificationTargetKind, Role, WorkspaceMember, WorkspacePage } from "@/types";
+import { memberHasRole, type Notification, type NotificationTargetKind, type Role, type WorkspaceMember, type WorkspacePage } from "@/types";
 import { pingInboxChanged } from "@/utils/inboxEvents";
 
 export interface SendNotificationInput {
@@ -40,7 +40,7 @@ export function resolveNotificationTargets(
     case "selected":
       return opts.selectedUids ?? [];
     case "role":
-      return active.filter((m) => m.role === opts.role).map((m) => m.uid);
+      return active.filter((m) => Boolean(opts.role) && memberHasRole(m, opts.role!)).map((m) => m.uid);
     case "responsible": {
       const uids = new Set(pages.map((p) => p.responsibleUserId).filter((id): id is string => Boolean(id)));
       return Array.from(uids);

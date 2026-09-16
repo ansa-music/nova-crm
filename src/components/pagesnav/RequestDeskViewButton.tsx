@@ -19,12 +19,12 @@ export function RequestDeskViewButton({
   className?: string;
 }) {
   const [busy, setBusy] = useState(false);
-  const { role } = usePermissions();
+  const { deskBlocked } = usePermissions();
   const approved = mine?.status === "approved";
   const pending = mine?.status === "pending";
 
-  // A Тимлид never opens desk tables, so asking for view access is pointless.
-  if (role === "teamlead") return null;
+  // A Тимлид (not also a Технар) never opens desk tables, so asking for view access is pointless.
+  if (deskBlocked) return null;
 
   if (canOpen && approved) {
     return (

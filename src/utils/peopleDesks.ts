@@ -1,4 +1,4 @@
-import type { Role, WorkspaceMember, WorkspacePage } from "@/types";
+import { memberHasRole, type Role, type WorkspaceMember, type WorkspacePage } from "@/types";
 
 export function personLabel(member?: { name?: string; nickname?: string } | null) {
   if (!member) return "";
@@ -66,7 +66,7 @@ export function groupAllPeople(members: WorkspaceMember[], visiblePages: Workspa
 
 export function groupDeskSubtitle(group: PersonDeskGroup) {
   if (group.pages[0]?.name) return group.pages[0].name;
-  if (group.member?.role === "manager") return "стола нет";
+  if (memberHasRole(group.member, "manager")) return "стола нет";
   return "";
 }
 
@@ -164,13 +164,14 @@ export function canOpenDesk(opts: {
   page: WorkspacePage;
   uid?: string | null;
   isOwner: boolean;
-  role: Role;
+  /** usePermissions().deskBlocked — a Тимлид without the Технар role. */
+  deskBlocked: boolean;
 }): boolean {
   const uid = opts.uid ?? "";
   if (!uid) return false;
   if (opts.isOwner) return true;
-  // Тимлид: no desk tables, whatever the ACL says (firestore.rules agrees).
-  if (opts.role === "teamlead") return false;
+  // Тимлид (not also a Технар): no desk tables, whatever the ACL says (firestore.rules agrees).
+  if (opts.deskBlocked) return false;
   if (opts.page.responsibleUserId === uid) return true;
   return Boolean(opts.page.allowedUsers?.includes(uid));
 }

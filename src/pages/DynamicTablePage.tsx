@@ -129,7 +129,7 @@ export default function DynamicTablePage() {
         page,
         uid: permissions.uid,
         isOwner: hasFullDeskAccess,
-        role: permissions.role,
+        deskBlocked: permissions.deskBlocked,
       })
     : false;
   // Owner / responsible / allowedUsers — the same three cases canAccessPage
@@ -313,7 +313,7 @@ export default function DynamicTablePage() {
     page &&
     !hasAccess &&
     viewRequestsLoading &&
-    isRestrictedDeskRole(permissions.role) &&
+    permissions.roles.some(isRestrictedDeskRole) &&
     !isOwnDesk &&
     !hasFullDeskAccess
   ) {
@@ -337,14 +337,14 @@ export default function DynamicTablePage() {
     );
   }
 
-  if (!hasAccess && permissions.role === "teamlead") {
+  if (!hasAccess && permissions.deskBlocked) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
         <Lock className="h-8 w-8 text-primary" />
         <p className="page-title">Таблицы закрыты</p>
         <p className="max-w-sm text-sm text-muted-foreground">
-          Тимлид ведёт людей и доступы, а не заказы: таблицы столов ему не открываются. Доступы к «{page.name}»
-          настраиваются в «Пользователях».
+          Тимлид ведёт людей и доступы, а не заказы: таблицы столов открываются, только если у него есть ещё роль
+          «Технар». Доступы к «{page.name}» настраиваются в «Пользователях».
         </p>
       </div>
     );

@@ -5,7 +5,7 @@ import { cn } from "@/utils/cn";
 import { formatCurrency, formatNumber } from "@/utils/format";
 import { timeAgo } from "@/utils/date";
 import { personLabel } from "@/utils/peopleDesks";
-import type { LeaderboardEntry } from "@/types";
+import { memberHasRole, rolesOf, type LeaderboardEntry, type Role } from "@/types";
 
 type MemberRow = {
   uid: string;
@@ -14,7 +14,8 @@ type MemberRow = {
   photoURL?: string | null;
   lastActiveAt?: number;
   status: string;
-  role: string;
+  role: Role;
+  extraRoles?: Role[];
 };
 
 export function LeaderboardWidget({
@@ -66,8 +67,8 @@ export function LeaderboardWidget({
   // into one row.
   const ranked = useMemo(() => {
     return members
-      // ОС never has a desk of their own — a permanent «нет листа» row at 0 is noise.
-      .filter((m) => m.status === "active" && m.role !== "os")
+      // A pure ОС never has a desk of their own — a permanent «нет листа» row at 0 is noise.
+      .filter((m) => m.status === "active" && rolesOf(m).some((role) => role !== "os"))
       .map((member) => {
         const myEntries = entries.filter((e) => e.responsibleUserId === member.uid);
         const doneTotal = myEntries.reduce((sum, e) => sum + e.doneTotal, 0);
@@ -115,7 +116,7 @@ export function LeaderboardWidget({
                       {mine ? " · ты" : ""}
                     </p>
                     <p className="truncate text-[11px] text-muted-foreground">
-                      {pageNames.length > 0 ? pageNames.join(", ") : member.role === "manager" ? "стола нет" : "нет листа"}
+                      {pageNames.length > 0 ? pageNames.join(", ") : memberHasRole(member, "manager") ? "стола нет" : "нет листа"}
                       {member.lastActiveAt ? ` · заходил ${timeAgo(member.lastActiveAt)}` : ""}
                     </p>
                   </div>

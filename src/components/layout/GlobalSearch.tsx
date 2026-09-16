@@ -105,7 +105,7 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
             page: p,
             uid: profile?.uid,
             isOwner,
-            role: permissions.role,
+            deskBlocked: permissions.deskBlocked,
           })
         )
         .filter((p) => !q || p.name.toLowerCase().includes(q))
@@ -136,7 +136,7 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
             page,
             uid: profile?.uid,
             isOwner,
-            role: permissions.role,
+            deskBlocked: permissions.deskBlocked,
           })
         );
         return {

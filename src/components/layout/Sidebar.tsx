@@ -22,7 +22,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { Role } from "@/types";
+import { memberHasRole, rolesLabel, type Role } from "@/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,7 +41,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { DISPATCH_ENABLED } from "@/config/features";
-import { canSeeTechnicians, hasFullAccess } from "@/utils/permissions";
+import { hasFullAccess } from "@/utils/permissions";
 import { signOutUser } from "@/firebase/auth";
 import { setActiveRole } from "@/services/memberService";
 import { cn } from "@/utils/cn";
@@ -173,17 +173,19 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   // ОС has no desk: «Технари» is their home. A Тимлид manages people, not
   // desk tables: «Пользователи» is theirs. For both, the desk-centric
   // sections (Дашборд, Столы) are hidden — there is nothing for them there.
-  const isOs = permissions.isResolved && permissions.role === "os";
-  const isTeamlead = permissions.isResolved && permissions.role === "teamlead";
+  // With add-on roles rights add up: only a pure ОС loses Грок and desks,
+  // only a Тимлид who isn't also a Технар loses desks.
+  const isOs = permissions.isResolved && permissions.roles.every((role) => role === "os");
+  const isTeamlead = permissions.isResolved && permissions.deskBlocked;
   const showDeskNav = !isOs && !isTeamlead;
   const showGrokNav = !isOs;
-  const showTechniciansNav = permissions.isResolved && canSeeTechnicians(permissions.role) && !isOs;
+  const showTechniciansNav = permissions.canSeeTechnicians && !isOs;
   const homeTo = isOs ? "/technicians" : isTeamlead ? "/users" : myDesk ? `/page/${myDesk.id}` : "/";
   const homeLabel = isOs
     ? "Технари"
     : isTeamlead
       ? "Пользователи"
-      : myDesk && myMembership?.role === "manager"
+      : myDesk && memberHasRole(myMembership, "manager")
         ? "Мой стол"
         : "Главная";
   const HomeIcon = isOs ? HardHat : isTeamlead ? Users : Home;
@@ -448,7 +450,10 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                       {profile?.nickname || profile?.name}
                     </span>
                     <span className="block truncate text-[11px] text-muted-foreground">
-                      {(myMembership && ROLE_CAPTIONS[myMembership.role]) || profile?.email}
+                      {(myMembership &&
+                        ((myMembership.extraRoles?.length ? rolesLabel(myMembership) : null) ||
+                          ROLE_CAPTIONS[myMembership.role])) ||
+                        profile?.email}
                     </span>
                   </span>
                 )}

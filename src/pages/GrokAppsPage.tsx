@@ -23,9 +23,10 @@ type ProviderFilter = "all" | GrokAppProvider;
 
 export default function GrokAppsPage() {
   const { profile } = useAuth();
-  const { role, isResolved } = usePermissions();
+  const { role, roles, isResolved } = usePermissions();
   const canName = role === "owner" || role === "teamlead" || role === "admin";
-  const isOs = isResolved && role === "os";
+  // Грок is closed only to a pure ОС; any other role of theirs opens it.
+  const isOs = isResolved && roles.every((r) => r === "os");
   const { activeWorkspaceId } = useWorkspace();
   const { accounts, isLoading } = useGrokAppAccounts(isOs ? null : activeWorkspaceId);
   const [dialogOpen, setDialogOpen] = useState(false);

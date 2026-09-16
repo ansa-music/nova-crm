@@ -9,7 +9,7 @@ import { timeAgo } from "@/utils/date";
 import { personLabel } from "@/utils/peopleDesks";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
 import type { StatusBreakdownItem, TechLoadSummary } from "@/utils/techLoad";
-import { ROLE_LABELS, type TechRating, type WorkspaceMember, type WorkspacePage } from "@/types";
+import { memberHasRole, rolesLabel, type TechRating, type WorkspaceMember, type WorkspacePage } from "@/types";
 
 export type TechnicianRater =
   | { state: "no-nick" }
@@ -183,7 +183,7 @@ export function TechnicianCard({
             )}
           </p>
           <p className="mt-0.5 truncate text-[12px] text-muted-foreground">
-            {member.role === "manager" ? ROLE_LABELS.manager : "Стол технаря"}
+            {memberHasRole(member, "manager") ? rolesLabel(member) : "Стол технаря"}
             {" · "}
             {noDesk
               ? "стола нет"

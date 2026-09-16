@@ -72,7 +72,7 @@ export function CreatePageDialog({ open, onOpenChange }: CreatePageDialogProps) 
 
   const ownedPages = pages.filter((p) => p.responsibleUserId === profile?.uid);
   const managerQuotaReached =
-    permissions.role === "manager" &&
+    permissions.deskCreatorRole === "manager" &&
     !permissions.hasElevatedCreatePermission &&
     managerHasReachedPageQuota(pages, profile?.uid ?? "");
 
@@ -87,10 +87,10 @@ export function CreatePageDialog({ open, onOpenChange }: CreatePageDialogProps) 
         icon,
         color,
         columns: BLANK_COLUMNS,
-        allowedUsers: permissions.role === "manager" ? [profile.uid] : allowedUsers,
+        allowedUsers: permissions.deskCreatorRole === "manager" ? [profile.uid] : allowedUsers,
         createdBy: profile.uid,
         order: pages.length,
-        role: permissions.role,
+        role: permissions.deskCreatorRole ?? permissions.role,
         uid: profile.uid,
         hasElevatedCreatePermission: permissions.hasElevatedCreatePermission,
       });
@@ -106,7 +106,7 @@ export function CreatePageDialog({ open, onOpenChange }: CreatePageDialogProps) 
   }
 
   const otherMembers = members.filter((m) => m.status === "active" && m.uid !== profile?.uid);
-  const showAccessPicker = permissions.role !== "manager";
+  const showAccessPicker = permissions.deskCreatorRole !== "manager";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -147,7 +147,7 @@ export function CreatePageDialog({ open, onOpenChange }: CreatePageDialogProps) 
               <IconPicker value={icon} onChange={setIcon} color={color} />
             </div>
 
-            {permissions.role === "manager" && (
+            {permissions.deskCreatorRole === "manager" && (
               <p className="rounded-lg bg-muted/30 p-2.5 text-xs text-muted-foreground">
                 Это будет ваша единственная собственная страница — вы автоматически станете её ответственным
                 и получите на неё полный доступ.

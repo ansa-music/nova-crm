@@ -38,7 +38,7 @@ export function TechnicianQueue({
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const uid = profile?.uid ?? "";
-  const isTechnician = permissions.isResolved && permissions.role === "manager";
+  const isTechnician = permissions.isResolved && permissions.hasRole("manager");
 
   const todayRows = useMemo(
     () => (uid && isTechnician ? collectTodayOrderRows(desks, statusOptions, members, uid) : []),

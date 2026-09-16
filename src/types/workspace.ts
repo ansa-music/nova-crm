@@ -95,6 +95,12 @@ export interface WorkspaceMember {
   nickname?: string;
   photoURL?: string | null;
   role: Role;
+  /**
+   * Add-on roles on top of `role` (EXTRA_ROLES: Технар, ОС) — e.g. a Тимлид
+   * who is also a Технар opens desk tables like any Технар. Written only by
+   * the Owner or a Тимлид, and a Тимлид never on their own doc.
+   */
+  extraRoles?: Role[];
   status: MemberStatus;
   invitedAt: number;
   invitedBy: string;

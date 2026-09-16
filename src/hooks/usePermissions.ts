@@ -21,15 +21,17 @@ import {
   canManageWorkspace,
   canRemoveMembers,
   canRestoreHistory,
+  canSeeTechnicians,
   canSendNotifications,
   canSimulateRole,
   canViewHistory,
   hasFullAccess,
+  isDeskBlockedFor,
   isResponsibleForPage,
 } from "@/utils/permissions";
 import { findOwnMembership } from "@/services/memberService";
 import { managerHasReachedPageQuota } from "@/services/managerPageQuota";
-import type { Role, WorkspacePage } from "@/types";
+import { EXTRA_ROLES, type Role, type WorkspacePage } from "@/types";
 
 /**
  * ALWAYS check `isResolved` before rendering any denial UI.
@@ -78,6 +80,25 @@ export function usePermissions() {
     storedActiveRole && canSimulateRole(realRole, storedActiveRole) ? storedActiveRole : null;
   const effectiveRole: Role = activeRole ?? realRole;
   const isSimulating = activeRole !== null && activeRole !== realRole;
+  // Add-on roles (Технар, ОС) count only with the real main role — a
+  // simulation previews exactly one role.
+  const extraRolesKey = (membership?.extraRoles ?? []).join(",");
+  const roles = useMemo<Role[]>(() => {
+    if (isSimulating) return [effectiveRole];
+    const all: Role[] = [effectiveRole];
+    for (const role of extraRolesKey ? (extraRolesKey.split(",") as Role[]) : []) {
+      if (EXTRA_ROLES.includes(role) && !all.includes(role)) all.push(role);
+    }
+    return all;
+  }, [effectiveRole, isSimulating, extraRolesKey]);
+  const deskBlocked = isDeskBlockedFor(roles);
+  const deskCreatorRole: Role | null = roles.includes("owner")
+    ? "owner"
+    : roles.includes("admin")
+      ? "admin"
+      : roles.includes("manager")
+        ? "manager"
+        : null;
   // Empty members before the first CONFIRMED snapshot is loading, not "not a member".
   const isResolved = isReady && (membersLoadState === "ready" || isOwnerOfWorkspace);
   const hasMembership = Boolean(membership) || isOwnerOfWorkspace;
@@ -90,6 +111,14 @@ export function usePermissions() {
       realRole,
       /** Currently simulated role, or null if using the real role. */
       activeRole,
+      /** Every role in effect: the main one plus add-ons (Технар, ОС). Rights add up. */
+      roles,
+      hasRole: (role: Role) => roles.includes(role),
+      /** A Тимлид who isn't also a Технар: no desk tables. */
+      deskBlocked,
+      /** Which create path a new desk takes (quota for a Технар), or null when this person can't create one. */
+      deskCreatorRole,
+      canSeeTechnicians: isResolved && roles.some((role) => canSeeTechnicians(role)),
       /** True only when actively simulating a DIFFERENT role than the real one. */
       isSimulating,
       /** Which roles this account's REAL role is allowed to simulate — empty for Manager/Viewer. */
@@ -114,11 +143,11 @@ export function usePermissions() {
       canRemoveMembers: isResolved && canRemoveMembers(effectiveRole),
       canCreatePages:
         isResolved &&
-        canCreatePages(effectiveRole) &&
-        (effectiveRole === "owner" ||
-          effectiveRole === "admin" ||
-          (effectiveRole === "manager" && !managerHasReachedPageQuota(pages, uid))),
-      canEditPageStructure: isResolved && canEditPageStructure(effectiveRole),
+        roles.some((role) => canCreatePages(role)) &&
+        (deskCreatorRole === "owner" ||
+          deskCreatorRole === "admin" ||
+          (deskCreatorRole === "manager" && !managerHasReachedPageQuota(pages, uid))),
+      canEditPageStructure: isResolved && !deskBlocked && roles.some((role) => canEditPageStructure(role)),
       canManagePagePermissions: isResolved && canManagePagePermissions(effectiveRole),
       canViewHistory: isResolved && canViewHistory(effectiveRole),
       canRestoreHistory: isResolved && canRestoreHistory(effectiveRole),
@@ -126,7 +155,7 @@ export function usePermissions() {
       canManageAnnouncements: isResolved && canManageAnnouncements(effectiveRole),
       canSendNotifications: isResolved && canSendNotifications(effectiveRole),
       /** Owner/Admin create pages freely; a plain Manager is limited to one owned page (see managerPageQuota.ts). */
-      hasElevatedCreatePermission: isResolved && (effectiveRole === "owner" || effectiveRole === "admin"),
+      hasElevatedCreatePermission: isResolved && (deskCreatorRole === "owner" || deskCreatorRole === "admin"),
 
       /** Workspace doc owner — true even if the members roster has a stale invite stub. */
       isWorkspaceOwner: isOwnerOfWorkspace,
@@ -139,14 +168,19 @@ export function usePermissions() {
 
       canAccessPage: (page: WorkspacePage) => {
         if (!isResolved || !uid) return false;
-        if (isOwnerOfWorkspace || isResponsibleForPage(page, uid)) return true;
-        return canAccessPage(page, effectiveRole, uid, activeWorkspace?.ownerId);
+        if (isOwnerOfWorkspace) return true;
+        if (deskBlocked) return false;
+        if (isResponsibleForPage(page, uid)) return true;
+        return roles.some((role) => canAccessPage(page, role, uid, activeWorkspace?.ownerId));
       },
-      canEditPageData: (page: WorkspacePage) => isResolved && canEditPageData(page, effectiveRole, uid),
+      canEditPageData: (page: WorkspacePage) =>
+        isResolved && !deskBlocked && roles.some((role) => canEditPageData(page, role, uid)),
       isResponsibleForPage: (page: WorkspacePage) => Boolean(uid) && isResponsibleForPage(page, uid),
-      canManagePage: (page: WorkspacePage) => isResolved && canManagePage(page, effectiveRole, uid),
-      canDeletePage: (page: WorkspacePage) => isResolved && canDeletePage(page, effectiveRole, uid),
+      canManagePage: (page: WorkspacePage) =>
+        isResolved && !deskBlocked && roles.some((role) => canManagePage(page, role, uid)),
+      canDeletePage: (page: WorkspacePage) =>
+        isResolved && !deskBlocked && roles.some((role) => canDeletePage(page, role, uid)),
     }),
-    [effectiveRole, realRole, activeRole, isSimulating, uid, isResolved, hasMembership, isOwnerOfWorkspace, activeWorkspace?.ownerId, pages]
+    [effectiveRole, realRole, activeRole, isSimulating, roles, deskBlocked, deskCreatorRole, uid, isResolved, hasMembership, isOwnerOfWorkspace, activeWorkspace?.ownerId, pages]
   );
 }

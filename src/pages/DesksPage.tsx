@@ -90,7 +90,7 @@ export default function DesksPage() {
       page,
       uid: profile?.uid,
       isOwner,
-      role: permissions.role,
+      deskBlocked: permissions.deskBlocked,
     });
   }
 

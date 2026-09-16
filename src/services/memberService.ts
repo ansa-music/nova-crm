@@ -5,7 +5,7 @@ import { COLOR_PRESETS } from "@/components/common/ColorPicker";
 import { displayNameOf } from "@/utils/displayName";
 import { generateId } from "@/utils/id";
 import { addOwnWorkspaceId } from "@/services/authService";
-import type { Role, StatusOption, Workspace, WorkspaceMember } from "@/types";
+import { EXTRA_ROLES, type Role, type StatusOption, type Workspace, type WorkspaceMember } from "@/types";
 
 function sortMembers(members: WorkspaceMember[]) {
   return members.sort((a, b) => a.invitedAt - b.invitedAt);
@@ -258,8 +258,13 @@ export async function resendInvite(workspaceId: string, email: string) {
   );
 }
 
-export async function changeMemberRole(workspaceId: string, uid: string, role: Role) {
+export async function changeMemberRole(workspaceId: string, uid: string, role: Role, currentExtraRoles?: Role[]) {
   if (!db) return;
+  // The new main role can't stay an add-on as well.
+  const extrasPatch: { extraRoles?: Role[] } =
+    currentExtraRoles?.includes(role)
+      ? { extraRoles: (currentExtraRoles.filter((r) => r !== role).length ? currentExtraRoles.filter((r) => r !== role) : deleteField()) as Role[] }
+      : {};
   if (role === "manager") {
     const pagesSnap = await getDocs(paths.pages(workspaceId));
     const pages = pagesSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<{
@@ -273,7 +278,7 @@ export async function changeMemberRole(workspaceId: string, uid: string, role: R
     const only = own.length === 1 ? own[0] : undefined;
     if (only) {
       const batch = writeBatch(db);
-      batch.set(paths.member(workspaceId, uid), { role }, { merge: true });
+      batch.set(paths.member(workspaceId, uid), { role, ...extrasPatch }, { merge: true });
       batch.set(paths.managerPageClaim(workspaceId, uid), {
         uid,
         pageId: only.id,
@@ -283,7 +288,31 @@ export async function changeMemberRole(workspaceId: string, uid: string, role: R
       return;
     }
   }
-  await setDoc(paths.member(workspaceId, uid), { role }, { merge: true });
+  await setDoc(paths.member(workspaceId, uid), { role, ...extrasPatch }, { merge: true });
+}
+
+/**
+ * Add-on roles (Технар, ОС) on top of the main one — Owner + Технар, Тимлид +
+ * Технар, Тимлид + ОС. Owner/Тимлид only, and a Тимлид never on their own
+ * doc (firestore.rules). A Тимлид/ОС/Viewer who becomes a Технар with exactly
+ * one own desk gets the one-desk claim, same as changeMemberRole(manager).
+ */
+export async function setMemberExtraRoles(workspaceId: string, uid: string, mainRole: Role, extraRoles: Role[]) {
+  if (!db) return;
+  const next = EXTRA_ROLES.filter((r) => r !== mainRole && extraRoles.includes(r));
+  const patch = { extraRoles: (next.length ? next : deleteField()) as Role[] };
+  if (next.includes("manager") && mainRole !== "owner" && mainRole !== "admin") {
+    const pagesSnap = await getDocs(paths.pages(workspaceId));
+    const own = pagesSnap.docs.filter((d) => (d.data() as { responsibleUserId?: string | null }).responsibleUserId === uid);
+    if (own.length === 1) {
+      const batch = writeBatch(db);
+      batch.set(paths.member(workspaceId, uid), patch, { merge: true });
+      batch.set(paths.managerPageClaim(workspaceId, uid), { uid, pageId: own[0].id, createdAt: Date.now() });
+      await batch.commit();
+      return;
+    }
+  }
+  await setDoc(paths.member(workspaceId, uid), patch, { merge: true });
 }
 
 export const OS_NICK_MAX_LENGTH = 32;

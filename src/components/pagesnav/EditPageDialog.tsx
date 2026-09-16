@@ -24,7 +24,7 @@ import {
 } from "@/services/pageService";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
-import type { WorkspacePage } from "@/types";
+import { memberHasRole, type WorkspacePage } from "@/types";
 
 interface EditPageDialogProps {
   page: WorkspacePage | null;
@@ -104,8 +104,8 @@ export function EditPageDialog({ page, onOpenChange }: EditPageDialogProps) {
     setEditableUsers([]);
   }
   function onlyRole(role: "manager" | "viewer") {
-    setAllowedUsers(otherMembers.filter((m) => m.role === role).map((m) => m.uid));
-    setEditableUsers((prev) => prev.filter((uid) => otherMembers.some((m) => m.uid === uid && m.role === role)));
+    setAllowedUsers(otherMembers.filter((m) => memberHasRole(m, role)).map((m) => m.uid));
+    setEditableUsers((prev) => prev.filter((uid) => otherMembers.some((m) => m.uid === uid && memberHasRole(m, role))));
   }
 
   async function handleSave() {

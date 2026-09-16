@@ -4,7 +4,7 @@ import { paths } from "@/firebase/firestore";
 import { stripUndefined } from "@/services/pageService";
 import { fetchSubPages, monthTabNameForKey } from "@/services/subPageService";
 import { ymdInTimeZone } from "@/utils/date";
-import type { SubPage, WorkspaceMember, WorkspacePage } from "@/types";
+import { memberHasRole, type SubPage, type WorkspaceMember, type WorkspacePage } from "@/types";
 
 /**
  * Month autopilot. Every Технар desk works in one tab per calendar month
@@ -39,7 +39,7 @@ export function monthTabId(monthKey: string): string {
 export function isMonthlyDesk(page: WorkspacePage, members: WorkspaceMember[]): boolean {
   if (!page.responsibleUserId || page.isDashboard) return false;
   if (page.technicianDesk) return true;
-  return members.some((m) => m.uid === page.responsibleUserId && m.role === "manager");
+  return members.some((m) => m.uid === page.responsibleUserId && memberHasRole(m, "manager"));
 }
 
 /** The subpage holding the current month's orders, or null if the autopilot hasn't reached this desk this month. */

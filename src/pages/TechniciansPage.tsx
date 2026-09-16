@@ -21,7 +21,6 @@ import { monthTabNameForKey } from "@/services/subPageService";
 import { deleteTechRating, rateTechnician, subscribeTechRatings } from "@/services/techRatingService";
 import { confirmDialog } from "@/utils/appDialog";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
-import { canSeeTechnicians } from "@/utils/permissions";
 import { personLabel } from "@/utils/peopleDesks";
 import {
   addStatusCounts,
@@ -36,7 +35,7 @@ import {
   type TechLoadSummary,
 } from "@/utils/techLoad";
 import { cn } from "@/utils/cn";
-import type { DeskLoad, StatusOption, TechRating, WorkspaceMember, WorkspacePage } from "@/types";
+import { memberHasRole, type DeskLoad, type StatusOption, type TechRating, type WorkspaceMember, type WorkspacePage } from "@/types";
 
 type Filter = "all" | "free" | "busy" | "mine";
 
@@ -93,7 +92,7 @@ export default function TechniciansPage() {
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
-  const canSee = permissions.isResolved && canSeeTechnicians(permissions.role);
+  const canSee = permissions.canSeeTechnicians;
   // Owner reads every desk and recounts them; the status mapping is a
   // workspace setting (Owner or Тимлид).
   const isOwner = permissions.hasFullDeskAccess;
@@ -102,7 +101,7 @@ export default function TechniciansPage() {
   // hasFullAccess by the REAL role, like canManageUsers); Admin only sees.
   const canModerateRatings = permissions.canManageUsers;
   const canSeeRatingDetails = canModerateRatings || permissions.role === "admin";
-  const isOsViewer = permissions.role === "os";
+  const isOsViewer = permissions.hasRole("os");
   const uid = profile?.uid ?? "";
 
   useEffect(() => {
@@ -203,14 +202,14 @@ export default function TechniciansPage() {
     // Технари, plus anyone whose desk the Owner marked «Стол технаря».
     const flaggedOwners = new Set(pages.filter((p) => p.technicianDesk && p.responsibleUserId).map((p) => p.responsibleUserId));
     return members
-      .filter((m) => m.status === "active" && (m.role === "manager" || flaggedOwners.has(m.uid)))
+      .filter((m) => m.status === "active" && (memberHasRole(m, "manager") || flaggedOwners.has(m.uid)))
       .map((member) => {
         const desks = pages
           .filter(
             (p) =>
               p.responsibleUserId === member.uid &&
               !p.isDashboard &&
-              (member.role === "manager" || Boolean(p.technicianDesk))
+              (memberHasRole(member, "manager") || Boolean(p.technicianDesk))
           )
           .sort((a, b) => a.order - b.order);
         let summary = EMPTY_TECH_LOAD;

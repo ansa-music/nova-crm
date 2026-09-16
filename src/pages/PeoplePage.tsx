@@ -15,7 +15,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { displayNameOf } from "@/utils/displayName";
 import { canOpenDesk, groupDeskSubtitle, personLabel } from "@/utils/peopleDesks";
 import { getPresenceStatus, PRESENCE_DOT_COLOR } from "@/utils/presence";
-import { ROLE_LABELS } from "@/types";
+import { memberHasRole, ROLE_LABELS, rolesOf } from "@/types";
 import { cn } from "@/utils/cn";
 import type { Role, WorkspacePage } from "@/types";
 
@@ -68,7 +68,7 @@ export default function PeoplePage() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return peopleGroups.filter((g) => {
-      if (roleFilter && g.member?.role !== roleFilter) return false;
+      if (roleFilter && !memberHasRole(g.member, roleFilter)) return false;
       if (!q) return true;
       const name = personLabel(g.member) || (g.uid ? "Стол" : "Без ответственного");
       const desk = groupDeskSubtitle(g);
@@ -81,7 +81,7 @@ export default function PeoplePage() {
       page,
       uid: profile?.uid,
       isOwner,
-      role: permissions.role,
+      deskBlocked: permissions.deskBlocked,
     });
   }
 
@@ -193,7 +193,9 @@ export default function PeoplePage() {
                 <span className="min-w-0 flex-1">
                   <span className="flex min-w-0 items-center gap-2">
                     <span className="block truncate text-[15px] font-semibold text-foreground">{name}</span>
-                    {group.member?.role ? <RoleBadge role={group.member.role} /> : null}
+                    {rolesOf(group.member).map((role) => (
+                      <RoleBadge key={role} role={role} />
+                    ))}
                     {hidden ? (
                       <span className="shrink-0 rounded-full border border-primary/25 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
                         скрыт

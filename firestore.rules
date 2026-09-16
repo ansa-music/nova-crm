@@ -3,7 +3,8 @@ rules_version = '2';
 // ---------------------------------------------------------------------------
 // Access model: the workspace Owner has blanket access to everything. A
 // Тимлид (role 'teamlead') manages people and settings like the Owner but
-// never sees desk tables — see isTeamLead/hasFullAccess. Every
+// sees desk tables only with the Технар add-on role (extraRoles) — see
+// isTeamLead/hasFullAccess/isDeskBlocked. Every
 // other member — regardless of role — can only read/write a page (and its
 // rows) if their uid is explicitly listed in that page's `allowedUsers`
 // array. This is the actual security boundary; the React app's own checks
@@ -57,6 +58,25 @@ service cloud.firestore {
       return isOwner(workspaceId) || isTeamLead(workspaceId);
     }
 
+    // Add-on roles on top of the main `role` (members.extraRoles: 'manager'
+    // = Технар, 'os' = ОС) — Owner + Технар, Тимлид + Технар, Тимлид + ОС.
+    // Rights add up. People/settings rights still come from `role` alone;
+    // add-ons only open desks (Технар), Грок (Технар) and ratings (ОС).
+    function hasExtraRole(workspaceId, role) {
+      return isMember(workspaceId)
+        && role in memberDoc(workspaceId, request.auth.uid).data.get('extraRoles', []);
+    }
+
+    function hasRole(workspaceId, role) {
+      return isMember(workspaceId) && (myRole(workspaceId) == role || hasExtraRole(workspaceId, role));
+    }
+
+    // A Тимлид who isn't also a Технар: no desk tables. A Тимлид + ОС stays
+    // blocked; a Тимлид + Технар opens desks like any Технар.
+    function isDeskBlocked(workspaceId) {
+      return isTeamLead(workspaceId) && !hasExtraRole(workspaceId, 'manager');
+    }
+
     // Owner or Admin (Выдача carries order data, so not Тимлид).
     function isOwnerOrAdmin(workspaceId) {
       return isOwner(workspaceId) || (isMember(workspaceId) && myRole(workspaceId) == 'admin');
@@ -86,7 +106,7 @@ service cloud.firestore {
     // separate gate on top of the parent page ACL.
     function canUsePersonalZone(workspaceId, pageData, zoneUid) {
       return isOwner(workspaceId)
-        || (!isTeamLead(workspaceId) && (
+        || (!isDeskBlocked(workspaceId) && (
           (isResponsiblePage(workspaceId, pageData) && zoneUid == request.auth.uid)
           || (isMember(workspaceId) && zoneUid == request.auth.uid
               && request.auth.uid in pageData.get('personalZoneAllowedUsers', []))));
@@ -97,7 +117,7 @@ service cloud.firestore {
     // allowedUsers grant.
     function canAccessPage(workspaceId, pageData) {
       return isOwner(workspaceId) ||
-        (!isTeamLead(workspaceId) && (
+        (!isDeskBlocked(workspaceId) && (
           isResponsiblePage(workspaceId, pageData) ||
           (isMember(workspaceId) && request.auth.uid in pageData.get('allowedUsers', []))));
     }
@@ -109,7 +129,7 @@ service cloud.firestore {
     // responsible person controls independently of plain view access.
     function canEditPage(workspaceId, pageData) {
       return isOwner(workspaceId) ||
-        (!isTeamLead(workspaceId) && (
+        (!isDeskBlocked(workspaceId) && (
           pageData.get('responsibleUserId', null) == request.auth.uid ||
           (canAccessPage(workspaceId, pageData) && request.auth.uid in pageData.get('editableUsers', []))));
     }
@@ -200,15 +220,24 @@ service cloud.firestore {
         // role changes, removal — except anything touching an Owner: never
         // the workspace's ownerId doc, never a record whose role is or
         // becomes 'owner'. (delete has no request.resource — only resource.)
+        // Add-on roles may only be Технар/ОС. A Тимлид never changes their
+        // own roles, ОС nick or membership — the Owner or another Тимлид does.
         allow create: if isTeamLead(workspaceId)
           && request.resource.data.get('role', '') != 'owner'
+          && request.resource.data.get('extraRoles', []).hasOnly(['manager', 'os'])
+          && memberId != request.auth.uid
           && memberId != get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '');
         allow update: if isTeamLead(workspaceId)
           && resource.data.get('role', '') != 'owner'
           && request.resource.data.get('role', '') != 'owner'
+          && request.resource.data.get('extraRoles', []).hasOnly(['manager', 'os'])
+          && (memberId != request.auth.uid
+            || !request.resource.data.diff(resource.data).affectedKeys()
+              .hasAny(['role', 'extraRoles', 'osNick', 'osNickValue', 'status', 'uid', 'email']))
           && memberId != get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '');
         allow delete: if isTeamLead(workspaceId)
           && resource.data.get('role', '') != 'owner'
+          && memberId != request.auth.uid
           && memberId != get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '');
 
         // Bootstrap: the workspace creator may create their own Owner record.
@@ -299,7 +328,7 @@ service cloud.firestore {
         allow read: if hasFullAccess(workspaceId) || (isMember(workspaceId) && uid == request.auth.uid);
         allow create: if isMember(workspaceId)
           && uid == request.auth.uid
-          && myRole(workspaceId) == 'manager'
+          && hasRole(workspaceId, 'manager')
           && !exists(/databases/$(database)/documents/workspaces/$(workspaceId)/managerPageClaims/$(uid))
           && existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId))
           && getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId)).data.createdBy == request.auth.uid
@@ -343,7 +372,7 @@ service cloud.firestore {
             (myRole(workspaceId) == 'admin' &&
               request.resource.data.responsibleUserId == request.auth.uid &&
               request.auth.uid in request.resource.data.get('allowedUsers', [])) ||
-            (myRole(workspaceId) == 'manager' &&
+            (hasRole(workspaceId, 'manager') &&
               request.resource.data.createdBy == request.auth.uid &&
               request.resource.data.responsibleUserId == request.auth.uid &&
               request.auth.uid in request.resource.data.get('allowedUsers', []) &&
@@ -635,7 +664,7 @@ service cloud.firestore {
       match /techRatings/{ratingId} {
         allow read: if isMember(workspaceId) && myRole(workspaceId) != 'viewer';
         allow create: if isMember(workspaceId)
-          && myRole(workspaceId) == 'os'
+          && hasRole(workspaceId, 'os')
           && request.resource.data.keys().hasOnly(['workspaceId', 'osUid', 'technicianUid', 'stars', 'osValue', 'pageId', 'createdAt', 'updatedAt'])
           && request.resource.data.workspaceId == workspaceId
           && request.resource.data.osUid == request.auth.uid
@@ -647,7 +676,7 @@ service cloud.firestore {
           && isValidStars(request.resource.data.stars)
           && hasRecentOrderFrom(workspaceId, request.resource.data);
         allow update: if isMember(workspaceId)
-          && myRole(workspaceId) == 'os'
+          && hasRole(workspaceId, 'os')
           && resource.data.osUid == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stars', 'updatedAt'])
           && isValidStars(request.resource.data.stars);
@@ -677,9 +706,9 @@ service cloud.firestore {
       function grokCreateNicknameOk(workspaceId) {
         return isManagement(workspaceId) || request.resource.data.get('nickname', '') == '';
       }
-      // ОС doesn't see Грок лимит at all.
+      // A pure ОС doesn't see Грок лимит at all (an ОС + Технар does).
       function canUseGrok(workspaceId) {
-        return isMember(workspaceId) && myRole(workspaceId) != 'os';
+        return isMember(workspaceId) && (myRole(workspaceId) != 'os' || hasExtraRole(workspaceId, 'manager'));
       }
 
       // Daily dispatch board (Выдача) — standalone sidebar section, not tied
