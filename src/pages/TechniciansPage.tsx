@@ -31,7 +31,9 @@ interface TechnicianRow {
   updatedAt: number;
 }
 
-// Owner-only background recount, at most this often per workspace per page load.
+// Owner-only background recount: each desk's month tab at most this often
+// per page load. Keyed by the tab, so a desk the month autopilot rolls over
+// while this screen is open gets counted right away.
 const REFRESH_EVERY_MS = 5 * 60 * 1000;
 const lastRefreshAt = new Map<string, number>();
 
@@ -103,13 +105,17 @@ export default function TechniciansPage() {
   // counts each desk publishes while its Технар works in it.
   useEffect(() => {
     if (!isOwner || !activeWorkspaceId || !uid || !loadsReady) return;
-    const last = lastRefreshAt.get(activeWorkspaceId) ?? 0;
-    if (Date.now() - last < REFRESH_EVERY_MS) return;
-    lastRefreshAt.set(activeWorkspaceId, Date.now());
     const technicianUids = new Set(members.filter((m) => m.role === "manager").map((m) => m.uid));
-    const desks = pages.filter(
-      (p) => p.responsibleUserId && technicianUids.has(p.responsibleUserId) && currentMonthSubPageId(p, monthKey)
-    );
+    const now = Date.now();
+    const desks = pages.filter((p) => {
+      const subPageId = currentMonthSubPageId(p, monthKey);
+      if (!subPageId || !p.responsibleUserId || !technicianUids.has(p.responsibleUserId)) return false;
+      const key = `${p.id}:${subPageId}`;
+      if (now - (lastRefreshAt.get(key) ?? 0) < REFRESH_EVERY_MS) return false;
+      lastRefreshAt.set(key, now);
+      return true;
+    });
+    if (desks.length === 0) return;
     void (async () => {
       for (let i = 0; i < desks.length; i += 3) {
         await Promise.all(
