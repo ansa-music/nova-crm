@@ -5,7 +5,6 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { useUiStore } from "@/store/uiStore";
 import { isResponsibleForPage } from "@/utils/permissions";
 import {
-  coverGridPages,
   findMyDesk,
   groupAllPeople,
   groupDesksByPerson,
@@ -40,14 +39,6 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
   // People tab: every member, even if their desk is hidden / not in studioPages.
   const peopleGroups = useMemo(() => groupAllPeople(members, pages), [members, pages]);
 
-  const coverPages = useMemo(
-    () =>
-      coverGridPages(pages, {
-        uid: profile?.uid,
-      }),
-    [pages, profile?.uid]
-  );
-
   useEffect(() => {
     if (!syncPersonSelection) return;
     const list = peopleGroups;
@@ -75,7 +66,6 @@ export function usePeopleDesks({ syncPersonSelection = false }: { syncPersonSele
     activeGroup,
     studioPages,
     visiblePages,
-    coverPages,
     isPersonalLanding,
     isLoadingWorkspaceData,
     ownerUid,

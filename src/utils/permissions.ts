@@ -204,12 +204,14 @@ export function canSimulateRole(realRole: Role, targetRole: Role): boolean {
   return allowedSimulatedRoles(realRole).includes(targetRole);
 }
 /**
- * Whether a page created by `uid` may be deleted by them. Mirrors the rules:
- * Owner always; otherwise only the creator who is still its responsible
- * person (never a Тимлид).
+ * Hard delete of a desk — the Owner only (mirrors the rules). Everyone else
+ * retires desks to «Неактуальные» instead, see canRetireDesks.
  */
-export function canDeletePage(page: WorkspacePage, role: Role, uid: string): boolean {
-  if (role === "owner") return true;
-  if (isBlockedFromDesks(role)) return false;
-  return isResponsibleForPage(page, uid) && page.createdBy === uid;
+export function canDeletePage(_page: WorkspacePage, role: Role, _uid: string): boolean {
+  return role === "owner";
+}
+
+/** «В неактуальные» / «Вернуть»: the Owner and a Тимлид, never the desk's own Технар. */
+export function canRetireDesks(role: Role): boolean {
+  return hasFullAccess(role);
 }

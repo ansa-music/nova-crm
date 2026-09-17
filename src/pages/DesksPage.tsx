@@ -1,11 +1,18 @@
 import { useMemo, useState } from "react";
-import { EyeOff, Search } from "lucide-react";
+import { Archive, ArchiveRestore, MoreHorizontal, Search } from "lucide-react";
 import { useNavigate } from "react-router";
 import { EmptyState } from "@/components/common/EmptyState";
 import { DeskCoverGrid } from "@/components/dashboard/DeskCoverGrid";
 import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
+import { restoreDesk, retireDesk } from "@/components/desks/deskRetireActions";
 import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/sonner";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,23 +22,24 @@ import { usePeopleDesks } from "@/hooks/usePeopleDesks";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { formatDate } from "@/utils/date";
 import { displayNameOf } from "@/utils/displayName";
-import { canOpenDesk, deskOwnerName, resolvedCoverUrl, splitStudioDesks } from "@/utils/peopleDesks";
+import { canOpenDesk, deskOwnerName, personLabel, resolvedCoverUrl } from "@/utils/peopleDesks";
 import { cn } from "@/utils/cn";
 import type { WorkspacePage } from "@/types";
 
-type DeskChip = "all" | "mine" | "others";
+type DeskChip = "all" | "mine" | "others" | "hidden";
 
 export default function DesksPage() {
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const { activeWorkspaceId, members, pages } = useWorkspace();
+  const { activeWorkspaceId, members, pages, inactivePages } = useWorkspace();
   const permissions = usePermissions();
   const { isLoadingWorkspaceData, ownerUid } = usePeopleDesks();
   const { requestView, latestForPage, reload } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const leaderboard = useLeaderboard(activeWorkspaceId);
   const [query, setQuery] = useState("");
-  const [hiddenOpen, setHiddenOpen] = useState(false);
+  const [inactiveOpen, setInactiveOpen] = useState(false);
   const [chip, setChip] = useState<DeskChip>("all");
 
   const progressByPageId = useMemo(() => {
@@ -48,27 +56,16 @@ export default function DesksPage() {
   }, [leaderboard]);
 
   const ownerId = ownerUid ?? members.find((m) => m.role === "owner")?.uid ?? null;
-  // Owner or Тимлид: may open every desk.
+  // Owner: may open every desk.
   const isOwner = permissions.hasFullDeskAccess;
-
-  const { visible, hidden } = useMemo(
-    () =>
-      splitStudioDesks(pages, {
-        uid: profile?.uid,
-      }),
-    [pages, profile?.uid]
-  );
-
   const uid = profile?.uid;
-  const mineVisible = useMemo(
-    () => visible.filter((page) => page.responsibleUserId === uid),
-    [visible, uid]
-  );
-  const othersVisible = useMemo(
-    () => visible.filter((page) => page.responsibleUserId !== uid),
-    [visible, uid]
-  );
-  const scoped = chip === "mine" ? mineVisible : chip === "others" ? othersVisible : visible;
+
+  // Hidden desks stand with everyone else — the cover shows «Скрыт» and the
+  // table stays closed without the responsible person's permission.
+  const mine = useMemo(() => pages.filter((page) => page.responsibleUserId === uid), [pages, uid]);
+  const others = useMemo(() => pages.filter((page) => page.responsibleUserId !== uid), [pages, uid]);
+  const hidden = useMemo(() => pages.filter((page) => page.hiddenByResponsible), [pages]);
+  const scoped = chip === "mine" ? mine : chip === "others" ? others : chip === "hidden" ? hidden : pages;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -80,10 +77,16 @@ export default function DesksPage() {
   }, [scoped, members, query]);
 
   const chips: { id: DeskChip; label: string; count: number }[] = [
-    { id: "all", label: "Все", count: visible.length },
-    { id: "mine", label: "Мои", count: mineVisible.length },
-    { id: "others", label: "Чужие", count: othersVisible.length },
+    { id: "all", label: "Все", count: pages.length },
+    { id: "mine", label: "Мои", count: mine.length },
+    { id: "others", label: "Чужие", count: others.length },
+    ...(hidden.length > 0 ? [{ id: "hidden" as const, label: "Скрытые", count: hidden.length }] : []),
   ];
+
+  const inactiveSorted = useMemo(
+    () => inactivePages.slice().sort((a, b) => (b.inactiveAt ?? 0) - (a.inactiveAt ?? 0)),
+    [inactivePages]
+  );
 
   function mayOpen(page: WorkspacePage) {
     return canOpenDesk({
@@ -132,15 +135,15 @@ export default function DesksPage() {
           <p className="eyebrow mb-1 text-primary">Studio</p>
           <h1 className="font-serif text-[1.85rem] font-medium tracking-[-0.03em] sm:text-[2.15rem]">Столы</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Обложки видны всем. Свой стол открывается сразу, чужой — после разрешения.
+            Обложки видны всем. Свой стол открывается сразу, чужой и скрытый — после разрешения.
           </p>
         </div>
         <div className="flex w-full max-w-xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-          {hidden.length > 0 && (
-            <Button type="button" variant="outline" className="min-h-11 gap-1.5" onClick={() => setHiddenOpen(true)}>
-              <EyeOff className="h-3.5 w-3.5" />
-              Скрытые столы
-              <span className="font-mono text-[11px] tabular text-muted-foreground">{hidden.length}</span>
+          {inactivePages.length > 0 && (
+            <Button type="button" variant="outline" className="min-h-11 gap-1.5" onClick={() => setInactiveOpen(true)}>
+              <Archive className="h-3.5 w-3.5" />
+              Неактуальные
+              <span className="font-mono text-[11px] tabular text-muted-foreground">{inactivePages.length}</span>
             </Button>
           )}
           <label className="flex h-11 w-full max-w-sm items-center gap-2 rounded-full border border-primary/30 bg-card/80 px-4 text-[13px] text-muted-foreground">
@@ -192,42 +195,88 @@ export default function DesksPage() {
               onRequest={() => sendRequest(page)}
             />
           )}
+          renderCorner={
+            permissions.canRetireDesks
+              ? (page) => (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 rounded-full border border-white/20 bg-black/45 text-white backdrop-blur-sm hover:bg-black/65 hover:text-white"
+                        aria-label={`Действия со столом «${page.name}»`}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => void retireDesk(page, members, permissions.uid)}>
+                        <Archive className="h-4 w-4" /> В неактуальные
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )
+              : undefined
+          }
         />
-      ) : query.trim() || chip !== "all" || hidden.length === 0 ? (
+      ) : (
         <EmptyState
           className="rounded-2xl border border-primary/25 bg-card py-16"
           title={query.trim() || chip !== "all" ? "Нет таких столов" : "Пока нет столов"}
         />
-      ) : null}
+      )}
 
-      <Sheet open={hiddenOpen} onOpenChange={setHiddenOpen}>
+      <Sheet open={inactiveOpen} onOpenChange={setInactiveOpen}>
         <SheetContent side="right" className="flex w-full max-w-md flex-col overflow-y-auto p-0">
           <SheetHeader className="border-b border-primary/25 px-5 py-4 pr-12">
-            <SheetTitle>Скрытые столы</SheetTitle>
-            <p className="text-sm text-muted-foreground">Обложки видны. Открыть можно после разрешения ответственного.</p>
+            <SheetTitle>Неактуальные столы</SheetTitle>
+            <p className="text-sm text-muted-foreground">
+              Их нет в «Столах», на дашборде и в «Технарях». Вкладки и строки сохранены
+              {permissions.canRetireDesks ? " — стол можно вернуть в любой момент." : "."}
+            </p>
           </SheetHeader>
           <div className="flex flex-col gap-3 p-4">
-            {hidden.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Скрытых столов нет.</p>
+            {inactiveSorted.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Неактуальных столов нет.</p>
             ) : (
-              hidden.map((page) => {
+              inactiveSorted.map((page) => {
                 const who = deskOwnerName(members, page);
+                const by = personLabel(members.find((m) => m.uid === page.inactiveBy) ?? null);
                 const openable = mayOpen(page);
-                const mine = latestForPage(page.id);
                 return (
                   <div key={page.id} className="overflow-hidden rounded-xl border border-primary/25 bg-card">
-                    <DeskCoverStrip coverUrl={resolvedCoverUrl(page, ownerUid)} name={page.name} ratio="thumb" progressPercent={progressByPageId[page.id] ?? null} />
+                    <div className="opacity-60 grayscale">
+                      <DeskCoverStrip coverUrl={resolvedCoverUrl(page, ownerUid)} name={page.name} ratio="thumb" />
+                    </div>
                     <div className="flex flex-col gap-2 p-3">
-                      <div>
+                      <div className="min-w-0">
                         <p className="truncate font-medium">{page.name}</p>
-                        {who ? <p className="truncate text-[12px] text-muted-foreground">{who}</p> : null}
+                        <p className="truncate text-[12px] text-muted-foreground">
+                          {[who, page.inactiveAt ? `неактуален с ${formatDate(page.inactiveAt, "d MMM yyyy")}` : null, by ? `убрал(а) ${by}` : null]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
                       </div>
-                      {openable ? (
-                        <Button type="button" size="sm" className="min-h-11 w-full" onClick={() => navigate(`/page/${page.id}`)}>
-                          Открыть
-                        </Button>
-                      ) : (
-                        <RequestDeskViewButton page={page} mine={mine} onRequest={() => sendRequest(page)} />
+                      {(openable || permissions.canRetireDesks) && (
+                        <div className="flex gap-2">
+                          {openable && (
+                            <Button type="button" size="sm" variant="outline" className="min-h-11 flex-1" onClick={() => navigate(`/page/${page.id}`)}>
+                              Открыть
+                            </Button>
+                          )}
+                          {permissions.canRetireDesks && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="min-h-11 flex-1 gap-1.5"
+                              onClick={() => void restoreDesk(page, members, permissions.uid)}
+                            >
+                              <ArchiveRestore className="h-3.5 w-3.5" />
+                              Вернуть в столы
+                            </Button>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>

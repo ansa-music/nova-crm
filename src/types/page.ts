@@ -88,6 +88,15 @@ export interface WorkspacePage {
    * exclusively by the responsible person, not the Owner.
    */
   hiddenByResponsible?: boolean;
+  /**
+   * «Неактуальные столы» — a desk retired instead of deleted. Only the Owner
+   * and a Тимлид flip it (setPageInactive; rules keep the responsible person
+   * out). `useWorkspace().pages` leaves these out, so they drop off «Столы»,
+   * the dashboard, «Технари» and month tabs; tabs and rows stay untouched.
+   */
+  inactive?: boolean;
+  inactiveAt?: number | null;
+  inactiveBy?: string | null;
   /** Reserved for a future public/private page toggle. Not yet enforced anywhere — always treat as "public" until wired up. */
   visibility?: "public" | "private";
   /** Uids explicitly allowed into this page's Personal Space (Reports/Finance/Notes), beyond the Owner and responsibleUserId who always have it. */

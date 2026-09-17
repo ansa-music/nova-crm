@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { EyeOff } from "lucide-react";
 import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { deskOwnerName, resolvedCoverUrl } from "@/utils/peopleDesks";
 import { cn } from "@/utils/cn";
@@ -15,6 +16,7 @@ export function DeskCoverGrid({
   onRequest,
   isPending,
   progressByPageId,
+  renderCorner,
 }: {
   pages: WorkspacePage[];
   members: WorkspaceMember[];
@@ -26,6 +28,8 @@ export function DeskCoverGrid({
   onRequest?: (page: WorkspacePage) => void;
   isPending?: (page: WorkspacePage) => boolean;
   progressByPageId?: Record<string, number>;
+  /** Top-right slot above the card's click target (e.g. a ⋯ menu). */
+  renderCorner?: (page: WorkspacePage) => ReactNode;
 }) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -35,6 +39,7 @@ export function DeskCoverGrid({
         const openable = canOpen ? canOpen(page) : true;
         const pending = Boolean(!openable && isPending?.(page));
         const action = renderAction?.(page) ?? null;
+        const corner = renderCorner?.(page) ?? null;
         return (
           <div
             key={page.id}
@@ -67,6 +72,14 @@ export function DeskCoverGrid({
                 aria-label="Запросить просмотр"
               />
             ) : null}
+
+            {page.hiddenByResponsible ? (
+              <span className="pointer-events-none absolute left-3 top-3 z-[2] inline-flex items-center gap-1 rounded-full border border-white/20 bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
+                <EyeOff className="h-3 w-3" />
+                Скрыт
+              </span>
+            ) : null}
+            {corner ? <div className="absolute right-2 top-2 z-[3]">{corner}</div> : null}
 
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] flex flex-col gap-2 p-4">
               <div>

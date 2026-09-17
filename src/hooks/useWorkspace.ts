@@ -6,6 +6,7 @@ import { subscribeToPages } from "@/services/pageService";
 import { useAuthStore } from "@/store/authStore";
 import { useBootstrapStore } from "@/store/bootstrapStore";
 import { useWorkspaceStore } from "@/store/workspaceStore";
+import type { WorkspacePage } from "@/types";
 
 /** Subscribes to the list of workspaces the current user belongs to. Call once near the app root. */
 export function useWorkspaceListBootstrap() {
@@ -223,12 +224,25 @@ export function useActiveWorkspaceDataBootstrap() {
   ]);
 }
 
+const deskSplitCache = new WeakMap<WorkspacePage[], { active: WorkspacePage[]; inactive: WorkspacePage[] }>();
+
+/** Active desks vs «Неактуальные», cached per snapshot so every caller shares the same arrays. */
+function splitDesks(all: WorkspacePage[]) {
+  let split = deskSplitCache.get(all);
+  if (!split) {
+    split = { active: all.filter((p) => !p.inactive), inactive: all.filter((p) => p.inactive) };
+    deskSplitCache.set(all, split);
+  }
+  return split;
+}
+
 export function useWorkspace() {
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
   const setActiveWorkspaceId = useWorkspaceStore((s) => s.setActiveWorkspaceId);
   const members = useWorkspaceStore((s) => s.members);
-  const pages = useWorkspaceStore((s) => s.pages);
+  const allPages = useWorkspaceStore((s) => s.pages);
+  const { active: pages, inactive: inactivePages } = splitDesks(allPages);
   const isLoadingWorkspaces = useWorkspaceStore((s) => s.isLoadingWorkspaces);
   const isLoadingWorkspaceData = useWorkspaceStore((s) => s.isLoadingWorkspaceData);
   const membersLoadState = useWorkspaceStore((s) => s.membersLoadState);
@@ -241,7 +255,12 @@ export function useWorkspace() {
     activeWorkspaceId,
     setActiveWorkspaceId,
     members,
+    /** Active desks only — «Неактуальные» are left out everywhere by default. */
     pages,
+    /** Desks retired to «Неактуальные». */
+    inactivePages,
+    /** Every desk, retired ones included (opening a retired desk by link). */
+    allPages,
     isLoadingWorkspaces,
     isLoadingWorkspaceData,
     membersLoadState,

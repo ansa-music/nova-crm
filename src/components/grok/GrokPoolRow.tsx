@@ -36,13 +36,16 @@ export interface PoolAccount {
 export type PoolPatch = { available?: boolean; limitResetAt?: number | null; nickname?: string };
 
 const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
 const PRESETS: { label: string; ms: number }[] = [
-  { label: "на 1 час", ms: HOUR },
-  { label: "на 3 часа", ms: 3 * HOUR },
-  { label: "на 5 часов", ms: 5 * HOUR },
-  { label: "на 12 часов", ms: 12 * HOUR },
-  { label: "на сутки", ms: 24 * HOUR },
-  { label: "на неделю", ms: 7 * 24 * HOUR },
+  { label: "1 час", ms: HOUR },
+  { label: "3 часа", ms: 3 * HOUR },
+  { label: "5 часов", ms: 5 * HOUR },
+  { label: "12 часов", ms: 12 * HOUR },
+  { label: "сутки", ms: DAY },
+  { label: "2 дня", ms: 2 * DAY },
+  { label: "3 дня", ms: 3 * DAY },
+  { label: "неделю", ms: 7 * DAY },
 ];
 
 const STATUS_STYLE: Record<GrokAccountStatus, { dot: string; chip: string; label: string }> = {
@@ -153,14 +156,45 @@ export function GrokPoolRow({
             <span className={cn("h-1.5 w-1.5 rounded-full", style.dot)} />
             {style.label}
           </span>
-          {!isAvailable && account.limitResetAt != null && (
-            <span
-              className={cn("inline-flex items-center gap-1 text-[11px] tabular-nums", overdue ? "font-medium text-warning" : "text-muted-foreground")}
-              title={formatDate(account.limitResetAt)}
-            >
-              <Clock3 className="h-3 w-3" />
-              {resetLabel(account.limitResetAt, now)}
-            </span>
+          {!isAvailable && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={saving}
+                  className={cn(
+                    "inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] tabular-nums transition-colors hover:bg-accent hover:text-foreground",
+                    overdue
+                      ? "border-warning/45 font-medium text-warning"
+                      : account.limitResetAt == null
+                        ? "border-dashed border-border text-muted-foreground"
+                        : "border-border/70 text-muted-foreground"
+                  )}
+                  title={account.limitResetAt != null ? `${formatDate(account.limitResetAt)} — изменить` : "Когда вернётся?"}
+                >
+                  <Clock3 className="h-3 w-3" />
+                  {account.limitResetAt != null ? resetLabel(account.limitResetAt, now) : "когда вернётся?"}
+                  <ChevronDown className="h-3 w-3 opacity-70" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-48">
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Вернётся через…</DropdownMenuLabel>
+                {PRESETS.map((preset) => (
+                  <DropdownMenuItem
+                    key={preset.label}
+                    onSelect={() =>
+                      void patch({ available: false, limitResetAt: Date.now() + preset.ms }, `Вернётся через ${preset.label}`)
+                    }
+                  >
+                    через {preset.label}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => void patch({ available: false, limitResetAt: null }, "Время неизвестно")}>
+                  Время неизвестно
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
 
@@ -180,10 +214,10 @@ export function GrokPoolRow({
                   <DropdownMenuItem
                     key={preset.label}
                     onSelect={() =>
-                      void patch({ available: false, limitResetAt: Date.now() + preset.ms }, `Лимит кончился — ${preset.label}`)
+                      void patch({ available: false, limitResetAt: Date.now() + preset.ms }, `Лимит кончился — вернётся через ${preset.label}`)
                     }
                   >
-                    {preset.label}
+                    на {preset.label}
                   </DropdownMenuItem>
                 ))}
                 <DropdownMenuSeparator />

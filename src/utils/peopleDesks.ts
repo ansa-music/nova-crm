@@ -97,35 +97,6 @@ export function deskOwnerName(members: WorkspaceMember[], page: WorkspacePage) {
   return personLabel(members.find((m) => m.uid === page.responsibleUserId) ?? null);
 }
 
-export function splitStudioDesks(
-  pages: WorkspacePage[],
-  opts: {
-    uid?: string | null;
-  }
-): { visible: WorkspacePage[]; hidden: WorkspacePage[] } {
-  const visible: WorkspacePage[] = [];
-  const hidden: WorkspacePage[] = [];
-  const uid = opts.uid ?? null;
-  for (const page of pages) {
-    const own = Boolean(uid && page.responsibleUserId === uid);
-    // Main grid = non-hidden covers for everyone. Own desk stays here even if they hid it.
-    // Others' hidden desks stay behind «Скрытые столы».
-    if (!page.hiddenByResponsible || own) visible.push(page);
-    else hidden.push(page);
-  }
-  return { visible, hidden };
-}
-
-/** Home / Dashboard cover grids: same as /desks main, hidden desks stay off. */
-export function coverGridPages(
-  pages: WorkspacePage[],
-  opts: {
-    uid?: string | null;
-  }
-): WorkspacePage[] {
-  return splitStudioDesks(pages, opts).visible.filter((page) => !page.hiddenByResponsible);
-}
-
 export function isRestrictedDeskRole(role: Role): boolean {
   return role === "manager" || role === "os" || role === "viewer";
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
-import { BarChart3, Eye, EyeOff, HardHat, History, Lock, Maximize2, MessageSquare, MoreHorizontal, Settings2, User } from "lucide-react";
+import { Archive, ArchiveRestore, BarChart3, Eye, EyeOff, HardHat, History, Lock, Maximize2, MessageSquare, MoreHorizontal, Settings2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -25,6 +25,7 @@ import { IncomingDispatchBanner } from "@/components/dispatch/IncomingDispatchBa
 import { DISPATCH_ENABLED } from "@/config/features";
 import { toast } from "@/components/ui/sonner";
 import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
+import { restoreDesk, retireDesk } from "@/components/desks/deskRetireActions";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePageRows } from "@/hooks/usePageRows";
@@ -61,7 +62,7 @@ export default function DynamicTablePage() {
   const { pageId } = useParams<{ pageId: string }>();
   const [searchParams] = useSearchParams();
   const focusRowId = searchParams.get("row");
-  const { activeWorkspace, activeWorkspaceId, pages, members } = useWorkspace();
+  const { activeWorkspace, activeWorkspaceId, allPages, members } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
   const { requestView, latestForPage, reload: reloadViewRequests, isLoading: viewRequestsLoading } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
@@ -81,7 +82,7 @@ export default function DynamicTablePage() {
   const appliedDefaultForPageRef = useRef<string | null>(null);
   const userPickedTabRef = useRef(false);
 
-  const storePage = pages.find((p) => p.id === pageId);
+  const storePage = allPages.find((p) => p.id === pageId);
   const [fetchedPage, setFetchedPage] = useState<WorkspacePage | null>(null);
   const page = storePage ?? fetchedPage;
   const pageFetchKeyRef = useRef<string | null>(null);
@@ -532,6 +533,20 @@ export default function DynamicTablePage() {
             )}
             {/* Owner-only: Технар desks get month tabs and a row on «Технари»
                 on their own; any other desk (e.g. the Owner's) opts in here. */}
+            {permissions.canRetireDesks && (
+              <>
+                <DropdownMenuSeparator />
+                {page.inactive ? (
+                  <DropdownMenuItem onClick={() => void restoreDesk(page, members, permissions.uid)}>
+                    <ArchiveRestore className="h-4 w-4" /> Вернуть в столы
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem onClick={() => void retireDesk(page, members, permissions.uid)}>
+                    <Archive className="h-4 w-4" /> В неактуальные
+                  </DropdownMenuItem>
+                )}
+              </>
+            )}
             {permissions.role === "owner" && page.responsibleUserId && (
               <DropdownMenuCheckboxItem
                 checked={Boolean(page.technicianDesk)}
@@ -543,6 +558,21 @@ export default function DynamicTablePage() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {page.inactive && !chromeHidden && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-warning/30 bg-warning/[0.07] px-4 py-2 text-sm">
+          <Archive className="h-4 w-4 shrink-0 text-warning" />
+          <span className="min-w-0 flex-1">
+            <span className="font-medium">Стол в неактуальных.</span>{" "}
+            <span className="text-muted-foreground">Его нет в «Столах», на дашборде и в «Технарях» — данные сохранены.</span>
+          </span>
+          {permissions.canRetireDesks && (
+            <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => void restoreDesk(page, members, permissions.uid)}>
+              <ArchiveRestore className="h-3.5 w-3.5" /> Вернуть
+            </Button>
+          )}
+        </div>
+      )}
 
       {DISPATCH_ENABLED && isOwnDesk && !chromeHidden && (
         <IncomingDispatchBanner workspaceId={page.workspaceId} uid={permissions.uid} page={page} />

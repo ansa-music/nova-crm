@@ -9,6 +9,7 @@ import {
   canChangeRoles,
   canCreatePages,
   canDeletePage,
+  canRetireDesks,
   canDeleteWorkspace,
   canExportWorkspace,
   canEditPageData,
@@ -180,6 +181,8 @@ export function usePermissions() {
         isResolved && !deskBlocked && roles.some((role) => canManagePage(page, role, uid)),
       canDeletePage: (page: WorkspacePage) =>
         isResolved && !deskBlocked && roles.some((role) => canDeletePage(page, role, uid)),
+      /** Move desks to «Неактуальные» and back — Owner and Тимлид (by real role, like users admin). */
+      canRetireDesks: isResolved && (isOwnerOfWorkspace || canRetireDesks(realRole)),
     }),
     [effectiveRole, realRole, activeRole, isSimulating, roles, deskBlocked, deskCreatorRole, uid, isResolved, hasMembership, isOwnerOfWorkspace, activeWorkspace?.ownerId, pages]
   );

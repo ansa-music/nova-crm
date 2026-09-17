@@ -387,11 +387,11 @@ service cloud.firestore {
         // setPageResponsible, togglePageVisibility).
         allow update: if isTeamLead(workspaceId)
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['allowedUsers', 'editableUsers', 'responsibleUserId', 'hiddenByResponsible', 'personalZoneAllowedUsers', 'updatedAt']);
-        // Delete: Owner always, or the page's own creator while they're
-        // still its responsible person (mirrors canDeletePage client-side).
-        allow delete: if isOwner(workspaceId) ||
-          (resource.data.createdBy == request.auth.uid && resource.data.responsibleUserId == request.auth.uid);
+            .hasOnly(['allowedUsers', 'editableUsers', 'responsibleUserId', 'hiddenByResponsible', 'personalZoneAllowedUsers', 'inactive', 'inactiveAt', 'inactiveBy', 'updatedAt']);
+        // Desks are retired to «Неактуальные» (inactive/inactiveAt/inactiveBy,
+        // Owner or Тимлид above) instead of being deleted. A hard delete stays
+        // with the Owner only (mirrors canDeletePage client-side).
+        allow delete: if isOwner(workspaceId);
 
         // The person assigned as this page's "responsible" gets full control
         // over the page itself (rename, colour/icon, allowedUsers, columns)
@@ -404,7 +404,7 @@ service cloud.firestore {
         // this workspace, so neither may be rewritten here either.
         allow update: if isMember(workspaceId)
           && resource.data.responsibleUserId == request.auth.uid
-          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['responsibleUserId', 'createdBy', 'workspaceId']);
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['responsibleUserId', 'createdBy', 'workspaceId', 'inactive', 'inactiveAt', 'inactiveBy']);
 
         // Admin (not Owner, who already has full rights above) may assign
         // or reassign who's responsible for this page. setPageResponsible()

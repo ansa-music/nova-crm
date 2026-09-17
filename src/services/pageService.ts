@@ -494,6 +494,41 @@ export async function togglePageVisibility(
 }
 
 /**
+ * Owner/Тимлид: move a desk to «Неактуальные» or bring it back — nothing is
+ * deleted. Retiring a Технар's desk also frees their one-desk claim when it
+ * points at this desk, so they can start a new one; bringing it back
+ * re-claims it only while the claim is free.
+ */
+export async function setPageInactive(
+  workspaceId: string,
+  page: WorkspacePage,
+  inactive: boolean,
+  byUid: string,
+  responsibleIsTechnician: boolean
+) {
+  if (!db) return;
+  const now = Date.now();
+  const batch = writeBatch(db);
+  batch.update(paths.page(workspaceId, page.id), {
+    inactive,
+    inactiveAt: inactive ? now : null,
+    inactiveBy: inactive ? byUid : null,
+    updatedAt: now,
+  });
+  const claimUid = page.responsibleUserId;
+  if (claimUid && responsibleIsTechnician) {
+    try {
+      const claim = await getDoc(paths.managerPageClaim(workspaceId, claimUid));
+      if (inactive && claim.exists() && claim.data()?.pageId === page.id) batch.delete(claim.ref);
+      if (!inactive && !claim.exists()) batch.set(claim.ref, { uid: claimUid, pageId: page.id, createdAt: now });
+    } catch {
+      /* the claim is upkeep; the desk still moves */
+    }
+  }
+  await batch.commit();
+}
+
+/**
  * Instantly grants or revokes one member's access to one page — used by the
  * Workspace → Users checkbox grid, where every toggle applies immediately.
  */
