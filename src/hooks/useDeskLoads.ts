@@ -70,7 +70,7 @@ const lastRefreshAt = new Map<string, number>();
 
 /**
  * Owner-only background recount: the Owner can read every desk, so desks
- * nobody opened lately still show the truth on «Технари» and «Общий дашборд».
+ * nobody opened lately still show the truth on «Технари» and «Дашборд».
  * Everyone else relies on the counts each desk publishes while its Технар
  * works in it.
  */

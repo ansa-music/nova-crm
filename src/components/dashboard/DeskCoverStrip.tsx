@@ -61,7 +61,7 @@ export function DeskCoverStrip({ coverUrl, name, className, compact, ratio, prog
       className={cn(
         "relative w-full overflow-hidden bg-muted",
         hero || thumb ? "border-0" : "border-b border-border",
-        hero && "aspect-[16/10] min-h-[220px] sm:aspect-[2/1] sm:min-h-[280px]",
+        hero && "aspect-[16/10] min-h-[244px] sm:aspect-[2/1] sm:min-h-[280px]",
         thumb && "aspect-[4/3]",
         !hero && !thumb && (wide ? "aspect-video" : compact ? "h-16" : "h-24 sm:h-28"),
         className

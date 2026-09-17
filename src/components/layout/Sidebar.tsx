@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import {
-  ChartNoAxesCombined,
   ChevronLeft,
   ChevronRight,
   HardHat,
@@ -251,18 +250,13 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink collapsed title={homeLabel} to={homeTo} icon={HomeIcon} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                     {homeLabel}
                   </AppNavLink>
-                  <AppNavLink collapsed title="Общий дашборд" to="/overview" icon={ChartNoAxesCombined} onNavigate={onNavigate}>
-                    Общий дашборд
+                  <AppNavLink collapsed title="Дашборд" to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
+                    Дашборд
                   </AppNavLink>
                   {showDeskNav && (
-                    <>
-                      <AppNavLink collapsed title="Дашборд" to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
-                        Дашборд
-                      </AppNavLink>
-                      <AppNavLink collapsed title="Столы" to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
-                        Столы
-                      </AppNavLink>
-                    </>
+                    <AppNavLink collapsed title="Столы" to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
+                      Столы
+                    </AppNavLink>
                   )}
                   <AppNavLink collapsed title="Люди" to="/people" icon={UsersRound} onNavigate={onNavigate}>
                     Люди
@@ -305,18 +299,13 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink to={homeTo} icon={HomeIcon} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                     {homeLabel}
                   </AppNavLink>
-                  <AppNavLink to="/overview" icon={ChartNoAxesCombined} onNavigate={onNavigate}>
-                    Общий дашборд
+                  <AppNavLink to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
+                    Дашборд
                   </AppNavLink>
                   {showDeskNav && (
-                    <>
-                      <AppNavLink to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
-                        Дашборд
-                      </AppNavLink>
-                      <AppNavLink to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
-                        Столы
-                      </AppNavLink>
-                    </>
+                    <AppNavLink to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
+                      Столы
+                    </AppNavLink>
                   )}
                   <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
                     Люди
@@ -362,18 +351,13 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               <AppNavLink to={homeTo} icon={HomeIcon} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                 {homeLabel}
               </AppNavLink>
-              <AppNavLink to="/overview" icon={ChartNoAxesCombined} onNavigate={onNavigate}>
-                Общий дашборд
+              <AppNavLink to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
+                Дашборд
               </AppNavLink>
               {showDeskNav && (
-                <>
-                  <AppNavLink to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
-                    Дашборд
-                  </AppNavLink>
-                  <AppNavLink to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
-                    Столы
-                  </AppNavLink>
-                </>
+                <AppNavLink to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
+                  Столы
+                </AppNavLink>
               )}
               <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
                 Люди

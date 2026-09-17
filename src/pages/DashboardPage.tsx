@@ -1,393 +1,316 @@
 import { useEffect, useMemo, useState } from "react";
-import { Settings2, Table2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
-import { DeskChart, GoalVsDoneChart } from "@/components/dashboard/DeskChart";
-import { LeaderboardWidget } from "@/components/dashboard/LeaderboardWidget";
-import { MyProgressCard } from "@/components/dashboard/MyProgressCard";
-import { KpiStatsRow } from "@/components/dashboard/KpiStatsRow";
-import { WaitingForYou } from "@/components/dashboard/WaitingForYou";
-import { TechnicianQueue } from "@/components/dashboard/TechnicianQueue";
-import { RecentRowsPanel } from "@/components/dashboard/RecentRowsPanel";
-import { RevenueChart } from "@/components/dashboard/RevenueChart";
-import { StatusChart } from "@/components/dashboard/StatusChart";
 import { EmptyState } from "@/components/common/EmptyState";
+import { PersonalDeskSection } from "@/components/dashboard/PersonalDeskSection";
+import {
+  DailyChart,
+  DoneLeaderboard,
+  formatMoneyCompact,
+  LeadersRow,
+  LoadChart,
+  MonthlyChart,
+  ordersWord,
+  OsBars,
+  RatingLeaderboard,
+  StatTile,
+  StatusBars,
+  ratingsWord,
+} from "@/components/overview/OverviewParts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
-import { useDeskLayout } from "@/hooks/useDeskLayout";
-import { useLeaderboard } from "@/hooks/useLeaderboard";
-import { useMultiPageRows } from "@/hooks/useMultiPageRows";
-import { useMultiPageSubPages } from "@/hooks/useMultiPageSubPages";
-import { useMultiSubPageRows } from "@/hooks/useMultiSubPageRows";
+import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useDeskLoadHistory, useDeskLoads, useOwnerDeskRecount, useTechRatings } from "@/hooks/useDeskLoads";
 import { usePermissions } from "@/hooks/usePermissions";
-import { usePeopleDesks } from "@/hooks/usePeopleDesks";
-import { useWorkspace } from "@/hooks/useWorkspace";
-import { DeskStudioSheet } from "@/components/pagesnav/DeskStudioSheet";
-import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialog";
-import { resolvedCoverUrl, personLabel } from "@/utils/peopleDesks";
-import { greetingByHour, greetingGlowShadow, hourInTimeZone } from "@/utils/date";
+import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
+import { osNickLabel } from "@/services/memberService";
+import { currentMonthSubPageId } from "@/services/monthTabService";
+import { monthTabNameForKey } from "@/services/subPageService";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
-import { isResponsibleForPage } from "@/utils/permissions";
-import { nowOrderCounts, ordersByDateFromDesks, progressForPage, statusDistributionFromDesks } from "@/utils/deskProgress";
-import { formatCurrency } from "@/utils/format";
-import { updateLeaderboardEntry } from "@/services/leaderboardService";
-import { useNavigate } from "react-router";
-import type { LeaderboardEntry } from "@/types";
-import { doneMonthTotal } from "@/utils/dashboardTrends";
+import { greetingByHour, greetingGlowShadow, hourInTimeZone, timeAgo, ymdPartsInTimeZone } from "@/utils/date";
+import { formatCurrency, formatNumber } from "@/utils/format";
+import {
+  buildOverview,
+  monthlySeries,
+  placeOf,
+  rankByDone,
+  rankByRating,
+  recentMonthKeys,
+} from "@/utils/overviewStats";
+import { effectiveTechLoadKinds, techLoadKindForOption } from "@/utils/techLoad";
+import type { StatusOption } from "@/types";
 
+const NO_OPTIONS: StatusOption[] = [];
+const MONTHS_SHOWN = 6;
+
+/**
+ * «Дашборд» — one screen for every role. On top, what's yours: join
+ * requests, your desk, today's orders, latest rows (PersonalDeskSection,
+ * from the rows you may read). Below, the month for the whole workspace:
+ * ratings by «Готово» and by ОС stars, KPIs, orders by day, load,
+ * statuses, ОС and months — built only from aggregates every member may
+ * read, so a Тимлид, an ОС or a Viewer sees the same numbers as the Owner.
+ */
 export default function DashboardPage() {
-  const { activeWorkspace, activeWorkspaceId, members } = useWorkspace();
+  const { activeWorkspace, activeWorkspaceId, members, pages } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
-  const { myDesk, studioPages, isPersonalLanding, isLoadingWorkspaceData, ownerUid } = usePeopleDesks();
-  const { layout: deskLayout } = useDeskLayout(profile?.uid);
-  const [studioPageId, setStudioPageId] = useState<string | null>(null);
-  const [createPageOpen, setCreatePageOpen] = useState(false);
-  const [highlightedDeskId, setHighlightedDeskId] = useState<string | null>(null);
-  const navigate = useNavigate();
-  const studioPage = studioPages.find((p) => p.id === studioPageId) ?? (studioPageId && myDesk?.id === studioPageId ? myDesk : null);
-
-  const progressPages = studioPages;
-
-  const rowPageIds = useMemo(
-    () => progressPages.filter((p) => !p.defaultSubPageId).map((p) => p.id),
-    [progressPages]
-  );
-  const rowsByPage = useMultiPageRows(activeWorkspaceId, rowPageIds);
-
-  const subPageMetaIds = useMemo(
-    () => progressPages.filter((p) => p.defaultSubPageId).map((p) => p.id),
-    [progressPages]
-  );
-  const subPagesByPage = useMultiPageSubPages(activeWorkspaceId, subPageMetaIds);
-  const defaultSubPagePairs = useMemo(
-    () =>
-      progressPages
-        .filter((p) => p.defaultSubPageId)
-        .map((p) => ({ pageId: p.id, subPageId: p.defaultSubPageId as string })),
-    [progressPages]
-  );
-  const rowsBySubPage = useMultiSubPageRows(activeWorkspaceId, defaultSubPagePairs);
-
-  const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
-
-  const deskProgress = useMemo(
-    () => progressPages.map((page) => progressForPage(page, subPagesByPage, rowsBySubPage, rowsByPage, statusOptions)),
-    [progressPages, subPagesByPage, rowsBySubPage, rowsByPage, statusOptions]
-  );
-
-  const myDeskProgress = useMemo(
-    () => (myDesk ? deskProgress.find((d) => d.page.id === myDesk.id) : undefined),
-    [deskProgress, myDesk]
-  );
-
-  const myProgress = useMemo(
-    () => (profile ? deskProgress.filter((p) => isResponsibleForPage(p.page, profile.uid)) : []),
-    [deskProgress, profile]
-  );
-
-  const publishDesks = permissions.role === "owner" ? deskProgress : myProgress;
+  const monthKey = useCurrentMonthKey();
+  const uid = profile?.uid ?? "";
+  const enabled = permissions.isResolved;
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (!activeWorkspaceId || !profile) return;
-    publishDesks.forEach((desk) => {
-      const uid = desk.page.responsibleUserId;
-      if (!uid) return;
-      const pieces = nowOrderCounts([desk], statusOptions);
-      updateLeaderboardEntry(activeWorkspaceId, {
-        pageId: desk.page.id,
-        pageName: desk.page.name,
-        responsibleUserId: uid,
-        doneTotal: desk.doneTotal,
-        grandTotal: desk.grandTotal,
-        percent: desk.percent,
-        openCount: pieces.open,
-        doneCount: pieces.done,
-      }).catch(() => {
-        /* best-effort */
-      });
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [publishDesks, activeWorkspaceId, profile?.uid]);
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
-  const polledLeaderboard = useLeaderboard(activeWorkspaceId);
+  useEffect(() => {
+    if (!activeWorkspaceId || !enabled) return;
+    void refreshWorkspaceMembers(activeWorkspaceId).catch(() => undefined);
+  }, [activeWorkspaceId, enabled]);
 
-  const leaderboardEntries = useMemo(() => {
-    const byPage = new Map<string, LeaderboardEntry>();
-    // Shared /leaderboard is readable by every member, including for desks
-    // this viewer cannot open (hiddenByResponsible). Live row overlay is
-    // only the pages in this view — empty live rows must not wipe those
-    // shared «Готово» totals.
-    for (const entry of polledLeaderboard) byPage.set(entry.pageId, entry);
-    for (const desk of deskProgress) {
-      const uid = desk.page.responsibleUserId;
-      if (!uid) continue;
-      const existing = byPage.get(desk.page.id);
-      const liveEmpty = desk.rowCount === 0 && desk.doneTotal === 0 && desk.grandTotal === 0;
-      if (liveEmpty && existing) continue;
-      const pieces = nowOrderCounts([desk], statusOptions);
-      byPage.set(desk.page.id, {
-        pageId: desk.page.id,
-        pageName: desk.page.name,
-        responsibleUserId: uid,
-        doneTotal: desk.doneTotal,
-        grandTotal: desk.grandTotal,
-        percent: desk.percent,
-        openCount: pieces.open,
-        doneCount: pieces.done,
-        updatedAt: Date.now(),
-      });
-    }
-    return Array.from(byPage.values());
-  }, [polledLeaderboard, deskProgress]);
+  const monthKeys = useMemo(() => recentMonthKeys(monthKey, MONTHS_SHOWN), [monthKey]);
+  const { loads, failed: loadsFailed } = useDeskLoads(activeWorkspaceId, enabled);
+  const { ratings, failed: ratingsFailed } = useTechRatings(activeWorkspaceId, enabled);
+  const history = useDeskLoadHistory(activeWorkspaceId, monthKeys[0], enabled);
+  useOwnerDeskRecount(enabled ? loads : null);
 
-  const deskBarData = useMemo(
-    () =>
-      deskProgress.map((desk) => {
-        const member = members.find((m) => m.uid === desk.page.responsibleUserId);
-        return {
-          id: desk.page.id,
-          name: desk.page.name,
-          person: personLabel(member),
-          doneTotal: desk.doneTotal,
-        };
-      }),
-    [deskProgress, members]
+  const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
+  const responsibleOptions = activeWorkspace?.responsibleOptions ?? NO_OPTIONS;
+  const kinds = useMemo(() => effectiveTechLoadKinds(activeWorkspace), [activeWorkspace]);
+  const showPayment = useMemo(
+    () => statusOptions.some((o) => techLoadKindForOption(o, kinds) === "payment"),
+    [statusOptions, kinds]
   );
 
-  if (isLoadingWorkspaceData) {
+  const { day: today, month: monthIndex, year } = ymdPartsInTimeZone(now);
+  const daysInMonth = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+
+  const overview = useMemo(
+    () =>
+      buildOverview({
+        members,
+        pages,
+        loads: loads ?? [],
+        ratings: ratings ?? [],
+        monthKey,
+        statusOptions,
+        kinds,
+        responsibleOptions,
+        currentTabOf: (desk) => currentMonthSubPageId(desk, monthKey),
+        today,
+        daysInMonth,
+      }),
+    [members, pages, loads, ratings, monthKey, statusOptions, kinds, responsibleOptions, today, daysInMonth]
+  );
+
+  const byDone = useMemo(() => rankByDone(overview.technicians), [overview]);
+  const byRating = useMemo(() => rankByRating(overview.technicians), [overview]);
+  const unrated = useMemo(
+    () => overview.technicians.filter((t) => t.desks.length > 0 && t.ratingCount === 0),
+    [overview]
+  );
+  const byOrders = useMemo(
+    () => overview.technicians.slice().sort((a, b) => b.summary.total - a.summary.total)[0] ?? null,
+    [overview]
+  );
+  const months = useMemo(
+    () =>
+      monthlySeries({
+        monthKeys,
+        currentMonthKey: monthKey,
+        history,
+        currentTotals: {
+          orders: overview.totals.orders,
+          grandTotal: overview.totals.grandTotal,
+          doneTotal: overview.totals.doneTotal,
+        },
+        deskIds: new Set(overview.technicians.flatMap((t) => t.desks.map((d) => d.id))),
+        statusOptions,
+      }),
+    [monthKeys, monthKey, history, overview, statusOptions]
+  );
+
+  const myMember = members.find((m) => m.uid === uid) ?? null;
+  const myOsValue = permissions.hasRole("os") ? myMember?.osNickValue ?? null : null;
+  const myOsNick = myOsValue ? osNickLabel(myMember, responsibleOptions) : null;
+  const myOsOrders = myOsValue ? overview.os.find((o) => o.osValue === myOsValue)?.count ?? 0 : 0;
+  const myDonePlace = placeOf(byDone, uid);
+  const myRatingPlace = placeOf(byRating, uid);
+  const monthName = monthTabNameForKey(monthKey);
+  const monthGenitive = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", timeZone: "UTC" })
+    .format(new Date(Date.UTC(year, monthIndex, 1)))
+    .replace(/^\d+\s/, "");
+
+  if (!permissions.isResolved || (loads === null && !loadsFailed)) {
     return (
-      <div className="mx-auto max-w-6xl p-5 sm:p-8">
-        <Skeleton className="mb-4 h-8 w-56" />
-        <Skeleton className="mb-6 aspect-[2.4/1] w-full rounded-[1.35rem]" />
+      <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-4 p-5 sm:p-8">
+        <Skeleton className="h-8 w-60" />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 rounded-2xl" />
+          ))}
+        </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Skeleton className="h-72 rounded-2xl" />
-          <Skeleton className="h-72 rounded-2xl" />
+          <Skeleton className="h-80 rounded-2xl" />
+          <Skeleton className="h-80 rounded-2xl" />
         </div>
       </div>
     );
   }
 
-  const hour = hourInTimeZone(Date.now());
-  const hello = greetingByHour(hour);
+  const { totals } = overview;
+  const doneShare = totals.grandTotal > 0 ? totals.doneTotal / totals.grandTotal : null;
+  const hour = hourInTimeZone(now);
   const who = profile?.nickname || profile?.name || "";
-  const showCharts = deskLayout.showCharts;
-  const showProgress = deskLayout.showProgress;
-  const showBoard = deskLayout.showLeaderboard;
-  const chartSource = isPersonalLanding ? myProgress : deskProgress;
-  const chartStatus = statusDistributionFromDesks(chartSource, statusOptions);
-  const chartOrders = ordersByDateFromDesks(chartSource);
-  const chartBars = isPersonalLanding
-    ? deskBarData.filter((d) => myProgress.some((p) => p.page.id === d.id))
-    : deskBarData;
-
-  const myDeskGoal = myDeskProgress?.page.monthlyGoal ?? 0;
-  // monthlyGoal is a per-MONTH target, so compare it against this month's
-  // «Готово», not the desk's lifetime doneTotal (see doneMonthTotal).
-  const myDeskDoneThisMonth = myDeskProgress
-    ? doneMonthTotal([myDeskProgress], statusOptions)
-    : 0;
-  const myDeskGoalPercent =
-    myDeskProgress && myDeskGoal > 0
-      ? Math.min(100, Math.round((myDeskDoneThisMonth / myDeskGoal) * 100))
-      : null;
-
-  const myProgressIds = new Set(myProgress.map((p) => p.page.id));
-  const myProgressDuplicatesKpi =
-    chartSource.length > 0 &&
-    chartSource.length === myProgress.length &&
-    chartSource.every((d) => myProgressIds.has(d.page.id));
-  const showProgressCards = showProgress && myProgress.length > 0 && !myProgressDuplicatesKpi;
-
-  const leaderboard = (
-    <LeaderboardWidget
-      entries={leaderboardEntries}
-      members={members}
-      myUid={profile?.uid}
-      featured
-      anonymous={isPersonalLanding}
-    />
-  );
 
   return (
-    <div className="mx-auto max-w-6xl p-5 sm:p-8 lg:p-10">
-      <p className="eyebrow mb-2 text-primary">Дашборд</p>
-      <h1
-        className="font-serif text-[1.85rem] font-medium tracking-[-0.03em] sm:text-[2.2rem]"
-        style={{ textShadow: greetingGlowShadow(hour) }}
-      >
-        {hello}
-        {who ? `, ${who}` : ""}
-      </h1>
-      <p className="mt-1 mb-6 text-sm text-muted-foreground">
-        {isPersonalLanding
-          ? "Твои заказы на сегодня и стол. Нажми строку — откроется она. Дата на листе — когда заказ пришёл, не дедлайн."
-          : "Рейтинг и диаграммы по заказам на столах. Сроки как дедлайны сюда не входят — даты на листах это когда заказ пришёл."}
-      </p>
+    <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-4 p-5 sm:p-8">
+      <header className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
+        <div className="min-w-0">
+          <p className="eyebrow mb-1 text-primary">Дашборд · {monthName}</p>
+          <h1
+            className="font-serif text-[1.85rem] font-medium tracking-[-0.03em] sm:text-[2.2rem]"
+            style={{ textShadow: greetingGlowShadow(hour) }}
+          >
+            {greetingByHour(hour)}
+            {who ? `, ${who}` : ""}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Сверху — твоё, ниже — все технари за месяц: рейтинги, деньги и заказы.
+          </p>
+        </div>
+        {totals.updatedAt > 0 && (
+          <p className="text-[11px] text-muted-foreground" title="Цифры обновляются, когда технари работают в своих столах">
+            обновлено {timeAgo(totals.updatedAt)}
+          </p>
+        )}
+      </header>
 
-      {myDesk ? (
-        <section className="relative mb-8 overflow-hidden rounded-[1.35rem] border border-border">
-          <button type="button" className="block w-full text-left" onClick={() => navigate(`/page/${myDesk.id}`)}>
-            <DeskCoverStrip coverUrl={resolvedCoverUrl(myDesk, ownerUid)} name={myDesk.name} ratio="hero" />
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
-          </button>
-          <div className="pointer-events-none absolute inset-0 z-[1] flex flex-col justify-between p-4 sm:p-7">
-            <div className="pointer-events-auto flex flex-wrap items-center gap-2 self-start">
-              <Button
-                variant="outline"
-                size="sm"
-                className="min-h-11 rounded-full border-white/25 bg-white/10 px-4 text-white hover:bg-white/16 hover:text-white"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  navigate(`/page/${myDesk.id}`);
-                }}
-              >
-                <Table2 className="h-3.5 w-3.5" />
-                Открыть стол
-              </Button>
-              {permissions.canManagePage(myDesk) ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="min-h-11 rounded-full border-white/25 bg-white/10 px-4 text-white hover:bg-white/16 hover:text-white"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setStudioPageId(myDesk.id);
-                  }}
-                >
-                  <Settings2 className="h-3.5 w-3.5" />
-                  Настроить стол
-                </Button>
-              ) : null}
-            </div>
-            <div>
-              <p className="font-serif text-[1.65rem] font-medium tracking-[-0.03em] text-white sm:text-[2.15rem]">
-                {myDesk.name}
-              </p>
-              {myDeskProgress ? (
-                <div className="mt-3 flex flex-wrap gap-6 sm:gap-8">
-                  <div>
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-white/70">Общий</p>
-                    <p className="mt-0.5 tabular text-lg font-medium text-white sm:text-xl">
-                      {formatCurrency(myDeskProgress.grandTotal)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-white/70">Готово</p>
-                    <p className="mt-0.5 tabular text-lg font-medium text-white sm:text-xl">
-                      {formatCurrency(myDeskProgress.doneTotal)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-white/70">% цели</p>
-                    <p className="mt-0.5 tabular text-lg font-medium text-white sm:text-xl">
-                      {myDeskGoalPercent == null ? "—" : `${myDeskGoalPercent}%`}
-                    </p>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </section>
+      {loadsFailed && (
+        <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          Не удалось загрузить цифры столов. Обновите страницу.
+        </p>
+      )}
+      {ratingsFailed && (
+        <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          Не удалось загрузить оценки. Обновите страницу.
+        </p>
+      )}
+
+      <PersonalDeskSection />
+
+      {(myDonePlace || myRatingPlace || myOsValue) && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl border border-primary/30 bg-primary/[0.06] px-4 py-2.5 text-sm">
+          <span className="text-xs font-medium uppercase tracking-wide text-primary">Вы</span>
+          {myDonePlace && (
+            <span>
+              <span className="font-semibold">#{myDonePlace}</span>
+              <span className="text-muted-foreground"> из {byDone.length} по «Готово»</span>
+            </span>
+          )}
+          {myRatingPlace && (
+            <span>
+              <span className="font-semibold">#{myRatingPlace}</span>
+              <span className="text-muted-foreground"> по оценкам</span>
+            </span>
+          )}
+          {myOsValue && (
+            <span>
+              <span className="text-muted-foreground">ОС «{myOsNick}»: </span>
+              <span className="font-semibold">
+                {formatNumber(myOsOrders)} {ordersWord(myOsOrders)}
+              </span>
+              <span className="text-muted-foreground"> в этом месяце</span>
+            </span>
+          )}
+        </div>
+      )}
+
+      {overview.technicians.length === 0 ? (
+        <EmptyState
+          eyebrow="Дашборд"
+          title="Пока нет технарей"
+          description="Здесь появятся рейтинги и графики, когда у участников с ролью «Технар» будут столы."
+        />
       ) : (
-        <div className="mb-8">
-          <EmptyState
-            className="rounded-2xl border border-border bg-card py-10"
-            title="Своего стола пока нет"
-            action={
-              permissions.canCreatePages ? (
-                <Button size="sm" className="min-h-11 gap-1.5" onClick={() => setCreatePageOpen(true)}>
-                  <Settings2 className="h-3.5 w-3.5" />
-                  Новый стол
-                </Button>
-              ) : undefined
-            }
-          />
-        </div>
-      )}
-
-      <WaitingForYou />
-
-      <TechnicianQueue desks={deskProgress} statusOptions={statusOptions} members={members} />
-
-      <KpiStatsRow desks={chartSource} statusOptions={statusOptions} studioBoard={polledLeaderboard} />
-
-      <RecentRowsPanel desks={deskProgress} statusOptions={statusOptions} members={members} />
-
-      {showCharts && (
-        <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {chartBars.length > 0 && (
-            <div className="lg:col-span-2">
-              <DeskChart
-                data={chartBars}
-                activeId={highlightedDeskId}
-                onHover={setHighlightedDeskId}
-                onSelect={(id) => {
-                  setHighlightedDeskId(id);
-                  navigate(`/page/${id}`);
-                }}
-              />
-            </div>
-          )}
-          <StatusChart title={isPersonalLanding ? "На моём столе" : "На столах"} data={chartStatus} />
-          {chartSource.some((p) => (p.page.monthlyGoal ?? 0) > 0) ? (
-            <GoalVsDoneChart
-              // Both sides over the SAME desks (only those that set a goal)
-              // and the same period (this month) — summing every desk's
-              // lifetime «Готово» against only the goal-setting desks' goals
-              // produced percentages like "130% к цели", clamped to 100%.
-              doneTotal={doneMonthTotal(
-                chartSource.filter((p) => (p.page.monthlyGoal ?? 0) > 0),
-                statusOptions
-              )}
-              goal={chartSource.reduce((sum, p) => sum + (p.page.monthlyGoal ?? 0), 0)}
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+            <StatTile
+              accent
+              label="Готово"
+              value={formatMoneyCompact(totals.doneTotal)}
+              title={formatCurrency(totals.doneTotal)}
+              meter={doneShare}
+              sub={doneShare !== null ? `${Math.round(doneShare * 100)}% от общей суммы` : "сумм пока нет"}
             />
-          ) : (
-            <div className="desk-chart flex items-center rounded-2xl border border-border bg-card px-6 py-8 text-sm text-muted-foreground">
-              Поставь цель на месяц в настройках стола — здесь появится сравнение с «Готово».
-            </div>
-          )}
-        </div>
-      )}
+            <StatTile
+              label="Общая сумма"
+              value={formatMoneyCompact(totals.grandTotal)}
+              title={formatCurrency(totals.grandTotal)}
+              sub={totals.avgCheck ? `средний чек ${formatMoneyCompact(totals.avgCheck)}` : "—"}
+            />
+            <StatTile
+              label="Заказов"
+              value={formatNumber(totals.orders)}
+              sub={`сегодня +${totals.today.orders} · 7 дней +${totals.week.orders}`}
+            />
+            <StatTile
+              label="В работе"
+              value={formatNumber(totals.summary.busy)}
+              sub={[
+                totals.summary.rework ? `переделка ${totals.summary.rework}` : null,
+                showPayment && totals.summary.payment ? `ждём оплату ${totals.summary.payment}` : null,
+                totals.summary.freeze ? `заморозка ${totals.summary.freeze}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || "ничего не ждёт"}
+            />
+            <StatTile
+              label="Свободны"
+              value={`${totals.freeTechs} из ${totals.techs}`}
+              sub={totals.busyTechs ? `заняты ${totals.busyTechs}` : "все свободны"}
+            />
+            <StatTile
+              label="Средняя оценка"
+              value={totals.ratingAvg !== null ? `${totals.ratingAvg.toFixed(1)} ★` : "—"}
+              sub={totals.ratingCount ? `${totals.ratingCount} ${ratingsWord(totals.ratingCount)}` : "оценок нет"}
+            />
+          </div>
 
-      {showCharts && chartOrders.length > 0 && (
-        <div className="mb-6">
-          <RevenueChart data={chartOrders} />
-        </div>
-      )}
+          <LeadersRow byDone={byDone[0] ?? null} byRating={byRating[0] ?? null} byOrders={byOrders} myUid={uid} />
 
-      <div className="mb-6 grid grid-cols-1 gap-5 lg:grid-cols-5">
-        {showProgressCards && (
-          <div className="flex flex-col gap-4 lg:col-span-3">
-            {myProgress.map((p) => (
-              <MyProgressCard
-                key={p.page.id}
-                {...p}
-                workspaceId={activeWorkspaceId ?? ""}
-                large
-                onCustomize={permissions.canManagePage(p.page) ? () => setStudioPageId(p.page.id) : undefined}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <DoneLeaderboard ranked={byDone} myUid={uid} />
+            <RatingLeaderboard ranked={byRating} unrated={unrated} myUid={uid} />
+          </div>
+
+          <DailyChart days={overview.days} today={today} monthName={monthGenitive} />
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+            <div className="min-w-0 lg:col-span-3">
+              <LoadChart
+                technicians={overview.technicians}
+                showPayment={showPayment}
+                myUid={uid}
+                linkDesks={permissions.hasFullDeskAccess}
               />
-            ))}
+            </div>
+            <div className="min-w-0 lg:col-span-2">
+              <StatusBars statusCounts={overview.statusCounts} statusOptions={statusOptions} total={totals.orders} />
+            </div>
           </div>
-        )}
-        {showBoard && (
-          <div className={showProgressCards ? "lg:col-span-2" : "lg:col-span-5"}>
-            {leaderboard}
-          </div>
-        )}
-      </div>
 
-      <DeskStudioSheet
-        page={studioPage}
-        open={Boolean(studioPage)}
-        onOpenChange={(open) => {
-          if (!open) setStudioPageId(null);
-        }}
-        uid={profile?.uid}
-      />
-      <CreatePageDialog open={createPageOpen} onOpenChange={setCreatePageOpen} />
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <OsBars os={overview.os} myOsValue={myOsValue} />
+            <MonthlyChart months={months} />
+          </div>
+
+          <p className="text-center text-[11px] text-muted-foreground">
+            Цифры считает каждый стол, пока технарь в нём работает; у Owner дашборд ещё и пересчитывает все столы.
+            Пустые строки не считаются.
+          </p>
+        </>
+      )}
     </div>
   );
 }

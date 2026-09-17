@@ -28,14 +28,16 @@ interface GrokAppDialogProps {
   onOpenChange: (open: boolean) => void;
   editing?: GrokAppAccount | null;
   accounts: GrokAppAccount[];
+  /** Service preselected for a new account — the section it was added from. */
+  defaultProvider?: GrokAppProvider;
 }
 
-export function GrokAppDialog({ open, onOpenChange, editing, accounts }: GrokAppDialogProps) {
+export function GrokAppDialog({ open, onOpenChange, editing, accounts, defaultProvider = "elevenlabs" }: GrokAppDialogProps) {
   const { profile } = useAuth();
   const { activeWorkspaceId } = useWorkspace();
   const { role } = usePermissions();
   const canName = role === "owner" || role === "teamlead" || role === "admin";
-  const [provider, setProvider] = useState<GrokAppProvider>(editing?.provider ?? "elevenlabs");
+  const [provider, setProvider] = useState<GrokAppProvider>(editing?.provider ?? defaultProvider);
   const [providerOther, setProviderOther] = useState(editing?.providerOther ?? "");
   const [email, setEmail] = useState(editing?.email ?? "");
   const [password, setPassword] = useState(editing?.password ?? "");
@@ -50,7 +52,7 @@ export function GrokAppDialog({ open, onOpenChange, editing, accounts }: GrokApp
   useEffect(() => {
     if (open && !wasShownRef.current) {
       wasShownRef.current = true;
-      setProvider(editing?.provider ?? "elevenlabs");
+      setProvider(editing?.provider ?? defaultProvider);
       setProviderOther(editing?.providerOther ?? "");
       setEmail(editing?.email ?? "");
       setPassword(editing?.password ?? "");

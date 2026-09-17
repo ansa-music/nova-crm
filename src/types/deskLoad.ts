@@ -61,7 +61,7 @@ export interface DeskLoad {
 /**
  * A desk's DeskLoad as it last stood in a finished month, archived by
  * publishDeskLoad when the desk first publishes a new month. Doc id
- * `${pageId}_${monthKey}`; readable by every member (Общий дашборд).
+ * `${pageId}_${monthKey}`; readable by every member («Дашборд»).
  */
 export type DeskLoadArchive = DeskLoad & { archivedAt: number };
 

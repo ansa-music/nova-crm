@@ -18,7 +18,7 @@ import {
 } from "@/types";
 
 /**
- * «Общий дашборд» numbers. Everything here comes from the aggregates every
+ * «Дашборд» numbers. Everything here comes from the aggregates every
  * member may read — DeskLoad (this month's counts and sums per desk),
  * DeskLoadArchive (finished months) and ratings — never from rows, so a
  * Тимлид, an ОС or a Viewer sees the same dashboard as the Owner.

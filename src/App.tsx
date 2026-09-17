@@ -24,10 +24,8 @@ const PeoplePage = lazy(() => import("@/pages/PeoplePage"));
 const DesksPage = lazy(() => import("@/pages/DesksPage"));
 const AnnouncementsPage = lazy(() => import("@/pages/AnnouncementsPage"));
 const GrokLimitPage = lazy(() => import("@/pages/GrokLimitPage"));
-const GrokAppsPage = lazy(() => import("@/pages/GrokAppsPage"));
 const DispatchPage = lazy(() => import("@/pages/DispatchPage"));
 const TechniciansPage = lazy(() => import("@/pages/TechniciansPage"));
-const OverviewPage = lazy(() => import("@/pages/OverviewPage"));
 const WorkspaceChatPage = lazy(() => import("@/pages/WorkspaceChatPage"));
 const MessagesPage = lazy(() => import("@/pages/MessagesPage"));
 const JoinWorkspacePage = lazy(() => import("@/pages/JoinWorkspacePage"));
@@ -110,12 +108,12 @@ function AppShell() {
             <Route path="desks" element={<DesksPage />} />
             <Route path="people" element={<PeoplePage />} />
             <Route path="technicians" element={<TechniciansPage />} />
-            <Route path="overview" element={<OverviewPage />} />
+            <Route path="overview" element={<Navigate to="/dashboard" replace />} />
             <Route path="page/:pageId" element={<DynamicTablePage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="announcements" element={<AnnouncementsPage />} />
             <Route path="grok-limit" element={<GrokLimitPage />} />
-            <Route path="grok-limit/apps" element={<GrokAppsPage />} />
+            <Route path="grok-limit/apps" element={<Navigate to="/grok-limit?s=higgsfield" replace />} />
             <Route path="dispatch" element={DISPATCH_ENABLED ? <DispatchPage /> : <Navigate to="/" replace />} />
             <Route path="chat" element={<WorkspaceChatPage />} />
             <Route path="messages" element={<MessagesPage />} />

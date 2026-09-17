@@ -13,7 +13,7 @@ import type { DeskLoad, DeskLoadArchive, StatusOption, SubPage, WorkspacePage } 
  * stored ОС activity outlives the month tab: ОС whose orders left the tab
  * keep their last order day until it's too old to rate by. The first
  * publish of a new month also archives the finished month
- * (deskLoadHistory) for the month-by-month chart on «Общий дашборд».
+ * (deskLoadHistory) for the month-by-month chart on «Дашборд».
  */
 export async function publishDeskLoad(load: Omit<DeskLoad, "updatedAt">) {
   if (!db) return;

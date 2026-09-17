@@ -39,6 +39,11 @@ export function formatResetCountdown(at: number, now: number = Date.now()): stri
   const hours = Math.floor(totalMin / 60);
   const mins = totalMin % 60;
   if (hours <= 0) return `через ${mins}м`;
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    const restHours = hours % 24;
+    return restHours === 0 ? `через ${days}д` : `через ${days}д ${restHours}ч`;
+  }
   if (mins === 0) return `через ${hours}ч`;
   return `через ${hours}ч ${mins}м`;
 }
