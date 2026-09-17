@@ -27,6 +27,7 @@ const GrokLimitPage = lazy(() => import("@/pages/GrokLimitPage"));
 const GrokAppsPage = lazy(() => import("@/pages/GrokAppsPage"));
 const DispatchPage = lazy(() => import("@/pages/DispatchPage"));
 const TechniciansPage = lazy(() => import("@/pages/TechniciansPage"));
+const OverviewPage = lazy(() => import("@/pages/OverviewPage"));
 const WorkspaceChatPage = lazy(() => import("@/pages/WorkspaceChatPage"));
 const MessagesPage = lazy(() => import("@/pages/MessagesPage"));
 const JoinWorkspacePage = lazy(() => import("@/pages/JoinWorkspacePage"));
@@ -109,6 +110,7 @@ function AppShell() {
             <Route path="desks" element={<DesksPage />} />
             <Route path="people" element={<PeoplePage />} />
             <Route path="technicians" element={<TechniciansPage />} />
+            <Route path="overview" element={<OverviewPage />} />
             <Route path="page/:pageId" element={<DynamicTablePage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="announcements" element={<AnnouncementsPage />} />

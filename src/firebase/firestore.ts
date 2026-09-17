@@ -102,6 +102,10 @@ export const paths = {
   deskLoads: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "deskLoad"),
   deskLoad: (workspaceId: string, pageId: string) => doc(requireDb(), "workspaces", workspaceId, "deskLoad", pageId),
 
+  deskLoadHistory: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "deskLoadHistory"),
+  deskLoadHistoryDoc: (workspaceId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "deskLoadHistory", id),
+
   osOrdersAll: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "osOrders"),
   osOrders: (workspaceId: string, id: string) => doc(requireDb(), "workspaces", workspaceId, "osOrders", id),
 

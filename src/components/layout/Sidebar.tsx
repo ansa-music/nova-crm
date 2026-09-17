@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import {
+  ChartNoAxesCombined,
   ChevronLeft,
   ChevronRight,
   HardHat,
@@ -250,6 +251,9 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink collapsed title={homeLabel} to={homeTo} icon={HomeIcon} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                     {homeLabel}
                   </AppNavLink>
+                  <AppNavLink collapsed title="Общий дашборд" to="/overview" icon={ChartNoAxesCombined} onNavigate={onNavigate}>
+                    Общий дашборд
+                  </AppNavLink>
                   {showDeskNav && (
                     <>
                       <AppNavLink collapsed title="Дашборд" to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
@@ -300,6 +304,9 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                 <>
                   <AppNavLink to={homeTo} icon={HomeIcon} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                     {homeLabel}
+                  </AppNavLink>
+                  <AppNavLink to="/overview" icon={ChartNoAxesCombined} onNavigate={onNavigate}>
+                    Общий дашборд
                   </AppNavLink>
                   {showDeskNav && (
                     <>
@@ -354,6 +361,9 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
             <nav className="relative mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
               <AppNavLink to={homeTo} icon={HomeIcon} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                 {homeLabel}
+              </AppNavLink>
+              <AppNavLink to="/overview" icon={ChartNoAxesCombined} onNavigate={onNavigate}>
+                Общий дашборд
               </AppNavLink>
               {showDeskNav && (
                 <>

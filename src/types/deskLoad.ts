@@ -46,9 +46,24 @@ export interface DeskLoad {
    * before letting an ОС rate this desk's Технар (OS_RATING_WINDOW_MS).
    */
   osLastOrderAt?: Record<string, number>;
+  /** Sum of the price column over this month's orders. Absent on docs published before money was counted. */
+  grandTotal?: number;
+  /** Price sums per raw status, like `statusCounts` — «Готово» is derived with the current status labels. */
+  statusSums?: Record<string, number>;
+  /** Orders per day of the month ("01"…"31") by order date, else by creation day. */
+  dayCounts?: Record<string, number>;
+  /** Price sums per day of the month, same days as `dayCounts`. */
+  daySums?: Record<string, number>;
   updatedAt: number;
   updatedBy: string;
 }
+
+/**
+ * A desk's DeskLoad as it last stood in a finished month, archived by
+ * publishDeskLoad when the desk first publishes a new month. Doc id
+ * `${pageId}_${monthKey}`; readable by every member (Общий дашборд).
+ */
+export type DeskLoadArchive = DeskLoad & { archivedAt: number };
 
 /** One of an ОС's orders, as the desk publishes it for that ОС to see. */
 export interface OsOrderItem {

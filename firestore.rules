@@ -640,6 +640,22 @@ service cloud.firestore {
       }
 
       // -----------------------------------------------------------------
+      // Archived month counts («Общий дашборд» → по месяцам): the desk's
+      // DeskLoad as it stood when the desk first published the next month.
+      // Counts and sums only, readable by every member. Written in the same
+      // transaction as that publish, by whoever may edit the desk; the
+      // responsible person isn't checked — it may have changed since.
+      // -----------------------------------------------------------------
+      match /deskLoadHistory/{docId} {
+        allow read: if isMember(workspaceId);
+        allow create, update: if isMember(workspaceId)
+          && request.resource.data.pageId is string
+          && request.resource.data.monthKey is string
+          && docId == request.resource.data.pageId + '_' + request.resource.data.monthKey
+          && canEditPage(workspaceId, deskPageData(workspaceId, request.resource.data.pageId));
+      }
+
+      // -----------------------------------------------------------------
       // ОС order lists («Технари» → «Ваши заказы»): one doc per desk per ОС
       // nick, id "<pageId>_<osValue>", with the titles/statuses/dates of
       // this month's orders that carry that nick. Only that ОС (their
@@ -685,7 +701,8 @@ service cloud.firestore {
       }
 
       match /techRatings/{ratingId} {
-        allow read: if isMember(workspaceId) && myRole(workspaceId) != 'viewer';
+        // Every member: the rating leaderboard on «Общий дашборд» is for everyone.
+        allow read: if isMember(workspaceId);
         allow create: if isMember(workspaceId)
           && hasRole(workspaceId, 'os')
           && request.resource.data.keys().hasOnly(['workspaceId', 'osUid', 'technicianUid', 'stars', 'osValue', 'pageId', 'createdAt', 'updatedAt'])

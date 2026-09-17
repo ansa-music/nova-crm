@@ -1,17 +1,19 @@
-import { getDoc, onSnapshot, runTransaction, type FirestoreError } from "firebase/firestore";
+import { getDoc, onSnapshot, query, runTransaction, where, type FirestoreError } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
 import { currentMonthSubPageId } from "@/services/monthTabService";
 import { fetchSubPageRows } from "@/services/subPageService";
 import { publishOsOrders } from "@/services/osOrdersService";
 import { collectOsOrders, countDeskLoad, deskLoadNeedsPublish, mergeOsLastOrderAt } from "@/utils/techLoad";
-import type { DeskLoad, StatusOption, SubPage, WorkspacePage } from "@/types";
+import type { DeskLoad, DeskLoadArchive, StatusOption, SubPage, WorkspacePage } from "@/types";
 
 /**
  * Overwrites the desk's month counts. Allowed for anyone who can edit the
  * desk's rows (firestore.rules → deskLoad). A transaction, because the
  * stored ОС activity outlives the month tab: ОС whose orders left the tab
- * keep their last order day until it's too old to rate by.
+ * keep their last order day until it's too old to rate by. The first
+ * publish of a new month also archives the finished month
+ * (deskLoadHistory) for the month-by-month chart on «Общий дашборд».
  */
 export async function publishDeskLoad(load: Omit<DeskLoad, "updatedAt">) {
   if (!db) return;
@@ -20,6 +22,14 @@ export async function publishDeskLoad(load: Omit<DeskLoad, "updatedAt">) {
     const snap = await tx.get(ref);
     const previous = snap.exists() ? (snap.data() as Partial<DeskLoad>) : null;
     const now = Date.now();
+    if (previous?.monthKey && previous.monthKey !== load.monthKey) {
+      tx.set(paths.deskLoadHistoryDoc(load.workspaceId, `${load.pageId}_${previous.monthKey}`), {
+        ...previous,
+        pageId: load.pageId,
+        workspaceId: load.workspaceId,
+        archivedAt: now,
+      });
+    }
     tx.set(ref, {
       ...load,
       osCounts: load.osCounts ?? {},
@@ -51,7 +61,7 @@ export async function refreshDeskLoadFromRows(
   ]);
   if (!subSnap.exists()) return;
   const columns = (subSnap.data() as SubPage).columns ?? [];
-  const counts = countDeskLoad(columns, rows, responsibleOptions);
+  const counts = countDeskLoad(columns, rows, responsibleOptions, monthKey);
   const next = { ...counts, subPageId, monthKey };
   if (!deskLoadNeedsPublish(current, next)) return;
   const base = { pageId: page.id, workspaceId: page.workspaceId, responsibleUserId: page.responsibleUserId, updatedBy: uid };
@@ -64,6 +74,24 @@ export async function refreshDeskLoadFromRows(
         console.warn(`Не удалось обновить заказы ОС «${osValue}» на столе ${page.id}:`, error)
       )
     )
+  );
+}
+
+/** Finished months from `fromMonthKey` on — a few docs per desk per month. */
+export function subscribeDeskLoadHistory(
+  workspaceId: string,
+  fromMonthKey: string,
+  onData: (docs: DeskLoadArchive[]) => void,
+  onError?: (error: FirestoreError) => void
+) {
+  if (!db) {
+    onData([]);
+    return () => {};
+  }
+  return onSnapshot(
+    query(paths.deskLoadHistory(workspaceId), where("monthKey", ">=", fromMonthKey)),
+    (snapshot) => onData(snapshot.docs.map((d) => d.data() as DeskLoadArchive)),
+    withErrorReporting(onError)
   );
 }
 

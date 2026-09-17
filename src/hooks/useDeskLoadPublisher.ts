@@ -60,8 +60,8 @@ export function useDeskLoadPublisher({
   const active = isMonthTab && canEdit && !rowsLoading && Boolean(uid);
 
   const counts = useMemo(
-    () => (active && subPage ? countDeskLoad(subPage.columns, rows, responsibleOptions) : null),
-    [active, subPage, rows, responsibleOptions]
+    () => (active && subPage ? countDeskLoad(subPage.columns, rows, responsibleOptions, monthKey) : null),
+    [active, subPage, rows, responsibleOptions, monthKey]
   );
   const osOrders = useMemo(
     () => (active && subPage ? collectOsOrders(subPage.columns, rows, responsibleOptions) : null),
@@ -95,6 +95,10 @@ export function useDeskLoadPublisher({
         osCounts: counts.osCounts,
         osStatusCounts: counts.osStatusCounts,
         osLastOrderAt: counts.osLastOrderAt,
+        grandTotal: counts.grandTotal,
+        statusSums: counts.statusSums,
+        dayCounts: counts.dayCounts,
+        daySums: counts.daySums,
         updatedBy: uid,
       }).catch((error) => {
         lastSignatureRef.current = "";

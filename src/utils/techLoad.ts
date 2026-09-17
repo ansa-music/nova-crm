@@ -1,4 +1,6 @@
 import { isBlankRow } from "@/utils/blankRow";
+import { ymdInTimeZone } from "@/utils/date";
+import { parseLooseNumber } from "@/utils/numberInput";
 import { isDoneStatusLabel, isFreezeStatusLabel } from "@/utils/columnOptions";
 import { findQuickOrderColumns } from "@/utils/quickOrder";
 import type { DeskLoad, OsOrderItem, PageColumn, PageRow, StatusOption, TechLoadKind, Workspace } from "@/types";
@@ -21,7 +23,24 @@ export const OS_RATING_WINDOW_MS = 30 * DAY_MS;
 const OS_ACTIVITY_KEEP_MS = 40 * DAY_MS;
 
 export type DeskLoadCounts = Pick<DeskLoad, "total" | "statusCounts"> &
-  Required<Pick<DeskLoad, "osCounts" | "osStatusCounts" | "osLastOrderAt">>;
+  Required<
+    Pick<DeskLoad, "osCounts" | "osStatusCounts" | "osLastOrderAt" | "grandTotal" | "statusSums" | "dayCounts" | "daySums">
+  >;
+
+function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/** "DD" of the order inside `monthKey` — by the order date column, else the row's creation day; null when neither falls in that month. */
+function orderDayInMonth(cells: PageRow["cells"], dateCol: PageColumn | undefined, row: PageRow, monthKey: string): string | null {
+  const fromDate = dateCol ? Number(cells[dateCol.key]) : NaN;
+  for (const ms of [fromDate, millisOf(row.createdAt)]) {
+    if (!Number.isFinite(ms) || ms <= 0) continue;
+    const ymd = ymdInTimeZone(ms);
+    if (ymd.startsWith(monthKey)) return ymd.slice(8, 10);
+  }
+  return null;
+}
 
 /** «ОС» typed as plain text still counts, matched to the shared list by label. */
 const OS_COLUMN_LABEL = /^(ос|os)$/i;
@@ -74,11 +93,19 @@ function rowOsValues(
 export function countDeskLoad(
   columns: PageColumn[],
   rows: PageRow[],
-  responsibleOptions: StatusOption[] = []
+  responsibleOptions: StatusOption[] = [],
+  /** "YYYY-MM" of the tab — enables the per-day buckets. */
+  monthKey?: string
 ): DeskLoadCounts {
   const statusCol = columns.find((c) => c.type === "status");
+  const priceCol = columns.find((c) => c.type === "currency") ?? columns.find((c) => c.key === "price");
+  const dateCol = columns.find((c) => c.type === "date");
   const osColumns = osColumnsOf(columns);
   const { byValue, byLabel } = osOptionMaps(responsibleOptions);
+  const statusSums: Record<string, number> = {};
+  const dayCounts: Record<string, number> = {};
+  const daySums: Record<string, number> = {};
+  let grandTotal = 0;
   const statusCounts: Record<string, number> = {};
   const osCounts: Record<string, number> = {};
   const osStatusCounts: Record<string, Record<string, number>> = {};
@@ -91,6 +118,18 @@ export function countDeskLoad(
     const raw = statusCol ? String(cells[statusCol.key] ?? "").trim() : "";
     const key = raw || NO_STATUS_KEY;
     statusCounts[key] = (statusCounts[key] ?? 0) + 1;
+    const price = priceCol ? parseLooseNumber(String(cells[priceCol.key] ?? "")) ?? 0 : 0;
+    if (price) {
+      grandTotal += price;
+      statusSums[key] = roundMoney((statusSums[key] ?? 0) + price);
+    }
+    if (monthKey) {
+      const day = orderDayInMonth(cells, dateCol, row, monthKey);
+      if (day) {
+        dayCounts[day] = (dayCounts[day] ?? 0) + 1;
+        if (price) daySums[day] = roundMoney((daySums[day] ?? 0) + price);
+      }
+    }
     if (osColumns.length === 0) continue;
     const touchedDay = Math.floor(Math.max(millisOf(row.createdAt), millisOf(row.updatedAt)) / DAY_MS) * DAY_MS;
     for (const os of rowOsValues(cells, osColumns, byValue, byLabel)) {
@@ -101,7 +140,17 @@ export function countDeskLoad(
       if (touchedDay > 0) osLastOrderAt[os] = Math.max(osLastOrderAt[os] ?? 0, touchedDay);
     }
   }
-  return { total, statusCounts, osCounts, osStatusCounts, osLastOrderAt };
+  return {
+    total,
+    statusCounts,
+    osCounts,
+    osStatusCounts,
+    osLastOrderAt,
+    grandTotal: roundMoney(grandTotal),
+    statusSums,
+    dayCounts,
+    daySums,
+  };
 }
 
 /** Most orders one OsOrders doc carries — a Firestore doc is 1 MiB, an ОС rarely gives more a month. */
@@ -165,6 +214,10 @@ function countsSignature(load: Partial<DeskLoadCounts> & Pick<DeskLoad, "subPage
     sortedEntries(load.statusCounts),
     sortedEntries(load.osCounts),
     sortedEntries(load.osStatusCounts).map(([os, counts]) => [os, sortedEntries(counts)]),
+    load.grandTotal ?? 0,
+    sortedEntries(load.statusSums),
+    sortedEntries(load.dayCounts),
+    sortedEntries(load.daySums),
   ];
 }
 

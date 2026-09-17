@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AtSign, HardHat, LayoutGrid, ListOrdered, Search, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { Link } from "react-router";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
@@ -17,14 +17,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useDeskLoads, useOwnerDeskRecount, useTechRatings } from "@/hooks/useDeskLoads";
 import { usePermissions } from "@/hooks/usePermissions";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
-import { refreshDeskLoadFromRows, subscribeDeskLoads } from "@/services/deskLoadService";
 import { osNickLabel } from "@/services/memberService";
 import { subscribeMyOsOrders } from "@/services/osOrdersService";
-import { currentMonthSubPageId, isMonthlyDesk } from "@/services/monthTabService";
+import { currentMonthSubPageId } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
-import { deleteTechRating, rateTechnician, subscribeTechRatings } from "@/services/techRatingService";
+import { deleteTechRating, rateTechnician } from "@/services/techRatingService";
 import { confirmDialog } from "@/utils/appDialog";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { formatOrderDate, timeAgo } from "@/utils/date";
@@ -45,7 +45,6 @@ import {
 import { cn } from "@/utils/cn";
 import {
   memberHasRole,
-  type DeskLoad,
   type OsOrders,
   type StatusOption,
   type TechRating,
@@ -76,12 +75,6 @@ interface TechnicianRow {
 
 const NO_OPTIONS: StatusOption[] = [];
 
-// Owner-only background recount: each desk's month tab at most this often
-// per page load. Keyed by the tab, so a desk the month autopilot rolls over
-// while this screen is open gets counted right away.
-const REFRESH_EVERY_MS = 5 * 60 * 1000;
-const lastRefreshAt = new Map<string, number>();
-
 function ordersWord(n: number) {
   const mod10 = n % 10;
   const mod100 = n % 100;
@@ -104,10 +97,6 @@ export default function TechniciansPage() {
   const permissions = usePermissions();
   const { profile } = useAuth();
   const monthKey = useCurrentMonthKey();
-  const [loads, setLoads] = useState<DeskLoad[] | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
-  const [ratings, setRatings] = useState<TechRating[] | null>(null);
-  const [ratingsFailed, setRatingsFailed] = useState(false);
   const [osOrderDocs, setOsOrderDocs] = useState<OsOrders[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [view, setView] = useState<View>("techs");
@@ -139,35 +128,11 @@ export default function TechniciansPage() {
     void refreshWorkspaceMembers(activeWorkspaceId).catch(() => undefined);
   }, [activeWorkspaceId, canSee]);
 
-  useEffect(() => {
-    setLoads(null);
-    setLoadFailed(false);
-    if (!activeWorkspaceId || !canSee) return;
-    return subscribeDeskLoads(
-      activeWorkspaceId,
-      (next) => {
-        setLoads(next);
-        setLoadFailed(false);
-      },
-      // A denied read is "unknown", not "everyone is free" — never show
-      // an empty list as if it were real data.
-      () => setLoadFailed(true)
-    );
-  }, [activeWorkspaceId, canSee]);
-
-  useEffect(() => {
-    setRatings(null);
-    setRatingsFailed(false);
-    if (!activeWorkspaceId || !canSee) return;
-    return subscribeTechRatings(
-      activeWorkspaceId,
-      (next) => {
-        setRatings(next);
-        setRatingsFailed(false);
-      },
-      () => setRatingsFailed(true)
-    );
-  }, [activeWorkspaceId, canSee]);
+  // A denied read is "unknown", not "everyone is free" — never show an
+  // empty list as if it were real data (loadFailed/ratingsFailed).
+  const { loads, failed: loadFailed } = useDeskLoads(activeWorkspaceId, canSee);
+  const { ratings, failed: ratingsFailed } = useTechRatings(activeWorkspaceId, canSee);
+  useOwnerDeskRecount(canSee ? loads : null);
 
   const responsibleOptions = activeWorkspace?.responsibleOptions ?? NO_OPTIONS;
   const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
@@ -178,43 +143,6 @@ export default function TechniciansPage() {
     [statusOptions, kinds]
   );
 
-  const loadsRef = useRef<DeskLoad[] | null>(null);
-  loadsRef.current = loads;
-  const loadsReady = loads !== null;
-  const responsibleOptionsRef = useRef(responsibleOptions);
-  responsibleOptionsRef.current = responsibleOptions;
-
-  // Owner can read every desk: recount the month tabs directly so desks
-  // nobody opened lately still show the truth. Everyone else relies on the
-  // counts each desk publishes while its Технар works in it.
-  useEffect(() => {
-    if (!isOwner || !activeWorkspaceId || !uid || !loadsReady) return;
-    const startedAt = Date.now();
-    const desks = pages.filter((p) => {
-      const subPageId = currentMonthSubPageId(p, monthKey);
-      if (!subPageId || !isMonthlyDesk(p, members)) return false;
-      const key = `${p.id}:${subPageId}`;
-      if (startedAt - (lastRefreshAt.get(key) ?? 0) < REFRESH_EVERY_MS) return false;
-      lastRefreshAt.set(key, startedAt);
-      return true;
-    });
-    if (desks.length === 0) return;
-    void (async () => {
-      for (let i = 0; i < desks.length; i += 3) {
-        await Promise.all(
-          desks.slice(i, i + 3).map((desk) =>
-            refreshDeskLoadFromRows(
-              desk,
-              monthKey,
-              uid,
-              loadsRef.current?.find((l) => l.pageId === desk.id),
-              responsibleOptionsRef.current
-            ).catch((error) => console.warn(`Не удалось пересчитать стол ${desk.id}:`, error))
-          )
-        );
-      }
-    })();
-  }, [isOwner, activeWorkspaceId, uid, loadsReady, members, pages, monthKey]);
 
   const myMember = useMemo(() => members.find((m) => m.uid === uid) ?? null, [members, uid]);
   const myOsValue = isOsViewer ? myMember?.osNickValue ?? null : null;
