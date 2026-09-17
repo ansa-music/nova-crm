@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CalendarDays, CheckCheck, ChevronLeft, ChevronRight, Copy, Trash2, X } from "lucide-react";
+import { CalendarDays, CheckCheck, ChevronLeft, ChevronRight, Copy, IdCard, Trash2, X } from "lucide-react";
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { DiskLinkChip } from "@/components/table/DiskLinkChip";
 import { DateCalendar } from "@/components/table/DateCalendar";
@@ -51,6 +51,9 @@ interface RowCardSheetProps {
   onMarkDone?: (rowId: string) => void;
   onDuplicate?: (rowId: string) => void;
   onDelete?: (rowId: string) => void;
+  /** «3 перс · 2 мин» for the row's client card, null when it's empty. */
+  clientCardSummary?: (row: PageRow) => string | null;
+  onOpenClientCard?: (rowId: string) => void;
 }
 
 function isTitleColumn(col: PageColumn) {
@@ -72,6 +75,8 @@ export function RowCardSheet({
   onMarkDone,
   onDuplicate,
   onDelete,
+  clientCardSummary,
+  onOpenClientCard,
 }: RowCardSheetProps) {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -383,6 +388,22 @@ export function RowCardSheet({
                 </div>
               </div>
               <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-4 scrollbar-thin sm:px-6">
+                {onOpenClientCard && (clientCardSummary?.(record) || editable) ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenClientCard(record.id)}
+                    className="mb-4 flex w-full items-center gap-3 rounded-lg border border-primary/30 bg-primary/[0.06] px-3 py-2.5 text-left transition-colors hover:bg-primary/[0.12]"
+                  >
+                    <IdCard className="h-4 w-4 shrink-0 text-primary" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[12px] text-muted-foreground">Визитка клиента</span>
+                      <span className="block truncate text-sm font-medium">
+                        {clientCardSummary?.(record) ?? "Пусто — добавить персов, минуты, пожелания"}
+                      </span>
+                    </span>
+                    <span className="text-xs text-primary">{editable ? "Открыть" : "Смотреть"}</span>
+                  </button>
+                ) : null}
                 {rest.length > 0 && (
                   <div>
                     <p className="eyebrow mb-2">Поля</p>

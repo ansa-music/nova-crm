@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { parseOptionalNumber, type QuickOrderInput } from "@/utils/quickOrder";
@@ -22,6 +23,7 @@ const EMPTY: QuickOrderInput = {
   check: "",
   persons: "",
   minutes: "",
+  note: "",
 };
 
 export function QuickOrderDialog({
@@ -166,6 +168,16 @@ export function QuickOrderDialog({
                 autoComplete="off"
               />
             </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="qo-note">Пожелания</Label>
+            <Textarea
+              id="qo-note"
+              value={form.note}
+              onChange={(e) => setField("note", e.target.value)}
+              rows={2}
+              placeholder="По желанию — попадёт в визитку клиента"
+            />
           </div>
           <DialogFooter className="mt-1">
             <Button type="submit" disabled={!canSave} className="h-9">

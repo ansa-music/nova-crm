@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { memo, useState } from "react";
 import { Copy, GripVertical, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { TableCell } from "@/components/table/TableCell";
-import { formatRowExtrasHint } from "@/utils/quickOrder";
+import { rowExtrasSummary } from "@/utils/rowExtras";
 import { rowCardLayoutId } from "@/components/table/RowCardSheet";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -61,6 +61,10 @@ interface TableRowProps {
   expandedColKey?: string | null;
   gutterWidth?: number;
   extrasHintKey?: string | null;
+  /** Opens «Визитка клиента» for this row (the client column's ID-card button). */
+  onOpenClientCard?: (rowId: string) => void;
+  /** Some row is ticked — keep every checkbox visible so more can be added. */
+  anyChecked?: boolean;
   searchQuery?: string;
   /** Bumped by DataTable when Enter/Space should open the active picker cell. */
   openRequest?: number;
@@ -124,6 +128,8 @@ function TableRowInner({
   expandedColKey,
   gutterWidth = ROW_GUTTER_WIDTH,
   extrasHintKey,
+  onOpenClientCard,
+  anyChecked = false,
   searchQuery = "",
   openRequest,
   accentColor,
@@ -229,9 +235,11 @@ function TableRowInner({
     >
       <td
         onMouseDown={(e) => {
-          // The row menu and the drag grip live in this cell; grabbing them
-          // must not also select the whole row.
-          if ((e.target as HTMLElement | null)?.closest("[data-row-menu], [data-row-drag]")) return;
+          // The row menu, the drag grip and the checkbox live in this cell;
+          // using them must not also select the whole row. The checkbox
+          // especially: selecting the row on mousedown and then toggling it
+          // on click un-ticked it again, so a single row could never be ticked.
+          if ((e.target as HTMLElement | null)?.closest("[data-row-menu], [data-row-drag], [data-row-check]")) return;
           onRowNumberMouseDown(row.id, e);
         }}
         onDoubleClick={() => onExpandRow(row.id)}
@@ -277,13 +285,20 @@ function TableRowInner({
           </button>
           )}
           <Checkbox
+            data-row-check
             checked={isChecked}
+            aria-label={`Выбрать строку ${rowNumber}`}
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
               onToggleChecked(row.id, e.shiftKey);
             }}
-            className={cn("h-4 w-4 max-md:h-5 max-md:w-5", coarsePointer && !isChecked && "hidden", !isChecked && !coarsePointer && "opacity-0 group-hover/row:opacity-100")}
+            className={cn(
+              "h-4 w-4 max-md:h-5 max-md:w-5",
+              coarsePointer && !isChecked && !anyChecked && "hidden",
+              !isChecked && !coarsePointer && !anyChecked && "opacity-0 group-hover/row:opacity-100"
+            )}
           />
           <span className="flex min-w-[1.1rem] items-center justify-center text-[11px]" title={blank ? "Пустая строка — не считается заказом" : undefined}>
             {blank ? <Plus className="h-3 w-3 text-muted-foreground/60" aria-label="Пустая строка" /> : rowNumber}
@@ -332,7 +347,11 @@ function TableRowInner({
             stickyLeft={stickyLeft}
             isLastSticky={column.key === lastStickyKey}
             isExpanded={expandedColKey === column.key}
-            extrasHint={column.key === extrasHintKey ? formatRowExtrasHint(row.extras) : null}
+            clientCard={
+              column.key === extrasHintKey && !blank && onOpenClientCard
+                ? { summary: rowExtrasSummary(row.extras), canEdit, onOpen: () => onOpenClientCard(row.id) }
+                : null
+            }
             coarsePointer={coarsePointer}
             searchQuery={searchQuery}
             openRequest={isActive ? openRequest : undefined}
@@ -383,8 +402,10 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     prev.fillHandleColKey !== next.fillHandleColKey ||
     (prev.fillColKeys?.join(",") ?? "") !== (next.fillColKeys?.join(",") ?? "") ||
     (prev.duplicateColKeys?.join(",") ?? "") !== (next.duplicateColKeys?.join(",") ?? "") ||
+    prev.anyChecked !== next.anyChecked ||
     prev.row.extras?.persons !== next.row.extras?.persons ||
-    prev.row.extras?.minutes !== next.row.extras?.minutes
+    prev.row.extras?.minutes !== next.row.extras?.minutes ||
+    prev.row.extras?.note !== next.row.extras?.note
   ) {
     return false;
   }

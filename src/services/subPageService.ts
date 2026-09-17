@@ -12,6 +12,7 @@ import {
 import { db } from "@/firebase/firebase";
 import { paths, subscribe, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
+import { hasRowExtras } from "@/utils/rowExtras";
 import { ymdPartsInTimeZone } from "@/utils/date";
 import { ROW_REORDER_CHUNK, stripUndefined } from "@/services/pageService";
 import type { PageColumn, PageIconName, PageRow, StatusOption, SubPage } from "@/types";
@@ -320,7 +321,7 @@ export async function addSubPageRow(
   if (!db) throw new Error("Firebase не настроен");
   const id = generateId("row");
   const row: PageRow = { id, pageId: subPageId, cells, order, createdAt: Date.now(), updatedAt: Date.now() };
-  if (extras && (extras.persons != null || extras.minutes != null)) row.extras = extras;
+  if (hasRowExtras(extras)) row.extras = extras;
   await setDoc(paths.subPageRow(workspaceId, pageId, subPageId, id), row);
   mirrorUpsertRow(workspaceId, pageId, subPageId, row);
   return row;

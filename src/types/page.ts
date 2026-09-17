@@ -180,10 +180,14 @@ export interface PageRow {
   height?: number;
   createdAt: number;
   updatedAt: number;
-  /** Optional extras that are not table columns (quick order persons/minutes). */
+  /**
+   * «Визитка клиента» — optional details that aren't table columns: how
+   * many characters, how many minutes, free-form wishes. See utils/rowExtras.
+   */
   extras?: {
     persons?: number | null;
     minutes?: number | null;
+    note?: string | null;
   };
 }
 

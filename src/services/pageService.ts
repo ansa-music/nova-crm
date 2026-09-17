@@ -15,6 +15,7 @@ import {
 import { db } from "@/firebase/firebase";
 import { paths, subscribe, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
+import { hasRowExtras } from "@/utils/rowExtras";
 import { logChange } from "@/services/historyService";
 import type { PageColumn, PageIconName, PageRow, Role, StatusOption, WorkspacePage } from "@/types";
 import {
@@ -819,7 +820,7 @@ export async function addRow(
   if (!db) throw new Error("Firebase не настроен");
   const id = generateId("row");
   const row: PageRow = { id, pageId, cells, order, createdAt: Date.now(), updatedAt: Date.now() };
-  if (extras && (extras.persons != null || extras.minutes != null)) row.extras = extras;
+  if (hasRowExtras(extras)) row.extras = extras;
   await setDoc(paths.row(workspaceId, pageId, id), row);
   mirrorUpsertRow(workspaceId, pageId, null, row);
   return row;

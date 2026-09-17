@@ -39,7 +39,7 @@ import { TableRow } from "@/components/table/TableRow";
 import { GroupHeaderRow } from "@/components/table/GroupHeaderRow";
 import { TableToolbar } from "@/components/table/TableToolbar";
 import { QuickOrderDialog } from "@/components/table/QuickOrderDialog";
-import { buildQuickOrderRow, findQuickOrderColumns, type QuickOrderInput } from "@/utils/quickOrder";
+import { buildQuickOrderRow, findQuickOrderColumns, parseOptionalNumber, type QuickOrderInput } from "@/utils/quickOrder";
 import {
   captureTableView,
   loadSavedTableViews,
@@ -102,6 +102,8 @@ import { ManageOptionsDialog } from "@/components/table/ManageOptionsDialog";
 import { TableSchemaEditor } from "@/components/table/TableSchemaEditor";
 import { RowCommentsPanel } from "@/components/chat/RowCommentsPanel";
 import { RowCardSheet } from "@/components/table/RowCardSheet";
+import { ClientCardDialog } from "@/components/table/ClientCardDialog";
+import { hasRowExtras, rowExtrasSummary, type RowExtras } from "@/utils/rowExtras";
 import { BulkActionBar } from "@/components/table/BulkActionBar";
 import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
 import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
@@ -417,6 +419,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   });
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [quickOrderOpen, setQuickOrderOpen] = useState(false);
+  const [clientCardRowId, setClientCardRowId] = useState<string | null>(null);
   const [quickOrderStatus, setQuickOrderStatus] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   // Row ids in the order of a drop that's still being written.
@@ -726,7 +729,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // value being committed right now (`edit`).
   function isBlankRowNow(row: PageRow, edit?: { colKey: string; value: string }): boolean {
     if (row.attachments && row.attachments.length > 0) return false;
-    if (row.extras && (row.extras.persons != null || row.extras.minutes != null)) return false;
+    if (hasRowExtras(row.extras)) return false;
     const keys = new Set([...Object.keys(row.cells ?? {}), ...columns.map((c) => c.key)]);
     for (const key of keys) {
       const value = edit && edit.colKey === key ? edit.value : pendingWrites.resolve(row.id, key, row.cells?.[key] ?? null);
@@ -1769,7 +1772,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       if (e.isComposing || e.key === "Process") return;
       // The row card owns the keyboard while it's open (←/→ navigate rows,
       // Esc closes) — grid shortcuts must not fire underneath it.
-      if (expandedRowId) return;
+      if (expandedRowId || clientCardRowId) return;
       if (e.key === "Escape" && !editingCellRef.current) {
         const pop = document.querySelector("[data-radix-popper-content-wrapper], [role=listbox], [data-radix-select-content]");
         if (pop) return;
@@ -2286,6 +2289,56 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   function handleContextMenuOpen(rowId: string) {
     contextRowIdRef.current = rowId;
+  }
+
+  const clientCardRow = clientCardRowId ? (rows.find((r) => r.id === clientCardRowId) ?? null) : null;
+
+  function numberCell(row: PageRow, colKey: string | undefined) {
+    if (!colKey) return null;
+    const raw = row.cells[colKey];
+    return raw === null || raw === undefined || raw === "" ? null : parseOptionalNumber(String(raw));
+  }
+
+  /**
+   * Saves «Визитка клиента». Desks that also keep «Перс»/«Минуты» as columns
+   * get the same numbers there, in the same write, with one undo step.
+   */
+  async function saveClientCard(rowId: string, next: RowExtras | null) {
+    const row = rows.find((r) => r.id === rowId);
+    if (!row || !canEdit) return;
+    const before: RowExtras | null = hasRowExtras(row.extras)
+      ? { persons: row.extras?.persons ?? null, minutes: row.extras?.minutes ?? null, note: row.extras?.note ?? null }
+      : null;
+    // Whole map with explicit nulls: a merge write would otherwise keep a
+    // field the person just cleared.
+    const written: RowExtras | null = next
+      ? { persons: next.persons ?? null, minutes: next.minutes ?? null, note: next.note ?? null }
+      : null;
+    const patch: Record<string, string | number | null> = {};
+    const oldPatch: Record<string, string | number | null> = {};
+    for (const [col, value] of [
+      [quickOrderCols.persons, next?.persons ?? null],
+      [quickOrderCols.minutes, next?.minutes ?? null],
+    ] as const) {
+      if (!col) continue;
+      const old = row.cells[col.key] ?? "";
+      if (String(old) === String(value ?? "")) continue;
+      patch[col.key] = value ?? "";
+      oldPatch[col.key] = old;
+    }
+    try {
+      await fillRowService(workspaceId, page.id, rowId, patch, written);
+      pushCommand({
+        undo: () => fillRowService(workspaceId, page.id, rowId, oldPatch, before),
+        redo: () => fillRowService(workspaceId, page.id, rowId, patch, written),
+      });
+      toast.success(written ? "Визитка сохранена" : "Визитка очищена", {
+        description: rowExtrasSummary(written) ?? undefined,
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить визитку");
+      throw error;
+    }
   }
 
   async function handleDuplicateRowById(rowId: string | null | undefined) {
@@ -3028,6 +3081,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         isExpanded={expandedRowId === row.id}
         coarsePointer={coarsePointer}
         extrasHintKey={extrasHintKey}
+        onOpenClientCard={setClientCardRowId}
+        anyChecked={selectedRowIds.size > 0}
         statusTint={
           (() => {
             const statusCol = displayColumns.find((c) => c.type === "status");
@@ -3699,6 +3754,28 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onMarkDone={kanbanStatusColumn ? markRowDone : undefined}
         onDuplicate={(id) => void handleDuplicateRowById(id)}
         onDelete={(id) => void handleDeleteRowById(id)}
+        clientCardSummary={(row) => rowExtrasSummary(row.extras)}
+        onOpenClientCard={extrasHintKey ? setClientCardRowId : undefined}
+      />
+
+      <ClientCardDialog
+        open={Boolean(clientCardRow)}
+        onOpenChange={(o) => {
+          if (!o) setClientCardRowId(null);
+        }}
+        clientName={clientCardRow && quickOrderCols.client ? String(clientCardRow.cells[quickOrderCols.client.key] ?? "") : ""}
+        subtitle={clientCardRow && quickOrderCols.number ? String(clientCardRow.cells[quickOrderCols.number.key] ?? "") || null : null}
+        initial={
+          clientCardRow
+            ? {
+                persons: clientCardRow.extras?.persons ?? numberCell(clientCardRow, quickOrderCols.persons?.key),
+                minutes: clientCardRow.extras?.minutes ?? numberCell(clientCardRow, quickOrderCols.minutes?.key),
+                note: clientCardRow.extras?.note ?? null,
+              }
+            : {}
+        }
+        canEdit={canEdit}
+        onSave={(next) => (clientCardRowId ? saveClientCard(clientCardRowId, next) : Promise.resolve())}
       />
 
       <QuickOrderDialog

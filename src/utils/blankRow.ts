@@ -1,4 +1,5 @@
 import type { PageRow } from "@/types";
+import { hasRowExtras } from "@/utils/rowExtras";
 
 export function isFilledCellValue(value: unknown): boolean {
   if (value === null || value === undefined) return false;
@@ -13,7 +14,7 @@ export function isFilledCellValue(value: unknown): boolean {
  */
 export function isBlankRow(row: Pick<PageRow, "cells"> & Partial<Pick<PageRow, "attachments" | "extras">>): boolean {
   if (row.attachments && row.attachments.length > 0) return false;
-  if (row.extras && (row.extras.persons != null || row.extras.minutes != null)) return false;
+  if (hasRowExtras(row.extras)) return false;
   const cells = row.cells ?? {};
   for (const key in cells) {
     if (isFilledCellValue(cells[key])) return false;

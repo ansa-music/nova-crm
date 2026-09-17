@@ -1,4 +1,5 @@
 import { parseLooseNumber } from "@/utils/numberInput";
+import { normalizeRowExtras } from "@/utils/rowExtras";
 import type { PageColumn, PageRow } from "@/types";
 
 export type QuickOrderInput = {
@@ -8,6 +9,8 @@ export type QuickOrderInput = {
   check: string;
   persons: string;
   minutes: string;
+  /** Free-form wishes for the client card. */
+  note: string;
 };
 
 function normLabel(label: string) {
@@ -68,22 +71,11 @@ export function buildQuickOrderRow(
   if (cols.persons && persons != null) cells[cols.persons.key] = persons;
   if (cols.minutes && minutes != null) cells[cols.minutes.key] = minutes;
 
-  const extras: NonNullable<PageRow["extras"]> = {};
-  if (persons != null) extras.persons = persons;
-  if (minutes != null) extras.minutes = minutes;
-  const hasExtras = extras.persons != null || extras.minutes != null;
+  const extras = normalizeRowExtras({ persons, minutes, note: input.note });
 
   return {
     cells,
-    extras: hasExtras ? extras : undefined,
+    extras: extras ?? undefined,
     nameKey: cols.client?.key ?? null,
   };
-}
-
-export function formatRowExtrasHint(extras?: PageRow["extras"] | null): string | null {
-  if (!extras) return null;
-  const parts: string[] = [];
-  if (extras.persons != null) parts.push(`${extras.persons} перс`);
-  if (extras.minutes != null) parts.push(`${extras.minutes} мин`);
-  return parts.length ? parts.join(" · ") : null;
 }

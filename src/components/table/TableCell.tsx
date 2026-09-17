@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CalendarDays, CopyCheck, Mail, Phone } from "lucide-react";
+import { CalendarDays, CopyCheck, IdCard, Mail, Phone } from "lucide-react";
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { HighlightText } from "@/components/table/HighlightText";
 import { DiskLinkChip } from "@/components/table/DiskLinkChip";
 import { DateCalendar } from "@/components/table/DateCalendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatCurrencyCell, formatNumber } from "@/utils/format";
 import { formatOrderDate } from "@/utils/date";
 import { isOptionColumn } from "@/utils/columnOptions";
@@ -36,7 +35,8 @@ interface TableCellProps {
   isLastSticky?: boolean;
   isExpanded?: boolean;
   trailing?: ReactNode;
-  extrasHint?: string | null;
+  /** «Визитка клиента» button in the client column; summary is null while the card is empty. */
+  clientCard?: { summary: string | null; canEdit: boolean; onOpen: () => void } | null;
   coarsePointer?: boolean;
   /** Current table search — matching substrings get highlighted. */
   searchQuery?: string;
@@ -87,7 +87,7 @@ export function TableCell({
   isLastSticky,
   isExpanded,
   trailing,
-  extrasHint,
+  clientCard,
   coarsePointer,
   searchQuery = "",
   openRequest,
@@ -102,22 +102,6 @@ export function TableCell({
   const tdRef = useRef<HTMLTableCellElement>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [hintOpen, setHintOpen] = useState(false);
-  const longPressRef = useRef<number | null>(null);
-  const lastTapRef = useRef(0);
-  const suppressEditRef = useRef(false);
-
-  // The long-press timer (armed on touch pointerdown, see onPointerDown
-  // below) is cleared on pointerup/pointercancel, but a cell can also
-  // disappear mid-touch without either of those firing — scrolled out by
-  // virtualization, or removed by a filter/sort/tab switch while a finger
-  // is still down. Without this, the timeout still fires 450ms later and
-  // calls setState on an unmounted component.
-  useEffect(() => {
-    return () => {
-      if (longPressRef.current) window.clearTimeout(longPressRef.current);
-    };
-  }, []);
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
@@ -138,10 +122,6 @@ export function TableCell({
   useEffect(() => {
     if (!isActive) setExpanded(false);
   }, [isActive]);
-
-  useEffect(() => {
-    if (isEditing) setHintOpen(false);
-  }, [isEditing]);
 
   // Keyboard "open picker": DataTable bumps `openRequest` on Enter/Space for
   // the active status/date cell. Radix Select opens on click when its
@@ -320,52 +300,14 @@ export function TableCell({
       }}
       onMouseDown={onMouseDown}
       onClick={onClick}
-      onMouseEnter={() => {
-        onMouseEnter();
-        if (extrasHint && !coarsePointer && !isEditing) setHintOpen(true);
-      }}
-      onMouseLeave={() => {
-        if (!coarsePointer) setHintOpen(false);
-      }}
+      onMouseEnter={onMouseEnter}
       onPointerDown={(e) => {
         // Radix Select cancels the mouse pointerdown on its trigger, so the
         // browser never sends mousedown and the cell was never selected —
         // arrows then started from the previously selected cell.
         if (e.pointerType === "mouse" && isOptionColumn(column.type)) onMouseDown(e);
-        if (!extrasHint || isEditing || e.pointerType !== "touch") return;
-        if (longPressRef.current) window.clearTimeout(longPressRef.current);
-        longPressRef.current = window.setTimeout(() => {
-          setHintOpen(true);
-          suppressEditRef.current = true;
-        }, 450);
       }}
-      onPointerUp={(e) => {
-        if (longPressRef.current) {
-          window.clearTimeout(longPressRef.current);
-          longPressRef.current = null;
-        }
-        if (!extrasHint || isEditing || e.pointerType !== "touch") return;
-        const now = Date.now();
-        const gap = now - lastTapRef.current;
-        lastTapRef.current = now;
-        if (gap > 320 && gap < 900) {
-          setHintOpen((v) => !v);
-          suppressEditRef.current = true;
-        }
-      }}
-      onPointerCancel={() => {
-        if (longPressRef.current) {
-          window.clearTimeout(longPressRef.current);
-          longPressRef.current = null;
-        }
-      }}
-      onDoubleClick={() => {
-        if (suppressEditRef.current) {
-          suppressEditRef.current = false;
-          return;
-        }
-        onStartEdit();
-      }}
+      onDoubleClick={onStartEdit}
       data-col={column.key}
     >
       {isOptionColumn(column.type) ? (
@@ -516,7 +458,7 @@ export function TableCell({
             isNumeric && "justify-end tabular-nums",
             showFull && "absolute inset-0 z-30 items-start bg-card py-1.5 shadow-md"
           )}
-          title={extrasHint ? undefined : column.type === "url" ? (diskUrl?.href ?? "") : stringValue}
+          title={column.type === "url" ? (diskUrl?.href ?? "") : stringValue}
           onClick={() => {
             // An editor opens the full text in the input on this same click
             // (DataTable.handleCellClick); only read-only viewers expand.
@@ -531,22 +473,38 @@ export function TableCell({
           ) : (
             renderDisplay()
           )}
+          {clientCard && !showFull && (clientCard.summary || clientCard.canEdit) ? (
+            <button
+              type="button"
+              data-client-card
+              className={cn(
+                "ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border pl-1.5 pr-2 text-[10px] font-medium tabular-nums transition-colors",
+                coarsePointer ? "h-8" : "h-6",
+                clientCard.summary
+                  ? "border-primary/45 bg-primary/12 text-primary hover:bg-primary/20"
+                  : cn(
+                      coarsePointer ? "w-8" : "w-6",
+                      "justify-center border-dashed border-border px-0 text-muted-foreground hover:border-primary/50 hover:text-primary",
+                      "opacity-50 group-hover/row:opacity-100 focus-visible:opacity-100"
+                    )
+              )}
+              title={clientCard.summary ? `Визитка клиента: ${clientCard.summary}` : "Визитка клиента — персы, минуты, пожелания"}
+              aria-label="Визитка клиента"
+              onMouseDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                clientCard.onOpen();
+              }}
+            >
+              <IdCard className="h-3.5 w-3.5 shrink-0" />
+              {clientCard.summary ? <span className="max-w-[7.5rem] truncate">{clientCard.summary}</span> : null}
+            </button>
+          ) : null}
         </div>
       )}
       {trailing}
-      {extrasHint && !isEditing && (
-        <Tooltip open={hintOpen} delayDuration={120}>
-          <TooltipTrigger asChild>
-            <span className="pointer-events-none absolute inset-0" aria-hidden />
-          </TooltipTrigger>
-          <TooltipContent
-            side="top"
-            className="hud-frame border border-primary/30 bg-card px-2 py-1 text-[11px] tabular-nums text-foreground"
-          >
-            {extrasHint}
-          </TooltipContent>
-        </Tooltip>
-      )}
       {showFillHandle && canEdit && !isEditing && onFillStart && (
         <span
           className="table-fill-handle"
