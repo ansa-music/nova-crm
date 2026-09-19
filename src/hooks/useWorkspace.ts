@@ -6,7 +6,7 @@ import { subscribeToPages } from "@/services/pageService";
 import { useAuthStore } from "@/store/authStore";
 import { useBootstrapStore } from "@/store/bootstrapStore";
 import { useWorkspaceStore } from "@/store/workspaceStore";
-import type { WorkspacePage } from "@/types";
+import type { WorkspaceMember, WorkspacePage } from "@/types";
 
 /** Subscribes to the list of workspaces the current user belongs to. Call once near the app root. */
 export function useWorkspaceListBootstrap() {
@@ -56,6 +56,27 @@ export function useWorkspaceListBootstrap() {
   }, [uid, profileResolved]);
 }
 
+/**
+ * What the members bootstrap last saw from each of its two sources: the
+ * one-shot roster read and the live own-member doc. It lives OUTSIDE the
+ * effect so refreshWorkspaceMembers() can write the refreshed roster into the
+ * same cell.
+ *
+ * It used to be two `let`s inside the effect, and publishMembers() re-emitted
+ * them on every own-member snapshot. The presence heartbeat (authService
+ * rewrites lastActiveAt on your own member doc) fires that snapshot on a
+ * timer, so any roster change made after page load — unpinning someone's ОС
+ * nick, a role change, a removal — was published once by
+ * refreshWorkspaceMembers and then overwritten by the roster captured at load,
+ * within seconds and with no action from the user. For the ОС nick that reads
+ * as "открепил, а ник вернулся": the Firestore write did land.
+ */
+const membersCache: {
+  workspaceId: string | null;
+  roster: WorkspaceMember[];
+  ownMember: WorkspaceMember | null;
+} = { workspaceId: null, roster: [], ownMember: null };
+
 /** Subscribes to members + pages of whichever workspace is currently active. Call once in the app layout. */
 export function useActiveWorkspaceDataBootstrap() {
   const uid = useAuthStore((s) => s.firebaseUser?.uid);
@@ -82,6 +103,9 @@ export function useActiveWorkspaceDataBootstrap() {
     const generation = ++generationRef.current;
 
     if (!isConfirmedActive || !activeWorkspaceId) {
+      membersCache.workspaceId = null;
+      membersCache.roster = [];
+      membersCache.ownMember = null;
       setMembers([]);
       setPages([]);
       setMembersLoadState("loading");
@@ -124,14 +148,15 @@ export function useActiveWorkspaceDataBootstrap() {
 
     // Full roster is a one-shot read (presence lastActiveAt lives on these docs).
     // Live listener is only the current user's member doc — needed for access/role.
-    let roster: import("@/types").WorkspaceMember[] = [];
-    let ownMember: import("@/types").WorkspaceMember | null = null;
+    membersCache.workspaceId = activeWorkspaceId;
+    membersCache.roster = [];
+    membersCache.ownMember = null;
     // Membership positively CONFIRMED by either source. Once true, a later
     // listener error must not drag the state back to "unconfirmed" — for a
     // non-owner that would switch every capability in usePermissions off.
     let membersConfirmed = false;
     function publishMembers() {
-      setMembers(mergeOwnMember(roster, ownMember));
+      setMembers(mergeOwnMember(membersCache.roster, membersCache.ownMember));
     }
     function confirmMembers() {
       membersConfirmed = true;
@@ -143,7 +168,7 @@ export function useActiveWorkspaceDataBootstrap() {
     void fetchMembers(activeWorkspaceId)
       .then((list) => {
         if (generation !== generationRef.current) return;
-        roster = list;
+        membersCache.roster = list;
         publishMembers();
         // The roster read is independent proof of membership: its Firestore
         // rule requires isMember(workspaceId), so a successful list that
@@ -166,7 +191,7 @@ export function useActiveWorkspaceDataBootstrap() {
           uid,
           (own) => {
             if (generation !== generationRef.current) return;
-            ownMember = own;
+            membersCache.ownMember = own;
             publishMembers();
             confirmMembers();
           },
@@ -269,10 +294,23 @@ export function useWorkspace() {
 
 export async function refreshWorkspaceMembers(workspaceId: string) {
   const list = await fetchMembers(workspaceId);
+  // Feed the bootstrap's cache too, or the next own-member snapshot (the
+  // presence heartbeat alone fires one every few minutes) republishes the
+  // roster from page load and undoes this refresh.
+  if (membersCache.workspaceId === workspaceId) membersCache.roster = list;
   const uid = useAuthStore.getState().firebaseUser?.uid;
   const email = useAuthStore.getState().profile?.email;
+  // The freshly read list wins — that is the entire point of a refresh. This
+  // used to consult the store FIRST, and since mergeOwnMember spreads `own`
+  // over the matching row, the stale copy overwrote the very fields the
+  // caller had just changed. Deleted fields were the worst case: the fresh
+  // row simply has no `osNick` key, so the stale spread put it straight back
+  // and unpinning your own ОС nick never appeared to work at all.
+  // The live own-member doc is the fallback, for a roster read that cannot
+  // see the caller's own row; the store is the last resort.
   const own =
-    findOwnMembership(useWorkspaceStore.getState().members, uid, email) ??
-    findOwnMembership(list, uid, email);
+    findOwnMembership(list, uid, email) ??
+    membersCache.ownMember ??
+    findOwnMembership(useWorkspaceStore.getState().members, uid, email);
   useWorkspaceStore.getState().setMembers(mergeOwnMember(list, own));
 }
