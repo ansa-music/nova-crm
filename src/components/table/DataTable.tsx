@@ -50,15 +50,12 @@ import { KanbanView } from "@/components/table/KanbanView";
 import { TablePagination } from "@/components/table/TablePagination";
 import { FilterPopover, type FilterValueEntry } from "@/components/table/FilterPopover";
 import { ActiveFiltersBar, type ActiveFilterChip } from "@/components/table/ActiveFiltersBar";
-import { FooterAggregateCell } from "@/components/table/FooterAggregateCell";
 import type { BulkOptionColumn } from "@/components/table/BulkActionBar";
 import {
-  aggregateKindsForColumn,
   computeAggregate,
   defaultAggregateFor,
   loadColumnAggregates,
   summarizeSelection,
-  writeColumnAggregates,
   type AggregateKind,
 } from "@/utils/columnAggregates";
 import { normalizeNumericInput, parseLooseNumber } from "@/utils/numberInput";
@@ -440,7 +437,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const [openRequest, setOpenRequest] = useState(0);
   // Bumped by Ctrl+F so the toolbar search grabs focus.
   const [focusSearchToken, setFocusSearchToken] = useState(0);
-  // Per-view footer summary choice (Сумма / Среднее / Заполнено / …).
+  // Выбор сводки по столбцу больше не меняется из интерфейса: строку
+  // «Итого» под таблицей убрали, она дублировала «Общий»/«Готово» в нижней
+  // плашке. Уже сохранённый выбор продолжаем читать — он питает подсказку
+  // в шапке столбца (`hint`), а не отдельную строку.
+  // Сеттер остаётся: при переключении вкладки/вида сводки перечитываются
+  // из localStorage (эффект сброса ниже), иначе на новом виде показывалась
+  // бы настройка предыдущего.
   const [columnAggregates, setColumnAggregates] = useState<Record<string, AggregateKind>>(() =>
     loadColumnAggregates(tableViewKey)
   );
@@ -2785,18 +2788,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   const footerStatusColumn = columns.find((c) => c.type === "status") ?? null;
 
-  function aggregateKindFor(column: (typeof columns)[number]): AggregateKind {
-    return columnAggregates[column.key] ?? defaultAggregateFor(column.type);
-  }
-
-  function setAggregateKind(colKey: string, kind: AggregateKind) {
-    setColumnAggregates((prev) => {
-      const next = { ...prev, [colKey]: kind };
-      writeColumnAggregates(tableViewKey, next);
-      return next;
-    });
-  }
-
   const footerAggregates = useMemo(() => {
     const out: Record<string, ReturnType<typeof computeAggregate>> = {};
     for (const column of displayColumns) {
@@ -3514,45 +3505,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                 </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>
-            {processedRows.length > 0 && (
-              <tfoot className="sticky bottom-0 z-[25] overflow-visible">
-                <tr className="border-t border-border/70 bg-background">
-                  <td
-                    className="table-sticky-col sticky left-0 z-30 border-r border-border/50 bg-background px-1 py-2 text-center font-mono text-[11px] tabular text-muted-foreground"
-                    style={{ width: gutterWidth, minWidth: gutterWidth }}
-                    title="Заказов в фильтре (пустые строки не считаются)"
-                  >
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span>{filledProcessedRows.length}</span>
-                      {selectionStats && selectionStats.count > 0 && (
-                        <span className="text-[10px] text-primary" title={`Выделено ${selectionStats.cells} яч. · сумма ${formatNumber(selectionStats.sum)} · среднее ${formatNumber(Math.round(selectionStats.avg * 100) / 100)}`}>
-                          Σ {formatNumber(selectionStats.sum)}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  {displayColumns.map((column) => {
-                    const stickyLeft = stickyKeys.includes(column.key)
-                      ? gutterWidth +
-                        pinnedOrder.slice(0, pinnedOrder.findIndex((c) => c.key === column.key)).reduce((sum, c) => sum + c.width, 0)
-                      : undefined;
-                    return (
-                      <FooterAggregateCell
-                        key={`total-${column.id}`}
-                        column={column}
-                        kind={aggregateKindFor(column)}
-                        result={footerAggregates[column.key] ?? null}
-                        choices={aggregateKindsForColumn(column.type, Boolean(footerStatusColumn))}
-                        onChange={(kind) => setAggregateKind(column.key, kind)}
-                        stickyLeft={stickyLeft}
-                        isLastSticky={pinnedOrder.length > 0 && column.key === pinnedOrder[pinnedOrder.length - 1].key}
-                        isFirst={column.key === displayColumns[0]?.key}
-                      />
-                    );
-                  })}
-                </tr>
-              </tfoot>
-            )}
           </table>
 
           {filterPopover && (() => {
@@ -3652,17 +3604,35 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         />
       )}
 
-      {grandTotals && (
+      {(grandTotals || (selectionStats && selectionStats.count > 0)) && (
         <div className="table-totals-bar z-20">
           <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
-            <p className="flex min-w-0 items-baseline gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Общий</span>
-              <span className="table-totals-sum text-foreground">{formatCurrency(grandTotals.sum)}</span>
-            </p>
-            <p className="flex min-w-0 items-baseline gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-success">Готово</span>
-              <span className="table-totals-sum text-success">{formatCurrency(grandTotals.done)}</span>
-            </p>
+            {grandTotals && (
+              <>
+                <p className="flex min-w-0 items-baseline gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Общий</span>
+                  <span className="table-totals-sum text-foreground">{formatCurrency(grandTotals.sum)}</span>
+                </p>
+                <p className="flex min-w-0 items-baseline gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-success">Готово</span>
+                  <span className="table-totals-sum text-success">{formatCurrency(grandTotals.done)}</span>
+                </p>
+              </>
+            )}
+            {/* Сумма выделенного жила в строке «Итого» и уехала бы вместе с
+                ней. Внизу ей и место: это единственное число на экране,
+                которое отвечает на «сколько вот в этих ячейках», и ниже
+                оно не дублирует ни «Общий», ни «Готово». */}
+            {selectionStats && selectionStats.count > 0 && (
+              <p
+                className="flex min-w-0 items-baseline gap-2"
+                title={`Выделено ${selectionStats.cells} яч. · среднее ${formatNumber(Math.round(selectionStats.avg * 100) / 100)}`}
+              >
+                <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">Выделено</span>
+                <span className="table-totals-sum text-primary">{formatNumber(selectionStats.sum)}</span>
+                <span className="text-[11px] text-muted-foreground">· {selectionStats.count} знач.</span>
+              </p>
+            )}
           </div>
         </div>
       )}
