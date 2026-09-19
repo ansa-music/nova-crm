@@ -157,6 +157,9 @@ export function TechnicianCard({
   const name = personLabel(member) || member.email || "—";
   const noDesk = desks.length === 0;
   const counted = updatedAt > 0;
+  const filledMetrics = METRICS.filter(
+    (metric) => (showPayment || metric.key !== "payment") && summary[metric.key] > 0
+  );
 
   async function handleRate(stars: number) {
     if (!onRate || saving !== null) return;
@@ -222,7 +225,6 @@ export function TechnicianCard({
                   </span>
                 ))}
           </p>
-          <RatingScorePair className="mt-2" overall={rating} orders={orderRating} />
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -239,53 +241,67 @@ export function TechnicianCard({
               Свободен
             </span>
           )}
-          <p className="text-right leading-none">
+          <p className={cn("text-right leading-none", summary.total === 0 && "text-muted-foreground/60")}>
             <span className="font-mono text-xl tabular-nums">{summary.total}</span>
             <span className="ml-1 text-[10px] text-muted-foreground">{ordersWord(summary.total)}</span>
           </p>
         </div>
       </header>
 
-      <div className={cn("grid px-4", showPayment ? "grid-cols-5 gap-1" : "grid-cols-4 gap-1.5")}>
-        {METRICS.filter((metric) => showPayment || metric.key !== "payment").map((metric) => {
-          const value = summary[metric.key];
-          return (
+      {/* Рейтинг во всю ширину карточки, а не в узкой колонке шапки: там
+          он был зажат между именем и бейджем статуса и обрезался до
+          «По за…», то есть шкала переставала читаться вообще. */}
+      <RatingScorePair className="px-4 pb-3" overall={rating} orders={orderRating} />
+
+      {/* Плитки только когда есть что показывать. Пять нулей подряд — это
+          не информация, а шум: строка «заказов нет» ниже говорит ровно то
+          же одним предложением. */}
+      {/* Только непустые плитки. Фиксированная сетка из пяти ячеек при одном
+          заполненном статусе давала «0 0 0 0 4» — четыре нуля, чтобы
+          сообщить одно число. Разбивка по статусам всё равно ниже, чипами. */}
+      {filledMetrics.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-4">
+          {filledMetrics.map((metric) => (
             <div
               key={metric.key}
               className={cn(
-                "flex min-w-0 flex-col items-center rounded-lg border border-border/60 bg-background/40 px-0.5 py-1.5 text-center",
-                value > 0 && metric.box
+                // flex-1 без потолка растягивал одинокую плитку во всю
+                // ширину карточки — число 4 посреди пустого прямоугольника.
+                // Потолок держит плитку плиткой при любом их количестве.
+                "flex min-w-[58px] max-w-[104px] flex-1 flex-col items-center rounded-lg border border-border/60 bg-background/40 px-1 py-1.5 text-center",
+                metric.box
               )}
             >
-              <p className={cn("font-mono text-lg leading-none tabular-nums", value > 0 ? metric.tone : "text-muted-foreground/50")}>
-                {value}
-              </p>
-              <p
-                className={cn(
-                  "mt-1 flex min-h-[1.5rem] w-full items-start justify-center break-words leading-3",
-                  showPayment ? "text-[9.5px]" : "text-[10px]",
-                  value > 0 && metric.box ? metric.tone : "text-muted-foreground"
-                )}
-              >
+              <p className={cn("font-mono text-lg leading-none tabular-nums", metric.tone)}>{summary[metric.key]}</p>
+              <p className={cn("mt-1 break-words text-[10px] leading-3", metric.box ? metric.tone : "text-muted-foreground")}>
                 {metric.label}
               </p>
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
 
-      <div className="flex flex-col gap-2 px-4 pt-3">
-        {summary.total > 0 ? (
-          <>
-            <StatusBar items={breakdown} total={summary.total} />
-            <StatusChips items={breakdown} />
-          </>
-        ) : (
-          <p className="text-[12px] text-muted-foreground">
+      {summary.total > 0 && (
+        <div className="flex flex-col gap-2 px-4 pt-3">
+          <StatusBar items={breakdown} total={summary.total} />
+          <StatusChips items={breakdown} />
+        </div>
+      )}
+
+      {/* Пусто — одним спокойным блоком. Раньше «заказов нет», «ваших
+          заказов нет» и «оценить пока нельзя» падали тремя отдельными
+          абзацами со своими отступами: три разных утверждения об одном и
+          том же, и карточка выглядела как список ошибок. */}
+      {summary.total === 0 && (
+        <div className="mx-4 mt-1 rounded-xl border border-dashed border-border/60 px-3 py-3">
+          <p className="text-[12px] text-foreground/80">
             {noDesk ? "Заказы появятся, когда у технаря будет стол." : "В этом месяце заказов нет."}
           </p>
-        )}
-      </div>
+          {myOrders && myOrders.summary.total === 0 && (
+            <p className="mt-0.5 text-[11px] text-muted-foreground">Ваших заказов у него тоже нет.</p>
+          )}
+        </div>
+      )}
 
       {osShares && osShares.length > 0 && (
         <div className="mx-4 mt-3 flex flex-wrap items-center gap-1.5 text-[11px]">
@@ -303,7 +319,13 @@ export function TechnicianCard({
         </div>
       )}
 
-      {myOrders && (
+      {/* Только когда у технаря заказы ЕСТЬ, а ваших среди них нет: иначе
+          это уже сказано в пустом блоке выше. */}
+      {myOrders && myOrders.summary.total === 0 && summary.total > 0 && (
+        <p className="mx-4 mt-3 text-[11px] text-muted-foreground">Среди них нет ваших заказов.</p>
+      )}
+
+      {myOrders && myOrders.summary.total > 0 && (
         <div className="mx-4 mt-3 rounded-xl border border-primary/25 bg-primary/[0.06] px-3 py-2">
           <p className="flex items-center justify-between gap-2 text-[11px] font-medium text-primary">
             <span>Ваши заказы в этом месяце</span>
@@ -369,30 +391,37 @@ export function TechnicianCard({
         </div>
       )}
 
-      {rater && (
+      {/* Приглашение оценить — заметная плашка. Отказ («нет ника», «нет
+          свежего заказа») плашкой быть не должен: янтарная рамка зовёт
+          нажать на то, что нажать нельзя. Он уходит в одну строку. */}
+      {rater && rater.state !== "can-rate" && (
+        <p className="mx-4 mt-3 text-[11px] leading-4 text-muted-foreground">
+          {rater.state === "no-nick"
+            ? "Оценки откроются, когда Тимлид выдаст вам ник ОС."
+            : `Оценка откроется после вашего заказа у этого технаря — ник «${rater.nick}» в столбце ОС.`}
+        </p>
+      )}
+
+      {rater && rater.state === "can-rate" && (
         <div className="mx-4 mt-3 rounded-xl border border-amber-400/25 bg-amber-400/[0.05] px-3 py-2">
           <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
             <p className="text-[11px] font-medium text-amber-300">
-              {rater.state === "can-rate" && rater.mine ? "Ваша оценка" : "Оценить технаря"}
+              {rater.mine ? "Ваша общая оценка" : "Оценить технаря"}
             </p>
             <div className="flex items-center gap-1">
               {saving !== null && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
               <StarRating
-                value={saving ?? (rater.state === "can-rate" ? rater.mine?.stars ?? null : null)}
+                value={saving ?? rater.mine?.stars ?? null}
                 onChange={(stars) => void handleRate(stars)}
-                disabled={rater.state !== "can-rate" || saving !== null}
+                disabled={saving !== null}
                 label={`Оценка для ${name}`}
               />
             </div>
           </div>
           <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-            {rater.state === "no-nick"
-              ? "Оценки откроются, когда Тимлид выдаст вам ник ОС."
-              : rater.state === "not-eligible"
-                ? `Оценить можно, если за последние 30 дней у технаря был ваш заказ — ник «${rater.nick}» в столбце ОС.`
-                : rater.mine
-                  ? `Поставлена ${timeAgo(rater.mine.updatedAt)} · поменять можно в любое время.`
-                  : "Одна оценка от вас — поменять её можно в любое время."}
+            {rater.mine
+              ? `Поставлена ${timeAgo(rater.mine.updatedAt)} · поменять можно до конца месяца.`
+              : "Одна оценка от вас за месяц — поменять её можно в любое время."}
           </p>
         </div>
       )}
