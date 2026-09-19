@@ -144,6 +144,12 @@ export const paths = {
   viewRequest: (workspaceId: string, id: string) =>
     doc(requireDb(), "workspaces", workspaceId, "viewRequests", id),
 
+  /** Заявки на права Owner («Ключ доступа»). id документа = uid заявителя. */
+  ownerAccessRequests: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "ownerAccessRequests"),
+  ownerAccessRequest: (workspaceId: string, uid: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "ownerAccessRequests", uid),
+
   notifications: (workspaceId: string) =>
     collection(requireDb(), "workspaces", workspaceId, "notifications"),
   notification: (workspaceId: string, id: string) =>

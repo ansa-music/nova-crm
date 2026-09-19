@@ -505,14 +505,21 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               )}
                 </>
               )}
-              <DropdownMenuSeparator />
-              <div
-                className="px-1 py-1"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <RoleSwitcher embedded />
-              </div>
+              {/* «Режим доступа» есть только у Owner — у остальных RoleSwitcher
+                  рисует null, и без этого гейта в меню оставались две
+                  разделительные линии подряд с пустотой между ними. */}
+              {permissions.allowedSimulatedRoles.length > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  <div
+                    className="px-1 py-1"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <RoleSwitcher embedded />
+                  </div>
+                </>
+              )}
               <DropdownMenuSeparator />
               {THEME_OPTIONS.map((opt) => (
                 <DropdownMenuItem key={opt.value} onClick={() => setTheme(opt.value)}>

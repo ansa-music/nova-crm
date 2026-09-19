@@ -13,6 +13,7 @@ export * from "@/types/deskLoad";
 export * from "@/types/orderRating";
 export * from "@/types/techRating";
 export * from "@/types/viewRequest";
+export * from "@/types/ownerAccessRequest";
 export * from "@/types/grokAccount";
 export * from "@/types/grokAppAccount";
 

@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  AlertTriangle,
   Archive,
   Building2,
   Check,
@@ -12,6 +11,7 @@ import {
   Filter,
   History,
   Keyboard,
+  KeyRound,
   Layers,
   Loader2,
   MousePointerSquareDashed,
@@ -41,11 +41,10 @@ import { ManageOptionsDialog } from "@/components/table/ManageOptionsDialog";
 import { profileSchema, type ProfileFormValues } from "@/utils/validation";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
-import { useWorkspace } from "@/hooks/useWorkspace";
+import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { updateUserPassword, updateUserProfile } from "@/firebase/auth";
 import { syncNicknameToMemberships, updateUserDoc } from "@/services/authService";
 import {
-  deleteWorkspace,
   updateResponsibleOptions,
   updateStatusOptions,
   updateWorkspace,
@@ -57,11 +56,16 @@ import {
   deleteCustomField,
 } from "@/services/workspaceService";
 import { downloadWorkspaceBackup } from "@/services/backupService";
+import { fetchMyOwnerAccessRequest, requestOwnerAccess } from "@/services/ownerAccessService";
+import { useOwnerAccessRequests } from "@/hooks/useOwnerAccessRequests";
 import { getAuthErrorMessage } from "@/utils/firebaseErrors";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { ACCENT_PRESETS } from "@/components/common/AccentColorSync";
 import { cn } from "@/utils/cn";
-import type { StatusOption } from "@/types";
+import { memberHasRole } from "@/types";
+import type { OwnerAccessRequest, StatusOption } from "@/types";
+import { displayNameOf } from "@/utils/displayName";
+import { timeAgo } from "@/utils/date";
 import { confirmDialog, promptDialog } from "@/utils/appDialog";
 
 const FEATURE_ITEMS = [
@@ -133,22 +137,28 @@ const FEATURE_ITEMS = [
   },
 ] as const;
 
+/** Подпись уже разобранной заявки в списке у Owner. */
+const OWNER_REQUEST_STATUS: Record<"approved" | "denied", string> = {
+  approved: "Права выданы",
+  denied: "Отклонено",
+};
+
 const SETTINGS_NAV = [
   { value: "features", label: "Возможности", icon: Sparkles },
   { value: "profile", label: "Профиль", icon: User },
+  { value: "access-key", label: "Ключ доступа", icon: KeyRound },
   { value: "workspace", label: "Workspace", icon: Building2 },
   { value: "lists", label: "Варианты", icon: Tags, owner: true },
   { value: "fields", label: "Поля", icon: Layers, owner: true },
   { value: "appearance", label: "Оформление", icon: Palette, owner: true },
   { value: "backup", label: "Бэкап", icon: Download, owner: true },
-  { value: "danger", label: "Опасная зона", icon: AlertTriangle, owner: true },
   { value: "members", label: "Роли и доступ", icon: Users },
 ] as const;
 
 export default function SettingsPage() {
   const { profile } = useAuth();
   const permissions = usePermissions();
-  const { activeWorkspace, setActiveWorkspaceId, workspaces } = useWorkspace();
+  const { activeWorkspace, members } = useWorkspace();
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [isSavingPassword, setIsSavingPassword] = useState(false);
@@ -224,16 +234,88 @@ export default function SettingsPage() {
     }
   }
 
-  async function handleDeleteWorkspace() {
-    if (!activeWorkspace) return;
-    if (!(await confirmDialog({ title: `Удалить workspace «${activeWorkspace.name}»?`, description: "Будут удалены все столы, участники и данные. Это действие необратимо.", destructive: true, confirmLabel: "Удалить навсегда" }))) return;
+  // ---- «Ключ доступа»: заявка на права Owner. Ключ ничего не открывает сам по
+  // себе — он лишь позволяет отправить запрос; роль выдаёт Owner кнопкой в
+  // колокольчике, и только ему это разрешают firestore.rules.
+  const isRealOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  const [accessKey, setAccessKey] = useState("");
+  const [isSendingKey, setIsSendingKey] = useState(false);
+  const [ownerRequest, setOwnerRequest] = useState<OwnerAccessRequest | null>(null);
+
+  const ownerUids = useMemo(() => {
+    const ids = new Set<string>();
+    if (activeWorkspace?.ownerId) ids.add(activeWorkspace.ownerId);
+    for (const member of members) {
+      if (member.uid && member.status === "active" && memberHasRole(member, "owner")) ids.add(member.uid);
+    }
+    return Array.from(ids);
+  }, [activeWorkspace?.ownerId, members]);
+
+  useEffect(() => {
+    // Чистим в начале эффекта, а не только когда данных нет: экран живёт на
+    // одном роуте и переиспользуется при смене workspace/аккаунта.
+    setOwnerRequest(null);
+    if (isRealOwner || !activeWorkspace?.id || !profile?.uid) return;
+    let cancelled = false;
+    fetchMyOwnerAccessRequest(activeWorkspace.id, profile.uid)
+      .then((row) => {
+        if (!cancelled) setOwnerRequest(row);
+      })
+      .catch(() => {
+        /* заявки нет или её не прочитать — показываем обычное поле ввода */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspace?.id, profile?.uid, isRealOwner]);
+
+  // Owner видит на этой же вкладке список заявок — колокольчик легко пролистать
+  // мимо, а выдача прав должна быть там же, где её ищут.
+  const { ownerRequests, reloadOwnerRequests, resolveOwnerRequest } = useOwnerAccessRequests(
+    activeWorkspace?.id ?? null,
+    isRealOwner
+  );
+
+  async function handleResolveOwnerRequest(request: OwnerAccessRequest, status: "approved" | "denied") {
+    if (!activeWorkspace || !profile) return;
+    if (
+      status === "approved" &&
+      !(await confirmDialog({
+        title: `Выдать права Owner: ${request.fromName || request.fromEmail}?`,
+        description:
+          "Человек получит полный доступ Owner: все столы, участники, роли, настройки и история. Забрать права можно, сменив ему роль на «Пользователи».",
+      }))
+    )
+      return;
     try {
-      await deleteWorkspace(activeWorkspace.id);
-      const next = workspaces.find((w) => w.id !== activeWorkspace.id);
-      setActiveWorkspaceId(next?.id ?? null);
-      toast.success("Workspace удалён");
+      await resolveOwnerRequest(request, status, profile.uid, displayNameOf(profile));
+      if (status === "approved") await refreshWorkspaceMembers(activeWorkspace.id);
+      toast.success(status === "approved" ? `${request.fromName} — теперь Owner` : "Запрос отклонён");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось удалить workspace");
+      toast.error(error instanceof Error ? error.message : "Не удалось обработать заявку");
+    }
+  }
+
+  async function handleSubmitAccessKey() {
+    if (!activeWorkspace || !profile) return;
+    setIsSendingKey(true);
+    try {
+      const row = await requestOwnerAccess({
+        workspaceId: activeWorkspace.id,
+        key: accessKey,
+        fromUid: profile.uid,
+        fromName: displayNameOf(profile),
+        fromEmail: profile.email ?? "",
+        ownerUids,
+        existing: ownerRequest,
+      });
+      setOwnerRequest(row);
+      setAccessKey("");
+      toast.success("Запрос отправлен");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось отправить запрос");
+    } finally {
+      setIsSendingKey(false);
     }
   }
 
@@ -316,6 +398,12 @@ export default function SettingsPage() {
 
       <Tabs
         defaultValue="features"
+        // Список заявок читается разово (без onSnapshot), поэтому обновляем его
+        // на каждом входе на вкладку — иначе заявка, поданная при открытой
+        // странице, появилась бы только после перезагрузки.
+        onValueChange={(value) => {
+          if (value === "access-key") void reloadOwnerRequests();
+        }}
         orientation="vertical"
         className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6"
       >
@@ -323,7 +411,6 @@ export default function SettingsPage() {
           {SETTINGS_NAV.filter(
             (item) =>
               (!("owner" in item) || permissions.canManageWorkspace) &&
-              (item.value !== "danger" || permissions.canDeleteWorkspace) &&
               (item.value !== "backup" || permissions.canExportWorkspace)
           ).map((item) => (
             <TabsTrigger
@@ -421,6 +508,94 @@ export default function SettingsPage() {
                 {isSavingPassword && <Loader2 className="h-4 w-4 animate-spin" />}
                 Обновить
               </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="access-key" className="mt-0 flex flex-col gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <KeyRound className="h-4 w-4 text-primary" /> Ключ доступа
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              {isRealOwner ? (
+                ownerRequests.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Заявок нет.</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {ownerRequests.map((request) => (
+                      <div
+                        key={request.id}
+                        className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-3"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">
+                            {request.fromName || request.fromEmail || request.fromUid}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {request.status === "pending"
+                              ? timeAgo(request.createdAt)
+                              : `${OWNER_REQUEST_STATUS[request.status]} · ${timeAgo(request.updatedAt)}`}
+                          </p>
+                        </div>
+                        {request.status === "pending" && (
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={() => handleResolveOwnerRequest(request, "approved")}>
+                              Выдать права
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleResolveOwnerRequest(request, "denied")}
+                            >
+                              Отклонить
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )
+              ) : ownerRequest?.status === "pending" ? (
+                <div className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
+                  <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" />
+                  <div>
+                    <p className="text-sm font-medium">Запрос отправлен</p>
+                    <p className="text-xs text-muted-foreground">Ждём подтверждения.</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {ownerRequest?.status === "denied" && (
+                    <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-muted-foreground">
+                      Прошлый запрос отклонён. Можно отправить ещё раз.
+                    </p>
+                  )}
+                  <div className="flex items-end gap-2">
+                    <div className="flex flex-1 flex-col gap-1.5">
+                      <Label htmlFor="access-key">Ключ</Label>
+                      <Input
+                        id="access-key"
+                        type="password"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        placeholder="••••••••"
+                        value={accessKey}
+                        onChange={(e) => setAccessKey(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && accessKey.trim() && !isSendingKey) void handleSubmitAccessKey();
+                        }}
+                      />
+                    </div>
+                    <Button onClick={handleSubmitAccessKey} disabled={isSendingKey || !accessKey.trim()}>
+                      {isSendingKey && <Loader2 className="h-4 w-4 animate-spin" />}
+                      Отправить запрос
+                    </Button>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -670,22 +845,6 @@ export default function SettingsPage() {
                 <Button variant="outline" className="gap-1.5" onClick={handleDownloadBackup} disabled={isBackingUp}>
                   {isBackingUp ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                   Скачать бэкап workspace
-                </Button>
-              </CardContent>
-            </Card>
-        </TabsContent>
-        )}
-
-        {permissions.canDeleteWorkspace && (
-        <TabsContent value="danger" className="mt-0 flex flex-col gap-4">
-            <Card className="border-destructive/40 border-glow-critical">
-              <CardHeader>
-                <CardTitle className="text-destructive">Опасная зона</CardTitle>
-                <CardDescription>Удаление workspace необратимо и удалит все страницы и данные.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button variant="destructive" className="gap-1.5" onClick={handleDeleteWorkspace}>
-                  <Trash2 className="h-4 w-4" /> Удалить workspace
                 </Button>
               </CardContent>
             </Card>

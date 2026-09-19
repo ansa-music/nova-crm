@@ -8,14 +8,17 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
-import { useWorkspace } from "@/hooks/useWorkspace";
+import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useViewRequests } from "@/hooks/useViewRequests";
+import { useOwnerAccessRequests } from "@/hooks/useOwnerAccessRequests";
 import { markAllNotificationsRead, markNotificationRead } from "@/services/notificationService";
 import { displayNameOf } from "@/utils/displayName";
 import { timeAgo } from "@/utils/date";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/utils/cn";
+import { confirmDialog } from "@/utils/appDialog";
 import type { Notification } from "@/types";
 
 const PRIORITY_DOT: Record<string, string> = {
@@ -37,6 +40,15 @@ export function NotificationBell({ className }: { className?: string }) {
   const { activeWorkspaceId, pages } = useWorkspace();
   const { notifications, unreadCount, reload, markReadLocal } = useNotifications(activeWorkspaceId, profile?.uid ?? null);
   const { requests, resolveRequest, reload: reloadRequests } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
+  const permissions = usePermissions();
+  // По РЕАЛЬНОЙ роли, а не по симуляции: Owner, смотрящий приложение в режиме
+  // «Технар», всё равно должен видеть кнопки выдачи прав — иначе заявка висит
+  // до выхода из режима.
+  const isRealOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  const { ownerRequests, reloadOwnerRequests, resolveOwnerRequest } = useOwnerAccessRequests(
+    activeWorkspaceId,
+    isRealOwner
+  );
   const navigate = useNavigate();
   const [unreadOnly, setUnreadOnly] = useState(false);
   const visible = unreadOnly ? notifications.filter((n) => !n.read) : notifications;
@@ -47,6 +59,7 @@ export function NotificationBell({ className }: { className?: string }) {
         if (open) {
           void reload();
           void reloadRequests();
+          void reloadOwnerRequests();
           if (activeWorkspaceId) markAllNotificationsRead(activeWorkspaceId, notifications);
         }
       }}
@@ -92,7 +105,12 @@ export function NotificationBell({ className }: { className?: string }) {
           ) : (
             visible.map((n) => {
               const req = n.viewRequestId ? requests.find((r) => r.id === n.viewRequestId) : null;
-              const pending = n.kind === "view-request" && req?.status === "pending";
+              const ownerReq =
+                n.kind === "owner-request" && n.ownerRequestId
+                  ? (ownerRequests.find((r) => r.id === n.ownerRequestId) ?? null)
+                  : null;
+              const ownerPending = ownerReq?.status === "pending";
+              const pending = (n.kind === "view-request" && req?.status === "pending") || ownerPending;
               return (
                 <div
                   key={n.id}
@@ -162,6 +180,56 @@ export function NotificationBell({ className }: { className?: string }) {
                             try {
                               const page = pages.find((p) => p.id === req.pageId);
                               await resolveRequest(req, page, "denied", displayNameOf(profile));
+                              toast.success("Запрос отклонён");
+                            } catch (error) {
+                              toast.error(error instanceof Error ? error.message : "Не удалось отклонить");
+                            }
+                          }}
+                        >
+                          Отклонить
+                        </Button>
+                      </div>
+                    ) : null}
+                    {ownerPending && ownerReq ? (
+                      <div className="mt-2 flex gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-9 flex-1"
+                          onClick={async (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (!profile) return;
+                            if (
+                              !(await confirmDialog({
+                                title: `Выдать права Owner: ${ownerReq.fromName}?`,
+                                description:
+                                  "Человек получит полный доступ Owner: все столы, участники, роли, настройки и история. Забрать права можно только сменив ему роль на «Пользователи».",
+                              }))
+                            )
+                              return;
+                            try {
+                              await resolveOwnerRequest(ownerReq, "approved", profile.uid, displayNameOf(profile));
+                              if (activeWorkspaceId) await refreshWorkspaceMembers(activeWorkspaceId);
+                              toast.success(`${ownerReq.fromName} — теперь Owner`);
+                            } catch (error) {
+                              toast.error(error instanceof Error ? error.message : "Не удалось выдать права");
+                            }
+                          }}
+                        >
+                          Выдать права
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-9 flex-1"
+                          onClick={async (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (!profile) return;
+                            try {
+                              await resolveOwnerRequest(ownerReq, "denied", profile.uid, displayNameOf(profile));
                               toast.success("Запрос отклонён");
                             } catch (error) {
                               toast.error(error instanceof Error ? error.message : "Не удалось отклонить");

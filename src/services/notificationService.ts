@@ -23,6 +23,7 @@ export interface SendNotificationInput {
   pageId?: string | null;
   kind?: Notification["kind"];
   viewRequestId?: string | null;
+  ownerRequestId?: string | null;
 }
 
 
@@ -81,6 +82,7 @@ export async function sendNotification(input: SendNotificationInput, targetUids:
       pageId: input.pageId ?? null,
       kind: input.kind ?? null,
       viewRequestId: input.viewRequestId ?? null,
+      ownerRequestId: input.ownerRequestId ?? null,
     };
     batch.set(paths.notification(input.workspaceId, id), { ...notification, serverOrderAt: serverTimestamp() });
   }

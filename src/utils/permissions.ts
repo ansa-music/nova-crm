@@ -182,21 +182,23 @@ export function canAssignResponsible(role: Role): boolean {
 }
 
 /**
- * "Переключение режима привилегий" — which activeRole values a person's
- * REAL role is allowed to simulate. This is the single source of truth for
- * the escalation rules and is mirrored exactly in firestore.rules, since the
- * actual security boundary lives there, not here (this copy is for UI only —
- * hiding options the person couldn't set anyway).
+ * «Режим доступа» (переключение режима привилегий) — which activeRole values a
+ * person's REAL role is allowed to simulate. This is the single source of
+ * truth for the escalation rules and is mirrored exactly in firestore.rules,
+ * since the actual security boundary lives there, not here (this copy is for
+ * UI only — hiding options the person couldn't set anyway).
  *
- *   Owner   -> owner, teamlead, admin, manager, os, viewer
- *   Тимлид  -> teamlead, admin, manager, os, viewer   (never owner)
- *   Admin   -> admin, manager, os, viewer   (never owner/teamlead)
- *   Manager, ОС, Viewer -> not allowed to simulate anything
+ *   Owner -> owner, teamlead, admin, manager, os, viewer
+ *   все остальные -> ничего: «Режим доступа» — функция ТОЛЬКО Owner.
+ *
+ * Тимлид и Admin раньше тоже могли примерять роли; по решению Nurba режим
+ * оставлен одному Owner, поэтому здесь и в правиле activeRole их веток больше
+ * нет. Застрявшая симуляция у них самоочищается: usePermissions доверяет
+ * сохранённому activeRole только если текущая реальная роль вправе его
+ * симулировать, а запись `activeRole: null` правилом разрешена всегда.
  */
 export function allowedSimulatedRoles(realRole: Role): Role[] {
   if (realRole === "owner") return ["owner", "teamlead", "admin", "manager", "os", "viewer"];
-  if (realRole === "teamlead") return ["teamlead", "admin", "manager", "os", "viewer"];
-  if (realRole === "admin") return ["admin", "manager", "os", "viewer"];
   return [];
 }
 

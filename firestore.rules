@@ -190,10 +190,12 @@ service cloud.firestore {
         // `role` field (resource.data.role — never writable by this same
         // rule, since 'role' is not in the allowed affectedKeys set below,
         // so it can only ever reflect what the Owner actually granted):
-        //   role == owner    -> activeRole in [owner, teamlead, admin, manager, os, viewer]
-        //   role == teamlead -> activeRole in [teamlead, admin, manager, os, viewer]  (never owner)
-        //   role == admin    -> activeRole in [admin, manager, os, viewer]  (never owner/teamlead)
-        //   role == manager, os or viewer -> may not set activeRole at all
+        //   role == owner -> activeRole in [owner, teamlead, admin, manager, os, viewer]
+        //   любая другая роль -> activeRole ставить нельзя вообще (только null)
+        // «Режим доступа» оставлен ТОЛЬКО Owner — Тимлид и Admin больше его не
+        // получают (зеркало allowedSimulatedRoles() в utils/permissions.ts).
+        // Сброс в null разрешён всем, поэтому застрявшая старая симуляция у
+        // бывшего Тимлида/Admin снимается без вмешательства Owner.
         // This is the actual security boundary for the feature — nothing
         // else in this file ever reads activeRole, so even a raw DevTools
         // Firestore write can't grant real elevated access, only flip this
@@ -207,10 +209,6 @@ service cloud.firestore {
             || request.resource.data.activeRole == null
             || (resource.data.role == 'owner' &&
                 request.resource.data.activeRole in ['owner', 'teamlead', 'admin', 'manager', 'os', 'viewer'])
-            || (resource.data.role == 'teamlead' &&
-                request.resource.data.activeRole in ['teamlead', 'admin', 'manager', 'os', 'viewer'])
-            || (resource.data.role == 'admin' &&
-                request.resource.data.activeRole in ['admin', 'manager', 'os', 'viewer'])
           );
 
         // Owner manages any membership record: invite, change role, remove.
@@ -589,6 +587,34 @@ service cloud.firestore {
           && resource.data.toUid == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
           && request.resource.data.status in ['approved', 'denied'];
+      }
+
+      // -----------------------------------------------------------------
+      // Заявки на права Owner («Настройки → Ключ доступа»). id документа =
+      // uid заявителя: одна открытая заявка на человека, повторный ввод ключа
+      // просто перезаписывает её, так что завалить Owner сотней заявок нельзя.
+      //
+      // Сам документ НЕ даёт ничего: настоящая выдача прав — это запись
+      // members/{uid}.role = 'owner', которую по блоку members может сделать
+      // только isOwner(). Поэтому ключ доступа в клиентском коде — просто
+      // замедлитель, а не секрет (репозиторий публичный), и сюда он не пишется.
+      // Тимлиду ветки здесь намеренно нет: он нигде не трогает записи Owner.
+      // -----------------------------------------------------------------
+      match /ownerAccessRequests/{requestId} {
+        // Owner видит все заявки (список в колокольчике), каждый — свою
+        // собственную. Второе условие не читает resource.data, поэтому get
+        // несуществующей заявки отдаёт "нет документа", а не permission-denied.
+        allow read: if isOwner(workspaceId) || (signedIn() && requestId == request.auth.uid);
+        // Подать/переподать заявку может только сам участник и только на себя,
+        // и только в статусе pending.
+        allow create, update: if isMember(workspaceId)
+          && requestId == request.auth.uid
+          && request.resource.data.fromUid == request.auth.uid
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.status == 'pending';
+        // Подтвердить/отклонить/убрать — только Owner.
+        allow update: if isOwner(workspaceId);
+        allow delete: if isOwner(workspaceId);
       }
 
       // -----------------------------------------------------------------
