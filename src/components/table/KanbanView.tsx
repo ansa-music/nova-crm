@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   DndContext,
   DragOverlay,
@@ -165,11 +166,22 @@ export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChang
           />
         ))}
       </div>
-      {/* The card follows the pointer in a portal overlay, so it is never
-          clipped by the scrolling board or hidden behind another column. */}
-      <DragOverlay dropAnimation={null}>
-        {draggingRow ? <KanbanCardBody row={draggingRow} {...cardFields} className="rotate-1 cursor-grabbing shadow-xl ring-1 ring-primary/40" /> : null}
-      </DragOverlay>
+      {/* В ПОРТАЛ в document.body — обязательно, а не для красоты.
+          DragOverlay позиционируется через position: fixed, а любой предок
+          с backdrop-filter (их в index.css хватает: .glass-*, панели, шапки)
+          становится для fixed новым контейнером — координаты начинают
+          считаться от него, а не от окна. Курсор оставался на месте, а
+          карточка висела в стороне на величину смещения этого предка.
+          Комментарий тут раньше уверял, что оверлей в портале, хотя портала
+          не было; в body над ним не висит ничего, и смещать его нечему. */}
+      {createPortal(
+        <DragOverlay dropAnimation={null}>
+          {draggingRow ? (
+            <KanbanCardBody row={draggingRow} {...cardFields} className="rotate-1 cursor-grabbing shadow-xl ring-1 ring-primary/40" />
+          ) : null}
+        </DragOverlay>,
+        document.body
+      )}
     </DndContext>
   );
 }
@@ -208,7 +220,10 @@ function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCo
         "kanban-column flex h-full shrink-0 flex-col overflow-hidden rounded-lg border border-transparent",
         collapsed && !dragActive ? "w-12" : "w-72"
       )}
-      style={{ backgroundColor: `hsl(${option.color} / 0.05)`, borderColor: isOver ? `hsl(${option.color} / 0.5)` : undefined }}
+      style={{
+        backgroundColor: `hsl(${option.color} / ${isOver ? 0.08 : 0.05})`,
+        borderColor: isOver ? `hsl(${option.color} / 0.55)` : undefined,
+      }}
     >
       <div
         className="h-[3px] shrink-0"
@@ -266,13 +281,15 @@ function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCo
           </button>
         )}
       </div>
+      {/* Зона сброса — весь столбец (иначе не попасть мимо карточек), но
+          КРАСИТЬ её целиком нельзя: пунктир и заливка растягивались на всю
+          высоту колонки, и над пустой колонкой это был огромный жёлтый
+          прямоугольник во весь экран. Подсветок было три сразу — рамка
+          колонки, рамка зоны и её фон. Осталась одна рамка колонки, а
+          «куда упадёт» показывает placeholder размером с карточку. */}
       <div
         ref={setNodeRef}
-        className={cn(
-          "flex-1 space-y-2 overflow-y-auto rounded-md border border-dashed border-transparent px-2 pb-2 transition-colors",
-          collapsed && !dragActive && "hidden"
-        )}
-        style={isOver ? { borderColor: `hsl(${option.color} / 0.5)`, backgroundColor: `hsl(${option.color} / 0.08)` } : undefined}
+        className={cn("flex-1 space-y-2 overflow-y-auto px-2 pb-2", collapsed && !dragActive && "hidden")}
       >
         {rows.map((row) => (
           <KanbanCard
@@ -287,7 +304,21 @@ function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCo
             onOpenRow={onOpenRow}
           />
         ))}
-        {rows.length === 0 && !dragActive && (
+        {isOver && (
+          <div
+            className="flex items-center justify-center rounded-lg border border-dashed px-3 py-5 text-[11px] font-medium"
+            style={{
+              borderColor: `hsl(${option.color} / 0.6)`,
+              color: `hsl(${option.color})`,
+              backgroundColor: `hsl(${option.color} / 0.1)`,
+            }}
+          >
+            Перенести в «{option.label}»
+          </div>
+        )}
+        {/* «Пусто» скрывается только когда тащат ИМЕННО сюда — иначе при
+            любом перетаскивании все пустые колонки молча пустели. */}
+        {rows.length === 0 && !isOver && (
           <p className="px-2 py-6 text-center text-[11px] text-muted-foreground">Пусто</p>
         )}
       </div>
