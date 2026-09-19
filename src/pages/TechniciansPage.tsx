@@ -97,6 +97,19 @@ function ordersWord(n: number) {
   return "заказов";
 }
 
+/**
+ * Одно число для тай-брейка в сортировке: среднее по обеим шкалам, если
+ * обе есть, иначе по той, что есть. Сводный балл НЕ показывается нигде в
+ * интерфейсе — там шкалы живут раздельно, потому что вес между ними никто
+ * не задавал; здесь он нужен только чтобы упорядочить равные по заказам.
+ */
+function ratingScore(row: TechnicianRow): number | null {
+  const overall = row.ratings.length ? row.ratings.reduce((n, r) => n + r.stars, 0) / row.ratings.length : null;
+  const orders = averageOfTotals(row.orderTotals);
+  if (overall !== null && orders !== null) return (overall + orders) / 2;
+  return overall ?? orders;
+}
+
 function isPermissionDenied(error: unknown) {
   return typeof error === "object" && error !== null && (error as { code?: string }).code === "permission-denied";
 }
@@ -296,17 +309,24 @@ export default function TechniciansPage() {
           rateDeskId,
         };
       })
-      // Your own card first. Then whoever can take an order soonest: free,
-      // free with a rework pending, busy (fewest in work first), and people
-      // without a desk last — they can't take orders at all yet.
+      // Своя карточка первой — это личное удобство и к ранжированию
+      // отношения не имеет. Дальше по АКТУАЛЬНОСТИ: сначала те, у кого
+      // больше заказов за месяц, при равном числе заказов выше тот, у кого
+      // выше оценка. Технари без стола в самом низу — заказов у них быть
+      // не может вообще, и держать их среди работающих бессмысленно.
+      //
+      // Раньше сортировка была «кто свободен раньше», то есть занятый
+      // технарь с девятью заказами падал ниже пустого. Для вопроса «кому
+      // отдать следующий заказ» это правильно, но экран читают ещё и как
+      // «кто тут вообще работает», и там это давало ровно обратный порядок.
+      // Свободен/занят никуда не делся — он на бейдже и в фильтрах сверху.
       .sort((a, b) => {
         if (a.member.uid === uid) return -1;
         if (b.member.uid === uid) return 1;
-        const rank = (t: TechnicianRow) => (t.desks.length === 0 ? 3 : t.busy ? 2 : t.summary.rework > 0 ? 1 : 0);
+        if ((a.desks.length === 0) !== (b.desks.length === 0)) return a.desks.length === 0 ? 1 : -1;
         return (
-          rank(a) - rank(b) ||
-          a.summary.busy - b.summary.busy ||
-          a.summary.total - b.summary.total ||
+          b.summary.total - a.summary.total ||
+          (ratingScore(b) ?? -1) - (ratingScore(a) ?? -1) ||
           personLabel(a.member).localeCompare(personLabel(b.member), "ru")
         );
       });
@@ -428,7 +448,7 @@ export default function TechniciansPage() {
    * оценку — иначе поставленную по ошибке пятёрку нечем убрать, а «поставить
    * 1, чтобы отменить» это не отмена, а другая оценка.
    */
-  async function handleRateOrder(item: TechnicianOrderItem & { member: WorkspaceMember }, stars: number) {
+  async function handleRateOrder(item: TechnicianOrderItem, technicianUid: string, stars: number) {
     if (!activeWorkspaceId || !myOsValue) return;
     const key = orderRatingId(item.pageId, item.rowId);
     const current = myOrderRatingByOrder.get(key) ?? null;
@@ -444,7 +464,7 @@ export default function TechniciansPage() {
         rowId: item.rowId,
         osUid: uid,
         osValue: myOsValue,
-        technicianUid: item.member.uid,
+        technicianUid,
         stars,
         title: item.title,
         monthKey,
@@ -700,7 +720,7 @@ export default function TechniciansPage() {
                         <div className="flex shrink-0 items-center gap-2">
                           <StarRating
                             value={myOrderRatingByOrder.get(orderRatingId(item.pageId, item.rowId)) ?? null}
-                            onChange={(stars) => void handleRateOrder(item, stars)}
+                            onChange={(stars) => void handleRateOrder(item, item.member.uid, stars)}
                             size="sm"
                             tone="violet"
                             label={`Оценка заказа «${item.title || "без названия"}»`}
@@ -769,6 +789,12 @@ export default function TechniciansPage() {
                   }}
                   rater={raterFor(t)}
                   onRate={(stars) => handleRate(t, stars)}
+                  orderStarsOf={(item) => myOrderRatingByOrder.get(orderRatingId(item.pageId, item.rowId)) ?? null}
+                  onRateOrder={
+                    isOsViewer && myOsValue
+                      ? (item, stars) => handleRateOrder(item, t.member.uid, stars)
+                      : undefined
+                  }
                   ratingDetails={ratingDetailsFor(t)}
                   onDeleteRating={canModerateRatings ? (id) => void handleDeleteRating(t, id) : undefined}
                 />
