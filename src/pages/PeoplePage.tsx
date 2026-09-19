@@ -103,7 +103,7 @@ export default function PeoplePage() {
 
   if (isLoadingWorkspaceData) {
     return (
-      <div className="mx-auto max-w-2xl p-5 sm:p-8">
+      <div className="mx-auto w-full min-w-0 max-w-2xl p-5 sm:p-8">
         <Skeleton className="mb-6 h-10 w-48" />
         {Array.from({ length: 6 }).map((_, i) => (
           <Skeleton key={i} className="mb-2 h-16 w-full rounded-2xl" />
@@ -113,7 +113,7 @@ export default function PeoplePage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl p-5 sm:p-8">
+    <div className="mx-auto w-full min-w-0 max-w-2xl p-5 sm:p-8">
       <header className="mb-7">
         <p className="eyebrow mb-1 text-primary">Студия</p>
         <h1 className="font-serif text-[1.85rem] font-medium tracking-[-0.03em] sm:text-[2.15rem]">Люди</h1>

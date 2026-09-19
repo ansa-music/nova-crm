@@ -10,7 +10,7 @@ export default function HomePage() {
 
   if (isLoadingWorkspaceData) {
     return (
-      <div className="mx-auto max-w-6xl p-5 sm:p-8">
+      <div className="mx-auto w-full min-w-0 max-w-6xl p-5 sm:p-8">
         <Skeleton className="mb-3 h-6 w-32" />
         <Skeleton className="h-24 w-full rounded-2xl" />
       </div>

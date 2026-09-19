@@ -184,7 +184,7 @@ function MiniScore({ kind, average }: { kind: "overall" | "orders"; average: num
  */
 export function TechnicianCard(props: TechnicianCardProps) {
   const [open, setOpen] = useState(false);
-  const { member, isMe, desks, busy, summary, myOrders, rating, orderRating, rater } = props;
+  const { member, isMe, desks, busy, summary, breakdown, myOrders, rating, orderRating, rater } = props;
   const presence = member.lastActiveAt ? getPresenceStatus(member.lastActiveAt) : "offline";
   const name = personLabel(member) || member.email || "—";
   const noDesk = desks.length === 0;
@@ -240,6 +240,15 @@ export function TechnicianCard(props: TechnicianCardProps) {
 
           <StatusPill noDesk={noDesk} busy={busy} />
         </div>
+
+        {/* Полоска статусов и на свёрнутой карточке: в сетке сразу видно, у
+            кого что в работе, а не только «6 заказов». Подписи и числа — в
+            развёрнутой карточке, цвета те же, что у бейджей статусов. */}
+        {summary.total > 0 && breakdown.length > 0 && (
+          <div className="mt-2">
+            <StatusBar items={breakdown} total={summary.total} />
+          </div>
+        )}
 
         <div className="mt-auto flex min-w-0 flex-wrap items-center gap-1.5">
           <span

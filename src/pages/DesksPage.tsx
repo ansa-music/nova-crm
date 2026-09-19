@@ -117,7 +117,7 @@ export default function DesksPage() {
 
   if (isLoadingWorkspaceData) {
     return (
-      <div className="mx-auto max-w-6xl p-5 sm:p-8 lg:p-10">
+      <div className="mx-auto w-full min-w-0 max-w-6xl p-5 sm:p-8 lg:p-10">
         <Skeleton className="mb-6 h-10 w-48" />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -129,7 +129,7 @@ export default function DesksPage() {
   }
 
   return (
-    <div className="relative mx-auto max-w-6xl p-5 sm:p-8 lg:p-10">
+    <div className="relative mx-auto w-full min-w-0 max-w-6xl p-5 sm:p-8 lg:p-10">
       <header className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="eyebrow mb-1 text-primary">Studio</p>

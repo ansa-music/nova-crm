@@ -27,7 +27,8 @@ function CoverProgressRing({ percent }: { percent: number }) {
     <svg
       viewBox="0 0 100 100"
       className="pointer-events-none absolute left-1/2 top-[34%] z-[3] h-[48%] w-[48%] -translate-x-1/2 -translate-y-1/2 -rotate-90 drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]"
-      aria-hidden
+      role="img"
+      aria-label={`Готово: ${Math.round(clamped)}% от суммы стола`}
     >
       <circle cx="50" cy="50" r={r} fill="none" stroke="rgba(255,255,255,0.28)" strokeWidth="3.25" />
       <circle
@@ -41,6 +42,22 @@ function CoverProgressRing({ percent }: { percent: number }) {
         strokeLinecap="round"
         strokeDasharray={`${dash} ${c}`}
       />
+      {/* Число внутри кольца: без него процент приходилось прикидывать по
+          длине дуги. Текст лежит в той же svg, поэтому масштабируется вместе
+          с кольцом на любой обложке, и развёрнут обратно — сама svg повёрнута
+          на -90°, чтобы дуга начиналась сверху. */}
+      <text
+        x="50"
+        y="50"
+        transform="rotate(90 50 50)"
+        textAnchor="middle"
+        dominantBaseline="central"
+        className="fill-white font-mono"
+        fontSize="24"
+        fontWeight="600"
+      >
+        {Math.round(clamped)}%
+      </text>
     </svg>
   );
 }
@@ -61,7 +78,10 @@ export function DeskCoverStrip({ coverUrl, name, className, compact, ratio, prog
       className={cn(
         "relative w-full overflow-hidden bg-muted",
         hero || thumb ? "border-0" : "border-b border-border",
-        hero && "aspect-[16/10] min-h-[244px] sm:aspect-[2/1] sm:min-h-[280px]",
+        // На большом экране обложка 2:1 забирала больше половины первого
+        // экрана дашборда, и цифры месяца начинались за сгибом. Фото
+        // обрезается по object-cover, пропорции на телефоне не трогаем.
+        hero && "aspect-[16/10] min-h-[244px] sm:aspect-[2/1] sm:min-h-[280px] lg:max-h-[340px]",
         thumb && "aspect-[4/3]",
         !hero && !thumb && (wide ? "aspect-video" : compact ? "h-16" : "h-24 sm:h-28"),
         className

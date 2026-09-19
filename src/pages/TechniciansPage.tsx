@@ -660,7 +660,7 @@ export default function TechniciansPage() {
           )}
 
           {!loadFailed && loads === null && (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               <Skeleton className="h-64 rounded-2xl" />
               <Skeleton className="h-64 rounded-2xl" />
               <Skeleton className="h-64 rounded-2xl" />
@@ -668,7 +668,10 @@ export default function TechniciansPage() {
           )}
 
           {view === "orders" && myOsValue && loads !== null && (
-            <div className="flex flex-col gap-3">
+            // Список заказов — это лента строк, а не сетка: на широком экране
+            // он растягивался на всю ширину стола, и звёзды уезжали от названия
+            // заказа метров на сорок. Ограничиваем ширину как у переписки.
+            <div className="flex w-full max-w-3xl flex-col gap-3">
               <div className="relative max-w-sm">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -764,7 +767,7 @@ export default function TechniciansPage() {
           )}
 
           {view === "techs" && loads !== null && visible.length > 0 && (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {visible.map((t) => (
                 <TechnicianCard
                   key={t.member.uid}

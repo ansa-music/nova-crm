@@ -154,12 +154,14 @@ export function PersonalDeskSection() {
                     <p className="text-[11px] font-medium uppercase tracking-wide text-white/70">Готово</p>
                     <p className="mt-0.5 tabular text-lg font-medium text-white sm:text-xl">{formatCurrency(myDeskProgress.doneTotal)}</p>
                   </div>
-                  <div>
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-white/70">% цели</p>
-                    <p className="mt-0.5 tabular text-lg font-medium text-white sm:text-xl">
-                      {myDeskGoalPercent == null ? "—" : `${myDeskGoalPercent}%`}
-                    </p>
-                  </div>
+                  {/* Цель задана не у всех столов: метрика с прочерком занимала
+                      место рядом с деньгами и ничего не сообщала. */}
+                  {myDeskGoalPercent != null && (
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-white/70">% цели</p>
+                      <p className="mt-0.5 tabular text-lg font-medium text-white sm:text-xl">{myDeskGoalPercent}%</p>
+                    </div>
+                  )}
                 </div>
               ) : null}
             </div>

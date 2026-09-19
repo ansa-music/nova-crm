@@ -9,6 +9,7 @@ import {
   Download,
   Eye,
   Kanban,
+  LayoutList,
   Keyboard,
   Layers,
   ListOrdered,
@@ -41,7 +42,7 @@ import { NOT_DONE_STATUS_FILTER } from "@/utils/columnOptions";
 import { PAGE_SIZES, pageSizeLabel } from "@/components/table/TablePagination";
 import { useUiStore } from "@/store/uiStore";
 import { redo, undo, useUndoState } from "@/utils/undoStore";
-import type { PageColumn, StatusOption } from "@/types";
+import type { PageColumn, StatusOption, TableViewMode } from "@/types";
 import type { SavedTableView } from "@/utils/savedTableViews";
 import { DATE_PRESET_LABELS, DATE_PRESET_ORDER, type DatePreset } from "@/utils/dateRanges";
 
@@ -78,8 +79,8 @@ interface TableToolbarProps {
   onStatusFilterChange?: (value: string | null) => void;
   /** Row counts per status value (for chip badges). */
   statusCounts?: Record<string, number>;
-  viewMode: "table" | "kanban";
-  onViewModeChange: (mode: "table" | "kanban") => void;
+  viewMode: TableViewMode;
+  onViewModeChange: (mode: TableViewMode) => void;
   savedViews?: SavedTableView[];
   onSaveView?: () => void;
   onApplyView?: (view: SavedTableView) => void;
@@ -305,17 +306,28 @@ export function TableToolbar({
         </div>
       )}
 
-      {hasStatusColumn && (
-        <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-background p-0.5">
-          <Button
-            variant={viewMode === "table" ? "secondary" : "ghost"}
-            size="sm"
-            className="h-7 min-w-0 gap-1.5 rounded-full px-2.5"
-            onClick={() => onViewModeChange("table")}
-            title="Таблица"
-          >
-            <Table2 className="h-3.5 w-3.5" />
-          </Button>
+      {/* Канбану нужен столбец-статус, таблице и карточкам — нет, поэтому
+          переключатель виден всегда, а кнопка канбана — по условию. */}
+      <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-background p-0.5">
+        <Button
+          variant={viewMode === "table" ? "secondary" : "ghost"}
+          size="sm"
+          className="h-7 min-w-0 gap-1.5 rounded-full px-2.5"
+          onClick={() => onViewModeChange("table")}
+          title="Таблица"
+        >
+          <Table2 className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          variant={viewMode === "cards" ? "secondary" : "ghost"}
+          size="sm"
+          className="h-7 min-w-0 gap-1.5 rounded-full px-2.5"
+          onClick={() => onViewModeChange("cards")}
+          title="Карточки"
+        >
+          <LayoutList className="h-3.5 w-3.5" />
+        </Button>
+        {hasStatusColumn && (
           <Button
             variant={viewMode === "kanban" ? "secondary" : "ghost"}
             size="sm"
@@ -325,8 +337,8 @@ export function TableToolbar({
           >
             <Kanban className="h-3.5 w-3.5" />
           </Button>
-        </div>
-      )}
+        )}
+      </div>
 
       {canFilterMine && onMineOnlyChange && (
         <button

@@ -47,6 +47,7 @@ import {
   type SavedTableView,
 } from "@/utils/savedTableViews";
 import { KanbanView } from "@/components/table/KanbanView";
+import { CardListView } from "@/components/table/CardListView";
 import { TablePagination } from "@/components/table/TablePagination";
 import { FilterPopover, type FilterValueEntry } from "@/components/table/FilterPopover";
 import { ActiveFiltersBar, type ActiveFilterChip } from "@/components/table/ActiveFiltersBar";
@@ -117,7 +118,7 @@ import { isHttpUrl, parseHttpUrl } from "@/utils/httpUrl";
 import { parseClipboardMatrix } from "@/utils/clipboardMatrix";
 import { celebrateDone } from "@/utils/confetti";
 import { pushUndoCommand, undo as undoLastCommand } from "@/utils/undoStore";
-import type { CellAddress, ColumnType, CustomFieldDef, PageRow, SortState, StatusOption, WorkspacePage } from "@/types";
+import type { CellAddress, ColumnType, CustomFieldDef, PageRow, SortState, StatusOption, WorkspacePage, TableViewMode } from "@/types";
 
 const DENSITY_ROW_HEIGHT: Record<"compact" | "default" | "comfortable", number> = {
   compact: 36,
@@ -388,12 +389,18 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // Persisted per page/subpage — same localStorage-on-mount pattern as
   // pinnedKeys below, keyed by subPageId when set so each subpage tab can
   // remember its own view independently of the parent page's "Основная".
-  const [viewMode, setViewMode] = useState<"table" | "kanban">(() => {
+  const [viewMode, setViewMode] = useState<TableViewMode>(() => {
     if (typeof window === "undefined") return "table";
     const saved = window.localStorage.getItem(`nova-crm:view-mode:${subPageId ?? page.id}`);
-    return saved === "kanban" ? "kanban" : "table";
+    if (saved === "kanban" || saved === "cards" || saved === "table") return saved;
+    // На телефоне таблица показывает два столбца из десяти, поэтому стол по
+    // умолчанию открывается списком карточек. Это только первый выбор: как
+    // только человек сам переключит вид, решает сохранённое значение.
+    return typeof window.matchMedia === "function" && window.matchMedia("(max-width: 639px)").matches
+      ? "cards"
+      : "table";
   });
-  function handleViewModeChange(next: "table" | "kanban") {
+  function handleViewModeChange(next: TableViewMode) {
     setViewMode(next);
     window.localStorage.setItem(`nova-crm:view-mode:${subPageId ?? page.id}`, next);
   }
@@ -3216,7 +3223,22 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         />
       )}
 
-      {viewMode === "kanban" && kanbanStatusColumn ? (
+      {viewMode === "cards" ? (
+        <CardListView
+          columns={displayColumns}
+          rows={filledProcessedRows}
+          canEdit={canEdit}
+          onOpenRow={setExpandedRowId}
+          onAddOrder={
+            canEdit
+              ? () => {
+                  setQuickOrderStatus(null);
+                  setQuickOrderOpen(true);
+                }
+              : undefined
+          }
+        />
+      ) : viewMode === "kanban" && kanbanStatusColumn ? (
         <KanbanView
           columns={displayColumns}
           rows={filledProcessedRows}

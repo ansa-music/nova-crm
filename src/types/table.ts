@@ -20,3 +20,9 @@ export interface SortState {
 export interface ClipboardPayload {
   matrix: string[][];
 }
+
+/**
+ * Вид стола: таблица, карточки (режим для телефона) или канбан.
+ * Канбан требует столбец-статус, карточки и таблица — нет.
+ */
+export type TableViewMode = "table" | "cards" | "kanban";

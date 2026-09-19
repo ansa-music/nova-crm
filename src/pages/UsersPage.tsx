@@ -260,7 +260,7 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl p-6">
+    <div className="mx-auto w-full min-w-0 max-w-4xl p-6">
       <div className="mb-6">
         <h1 className="text-3xl font-light tracking-tight">Workspace → Пользователи</h1>
         <p className="mt-1 text-sm text-muted-foreground">
