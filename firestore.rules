@@ -679,8 +679,9 @@ service cloud.firestore {
       }
 
       // -----------------------------------------------------------------
-      // Оценки технарей («Технари»). One doc per ОС per Технар, id
-      // "<osUid>_<technicianUid>", 1–5 stars. Only a real ОС rates, and only
+      // Оценки технарей («Технари»). Один документ на ОС, технаря И МЕСЯЦ,
+      // id "<osUid>_<technicianUid>_<YYYY-MM>", 1–5 звёзд. В новом месяце
+      // оценка ставится заново, прошлый месяц остаётся как итог. Only a real ОС rates, and only
       // with an ОС nick from a Тимлид (members.osNickValue — not
       // self-writable). The FIRST rating needs a recent order from that nick
       // on the Технар's desk: deskLoad.osLastOrderAt[nick] within 30 days
@@ -705,12 +706,13 @@ service cloud.firestore {
         allow read: if isMember(workspaceId);
         allow create: if isMember(workspaceId)
           && hasRole(workspaceId, 'os')
-          && request.resource.data.keys().hasOnly(['workspaceId', 'osUid', 'technicianUid', 'stars', 'osValue', 'pageId', 'createdAt', 'updatedAt'])
+          && request.resource.data.keys().hasOnly(['workspaceId', 'osUid', 'technicianUid', 'stars', 'monthKey', 'osValue', 'pageId', 'createdAt', 'updatedAt'])
           && request.resource.data.workspaceId == workspaceId
           && request.resource.data.osUid == request.auth.uid
           && request.resource.data.technicianUid is string
           && request.resource.data.technicianUid != request.auth.uid
-          && ratingId == request.auth.uid + '_' + request.resource.data.technicianUid
+          && request.resource.data.monthKey is string
+          && ratingId == request.auth.uid + '_' + request.resource.data.technicianUid + '_' + request.resource.data.monthKey
           && request.resource.data.pageId is string
           && request.resource.data.osValue is string
           && isValidStars(request.resource.data.stars)
@@ -720,6 +722,80 @@ service cloud.firestore {
           && resource.data.osUid == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stars', 'updatedAt'])
           && isValidStars(request.resource.data.stars);
+        allow delete: if hasFullAccess(workspaceId);
+      }
+
+      // -----------------------------------------------------------------
+      // Оценки ЗА ЗАКАЗ — вторая, независимая шкала рядом с общей оценкой
+      // выше. Один документ на заказ, id "<pageId>_<rowId>", ставит его тот
+      // ОС, чей ник стоит в заказе.
+      //
+      // Проверка права та же, что у общей оценки (hasRecentOrderFrom): саму
+      // строку ОС не видит вообще, так что подтвердить «этот заказ мой»
+      // правила могут только через deskLoad — свежий заказ с этим ником на
+      // столе этого технаря. Это ровно тот же уровень доверия, что уже
+      // принят для общей оценки, не слабее.
+      //
+      // Читают: Owner, сам ОС и сам технарь. Тимлид — НЕТ: в документе лежит
+      // название заказа, а Тимлид не видит содержимого столов (как в
+      // osOrders выше). Запросы на клиенте — строго where('osUid'==me) или
+      // where('technicianUid'==me), иначе неоднородные права уронят list.
+      // -----------------------------------------------------------------
+      match /orderRatings/{ratingId} {
+        allow read: if isOwner(workspaceId)
+          || (isMember(workspaceId) && resource.data.osUid == request.auth.uid)
+          || (isMember(workspaceId) && resource.data.technicianUid == request.auth.uid);
+        allow create, update: if isMember(workspaceId)
+          && request.resource.data.osUid == request.auth.uid
+          && hasRole(workspaceId, 'os')
+          && request.resource.data.keys().hasOnly(['workspaceId', 'pageId', 'rowId', 'osUid', 'osValue',
+              'technicianUid', 'stars', 'monthKey', 'title', 'createdAt', 'updatedAt'])
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.rowId is string
+          && request.resource.data.technicianUid is string
+          && request.resource.data.technicianUid != request.auth.uid
+          && ratingId == request.resource.data.pageId + '_' + request.resource.data.rowId
+          && request.resource.data.monthKey is string
+          && isValidStars(request.resource.data.stars)
+          && hasRecentOrderFrom(workspaceId, request.resource.data);
+        // Свою — сам ОС, чужую несправедливую — Owner/Тимлид.
+        allow delete: if hasFullAccess(workspaceId)
+          || (isMember(workspaceId) && resource.data.osUid == request.auth.uid);
+      }
+
+      // Итоги «сумма/количество» по паре ОС↔Технар, id "<osUid>_<techUid>".
+      // Отдельный документ, потому что средним по заказам светит весь
+      // «Дашборд», а читать ради него всю растущую коллекцию orderRatings —
+      // это лимиты Spark (см. CLAUDE.md). Содержимого заказов тут нет, так
+      // что читать может любой участник.
+      //
+      // Пишет их сам ОС в одной транзакции с оценкой (и Owner/Тимлид, когда
+      // снимает чужую) — счётчик, который правит только его владелец.
+      // Арифметику правила не пересчитывают (нельзя: другой документ), но
+      // держат её в осмысленных границах: count >= 0, а сумма обязана лежать
+      // между count и count*5 — то есть накрутить среднее выше пятёрки или
+      // ниже единицы нельзя при любом count.
+      function saneRatingTotals(data) {
+        return data.count is int && data.sum is int
+          && data.count >= 0 && data.count <= 100000
+          && data.sum >= data.count && data.sum <= data.count * 5;
+      }
+      match /orderRatingTotals/{totalsId} {
+        allow read: if isMember(workspaceId);
+        allow create, update: if isMember(workspaceId)
+          && request.resource.data.keys().hasOnly(['workspaceId', 'osUid', 'technicianUid', 'monthKey', 'count', 'sum', 'updatedAt'])
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.technicianUid is string
+          && request.resource.data.monthKey is string
+          && totalsId == request.resource.data.osUid + '_' + request.resource.data.technicianUid + '_' + request.resource.data.monthKey
+          && saneRatingTotals(request.resource.data)
+          // Сначала бесплатная проверка «это мой документ», потом hasRole —
+          // каждый вызов роли это get(), а на одну проверку правил их
+          // отпущено всего десяток.
+          && (
+            (request.resource.data.osUid == request.auth.uid && hasRole(workspaceId, 'os'))
+            || hasFullAccess(workspaceId)
+          );
         allow delete: if hasFullAccess(workspaceId);
       }
 

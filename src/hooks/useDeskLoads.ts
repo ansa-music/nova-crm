@@ -5,8 +5,9 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { refreshDeskLoadFromRows, subscribeDeskLoadHistory, subscribeDeskLoads } from "@/services/deskLoadService";
 import { currentMonthSubPageId, isMonthlyDesk } from "@/services/monthTabService";
+import { subscribeMyOrderRatings, subscribeOrderRatingTotals } from "@/services/orderRatingService";
 import { subscribeTechRatings } from "@/services/techRatingService";
-import type { DeskLoad, DeskLoadArchive, TechRating } from "@/types";
+import type { DeskLoad, DeskLoadArchive, OrderRating, OrderRatingTotals, TechRating } from "@/types";
 
 /**
  * Every desk's month counts, live. `loads` stays null until the first
@@ -49,6 +50,41 @@ export function useTechRatings(workspaceId: string | null, enabled: boolean) {
     );
   }, [workspaceId, enabled]);
   return { ratings, failed };
+}
+
+/**
+ * Итоги оценок за заказы по всем парам ОС↔Технар. Отказ в чтении — это
+ * «неизвестно», а не «оценок нет»: пустой список вместо отказа показал бы
+ * всем технарям нулевой рейтинг, которого на самом деле никто не ставил.
+ */
+export function useOrderRatingTotals(workspaceId: string | null, enabled: boolean) {
+  const [totals, setTotals] = useState<OrderRatingTotals[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setTotals(null);
+    setFailed(false);
+    if (!workspaceId || !enabled) return;
+    return subscribeOrderRatingTotals(
+      workspaceId,
+      (next) => {
+        setTotals(next);
+        setFailed(false);
+      },
+      () => setFailed(true)
+    );
+  }, [workspaceId, enabled]);
+  return { totals, failed };
+}
+
+/** Оценки заказов, которые поставил САМ смотрящий ОС — чтобы показать их в «Мои заказы». */
+export function useMyOrderRatings(workspaceId: string | null, osUid: string, enabled: boolean) {
+  const [ratings, setRatings] = useState<OrderRating[]>([]);
+  useEffect(() => {
+    setRatings([]);
+    if (!workspaceId || !osUid || !enabled) return;
+    return subscribeMyOrderRatings(workspaceId, osUid, setRatings, () => setRatings([]));
+  }, [workspaceId, osUid, enabled]);
+  return ratings;
 }
 
 /** Archived months from `fromMonthKey` on. Empty (not null) on a denied read — the chart just hides. */

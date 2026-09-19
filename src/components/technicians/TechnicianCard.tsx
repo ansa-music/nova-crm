@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { AtSign, ChevronDown, Loader2, MessageCircle, Star, Trash2 } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
+import { RatingScorePair } from "@/components/technicians/RatingScore";
 import { StarRating } from "@/components/technicians/StarRating";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/utils/cn";
@@ -19,6 +20,8 @@ export type TechnicianRater =
 
 /** One of the viewing ОС's orders at this Технар, with its status resolved for display. */
 export interface TechnicianOrderItem {
+  /** Стол, в котором лежит заказ — нужен, чтобы адресовать его оценку. */
+  pageId: string;
   rowId: string;
   title: string;
   statusLabel: string;
@@ -61,6 +64,8 @@ export interface TechnicianCardProps {
   /** Management view: which ОС gave this month's orders. */
   osShares: TechnicianOsShare[] | null;
   rating: { average: number | null; count: number };
+  /** Вторая шкала: среднее по оценкам отдельных заказов этого технаря. */
+  orderRating: { average: number | null; count: number };
   rater: TechnicianRater | null;
   onRate?: (stars: number) => Promise<void>;
   /** Owner/Тимлид/Admin: who rated what. */
@@ -74,14 +79,6 @@ function ordersWord(n: number) {
   if (mod10 === 1 && mod100 !== 11) return "заказ";
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "заказа";
   return "заказов";
-}
-
-function ratingsWord(n: number) {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return "оценка";
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "оценки";
-  return "оценок";
 }
 
 const METRICS: { key: keyof TechLoadSummary; label: string; tone: string; box?: string }[] = [
@@ -147,6 +144,7 @@ export function TechnicianCard({
   myOrders,
   osShares,
   rating,
+  orderRating,
   rater,
   onRate,
   ratingDetails,
@@ -224,18 +222,7 @@ export function TechnicianCard({
                   </span>
                 ))}
           </p>
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px]">
-            <StarRating value={rating.average} size="sm" label="Средняя оценка" />
-            {rating.count > 0 && rating.average !== null ? (
-              <span className="whitespace-nowrap text-muted-foreground">
-                <span className="font-mono font-medium tabular-nums text-foreground">{rating.average.toFixed(1)}</span>
-                {" · "}
-                {rating.count} {ratingsWord(rating.count)}
-              </span>
-            ) : (
-              <span className="text-muted-foreground">оценок нет</span>
-            )}
-          </div>
+          <RatingScorePair className="mt-2" overall={rating} orders={orderRating} />
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1.5">

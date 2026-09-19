@@ -18,11 +18,18 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
-import { useDeskLoadHistory, useDeskLoads, useOwnerDeskRecount, useTechRatings } from "@/hooks/useDeskLoads";
+import {
+  useDeskLoadHistory,
+  useDeskLoads,
+  useOrderRatingTotals,
+  useOwnerDeskRecount,
+  useTechRatings,
+} from "@/hooks/useDeskLoads";
+import { MonthlyRatingTop, type MonthlyTopEntry } from "@/components/technicians/MonthlyRatingTop";
 import { usePermissions } from "@/hooks/usePermissions";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { osNickLabel } from "@/services/memberService";
-import { currentMonthSubPageId } from "@/services/monthTabService";
+import { currentMonthSubPageId, previousMonthKey } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { greetingByHour, greetingGlowShadow, hourInTimeZone, timeAgo, ymdPartsInTimeZone } from "@/utils/date";
@@ -36,7 +43,7 @@ import {
   recentMonthKeys,
 } from "@/utils/overviewStats";
 import { effectiveTechLoadKinds, techLoadKindForOption } from "@/utils/techLoad";
-import type { StatusOption } from "@/types";
+import { ratingMonthKey, type StatusOption } from "@/types";
 
 const NO_OPTIONS: StatusOption[] = [];
 const MONTHS_SHOWN = 6;
@@ -71,8 +78,47 @@ export default function DashboardPage() {
   const monthKeys = useMemo(() => recentMonthKeys(monthKey, MONTHS_SHOWN), [monthKey]);
   const { loads, failed: loadsFailed } = useDeskLoads(activeWorkspaceId, enabled);
   const { ratings, failed: ratingsFailed } = useTechRatings(activeWorkspaceId, enabled);
+  const { totals: orderTotals } = useOrderRatingTotals(activeWorkspaceId, enabled);
   const history = useDeskLoadHistory(activeWorkspaceId, monthKeys[0], enabled);
   useOwnerDeskRecount(enabled ? loads : null);
+
+  // Рейтинг на дашборде — ТОЛЬКО за текущий месяц, как и всё остальное на
+  // этом экране. Прошлый месяц не исчезает: он закреплён карточкой сверху,
+  // иначе первого числа дашборд показывал бы «оценок нет» и выглядел как
+  // поломка, а не как начало нового месяца.
+  const prevMonthKey = previousMonthKey(monthKey);
+  const monthRatings = useMemo(
+    () => (ratings ?? []).filter((r) => ratingMonthKey(r, monthKey) === monthKey),
+    [ratings, monthKey]
+  );
+  const previousTop = useMemo(() => {
+    const overallAcc = new Map<string, { sum: number; count: number }>();
+    for (const r of ratings ?? []) {
+      if (ratingMonthKey(r, monthKey) !== prevMonthKey) continue;
+      const acc = overallAcc.get(r.technicianUid) ?? { sum: 0, count: 0 };
+      acc.sum += r.stars;
+      acc.count += 1;
+      overallAcc.set(r.technicianUid, acc);
+    }
+    const ordersAcc = new Map<string, { sum: number; count: number }>();
+    for (const t of orderTotals ?? []) {
+      if (t.monthKey !== prevMonthKey) continue;
+      const acc = ordersAcc.get(t.technicianUid) ?? { sum: 0, count: 0 };
+      acc.sum += t.sum;
+      acc.count += t.count;
+      ordersAcc.set(t.technicianUid, acc);
+    }
+    const build = (source: Map<string, { sum: number; count: number }>): MonthlyTopEntry[] =>
+      [...source.entries()]
+        .flatMap(([technicianUid, acc]) => {
+          const member = members.find((m) => m.uid === technicianUid);
+          if (!member || acc.count === 0) return [];
+          return [{ member, average: acc.sum / acc.count, count: acc.count }];
+        })
+        .sort((a, b) => b.average - a.average || b.count - a.count)
+        .slice(0, 3);
+    return { overall: build(overallAcc), orders: build(ordersAcc) };
+  }, [ratings, orderTotals, members, monthKey, prevMonthKey]);
 
   const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
   const responsibleOptions = activeWorkspace?.responsibleOptions ?? NO_OPTIONS;
@@ -91,7 +137,7 @@ export default function DashboardPage() {
         members,
         pages,
         loads: loads ?? [],
-        ratings: ratings ?? [],
+        ratings: monthRatings,
         monthKey,
         statusOptions,
         kinds,
@@ -100,7 +146,7 @@ export default function DashboardPage() {
         today,
         daysInMonth,
       }),
-    [members, pages, loads, ratings, monthKey, statusOptions, kinds, responsibleOptions, today, daysInMonth]
+    [members, pages, loads, monthRatings, monthKey, statusOptions, kinds, responsibleOptions, today, daysInMonth]
   );
 
   const byDone = useMemo(() => rankByDone(overview.technicians), [overview]);
@@ -276,6 +322,12 @@ export default function DashboardPage() {
               sub={totals.ratingCount ? `${totals.ratingCount} ${ratingsWord(totals.ratingCount)}` : "оценок нет"}
             />
           </div>
+
+          <MonthlyRatingTop
+            monthLabel={monthTabNameForKey(prevMonthKey).toLowerCase()}
+            overall={previousTop.overall}
+            orders={previousTop.orders}
+          />
 
           <LeadersRow byDone={byDone[0] ?? null} byRating={byRating[0] ?? null} byOrders={byOrders} myUid={uid} />
 

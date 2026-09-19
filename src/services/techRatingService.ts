@@ -3,8 +3,8 @@ import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
 import type { TechRating } from "@/types";
 
-export function techRatingId(osUid: string, technicianUid: string) {
-  return `${osUid}_${technicianUid}`;
+export function techRatingId(osUid: string, technicianUid: string, monthKey: string) {
+  return `${osUid}_${technicianUid}_${monthKey}`;
 }
 
 /** Live while «Технари» is open — a small collection, one doc per ОС per Технар. */
@@ -25,8 +25,9 @@ export function subscribeTechRatings(
 }
 
 /**
- * First rating creates the pair's doc (rules demand a recent order from this
- * ОС on `pageId`); every later change only touches the stars.
+ * Первая оценка в месяце создаёт документ пары за ЭТОТ месяц (правила
+ * требуют свежий заказ этого ОС на `pageId`); дальше внутри месяца меняются
+ * только звёзды.
  */
 export async function rateTechnician(input: {
   workspaceId: string;
@@ -35,13 +36,24 @@ export async function rateTechnician(input: {
   stars: number;
   osValue: string;
   pageId: string;
+  monthKey: string;
   existing: TechRating | null;
 }) {
   if (!db) return;
   const stars = Math.max(1, Math.min(5, Math.round(input.stars)));
-  const ref = paths.techRating(input.workspaceId, techRatingId(input.osUid, input.technicianUid));
+  // Оценка этого месяца — своя запись. Прошлый месяц уже закрыт и правкой
+  // звёзд не меняется: он висит на дашборде как итог.
+  const ref = paths.techRating(
+    input.workspaceId,
+    techRatingId(input.osUid, input.technicianUid, input.monthKey)
+  );
   const now = Date.now();
-  if (input.existing) {
+  // Менять звёзды можно только у документа ЭТОГО месяца. Оценки, стоявшие до
+  // перехода на помесячные, лежат под старым id без месяца — для них
+  // `existing` найдётся (ростер оценок фильтруется по месяцу, а не по форме
+  // id), но updateDoc ушёл бы в несуществующий документ и упал бы «No
+  // document to update». Такой случай — это первая оценка в новом формате.
+  if (input.existing && input.existing.id === ref.id) {
     await updateDoc(ref, { stars, updatedAt: now });
     return;
   }
@@ -50,6 +62,7 @@ export async function rateTechnician(input: {
     osUid: input.osUid,
     technicianUid: input.technicianUid,
     stars,
+    monthKey: input.monthKey,
     osValue: input.osValue,
     pageId: input.pageId,
     createdAt: now,

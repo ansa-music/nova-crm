@@ -4,6 +4,8 @@ import { Link } from "react-router";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/common/EmptyState";
+import { MonthlyRatingTop, type MonthlyTopEntry } from "@/components/technicians/MonthlyRatingTop";
+import { StarRating } from "@/components/technicians/StarRating";
 import { TechLoadStatusDialog } from "@/components/technicians/TechLoadStatusDialog";
 import {
   TechnicianCard,
@@ -17,13 +19,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
-import { useDeskLoads, useOwnerDeskRecount, useTechRatings } from "@/hooks/useDeskLoads";
+import {
+  useDeskLoads,
+  useMyOrderRatings,
+  useOrderRatingTotals,
+  useOwnerDeskRecount,
+  useTechRatings,
+} from "@/hooks/useDeskLoads";
 import { usePermissions } from "@/hooks/usePermissions";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { osNickLabel } from "@/services/memberService";
 import { subscribeMyOsOrders } from "@/services/osOrdersService";
-import { currentMonthSubPageId } from "@/services/monthTabService";
+import { currentMonthSubPageId, previousMonthKey } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
+import { orderRatingId, rateOrder, removeOrderRating } from "@/services/orderRatingService";
 import { deleteTechRating, rateTechnician } from "@/services/techRatingService";
 import { confirmDialog } from "@/utils/appDialog";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
@@ -44,7 +53,10 @@ import {
 } from "@/utils/techLoad";
 import { cn } from "@/utils/cn";
 import {
+  averageOfTotals,
   memberHasRole,
+  ratingMonthKey,
+  type OrderRatingTotals,
   type OsOrders,
   type StatusOption,
   type TechRating,
@@ -69,6 +81,8 @@ interface TechnicianRow {
   /** Management view: orders per ОС this month. */
   osShares: TechnicianOsShare[] | null;
   ratings: TechRating[];
+  /** Итоги оценок за заказы ЭТОГО месяца — вторая, независимая шкала. */
+  orderTotals: OrderRatingTotals[];
   /** A desk of this Технар with a recent order from the viewing ОС — proof for a first rating. */
   rateDeskId: string | null;
 }
@@ -132,7 +146,36 @@ export default function TechniciansPage() {
   // empty list as if it were real data (loadFailed/ratingsFailed).
   const { loads, failed: loadFailed } = useDeskLoads(activeWorkspaceId, canSee);
   const { ratings, failed: ratingsFailed } = useTechRatings(activeWorkspaceId, canSee);
+  const { totals: orderTotals } = useOrderRatingTotals(activeWorkspaceId, canSee);
   useOwnerDeskRecount(canSee ? loads : null);
+
+  // Оценки живут месяцами. Текущий месяц — то, что сейчас ставят и меняют;
+  // прошлый — закрытый итог, он висит наверху, чтобы в первых числах экран
+  // не выглядел так, будто технарей никто никогда не оценивал.
+  const prevMonthKey = previousMonthKey(monthKey);
+  const monthRatings = useMemo(
+    () => (ratings ?? []).filter((r) => ratingMonthKey(r, monthKey) === monthKey),
+    [ratings, monthKey]
+  );
+  const prevRatings = useMemo(
+    () => (ratings ?? []).filter((r) => ratingMonthKey(r, monthKey) === prevMonthKey),
+    [ratings, monthKey, prevMonthKey]
+  );
+  const monthOrderTotals = useMemo(
+    () => (orderTotals ?? []).filter((t) => t.monthKey === monthKey),
+    [orderTotals, monthKey]
+  );
+  const prevOrderTotals = useMemo(
+    () => (orderTotals ?? []).filter((t) => t.monthKey === prevMonthKey),
+    [orderTotals, prevMonthKey]
+  );
+  // Свои оценки заказов — чтобы в «Мои заказы» было видно, что уже оценено.
+  const myOrderRatings = useMyOrderRatings(activeWorkspaceId, uid, isOsViewer);
+  const myOrderRatingByOrder = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of myOrderRatings) map.set(orderRatingId(r.pageId, r.rowId), r.stars);
+    return map;
+  }, [myOrderRatings]);
 
   const responsibleOptions = activeWorkspace?.responsibleOptions ?? NO_OPTIONS;
   const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
@@ -213,6 +256,7 @@ export default function TechniciansPage() {
               for (const order of doc.orders) {
                 const meta = statusMeta(order.status);
                 myItems.push({
+                  pageId: desk.id,
                   rowId: order.rowId,
                   title: order.title,
                   statusLabel: meta.label,
@@ -247,7 +291,8 @@ export default function TechniciansPage() {
               }
             : null,
           osShares: canSeeRatingDetails ? osShares : null,
-          ratings: (ratings ?? []).filter((r) => r.technicianUid === member.uid),
+          ratings: monthRatings.filter((r) => r.technicianUid === member.uid),
+          orderTotals: monthOrderTotals.filter((t) => t.technicianUid === member.uid),
           rateDeskId,
         };
       })
@@ -265,7 +310,7 @@ export default function TechniciansPage() {
           personLabel(a.member).localeCompare(personLabel(b.member), "ru")
         );
       });
-  }, [loads, ratings, members, pages, monthKey, statusOptions, kinds, myOsValue, now, osOrderDocs, statusMeta, responsibleOptions, canSeeRatingDetails, uid]);
+  }, [loads, monthRatings, monthOrderTotals, members, pages, monthKey, statusOptions, kinds, myOsValue, now, osOrderDocs, statusMeta, responsibleOptions, canSeeRatingDetails, uid]);
 
   // «Мои заказы»: every order of the viewing ОС across technicians, grouped by
   // status in the shared list's order, newest first inside a group.
@@ -308,6 +353,40 @@ export default function TechniciansPage() {
     return true;
   });
 
+  // Топ прошлого месяца — по каждой шкале отдельно. Порог в одну оценку
+  // намеренный: три звезды от одного ОС это всё же оценка, а не шум, и
+  // прятать её значит показывать пустой топ там, где оценки были.
+  const previousTop = useMemo(() => {
+    const byMember = (uidOf: string) => members.find((m) => m.uid === uidOf) ?? null;
+    const overallMap = new Map<string, { sum: number; count: number }>();
+    for (const r of prevRatings) {
+      const acc = overallMap.get(r.technicianUid) ?? { sum: 0, count: 0 };
+      acc.sum += r.stars;
+      acc.count += 1;
+      overallMap.set(r.technicianUid, acc);
+    }
+    const ordersMap = new Map<string, OrderRatingTotals[]>();
+    for (const t of prevOrderTotals) {
+      ordersMap.set(t.technicianUid, [...(ordersMap.get(t.technicianUid) ?? []), t]);
+    }
+    const rank = (entries: MonthlyTopEntry[]) =>
+      entries.sort((a, b) => b.average - a.average || b.count - a.count).slice(0, 3);
+    const overall: MonthlyTopEntry[] = [];
+    for (const [technicianUid, acc] of overallMap) {
+      const member = byMember(technicianUid);
+      if (member && acc.count > 0) overall.push({ member, average: acc.sum / acc.count, count: acc.count });
+    }
+    const orders: MonthlyTopEntry[] = [];
+    for (const [technicianUid, totals] of ordersMap) {
+      const member = byMember(technicianUid);
+      const average = averageOfTotals(totals);
+      if (member && average !== null) {
+        orders.push({ member, average, count: totals.reduce((n, t) => n + t.count, 0) });
+      }
+    }
+    return { overall: rank(overall), orders: rank(orders) };
+  }, [prevRatings, prevOrderTotals, members]);
+
   function raterFor(t: TechnicianRow): TechnicianRater | null {
     if (!isOsViewer || ratings === null || ratingsFailed || t.member.uid === uid) return null;
     const mine = t.ratings.find((r) => r.osUid === uid) ?? null;
@@ -331,6 +410,7 @@ export default function TechniciansPage() {
         stars,
         osValue,
         pageId,
+        monthKey,
         existing: mine,
       });
       toast.success(mine ? "Оценка изменена" : "Оценка поставлена");
@@ -339,6 +419,42 @@ export default function TechniciansPage() {
         isPermissionDenied(error)
           ? "Не получилось: у технаря нет недавнего заказа с вашим ником ОС"
           : "Не удалось сохранить оценку"
+      );
+    }
+  }
+
+  /**
+   * Оценка конкретного заказа. Повторный клик по той же звезде снимает
+   * оценку — иначе поставленную по ошибке пятёрку нечем убрать, а «поставить
+   * 1, чтобы отменить» это не отмена, а другая оценка.
+   */
+  async function handleRateOrder(item: TechnicianOrderItem & { member: WorkspaceMember }, stars: number) {
+    if (!activeWorkspaceId || !myOsValue) return;
+    const key = orderRatingId(item.pageId, item.rowId);
+    const current = myOrderRatingByOrder.get(key) ?? null;
+    try {
+      if (current === stars) {
+        await removeOrderRating(activeWorkspaceId, key);
+        toast.success("Оценка заказа снята");
+        return;
+      }
+      await rateOrder({
+        workspaceId: activeWorkspaceId,
+        pageId: item.pageId,
+        rowId: item.rowId,
+        osUid: uid,
+        osValue: myOsValue,
+        technicianUid: item.member.uid,
+        stars,
+        title: item.title,
+        monthKey,
+      });
+      toast.success(current ? "Оценка заказа изменена" : "Заказ оценён");
+    } catch (error) {
+      toast.error(
+        isPermissionDenied(error)
+          ? "Не получилось: у технаря нет недавнего заказа с вашим ником ОС"
+          : "Не удалось сохранить оценку заказа"
       );
     }
   }
@@ -515,6 +631,14 @@ export default function TechniciansPage() {
             </p>
           )}
 
+          {loads !== null && (
+            <MonthlyRatingTop
+              monthLabel={monthTabNameForKey(prevMonthKey).toLowerCase()}
+              overall={previousTop.overall}
+              orders={previousTop.orders}
+            />
+          )}
+
           {!loadFailed && loads === null && (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
               <Skeleton className="h-64 rounded-2xl" />
@@ -573,12 +697,21 @@ export default function TechniciansPage() {
                             {item.updatedAt ? ` · изменено ${timeAgo(item.updatedAt)}` : ""}
                           </p>
                         </div>
-                        <Link
-                          to={`/messages/${item.member.uid}`}
-                          className="shrink-0 text-[11px] font-medium text-primary hover:underline"
-                        >
-                          Написать
-                        </Link>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <StarRating
+                            value={myOrderRatingByOrder.get(orderRatingId(item.pageId, item.rowId)) ?? null}
+                            onChange={(stars) => void handleRateOrder(item, stars)}
+                            size="sm"
+                            tone="violet"
+                            label={`Оценка заказа «${item.title || "без названия"}»`}
+                          />
+                          <Link
+                            to={`/messages/${item.member.uid}`}
+                            className="text-[11px] font-medium text-primary hover:underline"
+                          >
+                            Написать
+                          </Link>
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -629,6 +762,10 @@ export default function TechniciansPage() {
                   rating={{
                     average: ratingsFailed || t.ratings.length === 0 ? null : t.ratings.reduce((n, r) => n + r.stars, 0) / t.ratings.length,
                     count: ratingsFailed ? 0 : t.ratings.length,
+                  }}
+                  orderRating={{
+                    average: averageOfTotals(t.orderTotals),
+                    count: t.orderTotals.reduce((n, o) => n + o.count, 0),
                   }}
                   rater={raterFor(t)}
                   onRate={(stars) => handleRate(t, stars)}

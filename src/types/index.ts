@@ -10,6 +10,7 @@ export * from "@/types/chat";
 export * from "@/types/inbox";
 export * from "@/types/leaderboard";
 export * from "@/types/deskLoad";
+export * from "@/types/orderRating";
 export * from "@/types/techRating";
 export * from "@/types/viewRequest";
 export * from "@/types/grokAccount";

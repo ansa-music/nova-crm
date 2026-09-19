@@ -5,6 +5,20 @@ import { cn } from "@/utils/cn";
 
 const STARS = Array.from({ length: TECH_RATING_MAX }, (_, i) => i + 1);
 
+/**
+ * Две шкалы живут рядом и их постоянно путают, если обе жёлтые: общая
+ * оценка технаря — янтарная, оценка за конкретный заказ — фиолетовая.
+ * Цвет здесь единственное различие, форма у обеих одна (звёзды), потому
+ * что менять ещё и форму значит заставлять заново догадываться, что
+ * значат 5 чего-то другого.
+ */
+export type RatingTone = "amber" | "violet";
+
+const TONE: Record<RatingTone, { fill: string; empty: string }> = {
+  amber: { fill: "fill-amber-400 text-amber-400", empty: "text-muted-foreground/40" },
+  violet: { fill: "fill-violet-400 text-violet-400", empty: "text-muted-foreground/40" },
+};
+
 /** 1–5 stars. Without `onChange` it only displays `value` (fractions round to the nearest half star). */
 export function StarRating({
   value,
@@ -12,17 +26,20 @@ export function StarRating({
   disabled,
   size = "md",
   label = "Оценка",
+  tone = "amber",
 }: {
   value: number | null;
   onChange?: (stars: number) => void;
   disabled?: boolean;
   size?: "sm" | "md";
   label?: string;
+  tone?: RatingTone;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const interactive = Boolean(onChange) && !disabled;
   const shown = interactive && hover !== null ? hover : value ?? 0;
   const iconClass = size === "sm" ? "h-3.5 w-3.5" : "h-5 w-5";
+  const colors = TONE[tone];
 
   if (!onChange) {
     return (
@@ -31,10 +48,10 @@ export function StarRating({
           const fill = Math.max(0, Math.min(1, Math.round((shown - (n - 1)) * 2) / 2));
           return (
             <span key={n} className={cn("relative inline-block", iconClass)}>
-              <Star className={cn("absolute inset-0 text-muted-foreground/35", iconClass)} />
+              <Star className={cn("absolute inset-0", colors.empty, iconClass)} />
               {fill > 0 && (
                 <span className="absolute inset-0 overflow-hidden" style={{ width: `${fill * 100}%` }}>
-                  <Star className={cn("fill-amber-400 text-amber-400", iconClass)} />
+                  <Star className={cn(colors.fill, iconClass)} />
                 </span>
               )}
             </span>
@@ -73,7 +90,7 @@ export function StarRating({
             className={cn(
               iconClass,
               "transition-colors",
-              n <= shown ? "fill-amber-400 text-amber-400" : "text-muted-foreground/45"
+              n <= shown ? colors.fill : colors.empty
             )}
           />
         </button>

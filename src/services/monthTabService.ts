@@ -22,7 +22,7 @@ export function currentMonthKey(now: number = Date.now()): string {
   return ymdInTimeZone(now).slice(0, 7);
 }
 
-function previousMonthKey(monthKey: string): string {
+export function previousMonthKey(monthKey: string): string {
   const [year, month] = monthKey.split("-").map(Number);
   return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, "0")}`;
 }
