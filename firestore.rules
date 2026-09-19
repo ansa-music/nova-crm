@@ -82,6 +82,11 @@ service cloud.firestore {
       return isOwner(workspaceId) || (isMember(workspaceId) && myRole(workspaceId) == 'admin');
     }
 
+    // «Заказы»: выдаёт ОС (в т.ч. как вторая роль), Тимлид и Owner.
+    function canIssueOrders(workspaceId) {
+      return hasFullAccess(workspaceId) || hasRole(workspaceId, 'os');
+    }
+
     // Owner, Тимлид or Admin: announcements, Grok card titles.
     function isManagement(workspaceId) {
       return hasFullAccess(workspaceId) || (isMember(workspaceId) && myRole(workspaceId) == 'admin');
@@ -851,6 +856,35 @@ service cloud.firestore {
       // A pure ОС doesn't see Грок лимит at all (an ОС + Технар does).
       function canUseGrok(workspaceId) {
         return isMember(workspaceId) && (myRole(workspaceId) != 'os' || hasExtraRole(workspaceId, 'manager'));
+      }
+
+      // -----------------------------------------------------------------
+      // «Заказы» — биржа заказов (src/services/orderService.ts). ОС/Тимлид/
+      // Owner выдаёт заказ, Технари откликаются (только свой ключ в claims,
+      // только пока заказ открыт), выдающий назначает или отменяет, а
+      // назначенный Технар переводит заказ в «taken», забрав его в стол.
+      // Строка в столе пишется по обычным правилам стола, не отсюда.
+      // -----------------------------------------------------------------
+      match /orders/{orderId} {
+        allow read: if isMember(workspaceId);
+        allow create: if canIssueOrders(workspaceId)
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.status == 'open';
+        // Выдающий (или Owner/Тимлид) распоряжается заказом целиком.
+        allow update, delete: if hasFullAccess(workspaceId)
+          || (canIssueOrders(workspaceId) && resource.data.createdBy == request.auth.uid);
+        // Технар: отклик — только свой ключ в claims, только у открытого заказа.
+        allow update: if hasRole(workspaceId, 'manager')
+          && resource.data.status == 'open'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claims', 'updatedAt'])
+          && request.resource.data.get('claims', {}).diff(resource.data.get('claims', {})).affectedKeys().hasOnly([request.auth.uid]);
+        // Назначенный Технар забирает заказ в стол: только статус и ссылка на строку.
+        allow update: if resource.data.get('assignedUid', '') == request.auth.uid
+          && resource.data.status == 'assigned'
+          && request.resource.data.status == 'taken'
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'takenAt', 'takenPageId', 'takenSubPageId', 'takenRowId', 'updatedAt']);
       }
 
       // Daily dispatch board (Выдача) — standalone sidebar section, not tied

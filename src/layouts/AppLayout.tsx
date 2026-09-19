@@ -17,6 +17,7 @@ import { GlobalUndoHotkeys } from "@/components/common/GlobalUndoHotkeys";
 import { GoChordHotkeys } from "@/components/common/GoChordHotkeys";
 import { AppDialogHost } from "@/components/common/AppDialogHost";
 import { AccentColorSync } from "@/components/common/AccentColorSync";
+import { RemovedFromWorkspace } from "@/components/common/RemovedFromWorkspace";
 import { Button } from "@/components/ui/button";
 import { TableChromeExit } from "@/components/table/TableChromeExit";
 import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorkspace";
@@ -25,6 +26,7 @@ import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
 import { useOpenApprovedDesk } from "@/hooks/useOpenApprovedDesk";
 import { useMonthTabAutopilot } from "@/hooks/useMonthTabAutopilot";
 import { useAuth } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useIsTablet } from "@/hooks/useMediaQuery";
 import { useUiStore } from "@/store/uiStore";
 import { isWorkspaceAdmin } from "@/utils/adminAccess";
@@ -48,6 +50,7 @@ export function AppLayout() {
   const { phase } = useAppBootstrap();
   const { activeWorkspace } = useWorkspace();
   const { profile } = useAuth();
+  const permissions = usePermissions();
   const isCompactNav = useIsTablet();
   const [createOpen, setCreateOpen] = useState(false);
   const tableFullscreen = useUiStore((s) => s.tableFullscreen);
@@ -109,6 +112,13 @@ export function AppLayout() {
         )}
       </div>
     );
+  }
+
+  // Участников загрузили, а этого аккаунта среди них нет: его удалили из
+  // workspace (id остался в профиле), либо заявку ещё не приняли. Без этой
+  // ветки человек попадал в пустую оболочку без единой кнопки.
+  if (permissions.isResolved && !permissions.hasMembership) {
+    return <RemovedFromWorkspace />;
   }
 
   return (

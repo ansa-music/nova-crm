@@ -11,6 +11,8 @@ export type QuickOrderInput = {
   minutes: string;
   /** Free-form wishes for the client card. */
   note: string;
+  /** Ссылка на клиента — в столбец типа «ссылка», если он есть («Заказы»). */
+  link?: string;
 };
 
 function normLabel(label: string) {
@@ -28,7 +30,8 @@ export function findQuickOrderColumns(visible: PageColumn[]) {
   const receipt = visible.find((c) => c.type === "currency") ?? firstMatch(visible, /цена|сумм|чек/);
   const persons = firstMatch(visible, /перс|персонаж/);
   const minutes = firstMatch(visible, /мин/);
-  return { client, number, os, receipt, persons, minutes };
+  const link = visible.find((c) => c.type === "url") ?? firstMatch(visible, /ссылк|сайт|link|url/);
+  return { client, number, os, receipt, persons, minutes, link };
 }
 
 /**
@@ -65,6 +68,8 @@ export function buildQuickOrderRow(
   if (cols.number && number) cells[cols.number.key] = number;
   if (cols.os && os) cells[cols.os.key] = os;
   if (cols.receipt && check != null) cells[cols.receipt.key] = check;
+  const link = (input.link ?? "").trim();
+  if (cols.link && link) cells[cols.link.key] = link;
 
   const persons = parseOptionalNumber(input.persons);
   const minutes = parseOptionalNumber(input.minutes);

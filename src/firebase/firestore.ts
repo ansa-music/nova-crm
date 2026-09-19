@@ -150,6 +150,10 @@ export const paths = {
   ownerAccessRequest: (workspaceId: string, uid: string) =>
     doc(requireDb(), "workspaces", workspaceId, "ownerAccessRequests", uid),
 
+  /** «Заказы» — биржа заказов между ОС и технарями. */
+  orders: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "orders"),
+  order: (workspaceId: string, id: string) => doc(requireDb(), "workspaces", workspaceId, "orders", id),
+
   notifications: (workspaceId: string) =>
     collection(requireDb(), "workspaces", workspaceId, "notifications"),
   notification: (workspaceId: string, id: string) =>

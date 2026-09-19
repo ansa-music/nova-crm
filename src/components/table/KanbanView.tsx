@@ -127,7 +127,26 @@ export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChang
   };
 
   return (
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setDraggingRowId(null)}>
+    <DndContext
+      sensors={sensors}
+      // Авто-прокрутка доски ВЫКЛЮЧЕНА намеренно. Как только начинается
+      // перетаскивание, на доску добавляются колонки всех пустых статусов
+      // (dragOnlyColumns): доска разом становится шире экрана в разы и
+      // оказывается прокручиваемой. Авто-скролл dnd-kit на это реагировал
+      // сразу, ещё до того как рука дойдёт до края — за один бросок доска
+      // уезжала вбок на ~400px (замерено), колонки уползали из-под курсора, и
+      // карточка приземлялась на соседний статус справа или вовсе теряла его,
+      // падая в «Без статуса». Ограничение порога и ускорения не помогло —
+      // прокрутка запускалась и в середине доски, поэтому отключена целиком.
+      // Ценой стало то, что до колонки за краем экрана мышью не дотянуться в
+      // одном жесте: доску нужно прокрутить заранее (или сменить статус в
+      // карточке заказа). Точность броска важнее — молча испорченный статус
+      // заказа дороже лишнего движения.
+      autoScroll={false}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => setDraggingRowId(null)}
+    >
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
         {displayedColumns.map((option) => (
           <KanbanColumn

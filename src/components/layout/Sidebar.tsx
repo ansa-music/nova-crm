@@ -3,6 +3,7 @@ import { NavLink, useLocation, useNavigate } from "react-router";
 import {
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   HardHat,
   Keyboard,
   KeyRound,
@@ -266,6 +267,9 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                       Технари
                     </AppNavLink>
                   )}
+                  <AppNavLink collapsed title="Заказы" to="/orders" icon={ClipboardList} onNavigate={onNavigate}>
+                    Заказы
+                  </AppNavLink>
                   <AppNavLink collapsed title="Настройки" to="/settings" icon={Settings} onNavigate={onNavigate}>
                     Настройки
                   </AppNavLink>
@@ -315,6 +319,9 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                       Технари
                     </AppNavLink>
                   )}
+                  <AppNavLink to="/orders" icon={ClipboardList} onNavigate={onNavigate}>
+                    Заказы
+                  </AppNavLink>
                   <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
                     Настройки
                   </AppNavLink>
@@ -367,6 +374,9 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   Технари
                 </AppNavLink>
               )}
+              <AppNavLink to="/orders" icon={ClipboardList} onNavigate={onNavigate}>
+                Заказы
+              </AppNavLink>
               <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
                 Настройки
               </AppNavLink>
