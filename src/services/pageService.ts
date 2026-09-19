@@ -441,6 +441,21 @@ export async function updatePagePermissions(workspaceId: string, pageId: string,
   await setDoc(paths.page(workspaceId, pageId), { allowedUsers, updatedAt: Date.now() }, { merge: true });
 }
 
+/**
+ * Все поля доступа стола одним merge — их правят вместе в «Доступ к столу».
+ * Раздельные записи allowedUsers / editableUsers / hiddenByResponsible давали
+ * промежуточные состояния (просмотр уже снят, правка ещё есть) и три
+ * срабатывания подписки вместо одного.
+ */
+export async function updatePageAccess(
+  workspaceId: string,
+  pageId: string,
+  patch: { allowedUsers: string[]; editableUsers: string[]; hiddenByResponsible?: boolean }
+) {
+  if (!db) return;
+  await setDoc(paths.page(workspaceId, pageId), { ...patch, updatedAt: Date.now() }, { merge: true });
+}
+
 /** Owner/responsible: grant or revoke EDIT rights for someone who already has view access. */
 export async function updatePageEditableUsers(workspaceId: string, pageId: string, editableUsers: string[]) {
   if (!db) return;

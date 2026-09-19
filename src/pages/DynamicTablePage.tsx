@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
-import { Archive, ArchiveRestore, BarChart3, Eye, EyeOff, HardHat, History, Lock, Maximize2, MessageSquare, MoreHorizontal, Settings2, User } from "lucide-react";
+import { Archive, ArchiveRestore, BarChart3, Eye, EyeOff, HardHat, History, Lock, Maximize2, MessageSquare, MoreHorizontal, Settings2, User, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -16,7 +16,8 @@ import { DataTable } from "@/components/table/DataTable";
 import { TableChromeExit } from "@/components/table/TableChromeExit";
 import { SubPageTabs } from "@/components/table/SubPageTabs";
 import { SubPageStats } from "@/components/table/SubPageStats";
-import { EditPageDialog } from "@/components/pagesnav/EditPageDialog";
+import { DeskAccessDialog } from "@/components/pagesnav/DeskAccessDialog";
+import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { DeskStudioSheet } from "@/components/pagesnav/DeskStudioSheet";
 import { HistoryPanel } from "@/components/history/HistoryPanel";
 import { PageChatPanel } from "@/components/chat/PageChatPanel";
@@ -65,7 +66,7 @@ export default function DynamicTablePage() {
   const { activeWorkspace, activeWorkspaceId, allPages, members } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
-  const { requestView, latestForPage, reload: reloadViewRequests, isLoading: viewRequestsLoading } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
+  const { requests, resolveRequest, requestView, latestForPage, reload: reloadViewRequests, isLoading: viewRequestsLoading } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const setTableFullscreen = useUiStore((s) => s.setTableFullscreen);
   const setTableImmersive = useUiStore((s) => s.setTableImmersive);
   const tableFullscreen = useUiStore((s) => s.tableFullscreen);
@@ -382,6 +383,19 @@ export default function DynamicTablePage() {
   const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid;
   const canEditData = permissions.canEditPageData(page);
   const isResponsible = permissions.isResponsibleForPage(page);
+  // Кнопка «Доступ» в шапке: кто, кроме Owner, открывает стол, и сколько
+  // запросов на просмотр ждут именно меня по этому столу.
+  const accessMembers = members.filter(
+    (m) =>
+      m.status === "active" &&
+      m.role !== "owner" &&
+      (m.uid === page.responsibleUserId || Boolean(page.allowedUsers?.includes(m.uid)))
+  );
+  const pendingDeskRequests = requests.filter(
+    (r) => r.pageId === page.id && r.status === "pending" && r.toUid === profile?.uid
+  );
+  const responsibleMember = members.find((m) => m.uid === page.responsibleUserId) ?? null;
+  const canOpenAccess = permissions.canManagePage(page) || permissions.canAssignResponsible;
   // Personal Space is visible only to whoever is actually responsible for
   // THIS page (or explicitly whitelisted) — being a Manager elsewhere in the
   // workspace does not grant it. Owner keeps oversight, matching how every
@@ -436,7 +450,16 @@ export default function DynamicTablePage() {
         </span>
         <h1 className="page-title">{page.name}</h1>
         {!canEditData && (
-          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Только просмотр</span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex cursor-default items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                <Lock className="h-3 w-3" /> Только просмотр
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              Правку выдаёт {responsibleMember ? `ответственный — ${displayNameOf(responsibleMember)}` : "ответственный за стол"} или Owner
+            </TooltipContent>
+          </Tooltip>
         )}
         <div className="flex-1" />
         <Tooltip>
@@ -475,6 +498,60 @@ export default function DynamicTablePage() {
             Owner viewing their own page, which crowded the header badly.
             Frequency-of-use decided what stayed outside: chat + fullscreen
             get used far more often per session than stats/history/settings. */}
+        {/* Доступ виден прямо в шапке: аватары тех, кому открыт стол, замок у
+            скрытого и счётчик запросов на просмотр. Раньше всё это лежало за
+            «⋯ → Доступ к листу», и кто видит стол, можно было узнать только
+            открыв диалог. */}
+        {canOpenAccess && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="hidden h-8 gap-1.5 sm:inline-flex"
+                onClick={() => setSettingsOpen(true)}
+                aria-label="Доступ к столу"
+              >
+                {page.hiddenByResponsible ? (
+                  <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                ) : (
+                  <Users className="h-3.5 w-3.5" />
+                )}
+                {accessMembers.length > 0 ? (
+                  <span className="flex items-center -space-x-1.5">
+                    {accessMembers.slice(0, 3).map((m) => (
+                      <MemberAvatar
+                        key={m.uid}
+                        id={m.uid}
+                        name={m.name}
+                        nickname={m.nickname}
+                        photoURL={m.photoURL}
+                        className="h-5 w-5 ring-2 ring-background"
+                      />
+                    ))}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">только вы</span>
+                )}
+                {accessMembers.length > 3 && (
+                  <span className="text-xs text-muted-foreground">+{accessMembers.length - 3}</span>
+                )}
+                {pendingDeskRequests.length > 0 && (
+                  <span className="rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground">
+                    {pendingDeskRequests.length}
+                  </span>
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {page.hiddenByResponsible ? "Стол скрыт · " : ""}
+              {accessMembers.length === 0
+                ? "Стол открыт только вам и Owner"
+                : `Открыт: ${accessMembers.map((m) => displayNameOf(m)).join(", ")}`}
+              {pendingDeskRequests.length > 0 ? ` · ждут ответа: ${pendingDeskRequests.length}` : ""}
+            </TooltipContent>
+          </Tooltip>
+        )}
         {permissions.canManagePage(page) && (
           <Button
             variant="outline"
@@ -526,9 +603,14 @@ export default function DynamicTablePage() {
                 </DropdownMenuItem>
               </>
             )}
-            {(permissions.canManagePage(page) || permissions.canAssignResponsible) && (
+            {canOpenAccess && (
               <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
-                <Settings2 className="h-4 w-4" /> Доступ к листу
+                <Users className="h-4 w-4" /> Доступ к столу
+                {pendingDeskRequests.length > 0 && (
+                  <span className="ml-auto rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground">
+                    {pendingDeskRequests.length}
+                  </span>
+                )}
               </DropdownMenuItem>
             )}
             {/* Owner-only: Технар desks get month tabs and a row on «Технари»
@@ -636,7 +718,15 @@ export default function DynamicTablePage() {
         </>
       )}
 
-      {settingsOpen && <EditPageDialog page={page} onOpenChange={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <DeskAccessDialog
+          page={page}
+          onOpenChange={() => setSettingsOpen(false)}
+          canToggleVisibility={isResponsible}
+          pendingRequests={pendingDeskRequests}
+          onResolveRequest={(request, status) => resolveRequest(request, page, status, displayNameOf(profile))}
+        />
+      )}
       {permissions.canManagePage(page) && (
         <DeskStudioSheet page={page} open={deskStudioOpen} onOpenChange={setDeskStudioOpen} uid={profile?.uid} />
       )}

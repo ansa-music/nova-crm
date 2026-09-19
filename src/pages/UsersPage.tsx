@@ -573,7 +573,7 @@ export default function UsersPage() {
               {!isOwner && member.status === "active" && isExpanded && (
                 <CardContent className="border-t border-border pt-4">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Доступные страницы
+                    Открытые столы
                   </p>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {deskPages.map((page) => {
@@ -594,7 +594,7 @@ export default function UsersPage() {
                       );
                     })}
                     {deskPages.length === 0 && (
-                      <p className="text-xs text-muted-foreground">В workspace пока нет страниц.</p>
+                      <p className="text-xs text-muted-foreground">В workspace пока нет столов.</p>
                     )}
                   </div>
                 </CardContent>

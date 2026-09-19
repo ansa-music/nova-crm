@@ -154,6 +154,18 @@ export function TableToolbar({
   mineOnly,
   onMineOnlyChange,
 }: TableToolbarProps) {
+  // Чипы статусов без строк прячутся за «+N»: на столе, где всё «Готово»,
+  // шесть серых чипов только шумели. Активный фильтр виден всегда, даже пустой.
+  const [showEmptyChips, setShowEmptyChips] = useState(false);
+  const allStatusOptions = statusOptions ?? [];
+  // Пустой статус в счётчиках просто отсутствует (ключа нет), поэтому «0» —
+  // это «счётчики посчитаны, а строк с таким статусом нет».
+  const emptyStatusOptions = allStatusOptions.filter(
+    (opt) => Boolean(statusCounts) && !((statusCounts?.[opt.value] ?? 0) > 0) && statusFilter !== opt.value
+  );
+  const shownStatusOptions = showEmptyChips
+    ? allStatusOptions
+    : allStatusOptions.filter((opt) => !emptyStatusOptions.includes(opt));
   const [searchOpen, setSearchOpen] = useState(Boolean(searchQuery));
   const searchRef = useRef<HTMLInputElement>(null);
   const setShortcutsHelpOpen = useUiStore((s) => s.setShortcutsHelpOpen);
@@ -272,7 +284,7 @@ export function TableToolbar({
               <span className="ml-1 opacity-70">{statusCounts[NOT_DONE_STATUS_FILTER]}</span>
             ) : null}
           </button>
-          {statusOptions.map((opt) => {
+          {shownStatusOptions.map((opt) => {
             const n = statusCounts?.[opt.value];
             const active = statusFilter === opt.value;
             return (
@@ -303,6 +315,16 @@ export function TableToolbar({
               </button>
             );
           })}
+          {emptyStatusOptions.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowEmptyChips((v) => !v)}
+              className="table-chip hidden h-7 shrink-0 items-center rounded-full border border-dashed border-border px-2.5 text-[11px] font-medium text-muted-foreground hover:text-foreground sm:inline-flex"
+              title={showEmptyChips ? "Скрыть статусы без заказов" : "Показать статусы без заказов"}
+            >
+              {showEmptyChips ? "скрыть пустые" : `+${emptyStatusOptions.length}`}
+            </button>
+          )}
         </div>
       )}
 
