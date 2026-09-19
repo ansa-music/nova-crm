@@ -1,5 +1,14 @@
 export type WorkOrderStatus = "open" | "assigned" | "taken" | "cancelled";
 
+/** Срочность заказа — её выставляет выдающий. */
+export type WorkOrderUrgency = "normal" | "urgent" | "fire";
+
+export const WORK_ORDER_URGENCY_LABELS: Record<WorkOrderUrgency, string> = {
+  normal: "Нейтральный",
+  urgent: "Срочный",
+  fire: "Горит",
+};
+
 /** Отклик технаря на заказ. Ключ в `WorkOrder.claims` — uid, так правило пускает менять только свой. */
 export interface WorkOrderClaim {
   uid: string;
@@ -24,10 +33,16 @@ export interface WorkOrder {
   phone: string;
   /** Ссылка на сайт/страницу с клиентом — в столбец типа «ссылка», если он есть. */
   link: string;
+  /** Цена заказа. Уходит в денежный столбец стола («Цена»). */
+  price: number | null;
   persons: number | null;
   minutes: number | null;
   /** Пожелания — уходят в визитку клиента (`row.extras.note`). */
   note: string;
+  /** Дедлайн сдачи (мс). Уходит в столбец-дату стола, когда заказ попадает к технарю. */
+  deadline: number | null;
+  /** «Горит» / «Срочный» / «Нейтральный». Старые заказы без поля считаются нейтральными. */
+  urgency: WorkOrderUrgency;
   /** Ник ОС: значение варианта общего списка «Ответственный» и его подпись на момент выдачи. */
   osValue: string;
   osLabel: string;

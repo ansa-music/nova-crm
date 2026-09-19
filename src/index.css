@@ -1141,6 +1141,17 @@ html body[data-scroll-locked] {
   opacity: 1;
 }
 
+/* Строка, приехавшая заказом с «Заказов»: держится подсвеченной, пока
+   технарь сам не снимет подсветку чипом «N новых» в тулбаре. */
+.table-instrument tbody tr.table-row-new td {
+  background: hsl(var(--primary) / 0.1);
+  box-shadow: inset 0 1px 0 hsl(var(--primary) / 0.22), inset 0 -1px 0 hsl(var(--primary) / 0.22);
+}
+.table-instrument tbody tr.table-row-new .table-row-rail {
+  background: hsl(var(--primary));
+  opacity: 1;
+}
+
 /* Ghost "+ Новая строка" at the bottom of the grid. */
 .table-instrument tbody tr.table-add-row td {
   background: transparent;

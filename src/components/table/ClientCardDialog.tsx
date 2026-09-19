@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Clock3, IdCard, Loader2, NotebookPen, Users } from "lucide-react";
+import { Clock3, IdCard, Loader2, NotebookPen, Users, ExternalLink, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { parseOptionalNumber } from "@/utils/quickOrder";
 import { normalizeRowExtras, type RowExtras } from "@/utils/rowExtras";
+import { parseHttpUrl } from "@/utils/httpUrl";
 import { cn } from "@/utils/cn";
 
 const PERSON_PICKS = [1, 2, 3, 4, 5, 6];
@@ -41,6 +42,7 @@ export function ClientCardDialog({
   const [persons, setPersons] = useState("");
   const [minutes, setMinutes] = useState("");
   const [note, setNote] = useState("");
+  const [link, setLink] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -48,6 +50,7 @@ export function ClientCardDialog({
     setPersons(numberText(initial.persons));
     setMinutes(numberText(initial.minutes));
     setNote(initial.note ?? "");
+    setLink(initial.link ?? "");
     // Only when the dialog opens — live row updates must not wipe typing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -56,11 +59,12 @@ export function ClientCardDialog({
   const minutesNum = parseOptionalNumber(minutes);
   const personsBad = persons.trim() !== "" && personsNum == null;
   const minutesBad = minutes.trim() !== "" && minutesNum == null;
-  const next = normalizeRowExtras({ persons: personsNum, minutes: minutesNum, note });
+  const next = normalizeRowExtras({ persons: personsNum, minutes: minutesNum, note, link });
   const changed =
     (next?.persons ?? null) !== (initial.persons ?? null) ||
     (next?.minutes ?? null) !== (initial.minutes ?? null) ||
-    (next?.note ?? "") !== (initial.note?.trim() ?? "");
+    (next?.note ?? "") !== (initial.note?.trim() ?? "") ||
+    (next?.link ?? "") !== (initial.link?.trim() ?? "");
 
   async function save() {
     if (!canEdit || personsBad || minutesBad) return;
@@ -161,6 +165,38 @@ export function ClientCardDialog({
                 placeholder="другое"
                 className={cn("h-8 w-20 text-sm", minutesBad && "border-destructive")}
               />
+            </div>
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="cc-link" className="flex items-center gap-1.5">
+              <Link2 className="h-3.5 w-3.5 text-muted-foreground" /> Ссылка на клиента
+            </Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="cc-link"
+                value={link}
+                onChange={(e) => setLink(e.target.value)}
+                disabled={!canEdit}
+                placeholder="https://instagram.com/…"
+                inputMode="url"
+                className="flex-1"
+              />
+              {/* Открывается в новой вкладке, и только настоящий http(s)-адрес:
+                  «instagram.com/x» без схемы браузер увёл бы на страницу CRM. */}
+              {parseHttpUrl(link) ? (
+                <a
+                  href={parseHttpUrl(link)!.toString()}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2.5 text-xs font-medium text-primary hover:bg-primary/15"
+                  title="Открыть в новой вкладке"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" /> Открыть
+                </a>
+              ) : link.trim() ? (
+                <span className="shrink-0 text-[11px] text-muted-foreground">нужен https://</span>
+              ) : null}
             </div>
           </div>
 

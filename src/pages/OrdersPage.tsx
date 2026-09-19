@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { Clock3, ExternalLink, Hand, Inbox, Link2, Phone, Plus, Shuffle, Trash2, Undo2, UserCheck, Users, XCircle } from "lucide-react";
+import { CalendarClock, Clock3, ExternalLink, Hand, Inbox, Link2, Phone, Plus, Shuffle, Trash2, Undo2, UserCheck, Users, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/common/EmptyState";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
@@ -25,13 +25,20 @@ import {
 } from "@/services/orderService";
 import { parseOptionalNumber } from "@/utils/quickOrder";
 import { displayNameOf } from "@/utils/displayName";
-import { timeAgo } from "@/utils/date";
+import { formatCurrency } from "@/utils/format";
+import { formatOrderDate, timeAgo } from "@/utils/date";
 import { hasFullAccess } from "@/utils/permissions";
 import { confirmDialog } from "@/utils/appDialog";
 import { cn } from "@/utils/cn";
-import { memberHasRole, WORK_ORDER_STATUS_LABELS, type WorkOrder, type WorkOrderStatus, type WorkspaceMember } from "@/types";
+import { memberHasRole, WORK_ORDER_STATUS_LABELS, WORK_ORDER_URGENCY_LABELS, type WorkOrder, type WorkOrderStatus, type WorkOrderUrgency, type WorkspaceMember } from "@/types";
 
 const TABS: WorkOrderStatus[] = ["open", "assigned", "taken", "cancelled"];
+
+/** «Нейтральный» ничем не помечаем — бейдж только там, где он что-то значит. */
+const URGENCY_TONE: Record<Exclude<WorkOrderUrgency, "normal">, string> = {
+  urgent: "border-amber-400/45 bg-amber-400/12 text-amber-200",
+  fire: "border-destructive/50 bg-destructive/15 text-destructive",
+};
 
 const STATUS_TONE: Record<WorkOrderStatus, string> = {
   open: "border-primary/40 bg-primary/12 text-primary",
@@ -66,7 +73,8 @@ export default function OrdersPage() {
   const myDesk = useMemo(() => pages.find((p) => p.responsibleUserId === uid) ?? null, [pages, uid]);
 
   const osOptions = activeWorkspace?.responsibleOptions ?? [];
-  const fixedOs = useMemo(
+  /** Свой ник ОС: подставляется по умолчанию, но список открыт — можно выставить на любого. */
+  const myOs = useMemo(
     () => (myMembership?.osNickValue ? (osOptions.find((o) => o.value === myMembership.osNickValue) ?? { value: myMembership.osNickValue, label: myMembership.osNick ?? myMembership.osNickValue, color: "0 0% 50%" }) : null),
     [myMembership?.osNickValue, myMembership?.osNick, osOptions]
   );
@@ -121,13 +129,17 @@ export default function OrdersPage() {
 
   async function handleIssue(form: IssueOrderForm) {
     if (!activeWorkspaceId || !profile) return;
-    const os = fixedOs ?? osOptions.find((o) => o.value === form.osValue) ?? null;
+    const os = osOptions.find((o) => o.value === form.osValue) ?? (form.osValue === myOs?.value ? myOs : null);
     try {
       await createOrder({
         workspaceId: activeWorkspaceId,
         client: form.client,
         phone: form.phone,
         link: form.link,
+        // Дата без времени: дедлайн — это день сдачи, а не момент.
+        deadline: form.deadline ? new Date(`${form.deadline}T00:00:00`).getTime() : null,
+        urgency: form.urgency,
+        price: parseOptionalNumber(form.price),
         persons: parseOptionalNumber(form.persons),
         minutes: parseOptionalNumber(form.minutes),
         note: form.note,
@@ -165,7 +177,7 @@ export default function OrdersPage() {
     await withBusy(
       order.id,
       async () => {
-        await takeOrderToDesk({ workspaceId: activeWorkspaceId, order, page: myDesk, members, monthKey, me: { uid: profile.uid, name: myName } });
+        await takeOrderToDesk({ workspaceId: activeWorkspaceId, order, page: myDesk, workspace: activeWorkspace, members, monthKey, me: { uid: profile.uid, name: myName } });
         toast.success("Заказ в столе", { description: `Строка добавлена в «${myDesk.name}».` });
       },
       "Не удалось забрать заказ"
@@ -242,6 +254,11 @@ export default function OrdersPage() {
                       <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em]", STATUS_TONE[order.status])}>
                         {WORK_ORDER_STATUS_LABELS[order.status]}
                       </span>
+                      {order.urgency && order.urgency !== "normal" && (
+                        <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]", URGENCY_TONE[order.urgency])}>
+                          {WORK_ORDER_URGENCY_LABELS[order.urgency]}
+                        </span>
+                      )}
                       {isAssignee && order.status === "assigned" && (
                         <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium text-primary">выдан вам</span>
                       )}
@@ -252,6 +269,14 @@ export default function OrdersPage() {
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    {order.price != null && (
+                      <span className="tabular font-medium text-foreground">{formatCurrency(order.price)}</span>
+                    )}
+                    {order.deadline != null && (
+                      <span className="inline-flex items-center gap-1 tabular font-medium text-foreground">
+                        <CalendarClock className="h-3.5 w-3.5 text-primary" /> до {formatOrderDate(order.deadline)}
+                      </span>
+                    )}
                     {order.minutes != null && (
                       <span className="inline-flex items-center gap-1 tabular"><Clock3 className="h-3.5 w-3.5" /> {order.minutes} мин</span>
                     )}
@@ -324,9 +349,13 @@ export default function OrdersPage() {
                         <Hand className="h-3.5 w-3.5" /> {claimed ? "Отозвать отклик" : "Откликнуться"}
                       </Button>
                     )}
+                    {/* Обычно заказ уезжает в стол сам (useOrderAutoPickup), и эта
+                        кнопка просто не успевает попасться на глаза. Она нужна
+                        для случая, когда автозапись не прошла: нет своего стола
+                        или запись упала — тогда видно, что делать. */}
                     {order.status === "assigned" && isAssignee && (
-                      <Button size="sm" className="h-8 gap-1.5" disabled={busy || !myDesk} title={myDesk ? undefined : "У вас нет своего стола"} onClick={() => void handleTake(order)}>
-                        <Inbox className="h-3.5 w-3.5" /> Забрать в стол
+                      <Button size="sm" className="h-8 gap-1.5" disabled={busy || !myDesk} title={myDesk ? undefined : "У вас нет своего стола — заказ некуда положить"} onClick={() => void handleTake(order)}>
+                        <Inbox className="h-3.5 w-3.5" /> {myDesk ? "Забрать в стол" : "Нет своего стола"}
                       </Button>
                     )}
                     {canManage && order.status === "open" && (
@@ -388,7 +417,7 @@ export default function OrdersPage() {
         </div>
       )}
 
-      <IssueOrderDialog open={issueOpen} onOpenChange={setIssueOpen} fixedOs={fixedOs} osOptions={osOptions} onSubmit={handleIssue} />
+      <IssueOrderDialog open={issueOpen} onOpenChange={setIssueOpen} myOs={myOs} osOptions={osOptions} onSubmit={handleIssue} />
       <AssignOrderDialog
         order={assignFor}
         onOpenChange={(open) => !open && setAssignFor(null)}

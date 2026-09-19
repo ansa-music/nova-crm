@@ -13,6 +13,8 @@ export type QuickOrderInput = {
   note: string;
   /** Ссылка на клиента — в столбец типа «ссылка», если он есть («Заказы»). */
   link?: string;
+  /** Дедлайн сдачи (мс) — в столбец-дату, если он есть («Заказы»). */
+  deadline?: number | null;
 };
 
 function normLabel(label: string) {
@@ -31,7 +33,8 @@ export function findQuickOrderColumns(visible: PageColumn[]) {
   const persons = firstMatch(visible, /перс|персонаж/);
   const minutes = firstMatch(visible, /мин/);
   const link = visible.find((c) => c.type === "url") ?? firstMatch(visible, /ссылк|сайт|link|url/);
-  return { client, number, os, receipt, persons, minutes, link };
+  const date = visible.find((c) => c.type === "date");
+  return { client, number, os, receipt, persons, minutes, link, date };
 }
 
 /**
@@ -70,13 +73,14 @@ export function buildQuickOrderRow(
   if (cols.receipt && check != null) cells[cols.receipt.key] = check;
   const link = (input.link ?? "").trim();
   if (cols.link && link) cells[cols.link.key] = link;
+  if (cols.date && input.deadline != null) cells[cols.date.key] = input.deadline;
 
   const persons = parseOptionalNumber(input.persons);
   const minutes = parseOptionalNumber(input.minutes);
   if (cols.persons && persons != null) cells[cols.persons.key] = persons;
   if (cols.minutes && minutes != null) cells[cols.minutes.key] = minutes;
 
-  const extras = normalizeRowExtras({ persons, minutes, note: input.note });
+  const extras = normalizeRowExtras({ persons, minutes, note: input.note, link });
 
   return {
     cells,

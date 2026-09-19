@@ -228,6 +228,7 @@ function TableRowInner({
       className={cn(
         "group/row table-data-row relative",
         blank && "table-row-blank",
+        row.highlight && "table-row-new",
         (isRowFullySelected || isChecked) && "table-data-row-selected",
         activeCell?.rowId === row.id && "table-data-row-active"
       )}
@@ -383,6 +384,9 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
   if (
     prev.rowNumber !== next.rowNumber ||
     prev.blank !== next.blank ||
+    // Подсветка «новый заказ» живёт на самой строке: без этой пары строка
+    // оставалась подсвеченной до перезагрузки, хотя чип «снять» уже пропал.
+    Boolean(prev.row.highlight) !== Boolean(next.row.highlight) ||
     prev.columns !== next.columns ||
     prev.rowHeight !== next.rowHeight ||
     prev.canEdit !== next.canEdit ||

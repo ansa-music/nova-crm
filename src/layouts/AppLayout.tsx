@@ -25,6 +25,7 @@ import { useAppBootstrap } from "@/hooks/useAppBootstrap";
 import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
 import { useOpenApprovedDesk } from "@/hooks/useOpenApprovedDesk";
 import { useMonthTabAutopilot } from "@/hooks/useMonthTabAutopilot";
+import { useOrderAutoPickup } from "@/hooks/useOrderAutoPickup";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useIsTablet } from "@/hooks/useMediaQuery";
@@ -45,6 +46,7 @@ export function AppLayout() {
   usePresenceHeartbeat();
   useOpenApprovedDesk();
   useMonthTabAutopilot();
+  useOrderAutoPickup();
   const location = useLocation();
 
   const { phase } = useAppBootstrap();

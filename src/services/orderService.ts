@@ -5,10 +5,12 @@ import { generateId } from "@/utils/id";
 import { normalizeTimestamp } from "@/utils/date";
 import { buildQuickOrderRow } from "@/utils/quickOrder";
 import { sendNotification } from "@/services/notificationService";
-import { addRow, fetchRows } from "@/services/pageService";
-import { addSubPageRow, fetchSubPageRows } from "@/services/subPageService";
+import { addRow, fetchRows, updateRowCellsBulk } from "@/services/pageService";
+import { addSubPageRow, fetchSubPageRows, fetchSubPages, updateSubPageRowCellsBulk } from "@/services/subPageService";
+import { findInProgressStatusOption, getColumnOptions } from "@/utils/columnOptions";
+import { isBlankRow, isFilledCellValue } from "@/utils/blankRow";
 import { currentMonthSubPageId, ensureMonthTab, isMonthlyDesk } from "@/services/monthTabService";
-import type { WorkOrder, WorkOrderClaim, WorkspaceMember, WorkspacePage } from "@/types";
+import type { PageColumn, WorkOrder, WorkOrderClaim, WorkOrderUrgency, Workspace, WorkspaceMember, WorkspacePage } from "@/types";
 
 function mapOrder(data: Record<string, unknown>, id: string): WorkOrder {
   const row = { id, ...data } as WorkOrder;
@@ -35,6 +37,9 @@ export interface CreateOrderInput {
   client: string;
   phone: string;
   link: string;
+  deadline: number | null;
+  urgency: WorkOrderUrgency;
+  price: number | null;
   persons: number | null;
   minutes: number | null;
   note: string;
@@ -62,6 +67,9 @@ export async function createOrder(input: CreateOrderInput): Promise<WorkOrder> {
     client: input.client.trim(),
     phone: input.phone.trim(),
     link: input.link.trim(),
+    deadline: input.deadline,
+    urgency: input.urgency,
+    price: input.price,
     persons: input.persons,
     minutes: input.minutes,
     note: input.note.trim(),
@@ -169,7 +177,7 @@ export async function assignOrder(input: {
     {
       workspaceId: input.workspaceId,
       title: `Вам выдан заказ: ${orderSummary(input.order)}`,
-      body: "Заберите его в свой стол на «Заказах» — строка заполнится сама.",
+      body: "Заказ уже едет в ваш стол — строка появится подсвеченной.",
       priority: "urgent",
       fromUid: input.actorUid,
       fromName: input.actorName,
@@ -238,6 +246,8 @@ export async function takeOrderToDesk(input: {
   workspaceId: string;
   order: WorkOrder;
   page: WorkspacePage;
+  /** Нужен для вариантов статуса и ОС — они общие на workspace, а не на столбце. */
+  workspace: Workspace | null | undefined;
   members: WorkspaceMember[];
   monthKey: string;
   me: { uid: string; name: string };
@@ -247,22 +257,55 @@ export async function takeOrderToDesk(input: {
   const subPageId = isMonthlyDesk(page, input.members)
     ? (currentMonthSubPageId(page, input.monthKey) ?? (await ensureMonthTab(page, input.monthKey, me.uid)))
     : null;
-  const visible = page.columns.filter((c) => !c.hidden);
-  const { cells, extras } = buildQuickOrderRow(page.columns, visible.length ? visible : page.columns, {
+
+  // Столбцы БЕРЁМ У ТОЙ ТАБЛИЦЫ, КУДА ПИШЕМ. У месячной вкладки свой набор
+  // столбцов со своими ключами: если подставлять ключи «Основной», значения
+  // уходят в никуда — так ОС, номер и дата приезжали пустыми, хотя в заказе
+  // были заполнены.
+  let targetColumns: PageColumn[] = page.columns;
+  if (subPageId) {
+    const subPages = await fetchSubPages(workspaceId, page.id);
+    const tab = subPages.find((sp) => sp.id === subPageId);
+    if (tab?.columns?.length) targetColumns = tab.columns;
+  }
+  const visible = targetColumns.filter((c) => !c.hidden);
+  const { cells, extras } = buildQuickOrderRow(targetColumns, visible.length ? visible : targetColumns, {
     client: order.client,
     number: order.phone,
     os: order.osValue,
-    check: "",
+    check: order.price == null ? "" : String(order.price),
     persons: order.persons == null ? "" : String(order.persons),
     minutes: order.minutes == null ? "" : String(order.minutes),
     note: order.note,
     link: order.link,
+    deadline: order.deadline,
   });
+
+  // Заказ приезжает сразу «В работе» — технарю не нужно проставлять статус
+  // руками, и заказ сразу считается загрузкой на «Технарях».
+  const statusColumn = (visible.length ? visible : targetColumns).find((c) => c.type === "status");
+  if (statusColumn) {
+    const inProgress = findInProgressStatusOption(getColumnOptions(statusColumn, input.workspace));
+    if (inProgress) cells[statusColumn.key] = inProgress.value;
+  }
+
   const rows = subPageId ? await fetchSubPageRows(workspaceId, page.id, subPageId) : await fetchRows(workspaceId, page.id);
-  const nextOrder = rows.reduce((max, r) => Math.max(max, typeof r.order === "number" ? r.order : 0), 0) + 1;
-  const row = subPageId
-    ? await addSubPageRow(workspaceId, page.id, subPageId, cells, nextOrder, extras)
-    : await addRow(workspaceId, page.id, cells, nextOrder, extras);
+  // Свободный слот занимаем, а не добавляем строку под пустыми — то же
+  // правило, что у «Добавить строку» и «Быстрого заказа».
+  const blank = rows.find((r) => isBlankRow(r));
+  let row;
+  if (blank) {
+    const patch: Record<string, string | number | null> = {};
+    for (const [key, value] of Object.entries(cells)) if (isFilledCellValue(value)) patch[key] = value;
+    if (subPageId) await updateSubPageRowCellsBulk(workspaceId, page.id, subPageId, blank.id, patch, extras ?? null, true);
+    else await updateRowCellsBulk(workspaceId, page.id, blank.id, patch, extras ?? null, true);
+    row = { ...blank, cells: { ...blank.cells, ...patch }, extras: extras ?? blank.extras, highlight: true };
+  } else {
+    const nextOrder = rows.reduce((max, r) => Math.max(max, typeof r.order === "number" ? r.order : 0), 0) + 1;
+    row = subPageId
+      ? await addSubPageRow(workspaceId, page.id, subPageId, cells, nextOrder, extras, true)
+      : await addRow(workspaceId, page.id, cells, nextOrder, extras, true);
+  }
   const now = Date.now();
   await updateDoc(paths.order(workspaceId, order.id), {
     status: "taken",

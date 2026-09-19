@@ -316,12 +316,15 @@ export async function addSubPageRow(
   subPageId: string,
   cells: Record<string, string | number | null>,
   order: number,
-  extras?: PageRow["extras"]
+  extras?: PageRow["extras"],
+  /** Подсветить строку как новую — см. PageRow.highlight. */
+  highlight?: boolean
 ) {
   if (!db) throw new Error("Firebase не настроен");
   const id = generateId("row");
   const row: PageRow = { id, pageId: subPageId, cells, order, createdAt: Date.now(), updatedAt: Date.now() };
   if (hasRowExtras(extras)) row.extras = extras;
+  if (highlight) row.highlight = true;
   await setDoc(paths.subPageRow(workspaceId, pageId, subPageId, id), row);
   mirrorUpsertRow(workspaceId, pageId, subPageId, row);
   return row;
@@ -351,7 +354,9 @@ export async function updateSubPageRowCellsBulk(
   subPageId: string,
   rowId: string,
   patch: Record<string, string | number | null>,
-  extras?: PageRow["extras"] | null
+  extras?: PageRow["extras"] | null,
+  /** Подсветить строку как новую — см. PageRow.highlight. */
+  highlight?: boolean
 ) {
   if (!db) return;
   await setDoc(
@@ -360,6 +365,7 @@ export async function updateSubPageRowCellsBulk(
       cells: patch,
       updatedAt: Date.now(),
       ...(extras === undefined ? {} : { extras: extras ?? deleteField() }),
+      ...(highlight ? { highlight: true } : {}),
     },
     { merge: true }
   );

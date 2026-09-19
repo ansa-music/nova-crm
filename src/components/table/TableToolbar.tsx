@@ -10,6 +10,7 @@ import {
   Eye,
   Kanban,
   LayoutList,
+  Sparkles,
   Keyboard,
   Layers,
   ListOrdered,
@@ -81,6 +82,9 @@ interface TableToolbarProps {
   statusCounts?: Record<string, number>;
   viewMode: TableViewMode;
   onViewModeChange: (mode: TableViewMode) => void;
+  /** Сколько строк приехало заказами и ещё подсвечено. */
+  highlightCount?: number;
+  onClearHighlights?: () => void;
   savedViews?: SavedTableView[];
   onSaveView?: () => void;
   onApplyView?: (view: SavedTableView) => void;
@@ -138,6 +142,8 @@ export function TableToolbar({
   statusCounts,
   viewMode,
   onViewModeChange,
+  highlightCount = 0,
+  onClearHighlights,
   savedViews,
   onSaveView,
   onApplyView,
@@ -326,6 +332,20 @@ export function TableToolbar({
             </button>
           )}
         </div>
+      )}
+
+      {/* Подсветку новых заказов снимает только сам технарь — до этого чип
+          висит и показывает, сколько строк приехало с «Заказов». */}
+      {highlightCount > 0 && onClearHighlights && (
+        <button
+          type="button"
+          onClick={onClearHighlights}
+          className="table-chip inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-primary/45 bg-primary/12 px-2.5 text-[11px] font-medium text-primary"
+          title="Снять подсветку с новых заказов"
+        >
+          <Sparkles className="h-3 w-3" />
+          {highlightCount} {highlightCount === 1 ? "новый" : "новых"} · снять
+        </button>
       )}
 
       {/* Канбану нужен столбец-статус, таблице и карточкам — нет, поэтому

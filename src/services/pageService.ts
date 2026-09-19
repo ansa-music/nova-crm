@@ -830,12 +830,15 @@ export async function addRow(
   pageId: string,
   cells: Record<string, string | number | null>,
   order: number,
-  extras?: PageRow["extras"]
+  extras?: PageRow["extras"],
+  /** Подсветить строку как новую — см. PageRow.highlight. */
+  highlight?: boolean
 ) {
   if (!db) throw new Error("Firebase не настроен");
   const id = generateId("row");
   const row: PageRow = { id, pageId, cells, order, createdAt: Date.now(), updatedAt: Date.now() };
   if (hasRowExtras(extras)) row.extras = extras;
+  if (highlight) row.highlight = true;
   await setDoc(paths.row(workspaceId, pageId, id), row);
   mirrorUpsertRow(workspaceId, pageId, null, row);
   return row;
@@ -886,7 +889,9 @@ export async function updateRowCellsBulk(
   pageId: string,
   rowId: string,
   patch: Record<string, string | number | null>,
-  extras?: PageRow["extras"] | null
+  extras?: PageRow["extras"] | null,
+  /** Подсветить строку как новую — см. PageRow.highlight. */
+  highlight?: boolean
 ) {
   if (!db) return;
   await setDoc(
@@ -895,10 +900,31 @@ export async function updateRowCellsBulk(
       cells: patch,
       updatedAt: Date.now(),
       ...(extras === undefined ? {} : { extras: extras ?? deleteField() }),
+      ...(highlight ? { highlight: true } : {}),
     },
     { merge: true }
   );
   mirrorPatchRowCellsBulk(rowId, patch);
+}
+
+/**
+ * Снять подсветку «новая строка» — разом у нескольких строк текущей вкладки.
+ * Один batch: подсветка снимается по кнопке, и полсотни отдельных записей
+ * ради неё были бы расточительством на бесплатном плане.
+ */
+export async function clearRowHighlights(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string | null,
+  rowIds: string[]
+) {
+  if (!db || rowIds.length === 0) return;
+  const batch = writeBatch(db);
+  for (const rowId of rowIds) {
+    const ref = subPageId ? paths.subPageRow(workspaceId, pageId, subPageId, rowId) : paths.row(workspaceId, pageId, rowId);
+    batch.set(ref, { highlight: deleteField(), updatedAt: Date.now() }, { merge: true });
+  }
+  await batch.commit();
 }
 
 export async function updateRowHeight(

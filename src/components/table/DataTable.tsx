@@ -78,6 +78,7 @@ import {
   changeColumnType as changeColumnTypeServiceBase,
   duplicateColumn as duplicateColumnServiceBase,
   deleteColumn as deleteColumnServiceBase,
+  clearRowHighlights,
 } from "@/services/pageService";
 import {
   addSubPageRow,
@@ -2262,6 +2263,26 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     });
   }
 
+  /** Ссылка из столбца-ссылки — чтобы визитка показывала её, даже если строку завели руками. */
+  function linkCell(row: PageRow, key?: string): string | null {
+    if (!key) return null;
+    const raw = String(row.cells[key] ?? "").trim();
+    return raw || null;
+  }
+
+  // Строки, приехавшие заказом с «Заказов». Подсветку снимает только сам
+  // технарь — чипом в тулбаре, поэтому новый заказ нельзя не заметить.
+  const highlightedRowIds = useMemo(() => rows.filter((r) => r.highlight).map((r) => r.id), [rows]);
+
+  async function handleClearHighlights() {
+    if (highlightedRowIds.length === 0) return;
+    try {
+      await clearRowHighlights(workspaceId, page.id, subPageId ?? null, highlightedRowIds);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось снять подсветку");
+    }
+  }
+
   async function handleQuickOrder(input: QuickOrderInput) {
     const { cells, extras } = buildQuickOrderRow(columns, displayColumns, input);
     if (quickOrderStatus) {
@@ -2317,12 +2338,19 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const row = rows.find((r) => r.id === rowId);
     if (!row || !canEdit) return;
     const before: RowExtras | null = hasRowExtras(row.extras)
-      ? { persons: row.extras?.persons ?? null, minutes: row.extras?.minutes ?? null, note: row.extras?.note ?? null }
+      ? {
+          persons: row.extras?.persons ?? null,
+          minutes: row.extras?.minutes ?? null,
+          note: row.extras?.note ?? null,
+          link: row.extras?.link ?? null,
+        }
       : null;
     // Whole map with explicit nulls: a merge write would otherwise keep a
     // field the person just cleared.
     const written: RowExtras | null = next
-      ? { persons: next.persons ?? null, minutes: next.minutes ?? null, note: next.note ?? null }
+      // Явные null по КАЖДОМУ полю визитки, включая ссылку: merge иначе
+      // вернул бы только что стёртое значение обратно.
+      ? { persons: next.persons ?? null, minutes: next.minutes ?? null, note: next.note ?? null, link: next.link ?? null }
       : null;
     const patch: Record<string, string | number | null> = {};
     const oldPatch: Record<string, string | number | null> = {};
@@ -3163,6 +3191,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onDensityChange={handleDensityChange}
         onAddRow={handleAddRow}
         onQuickOrder={canEdit ? () => { setQuickOrderStatus(null); setQuickOrderOpen(true); } : undefined}
+        highlightCount={highlightedRowIds.length}
+        onClearHighlights={canEdit && highlightedRowIds.length > 0 ? handleClearHighlights : undefined}
         onExportCsv={handleExportCsv}
         onCopyTable={handleCopyTable}
         canEdit={canEdit}
@@ -3763,6 +3793,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                 persons: clientCardRow.extras?.persons ?? numberCell(clientCardRow, quickOrderCols.persons?.key),
                 minutes: clientCardRow.extras?.minutes ?? numberCell(clientCardRow, quickOrderCols.minutes?.key),
                 note: clientCardRow.extras?.note ?? null,
+                link: clientCardRow.extras?.link ?? linkCell(clientCardRow, quickOrderCols.link?.key),
               }
             : {}
         }

@@ -71,6 +71,23 @@ export function isFreezeStatusLabel(label: string): boolean {
 }
 
 /** Toolbar chip: hide rows whose status is «Готово». */
+/**
+ * Вариант «В работе» — им помечается заказ, который приехал к технарю с
+ * «Заказов». Ищем по названию, а не по значению: списки статусов Owner
+ * ведёт сам, и в чужом workspace «in_progress» может называться иначе.
+ * «Не в работе» отсекаем — отрицание в русских статусах пишется отдельным
+ * словом, как и в isDoneStatusLabel.
+ */
+export function findInProgressStatusOption(options: StatusOption[]): StatusOption | undefined {
+  return (
+    options.find((o) => {
+      const l = o.label.toLowerCase();
+      if (/(^|\s)не(\s|$)/.test(l)) return false;
+      return l.includes("в работе") || l.includes("работа") || l.includes("progress");
+    }) ?? options.find((o) => o.value === "in_progress")
+  );
+}
+
 export const NOT_DONE_STATUS_FILTER = "__not_done__";
 
 export function findDoneStatusOption(options: StatusOption[]): StatusOption | undefined {
