@@ -9,6 +9,12 @@ export interface AppUser {
    */
   nickname?: string;
   photoURL?: string | null;
+  /**
+   * Путь загруженной аватарки в бакете `row-files` — нужен, чтобы удалить
+   * старый файл при замене и при снятии фото. У аккаунтов, чьё фото пришло
+   * из Google, его нет: там `photoURL` чужой и удалять нечего.
+   */
+  photoPath?: string | null;
   createdAt: number;
   /**
    * Cache of workspace ids this user belongs to, maintained by the client

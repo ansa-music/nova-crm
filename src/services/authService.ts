@@ -55,6 +55,27 @@ export async function syncNicknameToMemberships(uid: string, workspaceIds: strin
 }
 
 /**
+ * То же, что syncNicknameToMemberships, но для личной аватарки: ссылка из
+ * `users/{uid}` разъезжается по member-документам, потому что ростер
+ * участников читают из них, а не из чужих профилей — без этой синхронизации
+ * человек видел бы новое фото только у себя.
+ *
+ * `null` стирает фото. Правило members пускает `photoURL` в self-service
+ * список — ровно это поле и только на своём документе.
+ */
+export async function syncPhotoToMemberships(uid: string, workspaceIds: string[], photoURL: string | null) {
+  await Promise.all(
+    workspaceIds.map(async (workspaceId) => {
+      try {
+        await setDoc(paths.member(workspaceId, uid), { photoURL }, { merge: true });
+      } catch (error) {
+        console.error(`Failed to sync avatar to workspace ${workspaceId}:`, error);
+      }
+    })
+  );
+}
+
+/**
  * Presence heartbeat: refreshes `lastActiveAt` on the person's own member
  * doc in every workspace they belong to. Called periodically while the app
  * is open (see useHeartbeat hook) — never blocks on failure.

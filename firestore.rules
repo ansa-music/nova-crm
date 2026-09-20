@@ -208,7 +208,7 @@ service cloud.firestore {
         // already permits.
         allow update: if signedIn()
           && memberId == request.auth.uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname', 'lastActiveAt', 'activeRole', 'hiddenPageIds'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname', 'lastActiveAt', 'activeRole', 'hiddenPageIds', 'photoURL'])
           && (
             !('activeRole' in request.resource.data.diff(resource.data).affectedKeys())
             || request.resource.data.activeRole == null

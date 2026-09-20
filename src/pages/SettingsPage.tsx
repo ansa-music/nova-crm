@@ -27,12 +27,12 @@ import {
   UserCog,
   Users,
 } from "lucide-react";
+import { AvatarUpload } from "@/components/common/AvatarUpload";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Switch } from "@/components/ui/switch";
 import { Link } from "react-router";
 import { toast } from "@/components/ui/sonner";
@@ -458,12 +458,7 @@ export default function SettingsPage() {
               <CardDescription>Ваше имя видно всем участникам workspace.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-5">
-              <div className="flex items-center gap-4">
-                <Avatar className="h-16 w-16">
-                  <AvatarImage src={profile?.photoURL ?? undefined} />
-                  <AvatarFallback className="text-lg">{profile?.name?.[0]?.toUpperCase()}</AvatarFallback>
-                </Avatar>
-              </div>
+              {profile && <AvatarUpload profile={profile} workspaceId={activeWorkspace?.id ?? null} />}
 
               <form onSubmit={profileForm.handleSubmit(onSaveProfile)} className="mt-0 flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
