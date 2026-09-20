@@ -30,6 +30,7 @@ import { almatyNoonMillis, formatOrderDate, timeAgo } from "@/utils/date";
 import { hasFullAccess } from "@/utils/permissions";
 import { confirmDialog } from "@/utils/appDialog";
 import { parseHttpUrl } from "@/utils/httpUrl";
+import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { cn } from "@/utils/cn";
 import { memberHasRole, WORK_ORDER_STATUS_LABELS, WORK_ORDER_URGENCY_LABELS, type WorkOrder, type WorkOrderStatus, type WorkOrderUrgency, type WorkspaceMember } from "@/types";
 
@@ -225,44 +226,30 @@ export default function OrdersPage() {
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-4xl p-5 sm:p-8">
-      <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="eyebrow mb-1 text-primary">Студия</p>
-          <h1 className="font-serif text-[1.85rem] font-medium tracking-[-0.03em] sm:text-[2.15rem]">Заказы</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {canClaim
-              ? "Откликнитесь на открытый заказ; выданный вам — заберите в стол."
-              : canIssue
-                ? "Выдайте заказ — технари откликнутся, вы выберете, кому отдать."
-                : "Что сейчас в работе между ОС и технарями."}
-          </p>
-        </div>
-        {canIssue && (
-          <Button className="gap-1.5" onClick={() => setIssueOpen(true)}>
-            <Plus className="h-4 w-4" /> Выдать заказ
-          </Button>
-        )}
-      </header>
-
-      <div className="mb-4 flex flex-wrap gap-1.5">
-        {TABS.map((status) => {
-          const on = tab === status;
-          return (
-            <button
-              key={status}
-              type="button"
-              onClick={() => setTab(status)}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-                on ? "border-primary/50 bg-primary/15 text-primary" : "border-border bg-background/40 text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {status === "open" ? "Открытые" : status === "assigned" ? "Выданные" : status === "taken" ? "В столах" : "Отменённые"}
-              <span className="font-mono tabular-nums opacity-70">{counts[status]}</span>
-            </button>
-          );
-        })}
-      </div>
+      <PageHeader
+        eyebrow="Студия"
+        title="Заказы"
+        description={
+          canClaim
+            ? "Откликнитесь на открытый заказ; выданный вам — заберите в стол."
+            : canIssue
+              ? "Выдайте заказ — технари откликнутся, вы выберете, кому отдать."
+              : "Что сейчас в работе между ОС и технарями."
+        }
+        actions={
+          canIssue ? (
+            <Button className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => setIssueOpen(true)}>
+              <Plus className="h-4 w-4" /> Выдать заказ
+            </Button>
+          ) : undefined
+        }
+        filters={TABS.map((status) => (
+          <button key={status} type="button" onClick={() => setTab(status)} className={pageChipClass(tab === status)}>
+            {status === "open" ? "Открытые" : status === "assigned" ? "Выданные" : status === "taken" ? "В столах" : "Отменённые"}
+            <span className="tabular-nums text-[10px] opacity-80">{counts[status]}</span>
+          </button>
+        ))}
+      />
 
       {ordersError ? (
         <EmptyState

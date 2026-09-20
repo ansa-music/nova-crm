@@ -96,10 +96,11 @@ const METRICS: { key: keyof TechLoadSummary; label: string; tone: string; box?: 
 function StatusBar({ items, total }: { items: StatusBreakdownItem[]; total: number }) {
   if (total <= 0) return null;
   return (
-    <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted/60" aria-hidden>
+    <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted/60" aria-hidden>
       {items.map((item) => (
         <span
           key={item.key}
+          title={`${item.label}: ${item.count}`}
           className={cn("h-full", !item.color && "bg-muted-foreground/40")}
           style={{
             width: `${(item.count / total) * 100}%`,
@@ -111,10 +112,16 @@ function StatusBar({ items, total }: { items: StatusBreakdownItem[]; total: numb
   );
 }
 
-function StatusChips({ items, compact }: { items: StatusBreakdownItem[]; compact?: boolean }) {
+/**
+ * Легенда к полосе загрузки. `limit` держит высоту свёрнутой карточки: сверх
+ * лимита рисуется «+N» с подсказкой, а не второй ряд чипов.
+ */
+function StatusChips({ items, compact, limit }: { items: StatusBreakdownItem[]; compact?: boolean; limit?: number }) {
+  const shown = limit ? items.slice(0, limit) : items;
+  const rest = limit ? items.slice(limit) : [];
   return (
     <ul className={cn("flex flex-wrap gap-1.5", compact && "gap-1")}>
-      {items.map((item) => (
+      {shown.map((item) => (
         <li
           key={item.key}
           className={cn(
@@ -130,6 +137,17 @@ function StatusChips({ items, compact }: { items: StatusBreakdownItem[]; compact
           <span className="font-mono tabular-nums text-muted-foreground">{item.count}</span>
         </li>
       ))}
+      {rest.length > 0 && (
+        <li
+          title={rest.map((i) => `${i.label}: ${i.count}`).join(", ")}
+          className={cn(
+            "inline-flex items-center rounded-full border border-border/60 bg-background/40 px-2 py-0.5 text-[11px] leading-4 text-muted-foreground",
+            compact && "px-1.5 text-[10.5px]"
+          )}
+        >
+          +{rest.length}
+        </li>
+      )}
     </ul>
   );
 }
@@ -242,11 +260,13 @@ export function TechnicianCard(props: TechnicianCardProps) {
         </div>
 
         {/* Полоска статусов и на свёрнутой карточке: в сетке сразу видно, у
-            кого что в работе, а не только «6 заказов». Подписи и числа — в
-            развёрнутой карточке, цвета те же, что у бейджей статусов. */}
+            кого что в работе, а не только «6 заказов». Легенда рядом — без неё
+            цвета приходилось угадывать, а на телефоне и навести нечем; полная
+            разбивка со всеми статусами остаётся в развёрнутой карточке. */}
         {summary.total > 0 && breakdown.length > 0 && (
-          <div className="mt-2">
+          <div className="flex flex-col gap-1.5">
             <StatusBar items={breakdown} total={summary.total} />
+            <StatusChips items={breakdown} compact limit={3} />
           </div>
         )}
 

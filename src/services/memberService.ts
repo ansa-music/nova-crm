@@ -273,7 +273,7 @@ export async function changeMemberRole(workspaceId: string, uid: string, role: R
     }>;
     const own = pages.filter((page) => page.responsibleUserId === uid);
     if (own.length > 1) {
-      throw new Error("Сначала заберите лишние столы — у технара может быть только один свой стол");
+      throw new Error("Сначала заберите лишние столы — у технаря может быть только один свой стол");
     }
     const only = own.length === 1 ? own[0] : undefined;
     if (only) {

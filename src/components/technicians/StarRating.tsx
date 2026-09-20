@@ -82,7 +82,10 @@ export function StarRating({
           onClick={() => onChange(n)}
           className={cn(
             "rounded-md p-1 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            interactive && "hover:scale-110 active:scale-95",
+            // Тач-размер только у кликабельных звёзд: этим же компонентом
+            // оценки просто ПОКАЗЫВАЮТ (итоги месяца), и там 44px на звезду
+            // разорвали бы узкую колонку.
+            interactive && "flex h-11 w-11 items-center justify-center hover:scale-110 active:scale-95 sm:h-auto sm:w-auto",
             disabled && "cursor-not-allowed"
           )}
         >

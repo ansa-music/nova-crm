@@ -4,7 +4,12 @@ import { cn } from "@/utils/cn";
 
 export type RatingKind = "overall" | "orders";
 
-const KIND: Record<RatingKind, { label: string; hint: string; tone: RatingTone; accent: string; box: string }> = {
+/**
+ * Цвета двух шкал — один источник на всё приложение: общая янтарная, по
+ * заказам фиолетовая. До экспорта `MonthlyRatingTop` красил те же две шкалы
+ * своими строками, и это был второй набор цветов для одного смысла.
+ */
+export const RATING_KIND: Record<RatingKind, { label: string; hint: string; tone: RatingTone; accent: string; box: string }> = {
   overall: {
     label: "Общая",
     hint: "Одна оценка от каждого ОС — про работу с технарём в целом",
@@ -41,7 +46,7 @@ function countWord(n: number, kind: RatingKind) {
  * вторую строку к звёздам, где места больше.
  */
 function RatingScore({ kind, average, count }: { kind: RatingKind; average: number | null; count: number }) {
-  const meta = KIND[kind];
+  const meta = RATING_KIND[kind];
   const Icon = kind === "orders" ? PackageCheck : Star;
   const empty = average === null || count === 0;
   return (

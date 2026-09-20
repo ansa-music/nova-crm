@@ -25,6 +25,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { formatDate } from "@/utils/date";
 import { displayNameOf } from "@/utils/displayName";
 import { canOpenDesk, deskOwnerName, personLabel, resolvedCoverUrl } from "@/utils/peopleDesks";
+import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { cn } from "@/utils/cn";
 import type { WorkspacePage } from "@/types";
 
@@ -130,52 +131,37 @@ export default function DesksPage() {
 
   return (
     <div className="relative mx-auto w-full min-w-0 max-w-6xl p-5 sm:p-8 lg:p-10">
-      <header className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="eyebrow mb-1 text-primary">Studio</p>
-          <h1 className="font-serif text-[1.85rem] font-medium tracking-[-0.03em] sm:text-[2.15rem]">Столы</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Обложки видны всем. Свой стол открывается сразу, чужой и скрытый — после разрешения.
-          </p>
-        </div>
-        <div className="flex w-full max-w-xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-          {inactivePages.length > 0 && (
-            <Button type="button" variant="outline" className="min-h-11 gap-1.5" onClick={() => setInactiveOpen(true)}>
-              <Archive className="h-3.5 w-3.5" />
-              Неактуальные
-              <span className="font-mono text-[11px] tabular text-muted-foreground">{inactivePages.length}</span>
-            </Button>
-          )}
-          <label className="flex h-11 w-full max-w-sm items-center gap-2 rounded-full border border-primary/30 bg-card/80 px-4 text-[13px] text-muted-foreground">
-            <Search className="h-3.5 w-3.5 shrink-0" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Название стола"
-              className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
-            />
-          </label>
-        </div>
-      </header>
-
-      <div className="mb-4 flex flex-wrap gap-1.5">
-        {chips.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setChip(item.id)}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-              chip === item.id
-                ? "border-primary/50 bg-primary/15 text-primary"
-                : "border-border bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground"
+      <PageHeader
+        eyebrow="Студия"
+        title="Столы"
+        description="Обложки видны всем. Свой стол открывается сразу, чужой и скрытый — после разрешения."
+        actions={
+          <>
+            {inactivePages.length > 0 && (
+              <Button type="button" variant="outline" className="min-h-11 gap-1.5" onClick={() => setInactiveOpen(true)}>
+                <Archive className="h-3.5 w-3.5" />
+                Неактуальные
+                <span className="font-mono text-[11px] tabular text-muted-foreground">{inactivePages.length}</span>
+              </Button>
             )}
-          >
+            <label className="flex h-11 w-full items-center gap-2 rounded-full border border-primary/30 bg-card/80 px-4 text-[13px] text-muted-foreground sm:w-64">
+              <Search className="h-3.5 w-3.5 shrink-0" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Название стола"
+                className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
+              />
+            </label>
+          </>
+        }
+        filters={chips.map((item) => (
+          <button key={item.id} type="button" onClick={() => setChip(item.id)} className={pageChipClass(chip === item.id)}>
             {item.label}
             <span className="tabular-nums text-[10px] opacity-80">{item.count}</span>
           </button>
         ))}
-      </div>
+      />
 
       {filtered.length > 0 ? (
         <DeskCoverGrid

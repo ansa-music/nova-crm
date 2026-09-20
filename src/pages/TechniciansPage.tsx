@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AtSign, HardHat, LayoutGrid, ListOrdered, Search, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { AtSign, LayoutGrid, ListOrdered, Search, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { Link } from "react-router";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { Input } from "@/components/ui/input";
@@ -51,6 +51,7 @@ import {
   type StatusBreakdownItem,
   type TechLoadSummary,
 } from "@/utils/techLoad";
+import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { cn } from "@/utils/cn";
 import {
   averageOfTotals,
@@ -545,16 +546,13 @@ export default function TechniciansPage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="page-header">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-          <HardHat className="h-4 w-4" />
-        </span>
-        <div className="min-w-0">
-          <h1 className="page-title">Технари</h1>
-          <p className="text-[11px] text-muted-foreground">Заказы за {monthTabNameForKey(monthKey).toLowerCase()}</p>
-        </div>
-        <div className="flex-1" />
+    <div className="mx-auto w-full min-w-0 max-w-6xl p-5 sm:p-8 lg:p-10">
+      <PageHeader
+        eyebrow="Студия"
+        title="Технари"
+        description={`Кто сейчас свободен и сколько заказов за ${monthTabNameForKey(monthKey).toLowerCase()}.`}
+        actions={
+          <>
         {isOsViewer && myOsValue && (
           <div className="flex shrink-0 rounded-lg border border-border p-0.5" role="tablist" aria-label="Вид">
             <button
@@ -587,34 +585,27 @@ export default function TechniciansPage() {
           </div>
         )}
         {canMapStatuses && activeWorkspaceId && (
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setStatusDialogOpen(true)}>
+          <Button variant="outline" size="sm" className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => setStatusDialogOpen(true)}>
             <SlidersHorizontal className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Статусы</span>
+            Статусы
           </Button>
         )}
-      </div>
+          </>
+        }
+        filters={
+          view === "orders"
+            ? undefined
+            : filters.map((item) => (
+                <button key={item.id} type="button" onClick={() => setFilter(item.id)} className={pageChipClass(filter === item.id, item.active)}>
+                  {item.label}
+                  <span className="tabular-nums text-[10px] opacity-80">{item.count}</span>
+                </button>
+              ))
+        }
+      />
 
-      <div className={cn("flex flex-wrap gap-1.5 border-b border-border px-4 py-3 sm:px-6", view === "orders" && "hidden")}>
-        {filters.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setFilter(item.id)}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-              filter === item.id
-                ? item.active
-                : "border-border bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground"
-            )}
-          >
-            {item.label}
-            <span className="tabular-nums text-[10px] opacity-80">{item.count}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3">
+      <div>
+        <div className="flex flex-col gap-3">
           {isOsViewer &&
             (myOsValue && myOsNick ? (
               <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
@@ -660,7 +651,7 @@ export default function TechniciansPage() {
           )}
 
           {!loadFailed && loads === null && (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))]">
               <Skeleton className="h-64 rounded-2xl" />
               <Skeleton className="h-64 rounded-2xl" />
               <Skeleton className="h-64 rounded-2xl" />
@@ -767,7 +758,7 @@ export default function TechniciansPage() {
           )}
 
           {view === "techs" && loads !== null && visible.length > 0 && (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))]">
               {visible.map((t) => (
                 <TechnicianCard
                   key={t.member.uid}

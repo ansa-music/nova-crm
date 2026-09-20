@@ -35,25 +35,32 @@ export function InviteMemberForm({ workspaceId }: { workspaceId: string }) {
     }
   }
 
+  // Форма живёт в узкой правой панели (max-w-md), поэтому колонка — всегда,
+  // без sm:flex-row: брейкпойнты Tailwind меряют ВЬЮПОРТ, и на широком экране
+  // строка внутри панели давала поле email шириной 130px.
   return (
-    <form onSubmit={form.handleSubmit(onSubmit)} className="flex items-start gap-2">
-      <div className="flex-1">
+    <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-2">
+      {/* min-w-0 обязателен: без него flex-элемент не сжимается меньше
+          своего контента, и в узкой колонке поле email превращалось в 26px. */}
+      <div className="min-w-0 flex-1">
         <Input placeholder="email@company.com" {...form.register("email")} />
         {form.formState.errors.email && (
           <p className="mt-1 text-xs text-destructive">{form.formState.errors.email.message}</p>
         )}
       </div>
-      <Controller
-        control={form.control}
-        name="role"
-        render={({ field }) => (
-          <RoleSelect value={field.value} onChange={field.onChange} assignableRoles={["teamlead", "admin", "manager", "os", "viewer"]} />
-        )}
-      />
-      <Button type="submit" disabled={isSubmitting} className="gap-1.5">
-        {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-        Пригласить
-      </Button>
+      <div className="flex gap-2">
+        <Controller
+          control={form.control}
+          name="role"
+          render={({ field }) => (
+            <RoleSelect value={field.value} onChange={field.onChange} assignableRoles={["teamlead", "admin", "manager", "os", "viewer"]} />
+          )}
+        />
+        <Button type="submit" disabled={isSubmitting} className="min-h-11 flex-1 gap-1.5 sm:min-h-0 sm:flex-none">
+          {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+          Пригласить
+        </Button>
+      </div>
     </form>
   );
 }

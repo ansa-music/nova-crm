@@ -553,7 +553,7 @@ function TechnicianRoster({
       )}
       <form onSubmit={handleAdd} className="flex items-end gap-2">
         <div className="min-w-0 flex-1 space-y-1.5">
-          <Label htmlFor="tech-nickname">Новый технар</Label>
+          <Label htmlFor="tech-nickname">Новый технарь</Label>
           <Input
             id="tech-nickname"
             value={nickname}

@@ -42,6 +42,7 @@ import {
   rankByRating,
   recentMonthKeys,
 } from "@/utils/overviewStats";
+import { PageHeader } from "@/components/common/PageHeader";
 import { effectiveTechLoadKinds, techLoadKindForOption } from "@/utils/techLoad";
 import { ratingMonthKey, type StatusOption } from "@/types";
 
@@ -211,26 +212,20 @@ export default function DashboardPage() {
 
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-4 p-5 sm:p-8">
-      <header className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
-        <div className="min-w-0">
-          <p className="eyebrow mb-1 text-primary">Дашборд · {monthName}</p>
-          <h1
-            className="font-serif text-[1.85rem] font-medium tracking-[-0.03em] sm:text-[2.2rem]"
-            style={{ textShadow: greetingGlowShadow(hour) }}
-          >
-            {greetingByHour(hour)}
-            {who ? `, ${who}` : ""}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Сверху — твоё, ниже — все технари за месяц: рейтинги, деньги и заказы.
-          </p>
-        </div>
-        {totals.updatedAt > 0 && (
-          <p className="text-[11px] text-muted-foreground" title="Цифры обновляются, когда технари работают в своих столах">
-            обновлено {timeAgo(totals.updatedAt)}
-          </p>
-        )}
-      </header>
+      <PageHeader
+        className="mb-0"
+        eyebrow={`Дашборд · ${monthName}`}
+        title={`${greetingByHour(hour)}${who ? `, ${who}` : ""}`}
+        titleStyle={{ textShadow: greetingGlowShadow(hour) }}
+        description="Сверху — твоё, ниже — все технари за месяц: рейтинги, деньги и заказы."
+        actions={
+          totals.updatedAt > 0 ? (
+            <p className="text-[11px] text-muted-foreground" title="Цифры обновляются, когда технари работают в своих столах">
+              обновлено {timeAgo(totals.updatedAt)}
+            </p>
+          ) : undefined
+        }
+      />
 
       {loadsFailed && (
         <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">

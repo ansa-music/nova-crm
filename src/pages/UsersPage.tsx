@@ -4,6 +4,8 @@ import { useWorkspaceStore } from "@/store/workspaceStore";
 import { AlertTriangle, Archive, AtSign, Check, ChevronDown, ChevronRight, Clock3, Copy, Link2, Lock, Mail, Pencil, Plus, Search, ShieldCheck, Trash2, X } from "lucide-react";
 import { displayNameOf } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
+import { PageHeader } from "@/components/common/PageHeader";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/utils/cn";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
@@ -60,6 +62,7 @@ export default function UsersPage() {
   const [expandedUid, setExpandedUid] = useState<string | null>(null);
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [roleChip, setRoleChip] = useState<Role | "invited" | null>(null);
   // Ник ОС: only Тимлид/Owner reach this page (canManageUsers); rules
@@ -260,34 +263,52 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="mx-auto w-full min-w-0 max-w-4xl p-6">
-      <div className="mb-6">
-        <h1 className="text-3xl font-light tracking-tight">Workspace → Пользователи</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Приглашайте сотрудников и выберите, какие страницы каждому из них видно. Owner видит
-          все страницы всегда — остальным доступ нужно выдать явно. Тимлид таблицы столов не видит.
-        </p>
-      </div>
+    <div className="mx-auto w-full min-w-0 max-w-4xl p-4 sm:p-8">
+      <PageHeader
+        eyebrow="Workspace"
+        title="Пользователи"
+        description="Кто в команде и что каждому видно. Owner видит все столы всегда, остальным доступ выдаётся явно; Тимлид таблиц столов не видит."
+        actions={
+          <Button className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => setInviteOpen(true)}>
+            <Plus className="h-4 w-4" /> Пригласить
+          </Button>
+        }
+      />
 
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Ссылка для вступления</CardTitle>
-          <CardDescription>
-            {activeWorkspace?.autoApproveJoins
-              ? "Новые люди по этой ссылке сразу попадают в workspace как Технарь — без вашего одобрения. Отключить можно в Настройках → Workspace."
-              : "Новые люди по этой ссылке не создают свой workspace — они отправляют вам заявку, и вы сами решаете, впустить их или нет."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 truncate rounded-md border border-border bg-muted px-3 py-2 text-xs">{joinLink}</code>
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={handleCopyLink}>
-              {linkCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              Копировать
-            </Button>
+      {/* Ссылка и приглашение — действия «раз в месяц», а список участников
+          открывают каждый день. Раньше две карточки занимали весь первый
+          экран, и список уезжал под сгиб. */}
+      <Sheet open={inviteOpen} onOpenChange={setInviteOpen}>
+        <SheetContent side="right" className="flex w-full max-w-md flex-col overflow-y-auto p-0">
+          <SheetHeader className="border-b border-primary/25 px-5 py-4 pr-12">
+            <SheetTitle>Пригласить в workspace</SheetTitle>
+          </SheetHeader>
+          <div className="flex flex-col gap-6 px-5 py-5">
+            <section className="flex flex-col gap-2">
+              <h3 className="section">По email</h3>
+              <p className="text-xs text-muted-foreground">
+                Приглашение появится сразу после того, как человек войдёт с этим email.
+              </p>
+              <InviteMemberForm workspaceId={activeWorkspaceId} />
+            </section>
+            <section className="flex flex-col gap-2">
+              <h3 className="section">Ссылка для вступления</h3>
+              <p className="text-xs text-muted-foreground">
+                {activeWorkspace?.autoApproveJoins
+                  ? "По этой ссылке человек сразу попадает в workspace как Технарь — без вашего одобрения. Отключить можно в Настройках → Workspace."
+                  : "По этой ссылке человек не создаёт свой workspace — он отправляет вам заявку, и вы решаете, впустить его или нет."}
+              </p>
+              <div className="flex items-center gap-2">
+                <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted px-3 py-2 text-xs">{joinLink}</code>
+                <Button variant="outline" size="sm" className="min-h-11 shrink-0 gap-1.5 sm:min-h-0" onClick={handleCopyLink}>
+                  {linkCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  Копировать
+                </Button>
+              </div>
+            </section>
           </div>
-        </CardContent>
-      </Card>
+        </SheetContent>
+      </Sheet>
 
       {joinRequests.length > 0 && (
         <Card className="mb-6">
@@ -347,16 +368,6 @@ export default function UsersPage() {
           </CardContent>
         </Card>
       )}
-
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Пригласить сотрудника</CardTitle>
-          <CardDescription>Приглашение появится сразу после того, как человек войдёт с этим email.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <InviteMemberForm workspaceId={activeWorkspaceId} />
-        </CardContent>
-      </Card>
 
       <div className="mb-3 flex flex-col gap-2">
         <div className="relative">
@@ -424,7 +435,8 @@ export default function UsersPage() {
             (activeWorkspace?.responsibleOptions?.find((o) => o.value === member.osNickValue)?.inactive ?? false);
           return (
             <Card key={member.uid || member.email}>
-              <div className="flex items-center gap-3 p-4">
+              <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:gap-3 sm:p-4">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
                 <div className="relative shrink-0">
                   <MemberAvatar
                     id={member.uid || member.email || "member"}
@@ -542,6 +554,8 @@ export default function UsersPage() {
                     </button>
                   )}
                 </div>
+                </div>
+                <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
                 {member.status === "invited" && <Badge variant="warning">Приглашён</Badge>}
                 <span className="hidden text-xs text-muted-foreground sm:block">
                   {member.status === "active" ? timeAgo(member.joinedAt ?? member.invitedAt) : timeAgo(member.invitedAt)}
@@ -550,6 +564,7 @@ export default function UsersPage() {
                   <Badge variant="outline">Owner</Badge>
                 ) : (
                   <RoleSelect
+                    className="w-full sm:w-32"
                     value={member.role}
                     disabled={selfLocked}
                     onChange={(role) =>
@@ -583,6 +598,7 @@ export default function UsersPage() {
                     {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                   </Button>
                 )}
+                </div>
               </div>
 
               {!isOwner && member.status === "active" && isExpanded && (

@@ -1,6 +1,7 @@
 import { Crown, Medal, PackageCheck, Star } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { StarRating } from "@/components/technicians/StarRating";
+import { RATING_KIND } from "@/components/technicians/RatingScore";
 import { cn } from "@/utils/cn";
 import { personLabel } from "@/utils/peopleDesks";
 import type { WorkspaceMember } from "@/types";
@@ -42,19 +43,22 @@ function Column({
 }) {
   const orders = kind === "orders";
   const Icon = orders ? PackageCheck : Star;
+  const meta = RATING_KIND[kind];
   return (
-    <div className="min-w-0 flex-1">
-      <p
-        className={cn(
-          "mb-2 flex items-center gap-1.5 text-[11px] font-medium",
-          orders ? "text-violet-300" : "text-amber-300"
-        )}
-      >
+    <div
+      className={cn(
+        "flex min-w-0 flex-col rounded-xl border px-3 py-2.5",
+        entries.length === 0 ? "border-border/50 bg-background/30" : meta.box
+      )}
+    >
+      <p className={cn("mb-2 flex items-center gap-1.5 text-[11px] font-medium", meta.accent)}>
         <Icon className="h-3.5 w-3.5 shrink-0" />
         {orders ? "По заказам" : "Общая оценка"}
       </p>
       {entries.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground">В том месяце по этой шкале не оценивали.</p>
+        <p className="text-[11px] text-muted-foreground/70" title="В том месяце по этой шкале никто не оценивал">
+          Оценок по этой шкале не было
+        </p>
       ) : (
         <ol className="flex flex-col gap-1.5">
           {entries.map((entry, index) => (
@@ -102,17 +106,19 @@ export function MonthlyRatingTop({
   if (overall.length === 0 && orders.length === 0) return null;
   return (
     <section className="rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/[0.07] to-transparent p-4">
-      <header className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1">
-        <Crown className="h-4 w-4 shrink-0 text-amber-300" />
-        <h2 className="text-sm font-medium">Итоги за {monthLabel}</h2>
-        <span className="rounded-full border border-border/70 px-2 py-px text-[10px] text-muted-foreground">
-          закреплено
-        </span>
-        <p className="w-full text-[11px] text-muted-foreground sm:w-auto sm:flex-1 sm:text-right">
-          Этот месяц оценивается заново
+      <header className="mb-3 flex flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <Crown className="h-4 w-4 shrink-0 text-amber-300" />
+          <h2 className="section">Итоги за {monthLabel}</h2>
+          <span className="rounded-full border border-border/70 px-2 py-px text-[10px] text-muted-foreground">
+            закреплено
+          </span>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Этот месяц оценивается заново — счётчики обнулились первого числа.
         </p>
       </header>
-      <div className="flex flex-col gap-4 sm:flex-row sm:gap-6">
+      <div className="grid grid-cols-1 items-stretch gap-2 sm:grid-cols-2">
         <Column kind="overall" entries={overall} />
         <Column kind="orders" entries={orders} />
       </div>

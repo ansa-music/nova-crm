@@ -16,6 +16,7 @@ import { displayNameOf } from "@/utils/displayName";
 import { canOpenDesk, groupDeskSubtitle, personLabel } from "@/utils/peopleDesks";
 import { getPresenceStatus, PRESENCE_DOT_COLOR } from "@/utils/presence";
 import { memberHasRole, ROLE_LABELS, rolesOf } from "@/types";
+import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { cn } from "@/utils/cn";
 import type { Role, WorkspacePage } from "@/types";
 
@@ -114,42 +115,30 @@ export default function PeoplePage() {
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-2xl p-5 sm:p-8">
-      <header className="mb-7">
-        <p className="eyebrow mb-1 text-primary">Студия</p>
-        <h1 className="font-serif text-[1.85rem] font-medium tracking-[-0.03em] sm:text-[2.15rem]">Люди</h1>
-        <p className="mt-1 mb-5 text-sm text-muted-foreground">
-          Лица команды. Свой стол открывается сразу, чужой — после запроса.
-        </p>
-        <div className="mb-3 flex flex-wrap gap-1.5">
-          {ROLE_CHIPS.map((chip) => {
-            const on = roleFilter === chip.id;
-            return (
-              <button
-                key={chip.id}
-                type="button"
-                onClick={() => setRoleFilter(on ? null : chip.id)}
-                className={cn(
-                  "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                  on
-                    ? "border-primary/50 bg-primary/15 text-primary"
-                    : "border-border bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground"
-                )}
-              >
-                {chip.label}
-              </button>
-            );
-          })}
-        </div>
-        <label className="flex h-11 w-full items-center gap-2 rounded-full border border-primary/30 bg-card/80 px-4 text-[13px] text-muted-foreground">
-          <Search className="h-3.5 w-3.5 shrink-0" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Имя"
-            className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
-          />
-        </label>
-      </header>
+      <PageHeader
+        eyebrow="Студия"
+        title="Люди"
+        description="Лица команды. Свой стол открывается сразу, чужой — после запроса."
+        actions={
+          <label className="flex h-11 w-full items-center gap-2 rounded-full border border-primary/30 bg-card/80 px-4 text-[13px] text-muted-foreground sm:w-64">
+            <Search className="h-3.5 w-3.5 shrink-0" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Имя"
+              className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
+            />
+          </label>
+        }
+        filters={ROLE_CHIPS.map((chip) => {
+          const on = roleFilter === chip.id;
+          return (
+            <button key={chip.id} type="button" onClick={() => setRoleFilter(on ? null : chip.id)} className={pageChipClass(on)}>
+              {chip.label}
+            </button>
+          );
+        })}
+      />
 
       {filtered.length === 0 ? (
         <EmptyState className="rounded-2xl border border-primary/25 bg-card py-16" title={query || roleFilter ? "Никого не нашлось" : "Пока никого нет"} />

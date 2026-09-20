@@ -59,6 +59,7 @@ import { downloadWorkspaceBackup } from "@/services/backupService";
 import { fetchMyOwnerAccessRequest, requestOwnerAccess } from "@/services/ownerAccessService";
 import { useOwnerAccessRequests } from "@/hooks/useOwnerAccessRequests";
 import { getAuthErrorMessage } from "@/utils/firebaseErrors";
+import { PageHeader } from "@/components/common/PageHeader";
 import { DEFAULT_STATUS_OPTIONS, splitOptionsByActivity } from "@/utils/columnOptions";
 import { ACCENT_PRESETS } from "@/components/common/AccentColorSync";
 import { cn } from "@/utils/cn";
@@ -393,8 +394,12 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto w-full min-w-0 max-w-5xl p-6">
-      <h1 className="mb-6 text-3xl font-light tracking-tight">Настройки</h1>
+    <div className="mx-auto w-full min-w-0 max-w-5xl p-5 sm:p-8">
+      <PageHeader
+        eyebrow="Workspace"
+        title="Настройки"
+        description="Оформление, общие списки, роли и доступы. Часть разделов видит только Owner."
+      />
 
       <Tabs
         defaultValue="features"
