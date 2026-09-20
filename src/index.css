@@ -288,10 +288,17 @@
     create a containing block that traps position:fixed descendants
     (RowCardSheet renders inline, not through a portal).
   */
+  /*
+    ЭТО ТУЛБАР, НЕ ЗАГОЛОВОК РАЗДЕЛА. Плоская полоса с границей снизу — только
+    для экранов с собственным скроллом (стол, чат, «Грок лимит»). Шапка
+    раздела — компонент PageHeader (components/common/PageHeader.tsx); из-за
+    похожего имени этот класс однажды взяли на «Технари» и «Объявления», и обе
+    страницы выглядели как чужое приложение рядом со «Столами».
+  */
   .page-header {
     @apply flex items-center gap-2.5 border-b px-5 py-3 sm:px-6;
     border-color: hsl(var(--primary) / 0.15);
-    background: rgba(255, 255, 255, 0.02);
+    background: hsl(var(--foreground) / 0.02);
   }
 
   .page-title {
