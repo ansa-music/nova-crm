@@ -90,6 +90,10 @@ export default {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
         xl: "calc(var(--radius) + 4px)",
+        // Без этого ключа rounded-2xl брал дефолт Tailwind (16px) — значение
+        // вне шкалы, хотя им размечены 27 карточек. Теперь оно в шкале и при
+        // этом не сдвигается ни на пиксель.
+        "2xl": "calc(var(--radius) + 8px)",
       },
       boxShadow: {
         subtle: "0 1px 0 hsl(var(--foreground) / 0.04)",
