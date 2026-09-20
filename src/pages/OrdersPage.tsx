@@ -26,13 +26,23 @@ import {
 import { parseOptionalNumber } from "@/utils/quickOrder";
 import { displayNameOf } from "@/utils/displayName";
 import { formatCurrency } from "@/utils/format";
-import { formatOrderDate, timeAgo } from "@/utils/date";
+import { almatyNoonMillis, formatOrderDate, timeAgo } from "@/utils/date";
 import { hasFullAccess } from "@/utils/permissions";
 import { confirmDialog } from "@/utils/appDialog";
+import { parseHttpUrl } from "@/utils/httpUrl";
 import { cn } from "@/utils/cn";
 import { memberHasRole, WORK_ORDER_STATUS_LABELS, WORK_ORDER_URGENCY_LABELS, type WorkOrder, type WorkOrderStatus, type WorkOrderUrgency, type WorkspaceMember } from "@/types";
 
 const TABS: WorkOrderStatus[] = ["open", "assigned", "taken", "cancelled"];
+
+/** «YYYY-MM-DD» из поля даты → полдень этого дня по Алматы (или null). */
+function deadlineMillis(raw: string): number | null {
+  if (!raw) return null;
+  const [y, m, d] = raw.split("-").map(Number);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  const ms = almatyNoonMillis(y, m - 1, d);
+  return Number.isFinite(ms) ? ms : null;
+}
 
 /** «Нейтральный» ничем не помечаем — бейдж только там, где он что-то значит. */
 const URGENCY_TONE: Record<Exclude<WorkOrderUrgency, "normal">, string> = {
@@ -61,8 +71,13 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<WorkOrder[] | null>(null);
   const [tab, setTab] = useState<WorkOrderStatus>("open");
   const [issueOpen, setIssueOpen] = useState(false);
-  const [assignFor, setAssignFor] = useState<WorkOrder | null>(null);
+  // Храним ID, а не снимок: диалог «Кому отдать» обязан видеть отклики,
+  // пришедшие уже после открытия, иначе «Рандом» считает claims пустыми и
+  // отдаёт заказ НЕ откликнувшемуся.
+  const [assignForId, setAssignForId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [ordersError, setOrdersError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const uid = profile?.uid ?? "";
   const myName = displayNameOf(profile);
@@ -91,12 +106,24 @@ export default function OrdersPage() {
 
   useEffect(() => {
     setOrders(null);
+    setOrdersError(false);
     if (!activeWorkspaceId) return;
-    return subscribeOrders(activeWorkspaceId, setOrders, (error) => {
-      console.error("subscribeOrders failed:", error);
-      setOrders([]);
-    });
-  }, [activeWorkspaceId]);
+    return subscribeOrders(
+      activeWorkspaceId,
+      (rows) => {
+        setOrdersError(false);
+        setOrders(rows);
+      },
+      (error) => {
+        // Отказ в чтении НЕЛЬЗЯ отдавать как «заказов нет» (см. «Критические
+        // уроки» в CLAUDE.md): пустой экран с кнопкой «Выдать заказ»
+        // неотличим от пустой биржи, и ОС выдаёт дубль. onSnapshot после
+        // ошибки сам не переподключается — нужен явный повтор.
+        console.error("subscribeOrders failed:", error);
+        setOrdersError(true);
+      }
+    );
+  }, [activeWorkspaceId, reloadKey]);
 
   const counts = useMemo(() => {
     const c: Record<WorkOrderStatus, number> = { open: 0, assigned: 0, taken: 0, cancelled: 0 };
@@ -104,6 +131,14 @@ export default function OrdersPage() {
     return c;
   }, [orders]);
   const visible = useMemo(() => (orders ?? []).filter((o) => o.status === tab), [orders, tab]);
+  /** Живой заказ для диалога — он переживает отклики, выдачу и отмену. */
+  const assignFor = useMemo(() => (assignForId ? ((orders ?? []).find((o) => o.id === assignForId) ?? null) : null), [orders, assignForId]);
+
+  /** Откроется ли стол, в который уехал заказ, у смотрящего. */
+  function canOpenTakenDesk(pageId: string): boolean {
+    const page = pages.find((p) => p.id === pageId);
+    return Boolean(page) && permissions.canAccessPage(page!);
+  }
 
   function candidatesFor(order: WorkOrder): Array<OrderCandidate & { member: WorkspaceMember; deskName: string | null }> {
     return technicians.map((m) => ({
@@ -136,8 +171,10 @@ export default function OrdersPage() {
         client: form.client,
         phone: form.phone,
         link: form.link,
-        // Дата без времени: дедлайн — это день сдачи, а не момент.
-        deadline: form.deadline ? new Date(`${form.deadline}T00:00:00`).getTime() : null,
+        // Полдень по Алматы, как все календарные даты в проекте: строка
+        // «2026-10-01T00:00:00» читается как ЛОКАЛЬНОЕ время устройства, и у
+        // ОС в другом часовом поясе и бейдж, и ячейка в столе показывали день назад.
+        deadline: deadlineMillis(form.deadline),
         urgency: form.urgency,
         price: parseOptionalNumber(form.price),
         persons: parseOptionalNumber(form.persons),
@@ -227,7 +264,18 @@ export default function OrdersPage() {
         })}
       </div>
 
-      {orders === null ? (
+      {ordersError ? (
+        <EmptyState
+          eyebrow="Заказы"
+          title="Не удалось загрузить заказы"
+          description="Список не прочитался — это не значит, что заказов нет. Проверьте доступ и повторите."
+          action={
+            <Button variant="outline" onClick={() => setReloadKey((v) => v + 1)}>
+              Повторить
+            </Button>
+          }
+        />
+      ) : orders === null ? (
         <p className="py-10 text-center text-sm text-muted-foreground">Загружаем заказы…</p>
       ) : visible.length === 0 ? (
         <EmptyState
@@ -286,9 +334,22 @@ export default function OrdersPage() {
                     {order.phone && (
                       <a href={`tel:${order.phone.replace(/[^\d+]/g, "")}`} className="inline-flex items-center gap-1 tabular hover:text-foreground"><Phone className="h-3.5 w-3.5" /> {order.phone}</a>
                     )}
-                    {order.link && (
-                      <a href={order.link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><Link2 className="h-3.5 w-3.5" /> клиент</a>
-                    )}
+                    {/* Только настоящий http(s)-адрес: «instagram.com/x» без схемы
+                        браузер считает относительным и уводит внутрь CRM. */}
+                    {parseHttpUrl(order.link) ? (
+                      <a
+                        href={parseHttpUrl(order.link)!.toString()}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="inline-flex items-center gap-1 text-primary hover:underline"
+                      >
+                        <Link2 className="h-3.5 w-3.5" /> клиент
+                      </a>
+                    ) : order.link ? (
+                      <span className="inline-flex items-center gap-1" title={order.link}>
+                        <Link2 className="h-3.5 w-3.5" /> ссылка без https
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
@@ -320,7 +381,9 @@ export default function OrdersPage() {
                   {order.status === "taken" && (
                     <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Inbox className="h-3.5 w-3.5 text-success" /> {order.assignedName}
-                      {order.takenPageId && (
+                      {/* Ссылка только тому, кто стол реально откроет: ОС и чужой
+                          технарь упирались в «нет доступа» — выглядело поломкой. */}
+                      {order.takenPageId && canOpenTakenDesk(order.takenPageId) && (
                         <Link to={`/page/${order.takenPageId}`} className="inline-flex items-center gap-1 text-primary hover:underline">
                           открыть стол <ExternalLink className="h-3 w-3" />
                         </Link>
@@ -360,7 +423,7 @@ export default function OrdersPage() {
                     )}
                     {canManage && order.status === "open" && (
                       <>
-                        <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={busy} onClick={() => setAssignFor(order)}>
+                        <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={busy} onClick={() => setAssignForId(order.id)}>
                           <UserCheck className="h-3.5 w-3.5" /> Выдать…
                         </Button>
                         <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={busy} onClick={() => void withBusy(order.id, () => handleRandom(order), "Не удалось выдать")}>
@@ -370,7 +433,7 @@ export default function OrdersPage() {
                     )}
                     {canManage && order.status === "assigned" && (
                       <>
-                        <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={busy} onClick={() => setAssignFor(order)}>
+                        <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={busy} onClick={() => setAssignForId(order.id)}>
                           <UserCheck className="h-3.5 w-3.5" /> Переназначить
                         </Button>
                         <Button
@@ -385,7 +448,27 @@ export default function OrdersPage() {
                       </>
                     )}
                     {canManage && (order.status === "open" || order.status === "assigned") && (
-                      <Button size="sm" variant="ghost" className="h-8 gap-1.5 text-muted-foreground" disabled={busy} onClick={() => void withBusy(order.id, () => (activeWorkspaceId ? setOrderCancelled(activeWorkspaceId, order, true) : Promise.resolve()), "Не удалось отменить")}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 gap-1.5 text-muted-foreground"
+                        disabled={busy}
+                        onClick={async () => {
+                          if (!activeWorkspaceId) return;
+                          // У выданного заказа технарь мог уже начать заезд:
+                          // строка в его столе останется, убрать её мы не
+                          // можем — в чужой стол пишет только он сам.
+                          if (
+                            order.status === "assigned" &&
+                            !(await confirmDialog({
+                              title: `Отменить заказ «${order.client}»?`,
+                              description: `Заказ уже выдан${order.assignedName ? ` (${order.assignedName})` : ""}. Если он успел приехать в стол, строку оттуда уберёт только сам технарь.`,
+                            }))
+                          )
+                            return;
+                          void withBusy(order.id, () => setOrderCancelled(activeWorkspaceId, order, true), "Не удалось отменить");
+                        }}
+                      >
                         <XCircle className="h-3.5 w-3.5" /> Отменить
                       </Button>
                     )}
@@ -420,7 +503,7 @@ export default function OrdersPage() {
       <IssueOrderDialog open={issueOpen} onOpenChange={setIssueOpen} myOs={myOs} osOptions={osOptions} onSubmit={handleIssue} />
       <AssignOrderDialog
         order={assignFor}
-        onOpenChange={(open) => !open && setAssignFor(null)}
+        onOpenChange={(open) => !open && setAssignForId(null)}
         candidates={assignFor ? candidatesFor(assignFor) : []}
         onAssign={async (c) => {
           if (!assignFor) return;

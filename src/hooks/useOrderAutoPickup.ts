@@ -12,6 +12,21 @@ import { toast } from "@/components/ui/sonner";
 import type { WorkOrder } from "@/types";
 
 /**
+ * Заезды идут ПО ОЧЕРЕДИ на всё приложение (тот же приём, что в
+ * useMonthTabAutopilot). Снапшот приносит все выданные заказы разом, и
+ * параллельные заезды успевали прочитать строки стола ДО первой записи:
+ * оба находили один и тот же пустой слот и писали в него — второй заказ
+ * затирал первый, у обоих оставался один takenRowId, и один заказ пропадал
+ * из стола, числясь «В столе».
+ */
+let pickupQueue: Promise<unknown> = Promise.resolve();
+function enqueuePickup<T>(task: () => Promise<T>): Promise<T> {
+  const next = pickupQueue.then(task, task);
+  pickupQueue = next.catch(() => undefined);
+  return next;
+}
+
+/**
  * Заказ, выданный технарю, сам ложится в его стол.
  *
  * Пишет строку именно сессия технаря: в чужой стол не может писать никто,
@@ -32,6 +47,15 @@ export function useOrderAutoPickup() {
   const monthKey = useCurrentMonthKey();
   /** Заказы, по которым запись уже идёт или прошла — снапшот прилетает несколько раз. */
   const handledRef = useRef<Set<string>>(new Set());
+  /**
+   * Всё, что нужно в момент записи, но не должно пересоздавать подписку.
+   * Держим в ref и обновляем каждый рендер: подписка живёт долго, а её
+   * колбэк иначе навсегда запомнил бы значения того рендера, на котором был
+   * создан. Больнее всего это било по monthKey — приложение, открытое через
+   * полночь первого числа, положило бы заказ в ПРОШЛОМЕСЯЧНУЮ вкладку.
+   */
+  const latestRef = useRef({ workspace: activeWorkspace, members, monthKey, profile });
+  latestRef.current = { workspace: activeWorkspace, members, monthKey, profile };
 
   const uid = profile?.uid ?? "";
   const myDesk = pages.find((p) => p.responsibleUserId === uid) ?? null;
@@ -54,15 +78,18 @@ export function useOrderAutoPickup() {
           if (order.status !== "assigned") continue;
           if (handledRef.current.has(order.id)) continue;
           handledRef.current.add(order.id);
-          void takeOrderToDesk({
+          const latest = latestRef.current;
+          void enqueuePickup(() =>
+            takeOrderToDesk({
             workspaceId: activeWorkspaceId,
             order,
             page: myDesk,
-            workspace: activeWorkspace,
-            members,
-            monthKey,
-            me: { uid, name: displayNameOf(profile) },
-          })
+              workspace: latest.workspace,
+              members: latest.members,
+              monthKey: latest.monthKey,
+              me: { uid, name: displayNameOf(latest.profile) },
+            })
+          )
             .then(() => {
               toast.success(`Новый заказ в столе: ${order.client}`, {
                 description: "Строка подсвечена, пока вы не снимете подсветку.",
@@ -71,16 +98,22 @@ export function useOrderAutoPickup() {
             .catch((error) => {
               // Не получилось — разрешаем повтор на следующем снапшоте или
               // следующем открытии приложения; заказ остаётся `assigned`.
+              // Молчать тут нельзя: человеку уже пришло «заказ едет в ваш
+              // стол», и без подсказки он не узнает, что строки не будет.
               handledRef.current.delete(order.id);
               console.error("Не удалось положить заказ в стол:", error);
+              toast.error(`Заказ «${order.client}» не доехал в стол`, {
+                description: "Откройте «Заказы» и нажмите «Забрать в стол».",
+              });
             });
         }
       },
       (error) => console.error("Подписка на свои заказы отклонена:", error.code, error.message)
     );
     return unsubscribe;
-    // members/monthKey намеренно вне зависимостей: их обновление не должно
-    // пересоздавать подписку, актуальные значения берутся в момент записи.
+    // Подписка зависит только от того, КОГО и ГДЕ слушать. Всё остальное
+    // читается из latestRef в момент записи, поэтому пересоздавать её на
+    // каждое обновление участников или смену месяца не нужно.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, activeWorkspaceId, uid, myDesk?.id]);
 }

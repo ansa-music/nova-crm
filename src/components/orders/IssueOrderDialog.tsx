@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { parseOptionalNumber } from "@/utils/quickOrder";
+import { isHttpUrl } from "@/utils/httpUrl";
 import { cn } from "@/utils/cn";
 import { WORK_ORDER_URGENCY_LABELS, type StatusOption, type WorkOrderUrgency } from "@/types";
 
@@ -71,6 +72,8 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
   const minutesBad = form.minutes.trim() !== "" && minutesNum == null;
   const priceNum = parseOptionalNumber(form.price);
   const priceBad = form.price.trim() !== "" && priceNum == null;
+  // Без схемы браузер считает адрес относительным и уводит внутрь CRM.
+  const linkBad = form.link.trim() !== "" && !isHttpUrl(form.link);
   const needsOs = orderedOs.length > 0;
   const canSave = Boolean(form.client.trim()) && !personsBad && !minutesBad && !priceBad && (!needsOs || Boolean(form.osValue)) && !saving;
 
@@ -142,7 +145,16 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
               <Label htmlFor="io-link" className="flex items-center gap-1.5">
                 <Link2 className="h-3.5 w-3.5 text-muted-foreground" /> Ссылка на клиента
               </Label>
-              <Input id="io-link" value={form.link} onChange={(e) => set("link", e.target.value)} placeholder="https://…" inputMode="url" autoComplete="off" />
+              <Input
+                id="io-link"
+                value={form.link}
+                onChange={(e) => set("link", e.target.value)}
+                className={cn(linkBad && "border-destructive")}
+                placeholder="https://…"
+                inputMode="url"
+                autoComplete="off"
+              />
+              {linkBad && <p className="text-[11px] text-muted-foreground">Нужен полный адрес с https://</p>}
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="io-deadline" className="flex items-center gap-1.5">

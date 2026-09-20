@@ -157,6 +157,13 @@ export function DeskAccessDialog({
     try {
       const nextResponsible = responsibleUserId || null;
       const responsibleChanged = canAssignResponsible && nextResponsible !== (page.responsibleUserId ?? null);
+      // Сначала ответственный, потом доступ: setPageResponsible безусловно
+      // пишет hiddenByResponsible: false, и в обратном порядке он затирал
+      // только что выставленное «скрыт» — стол выглядел открытым, а
+      // allowedUsers оставался из одного ответственного, и войти не мог никто.
+      if (responsibleChanged) {
+        await setPageResponsible(page.workspaceId, page.id, nextResponsible, allowedUsers);
+      }
       if (canEdit) {
         const allowed = nextResponsible ? Array.from(new Set([...allowedUsers, nextResponsible])) : allowedUsers;
         await updatePageAccess(page.workspaceId, page.id, {
@@ -164,9 +171,6 @@ export function DeskAccessDialog({
           editableUsers: editableUsers.filter((u) => allowed.includes(u)),
           ...(canToggleVisibility ? { hiddenByResponsible: hidden } : {}),
         });
-      }
-      if (responsibleChanged) {
-        await setPageResponsible(page.workspaceId, page.id, nextResponsible, allowedUsers);
       }
       toast.success("Доступ обновлён");
       onOpenChange(false);

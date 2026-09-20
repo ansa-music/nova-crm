@@ -143,13 +143,20 @@ export interface OrderCandidate {
 }
 
 /**
- * «Рандом»: среди откликнувшихся со столом, а если таких нет — среди всех
- * технарей со столом. Никогда не выбирает того, кому заказ некуда забрать.
+ * Пул «Рандома»: сначала отсекаем тех, кому заказ некуда забрать, и только
+ * потом смотрим на отклики. Порядок важен: если сначала брать откликнувшихся,
+ * один отклик от технаря БЕЗ стола съедал весь фоллбэк и рандом оказывался
+ * пустым. Диалог и карточка обязаны звать именно эту функцию, иначе кнопка
+ * в одном месте работает, а в другом выключена.
  */
-export function pickRandomCandidate(candidates: OrderCandidate[]): OrderCandidate | null {
+export function orderRandomPool(candidates: OrderCandidate[]): OrderCandidate[] {
   const withDesk = candidates.filter((c) => c.hasDesk);
   const claimed = withDesk.filter((c) => c.claimedAt != null);
-  const pool = claimed.length > 0 ? claimed : withDesk;
+  return claimed.length > 0 ? claimed : withDesk;
+}
+
+export function pickRandomCandidate(candidates: OrderCandidate[]): OrderCandidate | null {
+  const pool = orderRandomPool(candidates);
   if (pool.length === 0) return null;
   const bytes = new Uint32Array(1);
   crypto.getRandomValues(bytes);
@@ -242,6 +249,22 @@ export async function deleteOrder(workspaceId: string, orderId: string) {
  * номером, ссылкой, ОС, персами и минутами — тем же подбором столбцов, что
  * и «Быстрый заказ» в столе. Пишется сессией технаря по его правам на стол.
  */
+/**
+ * Столбцы для подбора: сначала видимые, а на каждый незанятый слот —
+ * первый подходящий из полного набора (включая скрытые). Порядок в массиве
+ * решает, потому что findQuickOrderColumns берёт первое совпадение.
+ */
+function mergeColumnPicks(visible: PageColumn[], all: PageColumn[]): PageColumn[] {
+  if (visible.length === 0) return all;
+  const seen = new Set(visible.map((c) => c.key));
+  return [...visible, ...all.filter((c) => !seen.has(c.key))];
+}
+
+/** Строка стола, рождённая заказом: id выводится из заказа, поэтому запись идемпотентна. */
+export function orderRowId(orderId: string): string {
+  return `row_${orderId.replace(/[^A-Za-z0-9_-]/g, "")}`;
+}
+
 export async function takeOrderToDesk(input: {
   workspaceId: string;
   order: WorkOrder;
@@ -266,10 +289,25 @@ export async function takeOrderToDesk(input: {
   if (subPageId) {
     const subPages = await fetchSubPages(workspaceId, page.id);
     const tab = subPages.find((sp) => sp.id === subPageId);
-    if (tab?.columns?.length) targetColumns = tab.columns;
+    // Молчаливый откат на page.columns был ловушкой: если вкладку удалили,
+    // а ссылка на неё осталась в page.autoMonthSubPageId, строка писалась в
+    // подколлекцию несуществующей вкладки ключами «Основной» — заказ
+    // помечался «В столе», а технарь не видел его нигде. Лучше честно
+    // отказаться: заказ останется `assigned` и приедет позже, а кнопка
+    // «Забрать в стол» на «Заказах» останется рабочей.
+    if (!tab?.columns?.length) {
+      throw new Error("Вкладка месяца недоступна — заказ не записан в стол");
+    }
+    targetColumns = tab.columns;
   }
+  // Подбор идёт по видимым столбцам, но скрытый столбец не должен СЪЕДАТЬ
+  // значение: у цены, в отличие от персов/минут/ссылки, запасного места в
+  // визитке нет — спрятали «Цену», и сумма заказа не попадала никуда, а
+  // grandTotal/statusSums/дашборд недосчитывались. Запись в скрытый столбец
+  // безвредна: значение в нём хранится и появится, когда столбец покажут.
   const visible = targetColumns.filter((c) => !c.hidden);
-  const { cells, extras } = buildQuickOrderRow(targetColumns, visible.length ? visible : targetColumns, {
+  const forPick = mergeColumnPicks(visible, targetColumns);
+  const { cells, extras } = buildQuickOrderRow(targetColumns, forPick, {
     client: order.client,
     number: order.phone,
     os: order.osValue,
@@ -292,7 +330,11 @@ export async function takeOrderToDesk(input: {
   const rows = subPageId ? await fetchSubPageRows(workspaceId, page.id, subPageId) : await fetchRows(workspaceId, page.id);
   // Свободный слот занимаем, а не добавляем строку под пустыми — то же
   // правило, что у «Добавить строку» и «Быстрого заказа».
-  const blank = rows.find((r) => isBlankRow(r));
+  // Строка этого заказа уже может лежать в столе — после повтора, второй
+  // вкладки того же технаря или сбоя записи статуса. Тогда пишем в неё, а не
+  // занимаем ещё один слот.
+  const mine = rows.find((r) => r.id === orderRowId(order.id));
+  const blank = mine ?? rows.find((r) => isBlankRow(r));
   let row;
   if (blank) {
     const patch: Record<string, string | number | null> = {};
@@ -302,9 +344,13 @@ export async function takeOrderToDesk(input: {
     row = { ...blank, cells: { ...blank.cells, ...patch }, extras: extras ?? blank.extras, highlight: true };
   } else {
     const nextOrder = rows.reduce((max, r) => Math.max(max, typeof r.order === "number" ? r.order : 0), 0) + 1;
+    // Id строки выводится из id заказа, а не случайный. Замерено: два окна
+    // одного технаря (или повтор после сбоя записи статуса) клали в стол по
+    // строке на попытку — три строки «ДваОкна» на один заказ. С детерминированным
+    // id повторная запись попадает в ту же строку и остаётся одна.
     row = subPageId
-      ? await addSubPageRow(workspaceId, page.id, subPageId, cells, nextOrder, extras, true)
-      : await addRow(workspaceId, page.id, cells, nextOrder, extras, true);
+      ? await addSubPageRow(workspaceId, page.id, subPageId, cells, nextOrder, extras, true, orderRowId(order.id))
+      : await addRow(workspaceId, page.id, cells, nextOrder, extras, true, orderRowId(order.id));
   }
   const now = Date.now();
   await updateDoc(paths.order(workspaceId, order.id), {
@@ -325,8 +371,9 @@ export async function takeOrderToDesk(input: {
         fromUid: me.uid,
         fromName: me.name,
         target: "selected",
-        href: `/page/${page.id}`,
-        pageId: page.id,
+        // На «Заказы», а не в стол: автор заказа — как правило ОС, а чужой
+        // стол он не откроет, и переход упирался в «нет доступа».
+        href: "/orders",
       },
       [order.createdBy]
     ).catch(() => {});

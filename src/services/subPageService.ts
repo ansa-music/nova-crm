@@ -318,10 +318,12 @@ export async function addSubPageRow(
   order: number,
   extras?: PageRow["extras"],
   /** Подсветить строку как новую — см. PageRow.highlight. */
-  highlight?: boolean
+  highlight?: boolean,
+  /** Явный id для идемпотентной записи — см. addRow. */
+  explicitId?: string
 ) {
   if (!db) throw new Error("Firebase не настроен");
-  const id = generateId("row");
+  const id = explicitId ?? generateId("row");
   const row: PageRow = { id, pageId: subPageId, cells, order, createdAt: Date.now(), updatedAt: Date.now() };
   if (hasRowExtras(extras)) row.extras = extras;
   if (highlight) row.highlight = true;

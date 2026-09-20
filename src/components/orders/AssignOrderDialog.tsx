@@ -5,7 +5,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { timeAgo } from "@/utils/date";
 import { cn } from "@/utils/cn";
-import type { OrderCandidate } from "@/services/orderService";
+import { orderRandomPool, type OrderCandidate } from "@/services/orderService";
+import { toast } from "@/components/ui/sonner";
 import type { WorkOrder, WorkspaceMember } from "@/types";
 
 interface AssignOrderDialogProps {
@@ -21,13 +22,19 @@ export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, o
   const [busy, setBusy] = useState<string | null>(null);
   const claimed = candidates.filter((c) => c.claimedAt != null).sort((a, b) => (a.claimedAt ?? 0) - (b.claimedAt ?? 0));
   const others = candidates.filter((c) => c.claimedAt == null);
-  const randomPool = (claimed.length ? claimed : others).filter((c) => c.hasDesk);
+  // Тот же пул, что и у сервиса, — иначе кнопка «Рандом» на карточке
+  // работает, а в диалоге выключена (или наоборот).
+  const randomPool = orderRandomPool(candidates);
 
   async function run(key: string, fn: () => Promise<void>) {
     setBusy(key);
     try {
       await fn();
       onOpenChange(false);
+    } catch (error) {
+      // Без этого отказ уходил в пустоту: спиннер гас, диалог оставался
+      // открытым, и человек жал кнопку снова и снова.
+      toast.error(error instanceof Error ? error.message : "Не удалось выдать заказ");
     } finally {
       setBusy(null);
     }

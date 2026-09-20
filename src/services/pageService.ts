@@ -832,10 +832,16 @@ export async function addRow(
   order: number,
   extras?: PageRow["extras"],
   /** Подсветить строку как новую — см. PageRow.highlight. */
-  highlight?: boolean
+  highlight?: boolean,
+  /**
+   * Явный id вместо случайного. Нужен, когда запись обязана быть
+   * идемпотентной: два окна одного человека (или повтор после сбоя) должны
+   * положить ОДНУ строку, а не по строке на попытку.
+   */
+  explicitId?: string
 ) {
   if (!db) throw new Error("Firebase не настроен");
-  const id = generateId("row");
+  const id = explicitId ?? generateId("row");
   const row: PageRow = { id, pageId, cells, order, createdAt: Date.now(), updatedAt: Date.now() };
   if (hasRowExtras(extras)) row.extras = extras;
   if (highlight) row.highlight = true;

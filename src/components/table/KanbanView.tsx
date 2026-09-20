@@ -415,7 +415,15 @@ function KanbanCardBody({
   const phone = phoneColKey ? String(row.cells[phoneColKey] ?? "").trim() : "";
 
   return (
-    <div className={cn("kanban-card relative rounded-md border border-border bg-card p-2.5 text-sm shadow-sm", className)}>
+    <div
+      className={cn(
+        "kanban-card relative rounded-md border p-2.5 text-sm shadow-sm",
+        // Новый заказ виден и на доске — иначе технарь снимет подсветку,
+        // так и не поняв, какая карточка приехала.
+        row.highlight ? "border-primary/55 bg-primary/10" : "border-border bg-card",
+        className
+      )}
+    >
       {responsibleOption && (
         <MemberAvatar id={responsibleOption.value} name={responsibleOption.label} className="absolute right-2 top-2 h-5 w-5" />
       )}

@@ -86,7 +86,13 @@ export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder }: 
                 key={row.id}
                 type="button"
                 onClick={() => onOpenRow(row.id)}
-                className="flex w-full items-start gap-2 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
+                className={cn(
+                  "flex w-full items-start gap-2 rounded-lg border p-3 text-left transition-colors hover:border-primary/40 hover:bg-accent/40",
+                  // Заказ, приехавший с «Заказов», должен быть виден и здесь:
+                  // на телефоне стол открывается карточками, а чип «N новых»
+                  // в тулбаре не показывает, КАКАЯ из карточек новая.
+                  row.highlight ? "border-primary/55 bg-primary/10" : "border-border bg-card"
+                )}
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start gap-2">
