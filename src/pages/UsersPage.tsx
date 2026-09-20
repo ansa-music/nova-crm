@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useUiStore } from "@/store/uiStore";
 import { useWorkspaceStore } from "@/store/workspaceStore";
-import { AlertTriangle, AtSign, Check, ChevronDown, ChevronRight, Clock3, Copy, Link2, Lock, Mail, Pencil, Plus, Search, ShieldCheck, Trash2, X } from "lucide-react";
+import { AlertTriangle, Archive, AtSign, Check, ChevronDown, ChevronRight, Clock3, Copy, Link2, Lock, Mail, Pencil, Plus, Search, ShieldCheck, Trash2, X } from "lucide-react";
 import { displayNameOf } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
 import { cn } from "@/utils/cn";
@@ -415,6 +415,13 @@ export default function UsersPage() {
             showOsNick &&
             Boolean(member.osNickValue) &&
             !activeWorkspace?.responsibleOptions?.some((o) => o.value === member.osNickValue);
+          // «Неактуальный» и «потерян» — разные состояния: первое штатное
+          // (человек ушёл, ник жив и держит его заказы), второе аварийное
+          // (вариант физически удалили из списка).
+          const osNickInactive =
+            showOsNick &&
+            Boolean(member.osNickValue) &&
+            (activeWorkspace?.responsibleOptions?.find((o) => o.value === member.osNickValue)?.inactive ?? false);
           return (
             <Card key={member.uid || member.email}>
               <div className="flex items-center gap-3 p-4">
@@ -509,16 +516,24 @@ export default function UsersPage() {
                         "mt-1.5 inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-60",
                         osNickMissing
                           ? "border-warning/50 bg-warning/10 text-warning hover:bg-warning/15"
-                          : osNick
+                          : osNickInactive
+                            ? "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/30"
+                            : osNick
                             ? "border-amber-400/40 bg-amber-400/10 text-amber-300 hover:bg-amber-400/15"
                             : "border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
                       )}
                     >
-                      {osNickMissing ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <AtSign className="h-3 w-3 shrink-0" />}
+                      {osNickMissing ? (
+                        <AlertTriangle className="h-3 w-3 shrink-0" />
+                      ) : osNickInactive ? (
+                        <Archive className="h-3 w-3 shrink-0" />
+                      ) : (
+                        <AtSign className="h-3 w-3 shrink-0" />
+                      )}
                       {osNick ? (
                         <span className="truncate">
                           ник ОС: <span className="font-semibold">{osNick}</span>
-                          {osNickMissing ? " — удалён из «Ответственный»" : ""}
+                          {osNickMissing ? " — удалён из «Ответственный»" : osNickInactive ? " — неактуальный" : ""}
                         </span>
                       ) : (
                         <span>Закрепить ник ОС</span>

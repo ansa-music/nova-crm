@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Banknote, CalendarDays, Clock3, Link2, Loader2, Phone, Users } from "lucide-react";
+import { Archive, Banknote, CalendarDays, Clock3, Link2, Loader2, Phone, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { parseOptionalNumber } from "@/utils/quickOrder";
 import { isHttpUrl } from "@/utils/httpUrl";
+import { splitOptionsByActivity } from "@/utils/columnOptions";
 import { cn } from "@/utils/cn";
 import { WORK_ORDER_URGENCY_LABELS, type StatusOption, type WorkOrderUrgency } from "@/types";
 
@@ -54,6 +55,10 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
   const orderedOs = myOs
     ? [myOs, ...osOptions.filter((o) => o.value !== myOs.value)]
     : osOptions;
+  // Ушедшие ОС не предлагаем, но выбрать их можно — заказ иногда заводят
+  // задним числом на того, кто уже не работает.
+  const { active: activeOs, inactive: inactiveOs } = splitOptionsByActivity(orderedOs, [myOs?.value]);
+  const [showInactiveOs, setShowInactiveOs] = useState(false);
   const [form, setForm] = useState<IssueOrderForm>(EMPTY);
   const [saving, setSaving] = useState(false);
   const clientRef = useRef<HTMLInputElement>(null);
@@ -61,6 +66,7 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
   useEffect(() => {
     if (!open) return;
     setForm({ ...EMPTY, osValue: myOs?.value ?? "" });
+    setShowInactiveOs(false);
     const t = window.setTimeout(() => clientRef.current?.focus(), 40);
     return () => window.clearTimeout(t);
   }, [open, myOs?.value]);
@@ -127,12 +133,27 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
                     <SelectValue placeholder="Кто ведёт клиента" />
                   </SelectTrigger>
                   <SelectContent>
-                    {orderedOs.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
+                    {(showInactiveOs ? [...activeOs, ...inactiveOs] : activeOs).map((o) => (
+                      <SelectItem key={o.value} value={o.value} className={o.inactive ? "opacity-70" : undefined}>
                         {o.label}
                         {o.value === myOs?.value ? " · вы" : ""}
+                        {o.inactive ? " · неактуальный" : ""}
                       </SelectItem>
                     ))}
+                    {inactiveOs.length > 0 && !showInactiveOs && (
+                      <button
+                        type="button"
+                        onPointerDown={(e) => e.preventDefault()}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setShowInactiveOs(true);
+                        }}
+                        className="mt-1 flex w-full items-center gap-1.5 rounded-sm border-t border-border/60 px-2 pb-1 pt-2 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        <Archive className="h-3 w-3 shrink-0" /> Неактуальные ОС · {inactiveOs.length}
+                      </button>
+                    )}
                   </SelectContent>
                 </Select>
               ) : (

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CalendarDays, CopyCheck, IdCard, Mail, Phone } from "lucide-react";
+import { Archive, CalendarDays, CopyCheck, IdCard, Mail, Phone } from "lucide-react";
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { HighlightText } from "@/components/table/HighlightText";
 import { DiskLinkChip } from "@/components/table/DiskLinkChip";
@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatCurrencyCell, formatNumber } from "@/utils/format";
 import { formatOrderDate } from "@/utils/date";
-import { isOptionColumn } from "@/utils/columnOptions";
+import { isOptionColumn, splitOptionsByActivity } from "@/utils/columnOptions";
 import { parseHttpUrl } from "@/utils/httpUrl";
 import { cn } from "@/utils/cn";
 import type { PageColumn } from "@/types";
@@ -101,6 +101,9 @@ export function TableCell({
   const inputRef = useRef<HTMLInputElement>(null);
   const tdRef = useRef<HTMLTableCellElement>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+  // Неактуальные варианты (ушедшие ОС) раскрываются кнопкой внизу списка и
+  // сворачиваются обратно при закрытии выпадашки.
+  const [showInactiveOptions, setShowInactiveOptions] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
@@ -174,6 +177,10 @@ export function TableCell({
     </button>
   ) : null;
   const isNegative = isNumeric && stringValue !== "" && Number(stringValue) < 0;
+  // Выбранное значение остаётся в основном списке, даже став неактуальным:
+  // иначе человек открывает выпадашку и не видит в ней то, что уже стоит.
+  const optionSplit = splitOptionsByActivity(column.statusOptions ?? [], [stringValue]);
+  const inactiveLabel = column.type === "responsible" ? "Неактуальные ОС" : "Неактуальные";
   const diskUrl = column.type === "url" ? parseHttpUrl(stringValue) : null;
   const showFull = expanded || Boolean(isExpanded);
 
@@ -314,6 +321,9 @@ export function TableCell({
         <Select
           value={stringValue || undefined}
           onValueChange={(v) => onStatusChange(v === "__clear__" ? "" : v)}
+          onOpenChange={(open) => {
+            if (!open) setShowInactiveOptions(false);
+          }}
           disabled={!canEdit}
         >
           <SelectTrigger
@@ -341,11 +351,34 @@ export function TableCell({
             <SelectValue placeholder="">{renderDisplay()}</SelectValue>
           </SelectTrigger>
           <SelectContent onCloseAutoFocus={refocusGrid}>
-            {(column.statusOptions ?? []).map((opt) => (
+            {optionSplit.active.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
                 <StatusBadge value={opt.value} options={column.statusOptions ?? []} showTick={column.type === "status"} />
               </SelectItem>
             ))}
+            {optionSplit.inactive.length > 0 && !showInactiveOptions && (
+              <button
+                type="button"
+                // Не SelectItem: выбор варианта закрыл бы выпадашку, и до
+                // ушедшего ОС пришлось бы открывать её заново.
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowInactiveOptions(true);
+                }}
+                className="mt-1 flex w-full items-center gap-1.5 rounded-sm border-t border-border/60 px-2 pb-1 pt-2 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Archive className="h-3 w-3 shrink-0" />
+                {inactiveLabel} · {optionSplit.inactive.length}
+              </button>
+            )}
+            {showInactiveOptions &&
+              optionSplit.inactive.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value} className="opacity-70">
+                  <StatusBadge value={opt.value} options={column.statusOptions ?? []} showTick={column.type === "status"} />
+                </SelectItem>
+              ))}
             <SelectItem value="__clear__" className="text-muted-foreground">
               Очистить
             </SelectItem>

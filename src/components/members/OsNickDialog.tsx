@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AtSign, Check, Plus, Search } from "lucide-react";
+import { Archive, AtSign, Check, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,6 +15,7 @@ import { linkMemberOsNick, OS_NICK_MAX_LENGTH } from "@/services/memberService";
 import { confirmDialog } from "@/utils/appDialog";
 import { cn } from "@/utils/cn";
 import { displayNameOf } from "@/utils/displayName";
+import { splitOptionsByActivity } from "@/utils/columnOptions";
 import type { StatusOption, WorkspaceMember } from "@/types";
 
 type Choice = { kind: "option"; value: string } | { kind: "new"; label: string };
@@ -42,6 +43,7 @@ export function OsNickDialog({
 }) {
   const currentValue = member.osNickValue && options.some((o) => o.value === member.osNickValue) ? member.osNickValue : null;
   const [query, setQuery] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
   const [choice, setChoice] = useState<Choice | null>(currentValue ? { kind: "option", value: currentValue } : null);
   const [saving, setSaving] = useState(false);
   const name = displayNameOf(member);
@@ -53,7 +55,13 @@ export function OsNickDialog({
   }, [members, member.uid]);
 
   const q = query.trim().toLowerCase();
-  const visible = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+  // Ушедший ОС из быстрого списка уходит, но не из природы: ник остаётся в
+  // заказах, и закрепить его заново (или на другого человека) можно —
+  // раскрыв «Неактуальные».
+  const split = splitOptionsByActivity(options, [currentValue]);
+  const match = (list: StatusOption[]) => (q ? list.filter((o) => o.label.toLowerCase().includes(q)) : list);
+  const visible = match(split.active);
+  const visibleInactive = match(split.inactive);
   const exact = q ? options.find((o) => o.label.trim().toLowerCase() === q) : undefined;
   const newLabel = query.trim().slice(0, OS_NICK_MAX_LENGTH);
   // A nick the Owner deleted from the list comes back under its old value.
@@ -130,7 +138,7 @@ export function OsNickDialog({
           </div>
 
           <div className="max-h-64 min-h-[3rem] overflow-y-auto rounded-lg border border-border/70 p-1">
-            {visible.map((option) => {
+            {[...visible, ...(showInactive ? visibleInactive : [])].map((option) => {
               const owner = pinnedBy.get(option.value);
               const selected = choice?.kind === "option" && choice.value === option.value;
               return (
@@ -142,6 +150,7 @@ export function OsNickDialog({
                   className={cn(
                     "flex w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
                     selected ? "bg-primary/15 text-foreground" : "hover:bg-accent",
+                    option.inactive && !selected && "opacity-70",
                     owner && "cursor-not-allowed opacity-50 hover:bg-transparent"
                   )}
                 >
@@ -151,11 +160,24 @@ export function OsNickDialog({
                     <span className="max-w-[45%] shrink-0 truncate text-[11px] text-muted-foreground">занят: {displayNameOf(owner)}</span>
                   ) : option.value === currentValue ? (
                     <span className="shrink-0 text-[11px] text-primary">сейчас</span>
+                  ) : option.inactive ? (
+                    <span className="shrink-0 text-[11px] text-muted-foreground">неактуальный</span>
                   ) : null}
                   {selected && <Check className="h-4 w-4 shrink-0 text-primary" />}
                 </button>
               );
             })}
+
+            {visibleInactive.length > 0 && !showInactive && (
+              <button
+                type="button"
+                onClick={() => setShowInactive(true)}
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <Archive className="h-3.5 w-3.5 shrink-0" />
+                Неактуальные ники · {visibleInactive.length}
+              </button>
+            )}
 
             {!exact && newLabel && (
               <button

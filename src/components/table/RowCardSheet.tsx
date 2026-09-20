@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CalendarDays, CheckCheck, ChevronLeft, ChevronRight, Copy, IdCard, Trash2, X } from "lucide-react";
+import { Archive, CalendarDays, CheckCheck, ChevronLeft, ChevronRight, Copy, IdCard, Trash2, X } from "lucide-react";
 import { StatusBadge } from "@/components/table/StatusBadge";
+import { splitOptionsByActivity } from "@/utils/columnOptions";
 import { DiskLinkChip } from "@/components/table/DiskLinkChip";
 import { DateCalendar } from "@/components/table/DateCalendar";
 import { Button } from "@/components/ui/button";
@@ -81,6 +82,10 @@ export function RowCardSheet({
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [dateOpenKey, setDateOpenKey] = useState<string | null>(null);
+  // Какое поле карточки раскрыло свои неактуальные варианты. Ключом, а не
+  // флагом: полей с вариантами в карточке несколько, и раскрытие одного
+  // не должно раскрывать остальные.
+  const [inactiveOpenKey, setInactiveOpenKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -180,8 +185,15 @@ export function RowCardSheet({
           <span className="text-sm text-muted-foreground">—</span>
         );
       }
+      const optionSplit = splitOptionsByActivity(col.statusOptions ?? [], [stringValue]);
       return (
-        <Select value={stringValue || undefined} onValueChange={(v) => onCellChange?.(record.id, col.key, v === "__clear__" ? "" : v)}>
+        <Select
+          value={stringValue || undefined}
+          onValueChange={(v) => onCellChange?.(record.id, col.key, v === "__clear__" ? "" : v)}
+          onOpenChange={(open) => {
+            if (!open) setInactiveOpenKey((prev) => (prev === col.key ? null : prev));
+          }}
+        >
           <SelectTrigger className={cn("h-9 w-auto min-w-[8rem] max-w-full border-primary/20 bg-white/[0.03]", opts.inline && "h-8")}>
             <SelectValue placeholder="—">
               {stringValue ? (
@@ -192,11 +204,32 @@ export function RowCardSheet({
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {(col.statusOptions ?? []).map((opt) => (
+            {optionSplit.active.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
                 <StatusBadge value={opt.value} options={col.statusOptions ?? []} showTick={col.type === "status"} />
               </SelectItem>
             ))}
+            {optionSplit.inactive.length > 0 && inactiveOpenKey !== col.key && (
+              <button
+                type="button"
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setInactiveOpenKey(col.key);
+                }}
+                className="mt-1 flex w-full items-center gap-1.5 rounded-sm border-t border-border/60 px-2 pb-1 pt-2 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Archive className="h-3 w-3 shrink-0" />
+                {col.type === "responsible" ? "Неактуальные ОС" : "Неактуальные"} · {optionSplit.inactive.length}
+              </button>
+            )}
+            {inactiveOpenKey === col.key &&
+              optionSplit.inactive.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value} className="opacity-70">
+                  <StatusBadge value={opt.value} options={col.statusOptions ?? []} showTick={col.type === "status"} />
+                </SelectItem>
+              ))}
             <SelectItem value="__clear__" className="text-muted-foreground">
               Очистить
             </SelectItem>

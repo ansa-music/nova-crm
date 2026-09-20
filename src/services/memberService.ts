@@ -383,7 +383,21 @@ export async function linkMemberOsNick(input: {
     }
     const takenBy = input.members.find((m) => m.uid !== input.uid && m.osNickValue === option!.value);
     if (takenBy) throw new Error(`Ник «${option.label}» уже закреплён за другим ОС: ${displayNameOf(takenBy)}`);
-    if (appended) tx.set(workspaceRef, { responsibleOptions: [...options, option] }, { merge: true });
+    if (appended) {
+      tx.set(workspaceRef, { responsibleOptions: [...options, option] }, { merge: true });
+    } else if (option.inactive) {
+      // Ник закрепили за живым аккаунтом — значит он снова в работе, и прятать
+      // его в «Неактуальных» больше незачем. Ключ УДАЛЯЕМ: `undefined` внутри
+      // элемента массива роняет запись целиком (ignoreUndefinedProperties у нас
+      // выключен), а `false` осталось бы мусором во всех документах.
+      const revived = options.map((o) => {
+        if (o.value !== option!.value) return o;
+        const next = { ...o };
+        delete next.inactive;
+        return next;
+      });
+      tx.set(workspaceRef, { responsibleOptions: revived }, { merge: true });
+    }
     tx.set(memberRef, { osNick: option.label, osNickValue: option.value }, { merge: true });
     return option.value;
   });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Archive, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/table/StatusBadge";
+import { splitOptionsByActivity } from "@/utils/columnOptions";
 import { parseOptionalNumber, type QuickOrderInput } from "@/utils/quickOrder";
 import type { StatusOption } from "@/types";
 
@@ -37,7 +38,12 @@ export function QuickOrderDialog({
   onSubmit: (input: QuickOrderInput) => Promise<void>;
   osOptions?: StatusOption[] | null;
 }) {
+  // Считаем по ПОЛНОМУ списку: если все ники увели в неактуальные, поле
+  // обязано остаться выпадашкой. Иначе оно превратится в свободный ввод и
+  // запишет в ячейку произвольный текст вместо значения варианта.
   const osSelect = Boolean(osOptions && osOptions.length > 0);
+  const osSplit = splitOptionsByActivity(osOptions ?? []);
+  const [showInactiveOs, setShowInactiveOs] = useState(false);
   const [form, setForm] = useState<QuickOrderInput>(EMPTY);
   const [saving, setSaving] = useState(false);
   const clientRef = useRef<HTMLInputElement>(null);
@@ -116,11 +122,25 @@ export function QuickOrderDialog({
                     <SelectValue placeholder="—" />
                   </SelectTrigger>
                   <SelectContent>
-                    {osOptions!.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
+                    {(showInactiveOs ? [...osSplit.active, ...osSplit.inactive] : osSplit.active).map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value} className={opt.inactive ? "opacity-70" : undefined}>
                         <StatusBadge value={opt.value} options={osOptions!} showTick />
                       </SelectItem>
                     ))}
+                    {osSplit.inactive.length > 0 && !showInactiveOs && (
+                      <button
+                        type="button"
+                        onPointerDown={(e) => e.preventDefault()}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setShowInactiveOs(true);
+                        }}
+                        className="mt-1 flex w-full items-center gap-1.5 rounded-sm border-t border-border/60 px-2 pb-1 pt-2 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        <Archive className="h-3 w-3 shrink-0" /> Неактуальные ОС · {osSplit.inactive.length}
+                      </button>
+                    )}
                     <SelectItem value="__clear__" className="text-muted-foreground">
                       Очистить
                     </SelectItem>

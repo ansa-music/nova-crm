@@ -38,6 +38,38 @@ export function ensureDoneStatus(options: StatusOption[]): StatusOption[] {
   return done ? [...options, done] : options;
 }
 
+/**
+ * Неактуальный вариант (ушедший ОС, отменённый статус) из СПИСКА не
+ * пропадает никогда: по нему резолвятся подпись и цвет уже сохранённых
+ * значений — и в этом месяце, и в прошлогодних вкладках. Прячем его только
+ * там, где человек ВЫБИРАЕТ вариант, и только до нажатия «Неактуальные».
+ * Поэтому `getColumnOptions` продолжает отдавать всё, а делит список эта
+ * пара функций — вызывать её надо в выпадашках, а не в резолве.
+ */
+export function isOptionInactive(option: StatusOption): boolean {
+  return option.inactive === true;
+}
+
+/**
+ * Делит варианты на «предлагаем сразу» и «спрятаны под кнопкой».
+ * `keepValues` — значения, которые обязаны остаться на виду, даже будучи
+ * неактуальными: то, что уже стоит в этой ячейке. Иначе человек открывал бы
+ * выпадашку и не видел в ней того, что сейчас выбрано.
+ */
+export function splitOptionsByActivity(
+  options: StatusOption[],
+  keepValues: Array<string | null | undefined> = []
+): { active: StatusOption[]; inactive: StatusOption[] } {
+  const keep = new Set(keepValues.filter((v): v is string => Boolean(v)));
+  const active: StatusOption[] = [];
+  const inactive: StatusOption[] = [];
+  for (const option of options) {
+    if (isOptionInactive(option) && !keep.has(option.value)) inactive.push(option);
+    else active.push(option);
+  }
+  return { active, inactive };
+}
+
 export function getColumnOptions(column: PageColumn, workspace: Workspace | null | undefined): StatusOption[] {
   if (column.type === "responsible") return workspace?.responsibleOptions ?? [];
   if (column.type === "status") return ensureDoneStatus(workspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { GripVertical, Loader2, Plus, X } from "lucide-react";
+import { Archive, ArchiveRestore, GripVertical, Loader2, Plus, X } from "lucide-react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   Dialog,
@@ -37,6 +37,12 @@ interface ManageOptionsDialogProps {
   /** Owner-only editing. When false the sheet is read-only (or should not be opened). */
   canEdit?: boolean;
   ensureDone?: boolean;
+  /**
+   * Показывать подсказку про «неактуальные» вместо удаления. Включаем там,
+   * где вариант живёт в старых данных — ники ОС: удалить ник значит стереть
+   * подпись во всех прошлых заказах.
+   */
+  warnAboutDelete?: boolean;
 }
 
 export function ManageOptionsDialog({
@@ -48,6 +54,7 @@ export function ManageOptionsDialog({
   onSave,
   canEdit = true,
   ensureDone = false,
+  warnAboutDelete = false,
 }: ManageOptionsDialogProps) {
   const [draft, setDraft] = useState<StatusOption[]>(() => ensureDoneStatus(options.length ? options : DEFAULT_STATUS_OPTIONS));
   const [isSaving, setIsSaving] = useState(false);
@@ -107,6 +114,16 @@ export function ManageOptionsDialog({
     setDraft((prev) => prev.map((o, i) => (i === index ? { ...o, color } : o)));
   }
 
+  /**
+   * «Неактуальный» вместо удаления: вариант остаётся в списке (подпись и цвет
+   * старых значений резолвятся отсюда), но в выпадашках его больше не
+   * предлагают — он прячется под кнопкой «Неактуальные».
+   */
+  function toggleInactive(index: number) {
+    if (!canEdit) return;
+    setDraft((prev) => prev.map((o, i) => (i === index ? { ...o, inactive: !o.inactive } : o)));
+  }
+
   function removeOption(index: number) {
     if (!canEdit) return;
     setDraft((prev) => prev.filter((_, i) => i !== index));
@@ -130,8 +147,17 @@ export function ManageOptionsDialog({
       close();
       return;
     }
+    // Спред, а не сборка объекта по полям: незнакомые поля варианта обязаны
+    // пережить сохранение. Ключ `inactive` у актуального варианта удаляем
+    // целиком — `undefined` внутри массива роняет всю запись списка
+    // (ignoreUndefinedProperties у нас не включён), а `false` осталось бы
+    // мусором во всех документах навсегда.
     const cleaned = draft
-      .map((o) => ({ ...o, label: o.label.trim() }))
+      .map((o) => {
+        const next: StatusOption = { ...o, label: o.label.trim() };
+        if (!next.inactive) delete next.inactive;
+        return next;
+      })
       .filter((o) => o.label.length > 0);
     setIsSaving(true);
     try {
@@ -180,7 +206,7 @@ export function ManageOptionsDialog({
               <p className="py-2 text-sm text-muted-foreground">Пока нет ни одного варианта.</p>
             )}
             {draft.map((opt, index) => (
-              <div key={opt.value} className="flex items-center gap-2">
+              <div key={opt.value} className={cn("flex items-center gap-2", opt.inactive && "opacity-60")}>
                 {canEdit && (
                   <button
                     type="button"
@@ -218,6 +244,19 @@ export function ManageOptionsDialog({
                 {canEdit && (
                   <button
                     type="button"
+                    onClick={() => toggleInactive(index)}
+                    className={cn(
+                      "rounded p-1.5 transition-colors hover:bg-accent",
+                      opt.inactive ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                    )}
+                    title={opt.inactive ? "Вернуть в список" : "В неактуальные — останется в старых заказах"}
+                  >
+                    {opt.inactive ? <ArchiveRestore className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
+                  </button>
+                )}
+                {canEdit && (
+                  <button
+                    type="button"
                     onClick={() => removeOption(index)}
                     className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-destructive"
                     title="Удалить"
@@ -230,9 +269,18 @@ export function ManageOptionsDialog({
           </div>
 
           {canEdit && (
-            <Button variant="outline" size="sm" className="w-fit gap-1.5" onClick={addOption}>
-              <Plus className="h-3.5 w-3.5" /> Добавить вариант
-            </Button>
+            <div className="flex flex-col gap-2">
+              <Button variant="outline" size="sm" className="w-fit gap-1.5" onClick={addOption}>
+                <Plus className="h-3.5 w-3.5" /> Добавить вариант
+              </Button>
+              {warnAboutDelete && (
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  <Archive className="mr-1 inline h-3 w-3" />
+                  Ушедшего уводите в неактуальные, а не удаляйте: вариант останется в заказах прошлых месяцев,
+                  просто пропадёт из быстрого выбора — в выпадашке он будет под кнопкой «Неактуальные».
+                </p>
+              )}
+            </div>
           )}
 
           <DialogFooter>

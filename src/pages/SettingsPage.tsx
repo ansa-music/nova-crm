@@ -59,7 +59,7 @@ import { downloadWorkspaceBackup } from "@/services/backupService";
 import { fetchMyOwnerAccessRequest, requestOwnerAccess } from "@/services/ownerAccessService";
 import { useOwnerAccessRequests } from "@/hooks/useOwnerAccessRequests";
 import { getAuthErrorMessage } from "@/utils/firebaseErrors";
-import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
+import { DEFAULT_STATUS_OPTIONS, splitOptionsByActivity } from "@/utils/columnOptions";
 import { ACCENT_PRESETS } from "@/components/common/AccentColorSync";
 import { cn } from "@/utils/cn";
 import { memberHasRole } from "@/types";
@@ -357,7 +357,7 @@ export default function SettingsPage() {
 
   async function handleSaveSharedOptions(next: StatusOption[]) {
     if (!activeWorkspace) return;
-    if (!permissions.canManageWorkspace) throw new Error("Варианты меняет только Owner");
+    if (!permissions.canManageWorkspace) throw new Error("Варианты меняют Owner и Тимлид");
     if (manageOptionsKind === "responsible") {
       await updateResponsibleOptions(activeWorkspace.id, next);
     } else if (manageOptionsKind === "status") {
@@ -653,7 +653,8 @@ export default function SettingsPage() {
                 <CardTitle>Общие списки вариантов</CardTitle>
                 <CardDescription>
                   «Статус» и «Ответственный» — единые списки на весь сайт: значение, добавленное здесь,
-                  сразу доступно в любом таком столбце на любой странице. Управляет только Овнер.
+                  сразу доступно в любом таком столбце на любой странице. Управляют Овнер и Тимлид: ушедшего ОС
+                  уводите в «неактуальные» — он останется в старых заказах, но пропадёт из быстрого выбора.
                 </CardDescription>
               </CardHeader>
               <CardContent className="mt-0 flex flex-col gap-4">
@@ -678,13 +679,18 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between rounded-lg border border-border p-3">
                   <div>
                     <p className="text-sm font-medium">Ответственный</p>
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                       {responsibleOptions.length === 0 ? (
                         <span className="text-xs text-muted-foreground">Нет вариантов</span>
                       ) : (
-                        responsibleOptions.map((opt) => (
+                        splitOptionsByActivity(responsibleOptions).active.map((opt) => (
                           <StatusBadge key={opt.value} value={opt.value} options={responsibleOptions} />
                         ))
+                      )}
+                      {splitOptionsByActivity(responsibleOptions).inactive.length > 0 && (
+                        <span className="text-[11px] text-muted-foreground">
+                          + {splitOptionsByActivity(responsibleOptions).inactive.length} неактуальных
+                        </span>
                       )}
                     </div>
                   </div>
@@ -793,6 +799,7 @@ export default function SettingsPage() {
                   : activeCustomField()?.options ?? []
             }
             onSave={handleSaveSharedOptions}
+            warnAboutDelete={manageOptionsKind === "responsible"}
           />
 
         {permissions.canManageWorkspace && (

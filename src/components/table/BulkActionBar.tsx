@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { StatusBadge } from "@/components/table/StatusBadge";
+import { splitOptionsByActivity } from "@/utils/columnOptions";
 import type { PageColumn, StatusOption } from "@/types";
 
 export interface BulkOptionColumn {
@@ -109,12 +110,16 @@ export function BulkActionBar({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="center">
               <DropdownMenuLabel>Заполнить у {count} строк</DropdownMenuLabel>
-              {otherOptionColumns.map(({ column, options }) => (
+              {otherOptionColumns.map(({ column, options }) => {
+                // Заполнять пачку строк ушедшим ОС незачем — в массовом
+                // действии показываем только актуальные.
+                const pickable = splitOptionsByActivity(options).active;
+                return (
                 <DropdownMenuSub key={column.key}>
                   <DropdownMenuSubTrigger>{column.label}</DropdownMenuSubTrigger>
                   <DropdownMenuSubContent>
-                    {options.length === 0 && <DropdownMenuItem disabled>Нет вариантов</DropdownMenuItem>}
-                    {options.map((opt) => (
+                    {pickable.length === 0 && <DropdownMenuItem disabled>Нет вариантов</DropdownMenuItem>}
+                    {pickable.map((opt) => (
                       <DropdownMenuItem key={opt.value} onClick={() => onSetOptionValue(column.key, opt.value)}>
                         <StatusBadge value={opt.value} options={options} />
                       </DropdownMenuItem>
@@ -125,7 +130,8 @@ export function BulkActionBar({
                     </DropdownMenuItem>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
-              ))}
+                );
+              })}
             </DropdownMenuContent>
           </DropdownMenu>
         )}

@@ -4,6 +4,14 @@ export interface StatusOption {
   value: string;
   label: string;
   color: string; // hex or hsl token used for the badge
+  /**
+   * Вариант уведён в «неактуальные»: ОС ушёл, статус больше не используют.
+   * Из списка он НЕ удаляется — на нём висят заказы прошлых месяцев, а
+   * подпись и цвет резолвятся именно отсюда (`StatusBadge` без варианта
+   * рисует «—»). Меняется только одно: в выпадашках его не предлагают,
+   * пока человек сам не раскроет «Неактуальные».
+   */
+  inactive?: boolean;
 }
 
 export interface PageColumn {

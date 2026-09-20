@@ -114,7 +114,15 @@ import { formatOrderDate } from "@/utils/date";
 import { isSummableColumn, sumNumericCells } from "@/utils/tableAggregates";
 import { isBlankRow, isFilledCellValue } from "@/utils/blankRow";
 import { clampColumnWidth } from "@/utils/tableLayout";
-import { getColumnOptions, isDoneStatusLabel, isOptionColumn, DEFAULT_STATUS_OPTIONS, NOT_DONE_STATUS_FILTER, findDoneStatusOption } from "@/utils/columnOptions";
+import {
+  getColumnOptions,
+  isDoneStatusLabel,
+  isOptionColumn,
+  splitOptionsByActivity,
+  DEFAULT_STATUS_OPTIONS,
+  NOT_DONE_STATUS_FILTER,
+  findDoneStatusOption,
+} from "@/utils/columnOptions";
 import { isHttpUrl, parseHttpUrl } from "@/utils/httpUrl";
 import { parseClipboardMatrix } from "@/utils/clipboardMatrix";
 import {
@@ -2106,7 +2114,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           // Quick-pick: typing a letter on a status/responsible/custom cell
           // jumps straight to the first option whose label starts with it —
           // no need to open the dropdown just to pick something short.
-          const options = getColumnOptions(col, activeWorkspace);
+          // Неактуальные сюда не попадают: это ровно «быстрый доступ», из
+          // которого ушедший ОС и должен был исчезнуть.
+          const options = splitOptionsByActivity(getColumnOptions(col, activeWorkspace)).active;
           const match = options.find((o) => o.label.toLowerCase().startsWith(e.key.toLowerCase()));
           if (match) handleStatusChange(activeCell.rowId, col.key, match.value);
           return;
