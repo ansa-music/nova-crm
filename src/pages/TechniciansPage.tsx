@@ -65,7 +65,7 @@ import {
   type WorkspacePage,
 } from "@/types";
 
-type Filter = "all" | "free" | "busy" | "mine";
+type Filter = "all" | "free" | "busy" | "nodesk" | "mine";
 /** ОС only: the technician cards, or their own orders as one list. */
 type View = "techs" | "orders";
 
@@ -362,14 +362,22 @@ export default function TechniciansPage() {
   }, [technicians, myOsValue, orderQuery, statusOptions]);
   const myOrderItemsCount = myOrderGroups.reduce((n, g) => n + g.items.length, 0);
 
+  // «Свободен/занят» — это про стол: у кого стола нет, тот ни свободен, ни
+  // занят, ему просто некуда отдать заказ. Раньше такие люди попадали в счёт
+  // «Все», но не попадали ни под один чип и терялись внизу списка — цифры не
+  // сходились, и понять, куда делись двое, по экрану было нельзя.
   const withDesk = technicians.filter((t) => t.desks.length > 0);
   const freeCount = withDesk.filter((t) => !t.busy).length;
-  const busyCount = withDesk.length - freeCount;
+  const busyCount = withDesk.filter((t) => t.busy).length;
+  const noDeskCount = technicians.length - withDesk.length;
   const mineCount = technicians.filter((t) => (t.myOrders?.summary.total ?? 0) > 0).length;
   const myOrdersTotal = technicians.reduce((n, t) => n + (t.myOrders?.summary.total ?? 0), 0);
   const visible = technicians.filter((t) => {
     if (filter === "free") return t.desks.length > 0 && !t.busy;
-    if (filter === "busy") return t.busy;
+    // Условие про стол обязано совпадать с busyCount, иначе чип показывает
+    // одно число, а список под ним — другое.
+    if (filter === "busy") return t.desks.length > 0 && t.busy;
+    if (filter === "nodesk") return t.desks.length === 0;
     if (filter === "mine") return (t.myOrders?.summary.total ?? 0) > 0;
     return true;
   });
@@ -541,6 +549,9 @@ export default function TechniciansPage() {
     { id: "free", label: "Свободны", count: freeCount, active: "border-success/50 bg-success/15 text-success" },
     { id: "busy", label: "Заняты", count: busyCount, active: "border-destructive/50 bg-destructive/15 text-destructive" },
   ];
+  if (noDeskCount > 0) {
+    filters.push({ id: "nodesk", label: "Без стола", count: noDeskCount, active: "border-border bg-muted/60 text-foreground" });
+  }
   if (isOsViewer && myOsValue) {
     filters.push({ id: "mine", label: "С моими заказами", count: mineCount, active: "border-amber-400/50 bg-amber-400/15 text-amber-300" });
   }
@@ -753,7 +764,9 @@ export default function TechniciansPage() {
                 ? "Сейчас все свободны."
                 : filter === "mine"
                   ? "В этом месяце ваших заказов у технарей нет."
-                  : "Сейчас все заняты."}
+                  : filter === "nodesk"
+                    ? "У всех технарей есть стол."
+                    : "Сейчас все заняты."}
             </p>
           )}
 

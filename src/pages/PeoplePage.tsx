@@ -86,16 +86,24 @@ export default function PeoplePage() {
     });
   }
 
-  // Callers fire this from an onClick with `void`, so anything thrown here
-  // used to surface as an unhandled rejection and nothing else — no toast on
-  // failure, and no confirmation on success either. /desks already wraps the
-  // identical call this way.
+  /**
+   * Сырой запрос: БРОСАЕТ ошибку и ничего не тостит. Именно он уходит в
+   * `RequestDeskViewButton` — кнопка сама показывает и успех, и отказ.
+   * Раньше здесь стоял try/catch со своим тостом, и промис резолвился даже
+   * на ошибке: человек видел красный тост, а следом зелёный «Запрос
+   * отправлен» на неотправленный запрос. Разделение — как на /desks.
+   */
   async function sendRequest(page: WorkspacePage) {
+    const toUid = page.responsibleUserId || ownerId;
+    if (!toUid) throw new Error("Нет ответственного у стола");
+    await requestView(page, displayNameOf(profile), toUid);
+    await reload();
+  }
+
+  /** Клик по самой строке: тостит сам, потому что кнопки тут нет. */
+  async function requestFromRow(page: WorkspacePage) {
     try {
-      const toUid = page.responsibleUserId || ownerId;
-      if (!toUid) throw new Error("Нет ответственного у стола");
-      await requestView(page, displayNameOf(profile), toUid);
-      await reload();
+      await sendRequest(page);
       toast.success("Запрос на просмотр отправлен");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось отправить запрос");
@@ -227,7 +235,7 @@ export default function PeoplePage() {
                     className="flex min-h-16 w-full items-center gap-3 px-3 py-3 text-left"
                     onClick={() => {
                       selectPerson(group.key);
-                      void sendRequest(requestPage);
+                      void requestFromRow(requestPage);
                     }}
                   >
                     {body}
