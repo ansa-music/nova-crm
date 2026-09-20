@@ -838,13 +838,16 @@ export async function addRow(
    * идемпотентной: два окна одного человека (или повтор после сбоя) должны
    * положить ОДНУ строку, а не по строке на попытку.
    */
-  explicitId?: string
+  explicitId?: string,
+  /** Заказ с «Заказов», из которого выросла строка — постоянная метка. */
+  orderId?: string
 ) {
   if (!db) throw new Error("Firebase не настроен");
   const id = explicitId ?? generateId("row");
   const row: PageRow = { id, pageId, cells, order, createdAt: Date.now(), updatedAt: Date.now() };
   if (hasRowExtras(extras)) row.extras = extras;
   if (highlight) row.highlight = true;
+  if (orderId) row.orderId = orderId;
   await setDoc(paths.row(workspaceId, pageId, id), row);
   mirrorUpsertRow(workspaceId, pageId, null, row);
   return row;
@@ -918,6 +921,19 @@ export async function updateRowCellsBulk(
  * Один batch: подсветка снимается по кнопке, и полсотни отдельных записей
  * ради неё были бы расточительством на бесплатном плане.
  */
+/** Метка «строка приехала заказом» — ставится и при занятии пустого слота. */
+export async function markRowOrder(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string | null,
+  rowId: string,
+  orderId: string
+) {
+  if (!db) return;
+  const ref = subPageId ? paths.subPageRow(workspaceId, pageId, subPageId, rowId) : paths.row(workspaceId, pageId, rowId);
+  await setDoc(ref, { orderId, updatedAt: Date.now() }, { merge: true });
+}
+
 export async function clearRowHighlights(
   workspaceId: string,
   pageId: string,

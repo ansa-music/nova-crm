@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Clock3, IdCard, Loader2, NotebookPen, Users, ExternalLink, Link2 } from "lucide-react";
+import { Clock3, IdCard, Loader2, NotebookPen, Users, ExternalLink, Link2, CalendarClock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -8,10 +8,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { parseOptionalNumber } from "@/utils/quickOrder";
 import { normalizeRowExtras, type RowExtras } from "@/utils/rowExtras";
 import { parseHttpUrl } from "@/utils/httpUrl";
+import { almatyNoonMillis, ymdInTimeZone } from "@/utils/date";
 import { cn } from "@/utils/cn";
 
 const PERSON_PICKS = [1, 2, 3, 4, 5, 6];
 const MINUTE_PICKS = [1, 2, 3, 5, 10];
+
+/** «YYYY-MM-DD» → полдень этого дня по Алматы, как в «Выдать заказ». */
+function deadlineToMillis(raw: string): number | null {
+  if (!raw) return null;
+  const [y, m, d] = raw.split("-").map(Number);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  const ms = almatyNoonMillis(y, m - 1, d);
+  return Number.isFinite(ms) ? ms : null;
+}
 
 function numberText(value: number | null | undefined) {
   return value == null ? "" : String(value);
@@ -43,6 +53,8 @@ export function ClientCardDialog({
   const [minutes, setMinutes] = useState("");
   const [note, setNote] = useState("");
   const [link, setLink] = useState("");
+  /** «YYYY-MM-DD» по Алматы — как у поля даты в «Выдать заказ». */
+  const [deadline, setDeadline] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -51,6 +63,7 @@ export function ClientCardDialog({
     setMinutes(numberText(initial.minutes));
     setNote(initial.note ?? "");
     setLink(initial.link ?? "");
+    setDeadline(initial.deadline != null ? ymdInTimeZone(initial.deadline) : "");
     // Only when the dialog opens — live row updates must not wipe typing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -59,12 +72,14 @@ export function ClientCardDialog({
   const minutesNum = parseOptionalNumber(minutes);
   const personsBad = persons.trim() !== "" && personsNum == null;
   const minutesBad = minutes.trim() !== "" && minutesNum == null;
-  const next = normalizeRowExtras({ persons: personsNum, minutes: minutesNum, note, link });
+  const deadlineMs = deadlineToMillis(deadline);
+  const next = normalizeRowExtras({ persons: personsNum, minutes: minutesNum, note, link, deadline: deadlineMs });
   const changed =
     (next?.persons ?? null) !== (initial.persons ?? null) ||
     (next?.minutes ?? null) !== (initial.minutes ?? null) ||
     (next?.note ?? "") !== (initial.note?.trim() ?? "") ||
-    (next?.link ?? "") !== (initial.link?.trim() ?? "");
+    (next?.link ?? "") !== (initial.link?.trim() ?? "") ||
+    (next?.deadline ?? null) !== (initial.deadline ?? null);
 
   async function save() {
     if (!canEdit || personsBad || minutesBad) return;
@@ -166,6 +181,19 @@ export function ClientCardDialog({
                 className={cn("h-8 w-20 text-sm", minutesBad && "border-destructive")}
               />
             </div>
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="cc-deadline" className="flex items-center gap-1.5">
+              <CalendarClock className="h-3.5 w-3.5 text-muted-foreground" /> Дедлайн сдачи
+            </Label>
+            <Input
+              id="cc-deadline"
+              type="date"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              disabled={!canEdit}
+            />
           </div>
 
           <div className="grid gap-1.5">

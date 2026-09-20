@@ -350,7 +350,12 @@ function TableRowInner({
             isExpanded={expandedColKey === column.key}
             clientCard={
               column.key === extrasHintKey && !blank && onOpenClientCard
-                ? { summary: rowExtrasSummary(row.extras), canEdit, onOpen: () => onOpenClientCard(row.id) }
+                ? {
+                    summary: rowExtrasSummary(row.extras),
+                    canEdit,
+                    onOpen: () => onOpenClientCard(row.id),
+                    fromOrder: Boolean(row.orderId),
+                  }
                 : null
             }
             coarsePointer={coarsePointer}
@@ -387,6 +392,8 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     // Подсветка «новый заказ» живёт на самой строке: без этой пары строка
     // оставалась подсвеченной до перезагрузки, хотя чип «снять» уже пропал.
     Boolean(prev.row.highlight) !== Boolean(next.row.highlight) ||
+    prev.row.orderId !== next.row.orderId ||
+    prev.row.extras !== next.row.extras ||
     prev.columns !== next.columns ||
     prev.rowHeight !== next.rowHeight ||
     prev.canEdit !== next.canEdit ||

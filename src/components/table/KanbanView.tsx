@@ -420,7 +420,11 @@ function KanbanCardBody({
         "kanban-card relative rounded-md border p-2.5 text-sm shadow-sm",
         // Новый заказ виден и на доске — иначе технарь снимет подсветку,
         // так и не поняв, какая карточка приехала.
-        row.highlight ? "border-primary/55 bg-primary/10" : "border-border bg-card",
+        row.highlight
+          ? "border-primary/55 bg-primary/10"
+          : row.orderId
+            ? "border-violet-400/45 bg-violet-400/[0.07]"
+            : "border-border bg-card",
         className
       )}
     >

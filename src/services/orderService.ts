@@ -5,7 +5,7 @@ import { generateId } from "@/utils/id";
 import { normalizeTimestamp } from "@/utils/date";
 import { buildQuickOrderRow } from "@/utils/quickOrder";
 import { sendNotification } from "@/services/notificationService";
-import { addRow, fetchRows, updateRowCellsBulk } from "@/services/pageService";
+import { addRow, fetchRows, markRowOrder, updateRowCellsBulk } from "@/services/pageService";
 import { addSubPageRow, fetchSubPageRows, fetchSubPages, updateSubPageRowCellsBulk } from "@/services/subPageService";
 import { findInProgressStatusOption, getColumnOptions } from "@/utils/columnOptions";
 import { isBlankRow, isFilledCellValue } from "@/utils/blankRow";
@@ -341,7 +341,10 @@ export async function takeOrderToDesk(input: {
     for (const [key, value] of Object.entries(cells)) if (isFilledCellValue(value)) patch[key] = value;
     if (subPageId) await updateSubPageRowCellsBulk(workspaceId, page.id, subPageId, blank.id, patch, extras ?? null, true);
     else await updateRowCellsBulk(workspaceId, page.id, blank.id, patch, extras ?? null, true);
-    row = { ...blank, cells: { ...blank.cells, ...patch }, extras: extras ?? blank.extras, highlight: true };
+    // Занятый слот тоже метим: «пришло с биржи» видно и через месяц, когда
+    // подсветку давно сняли.
+    await markRowOrder(workspaceId, page.id, subPageId, blank.id, order.id);
+    row = { ...blank, cells: { ...blank.cells, ...patch }, extras: extras ?? blank.extras, highlight: true, orderId: order.id };
   } else {
     const nextOrder = rows.reduce((max, r) => Math.max(max, typeof r.order === "number" ? r.order : 0), 0) + 1;
     // Id строки выводится из id заказа, а не случайный. Замерено: два окна
@@ -349,8 +352,8 @@ export async function takeOrderToDesk(input: {
     // строке на попытку — три строки «ДваОкна» на один заказ. С детерминированным
     // id повторная запись попадает в ту же строку и остаётся одна.
     row = subPageId
-      ? await addSubPageRow(workspaceId, page.id, subPageId, cells, nextOrder, extras, true, orderRowId(order.id))
-      : await addRow(workspaceId, page.id, cells, nextOrder, extras, true, orderRowId(order.id));
+      ? await addSubPageRow(workspaceId, page.id, subPageId, cells, nextOrder, extras, true, orderRowId(order.id), order.id)
+      : await addRow(workspaceId, page.id, cells, nextOrder, extras, true, orderRowId(order.id), order.id);
   }
   const now = Date.now();
   await updateDoc(paths.order(workspaceId, order.id), {

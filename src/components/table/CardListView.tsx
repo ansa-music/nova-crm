@@ -91,7 +91,11 @@ export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder }: 
                   // Заказ, приехавший с «Заказов», должен быть виден и здесь:
                   // на телефоне стол открывается карточками, а чип «N новых»
                   // в тулбаре не показывает, КАКАЯ из карточек новая.
-                  row.highlight ? "border-primary/55 bg-primary/10" : "border-border bg-card"
+                  row.highlight
+                    ? "border-primary/55 bg-primary/10"
+                    : row.orderId
+                      ? "border-violet-400/45 bg-violet-400/[0.07]"
+                      : "border-border bg-card"
                 )}
               >
                 <div className="min-w-0 flex-1">

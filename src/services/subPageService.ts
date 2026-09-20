@@ -320,13 +320,16 @@ export async function addSubPageRow(
   /** Подсветить строку как новую — см. PageRow.highlight. */
   highlight?: boolean,
   /** Явный id для идемпотентной записи — см. addRow. */
-  explicitId?: string
+  explicitId?: string,
+  /** Заказ с «Заказов», из которого выросла строка — постоянная метка. */
+  orderId?: string
 ) {
   if (!db) throw new Error("Firebase не настроен");
   const id = explicitId ?? generateId("row");
   const row: PageRow = { id, pageId: subPageId, cells, order, createdAt: Date.now(), updatedAt: Date.now() };
   if (hasRowExtras(extras)) row.extras = extras;
   if (highlight) row.highlight = true;
+  if (orderId) row.orderId = orderId;
   await setDoc(paths.subPageRow(workspaceId, pageId, subPageId, id), row);
   mirrorUpsertRow(workspaceId, pageId, subPageId, row);
   return row;

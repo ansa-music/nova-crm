@@ -36,7 +36,7 @@ interface TableCellProps {
   isExpanded?: boolean;
   trailing?: ReactNode;
   /** «Визитка клиента» button in the client column; summary is null while the card is empty. */
-  clientCard?: { summary: string | null; canEdit: boolean; onOpen: () => void } | null;
+  clientCard?: { summary: string | null; canEdit: boolean; onOpen: () => void; fromOrder?: boolean } | null;
   coarsePointer?: boolean;
   /** Current table search — matching substrings get highlighted. */
   searchQuery?: string;
@@ -480,7 +480,12 @@ export function TableCell({
               className={cn(
                 "ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border pl-1.5 pr-2 text-[10px] font-medium tabular-nums transition-colors",
                 coarsePointer ? "h-8" : "h-6",
-                clientCard.summary
+                // Фиолетовый — «это приехало с «Заказов», а не заведено руками».
+                // Метка постоянная, в отличие от подсветки новой строки, и
+                // цвет специально не тот, что у обычной визитки и статусов.
+                clientCard.summary && clientCard.fromOrder
+                  ? "border-violet-400/55 bg-violet-400/15 text-violet-200 hover:bg-violet-400/25"
+                  : clientCard.summary
                   ? "border-primary/45 bg-primary/12 text-primary hover:bg-primary/20"
                   : cn(
                       coarsePointer ? "w-8" : "w-6",
@@ -488,7 +493,13 @@ export function TableCell({
                       "opacity-50 group-hover/row:opacity-100 focus-visible:opacity-100"
                     )
               )}
-              title={clientCard.summary ? `Визитка клиента: ${clientCard.summary}` : "Визитка клиента — персы, минуты, пожелания"}
+              title={
+                clientCard.fromOrder
+                  ? `Заказ с «Заказов»${clientCard.summary ? ` · ${clientCard.summary}` : ""}`
+                  : clientCard.summary
+                    ? `Визитка клиента: ${clientCard.summary}`
+                    : "Визитка клиента — персы, минуты, пожелания"
+              }
               aria-label="Визитка клиента"
               onMouseDown={(e) => e.stopPropagation()}
               onPointerDown={(e) => e.stopPropagation()}

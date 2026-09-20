@@ -92,7 +92,9 @@ export function buildQuickOrderRow(
   if (cols.persons && persons != null) cells[cols.persons.key] = persons;
   if (cols.minutes && minutes != null) cells[cols.minutes.key] = minutes;
 
-  const extras = normalizeRowExtras({ persons, minutes, note: input.note, link });
+  // Дедлайн уходит и в визитку: столбца «Дедлайн» может не быть, а срок
+  // должен быть виден там, где технарь открывает карточку клиента.
+  const extras = normalizeRowExtras({ persons, minutes, note: input.note, link, deadline: input.deadline ?? null });
 
   return {
     cells,

@@ -2343,6 +2343,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           minutes: row.extras?.minutes ?? null,
           note: row.extras?.note ?? null,
           link: row.extras?.link ?? null,
+          deadline: row.extras?.deadline ?? null,
         }
       : null;
     // Whole map with explicit nulls: a merge write would otherwise keep a
@@ -2350,7 +2351,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const written: RowExtras | null = next
       // Явные null по КАЖДОМУ полю визитки, включая ссылку: merge иначе
       // вернул бы только что стёртое значение обратно.
-      ? { persons: next.persons ?? null, minutes: next.minutes ?? null, note: next.note ?? null, link: next.link ?? null }
+      ? {
+          persons: next.persons ?? null,
+          minutes: next.minutes ?? null,
+          note: next.note ?? null,
+          link: next.link ?? null,
+          deadline: next.deadline ?? null,
+        }
       : null;
     const patch: Record<string, string | number | null> = {};
     const oldPatch: Record<string, string | number | null> = {};
@@ -3794,6 +3801,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                 minutes: clientCardRow.extras?.minutes ?? numberCell(clientCardRow, quickOrderCols.minutes?.key),
                 note: clientCardRow.extras?.note ?? null,
                 link: clientCardRow.extras?.link ?? linkCell(clientCardRow, quickOrderCols.link?.key),
+                deadline: clientCardRow.extras?.deadline ?? null,
               }
             : {}
         }
