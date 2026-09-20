@@ -117,9 +117,28 @@ import { clampColumnWidth } from "@/utils/tableLayout";
 import { getColumnOptions, isDoneStatusLabel, isOptionColumn, DEFAULT_STATUS_OPTIONS, NOT_DONE_STATUS_FILTER, findDoneStatusOption } from "@/utils/columnOptions";
 import { isHttpUrl, parseHttpUrl } from "@/utils/httpUrl";
 import { parseClipboardMatrix } from "@/utils/clipboardMatrix";
+import {
+  peekTableClipboard,
+  readTableClipboard,
+  setTableClipboard,
+  type TableClipboardKind,
+  type TableClipboardPayload,
+} from "@/utils/tableClipboard";
+import { guessPasteMapping } from "@/utils/pasteMapping";
+import { SmartPasteDialog, type SmartPasteRequest, type SmartPasteResult } from "@/components/table/SmartPasteDialog";
 import { celebrateDone } from "@/utils/confetti";
 import { pushUndoCommand, undo as undoLastCommand } from "@/utils/undoStore";
-import type { CellAddress, ColumnType, CustomFieldDef, PageRow, SortState, StatusOption, WorkspacePage, TableViewMode } from "@/types";
+import type {
+  CellAddress,
+  ColumnType,
+  CustomFieldDef,
+  PageColumn,
+  PageRow,
+  SortState,
+  StatusOption,
+  WorkspacePage,
+  TableViewMode,
+} from "@/types";
 
 const DENSITY_ROW_HEIGHT: Record<"compact" | "default" | "comfortable", number> = {
   compact: 36,
@@ -521,7 +540,21 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const lastCheckedRowIdRef = useRef<string | null>(null);
   const pendingScrollRowIdRef = useRef<string | null>(null);
   const appliedFocusRowIdRef = useRef<string | null>(null);
-  const clipboardRef = useRef<{ matrix: string[][] } | null>(null);
+  // Буфер таблицы переехал на модуль (`utils/tableClipboard.ts`): в useRef он
+  // умирал при переходе на другой стол, а копировать столбец между столами
+  // и надо. `clipboardStamp` только дёргает перерисовку меню столбца.
+  const [clipboardStamp, setClipboardStamp] = useState(0);
+  const [smartPaste, setSmartPaste] = useState<SmartPasteRequest | null>(null);
+  const smartPasteStartRef = useRef<{ rowIdx: number; colIdx: number } | null>(null);
+  // В буфере ровно один столбец — значит, в меню столбца есть «Вставить сюда».
+  // Зависимость от `clipboardStamp` тут и есть способ узнать о новой копии:
+  // сам буфер живёт на модуле и о перерисовке не сообщает.
+  const clipboardColumnLabel = useMemo(() => {
+    const payload = peekTableClipboard();
+    if (!payload || payload.matrix.length === 0) return null;
+    const width = Math.max(...payload.matrix.map((line) => line.length));
+    return width === 1 ? payload.columns[0]?.label ?? null : null;
+  }, [clipboardStamp]);
   const resizeStateRef = useRef<
     | { type: "col"; colKey: string; startPos: number; startSize: number; lastValue: number }
     | { type: "row"; rowId: string; startPos: number; startSize: number; lastValue: number }
@@ -1307,12 +1340,51 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     return matrix;
   }
 
+  /** Единственный вход в буфер: и системный, и свой — со схемой столбцов. */
+  function pushClipboard(matrix: string[][], cols: PageColumn[], kind: TableClipboardKind) {
+    const text = matrix.map((line) => line.join("\t")).join("\n");
+    setTableClipboard({
+      text,
+      matrix,
+      columns: cols.map((c) => ({ label: c.label, type: c.type })),
+      kind,
+      source: { pageId: page.id, subPageId: subPageId ?? null, name: page.name },
+    });
+    setClipboardStamp((n) => n + 1);
+    navigator.clipboard?.writeText(text).catch(() => {});
+  }
+
   function handleCopy() {
     const bounds = getSelectionBounds();
     if (!bounds) return;
     const matrix = buildMatrixFromBounds(bounds);
-    clipboardRef.current = { matrix };
-    navigator.clipboard?.writeText(matrix.map((l) => l.join("\t")).join("\n")).catch(() => {});
+    pushClipboard(matrix, displayColumns.slice(bounds.colStart, bounds.colEnd + 1), "range");
+  }
+
+  /** Весь столбец целиком — ровно то, что видно сейчас (фильтры и сортировка). */
+  function handleCopyColumn(colKey: string) {
+    const colIdx = displayColumns.findIndex((c) => c.key === colKey);
+    if (colIdx < 0 || rowIds.length === 0) return;
+    const col = displayColumns[colIdx];
+    const matrix = buildMatrixFromBounds({ rowStart: 0, rowEnd: rowIds.length - 1, colStart: colIdx, colEnd: colIdx });
+    // Хвост пустых слотов не копируем: вставленный, он стёр бы низ чужого стола.
+    while (matrix.length > 0 && !(matrix[matrix.length - 1][0] ?? "").trim()) matrix.pop();
+    if (matrix.length === 0) {
+      toast.info("В столбце нечего копировать");
+      return;
+    }
+    pushClipboard(matrix, [col], "column");
+    toast.success(`Столбец «${col.label}» скопирован — ${matrix.length} знач.`);
+  }
+
+  /** Вставить буфер в этот столбец с первой строки — пункт меню столбца. */
+  async function handlePasteColumn(colKey: string) {
+    if (!canEdit) return;
+    const payload = peekTableClipboard();
+    if (!payload || payload.matrix.length === 0) return;
+    const col = displayColumns.find((c) => c.key === colKey);
+    await applyMatrixPasteAt(payload.matrix, 0, 0, { colKeys: [colKey] });
+    toast.success(`Вставлено в «${col?.label ?? ""}» — ${payload.matrix.length} знач.`);
   }
 
   async function applyMatrixPaste(matrix: string[][]) {
@@ -1337,22 +1409,44 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     await applyMatrixPasteAt(matrix, startRowIdx, startColIdx);
   }
 
-  async function applyMatrixPasteAt(matrix: string[][], startRowIdx: number, startColIdx: number) {
-    const pastedCols = Math.max(...matrix.map((line) => line.length));
-    const availableCols = displayColumns.length - startColIdx;
-    if (pastedCols > availableCols) {
-      toast.info(`Вставлено ${availableCols} из ${pastedCols} столбцов — правее столбцов не нашлось`);
+  /**
+   * `colKeys` — раскладка «умной вставки»: столбец буфера → столбец стола
+   * (null = пропустить). Без неё вставка идёт по порядку от `startColIdx`, как
+   * в любой таблице. `createMissing` приходит из диалога, где про нехватку
+   * строк уже спросили, — тогда второй раз не спрашиваем.
+   */
+  async function applyMatrixPasteAt(
+    matrix: string[][],
+    startRowIdx: number,
+    startColIdx: number,
+    opts?: { colKeys?: (string | null)[]; createMissing?: boolean }
+  ) {
+    const mappedColumns = opts?.colKeys ?? null;
+    const columnAt = (offset: number) => {
+      if (!mappedColumns) return displayColumns[startColIdx + offset];
+      const key = mappedColumns[offset];
+      return key ? displayColumns.find((c) => c.key === key) : undefined;
+    };
+
+    if (!mappedColumns) {
+      const pastedCols = Math.max(...matrix.map((line) => line.length));
+      const availableCols = displayColumns.length - startColIdx;
+      if (pastedCols > availableCols) {
+        toast.info(`Вставлено ${availableCols} из ${pastedCols} столбцов — правее столбцов не нашлось`);
+      }
     }
 
     const missingRows = startRowIdx + matrix.length - rowIds.length;
     let effectiveRowIds = rowIds;
     if (missingRows > 0) {
-      const create = await confirmDialog({
-        title: `Создать ещё ${missingRows} строк(и)?`,
-        description: "Во вставленных данных больше строк, чем осталось в таблице ниже выбранной ячейки.",
-        confirmLabel: "Создать и вставить",
-        cancelLabel: "Вставить без новых строк",
-      });
+      const create =
+        opts?.createMissing ??
+        (await confirmDialog({
+          title: `Создать ещё ${missingRows} строк(и)?`,
+          description: "Во вставленных данных больше строк, чем осталось в таблице ниже выбранной ячейки.",
+          confirmLabel: "Создать и вставить",
+          cancelLabel: "Вставить без новых строк",
+        }));
       if (!create) {
         matrix = matrix.slice(0, rowIds.length - startRowIdx);
       } else {
@@ -1378,7 +1472,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       const row = rows.find((r) => r.id === rowId);
       const isNewlyCreatedRow = !row;
       line.forEach((val, ci) => {
-        const col = displayColumns[startColIdx + ci];
+        const col = columnAt(ci);
         if (!col) return;
         const oldValue = isNewlyCreatedRow ? "" : String(row!.cells[col.key] ?? "");
         let newValue = val;
@@ -1406,17 +1500,92 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   async function handlePaste() {
-    if (clipboardRef.current) {
-      await applyMatrixPaste(clipboardRef.current.matrix);
+    let text: string | null = null;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      // Буфер читать не дали — ниже это значит «верь своей копии».
+      text = null;
+    }
+    // Пустой ответ буфера тоже значит «прочитать не смогли»: иначе после
+    // запрета на запись в системный буфер Ctrl+V не делал бы ничего вообще.
+    const internal = readTableClipboard(text && text.trim() ? text : null);
+    if (internal) {
+      await startPaste(internal.matrix, internal);
       return;
     }
-    try {
-      const text = await navigator.clipboard.readText();
-      if (!text) return;
-      await applyMatrixPaste(parseClipboardMatrix(text));
-    } catch {
-      // clipboard read denied — ignore
+    if (!text) return;
+    await startPaste(parseClipboardMatrix(text), null);
+  }
+
+  /**
+   * Решает, что это за вставка. Внутри той же вкладки — обычная, от активной
+   * ячейки: человек видит оба столбца и ткнул куда хотел. Из Excel или из
+   * другого стола — подбираем столбцы по подписям и содержимому: один столбец
+   * с уверенным адресом кладём молча, остальное показываем в диалоге.
+   */
+  async function startPaste(matrix: string[][], internal: TableClipboardPayload | null) {
+    if (!canEdit || !activeCell || matrix.length === 0) return;
+    const sameTable =
+      internal && internal.source.pageId === page.id && internal.source.subPageId === (subPageId ?? null);
+    // «Копировать столбец» — перенос столбца целиком, он всегда ложится с первой
+    // строки: иначе курсор, стоящий на седьмой, уводил бы весь столбец вниз и
+    // просил дописать семь строк в конец.
+    const columnCopy = internal?.kind === "column";
+    if (internal && sameTable) {
+      if (columnCopy) {
+        const colIdx = displayColumns.findIndex((c) => c.key === activeCell.colKey);
+        await applyMatrixPasteAt(matrix, 0, Math.max(0, colIdx));
+        return;
+      }
+      await applyMatrixPaste(matrix);
+      return;
     }
+    const guess = guessPasteMapping({ matrix, columns: displayColumns, sourceColumns: internal?.columns ?? null });
+    if (guess.matched === 0) {
+      await applyMatrixPaste(matrix);
+      return;
+    }
+    const startRowIdx = columnCopy ? 0 : Math.max(0, rowIds.indexOf(activeCell.rowId));
+    const width = Math.max(...matrix.map((line) => line.length));
+    if (width === 1 && guess.minScore >= 4 && guess.mapping[0]) {
+      const body = guess.hasHeader ? matrix.slice(1) : matrix;
+      if (body.length === 0) return;
+      const col = displayColumns.find((c) => c.key === guess.mapping[0]);
+      await applyMatrixPasteAt(body, startRowIdx, 0, { colKeys: guess.mapping });
+      toast.success(`Вставлено в «${col?.label ?? ""}» — ${body.length} знач.`);
+      return;
+    }
+    smartPasteStartRef.current = {
+      rowIdx: startRowIdx,
+      colIdx: Math.max(
+        0,
+        displayColumns.findIndex((c) => c.key === activeCell.colKey)
+      ),
+    };
+    setSmartPaste({
+      matrix,
+      columns: displayColumns,
+      guess,
+      availableRows: Math.max(0, rowIds.length - startRowIdx),
+      sourceLabel: internal ? internal.source.name : "буфера обмена",
+    });
+  }
+
+  async function applySmartPaste(result: SmartPasteResult) {
+    const request = smartPaste;
+    const start = smartPasteStartRef.current;
+    setSmartPaste(null);
+    if (!request || !start) return;
+    const body = result.hasHeader ? request.matrix.slice(1) : request.matrix;
+    if (body.length === 0) return;
+    if (result.positional) {
+      await applyMatrixPasteAt(body, start.rowIdx, start.colIdx, { createMissing: result.createMissing });
+      return;
+    }
+    const used = result.mapping.filter(Boolean).length;
+    await applyMatrixPasteAt(body, start.rowIdx, 0, { colKeys: result.mapping, createMissing: result.createMissing });
+    toast.success(`Вставлено: ${body.length} стр. в ${used} стб.`);
   }
 
   function clearSelectedCells() {
@@ -1744,9 +1913,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       colStart: 0,
       colEnd: Math.max(0, displayColumns.length - 1),
     });
-    clipboardRef.current = { matrix };
-    const text = matrix.map((line) => line.join("\t")).join("\n");
-    navigator.clipboard?.writeText(text).catch(() => {});
+    pushClipboard(matrix, displayColumns, "row");
     toast.success("Строка скопирована");
   }
 
@@ -2550,8 +2717,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const selected = selectedRowsInViewOrder();
     if (selected.length === 0) return;
     const matrix = selected.map((row) => displayColumns.map((c) => cellDisplayText(row, c)));
-    clipboardRef.current = { matrix };
-    navigator.clipboard?.writeText(matrix.map((l) => l.join("\t")).join("\n")).catch(() => {});
+    pushClipboard(matrix, displayColumns, "row");
     toast.success(`Скопировано строк: ${selected.length}`);
   }
 
@@ -3307,7 +3473,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
             const text = e.clipboardData.getData("text/plain");
             if (!text || (!text.includes("\t") && !text.includes("\n"))) return;
             e.preventDefault();
-            void applyMatrixPaste(parseClipboardMatrix(text));
+            const internal = readTableClipboard(text);
+            void startPaste(internal ? internal.matrix : parseClipboardMatrix(text), internal);
           }}
           className="table-grid-scroll absolute inset-0 overflow-auto overscroll-contain bg-background pb-[env(safe-area-inset-bottom,0px)] outline-none scrollbar-thin"
         >
@@ -3370,6 +3537,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       onDuplicate={handleDuplicateColumn}
                       onDelete={handleDeleteColumn}
                       onSelectColumn={selectColumn}
+                      onCopyColumn={handleCopyColumn}
+                      onPasteColumn={canEdit && clipboardColumnLabel ? (key) => void handlePasteColumn(key) : undefined}
+                      pasteColumnLabel={clipboardColumnLabel}
                       isColumnSelected={
                         Boolean(
                           getSelectionBounds() &&
@@ -3818,6 +3988,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onSubmit={handleQuickOrder}
         osOptions={quickOrderOsOptions}
       />
+
+      <SmartPasteDialog request={smartPaste} onCancel={() => setSmartPaste(null)} onApply={(r) => void applySmartPaste(r)} />
 
       <BulkActionBar
         count={selectedRowIds.size}

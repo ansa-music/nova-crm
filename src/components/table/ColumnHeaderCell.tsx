@@ -6,6 +6,8 @@ import {
   ArrowDownAZ,
   ArrowUp,
   ArrowUpAZ,
+  ClipboardPaste,
+  Copy,
   Eye,
   EyeOff,
   Filter,
@@ -81,6 +83,12 @@ interface ColumnHeaderCellProps {
   onDelete?: (colKey: string) => void;
   onToggleHidden?: (colKey: string) => void;
   onSelectColumn?: (colKey: string, extend: boolean) => void;
+  /** Скопировать столбец целиком — вместе с подписью, чтобы он лёг по имени. */
+  onCopyColumn?: (colKey: string) => void;
+  /** Вставить в этот столбец то, что лежит в буфере (ровно один столбец). */
+  onPasteColumn?: (colKey: string) => void;
+  /** Подпись столбца в буфере — ею подписан пункт «Вставить». */
+  pasteColumnLabel?: string | null;
   isColumnSelected?: boolean;
   isGrouped?: boolean;
   onGroupBy?: (colKey: string | null) => void;
@@ -116,6 +124,9 @@ export function ColumnHeaderCell({
   onDelete,
   onToggleHidden,
   onSelectColumn,
+  onCopyColumn,
+  onPasteColumn,
+  pasteColumnLabel,
   isColumnSelected,
   isGrouped,
   onGroupBy,
@@ -375,6 +386,17 @@ export function ColumnHeaderCell({
                   <DropdownMenuItem onClick={() => onSelectColumn?.(column.key, false)}>
                     <MousePointerSquareDashed className="h-3.5 w-3.5" /> Выделить столбец
                   </DropdownMenuItem>
+                  {onCopyColumn && (
+                    <DropdownMenuItem onClick={() => onCopyColumn(column.key)}>
+                      <Copy className="h-3.5 w-3.5" /> Копировать столбец
+                    </DropdownMenuItem>
+                  )}
+                  {onPasteColumn && pasteColumnLabel && (
+                    <DropdownMenuItem onClick={() => onPasteColumn(column.key)}>
+                      <ClipboardPaste className="h-3.5 w-3.5" />
+                      <span className="truncate">Вставить «{pasteColumnLabel}» сюда</span>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => onTogglePin(column.key)}>
                     {isPinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />} {pinLabel}
@@ -466,6 +488,17 @@ export function ColumnHeaderCell({
         <ContextMenuItem onClick={() => onSelectColumn?.(column.key, false)}>
           <MousePointerSquareDashed className="h-3.5 w-3.5" /> Выделить столбец
         </ContextMenuItem>
+        {onCopyColumn && (
+          <ContextMenuItem onClick={() => onCopyColumn(column.key)}>
+            <Copy className="h-3.5 w-3.5" /> Копировать столбец
+          </ContextMenuItem>
+        )}
+        {onPasteColumn && pasteColumnLabel && (
+          <ContextMenuItem onClick={() => onPasteColumn(column.key)}>
+            <ClipboardPaste className="h-3.5 w-3.5" />
+            <span className="truncate">Вставить «{pasteColumnLabel}» сюда</span>
+          </ContextMenuItem>
+        )}
         <ContextMenuItem onClick={() => onTogglePin(column.key)}>
           {isPinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />} {pinLabel}
         </ContextMenuItem>
