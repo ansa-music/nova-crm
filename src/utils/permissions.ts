@@ -38,7 +38,7 @@ export function isBlockedFromDesks(role: Role): boolean {
 
 /**
  * For all of a person's roles together: a Тимлид opens desk tables only if
- * they are a Технар too (a Тимлид + ОС still doesn't). Mirrors isDeskBlocked()
+ * they are a Технарь too (a Тимлид + ОС still doesn't). Mirrors isDeskBlocked()
  * in firestore.rules.
  */
 export function isDeskBlockedFor(roles: Role[]): boolean {
@@ -213,7 +213,7 @@ export function canDeletePage(_page: WorkspacePage, role: Role, _uid: string): b
   return role === "owner";
 }
 
-/** «В неактуальные» / «Вернуть»: the Owner and a Тимлид, never the desk's own Технар. */
+/** «В неактуальные» / «Вернуть»: the Owner and a Тимлид, never the desk's own Технарь. */
 export function canRetireDesks(role: Role): boolean {
   return hasFullAccess(role);
 }

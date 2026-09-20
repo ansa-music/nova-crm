@@ -96,8 +96,8 @@ export interface WorkspaceMember {
   photoURL?: string | null;
   role: Role;
   /**
-   * Add-on roles on top of `role` (EXTRA_ROLES: Технар, ОС) — e.g. a Тимлид
-   * who is also a Технар opens desk tables like any Технар. Written only by
+   * Add-on roles on top of `role` (EXTRA_ROLES: Технарь, ОС) — e.g. a Тимлид
+   * who is also a Технарь opens desk tables like any Технарь. Written only by
    * the Owner or a Тимлид, and a Тимлид never on their own doc.
    */
   extraRoles?: Role[];
@@ -135,7 +135,7 @@ export interface WorkspaceMember {
   /**
    * ОС nick, given by a Тимлид (or the Owner) — never self-writable. It lives
    * in the shared «Ответственный» list as the option `osNickValue`, so a
-   * Технар picks it in the order's ОС column; the ОС rates Технари by it.
+   * Технарь picks it in the order's ОС column; the ОС rates Технари by it.
    * The option's label is the source of truth for display (Owner may rename
    * it in Настройки); `osNick` is the label as last saved.
    */

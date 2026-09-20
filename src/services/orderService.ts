@@ -110,7 +110,7 @@ export async function createOrder(input: CreateOrderInput): Promise<WorkOrder> {
   return order;
 }
 
-/** Технар откликается (или снимает отклик). Меняется только свой ключ в `claims` — это и проверяет правило. */
+/** Технарь откликается (или снимает отклик). Меняется только свой ключ в `claims` — это и проверяет правило. */
 export async function setOrderClaim(workspaceId: string, order: WorkOrder, me: { uid: string; name: string }, claim: boolean) {
   if (!db) throw new Error("Firebase не настроен");
   const value: WorkOrderClaim | ReturnType<typeof deleteField> = claim

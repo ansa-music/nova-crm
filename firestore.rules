@@ -3,7 +3,7 @@ rules_version = '2';
 // ---------------------------------------------------------------------------
 // Access model: the workspace Owner has blanket access to everything. A
 // Тимлид (role 'teamlead') manages people and settings like the Owner but
-// sees desk tables only with the Технар add-on role (extraRoles) — see
+// sees desk tables only with the Технарь add-on role (extraRoles) — see
 // isTeamLead/hasFullAccess/isDeskBlocked. Every
 // other member — regardless of role — can only read/write a page (and its
 // rows) if their uid is explicitly listed in that page's `allowedUsers`
@@ -59,9 +59,9 @@ service cloud.firestore {
     }
 
     // Add-on roles on top of the main `role` (members.extraRoles: 'manager'
-    // = Технар, 'os' = ОС) — Owner + Технар, Тимлид + Технар, Тимлид + ОС.
+    // = Технарь, 'os' = ОС) — Owner + Технарь, Тимлид + Технарь, Тимлид + ОС.
     // Rights add up. People/settings rights still come from `role` alone;
-    // add-ons only open desks (Технар), Грок (Технар) and ratings (ОС).
+    // add-ons only open desks (Технарь), Грок (Технарь) and ratings (ОС).
     function hasExtraRole(workspaceId, role) {
       return isMember(workspaceId)
         && role in memberDoc(workspaceId, request.auth.uid).data.get('extraRoles', []);
@@ -71,8 +71,8 @@ service cloud.firestore {
       return isMember(workspaceId) && (myRole(workspaceId) == role || hasExtraRole(workspaceId, role));
     }
 
-    // A Тимлид who isn't also a Технар: no desk tables. A Тимлид + ОС stays
-    // blocked; a Тимлид + Технар opens desks like any Технар.
+    // A Тимлид who isn't also a Технарь: no desk tables. A Тимлид + ОС stays
+    // blocked; a Тимлид + Технарь opens desks like any Технарь.
     function isDeskBlocked(workspaceId) {
       return isTeamLead(workspaceId) && !hasExtraRole(workspaceId, 'manager');
     }
@@ -223,7 +223,7 @@ service cloud.firestore {
         // role changes, removal — except anything touching an Owner: never
         // the workspace's ownerId doc, never a record whose role is or
         // becomes 'owner'. (delete has no request.resource — only resource.)
-        // Add-on roles may only be Технар/ОС. A Тимлид never changes their
+        // Add-on roles may only be Технарь/ОС. A Тимлид never changes their
         // own roles, ОС nick or membership — the Owner or another Тимлид does.
         allow create: if isTeamLead(workspaceId)
           && request.resource.data.get('role', '') != 'owner'
@@ -357,7 +357,7 @@ service cloud.firestore {
         // MUST stay isMember (not canAccessPage). The client lists this
         // collection unfiltered so every member can see desk covers / hidden
         // desks. canAccessPage depends on resource.data, so an unfiltered
-        // list is always permission-denied for non-owners — Технар then lose
+        // list is always permission-denied for non-owners — Технарь then lose
         // their own desk and get «Нет доступа к части данных».
         // Row data still uses canAccessPage below.
         allow read: if isMember(workspaceId);
@@ -715,7 +715,7 @@ service cloud.firestore {
       // оценка ставится заново, прошлый месяц остаётся как итог. Only a real ОС rates, and only
       // with an ОС nick from a Тимлид (members.osNickValue — not
       // self-writable). The FIRST rating needs a recent order from that nick
-      // on the Технар's desk: deskLoad.osLastOrderAt[nick] within 30 days
+      // on the Технарь's desk: deskLoad.osLastOrderAt[nick] within 30 days
       // (OS_RATING_WINDOW_MS in src/utils/techLoad.ts). Changing the stars
       // later is always allowed. Owner/Тимлид may delete an unfair rating.
       // -----------------------------------------------------------------
@@ -794,7 +794,7 @@ service cloud.firestore {
           || (isMember(workspaceId) && resource.data.osUid == request.auth.uid);
       }
 
-      // Итоги «сумма/количество» по паре ОС↔Технар, id "<osUid>_<techUid>".
+      // Итоги «сумма/количество» по паре ОС↔Технарь, id "<osUid>_<techUid>".
       // Отдельный документ, потому что средним по заказам светит весь
       // «Дашборд», а читать ради него всю растущую коллекцию orderRatings —
       // это лимиты Spark (см. CLAUDE.md). Содержимого заказов тут нет, так
@@ -853,7 +853,7 @@ service cloud.firestore {
       function grokCreateNicknameOk(workspaceId) {
         return isManagement(workspaceId) || request.resource.data.get('nickname', '') == '';
       }
-      // A pure ОС doesn't see Грок лимит at all (an ОС + Технар does).
+      // A pure ОС doesn't see Грок лимит at all (an ОС + Технарь does).
       function canUseGrok(workspaceId) {
         return isMember(workspaceId) && (myRole(workspaceId) != 'os' || hasExtraRole(workspaceId, 'manager'));
       }
@@ -862,7 +862,7 @@ service cloud.firestore {
       // «Заказы» — биржа заказов (src/services/orderService.ts). ОС/Тимлид/
       // Owner выдаёт заказ, Технари откликаются (только свой ключ в claims,
       // только пока заказ открыт), выдающий назначает или отменяет, а
-      // назначенный Технар переводит заказ в «taken», забрав его в стол.
+      // назначенный Технарь переводит заказ в «taken», забрав его в стол.
       // Строка в столе пишется по обычным правилам стола, не отсюда.
       // -----------------------------------------------------------------
       match /orders/{orderId} {
@@ -874,12 +874,12 @@ service cloud.firestore {
         // Выдающий (или Owner/Тимлид) распоряжается заказом целиком.
         allow update, delete: if hasFullAccess(workspaceId)
           || (canIssueOrders(workspaceId) && resource.data.createdBy == request.auth.uid);
-        // Технар: отклик — только свой ключ в claims, только у открытого заказа.
+        // Технарь: отклик — только свой ключ в claims, только у открытого заказа.
         allow update: if hasRole(workspaceId, 'manager')
           && resource.data.status == 'open'
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claims', 'updatedAt'])
           && request.resource.data.get('claims', {}).diff(resource.data.get('claims', {})).affectedKeys().hasOnly([request.auth.uid]);
-        // Назначенный Технар забирает заказ в стол: только статус и ссылка на строку.
+        // Назначенный Технарь забирает заказ в стол: только статус и ссылка на строку.
         allow update: if resource.data.get('assignedUid', '') == request.auth.uid
           && resource.data.status == 'assigned'
           && request.resource.data.status == 'taken'
@@ -892,7 +892,7 @@ service cloud.firestore {
       // exception: the technician a pending entry is assigned to (a real
       // account, via a DispatchTechnician roster link) can read that one
       // entry and flip requestStatus to accept it — nothing else on the
-      // doc, so a Технар can never touch checkNo/amount/marks/etc. this way.
+      // doc, so a Технарь can never touch checkNo/amount/marks/etc. this way.
       match /dailyDispatches/{dispatchId} {
         allow read: if isOwnerOrAdmin(workspaceId) || resource.data.get('technicianUid', null) == request.auth.uid;
         allow create, delete: if isOwnerOrAdmin(workspaceId);

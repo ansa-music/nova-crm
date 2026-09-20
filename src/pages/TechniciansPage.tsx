@@ -76,14 +76,14 @@ interface TechnicianRow {
   busy: boolean;
   /** Newest count among this person's desks; 0 when nothing was counted this month yet. */
   updatedAt: number;
-  /** Viewer is an ОС with a nick: their orders at this Технар this month. */
+  /** Viewer is an ОС with a nick: their orders at this Технарь this month. */
   myOrders: { summary: TechLoadSummary; breakdown: StatusBreakdownItem[]; items: TechnicianOrderItem[] } | null;
   /** Management view: orders per ОС this month. */
   osShares: TechnicianOsShare[] | null;
   ratings: TechRating[];
   /** Итоги оценок за заказы ЭТОГО месяца — вторая, независимая шкала. */
   orderTotals: OrderRatingTotals[];
-  /** A desk of this Технар with a recent order from the viewing ОС — proof for a first rating. */
+  /** A desk of this Технарь with a recent order from the viewing ОС — proof for a first rating. */
   rateDeskId: string | null;
 }
 
@@ -752,7 +752,7 @@ export default function TechniciansPage() {
             <EmptyState
               eyebrow="Технари"
               title="Пока нет технарей"
-              description="Здесь появятся участники с ролью «Технар» и их заказы за текущий месяц."
+              description="Здесь появятся участники с ролью «Технарь» и их заказы за текущий месяц."
             />
           )}
 

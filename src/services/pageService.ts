@@ -273,7 +273,7 @@ export async function createPage(input: CreatePageInput): Promise<WorkspacePage>
  * MUST NOT reject. Both callers reach this line with the page doc already
  * committed — and for a Manager, with the one-shot managerPageClaims/{uid}
  * doc committed alongside it in the same batch. Letting a failure here
- * propagate made desk creation self-locking for a Технар: the dialog toasted
+ * propagate made desk creation self-locking for a Технарь: the dialog toasted
  * «Не удалось создать страницу» while the page and its quota claim were
  * already durable, so every retry from then on hit «Достигнут лимит страниц»
  * and the account could never create its desk again. The desk is also left
@@ -375,7 +375,7 @@ export async function setDefaultSubPage(workspaceId: string, pageId: string, sub
   );
 }
 
-/** Owner opts a non-Технар desk (e.g. their own) into month tabs and «Технари» — see monthTabService.isMonthlyDesk. */
+/** Owner opts a non-Технарь desk (e.g. their own) into month tabs and «Технари» — see monthTabService.isMonthlyDesk. */
 export async function setPageTechnicianDesk(workspaceId: string, pageId: string, technicianDesk: boolean) {
   if (!db) return;
   await setDoc(
@@ -511,7 +511,7 @@ export async function togglePageVisibility(
 
 /**
  * Owner/Тимлид: move a desk to «Неактуальные» or bring it back — nothing is
- * deleted. Retiring a Технар's desk also frees their one-desk claim when it
+ * deleted. Retiring a Технарь's desk also frees their one-desk claim when it
  * points at this desk, so they can start a new one; bringing it back
  * re-claims it only while the claim is free.
  */
@@ -721,7 +721,7 @@ export async function changeColumnType(
 /**
  * Updates just a "status" column's own option list (add/rename/recolor/
  * remove values) without touching its type. Owner-only: UI hides this from
- * Технар/manager/viewer, and Firestore rejects non-owner statusOptions diffs
+ * Технарь/manager/viewer, and Firestore rejects non-owner statusOptions diffs
  * on existing columns (columnStatusOptionsPreserved).
  */
 export async function updateColumnStatusOptions(

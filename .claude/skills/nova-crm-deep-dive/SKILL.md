@@ -57,7 +57,7 @@ otherwise for Status. `DataTable.tsx`'s `displayColumns` memo overwrites every c
 `.statusOptions` with `getColumnOptions()`'s result, so Kanban and the table dropdown always see
 the identical list.
 
-- `firestore.rules`'s `columnStatusOptionsPreserved()` lets a Технар/responsible person change a
+- `firestore.rules`'s `columnStatusOptionsPreserved()` lets a Технарь/responsible person change a
   column's other fields (label/width/order) freely, but changing the shared
   `workspace.statusOptions` list itself is Owner-only — a non-owner write attempting that gets
   `permission-denied`.

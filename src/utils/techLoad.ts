@@ -14,7 +14,7 @@ export const NO_STATUS_KEY = "_none";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * An ОС may rate a Технар while an order from them was created or touched
+ * An ОС may rate a Технарь while an order from them was created or touched
  * within this window. Mirrored in firestore.rules (techRatings) — change both.
  */
 export const OS_RATING_WINDOW_MS = 30 * DAY_MS;

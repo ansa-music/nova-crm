@@ -19,7 +19,7 @@ import { collectTodayOrderRows, type RecentRowItem } from "@/utils/recentRows";
 import type { PageProgress } from "@/utils/deskProgress";
 import type { StatusOption, ViewRequest, WorkspaceMember } from "@/types";
 
-/** Technician (effective role manager / Технар) queue. Owner has WaitingForYou — not duplicated here. Viewer: hidden. */
+/** Technician (effective role manager / Технарь) queue. Owner has WaitingForYou — not duplicated here. Viewer: hidden. */
 export function TechnicianQueue({
   desks,
   statusOptions,

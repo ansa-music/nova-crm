@@ -95,7 +95,7 @@ export function isDoneStatusLabel(label: string): boolean {
   return l.includes("готов") || l.includes("done") || l.includes("успеш") || l.includes("закрыт");
 }
 
-/** «Заморозка» — a paused order. Not done, but doesn't make a Технар busy on «Технари». */
+/** «Заморозка» — a paused order. Not done, but doesn't make a Технарь busy on «Технари». */
 export const FREEZE_STATUS_OPTION: StatusOption = { value: "freeze", label: "Заморозка", color: "189 94% 43%" };
 
 export function isFreezeStatusLabel(label: string): boolean {

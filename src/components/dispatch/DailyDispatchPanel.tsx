@@ -178,7 +178,7 @@ export function DailyDispatchPanel({
               />
             </div>
             <div className="min-w-0 flex-[1.2] space-y-1.5">
-              <Label>Технар</Label>
+              <Label>Технарь</Label>
               <Select value={technicianRosterId} onValueChange={setTechnicianRosterId}>
                 <SelectTrigger>
                   <SelectValue placeholder={technicians.length ? "Выбери технаря" : "Сначала добавь ниже"} />

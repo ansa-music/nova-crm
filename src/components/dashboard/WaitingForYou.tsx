@@ -75,7 +75,7 @@ export function WaitingForYou() {
     try {
       await approveJoinRequest(activeWorkspaceId!, request, DEFAULT_JOIN_ROLE, profile?.uid ?? "");
       await refreshWorkspaceMembers(activeWorkspaceId!);
-      toast.success(`${request.name} добавлен(а) в workspace как Технар`);
+      toast.success(`${request.name} добавлен(а) в workspace как Технарь`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось одобрить заявку");
     } finally {

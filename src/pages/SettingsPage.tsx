@@ -625,7 +625,7 @@ export default function SettingsPage() {
               <CardTitle>Новые пользователи</CardTitle>
               <CardDescription>
                 По ссылке «Присоединиться» новый человек по умолчанию отправляет заявку и ждёт вашего одобрения.
-                Включите, чтобы он сразу попадал в workspace как Технар (со своим одним столом) — без вашего клика.
+                Включите, чтобы он сразу попадал в workspace как Технарь (со своим одним столом) — без вашего клика.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -633,7 +633,7 @@ export default function SettingsPage() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium">Пускать сразу, без одобрения</p>
                   <p className="text-xs text-muted-foreground">
-                    Заявки на вступление при этом не создаются — роль всегда «Технар», вы можете изменить её потом.
+                    Заявки на вступление при этом не создаются — роль всегда «Технарь», вы можете изменить её потом.
                   </p>
                 </div>
                 <Switch

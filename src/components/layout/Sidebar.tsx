@@ -79,7 +79,7 @@ function navActiveClass(active: boolean, collapsed?: boolean) {
 const ROLE_CAPTIONS: Partial<Record<Role, string>> = {
   owner: "Владелец",
   teamlead: "Тимлид",
-  manager: "Технар",
+  manager: "Технарь",
   os: "ОС",
 };
 
@@ -163,7 +163,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
 
   const myMembership = members.find((m) => m.uid === profile?.uid);
   const showUsersNav = permissions.canManageUsers;
-  // Real role gates visibility outright — an Owner simulating Технар via
+  // Real role gates visibility outright — an Owner simulating Технарь via
   // RoleSwitcher must lose this link, so effectiveRole (permissions.role)
   // is checked too, same rule DispatchPage itself enforces server-side-ish.
   const showDispatchNav =
@@ -175,7 +175,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   // desk tables: «Пользователи» is theirs. For both, the desk-centric
   // sections (Дашборд, Столы) are hidden — there is nothing for them there.
   // With add-on roles rights add up: only a pure ОС loses Грок and desks,
-  // only a Тимлид who isn't also a Технар loses desks.
+  // only a Тимлид who isn't also a Технарь loses desks.
   const isOs = permissions.isResolved && permissions.roles.every((role) => role === "os");
   const isTeamlead = permissions.isResolved && permissions.deskBlocked;
   const showDeskNav = !isOs && !isTeamlead;

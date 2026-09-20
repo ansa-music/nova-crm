@@ -107,7 +107,7 @@ export function subscribeToOwnMember(
         // row". It used to be reported through onData(null) — the SUCCESS
         // path — which made useWorkspace mark members as CONFIRMED-ready with
         // no member data at all, so findOwnMembership found nothing and the
-        // role silently fell back to "viewer": a fully authorized Технар saw
+        // role silently fell back to "viewer": a fully authorized Технарь saw
         // «нет доступа» / read-only everywhere. The Owner never reproduced it
         // because usePermissions short-circuits them via isOwnerOfWorkspace
         // (read off the workspace doc, not the member doc). Current rules do
@@ -292,9 +292,9 @@ export async function changeMemberRole(workspaceId: string, uid: string, role: R
 }
 
 /**
- * Add-on roles (Технар, ОС) on top of the main one — Owner + Технар, Тимлид +
- * Технар, Тимлид + ОС. Owner/Тимлид only, and a Тимлид never on their own
- * doc (firestore.rules). A Тимлид/ОС/Viewer who becomes a Технар with exactly
+ * Add-on roles (Технарь, ОС) on top of the main one — Owner + Технарь, Тимлид +
+ * Технарь, Тимлид + ОС. Owner/Тимлид only, and a Тимлид never on their own
+ * doc (firestore.rules). A Тимлид/ОС/Viewer who becomes a Технарь with exactly
  * one own desk gets the one-desk claim, same as changeMemberRole(manager).
  */
 export async function setMemberExtraRoles(workspaceId: string, uid: string, mainRole: Role, extraRoles: Role[]) {

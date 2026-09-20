@@ -81,7 +81,7 @@ export function usePermissions() {
     storedActiveRole && canSimulateRole(realRole, storedActiveRole) ? storedActiveRole : null;
   const effectiveRole: Role = activeRole ?? realRole;
   const isSimulating = activeRole !== null && activeRole !== realRole;
-  // Add-on roles (Технар, ОС) count only with the real main role — a
+  // Add-on roles (Технарь, ОС) count only with the real main role — a
   // simulation previews exactly one role.
   const extraRolesKey = (membership?.extraRoles ?? []).join(",");
   const roles = useMemo<Role[]>(() => {
@@ -112,12 +112,12 @@ export function usePermissions() {
       realRole,
       /** Currently simulated role, or null if using the real role. */
       activeRole,
-      /** Every role in effect: the main one plus add-ons (Технар, ОС). Rights add up. */
+      /** Every role in effect: the main one plus add-ons (Технарь, ОС). Rights add up. */
       roles,
       hasRole: (role: Role) => roles.includes(role),
-      /** A Тимлид who isn't also a Технар: no desk tables. */
+      /** A Тимлид who isn't also a Технарь: no desk tables. */
       deskBlocked,
-      /** Which create path a new desk takes (quota for a Технар), or null when this person can't create one. */
+      /** Which create path a new desk takes (quota for a Технарь), or null when this person can't create one. */
       deskCreatorRole,
       canSeeTechnicians: isResolved && roles.some((role) => canSeeTechnicians(role)),
       /** True only when actively simulating a DIFFERENT role than the real one. */
@@ -136,7 +136,7 @@ export function usePermissions() {
       /** Full backup of every desk — the Owner only. */
       canExportWorkspace: isResolved && canExportWorkspace(effectiveRole),
       // Users admin follows the REAL role, not RoleSwitcher preview — otherwise
-      // Owner/Тимлид can lose accept/roles UI while simulating Технар/Viewer.
+      // Owner/Тимлид can lose accept/roles UI while simulating Технарь/Viewer.
       canManageUsers: isResolved && (isOwnerOfWorkspace || hasFullAccess(realRole)),
       canManageStatusVariants: isResolved && canManageStatusVariants(effectiveRole),
       canInviteMembers: isResolved && canInviteMembers(effectiveRole),

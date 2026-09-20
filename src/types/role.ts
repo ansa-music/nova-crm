@@ -4,7 +4,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   owner: "Owner",
   teamlead: "Тимлид",
   admin: "Admin",
-  manager: "Технар",
+  manager: "Технарь",
   os: "ОС",
   viewer: "Viewer",
 };
@@ -31,8 +31,8 @@ export const ROLE_RANK: Record<Role, number> = {
 export const ALL_ROLES: Role[] = ["owner", "teamlead", "admin", "manager", "os", "viewer"];
 
 /**
- * Roles a person can hold on top of their main one — Owner + Технар,
- * Тимлид + Технар, Тимлид + ОС. Rights add up; the main role stays the one
+ * Roles a person can hold on top of their main one — Owner + Технарь,
+ * Тимлид + Технарь, Тимлид + ОС. Rights add up; the main role stays the one
  * that decides people/settings access (firestore.rules reads `role` for that
  * and `extraRoles` only for desks, Грок and ratings).
  */
@@ -54,7 +54,7 @@ export function memberHasRole(member: RoleHolder | null | undefined, role: Role)
   return rolesOf(member).includes(role);
 }
 
-/** «Тимлид + Технар». */
+/** «Тимлид + Технарь». */
 export function rolesLabel(member: RoleHolder | null | undefined): string {
   return rolesOf(member)
     .map((role) => ROLE_LABELS[role])

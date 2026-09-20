@@ -1,8 +1,8 @@
 /**
- * An ОС's rating of a Технар for ONE MONTH: doc id
+ * An ОС's rating of a Технарь for ONE MONTH: doc id
  * `${osUid}_${technicianUid}_${monthKey}`, 1–5 stars, changeable any time
  * within that month. Creating one needs a recent order from this
- * ОС on the Технар's desk — firestore.rules checks the desk's DeskLoad
+ * ОС on the Технарь's desk — firestore.rules checks the desk's DeskLoad
  * (`osLastOrderAt`) against the ОС nick on the rater's member doc.
  */
 export interface TechRating {

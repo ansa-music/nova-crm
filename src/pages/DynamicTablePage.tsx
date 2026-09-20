@@ -346,7 +346,7 @@ export default function DynamicTablePage() {
         <p className="page-title">Таблицы закрыты</p>
         <p className="max-w-sm text-sm text-muted-foreground">
           Тимлид ведёт людей и доступы, а не заказы: таблицы столов открываются, только если у него есть ещё роль
-          «Технар». Доступы к «{page.name}» настраиваются в «Пользователях».
+          «Технарь». Доступы к «{page.name}» настраиваются в «Пользователях».
         </p>
       </div>
     );
@@ -613,7 +613,7 @@ export default function DynamicTablePage() {
                 )}
               </DropdownMenuItem>
             )}
-            {/* Owner-only: Технар desks get month tabs and a row on «Технари»
+            {/* Owner-only: Технарь desks get month tabs and a row on «Технари»
                 on their own; any other desk (e.g. the Owner's) opts in here. */}
             {permissions.canRetireDesks && (
               <>

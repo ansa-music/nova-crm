@@ -15,7 +15,7 @@ export default function DispatchPage() {
   const { profile } = useAuth();
 
   // Real role gates whether the account can ever see this at all — an Owner
-  // simulating Технар via RoleSwitcher must lose the tab, so effectiveRole
+  // simulating Технарь via RoleSwitcher must lose the tab, so effectiveRole
   // (permissions.role) is checked too, same as the old per-desk tab's rule.
   const canSeeDispatch =
     permissions.isResolved &&

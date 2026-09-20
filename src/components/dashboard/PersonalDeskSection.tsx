@@ -26,7 +26,7 @@ import { isResponsibleForPage } from "@/utils/permissions";
 /**
  * The personal top of «Дашборд»: join requests (Owner/Тимлид), your own desk
  * with its money and monthly goal, today's orders and view requests for a
- * Технар, and the latest rows of the desks you work with. Reads rows of
+ * Технарь, and the latest rows of the desks you work with. Reads rows of
  * those desks only — the workspace-wide part below it is built from
  * aggregates. Also keeps the shared leaderboard entries (desk cover
  * progress on «Столы») fresh, like the old desk dashboard did.
@@ -97,7 +97,7 @@ export function PersonalDeskSection() {
   const myDeskDoneThisMonth = myDeskProgress ? doneMonthTotal([myDeskProgress], statusOptions) : 0;
   const myDeskGoalPercent =
     myDeskProgress && myDeskGoal > 0 ? Math.min(100, Math.round((myDeskDoneThisMonth / myDeskGoal) * 100)) : null;
-  // A Технар without a desk yet: offer to create it right here.
+  // A Технарь without a desk yet: offer to create it right here.
   const offerNewDesk = !myDesk && permissions.deskCreatorRole === "manager" && permissions.canCreatePages;
 
   return (

@@ -46,7 +46,7 @@ import { confirmDialog } from "@/utils/appDialog";
 const ROLE_CHIPS: { id: Role | "invited"; label: string }[] = [
   { id: "owner", label: "Owner" },
   { id: "teamlead", label: "Тимлид" },
-  { id: "manager", label: "Технар" },
+  { id: "manager", label: "Технарь" },
   { id: "os", label: "ОС" },
   { id: "admin", label: "admin" },
   { id: "viewer", label: "Viewer" },
@@ -145,7 +145,7 @@ export default function UsersPage() {
     try {
       await approveJoinRequest(activeWorkspaceId!, request, DEFAULT_JOIN_ROLE, profile?.uid ?? "");
       await refreshWorkspaceMembers(activeWorkspaceId!);
-      toast.success(`${request.name} добавлен(а) в workspace как Технар`);
+      toast.success(`${request.name} добавлен(а) в workspace как Технарь`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось одобрить заявку");
     } finally {
@@ -274,7 +274,7 @@ export default function UsersPage() {
           <CardTitle>Ссылка для вступления</CardTitle>
           <CardDescription>
             {activeWorkspace?.autoApproveJoins
-              ? "Новые люди по этой ссылке сразу попадают в workspace как Технар — без вашего одобрения. Отключить можно в Настройках → Workspace."
+              ? "Новые люди по этой ссылке сразу попадают в workspace как Технарь — без вашего одобрения. Отключить можно в Настройках → Workspace."
               : "Новые люди по этой ссылке не создают свой workspace — они отправляют вам заявку, и вы сами решаете, впустить их или нет."}
           </CardDescription>
         </CardHeader>
@@ -295,7 +295,7 @@ export default function UsersPage() {
             <CardTitle className="flex items-center gap-2">
               <Link2 className="h-4 w-4" /> Заявки на вступление ({joinRequests.length})
             </CardTitle>
-            <CardDescription>При одобрении человек становится Технар и может создать один свой стол. Роль можно сменить после (Owner / Технар / Viewer).</CardDescription>
+            <CardDescription>При одобрении человек становится Технарь и может создать один свой стол. Роль можно сменить после (Owner / Технарь / Viewer).</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
             {joinRequests.map((request) => (

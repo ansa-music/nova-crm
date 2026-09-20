@@ -42,7 +42,7 @@ export function NotificationBell({ className }: { className?: string }) {
   const { requests, resolveRequest, reload: reloadRequests } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const permissions = usePermissions();
   // По РЕАЛЬНОЙ роли, а не по симуляции: Owner, смотрящий приложение в режиме
-  // «Технар», всё равно должен видеть кнопки выдачи прав — иначе заявка висит
+  // «Технарь», всё равно должен видеть кнопки выдачи прав — иначе заявка висит
   // до выхода из режима.
   const isRealOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
   const { ownerRequests, reloadOwnerRequests, resolveOwnerRequest } = useOwnerAccessRequests(

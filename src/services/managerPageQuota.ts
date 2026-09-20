@@ -24,7 +24,7 @@ export function countOwnDesks(
   return pages.filter((page) => page.responsibleUserId === uid).length;
 }
 
-/** A plain Технар may create until they already have one own desk. */
+/** A plain Технарь may create until they already have one own desk. */
 export function managerHasReachedPageQuota(
   pages: Array<{ responsibleUserId?: string | null }>,
   uid: string

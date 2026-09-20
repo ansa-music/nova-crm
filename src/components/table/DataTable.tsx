@@ -847,7 +847,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // i.e. Owner or the desk's responsible person): every structural write in
   // this component already routes through the subPageId-aware service alias
   // above, so inside a month tab the rules permit anyone canEditPage covers.
-  // Since a Технар's desk is created with hideMainTab and opens on its month
+  // Since a Технарь's desk is created with hideMainTab and opens on its month
   // tab, that gate hid «плюс», rename and hide/show from an editor for whom
   // the write would have succeeded — the "can't add or edit columns" report.
   const canEditColumns = subPageId ? canEdit : canEditStructure;

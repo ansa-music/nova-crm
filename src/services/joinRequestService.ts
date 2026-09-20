@@ -4,7 +4,7 @@ import { paths, subscribeToDoc } from "@/firebase/firestore";
 import { deleteInvitedStubIfPresent } from "@/services/memberService";
 import type { JoinRequest, Role, Workspace, WorkspaceMember } from "@/types";
 
-/** New accepted joiners become Технар so they can create exactly one own desk. Owner can still reassign. */
+/** New accepted joiners become Технарь so they can create exactly one own desk. Owner can still reassign. */
 export const DEFAULT_JOIN_ROLE: Role = "manager";
 
 /** Minimal public info shown on the /join/:workspaceId page before the person is a member. */

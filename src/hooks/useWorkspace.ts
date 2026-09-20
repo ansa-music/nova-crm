@@ -176,7 +176,7 @@ export function useActiveWorkspaceDataBootstrap() {
         // what the own-member listener did. This is what actually resolved
         // the role before the listener's denial path was corrected, and
         // without it a denied own-member snapshot leaves a fully authorized
-        // Технар with isResolved=false, i.e. no rights anywhere: can't
+        // Технарь with isResolved=false, i.e. no rights anywhere: can't
         // create a desk, can't add/rename/drag columns on their own desk.
         if (!membersConfirmed && uid && findOwnMembership(list, uid)) confirmMembers();
       })

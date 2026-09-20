@@ -1,6 +1,6 @@
 /**
  * How a status counts on the «Технари» screen:
- * free — done/closed, doesn't occupy the Технар;
+ * free — done/closed, doesn't occupy the Технарь;
  * busy — work in progress;
  * rework — «Переделка»: shown next to the state with its count, not busy;
  * freeze — «Заморозка»: shown next to the state with its count, not busy;
@@ -13,7 +13,7 @@ export type TechLoadKind = "free" | "busy" | "rework" | "freeze" | "payment";
  * Per-desk order counts for the current month's tab — the privacy-preserving
  * aggregate the «Технари» screen reads instead of anyone's rows (same idea as
  * the leaderboard). Written by whoever has the desk's rows open with edit
- * rights (the Технар themselves, the Owner); readable by every member.
+ * rights (the Технарь themselves, the Owner); readable by every member.
  * Doc id = pageId.
  */
 export interface DeskLoad {
@@ -33,7 +33,7 @@ export interface DeskLoad {
   statusCounts: Record<string, number>;
   /**
    * Orders per ОС this month, keyed by the «Ответственный» option value the
-   * Технар picked in the order's ОС column (an ОС nick is such an option).
+   * Технарь picked in the order's ОС column (an ОС nick is such an option).
    * Absent on docs published before ОС nicks existed.
    */
   osCounts?: Record<string, number>;
@@ -43,7 +43,7 @@ export interface DeskLoad {
    * Day (UTC midnight, ms) of the newest order from each ОС — created or last
    * edited. Kept for a while after the order leaves the month tab, so an ОС
    * can still rate right after the month rolls over. firestore.rules reads it
-   * before letting an ОС rate this desk's Технар (OS_RATING_WINDOW_MS).
+   * before letting an ОС rate this desk's Технарь (OS_RATING_WINDOW_MS).
    */
   osLastOrderAt?: Record<string, number>;
   /** Sum of the price column over this month's orders. Absent on docs published before money was counted. */

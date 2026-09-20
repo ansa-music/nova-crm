@@ -18,7 +18,7 @@ export type TechnicianRater =
   /** `mine` set: already rated — the stars can change any time. */
   | { state: "can-rate"; nick: string; mine: TechRating | null };
 
-/** One of the viewing ОС's orders at this Технар, with its status resolved for display. */
+/** One of the viewing ОС's orders at this Технарь, with its status resolved for display. */
 export interface TechnicianOrderItem {
   /** Стол, в котором лежит заказ — нужен, чтобы адресовать его оценку. */
   pageId: string;
@@ -59,7 +59,7 @@ export interface TechnicianCardProps {
   breakdown: StatusBreakdownItem[];
   /** Newest count among the desks; 0 = nothing counted this month yet. */
   updatedAt: number;
-  /** Viewer is an ОС with a nick: their own orders at this Технар this month. */
+  /** Viewer is an ОС with a nick: their own orders at this Технарь this month. */
   myOrders: { summary: TechLoadSummary; breakdown: StatusBreakdownItem[]; items: TechnicianOrderItem[] } | null;
   /** Management view: which ОС gave this month's orders. */
   osShares: TechnicianOsShare[] | null;
@@ -173,7 +173,7 @@ function MiniScore({ kind, average }: { kind: "overall" | "orders"; average: num
 }
 
 /**
- * Визитка Технара. Ровно то, ради чего на этот экран заходят: кто это,
+ * Визитка Технаря. Ровно то, ради чего на этот экран заходят: кто это,
  * свободен ли, сколько заказов и какие у него оценки. Всё остальное —
  * разбивка по статусам, список заказов, сама простановка оценок — живёт
  * за кликом.

@@ -45,7 +45,7 @@ interface DeskAccessDialogProps {
  *
  * Модель данных не тронута: `hiddenByResponsible` + `allowedUsers` +
  * `editableUsers`, как и в правилах. Owner видит любой стол всегда, поэтому
- * его в списке нет; Тимлид без роли Технар столы не открывает, ему просмотр
+ * его в списке нет; Тимлид без роли Технарь столы не открывает, ему просмотр
  * выдать нельзя (правило isDeskBlocked) — переключатели у него выключены.
  */
 export function DeskAccessDialog({
@@ -359,7 +359,7 @@ export function DeskAccessDialog({
                         {blocked ? " · столы не открывает" : ""}
                       </p>
                     </div>
-                    <div className="flex w-16 shrink-0 justify-center" title={blocked ? "Тимлид без роли Технар столы не открывает" : "Просмотр"}>
+                    <div className="flex w-16 shrink-0 justify-center" title={blocked ? "Тимлид без роли Технарь столы не открывает" : "Просмотр"}>
                       <Switch
                         checked={hasAccess && !blocked}
                         onCheckedChange={() => toggleAccess(m.uid)}

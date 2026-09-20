@@ -7,7 +7,7 @@ export function techRatingId(osUid: string, technicianUid: string, monthKey: str
   return `${osUid}_${technicianUid}_${monthKey}`;
 }
 
-/** Live while «Технари» is open — a small collection, one doc per ОС per Технар. */
+/** Live while «Технари» is open — a small collection, one doc per ОС per Технарь. */
 export function subscribeTechRatings(
   workspaceId: string,
   onData: (ratings: TechRating[]) => void,

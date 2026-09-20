@@ -17,12 +17,12 @@ export default function HomePage() {
     );
   }
 
-  // Only a pure ОС: an ОС who is also a Технар has a desk to land on.
+  // Only a pure ОС: an ОС who is also a Технарь has a desk to land on.
   if (permissions.isResolved && permissions.roles.every((role) => role === "os")) {
     return <Navigate to="/technicians" replace />;
   }
 
-  // Тимлид works with people, not desk tables — unless they're a Технар too.
+  // Тимлид works with people, not desk tables — unless they're a Технарь too.
   if (permissions.isResolved && permissions.deskBlocked) {
     return <Navigate to="/users" replace />;
   }

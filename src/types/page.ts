@@ -130,7 +130,7 @@ export interface WorkspacePage {
   /** «Основная» keeps a hand-made row order — see DataTable.manualRowOrder. */
   rowOrder?: "manual";
   /**
-   * Owner switch: treat this desk like a Технар's even though its
+   * Owner switch: treat this desk like a Технарь's even though its
    * responsible person isn't one (e.g. the Owner's own desk) — month tabs
    * and a row on «Технари». Desks of real Технари don't need it.
    */

@@ -23,7 +23,7 @@ import type { Role, WorkspacePage } from "@/types";
 const ROLE_CHIPS: { id: Role; label: string }[] = [
   { id: "owner", label: "Owner" },
   { id: "teamlead", label: "Тимлид" },
-  { id: "manager", label: "Технар" },
+  { id: "manager", label: "Технарь" },
   { id: "os", label: "ОС" },
   { id: "admin", label: "admin" },
   { id: "viewer", label: "Viewer" },

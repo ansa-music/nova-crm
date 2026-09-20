@@ -32,7 +32,7 @@ export function useDeskLoads(workspaceId: string | null, enabled: boolean) {
   return { loads, failed };
 }
 
-/** Every ОС rating of every Технар, live. */
+/** Every ОС rating of every Технарь, live. */
 export function useTechRatings(workspaceId: string | null, enabled: boolean) {
   const [ratings, setRatings] = useState<TechRating[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -53,7 +53,7 @@ export function useTechRatings(workspaceId: string | null, enabled: boolean) {
 }
 
 /**
- * Итоги оценок за заказы по всем парам ОС↔Технар. Отказ в чтении — это
+ * Итоги оценок за заказы по всем парам ОС↔Технарь. Отказ в чтении — это
  * «неизвестно», а не «оценок нет»: пустой список вместо отказа показал бы
  * всем технарям нулевой рейтинг, которого на самом деле никто не ставил.
  */
@@ -107,7 +107,7 @@ const lastRefreshAt = new Map<string, number>();
 /**
  * Owner-only background recount: the Owner can read every desk, so desks
  * nobody opened lately still show the truth on «Технари» and «Дашборд».
- * Everyone else relies on the counts each desk publishes while its Технар
+ * Everyone else relies on the counts each desk publishes while its Технарь
  * works in it.
  */
 export function useOwnerDeskRecount(loads: DeskLoad[] | null) {

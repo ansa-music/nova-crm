@@ -16,9 +16,9 @@ function enqueue(task: () => Promise<void>) {
 }
 
 /**
- * Keeps every Технар desk on its current-month tab (see monthTabService.ts).
- * The Owner's session maintains all Технар desks — so opening the site on
- * the 1st rolls the whole team over — and a Технар's session maintains
+ * Keeps every Технарь desk on its current-month tab (see monthTabService.ts).
+ * The Owner's session maintains all Технарь desks — so opening the site on
+ * the 1st rolls the whole team over — and a Технарь's session maintains
  * their own. Mounted once, in AppLayout.
  *
  * Uses the REAL role: this is background maintenance the account is
@@ -29,7 +29,7 @@ export function useMonthTabAutopilot() {
   const permissions = usePermissions();
   const monthKey = useCurrentMonthKey();
   const uid = permissions.uid;
-  // The Owner maintains every Технар desk (a Тимлид reads no desks).
+  // The Owner maintains every Технарь desk (a Тимлид reads no desks).
   const isOwner = permissions.hasFullDeskAccess;
   const ready = permissions.isResolved && Boolean(uid && activeWorkspaceId);
 

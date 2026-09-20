@@ -7,14 +7,14 @@ import { ymdInTimeZone } from "@/utils/date";
 import { memberHasRole, type SubPage, type WorkspaceMember, type WorkspacePage } from "@/types";
 
 /**
- * Month autopilot. Every Технар desk works in one tab per calendar month
+ * Month autopilot. Every Технарь desk works in one tab per calendar month
  * (Asia/Almaty): on the first visit of a new month the tab is created — or
  * an existing hand-made one like «Сентябрь 2026» is adopted — and becomes
  * the tab the desk opens on. Orders in older tabs stay where they are; only
  * the current month's tab counts on the «Технари» screen.
  *
- * Runs client-side (no backend): the Owner's session covers every Технар
- * desk, a Технар's own session covers their own desk (useMonthTabAutopilot).
+ * Runs client-side (no backend): the Owner's session covers every Технарь
+ * desk, a Технарь's own session covers their own desk (useMonthTabAutopilot).
  */
 
 /** "YYYY-MM" of `now` in Asia/Almaty. */
@@ -35,7 +35,7 @@ export function monthTabId(monthKey: string): string {
   return `month-${monthKey}`;
 }
 
-/** Desks the autopilot maintains: a Технар is responsible for them, or the Owner marked the desk «Стол технаря». */
+/** Desks the autopilot maintains: a Технарь is responsible for them, or the Owner marked the desk «Стол технаря». */
 export function isMonthlyDesk(page: WorkspacePage, members: WorkspaceMember[]): boolean {
   if (!page.responsibleUserId || page.isDashboard) return false;
   if (page.technicianDesk) return true;

@@ -23,7 +23,7 @@ export function RequestDeskViewButton({
   const approved = mine?.status === "approved";
   const pending = mine?.status === "pending";
 
-  // A Тимлид (not also a Технар) never opens desk tables, so asking for view access is pointless.
+  // A Тимлид (not also a Технарь) never opens desk tables, so asking for view access is pointless.
   if (deskBlocked) return null;
 
   if (canOpen && approved) {
