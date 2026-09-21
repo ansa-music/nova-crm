@@ -45,11 +45,13 @@ import {
   resolveScheduleRequest,
   subscribeScheduleRequests,
 } from "@/services/scheduleRequestService";
+import { cn } from "@/utils/cn";
 import { personLabel, worksAsTechnician } from "@/utils/peopleDesks";
 import { applyWeekPattern } from "@/utils/schedulePattern";
-import { ymdInTimeZone } from "@/utils/date";
+import { formatDate, ymdInTimeZone } from "@/utils/date";
 import {
   DEFAULT_CUSTOM_GROUP_NAME,
+  formatScheduleHours,
   memberHasRole,
   newSchedulePersonId,
   scheduleDayKey,
@@ -171,6 +173,9 @@ export default function SchedulePage() {
   const todayKey = isCurrentMonth ? scheduleDayKey(ymdInTimeZone(Date.now())) : null;
   const myToday = todayKey ? scheduleStateOf(byUid.get(uid), todayKey) : "work";
   const iAmScheduled = active.some((m) => m.uid === uid);
+  const myName = personLabel(active.find((m) => m.uid === uid) ?? null) || "Вы";
+  const myHours = todayKey ? scheduleHoursOf(byUid.get(uid), todayKey) : null;
+  const todayLabel = formatDate(Date.now(), "d MMMM, EEEE");
   const pendingRequests = useMemo(() => requests.filter((r) => r.status === "pending"), [requests]);
   const myRequest = todayKey ? requests.find((r) => r.id === scheduleRequestId(uid, monthKey, todayKey)) ?? null : null;
 
@@ -427,6 +432,7 @@ export default function SchedulePage() {
     monthKey,
     todayKey,
     schedules: byUid,
+    meUid: uid,
     canEdit,
     editing,
     draft,
@@ -532,6 +538,32 @@ export default function SchedulePage() {
               ]
         }
       />
+
+      {/* Сегодняшняя дата по Алматы и своё состояние на сегодня: график
+          открывают ровно чтобы это узнать, а искать себя в сетке на 31
+          колонку глазами — то, на что и жаловались. */}
+      {isCurrentMonth && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-primary/35 bg-primary/[0.07] px-2.5 py-1 font-medium text-primary">
+            <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+            Сегодня {todayLabel}
+          </span>
+          {iAmScheduled && (
+            <span className="text-muted-foreground">
+              {myName}:{" "}
+              <span
+                className={cn(
+                  "font-medium",
+                  myToday === "off" ? "text-destructive" : myToday === "excused" ? "text-warning" : "text-foreground"
+                )}
+              >
+                {myToday === "off" ? "выходной" : myToday === "excused" ? "отпросились" : "рабочий день"}
+              </span>
+              {myHours && myToday === "work" && <span className="text-primary"> · смена {formatScheduleHours(myHours)}</span>}
+            </span>
+          )}
+        </div>
+      )}
 
       {editing && (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-primary/35 bg-primary/[0.07] px-3 py-2.5 text-[12px]">

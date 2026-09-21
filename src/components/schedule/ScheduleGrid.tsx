@@ -95,6 +95,7 @@ export function ScheduleGrid({
   todayKey,
   rows,
   schedules,
+  meUid,
   canEdit,
   editing,
   draft,
@@ -108,6 +109,8 @@ export function ScheduleGrid({
   todayKey: string | null;
   rows: ScheduleRow[];
   schedules: Map<string, TechSchedule>;
+  /** Кто смотрит: своя строка подсвечивается, её ищут первой. */
+  meUid?: string;
   /** Owner или Тимлид: только они вообще что-то меняют. */
   canEdit: boolean;
   editing: boolean;
@@ -167,7 +170,16 @@ export function ScheduleGrid({
                       : "text-muted-foreground/60"
                 )}
               >
-                <span className="block font-mono text-[10px] tabular-nums">{d}</span>
+                {/* Сегодня видно сразу: число в кружке акцентного цвета —
+                    тонкой рамки вокруг клетки в сетке на 31 колонку мало. */}
+                <span
+                  className={cn(
+                    "mx-auto block w-6 rounded-full font-mono text-[10px] tabular-nums",
+                    d === todayKey && "bg-primary font-semibold text-primary-foreground"
+                  )}
+                >
+                  {d}
+                </span>
                 <span className="block text-[9px] opacity-70">{WEEKDAY_LETTERS[weekdayOf(monthKey, d)]}</span>
               </th>
             ))}
@@ -179,12 +191,20 @@ export function ScheduleGrid({
         <tbody>
           {rows.map((row) => {
             const schedule = schedules.get(row.uid) ?? null;
+            const isMe = Boolean(meUid) && row.uid === meUid;
             const stateOf = (dayKey: string): ScheduleDayState =>
               draft.get(draftKey(row.uid, dayKey)) ?? scheduleStateOf(schedule, dayKey);
             const offCount = days.filter((d) => stateOf(d) === "off").length;
             return (
-              <tr key={row.uid}>
-                <td className="sticky left-0 z-10 w-28 min-w-[7rem] bg-card py-0.5 pr-2 sm:w-40 sm:min-w-[10rem] sm:pr-3">
+              <tr key={row.uid} className={cn(isMe && "bg-primary/[0.06]")}>
+                <td
+                  className={cn(
+                    "sticky left-0 z-10 w-28 min-w-[7rem] py-0.5 pr-2 sm:w-40 sm:min-w-[10rem] sm:pr-3",
+                    // Липкая колонка рисует свой фон поверх строки, поэтому
+                    // подсветку «это я» ей задаём отдельно.
+                    isMe ? "bg-[hsl(var(--card))] shadow-[inset_0_0_0_9999px_hsl(var(--primary)/0.06)]" : "bg-card"
+                  )}
+                >
                   <span className="flex min-w-0 items-center gap-1.5">
                     <MemberAvatar
                       id={row.member?.uid ?? row.uid}
@@ -193,9 +213,15 @@ export function ScheduleGrid({
                       photoURL={row.member?.photoURL}
                       className="h-6 w-6 shrink-0"
                     />
-                    <span className={cn("min-w-0 flex-1 truncate text-[12px]", nameWidth)} title={row.label}>
+                    <span
+                      className={cn("min-w-0 flex-1 truncate text-[12px]", nameWidth, isMe && "font-semibold text-primary")}
+                      title={row.label}
+                    >
                       {row.label}
                     </span>
+                    {isMe && (
+                      <span className="shrink-0 rounded-full bg-primary/15 px-1.5 text-[9px] leading-4 text-primary">вы</span>
+                    )}
                     {row.note && (
                       <span className="hidden shrink-0 rounded-sm bg-muted px-1 text-[9px] text-muted-foreground sm:inline">
                         {row.note}
@@ -240,7 +266,7 @@ export function ScheduleGrid({
                         SCHEDULE_STATE_STYLE[state],
                         state === "work" && isWeekend(monthKey, d) && "bg-foreground/[0.07]",
                         hours && "border-primary/50 bg-primary/15 text-primary",
-                        d === todayKey && "ring-1 ring-primary/60",
+                        d === todayKey && "ring-1 ring-primary",
                         pending && "ring-1 ring-primary ring-offset-1 ring-offset-card",
                         canEdit ? "cursor-pointer hover:brightness-125" : "cursor-default"
                       )}
@@ -257,7 +283,7 @@ export function ScheduleGrid({
                     </button>
                   );
                   return (
-                    <td key={d} data-day={d} className="p-px text-center">
+                    <td key={d} data-day={d} className={cn("p-px text-center", d === todayKey && "bg-primary/[0.07]")}>
                       {canEdit && !editing ? (
                         <DayMenu row={row} dayKey={d} state={state} came={came} hours={hours} onPick={onPickDay}>
                           {cell}
