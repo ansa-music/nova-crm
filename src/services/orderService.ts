@@ -140,6 +140,8 @@ export interface OrderCandidate {
   /** Есть ли у технаря стол — без стола заказ забрать некуда. */
   hasDesk: boolean;
   claimedAt: number | null;
+  /** «сегодня выходной» / «отпросился» / «уже есть заказ в работе»; null — свободен. */
+  blockedReason?: string | null;
 }
 
 /**
@@ -148,9 +150,21 @@ export interface OrderCandidate {
  * один отклик от технаря БЕЗ стола съедал весь фоллбэк и рандом оказывался
  * пустым. Диалог и карточка обязаны звать именно эту функцию, иначе кнопка
  * в одном месте работает, а в другом выключена.
+ *
+ * Занятые и те, у кого сегодня выходной, из СЛУЧАЙНОГО выбора выпадают: если
+ * человека сегодня нет, отдавать ему заказ броском монеты — прямой способ
+ * уронить срок. Руками отдать всё равно можно (и ОС об этом просил) — это
+ * осознанное решение живого человека, а не случайность.
+ *
+ * Последний фоллбэк — все со столом: «Рандом» не должен превращаться в
+ * мёртвую кнопку в день, когда свободных нет вовсе.
  */
 export function orderRandomPool(candidates: OrderCandidate[]): OrderCandidate[] {
   const withDesk = candidates.filter((c) => c.hasDesk);
+  const free = withDesk.filter((c) => !c.blockedReason);
+  const claimedFree = free.filter((c) => c.claimedAt != null);
+  if (claimedFree.length > 0) return claimedFree;
+  if (free.length > 0) return free;
   const claimed = withDesk.filter((c) => c.claimedAt != null);
   return claimed.length > 0 ? claimed : withDesk;
 }

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { AtSign, LayoutGrid, ListOrdered, Search, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { AtSign, CalendarDays, LayoutGrid, ListOrdered, Search, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { Link } from "react-router";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/common/EmptyState";
 import { MonthlyRatingTop, type MonthlyTopEntry } from "@/components/technicians/MonthlyRatingTop";
 import { StarRating } from "@/components/technicians/StarRating";
+import { ScheduleDialog } from "@/components/technicians/ScheduleDialog";
 import { TechLoadStatusDialog } from "@/components/technicians/TechLoadStatusDialog";
 import {
   TechnicianCard,
@@ -21,6 +22,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import {
   useDeskLoads,
+  useTechSchedules,
   useMyOrderRatings,
   useOrderRatingTotals,
   useOwnerDeskRecount,
@@ -36,7 +38,7 @@ import { orderRatingId, rateOrder, removeOrderRating } from "@/services/orderRat
 import { deleteTechRating, rateTechnician } from "@/services/techRatingService";
 import { confirmDialog } from "@/utils/appDialog";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
-import { formatOrderDate, timeAgo } from "@/utils/date";
+import { formatOrderDate, timeAgo, ymdInTimeZone } from "@/utils/date";
 import { personLabel } from "@/utils/peopleDesks";
 import {
   addStatusCounts,
@@ -57,6 +59,7 @@ import {
   averageOfTotals,
   memberHasRole,
   ratingMonthKey,
+  scheduleDayKey,
   type OrderRatingTotals,
   type OsOrders,
   type StatusOption,
@@ -130,6 +133,7 @@ export default function TechniciansPage() {
   const [view, setView] = useState<View>("techs");
   const [orderQuery, setOrderQuery] = useState("");
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   const canSee = permissions.canSeeTechnicians;
@@ -161,6 +165,10 @@ export default function TechniciansPage() {
   const { loads, failed: loadFailed } = useDeskLoads(activeWorkspaceId, canSee);
   const { ratings, failed: ratingsFailed } = useTechRatings(activeWorkspaceId, canSee);
   const { totals: orderTotals } = useOrderRatingTotals(activeWorkspaceId, canSee);
+  // График месяца: кто на выходном / отпросился. Читают все — по нему видно,
+  // кого сегодня нет, ещё до того как ему попробуют выдать заказ.
+  const schedules = useTechSchedules(activeWorkspaceId, monthKey, canSee);
+  const todayKey = scheduleDayKey(ymdInTimeZone(now));
   useOwnerDeskRecount(canSee ? loads : null);
 
   // Оценки живут месяцами. Текущий месяц — то, что сейчас ставят и меняют;
@@ -595,6 +603,12 @@ export default function TechniciansPage() {
             </button>
           </div>
         )}
+        {activeWorkspaceId && (
+          <Button variant="outline" size="sm" className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => setScheduleOpen(true)}>
+            <CalendarDays className="h-3.5 w-3.5" />
+            График
+          </Button>
+        )}
         {canMapStatuses && activeWorkspaceId && (
           <Button variant="outline" size="sm" className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => setStatusDialogOpen(true)}>
             <SlidersHorizontal className="h-3.5 w-3.5" />
@@ -810,6 +824,21 @@ export default function TechniciansPage() {
           )}
         </div>
       </div>
+
+      {scheduleOpen && activeWorkspaceId && (
+        <ScheduleDialog
+          open={scheduleOpen}
+          onOpenChange={setScheduleOpen}
+          workspaceId={activeWorkspaceId}
+          monthKey={monthKey}
+          monthLabel={monthTabNameForKey(monthKey).toLowerCase()}
+          todayKey={todayKey}
+          technicians={technicians.map((t) => t.member)}
+          schedules={schedules}
+          canEdit={permissions.canRetireDesks}
+          myUid={uid}
+        />
+      )}
 
       {statusDialogOpen && activeWorkspaceId && (
         <TechLoadStatusDialog

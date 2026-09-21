@@ -11,6 +11,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useDeskLoads, useTechSchedules } from "@/hooks/useDeskLoads";
+import { setSelfWorkDay } from "@/services/techScheduleService";
+import { effectiveTechLoadKinds, summarizeDeskLoad } from "@/utils/techLoad";
+import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import {
   assignOrder,
   createOrder,
@@ -26,13 +30,13 @@ import {
 import { parseOptionalNumber } from "@/utils/quickOrder";
 import { displayNameOf } from "@/utils/displayName";
 import { formatCurrency } from "@/utils/format";
-import { almatyNoonMillis, formatOrderDate, timeAgo } from "@/utils/date";
+import { almatyNoonMillis, formatOrderDate, timeAgo, ymdInTimeZone } from "@/utils/date";
 import { hasFullAccess } from "@/utils/permissions";
 import { confirmDialog } from "@/utils/appDialog";
 import { parseHttpUrl } from "@/utils/httpUrl";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { cn } from "@/utils/cn";
-import { memberHasRole, WORK_ORDER_STATUS_LABELS, WORK_ORDER_URGENCY_LABELS, type WorkOrder, type WorkOrderStatus, type WorkOrderUrgency, type WorkspaceMember } from "@/types";
+import { memberHasRole, scheduleDayKey, scheduleStateOf, WORK_ORDER_STATUS_LABELS, WORK_ORDER_URGENCY_LABELS, type WorkOrder, type WorkOrderStatus, type WorkOrderUrgency, type WorkspaceMember, type TechSchedule } from "@/types";
 
 const TABS: WorkOrderStatus[] = ["open", "assigned", "taken", "cancelled"];
 
@@ -95,6 +99,45 @@ export default function OrdersPage() {
     [myMembership?.osNickValue, myMembership?.osNick, osOptions]
   );
 
+  // График и загрузка столов — ровно для двух запретов на отклик: «сегодня
+  // выходной» и «уже есть заказ в работе». Оба живут только пока открыта
+  // эта страница (см. лимиты слушателей в CLAUDE.md).
+  const schedules = useTechSchedules(activeWorkspaceId, monthKey, permissions.isResolved);
+  const { loads } = useDeskLoads(activeWorkspaceId, permissions.isResolved);
+  const todayKey = scheduleDayKey(ymdInTimeZone(Date.now()));
+  const kinds = useMemo(() => effectiveTechLoadKinds(activeWorkspace), [activeWorkspace]);
+  const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
+
+  const scheduleByUid = useMemo(() => {
+    const map = new Map<string, TechSchedule>();
+    for (const sc of schedules) map.set(sc.uid, sc);
+    return map;
+  }, [schedules]);
+
+  /**
+   * У кого прямо сейчас есть заказ «в работе». Считаем по тем же
+   * агрегатам deskLoad и тем же правилам статусов, что и «Технари», —
+   * иначе «занят» на двух экранах означал бы разное.
+   */
+  const inWorkUids = useMemo(() => {
+    const set = new Set<string>();
+    for (const load of loads ?? []) {
+      const responsible = load.responsibleUserId;
+      if (!responsible) continue;
+      if (summarizeDeskLoad(load, statusOptions, kinds).busy > 0) set.add(responsible);
+    }
+    return set;
+  }, [loads, statusOptions, kinds]);
+
+  /** Почему этот технарь сейчас не может взять заказ — null, если может. */
+  function blockReasonFor(technicianUid: string): string | null {
+    const state = scheduleStateOf(scheduleByUid.get(technicianUid), todayKey);
+    if (state === "off") return "сегодня выходной";
+    if (state === "excused") return "отпросился";
+    if (inWorkUids.has(technicianUid)) return "уже есть заказ в работе";
+    return null;
+  }
+
   const technicians = useMemo(
     () => members.filter((m) => m.status === "active" && Boolean(m.uid) && memberHasRole(m, "manager")),
     [members]
@@ -147,9 +190,24 @@ export default function OrdersPage() {
       name: displayNameOf(m),
       hasDesk: deskByUid.has(m.uid),
       claimedAt: order.claims[m.uid]?.at ?? null,
+      blockedReason: blockReasonFor(m.uid),
       member: m,
       deskName: deskByUid.get(m.uid) ?? null,
     }));
+  }
+
+  const myBlockReason = canClaim ? blockReasonFor(uid) : null;
+  /** Выходной/отпросился человек снимает сам; «заказ в работе» — нет, его надо доделать. */
+  const isScheduleBlock = myBlockReason === "сегодня выходной" || myBlockReason === "отпросился";
+
+  async function handleGoOnShift() {
+    if (!activeWorkspaceId) return;
+    try {
+      await setSelfWorkDay({ workspaceId: activeWorkspaceId, uid, monthKey, dayKey: todayKey, working: true });
+      toast.success("Вы на смене — отклики открыты");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось выйти на смену");
+    }
   }
 
   async function withBusy(id: string, fn: () => Promise<void>, fail: string) {
@@ -379,7 +437,26 @@ export default function OrdersPage() {
                   )}
 
                   <div className="ml-auto flex flex-wrap gap-1.5">
-                    {order.status === "open" && canClaim && (
+                    {/* Отклик закрыт, если сегодня выходной / отпросился или
+                        уже есть заказ в работе. Отозвать свой старый отклик
+                        при этом МОЖНО — иначе он навсегда повиснет на заказе
+                        у человека, которого сегодня нет. */}
+                    {order.status === "open" && canClaim && myBlockReason && !claimed && (
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/[0.08] px-2.5 py-1 text-[11px] text-warning">
+                        Отклик закрыт: {myBlockReason}
+                        {isScheduleBlock && (
+                          <button
+                            type="button"
+                            className="font-medium underline underline-offset-2 hover:no-underline"
+                            onClick={() => void handleGoOnShift()}
+                            disabled={busy}
+                          >
+                            Вышел на смену
+                          </button>
+                        )}
+                      </span>
+                    )}
+                    {order.status === "open" && canClaim && (!myBlockReason || claimed) && (
                       <Button
                         size="sm"
                         variant={claimed ? "outline" : "default"}

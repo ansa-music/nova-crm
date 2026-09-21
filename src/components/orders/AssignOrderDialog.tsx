@@ -56,7 +56,16 @@ export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, o
       >
         <MemberAvatar id={c.uid} name={c.member.name} nickname={c.member.nickname} photoURL={c.member.photoURL} className="h-8 w-8 shrink-0" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{c.name}</p>
+          <p className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-sm font-medium">{c.name}</span>
+            {/* Занятость и выходной — предупреждение, а не запрет: отдать
+                напрямую можно кому угодно со столом, это решение выдающего. */}
+            {c.blockedReason && (
+              <span className="shrink-0 rounded-full border border-warning/40 bg-warning/10 px-1.5 text-[10px] leading-4 text-warning">
+                {c.blockedReason}
+              </span>
+            )}
+          </p>
           <p className="truncate text-xs text-muted-foreground">
             {c.deskName ?? "стола нет — забрать некуда"}
             {c.claimedAt != null ? ` · откликнулся ${timeAgo(c.claimedAt)}` : ""}
@@ -76,7 +85,9 @@ export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, o
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Кому отдать заказ</DialogTitle>
-          <DialogDescription>{order ? `${order.client} — выберите технаря или доверьтесь случаю.` : ""}</DialogDescription>
+          <DialogDescription>
+            {order ? `${order.client} — можно отдать любому технарю со столом, даже если он не откликался.` : ""}
+          </DialogDescription>
         </DialogHeader>
         <Button
           variant="outline"
@@ -97,7 +108,7 @@ export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, o
           {others.length > 0 && (
             <div className="flex flex-col gap-1.5">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {claimed.length ? "Остальные технари" : "Технари"}
+                {claimed.length ? "Отдать напрямую — без отклика" : "Технари"}
               </p>
               {others.map(row)}
             </div>

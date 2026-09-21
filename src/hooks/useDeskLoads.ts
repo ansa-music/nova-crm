@@ -7,7 +7,8 @@ import { refreshDeskLoadFromRows, subscribeDeskLoadHistory, subscribeDeskLoads }
 import { currentMonthSubPageId, isMonthlyDesk } from "@/services/monthTabService";
 import { subscribeMyOrderRatings, subscribeOrderRatingTotals } from "@/services/orderRatingService";
 import { subscribeTechRatings } from "@/services/techRatingService";
-import type { DeskLoad, DeskLoadArchive, OrderRating, OrderRatingTotals, TechRating } from "@/types";
+import { subscribeTechSchedules } from "@/services/techScheduleService";
+import type { DeskLoad, DeskLoadArchive, OrderRating, OrderRatingTotals, TechRating, TechSchedule } from "@/types";
 
 /**
  * Every desk's month counts, live. `loads` stays null until the first
@@ -74,6 +75,21 @@ export function useOrderRatingTotals(workspaceId: string | null, enabled: boolea
     );
   }, [workspaceId, enabled]);
   return { totals, failed };
+}
+
+/**
+ * График технарей на месяц. Пустой массив на отказе, а не null: график —
+ * вспомогательный слой, и «не смогли прочитать» должно означать «ограничений
+ * нет», а не блокировать всем отклики на заказы.
+ */
+export function useTechSchedules(workspaceId: string | null, monthKey: string, enabled: boolean) {
+  const [schedules, setSchedules] = useState<TechSchedule[]>([]);
+  useEffect(() => {
+    setSchedules([]);
+    if (!workspaceId || !enabled) return;
+    return subscribeTechSchedules(workspaceId, monthKey, setSchedules, () => setSchedules([]));
+  }, [workspaceId, monthKey, enabled]);
+  return schedules;
 }
 
 /** Оценки заказов, которые поставил САМ смотрящий ОС — чтобы показать их в «Мои заказы». */

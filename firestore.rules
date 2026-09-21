@@ -865,6 +865,40 @@ service cloud.firestore {
       // назначенный Технарь переводит заказ в «taken», забрав его в стол.
       // Строка в столе пишется по обычным правилам стола, не отсюда.
       // -----------------------------------------------------------------
+      // -----------------------------------------------------------------
+      // График технарей: выходные и «отпросился» ставит Тимлид/Owner, а сам
+      // технарь может только сказать «вышел на смену» — добавить себе
+      // рабочий день в `selfWork`. Поля разделены НАМЕРЕННО: если бы
+      // состояние дня было одним полем, технарь, которому дали право его
+      // менять, мог бы и поставить себе выходной, и стереть отметку
+      // Тимлида. Здесь он физически не дотягивается до `days`.
+      //
+      // Читают все участники: «Заказы» показывают, кто сегодня на выходном,
+      // иначе ОС выдавал бы заказ человеку, которого сегодня нет.
+      // -----------------------------------------------------------------
+      match /techSchedule/{scheduleId} {
+        allow read: if isMember(workspaceId);
+
+        // У delete нет request.resource (см. CLAUDE.md) — отдельным правилом.
+        allow delete: if hasFullAccess(workspaceId);
+        allow create, update: if hasFullAccess(workspaceId)
+          && request.resource.data.workspaceId == workspaceId
+          && scheduleId == request.resource.data.uid + '_' + request.resource.data.monthKey
+          && request.resource.data.keys().hasOnly(['workspaceId', 'uid', 'monthKey', 'days', 'selfWork', 'updatedAt', 'updatedBy']);
+
+        // Технарь — только свой документ и только «вышел на смену».
+        allow update: if isMember(workspaceId)
+          && resource.data.uid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['selfWork', 'updatedAt']);
+        // Своего документа ещё нет: создать можно, но БЕЗ `days` — выходной
+        // себе поставить нельзя ни при каких условиях.
+        allow create: if isMember(workspaceId)
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.uid == request.auth.uid
+          && scheduleId == request.auth.uid + '_' + request.resource.data.monthKey
+          && request.resource.data.keys().hasOnly(['workspaceId', 'uid', 'monthKey', 'selfWork', 'updatedAt']);
+      }
+
       match /orders/{orderId} {
         allow read: if isMember(workspaceId);
         allow create: if canIssueOrders(workspaceId)
