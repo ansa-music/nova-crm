@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { GrokAccountDialog } from "@/components/grok/GrokAccountDialog";
 import { GrokAppDialog } from "@/components/grok/GrokAppDialog";
+import { GrokAccessDialog } from "@/components/grok/GrokAccessDialog";
 import { GrokPoolRow, type PoolAccount, type PoolPatch } from "@/components/grok/GrokPoolRow";
 import { useAuth } from "@/hooks/useAuth";
 import { useGrokAccounts } from "@/hooks/useGrokAccounts";
@@ -14,7 +15,12 @@ import { useGrokAppAccounts } from "@/hooks/useGrokAppAccounts";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { deleteGrokAccount, getGrokAccountStatus, updateGrokAccount, type GrokAccountStatus } from "@/services/grokAccountService";
-import { deleteGrokAppAccount, updateGrokAppAccount } from "@/services/grokAppAccountService";
+import {
+  backfillGrokAppRestricted,
+  deleteGrokAppAccount,
+  setGrokAppAccess,
+  updateGrokAppAccount,
+} from "@/services/grokAppAccountService";
 import { grokLoginMethodLabel, grokLoginMethodOf } from "@/types/grokAccount";
 import { grokAppProviderLabel, type GrokAppAccount, type GrokAppProvider } from "@/types/grokAppAccount";
 import type { GrokAccount } from "@/types";
@@ -73,10 +79,25 @@ export default function GrokLimitPage() {
   const canName = role === "owner" || role === "teamlead" || role === "admin";
   // Грок is closed only to a pure ОС; any other role of theirs opens it.
   const isOs = isResolved && roles.every((r) => r === "os");
-  const { activeWorkspaceId } = useWorkspace();
+  const { activeWorkspaceId, members } = useWorkspace();
   const workspaceId = isOs ? null : activeWorkspaceId;
+  // Доступом к аккаунтам подписок распоряжается только руководство — оно же
+  // видит их все, даже закрытые.
+  const canManageAccess = role === "owner" || role === "teamlead";
   const { accounts: grokAccounts, isLoading: grokLoading } = useGrokAccounts(workspaceId);
-  const { accounts: appAccounts, isLoading: appsLoading } = useGrokAppAccounts(workspaceId);
+  const { accounts: appAccounts, isLoading: appsLoading } = useGrokAppAccounts(workspaceId, {
+    seesAll: canManageAccess,
+    uid: profile?.uid ?? "",
+  });
+  const [accessDialog, setAccessDialog] = useState<GrokAppAccount | null>(null);
+  const [accessSaving, setAccessSaving] = useState(false);
+
+  // Старым аккаунтам разово проставляем `restricted: false`: без поля они не
+  // попадают в запрос «открытые» и у технарей пропали бы из списка.
+  useEffect(() => {
+    if (!workspaceId || !canManageAccess || appsLoading) return;
+    void backfillGrokAppRestricted(workspaceId, appAccounts).catch(() => undefined);
+  }, [workspaceId, canManageAccess, appsLoading, appAccounts]);
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
@@ -154,6 +175,7 @@ export default function GrokLimitPage() {
       limitResetAt: account.limitResetAt,
       updatedByName: account.updatedByName,
       updatedAt: account.updatedAt,
+      accessCount: account.restricted ? account.allowedUids?.length ?? 0 : null,
       raw: { kind: "app", account },
     }));
     const statusOf = (e: Entry) => getGrokAccountStatus({ available: e.available, limitResetAt: e.limitResetAt }, now);
@@ -237,6 +259,26 @@ export default function GrokLimitPage() {
       toast.success("Название сохранено");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось сохранить");
+    }
+  }
+
+  async function saveAccess(account: GrokAppAccount, uids: string[]) {
+    if (!workspaceId || !profile) return;
+    setAccessSaving(true);
+    try {
+      await setGrokAppAccess({
+        workspaceId,
+        id: account.id,
+        allowedUids: uids,
+        actorUid: profile.uid,
+        actorName: displayNameOf(profile),
+      });
+      toast.success(uids.length > 0 ? `Доступ открыт: ${uids.length}` : "Аккаунт открыт всем");
+      setAccessDialog(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось изменить доступ");
+    } finally {
+      setAccessSaving(false);
     }
   }
 
@@ -436,6 +478,11 @@ export default function GrokLimitPage() {
                       onEdit={() => editEntry(entry)}
                       onRename={() => void renameEntry(entry)}
                       onDelete={() => void deleteEntry(entry)}
+                      onAccess={
+                        canManageAccess && entry.raw.kind === "app"
+                          ? () => setAccessDialog(entry.raw.kind === "app" ? entry.raw.account : null)
+                          : undefined
+                      }
                     />
                   ))}
                 </ul>
@@ -450,6 +497,17 @@ export default function GrokLimitPage() {
         editing={grokDialog.editing}
         accounts={grokAccounts}
       />
+      {accessDialog && (
+        <GrokAccessDialog
+          title={accessDialog.nickname?.trim() || accessDialog.email}
+          members={members}
+          allowedUids={accessDialog.restricted ? accessDialog.allowedUids ?? [] : []}
+          saving={accessSaving}
+          onClose={() => setAccessDialog(null)}
+          onSave={(uids) => void saveAccess(accessDialog, uids)}
+        />
+      )}
+
       <GrokAppDialog
         open={appDialog.open}
         onOpenChange={(open) => setAppDialog((prev) => ({ ...prev, open }))}

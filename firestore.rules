@@ -992,6 +992,15 @@ service cloud.firestore {
         allow delete: if isOwnerOrAdmin(workspaceId);
       }
 
+      // Технарь отмечает лимиты, но список доступа не трогает. Списки
+      // сравниваем через hasAll в обе стороны: порядок и повторы в
+      // разрешениях значения не имеют, а `==` на списках читается хуже.
+      function grokAppAccessPreserved() {
+        return request.resource.data.get('restricted', false) == resource.data.get('restricted', false)
+          && request.resource.data.get('allowedUids', []).hasAll(resource.data.get('allowedUids', []))
+          && resource.data.get('allowedUids', []).hasAll(request.resource.data.get('allowedUids', []));
+      }
+
       match /grokAccounts/{accountId} {
         allow read: if canUseGrok(workspaceId);
         allow create: if canUseGrok(workspaceId)
@@ -1004,15 +1013,31 @@ service cloud.firestore {
         allow delete: if canUseGrok(workspaceId);
       }
 
+      // Аккаунт подписки (Хикс, 11 Labs, прочее) можно закрыть на список
+      // людей: `restricted: true` + `allowedUids`. Владеет доступом только
+      // Owner/Тимлид.
+      //
+      // ВАЖНО: в правиле ЧТЕНИЯ поля читаются НАПРЯМУЮ, без `.get(поле,
+      // дефолт)`. На list-запросе `.get()` не ограничивает выдачу: проверено
+      // эмулятором — с `.get()` технарь получал всю коллекцию, включая
+      // закрытый аккаунт с паролем, а с прямым обращением запрос отклоняется
+      // целиком, как и должен. Плата за это — документ обязан иметь поле
+      // `restricted`; старым записям его проставляет разовый backfill из
+      // сессии руководства (`backfillGrokAppRestricted`).
       match /grokAppAccounts/{accountId} {
-        allow read: if canUseGrok(workspaceId);
+        allow read: if canUseGrok(workspaceId)
+          && (hasFullAccess(workspaceId)
+            || resource.data.restricted == false
+            || request.auth.uid in resource.data.allowedUids);
         allow create: if canUseGrok(workspaceId)
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.updatedByUid == request.auth.uid
-          && grokCreateNicknameOk(workspaceId);
+          && grokCreateNicknameOk(workspaceId)
+          && (hasFullAccess(workspaceId) || request.resource.data.get('restricted', false) == false);
         allow update: if canUseGrok(workspaceId)
           && request.resource.data.updatedByUid == request.auth.uid
-          && (isManagement(workspaceId) || grokNicknamePreserved());
+          && (isManagement(workspaceId) || grokNicknamePreserved())
+          && (hasFullAccess(workspaceId) || grokAppAccessPreserved());
         allow delete: if canUseGrok(workspaceId);
       }
 

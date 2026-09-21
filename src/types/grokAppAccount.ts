@@ -37,6 +37,14 @@ export interface GrokAppAccount {
   /** Plan / seat note, e.g. "Creator", "не безлимит". */
   note?: string;
   available?: boolean;
+  /**
+   * Доступ ограничен списком `allowedUids`. Отсутствие поля = аккаунт открыт
+   * всем, у кого есть «Грок лимит» — так было до появления ограничений, и
+   * старые записи не должны исчезнуть из списка.
+   */
+  restricted?: boolean;
+  /** Кому открыт аккаунт. Owner и Тимлид видят всё всегда, их тут нет. */
+  allowedUids?: string[];
   limitResetAt: number | null;
   updatedByUid: string;
   updatedByName: string;

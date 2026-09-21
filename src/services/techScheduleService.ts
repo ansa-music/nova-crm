@@ -127,8 +127,16 @@ export async function saveScheduleDraft(input: {
   workspaceId: string;
   monthKey: string;
   actorUid: string;
-  /** По человеку: день → состояние. `"work"` означает «убрать пометку». */
-  changes: Array<{ uid: string; days: Record<string, ScheduleDayState> }>;
+  /**
+   * По человеку: день → состояние (`"work"` = убрать пометку) и день → часы
+   * (`null` = снять часы). Шаблон недели раскладывает месяц разом, поэтому
+   * тут легко набирается под сотню дней — всё равно один batch.
+   */
+  changes: Array<{
+    uid: string;
+    days?: Record<string, ScheduleDayState>;
+    hours?: Record<string, ScheduleHours | null>;
+  }>;
 }) {
   if (!db) throw new Error("Firebase не настроен");
   if (input.changes.length === 0) return;
@@ -136,11 +144,15 @@ export async function saveScheduleDraft(input: {
   for (const change of input.changes) {
     const days: Record<string, unknown> = {};
     const selfWork: Record<string, unknown> = {};
-    for (const [dayKey, state] of Object.entries(change.days)) {
+    const hours: Record<string, unknown> = {};
+    for (const [dayKey, state] of Object.entries(change.days ?? {})) {
       days[dayKey] = state === "work" ? deleteField() : state;
       // День снова рабочий или заново выходной — старая отметка «пришёл»
       // к нему уже не относится.
       selfWork[dayKey] = deleteField();
+    }
+    for (const [dayKey, value] of Object.entries(change.hours ?? {})) {
+      hours[dayKey] = value ?? deleteField();
     }
     batch.set(
       paths.techSchedule(input.workspaceId, techScheduleId(change.uid, input.monthKey)),
@@ -150,6 +162,7 @@ export async function saveScheduleDraft(input: {
         monthKey: input.monthKey,
         days,
         selfWork,
+        hours,
         updatedAt: Date.now(),
         updatedBy: input.actorUid,
       },

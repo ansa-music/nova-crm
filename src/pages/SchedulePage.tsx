@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
+  CalendarRange,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -23,6 +24,7 @@ import {
   type ScheduleDayAction,
   type ScheduleRow,
 } from "@/components/schedule/ScheduleGrid";
+import { WeekPatternDialog, type WeekPattern } from "@/components/schedule/WeekPatternDialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -44,6 +46,7 @@ import {
   subscribeScheduleRequests,
 } from "@/services/scheduleRequestService";
 import { personLabel, worksAsTechnician } from "@/utils/peopleDesks";
+import { applyWeekPattern } from "@/utils/schedulePattern";
 import { ymdInTimeZone } from "@/utils/date";
 import {
   DEFAULT_CUSTOM_GROUP_NAME,
@@ -89,6 +92,8 @@ export default function SchedulePage() {
   const [requestBusy, setRequestBusy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Map<string, ScheduleDayState>>(new Map());
+  const [hoursDraft, setHoursDraft] = useState<Map<string, ScheduleHours | null>>(new Map());
+  const [patternOpen, setPatternOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const uid = profile?.uid ?? "";
@@ -188,17 +193,26 @@ export default function SchedulePage() {
   );
 
   async function saveDraft() {
-    if (!activeWorkspaceId || draft.size === 0) {
+    const total = draft.size + hoursDraft.size;
+    if (!activeWorkspaceId || total === 0) {
       setEditing(false);
       setDraft(new Map());
+      setHoursDraft(new Map());
       return;
     }
-    const byPerson = new Map<string, Record<string, ScheduleDayState>>();
+    const byPerson = new Map<string, { days: Record<string, ScheduleDayState>; hours: Record<string, ScheduleHours | null> }>();
+    const bucket = (personUid: string) => {
+      const found = byPerson.get(personUid) ?? { days: {}, hours: {} };
+      byPerson.set(personUid, found);
+      return found;
+    };
     for (const [key, state] of draft) {
       const [personUid, dayKey] = key.split(":");
-      const days = byPerson.get(personUid) ?? {};
-      days[dayKey] = state;
-      byPerson.set(personUid, days);
+      bucket(personUid).days[dayKey] = state;
+    }
+    for (const [key, value] of hoursDraft) {
+      const [personUid, dayKey] = key.split(":");
+      bucket(personUid).hours[dayKey] = value;
     }
     setSaving(true);
     try {
@@ -206,10 +220,11 @@ export default function SchedulePage() {
         workspaceId: activeWorkspaceId,
         monthKey,
         actorUid: uid,
-        changes: Array.from(byPerson, ([personUid, days]) => ({ uid: personUid, days })),
+        changes: Array.from(byPerson, ([personUid, value]) => ({ uid: personUid, ...value })),
       });
-      toast.success(`График сохранён · дней изменено: ${draft.size}`);
+      toast.success(`График сохранён · изменений: ${total}`);
       setDraft(new Map());
+      setHoursDraft(new Map());
       setEditing(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось сохранить график");
@@ -219,17 +234,49 @@ export default function SchedulePage() {
   }
 
   async function cancelDraft() {
-    if (draft.size > 0) {
+    const total = draft.size + hoursDraft.size;
+    if (total > 0) {
       const ok = await confirmDialog({
         title: "Выйти без сохранения?",
-        description: `Несохранённых дней: ${draft.size}. Они не попадут в график.`,
+        description: `Несохранённых изменений: ${total}. Они не попадут в график.`,
         confirmLabel: "Выйти",
         destructive: true,
       });
       if (!ok) return;
     }
     setDraft(new Map());
+    setHoursDraft(new Map());
     setEditing(false);
+  }
+
+  /**
+   * Шаблон недели на весь месяц. Пишем в ЧЕРНОВИК: человек видит, что
+   * получилось, правит исключения руками и сохраняет одним нажатием.
+   *
+   * Дни «отпросился» шаблон не трогает — это разовое согласование, а не
+   * распорядок недели.
+   */
+  function applyPattern(pattern: WeekPattern) {
+    const targets = pattern.target === "all" ? patternRows : patternRows.filter((r) => r.uid === pattern.target);
+    if (targets.length === 0) return;
+    const next = applyWeekPattern({
+      uids: targets.map((row) => row.uid),
+      monthKey,
+      schedules: byUid,
+      draft,
+      hoursDraft,
+      offDows: pattern.offDows,
+      hoursMode: pattern.hoursMode,
+      hours: pattern.hours,
+      hoursDows: pattern.hoursDows,
+    });
+    setDraft(next.draft);
+    setHoursDraft(next.hoursDraft);
+    setPatternOpen(false);
+    const changed = next.draft.size + next.hoursDraft.size;
+    toast.success(
+      changed === 0 ? "В графике и так всё по шаблону" : `Разложили на месяц · изменений: ${changed} — проверьте и сохраните`
+    );
   }
 
   /** Меню дня в обычном виде — разовая отметка, пишется сразу. */
@@ -369,6 +416,13 @@ export default function SchedulePage() {
   const visible = (id: string) => section === "all" || section === id;
   const nothingAtAll = sections.length === 0 && !showCustom;
 
+  /** Кого предлагать в шаблоне: те, кто сейчас на экране. */
+  const patternRows = useMemo(
+    () => [...sections.flatMap((s) => s.rows), ...customRows],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [groups, customRows]
+  );
+
   const gridProps = {
     monthKey,
     todayKey,
@@ -376,6 +430,7 @@ export default function SchedulePage() {
     canEdit,
     editing,
     draft,
+    hoursDraft,
     onToggleDraft: toggleDraft,
     onPickDay: (row: ScheduleRow, dayKey: string, action: ScheduleDayAction) => void pickDay(row, dayKey, action),
   };
@@ -426,7 +481,9 @@ export default function SchedulePage() {
                   <Button size="sm" className="min-h-11 gap-1.5 sm:min-h-0" disabled={saving} onClick={() => void saveDraft()}>
                     {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     Сохранить
-                    {draft.size > 0 && <span className="tabular-nums opacity-80">{draft.size}</span>}
+                    {draft.size + hoursDraft.size > 0 && (
+                      <span className="tabular-nums opacity-80">{draft.size + hoursDraft.size}</span>
+                    )}
                   </Button>
                   <Button
                     variant="ghost"
@@ -480,9 +537,14 @@ export default function SchedulePage() {
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-primary/35 bg-primary/[0.07] px-3 py-2.5 text-[12px]">
           <Pencil className="h-3.5 w-3.5 shrink-0 text-primary" />
           <p className="min-w-0 flex-1">
-            Отмечаете выходные на {monthLabel}. Изменений: <span className="font-medium tabular-nums">{draft.size}</span> — они
-            уйдут в график одним сохранением. Месяц пока не листается.
+            Отмечаете выходные на {monthLabel}. Изменений:{" "}
+            <span className="font-medium tabular-nums">{draft.size + hoursDraft.size}</span> — они уйдут в график одним
+            сохранением. Месяц пока не листается.
           </p>
+          <Button variant="outline" size="sm" className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => setPatternOpen(true)}>
+            <CalendarRange className="h-3.5 w-3.5" />
+            Шаблон недели
+          </Button>
         </div>
       )}
 
@@ -579,6 +641,15 @@ export default function SchedulePage() {
             </p>
           )}
         </div>
+      )}
+
+      {patternOpen && (
+        <WeekPatternDialog
+          rows={patternRows}
+          monthLabel={monthLabel}
+          onClose={() => setPatternOpen(false)}
+          onApply={applyPattern}
+        />
       )}
 
       {hoursTarget && (

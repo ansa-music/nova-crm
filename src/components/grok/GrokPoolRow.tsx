@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, ChevronDown, Clock3, Copy, Eye, EyeOff, KeyRound, Loader2, MoreHorizontal, Pencil, Trash2, TimerOff } from "lucide-react";
+import { Check, ChevronDown, Clock3, Copy, Eye, EyeOff, KeyRound, Loader2, MoreHorizontal, Pencil, ShieldCheck, Trash2, TimerOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -31,6 +31,8 @@ export interface PoolAccount {
   limitResetAt: number | null;
   updatedByName: string;
   updatedAt: number;
+  /** Сколько людей пущено к аккаунту; null — доступ не ограничивали. */
+  accessCount?: number | null;
 }
 
 export type PoolPatch = { available?: boolean; limitResetAt?: number | null; nickname?: string };
@@ -78,6 +80,7 @@ export function GrokPoolRow({
   onEdit,
   onRename,
   onDelete,
+  onAccess,
 }: {
   account: PoolAccount;
   now: number;
@@ -88,6 +91,8 @@ export function GrokPoolRow({
   onEdit: () => void;
   onRename: () => void;
   onDelete: () => void;
+  /** Есть только у Owner/Тимлида и только у аккаунтов подписок. */
+  onAccess?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [revealed, setRevealed] = useState(false);
@@ -140,6 +145,17 @@ export function GrokPoolRow({
               {showService && (
                 <span className="shrink-0 rounded-full border border-border/70 px-1.5 text-[10px] leading-4 text-muted-foreground">
                   {account.serviceLabel}
+                </span>
+              )}
+              {/* Аккаунт закрыт списком — видно прямо в строке, иначе «почему
+                  он у меня есть, а у него нет» выясняли бы по переписке. */}
+              {account.accessCount != null && account.accessCount > 0 && (
+                <span
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-1.5 text-[10px] leading-4 text-primary"
+                  title={`Аккаунт открыт ${account.accessCount} людям`}
+                >
+                  <ShieldCheck className="h-3 w-3" />
+                  {account.accessCount}
                 </span>
               )}
             </span>
@@ -257,6 +273,11 @@ export function GrokPoolRow({
               {canRename && (
                 <DropdownMenuItem onSelect={onRename}>
                   <Pencil className="mr-2 h-3.5 w-3.5" /> Название
+                </DropdownMenuItem>
+              )}
+              {onAccess && (
+                <DropdownMenuItem onSelect={onAccess}>
+                  <ShieldCheck className="mr-2 h-3.5 w-3.5" /> Доступ к аккаунту
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem onSelect={onEdit}>

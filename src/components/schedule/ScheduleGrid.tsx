@@ -98,6 +98,7 @@ export function ScheduleGrid({
   canEdit,
   editing,
   draft,
+  hoursDraft,
   onToggleDraft,
   onPickDay,
   onRemoveRow,
@@ -112,6 +113,8 @@ export function ScheduleGrid({
   editing: boolean;
   /** Несохранённые выходные из режима правки: ключ `uid:день`. */
   draft: Map<string, ScheduleDayState>;
+  /** Несохранённые часы оттуда же; `null` — «снять часы». */
+  hoursDraft?: Map<string, ScheduleHours | null>;
   onToggleDraft?: (row: ScheduleRow, dayKey: string) => void;
   onPickDay?: (row: ScheduleRow, dayKey: string, action: ScheduleDayAction) => void;
   /** Есть только у своих людей — участника workspace из графика не убирают. */
@@ -211,12 +214,19 @@ export function ScheduleGrid({
                   </span>
                 </td>
                 {days.map((d) => {
+                  const key = draftKey(row.uid, d);
                   const state = stateOf(d);
-                  const pending = draft.has(draftKey(row.uid, d));
-                  const came = Boolean(schedule?.selfWork?.[d]) && !pending;
+                  const hoursPending = hoursDraft?.has(key) ?? false;
+                  const pending = draft.has(key) || hoursPending;
+                  const came = Boolean(schedule?.selfWork?.[d]) && !draft.has(key);
                   // Частичная смена показывается только у рабочего дня: если
                   // день сделали выходным, часы к нему уже не относятся.
-                  const hours = state === "work" && !pending ? scheduleHoursOf(schedule, d) : null;
+                  const hours =
+                    state === "work"
+                      ? hoursPending
+                        ? hoursDraft?.get(key) ?? null
+                        : scheduleHoursOf(schedule, d)
+                      : null;
                   const cell = (
                     <button
                       type="button"
