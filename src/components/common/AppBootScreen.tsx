@@ -21,11 +21,46 @@ const SLOW_AFTER_MS = 12_000;
 
 /**
  * Чаще всего загрузка встаёт не из-за приложения, а из-за того, что браузер
- * не достукивается до базы: пропал интернет или расширение-«ускоритель»/
- * блокировщик рвёт долгое соединение, на котором Firestore держит связь.
+ * не достукивается до базы. Сентябрь 2026: весь узел Google, куда Казахтелеком
+ * и DNS Cloudflare отправляют firestore.googleapis.com (74.125.205.x,
+ * 64.233.164.x, 108.177.14.x), отвечал на обратный канал «Unknown SID» —
+ * сессия открывается, данные не приходят никогда, и SDK молча крутит ретраи.
+ * База при этом была цела: DNS Google даёт другой узел, и там всё работает.
+ * Адрес узла из кода не выбрать, поэтому рецепт — прямо на экране.
  */
 const NETWORK_HINT =
-  "Проверьте интернет. Расширения-«ускорители» и блокировщики иногда рвут связь с базой — отключите их для этого сайта или откройте его в режиме инкогнито.";
+  "Проверьте интернет. Если он есть, а база молчит, чаще всего сбоит узел Google у провайдера — помогает DNS от Google или VPN:";
+
+const DNS_STEPS = [
+  {
+    where: "Chrome на компьютере",
+    how: "Настройки → Конфиденциальность и безопасность → Безопасность → Использовать безопасный DNS → Google (Public DNS)",
+  },
+  { where: "Android", how: "Настройки → Подключения → Частный DNS → dns.google" },
+  { where: "iPhone по Wi‑Fi", how: "Wi‑Fi → ⓘ у сети → Настройка DNS → Вручную → 8.8.8.8" },
+];
+
+function NetworkHelp({ lead }: { lead?: string }) {
+  return (
+    <div className="flex w-full flex-col gap-2 text-left">
+      <p className="text-xs leading-5 text-muted-foreground">
+        {lead ? `${lead} ` : ""}
+        {NETWORK_HINT}
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {DNS_STEPS.map((step) => (
+          <li key={step.where} className="rounded-sm border border-border/70 px-2.5 py-1.5 text-[11px] leading-4">
+            <span className="block font-medium text-foreground">{step.where}</span>
+            <span className="text-muted-foreground">{step.how}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-[11px] leading-4 text-muted-foreground">
+        Потом обновите страницу. Расширения-«ускорители» тоже стоит отключить для этого сайта.
+      </p>
+    </div>
+  );
+}
 
 export function AppBootScreen({ phase }: { phase: BootstrapPhase }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -80,9 +115,9 @@ export function AppBootScreen({ phase }: { phase: BootstrapPhase }) {
         <BrandMark />
         {failed ? (
           <>
-            <div className="flex flex-col items-center gap-2 text-center">
+            <div className="flex w-full flex-col items-center gap-2 text-center">
               <p className="text-sm font-medium text-destructive">Не удалось загрузить профиль</p>
-              <p className="text-xs leading-5 text-muted-foreground">{NETWORK_HINT}</p>
+              <NetworkHelp />
               <p className="break-all font-mono text-[10px] text-muted-foreground/70">{bootError}</p>
             </div>
             <div className="flex w-full flex-col gap-2">
@@ -101,10 +136,8 @@ export function AppBootScreen({ phase }: { phase: BootstrapPhase }) {
             </div>
             <p className="eyebrow">{PHASE_LABEL[phase] ?? "Загрузка…"}</p>
             {slow && (
-              <div className="flex flex-col items-center gap-3 text-center">
-                <p className="text-xs leading-5 text-muted-foreground">
-                  Грузится дольше обычного. {NETWORK_HINT}
-                </p>
+              <div className="flex w-full flex-col items-center gap-3 text-center">
+                <NetworkHelp lead="Грузится дольше обычного." />
                 {/* Режим совместимости переживает расширения и прокси, которые
                     копят потоковый ответ базы, — чаще всего застревание именно
                     это. Если он уже включён, остаётся обычная перезагрузка. */}

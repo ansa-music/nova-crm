@@ -600,6 +600,22 @@ Roles: `owner` > `teamlead` («Тимлид») > `admin` > `manager` («Техн
   антивирусов и прокси, которые КОПЯТ потоковый ответ базы: соединение формально открыто,
   документов нет, `getDoc` висит без ошибки (обычный обрыв сети дал бы «client is offline»
   за ~10 с). Две настройки взаимоисключающие — передавать ровно одну, иначе SDK бросает.
+  **Реальная причина вечной загрузки 22.09.2026 была другой — сбой узла Google.** Весь кластер,
+  куда Казахтелеком и DNS Cloudflare резолвят `firestore.googleapis.com` (74.125.205.x,
+  64.233.164.x, 108.177.14.x), открывал сессию WebChannel (POST → 200 и SID), а обратный канал
+  отвечал `400 Unknown SID` — даже в том же TCP-соединении. В консоли это «Failed to load
+  resource: 400» на `firestore.googleapis.com` и «WebChannelConnection RPC 'Listen' stream …
+  transport errored». Режим совместимости тут не помогает (long polling — тот же протокол с
+  SID). База и квота были целы: через узел из DNS Google (8.8.8.8 → 142.251.20.95) тот же
+  запрос отдавал нормальный Listen. Диагностика без входа: curl POST на
+  `/google.firestore.v1.Firestore/Listen/channel?database=…&VER=8&RID=1&CVER=22&X-HTTP-Session-Id=gsessionid`
+  с `count=0`, затем GET с `gsessionid`/`SID`/`RID=rpc`/`TYPE=xmlhttp`, и то же с `curl --resolve
+  firestore.googleapis.com:443:<ip>` на другие узлы. «Проверил в своём браузере — тоже висит,
+  значит глобально» — ложный вывод: браузер Claude работает с той же машины и сети, что и
+  владелец. Из кода узел не выбрать (`firestore.clients6.google.com` и
+  `content-firestore.googleapis.com` резолвятся в тот же сломанный кластер), поэтому экран
+  загрузки теперь показывает рецепт: безопасный DNS Google в Chrome, «Частный DNS dns.google» на
+  Android, 8.8.8.8 на iPhone по Wi‑Fi, или VPN.
 - **iOS Safari / Google OAuth**: `authDomain` должен быть `firebaseapp.com`, не `web.app`
   (иначе `redirect_uri_mismatch` на iPhone). Мобильный Google-логин — `signInWithRedirect`, не
   `signInWithPopup`. `getRedirectResult()` не должен блокировать/ложно фейлить обычный
