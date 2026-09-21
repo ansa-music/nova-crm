@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -78,18 +78,40 @@ export function useOrderRatingTotals(workspaceId: string | null, enabled: boolea
 }
 
 /**
- * График технарей на месяц. Пустой массив на отказе, а не null: график —
- * вспомогательный слой, и «не смогли прочитать» должно означать «ограничений
- * нет», а не блокировать всем отклики на заказы.
+ * График на месяц. `schedules` — пустой массив и до первого снимка, и на
+ * отказе, поэтому отдельно отдаём `loaded` и `failed`: «график не прочитан»
+ * НЕЛЬЗЯ показывать как «у всех рабочий день» (см. «Критические уроки» в
+ * CLAUDE.md). Раньше отказ так и маппился — на «Заказах» у выходных
+ * открывались отклики и «Рандом», а шаблон недели на «Графике» считался от
+ * пустой базы и при сохранении затирал «отпросился» и «пришёл».
+ * onSnapshot после ошибки сам не переподключается — отсюда `retry`.
  */
 export function useTechSchedules(workspaceId: string | null, monthKey: string, enabled: boolean) {
   const [schedules, setSchedules] = useState<TechSchedule[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     setSchedules([]);
+    setLoaded(false);
+    setFailed(false);
     if (!workspaceId || !enabled) return;
-    return subscribeTechSchedules(workspaceId, monthKey, setSchedules, () => setSchedules([]));
-  }, [workspaceId, monthKey, enabled]);
-  return schedules;
+    return subscribeTechSchedules(
+      workspaceId,
+      monthKey,
+      (next) => {
+        setSchedules(next);
+        setLoaded(true);
+        setFailed(false);
+      },
+      () => {
+        setSchedules([]);
+        setFailed(true);
+      }
+    );
+  }, [workspaceId, monthKey, enabled, attempt]);
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  return { schedules, loaded, failed, retry };
 }
 
 /** Оценки заказов, которые поставил САМ смотрящий ОС — чтобы показать их в «Мои заказы». */

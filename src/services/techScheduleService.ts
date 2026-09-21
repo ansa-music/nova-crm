@@ -50,6 +50,10 @@ export async function setScheduleDay(input: {
       monthKey: input.monthKey,
       days: { [input.dayKey]: input.state === "work" ? deleteField() : input.state },
       selfWork: { [input.dayKey]: deleteField() },
+      // Часы бывают только у рабочего дня. Оставленные под выходным, они
+      // пропадали из клетки и меню, а при возврате дня в рабочие молча
+      // всплывали — смена, которую никто уже не ставил.
+      ...(input.state === "work" ? {} : { hours: { [input.dayKey]: deleteField() } }),
       updatedAt: Date.now(),
       updatedBy: input.actorUid,
     },
@@ -154,20 +158,26 @@ export async function saveScheduleDraft(input: {
     for (const [dayKey, value] of Object.entries(change.hours ?? {})) {
       hours[dayKey] = value ?? deleteField();
     }
-    batch.set(
-      paths.techSchedule(input.workspaceId, techScheduleId(change.uid, input.monthKey)),
-      {
-        workspaceId: input.workspaceId,
-        uid: change.uid,
-        monthKey: input.monthKey,
-        days,
-        selfWork,
-        hours,
-        updatedAt: Date.now(),
-        updatedBy: input.actorUid,
-      },
-      { merge: true }
-    );
+    // Выходной и «отпросился» снимают часы того же дня (см. setScheduleDay).
+    for (const [dayKey, state] of Object.entries(change.days ?? {})) {
+      if (state !== "work") hours[dayKey] = deleteField();
+    }
+    // ПУСТУЮ карту отправлять нельзя. SDK кладёт пустой объект в маску
+    // обновления целиком («создать пустую карту»), и при merge:true сервер
+    // ЗАМЕНЯЕТ всё поле на {}: сохранение одних выходных стирало человеку все
+    // часы смен за месяц, а сохранение одних часов — все выходные,
+    // «отпросился» и «пришёл». Поле уходит, только если в нём есть ключи.
+    const data: Record<string, unknown> = {
+      workspaceId: input.workspaceId,
+      uid: change.uid,
+      monthKey: input.monthKey,
+      updatedAt: Date.now(),
+      updatedBy: input.actorUid,
+    };
+    if (Object.keys(days).length > 0) data.days = days;
+    if (Object.keys(selfWork).length > 0) data.selfWork = selfWork;
+    if (Object.keys(hours).length > 0) data.hours = hours;
+    batch.set(paths.techSchedule(input.workspaceId, techScheduleId(change.uid, input.monthKey)), data, { merge: true });
   }
   await batch.commit();
 }

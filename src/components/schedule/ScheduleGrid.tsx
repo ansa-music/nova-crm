@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, CircleSlash, Clock, Sun, UserMinus, X } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import {
@@ -256,7 +256,10 @@ export function ScheduleGrid({
                   const cell = (
                     <button
                       type="button"
-                      disabled={!canEdit}
+                      // Клетку со сменой открыть можно и без права правки: в ней
+                      // виден только час начала, а подсказок на касание нет —
+                      // технарь с телефона иначе не узнал бы, до скольки смена.
+                      disabled={!canEdit && !hours}
                       title={`${row.label} · ${d} — ${SCHEDULE_DAY_LABELS[state]}${
                         came ? " (пришёл в рабочий день)" : ""
                       }${hours ? ` · ${formatScheduleHours(hours)}` : ""}`}
@@ -268,7 +271,7 @@ export function ScheduleGrid({
                         hours && "border-primary/50 bg-primary/15 text-primary",
                         d === todayKey && "ring-1 ring-primary",
                         pending && "ring-1 ring-primary ring-offset-1 ring-offset-card",
-                        canEdit ? "cursor-pointer hover:brightness-125" : "cursor-default"
+                        canEdit || hours ? "cursor-pointer hover:brightness-125" : "cursor-default"
                       )}
                     >
                       {state === "off"
@@ -286,6 +289,10 @@ export function ScheduleGrid({
                     <td key={d} data-day={d} className={cn("p-px text-center", d === todayKey && "bg-primary/[0.07]")}>
                       {canEdit && !editing ? (
                         <DayMenu row={row} dayKey={d} state={state} came={came} hours={hours} onPick={onPickDay}>
+                          {cell}
+                        </DayMenu>
+                      ) : !canEdit && hours ? (
+                        <DayMenu readOnly row={row} dayKey={d} state={state} came={came} hours={hours}>
                           {cell}
                         </DayMenu>
                       ) : (
@@ -317,6 +324,7 @@ function DayMenu({
   came,
   hours,
   onPick,
+  readOnly = false,
   children,
 }: {
   row: ScheduleRow;
@@ -325,17 +333,40 @@ function DayMenu({
   came: boolean;
   hours: ScheduleHours | null;
   onPick?: (row: ScheduleRow, dayKey: string, action: ScheduleDayAction) => void;
+  /** Только посмотреть: подпись дня со сменой, без действий. */
+  readOnly?: boolean;
   children: React.ReactNode;
 }) {
+  // Radix открывает меню на pointerdown, не глядя на тип указателя. На
+  // телефоне pointerdown приходит в НАЧАЛЕ касания — раньше, чем браузер
+  // поймёт, что это свайп, — и любая попытка пролистать сетку пальцем
+  // открывала меню (а модальное меню дальше гасит прокрутку). Для касания
+  // гасим открытие на pointerdown и открываем по click: после свайпа click не
+  // приходит, после тапа — приходит. Мышь работает как прежде.
+  const [open, setOpen] = useState(false);
+  const touchRef = useRef(false);
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger
+        asChild
+        onPointerDown={(e) => {
+          touchRef.current = e.pointerType !== "mouse";
+          if (touchRef.current) e.preventDefault();
+        }}
+        onClick={() => {
+          if (touchRef.current) setOpen(true);
+        }}
+      >
+        {children}
+      </DropdownMenuTrigger>
       <DropdownMenuContent align="center" className="w-56">
         <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
           {row.label} · {dayKey} — {came ? "пришёл в рабочий день" : SCHEDULE_DAY_LABELS[state]}
           {hours && ` · ${formatScheduleHours(hours)}`}
         </DropdownMenuLabel>
-        <DropdownMenuSeparator />
+        {!readOnly && <DropdownMenuSeparator />}
+        {!readOnly && (
+          <>
         {(state !== "work" || came) && (
           <DropdownMenuItem onClick={() => onPick?.(row, dayKey, came ? "not-came" : "came")}>
             <Check className="h-4 w-4" />
@@ -360,16 +391,23 @@ function DayMenu({
             Обычный рабочий
           </DropdownMenuItem>
         )}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => onPick?.(row, dayKey, "hours")}>
-          <Clock className="h-4 w-4" />
-          {hours ? `Часы: ${formatScheduleHours(hours)}` : "Часы работы…"}
-        </DropdownMenuItem>
+        {/* Часы бывают только у рабочего дня. У выходного пункт писал в базу
+            часы, которых не видно ни в клетке, ни в меню, а при возврате дня в
+            рабочие они молча всплывали. */}
+        {state === "work" && <DropdownMenuSeparator />}
+        {state === "work" && (
+          <DropdownMenuItem onClick={() => onPick?.(row, dayKey, "hours")}>
+            <Clock className="h-4 w-4" />
+            {hours ? `Часы: ${formatScheduleHours(hours)}` : "Часы работы…"}
+          </DropdownMenuItem>
+        )}
         {hours && (
           <DropdownMenuItem onClick={() => onPick?.(row, dayKey, "clear-hours")}>
             <Clock className="h-4 w-4" />
             Убрать часы — весь день
           </DropdownMenuItem>
+        )}
+          </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

@@ -71,7 +71,7 @@ import {
   type WorkspacePage,
 } from "@/types";
 
-type Filter = "all" | "free" | "busy" | "nodesk" | "mine";
+type Filter = "all" | "free" | "busy" | "away" | "nodesk" | "mine";
 /** ОС only: the technician cards, or their own orders as one list. */
 type View = "techs" | "orders";
 
@@ -169,7 +169,7 @@ export default function TechniciansPage() {
   const { totals: orderTotals } = useOrderRatingTotals(activeWorkspaceId, canSee);
   // График нужен прямо здесь: у кого сегодня выходной, карточка гаснет — без
   // этого «Свободен» у отсутствующего читался как «можно отдать заказ».
-  const schedules = useTechSchedules(activeWorkspaceId, monthKey, canSee);
+  const { schedules, failed: schedulesFailed, retry: retrySchedules } = useTechSchedules(activeWorkspaceId, monthKey, canSee);
   const todayKey = scheduleDayKey(ymdInTimeZone(Date.now()));
   const scheduleByUid = useMemo(() => {
     const map = new Map<string, TechSchedule>();
@@ -383,8 +383,15 @@ export default function TechniciansPage() {
   // «Все», но не попадали ни под один чип и терялись внизу списка — цифры не
   // сходились, и понять, куда делись двое, по экрану было нельзя.
   const withDesk = technicians.filter((t) => t.desks.length > 0);
-  const freeCount = withDesk.filter((t) => !t.busy).length;
-  const busyCount = withDesk.filter((t) => t.busy).length;
+  // Кого сегодня нет по графику, тот ни «свободен», ни «занят». Карточка у
+  // такого человека уже гасла и писала «ВЫХОДНОЙ», но счётчик и фильтр
+  // «Свободны» его по-прежнему брали — «можно отдать заказ» читалось ровно у
+  // того, кого нет, хотя «Заказы» его из «Рандома» уже исключали.
+  const isAway = (t: TechnicianRow) => dayOffOf(t.member.uid) !== null;
+  const present = withDesk.filter((t) => !isAway(t));
+  const freeCount = present.filter((t) => !t.busy).length;
+  const busyCount = present.filter((t) => t.busy).length;
+  const awayCount = withDesk.length - present.length;
   const noDeskCount = technicians.length - withDesk.length;
   const mineCount = technicians.filter((t) => (t.myOrders?.summary.total ?? 0) > 0).length;
   const myOrdersTotal = technicians.reduce((n, t) => n + (t.myOrders?.summary.total ?? 0), 0);
@@ -401,10 +408,11 @@ export default function TechniciansPage() {
   }
 
   const visible = technicians.filter((t) => {
-    if (filter === "free") return t.desks.length > 0 && !t.busy;
+    if (filter === "free") return t.desks.length > 0 && !isAway(t) && !t.busy;
     // Условие про стол обязано совпадать с busyCount, иначе чип показывает
     // одно число, а список под ним — другое.
-    if (filter === "busy") return t.desks.length > 0 && t.busy;
+    if (filter === "busy") return t.desks.length > 0 && !isAway(t) && t.busy;
+    if (filter === "away") return t.desks.length > 0 && isAway(t);
     if (filter === "nodesk") return t.desks.length === 0;
     if (filter === "mine") return (t.myOrders?.summary.total ?? 0) > 0;
     return true;
@@ -577,6 +585,9 @@ export default function TechniciansPage() {
     { id: "free", label: "Свободны", count: freeCount, active: "border-success/50 bg-success/15 text-success" },
     { id: "busy", label: "Заняты", count: busyCount, active: "border-destructive/50 bg-destructive/15 text-destructive" },
   ];
+  if (awayCount > 0) {
+    filters.push({ id: "away", label: "Сегодня нет", count: awayCount, active: "border-destructive/50 bg-destructive/15 text-destructive" });
+  }
   if (noDeskCount > 0) {
     filters.push({ id: "nodesk", label: "Без стола", count: noDeskCount, active: "border-border bg-muted/60 text-foreground" });
   }
@@ -682,6 +693,18 @@ export default function TechniciansPage() {
             <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               Не удалось загрузить загрузку технарей. Обновите страницу.
             </p>
+          )}
+          {schedulesFailed && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+              <span className="min-w-0 flex-1">График не прочитан — выходные на карточках сейчас не видны.</span>
+              <button
+                type="button"
+                onClick={retrySchedules}
+                className="min-h-11 shrink-0 font-medium underline underline-offset-2 sm:min-h-0"
+              >
+                Повторить
+              </button>
+            </div>
           )}
           {ratingsFailed && !loadFailed && (
             <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -802,6 +825,8 @@ export default function TechniciansPage() {
                   ? "В этом месяце ваших заказов у технарей нет."
                   : filter === "nodesk"
                     ? "У всех технарей есть стол."
+                    : filter === "away"
+                      ? "Сегодня все на месте."
                     : "Сейчас все заняты."}
             </p>
           )}

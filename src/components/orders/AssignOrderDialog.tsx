@@ -96,7 +96,15 @@ export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, o
           onClick={() => void run("__random", onRandom)}
         >
           {busy === "__random" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shuffle className="h-4 w-4" />}
-          {claimed.length ? `Рандом из откликнувшихся (${randomPool.length})` : `Рандом из всех технарей (${randomPool.length})`}
+          {/* Подпись — по тому, из кого РЕАЛЬНО разыгрывается, а не по тому,
+              были ли отклики вообще: если откликнулись только занятые или
+              выходные, пул — свободные без отклика, и «из откликнувшихся»
+              было бы враньём. */}
+          {randomPool.length > 0 && randomPool.every((c) => c.claimedAt != null)
+            ? `Рандом из откликнувшихся (${randomPool.length})`
+            : randomPool.length > 0
+              ? `Рандом из технарей на смене (${randomPool.length})`
+              : "Рандом: сегодня выдать некому"}
         </Button>
         <div className="flex max-h-[55vh] flex-col gap-3 overflow-y-auto">
           {claimed.length > 0 && (

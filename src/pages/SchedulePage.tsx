@@ -43,6 +43,7 @@ import {
   cancelScheduleRequest,
   requestScheduleMark,
   resolveScheduleRequest,
+  subscribePendingScheduleRequests,
   subscribeScheduleRequests,
 } from "@/services/scheduleRequestService";
 import { cn } from "@/utils/cn";
@@ -66,6 +67,19 @@ import {
   type TechSchedule,
   type WorkspaceMember,
 } from "@/types";
+
+/**
+ * «19 сент.» — день запроса вместе с месяцем: в списке руководства теперь
+ * бывают запросы и за прошлый месяц, одного числа мало.
+ */
+function requestDateLabel(request: ScheduleRequest): string {
+  const [year, month] = request.monthKey.split("-").map(Number);
+  const day = Number(request.dayKey);
+  if (!year || !month || !day) return request.dayKey;
+  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", timeZone: "UTC" }).format(
+    new Date(Date.UTC(year, month - 1, day))
+  );
+}
 
 /**
  * «График» — один экран на всех, кто работает по сменам. Разделы намеренно
@@ -100,7 +114,16 @@ export default function SchedulePage() {
 
   const uid = profile?.uid ?? "";
   const canEdit = permissions.canRetireDesks && Boolean(activeWorkspaceId);
-  const schedules = useTechSchedules(activeWorkspaceId, monthKey, permissions.isResolved);
+  const {
+    schedules,
+    loaded: schedulesLoaded,
+    failed: schedulesFailed,
+    retry: retrySchedules,
+  } = useTechSchedules(activeWorkspaceId, monthKey, permissions.isResolved);
+  // Править можно только поверх ПРОЧИТАННОГО графика: до первого снимка
+  // (и при отказе) база выглядит пустой, и шаблон недели или меню дня
+  // сравнивали бы правку с пустотой — «отпросился» и «пришёл» затирались.
+  const scheduleReady = schedulesLoaded && !schedulesFailed;
   const byUid = useMemo(() => {
     const map = new Map<string, TechSchedule>();
     for (const s of schedules) map.set(s.uid, s);
@@ -125,6 +148,15 @@ export default function SchedulePage() {
     if (!activeWorkspaceId) return;
     return subscribeScheduleRequests(activeWorkspaceId, monthKey, setRequests, () => setRequests([]));
   }, [activeWorkspaceId, monthKey]);
+
+  // Руководству — все ожидающие запросы, какого бы месяца они ни были. Второй
+  // слушатель только у Owner/Тимлида и только пока открыт «График».
+  const [pendingAll, setPendingAll] = useState<ScheduleRequest[]>([]);
+  useEffect(() => {
+    setPendingAll([]);
+    if (!activeWorkspaceId || !canEdit) return;
+    return subscribePendingScheduleRequests(activeWorkspaceId, setPendingAll, () => setPendingAll([]));
+  }, [activeWorkspaceId, canEdit]);
 
   const active = useMemo(() => members.filter((m) => m.status === "active" && Boolean(m.uid)), [members]);
 
@@ -176,7 +208,13 @@ export default function SchedulePage() {
   const myName = personLabel(active.find((m) => m.uid === uid) ?? null) || "Вы";
   const myHours = todayKey ? scheduleHoursOf(byUid.get(uid), todayKey) : null;
   const todayLabel = formatDate(Date.now(), "d MMMM, EEEE");
-  const pendingRequests = useMemo(() => requests.filter((r) => r.status === "pending"), [requests]);
+  const pendingRequests = useMemo(
+    () =>
+      (canEdit ? pendingAll : requests.filter((r) => r.status === "pending")).slice().sort(
+        (a, b) => a.monthKey.localeCompare(b.monthKey) || Number(a.dayKey) - Number(b.dayKey)
+      ),
+    [canEdit, pendingAll, requests]
+  );
   const myRequest = todayKey ? requests.find((r) => r.id === scheduleRequestId(uid, monthKey, todayKey)) ?? null : null;
 
   /** Клик в режиме правки: только «выходной ↔ рабочий», ничего больше. */
@@ -187,7 +225,12 @@ export default function SchedulePage() {
         const key = draftKey(row.uid, dayKey);
         const stored = scheduleStateOf(byUid.get(row.uid), dayKey);
         const shown = next.get(key) ?? stored;
-        const wanted: ScheduleDayState = shown === "off" ? "work" : "off";
+        // Клик переключает выходной, а «вернуть» значит вернуть ИСХОДНОЕ. Для
+        // «отпросился» это само «отпросился», а не «рабочий»: иначе два
+        // случайных касания (О → В → пусто) молча стирали согласование, и
+        // обратно к «О» по клику было не прийти. Сделать такой день рабочим
+        // — осознанное действие, оно есть в меню дня («Обычный рабочий»).
+        const wanted: ScheduleDayState = shown === "off" ? (stored === "excused" ? "excused" : "work") : "off";
         // Вернулись к тому, что уже лежит в базе — писать этот день не за чем.
         if (wanted === stored) next.delete(key);
         else next.set(key, wanted);
@@ -433,7 +476,7 @@ export default function SchedulePage() {
     todayKey,
     schedules: byUid,
     meUid: uid,
-    canEdit,
+    canEdit: canEdit && scheduleReady,
     editing,
     draft,
     hoursDraft,
@@ -502,7 +545,14 @@ export default function SchedulePage() {
                   </Button>
                 </>
               ) : (
-                <Button variant="outline" size="sm" className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => setEditing(true)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="min-h-11 gap-1.5 sm:min-h-0"
+                  disabled={!scheduleReady}
+                  title={scheduleReady ? undefined : "График ещё не загрузился"}
+                  onClick={() => setEditing(true)}
+                >
                   <Pencil className="h-3.5 w-3.5" />
                   Редактировать
                 </Button>
@@ -580,24 +630,51 @@ export default function SchedulePage() {
         </div>
       )}
 
+      {schedulesFailed && (
+        <div className="mb-4">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+            <span className="min-w-0 flex-1">График не загрузился — показано пустым, правка выключена.</span>
+            <button
+              type="button"
+              onClick={retrySchedules}
+              className="min-h-11 shrink-0 font-medium underline underline-offset-2 sm:min-h-0"
+            >
+              Повторить
+            </button>
+          </div>
+        </div>
+      )}
+
       {!editing && canEdit && pendingRequests.length > 0 && (
         <div className="mb-4 flex flex-col gap-2 rounded-xl border border-primary/35 bg-primary/[0.06] p-3">
           <p className="text-[12px] font-medium">
             Просят отметить выход <span className="tabular-nums opacity-70">{pendingRequests.length}</span>
           </p>
           {pendingRequests.map((request) => (
-            <div key={request.id} className="flex flex-wrap items-center gap-2 text-[12px]">
-              <span className="min-w-0 flex-1 truncate">
-                {request.name} — работал(а) {request.dayKey} {monthLabel}
-              </span>
-              <Button size="sm" className="h-8 gap-1.5" onClick={() => void resolveRequest(request, true)}>
-                <Check className="h-3.5 w-3.5" />
-                Отметить
-              </Button>
-              <Button variant="ghost" size="sm" className="h-8 gap-1.5" onClick={() => void resolveRequest(request, false)}>
-                <X className="h-3.5 w-3.5" />
-                Отклонить
-              </Button>
+            // Дата — ПЕРВОЙ и без обрезки: раньше она стояла в конце строки, и
+            // на телефоне две кнопки съедали место — Тимлид подтверждал
+            // вслепую, не видя, за какой день ставит отметку.
+            <div key={request.id} className="flex flex-col gap-2 text-[12px] sm:flex-row sm:items-center">
+              <p className="min-w-0 flex-1">
+                <span className="font-semibold tabular-nums">{requestDateLabel(request)}</span>
+                <span className="text-muted-foreground"> · </span>
+                {request.name} — работал(а)
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" className="min-h-11 flex-1 gap-1.5 sm:h-8 sm:min-h-0 sm:flex-none" onClick={() => void resolveRequest(request, true)}>
+                  <Check className="h-3.5 w-3.5" />
+                  Отметить
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="min-h-11 flex-1 gap-1.5 sm:h-8 sm:min-h-0 sm:flex-none"
+                  onClick={() => void resolveRequest(request, false)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Отклонить
+                </Button>
+              </div>
             </div>
           ))}
         </div>

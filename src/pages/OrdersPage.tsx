@@ -12,7 +12,8 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import { useDeskLoads, useTechSchedules } from "@/hooks/useDeskLoads";
-import { effectiveTechLoadKinds, summarizeDeskLoad } from "@/utils/techLoad";
+import { currentBusyUids, effectiveTechLoadKinds } from "@/utils/techLoad";
+import { currentMonthSubPageId } from "@/services/monthTabService";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import {
   assignOrder,
@@ -101,7 +102,11 @@ export default function OrdersPage() {
   // График и загрузка столов — ровно для двух запретов на отклик: «сегодня
   // выходной» и «уже есть заказ в работе». Оба живут только пока открыта
   // эта страница (см. лимиты слушателей в CLAUDE.md).
-  const schedules = useTechSchedules(activeWorkspaceId, monthKey, permissions.isResolved);
+  const {
+    schedules,
+    failed: schedulesFailed,
+    retry: retrySchedules,
+  } = useTechSchedules(activeWorkspaceId, monthKey, permissions.isResolved);
   const { loads } = useDeskLoads(activeWorkspaceId, permissions.isResolved);
   const todayKey = scheduleDayKey(ymdInTimeZone(Date.now()));
   const kinds = useMemo(() => effectiveTechLoadKinds(activeWorkspace), [activeWorkspace]);
@@ -118,15 +123,18 @@ export default function OrdersPage() {
    * агрегатам deskLoad и тем же правилам статусов, что и «Технари», —
    * иначе «занят» на двух экранах означал бы разное.
    */
-  const inWorkUids = useMemo(() => {
-    const set = new Set<string>();
-    for (const load of loads ?? []) {
-      const responsible = load.responsibleUserId;
-      if (!responsible) continue;
-      if (summarizeDeskLoad(load, statusOptions, kinds).busy > 0) set.add(responsible);
-    }
-    return set;
-  }, [loads, statusOptions, kinds]);
+  const inWorkUids = useMemo(
+    () =>
+      currentBusyUids({
+        pages,
+        loads: loads ?? [],
+        monthKey,
+        statusOptions,
+        kinds,
+        currentTabOf: (page) => currentMonthSubPageId(page, monthKey),
+      }),
+    [pages, loads, monthKey, statusOptions, kinds]
+  );
 
   /** Почему этот технарь сейчас не может взять заказ — null, если может. */
   function blockReasonFor(technicianUid: string): string | null {
@@ -190,6 +198,7 @@ export default function OrdersPage() {
       hasDesk: deskByUid.has(m.uid),
       claimedAt: order.claims[m.uid]?.at ?? null,
       blockedReason: blockReasonFor(m.uid),
+      absentToday: scheduleStateOf(scheduleByUid.get(m.uid), todayKey) !== "work",
       member: m,
       deskName: deskByUid.get(m.uid) ?? null,
     }));
@@ -252,9 +261,15 @@ export default function OrdersPage() {
   }
 
   async function handleRandom(order: WorkOrder) {
-    const pick = pickRandomCandidate(candidatesFor(order));
+    const candidates = candidatesFor(order);
+    const pick = pickRandomCandidate(candidates);
     if (!pick) {
-      toast.error("Некому выдать: ни у кого нет стола");
+      const withDesk = candidates.filter((c) => c.hasDesk);
+      toast.error(
+        withDesk.length > 0
+          ? "Сегодня все технари со столом на выходном — выдайте вручную"
+          : "Некому выдать: ни у кого нет стола"
+      );
       return;
     }
     await handleAssign(order, pick);
@@ -300,6 +315,21 @@ export default function OrdersPage() {
           </button>
         ))}
       />
+
+      {schedulesFailed && (
+        <div className="mb-4">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+            <span className="min-w-0 flex-1">График не прочитан — выходные сейчас не учитываются ни в откликах, ни в «Рандоме».</span>
+            <button
+              type="button"
+              onClick={retrySchedules}
+              className="min-h-11 shrink-0 font-medium underline underline-offset-2 sm:min-h-0"
+            >
+              Повторить
+            </button>
+          </div>
+        </div>
+      )}
 
       {ordersError ? (
         <EmptyState

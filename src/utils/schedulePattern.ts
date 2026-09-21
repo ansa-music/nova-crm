@@ -47,7 +47,13 @@ export function applyWeekPattern(input: WeekPatternInput): {
       const stored = scheduleStateOf(schedule, dayKey);
       const key = draftKey(uid, dayKey);
 
-      if (stored !== "excused") {
+      // Разовые согласования шаблон не трогает: ни «отпросился», ни
+      // подтверждённое «пришёл в рабочий день». Последнее scheduleStateOf
+      // отдаёт как "work", поэтому выходная суббота с отметкой «пришёл»
+      // считалась несовпавшей с шаблоном, попадала в черновик — и при
+      // сохранении отметка стиралась, хотя в базе суббота и так выходная.
+      const oneOff = stored === "excused" || Boolean(schedule?.selfWork?.[dayKey]);
+      if (!oneOff) {
         const wanted: ScheduleDayState = input.offDows.includes(dow) ? "off" : "work";
         if (wanted === stored) draft.delete(key);
         else draft.set(key, wanted);
