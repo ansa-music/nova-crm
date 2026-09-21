@@ -879,24 +879,18 @@ service cloud.firestore {
       match /techSchedule/{scheduleId} {
         allow read: if isMember(workspaceId);
 
+        // График целиком ведёт руководство: и выходной, и «отпросился», и
+        // отметку «пришёл в рабочий день» (`selfWork`). Технарь и ОС свой
+        // график только ЧИТАЮТ — писать им сюда нечего, поэтому отдельной
+        // ветки под них больше нет. Была: она разрешала свой `selfWork`, но
+        // это состояние перебивает выходной, поставленный Тимлидом.
+        //
         // У delete нет request.resource (см. CLAUDE.md) — отдельным правилом.
         allow delete: if hasFullAccess(workspaceId);
         allow create, update: if hasFullAccess(workspaceId)
           && request.resource.data.workspaceId == workspaceId
           && scheduleId == request.resource.data.uid + '_' + request.resource.data.monthKey
           && request.resource.data.keys().hasOnly(['workspaceId', 'uid', 'monthKey', 'days', 'selfWork', 'updatedAt', 'updatedBy']);
-
-        // Технарь — только свой документ и только «вышел на смену».
-        allow update: if isMember(workspaceId)
-          && resource.data.uid == request.auth.uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['selfWork', 'updatedAt']);
-        // Своего документа ещё нет: создать можно, но БЕЗ `days` — выходной
-        // себе поставить нельзя ни при каких условиях.
-        allow create: if isMember(workspaceId)
-          && request.resource.data.workspaceId == workspaceId
-          && request.resource.data.uid == request.auth.uid
-          && scheduleId == request.auth.uid + '_' + request.resource.data.monthKey
-          && request.resource.data.keys().hasOnly(['workspaceId', 'uid', 'monthKey', 'selfWork', 'updatedAt']);
       }
 
       // -----------------------------------------------------------------

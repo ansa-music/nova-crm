@@ -12,7 +12,6 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import { useDeskLoads, useTechSchedules } from "@/hooks/useDeskLoads";
-import { setSelfWorkDay } from "@/services/techScheduleService";
 import { effectiveTechLoadKinds, summarizeDeskLoad } from "@/utils/techLoad";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import {
@@ -197,18 +196,11 @@ export default function OrdersPage() {
   }
 
   const myBlockReason = canClaim ? blockReasonFor(uid) : null;
-  /** Выходной/отпросился человек снимает сам; «заказ в работе» — нет, его надо доделать. */
+  /**
+   * Выходной и «отпросился» снимает ТОЛЬКО руководство: график — документ
+   * Тимлида, и кнопки «вышел на смену» у человека больше нет.
+   */
   const isScheduleBlock = myBlockReason === "сегодня выходной" || myBlockReason === "отпросился";
-
-  async function handleGoOnShift() {
-    if (!activeWorkspaceId) return;
-    try {
-      await setSelfWorkDay({ workspaceId: activeWorkspaceId, uid, monthKey, dayKey: todayKey, working: true });
-      toast.success("Вы на смене — отклики открыты");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось выйти на смену");
-    }
-  }
 
   async function withBusy(id: string, fn: () => Promise<void>, fail: string) {
     setBusyId(id);
@@ -444,16 +436,7 @@ export default function OrdersPage() {
                     {order.status === "open" && canClaim && myBlockReason && !claimed && (
                       <span className="inline-flex items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/[0.08] px-2.5 py-1 text-[11px] text-warning">
                         Отклик закрыт: {myBlockReason}
-                        {isScheduleBlock && (
-                          <button
-                            type="button"
-                            className="font-medium underline underline-offset-2 hover:no-underline"
-                            onClick={() => void handleGoOnShift()}
-                            disabled={busy}
-                          >
-                            Вышел на смену
-                          </button>
-                        )}
+                        {isScheduleBlock && <span className="opacity-80">· отметить выход может Тимлид</span>}
                       </span>
                     )}
                     {order.status === "open" && canClaim && (!myBlockReason || claimed) && (

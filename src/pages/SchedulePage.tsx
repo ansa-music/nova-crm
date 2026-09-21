@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
   ChevronLeft,
@@ -6,13 +6,20 @@ import {
   HardHat,
   Headset,
   Loader2,
+  Pencil,
   Plus,
   ShieldCheck,
   UserPlus,
 } from "lucide-react";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { EmptyState } from "@/components/common/EmptyState";
-import { ScheduleGrid, ScheduleLegend, type ScheduleRow } from "@/components/schedule/ScheduleGrid";
+import {
+  draftKey,
+  ScheduleGrid,
+  ScheduleLegend,
+  type ScheduleDayAction,
+  type ScheduleRow,
+} from "@/components/schedule/ScheduleGrid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
@@ -25,7 +32,7 @@ import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { nextMonthKey, previousMonthKey } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
 import { saveScheduleGroup, subscribeScheduleGroup } from "@/services/scheduleGroupService";
-import { setSelfWorkDay } from "@/services/techScheduleService";
+import { saveScheduleDraft, setCameToWorkDay, setScheduleDay } from "@/services/techScheduleService";
 import { personLabel, worksAsTechnician } from "@/utils/peopleDesks";
 import { ymdInTimeZone } from "@/utils/date";
 import {
@@ -34,6 +41,7 @@ import {
   newSchedulePersonId,
   scheduleDayKey,
   scheduleStateOf,
+  type ScheduleDayState,
   type ScheduleGroup,
   type SchedulePerson,
   type TechSchedule,
@@ -45,6 +53,11 @@ import {
  * разные: у технарей смены про заказы, у ОС — про приём, у руководства свой
  * ритм, и мешать их в один список бесполезно.
  *
+ * Правит график ТОЛЬКО Owner и Тимлид, и правит осознанно: выходные на месяц
+ * вперёд — в режиме правки с явным «Сохранить», разовые отметки («пришёл в
+ * рабочий день», «отпросился») — через меню дня. Технарь и ОС свой график
+ * только смотрят.
+ *
  * Человека с двумя ролями показываем ОДИН раз, в самом «рабочем» его
  * разделе: график хранится по uid, и две строки на один документ означали бы,
  * что правка в одной молча меняет вторую.
@@ -55,12 +68,14 @@ export default function SchedulePage() {
   const { activeWorkspaceId, members, pages } = useWorkspace();
   const currentMonth = useCurrentMonthKey();
   const [monthKey, setMonthKey] = useState(currentMonth);
-  const [busy, setBusy] = useState(false);
   const [group, setGroup] = useState<ScheduleGroup | null>(null);
   const [section, setSection] = useState<string>("all");
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<Map<string, ScheduleDayState>>(new Map());
+  const [saving, setSaving] = useState(false);
 
   const uid = profile?.uid ?? "";
-  const canEdit = permissions.canRetireDesks;
+  const canEdit = permissions.canRetireDesks && Boolean(activeWorkspaceId);
   const schedules = useTechSchedules(activeWorkspaceId, monthKey, permissions.isResolved);
   const byUid = useMemo(() => {
     const map = new Map<string, TechSchedule>();
@@ -83,12 +98,10 @@ export default function SchedulePage() {
 
   const active = useMemo(() => members.filter((m) => m.status === "active" && Boolean(m.uid)), [members]);
 
-  // Кто со столом: роль Технаря ИЛИ он ответственный за живой стол. Второе —
-  // ровно про Owner: у него роль owner, но стол есть, и в графике он нужен.
-  //
-  // Список столов у каждого свой (кому что видно), поэтому человек без роли
-  // Технаря, но со столом, у одних попадёт в «Технари», у других — в
-  // «Руководство». В графике он есть в любом случае, а это здесь главное.
+  // Столы нужны как запасной путь: кто работает за столом, решает
+  // `worksAsTechnician` (Технарь или Owner) — он одинаков у всех, а список
+  // столов у каждого свой. Без этого человек с чужим столом, но без роли,
+  // у одних попадал бы в «Технари», у других — в «Руководство».
   const deskOwners = useMemo(
     () => new Set(pages.filter((p) => !p.isDashboard && p.responsibleUserId).map((p) => p.responsibleUserId as string)),
     [pages]
@@ -131,16 +144,94 @@ export default function SchedulePage() {
   const myToday = todayKey ? scheduleStateOf(byUid.get(uid), todayKey) : "work";
   const iAmScheduled = active.some((m) => m.uid === uid);
 
-  async function goOnShift() {
-    if (!activeWorkspaceId || !todayKey) return;
-    setBusy(true);
+  /** Клик в режиме правки: только «выходной ↔ рабочий», ничего больше. */
+  const toggleDraft = useCallback(
+    (row: ScheduleRow, dayKey: string) => {
+      setDraft((prev) => {
+        const next = new Map(prev);
+        const key = draftKey(row.uid, dayKey);
+        const stored = scheduleStateOf(byUid.get(row.uid), dayKey);
+        const shown = next.get(key) ?? stored;
+        const wanted: ScheduleDayState = shown === "off" ? "work" : "off";
+        // Вернулись к тому, что уже лежит в базе — писать этот день не за чем.
+        if (wanted === stored) next.delete(key);
+        else next.set(key, wanted);
+        return next;
+      });
+    },
+    [byUid]
+  );
+
+  async function saveDraft() {
+    if (!activeWorkspaceId || draft.size === 0) {
+      setEditing(false);
+      setDraft(new Map());
+      return;
+    }
+    const byPerson = new Map<string, Record<string, ScheduleDayState>>();
+    for (const [key, state] of draft) {
+      const [personUid, dayKey] = key.split(":");
+      const days = byPerson.get(personUid) ?? {};
+      days[dayKey] = state;
+      byPerson.set(personUid, days);
+    }
+    setSaving(true);
     try {
-      await setSelfWorkDay({ workspaceId: activeWorkspaceId, uid, monthKey, dayKey: todayKey, working: true });
-      toast.success("Вы на смене — отклики на заказы открыты");
+      await saveScheduleDraft({
+        workspaceId: activeWorkspaceId,
+        monthKey,
+        actorUid: uid,
+        changes: Array.from(byPerson, ([personUid, days]) => ({ uid: personUid, days })),
+      });
+      toast.success(`График сохранён · дней изменено: ${draft.size}`);
+      setDraft(new Map());
+      setEditing(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось выйти на смену");
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить график");
     } finally {
-      setBusy(false);
+      setSaving(false);
+    }
+  }
+
+  async function cancelDraft() {
+    if (draft.size > 0) {
+      const ok = await confirmDialog({
+        title: "Выйти без сохранения?",
+        description: `Несохранённых дней: ${draft.size}. Они не попадут в график.`,
+        confirmLabel: "Выйти",
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    setDraft(new Map());
+    setEditing(false);
+  }
+
+  /** Меню дня в обычном виде — разовая отметка, пишется сразу. */
+  async function pickDay(row: ScheduleRow, dayKey: string, action: ScheduleDayAction) {
+    if (!activeWorkspaceId) return;
+    try {
+      if (action === "came" || action === "not-came") {
+        await setCameToWorkDay({
+          workspaceId: activeWorkspaceId,
+          uid: row.uid,
+          monthKey,
+          dayKey,
+          came: action === "came",
+          actorUid: uid,
+        });
+      } else {
+        await setScheduleDay({
+          workspaceId: activeWorkspaceId,
+          uid: row.uid,
+          monthKey,
+          dayKey,
+          state: action,
+          actorUid: uid,
+        });
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось изменить график");
     }
   }
 
@@ -156,12 +247,20 @@ export default function SchedulePage() {
   async function removePerson(row: ScheduleRow) {
     const ok = await confirmDialog({
       title: `Убрать ${row.label}?`,
-      description: "Строка исчезнет из графика. Уже проставленные смены останутся в базе — если вернёте человека под тем же именем, они не подтянутся.",
+      description:
+        "Строка исчезнет из графика. Уже проставленные смены останутся в базе — если вернёте человека под тем же именем, они не подтянутся.",
       confirmLabel: "Убрать",
       destructive: true,
     });
     if (!ok) return;
     await saveGroup(groupName, groupPeople.filter((p) => p.id !== row.uid));
+  }
+
+  function goToMonth(next: string) {
+    // В режиме правки месяц не листаем: черновик привязан к нему, и соседний
+    // месяц молча сохранил бы чужие дни.
+    if (editing) return;
+    setMonthKey(next);
   }
 
   const monthLabel = monthTabNameForKey(monthKey).toLowerCase();
@@ -175,24 +274,38 @@ export default function SchedulePage() {
   const visible = (id: string) => section === "all" || section === id;
   const nothingAtAll = sections.length === 0 && !showCustom;
 
+  const gridProps = {
+    monthKey,
+    todayKey,
+    schedules: byUid,
+    canEdit,
+    editing,
+    draft,
+    onToggleDraft: toggleDraft,
+    onPickDay: (row: ScheduleRow, dayKey: string, action: ScheduleDayAction) => void pickDay(row, dayKey, action),
+  };
+
   return (
     <div className="mx-auto w-full min-w-0 max-w-7xl p-5 sm:p-8 lg:p-10">
       <PageHeader
         eyebrow="Студия"
         title="График"
         description={
-          canEdit
-            ? "Кто работает, у кого выходной и кто отпросился. Клик по дню: рабочий → выходной → отпросился."
-            : "Кто работает, у кого выходной и кто отпросился. Выходные ставит Тимлид."
+          !canEdit
+            ? "Кто работает, у кого выходной и кто отпросился. График ведёт Тимлид."
+            : editing
+              ? "Режим правки: клик по дню ставит и снимает выходной. Ничего не уйдёт в базу, пока не нажмёте «Сохранить»."
+              : "Кто работает, у кого выходной и кто отпросился. Клик по дню — меню: пришёл в рабочий день, отпросился, выходной."
         }
         actions={
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 flex-wrap items-center gap-1">
             <Button
               variant="outline"
               size="icon"
               className="h-11 w-11 sm:h-9 sm:w-9"
               aria-label="Предыдущий месяц"
-              onClick={() => setMonthKey(previousMonthKey(monthKey))}
+              disabled={editing}
+              onClick={() => goToMonth(previousMonthKey(monthKey))}
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
@@ -202,19 +315,44 @@ export default function SchedulePage() {
               size="icon"
               className="h-11 w-11 sm:h-9 sm:w-9"
               aria-label="Следующий месяц"
-              onClick={() => setMonthKey(nextMonthKey(monthKey))}
+              disabled={editing}
+              onClick={() => goToMonth(nextMonthKey(monthKey))}
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
-            {!isCurrentMonth && (
+            {!isCurrentMonth && !editing && (
               <Button variant="ghost" size="sm" className="min-h-11 sm:min-h-0" onClick={() => setMonthKey(currentMonth)}>
                 Сегодня
               </Button>
             )}
+            {canEdit &&
+              (editing ? (
+                <>
+                  <Button size="sm" className="min-h-11 gap-1.5 sm:min-h-0" disabled={saving} onClick={() => void saveDraft()}>
+                    {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    Сохранить
+                    {draft.size > 0 && <span className="tabular-nums opacity-80">{draft.size}</span>}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="min-h-11 sm:min-h-0"
+                    disabled={saving}
+                    onClick={() => void cancelDraft()}
+                  >
+                    Отмена
+                  </Button>
+                </>
+              ) : (
+                <Button variant="outline" size="sm" className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => setEditing(true)}>
+                  <Pencil className="h-3.5 w-3.5" />
+                  Редактировать
+                </Button>
+              ))}
           </div>
         }
         filters={
-          nothingAtAll
+          nothingAtAll || editing
             ? undefined
             : [
                 <button key="all" type="button" onClick={() => setSection("all")} className={pageChipClass(section === "all")}>
@@ -243,15 +381,20 @@ export default function SchedulePage() {
         }
       />
 
-      {iAmScheduled && myToday !== "work" && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-warning/35 bg-warning/[0.08] px-3 py-2.5">
-          <p className="min-w-0 flex-1 text-[12px]">
-            {myToday === "off" ? "Сегодня у вас выходной" : "Сегодня вы отпросились"} — отклики на заказы закрыты.
+      {editing && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-primary/35 bg-primary/[0.07] px-3 py-2.5 text-[12px]">
+          <Pencil className="h-3.5 w-3.5 shrink-0 text-primary" />
+          <p className="min-w-0 flex-1">
+            Отмечаете выходные на {monthLabel}. Изменений: <span className="font-medium tabular-nums">{draft.size}</span> — они
+            уйдут в график одним сохранением. Месяц пока не листается.
           </p>
-          <Button size="sm" className="min-h-11 sm:min-h-0" onClick={() => void goOnShift()} disabled={busy}>
-            {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            Вышел на смену
-          </Button>
+        </div>
+      )}
+
+      {!editing && iAmScheduled && myToday !== "work" && (
+        <div className="mb-4 rounded-xl border border-warning/35 bg-warning/[0.08] px-3 py-2.5 text-[12px]">
+          {myToday === "off" ? "Сегодня у вас выходной" : "Сегодня вы отпросились"} — отклики на заказы закрыты.
+          {!canEdit && " Отметить выход может Тимлид."}
         </div>
       )}
 
@@ -265,39 +408,22 @@ export default function SchedulePage() {
         <div className="flex flex-col gap-6">
           {sections.map(
             (s) =>
-              visible(s.id) && (
+              (editing || visible(s.id)) && (
                 <Section key={s.id} icon={s.icon} title={s.title} count={s.rows.length}>
-                  <ScheduleGrid
-                    workspaceId={activeWorkspaceId ?? ""}
-                    monthKey={monthKey}
-                    todayKey={todayKey}
-                    rows={s.rows}
-                    schedules={byUid}
-                    canEdit={canEdit && Boolean(activeWorkspaceId)}
-                    actorUid={uid}
-                  />
+                  <ScheduleGrid {...gridProps} rows={s.rows} />
                 </Section>
               )
           )}
 
-          {showCustom && visible("custom") && (
+          {showCustom && (editing || visible("custom")) && (
             <CustomSection
               name={groupName}
               rows={customRows}
-              canEdit={canEdit && Boolean(activeWorkspaceId)}
+              canEdit={canEdit && !editing}
               onRename={(next) => void saveGroup(next, groupPeople)}
               onAdd={(name) => void saveGroup(groupName, [...groupPeople, { id: newSchedulePersonId(), name }])}
             >
-              <ScheduleGrid
-                workspaceId={activeWorkspaceId ?? ""}
-                monthKey={monthKey}
-                todayKey={todayKey}
-                rows={customRows}
-                schedules={byUid}
-                canEdit={canEdit && Boolean(activeWorkspaceId)}
-                actorUid={uid}
-                onRemoveRow={(row) => void removePerson(row)}
-              />
+              <ScheduleGrid {...gridProps} rows={customRows} onRemoveRow={(row) => void removePerson(row)} />
             </CustomSection>
           )}
 
@@ -306,7 +432,7 @@ export default function SchedulePage() {
           {!isCurrentMonth && (
             <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-              Смотрите не текущий месяц — «Вышел на смену» доступен только на сегодня.
+              Открыт не текущий месяц — «сегодня» в сетке не подсвечено.
             </p>
           )}
         </div>
@@ -357,17 +483,17 @@ function CustomSection({
   onAdd: (name: string) => void;
   children: React.ReactNode;
 }) {
-  const [draft, setDraft] = useState(name);
+  const [draftName, setDraftName] = useState(name);
   const [person, setPerson] = useState("");
 
   // Название могли поменять из другой сессии — черновик следует за ним, пока
   // его не начали править здесь.
-  useEffect(() => setDraft(name), [name]);
+  useEffect(() => setDraftName(name), [name]);
 
   function commitName() {
-    const next = draft.trim();
+    const next = draftName.trim();
     if (!next || next === name) {
-      setDraft(name);
+      setDraftName(name);
       return;
     }
     onRename(next);
@@ -386,12 +512,12 @@ function CustomSection({
         <UserPlus className="h-4 w-4 shrink-0 text-primary" />
         {canEdit ? (
           <Input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            value={draftName}
+            onChange={(e) => setDraftName(e.target.value)}
             onBlur={commitName}
             onKeyDown={(e) => {
               if (e.key === "Enter") e.currentTarget.blur();
-              if (e.key === "Escape") setDraft(name);
+              if (e.key === "Escape") setDraftName(name);
             }}
             aria-label="Название раздела"
             className="h-8 w-40 text-sm font-medium"

@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { useEffect, useMemo, useRef } from "react";
+import { Check, CircleSlash, Sun, UserMinus, X } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
-import { toast } from "@/components/ui/sonner";
-import { cn } from "@/utils/cn";
-import { setScheduleDay } from "@/services/techScheduleService";
 import {
-  SCHEDULE_DAY_LABELS,
-  scheduleStateOf,
-  type ScheduleDayState,
-  type TechSchedule,
-} from "@/types";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/utils/cn";
+import { SCHEDULE_DAY_LABELS, scheduleStateOf, type ScheduleDayState, type TechSchedule } from "@/types";
 
 export const SCHEDULE_STATE_STYLE: Record<ScheduleDayState, string> = {
   work: "border-border/50 text-muted-foreground/70",
@@ -17,14 +18,10 @@ export const SCHEDULE_STATE_STYLE: Record<ScheduleDayState, string> = {
   excused: "border-warning/45 bg-warning/15 text-warning",
 };
 
-/** Клик по дню перебирает состояния по кругу — меню на каждую из 31 клетки было бы пыткой. */
-const NEXT_STATE: Record<ScheduleDayState, ScheduleDayState> = {
-  work: "off",
-  off: "excused",
-  excused: "work",
-};
-
 const WEEKDAY_LETTERS = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+
+/** Что выбрали в меню дня: состояние дня или отметка «пришёл в рабочий день». */
+export type ScheduleDayAction = ScheduleDayState | "came" | "not-came";
 
 /**
  * Инициалы аватарки берутся по первым буквам слов, а своих людей пишут как
@@ -65,35 +62,50 @@ function isWeekend(monthKey: string, dayKey: string): boolean {
   return dow === 0 || dow === 6;
 }
 
+export function draftKey(uid: string, dayKey: string): string {
+  return `${uid}:${dayKey}`;
+}
+
 /**
  * Сетка графика: люди по строкам, дни месяца по колонкам.
+ *
+ * График правит только руководство и только осознанно. В обычном виде клик по
+ * дню открывает МЕНЮ (пришёл в рабочий день / отпросился / выходной), чтобы
+ * случайное касание не переписывало месяц; выходные на месяц вперёд ставят в
+ * режиме правки — там клик переключает только «выходной», а уезжает всё одним
+ * сохранением.
  *
  * Одна строка = один человек = один документ графика, даже если у него две
  * роли. Иначе Тимлид + Технарь получил бы две строки на один и тот же
  * документ, и правка в одной молча меняла бы вторую.
  */
 export function ScheduleGrid({
-  workspaceId,
   monthKey,
   todayKey,
   rows,
   schedules,
   canEdit,
-  actorUid,
+  editing,
+  draft,
+  onToggleDraft,
+  onPickDay,
   onRemoveRow,
 }: {
-  workspaceId: string;
   monthKey: string;
   /** Сегодняшний день месяца по Алматы, или null — если смотрим не текущий месяц. */
   todayKey: string | null;
   rows: ScheduleRow[];
   schedules: Map<string, TechSchedule>;
+  /** Owner или Тимлид: только они вообще что-то меняют. */
   canEdit: boolean;
-  actorUid: string;
+  editing: boolean;
+  /** Несохранённые выходные из режима правки: ключ `uid:день`. */
+  draft: Map<string, ScheduleDayState>;
+  onToggleDraft?: (row: ScheduleRow, dayKey: string) => void;
+  onPickDay?: (row: ScheduleRow, dayKey: string, action: ScheduleDayAction) => void;
   /** Есть только у своих людей — участника workspace из графика не убирают. */
   onRemoveRow?: (row: ScheduleRow) => void;
 }) {
-  const [busy, setBusy] = useState<string | null>(null);
   const days = useMemo(() => daysOfMonth(monthKey), [monthKey]);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
@@ -112,26 +124,6 @@ export function ScheduleGrid({
     const box = scroller.getBoundingClientRect();
     scroller.scrollLeft += cellBox.left - box.left - box.width / 2 + cellBox.width / 2;
   }, [todayKey, monthKey, rows.length]);
-
-  async function cycleDay(row: ScheduleRow, dayKey: string) {
-    if (!canEdit) return;
-    const current = scheduleStateOf(schedules.get(row.uid), dayKey);
-    setBusy(`${row.uid}:${dayKey}`);
-    try {
-      await setScheduleDay({
-        workspaceId,
-        uid: row.uid,
-        monthKey,
-        dayKey,
-        state: NEXT_STATE[current],
-        actorUid,
-      });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось изменить график");
-    } finally {
-      setBusy(null);
-    }
-  }
 
   // Крестик «убрать» занимает место, и без поправки колонка с именами в этом
   // разделе шире остальных — сетки разных секций перестают совпадать по дням.
@@ -173,7 +165,9 @@ export function ScheduleGrid({
         <tbody>
           {rows.map((row) => {
             const schedule = schedules.get(row.uid) ?? null;
-            const offCount = days.filter((d) => scheduleStateOf(schedule, d) === "off").length;
+            const stateOf = (dayKey: string): ScheduleDayState =>
+              draft.get(draftKey(row.uid, dayKey)) ?? scheduleStateOf(schedule, dayKey);
+            const offCount = days.filter((d) => stateOf(d) === "off").length;
             return (
               <tr key={row.uid}>
                 <td className="sticky left-0 z-10 w-28 min-w-[7rem] bg-card py-0.5 pr-2 sm:w-40 sm:min-w-[10rem] sm:pr-3">
@@ -206,35 +200,38 @@ export function ScheduleGrid({
                   </span>
                 </td>
                 {days.map((d) => {
-                  const state = scheduleStateOf(schedule, d);
-                  const selfWork = Boolean(schedule?.selfWork?.[d]);
+                  const state = stateOf(d);
+                  const pending = draft.has(draftKey(row.uid, d));
+                  const came = Boolean(schedule?.selfWork?.[d]) && !pending;
+                  const cell = (
+                    <button
+                      type="button"
+                      disabled={!canEdit}
+                      title={`${row.label} · ${d} — ${SCHEDULE_DAY_LABELS[state]}${
+                        came ? " (пришёл в рабочий день)" : ""
+                      }`}
+                      onClick={editing ? () => onToggleDraft?.(row, d) : undefined}
+                      className={cn(
+                        "h-7 w-7 rounded-sm border text-[10px] font-semibold transition-colors",
+                        SCHEDULE_STATE_STYLE[state],
+                        state === "work" && isWeekend(monthKey, d) && "bg-foreground/[0.07]",
+                        d === todayKey && "ring-1 ring-primary/60",
+                        pending && "ring-1 ring-primary ring-offset-1 ring-offset-card",
+                        canEdit ? "cursor-pointer hover:brightness-125" : "cursor-default"
+                      )}
+                    >
+                      {state === "off" ? "В" : state === "excused" ? "О" : came ? "✓" : ""}
+                    </button>
+                  );
                   return (
                     <td key={d} data-day={d} className="p-px text-center">
-                      <button
-                        type="button"
-                        disabled={!canEdit || busy !== null}
-                        onClick={() => void cycleDay(row, d)}
-                        title={`${row.label} · ${d} — ${SCHEDULE_DAY_LABELS[state]}${
-                          selfWork ? " (вышел на смену сам)" : ""
-                        }`}
-                        className={cn(
-                          "h-7 w-7 rounded-sm border text-[10px] font-semibold transition-colors",
-                          SCHEDULE_STATE_STYLE[state],
-                          state === "work" && isWeekend(monthKey, d) && "bg-foreground/[0.07]",
-                          d === todayKey && "ring-1 ring-primary/60",
-                          canEdit ? "cursor-pointer hover:brightness-125" : "cursor-default"
-                        )}
-                      >
-                        {busy === `${row.uid}:${d}`
-                          ? "·"
-                          : state === "off"
-                            ? "В"
-                            : state === "excused"
-                              ? "О"
-                              : selfWork
-                                ? "✓"
-                                : ""}
-                      </button>
+                      {canEdit && !editing ? (
+                        <DayMenu row={row} dayKey={d} state={state} came={came} onPick={onPickDay}>
+                          {cell}
+                        </DayMenu>
+                      ) : (
+                        cell
+                      )}
                     </td>
                   );
                 })}
@@ -250,6 +247,62 @@ export function ScheduleGrid({
   );
 }
 
+/**
+ * Меню дня. Именно меню, а не перебор по клику: по графику ходят пальцем с
+ * телефона, и одно случайное касание раньше меняло человеку день.
+ */
+function DayMenu({
+  row,
+  dayKey,
+  state,
+  came,
+  onPick,
+  children,
+}: {
+  row: ScheduleRow;
+  dayKey: string;
+  state: ScheduleDayState;
+  came: boolean;
+  onPick?: (row: ScheduleRow, dayKey: string, action: ScheduleDayAction) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
+      <DropdownMenuContent align="center" className="w-56">
+        <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
+          {row.label} · {dayKey} — {came ? "пришёл в рабочий день" : SCHEDULE_DAY_LABELS[state]}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {(state !== "work" || came) && (
+          <DropdownMenuItem onClick={() => onPick?.(row, dayKey, came ? "not-came" : "came")}>
+            <Check className="h-4 w-4" />
+            {came ? "Снять «пришёл»" : "Пришёл в рабочий день"}
+          </DropdownMenuItem>
+        )}
+        {state !== "excused" && (
+          <DropdownMenuItem onClick={() => onPick?.(row, dayKey, "excused")}>
+            <UserMinus className="h-4 w-4" />
+            Отпросился
+          </DropdownMenuItem>
+        )}
+        {state !== "off" && (
+          <DropdownMenuItem onClick={() => onPick?.(row, dayKey, "off")}>
+            <CircleSlash className="h-4 w-4" />
+            Выходной
+          </DropdownMenuItem>
+        )}
+        {(state !== "work" || came) && (
+          <DropdownMenuItem onClick={() => onPick?.(row, dayKey, "work")}>
+            <Sun className="h-4 w-4" />
+            Обычный рабочий
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function ScheduleLegend() {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground">
@@ -261,7 +314,7 @@ export function ScheduleLegend() {
       </span>
       <span className="inline-flex items-center gap-1.5">
         <span className="flex h-4 w-4 items-center justify-center rounded-sm border border-border/50 text-[9px]">✓</span>
-        Вышел на смену сам
+        Пришёл в рабочий день
       </span>
       <span className="inline-flex items-center gap-1.5">
         <span className="h-4 w-4 rounded-sm border border-border/50 bg-foreground/[0.07]" /> Суббота и воскресенье
