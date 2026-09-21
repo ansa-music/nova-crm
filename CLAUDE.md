@@ -594,6 +594,12 @@ Roles: `owner` > `teamlead` («Тимлид») > `admin` > `manager` («Техн
   `AppBootScreen` показывает её прямо на экране с «Обновить страницу»/«Выйти»; на любой
   стадии дольше 12 с — подсказка про сеть и расширения. Раньше единственным сигналом был
   тост, и его у Nurba закрыло уведомление расширения SuperchargeBrowser в том же углу.
+  Кнопка на этом экране — «Обновить в режиме совместимости»: она ставит в localStorage
+  `nova:firestore-long-polling=1`, и `firebase.ts` на этом устройстве создаёт Firestore с
+  `experimentalForceLongPolling` вместо автоопределения. Нужна для расширений-«ускорителей»,
+  антивирусов и прокси, которые КОПЯТ потоковый ответ базы: соединение формально открыто,
+  документов нет, `getDoc` висит без ошибки (обычный обрыв сети дал бы «client is offline»
+  за ~10 с). Две настройки взаимоисключающие — передавать ровно одну, иначе SDK бросает.
 - **iOS Safari / Google OAuth**: `authDomain` должен быть `firebaseapp.com`, не `web.app`
   (иначе `redirect_uri_mismatch` на iPhone). Мобильный Google-логин — `signInWithRedirect`, не
   `signInWithPopup`. `getRedirectResult()` не должен блокировать/ложно фейлить обычный

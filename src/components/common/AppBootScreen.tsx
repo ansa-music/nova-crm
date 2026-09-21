@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { BrandMark } from "@/components/common/BrandMark";
 import { Button } from "@/components/ui/button";
 import { signOutUser } from "@/firebase/auth";
+import { isFirestoreCompatMode, reloadInCompatMode } from "@/firebase/firebase";
 import { useBootstrapStore } from "@/store/bootstrapStore";
 import { deskEase, gsap, useGSAP } from "@/lib/gsap";
 import type { BootstrapPhase } from "@/hooks/useAppBootstrap";
@@ -85,8 +86,8 @@ export function AppBootScreen({ phase }: { phase: BootstrapPhase }) {
               <p className="break-all font-mono text-[10px] text-muted-foreground/70">{bootError}</p>
             </div>
             <div className="flex w-full flex-col gap-2">
-              <Button className="min-h-11 w-full" onClick={() => window.location.reload()}>
-                Обновить страницу
+              <Button className="min-h-11 w-full" onClick={reloadInCompatMode}>
+                {isFirestoreCompatMode ? "Обновить страницу" : "Обновить в режиме совместимости"}
               </Button>
               <Button variant="ghost" className="min-h-11 w-full" onClick={() => void signOutUser()}>
                 Выйти
@@ -104,8 +105,11 @@ export function AppBootScreen({ phase }: { phase: BootstrapPhase }) {
                 <p className="text-xs leading-5 text-muted-foreground">
                   Грузится дольше обычного. {NETWORK_HINT}
                 </p>
-                <Button variant="outline" size="sm" className="min-h-11" onClick={() => window.location.reload()}>
-                  Обновить страницу
+                {/* Режим совместимости переживает расширения и прокси, которые
+                    копят потоковый ответ базы, — чаще всего застревание именно
+                    это. Если он уже включён, остаётся обычная перезагрузка. */}
+                <Button size="sm" className="min-h-11" onClick={reloadInCompatMode}>
+                  {isFirestoreCompatMode ? "Обновить страницу" : "Обновить в режиме совместимости"}
                 </Button>
               </div>
             )}

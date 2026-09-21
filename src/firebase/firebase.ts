@@ -57,9 +57,48 @@ function createAuth(firebaseApp: FirebaseApp): Auth {
 
 export const auth: Auth = createAuth(app);
 
-export const db: Firestore = initializeFirestore(app, {
-  experimentalAutoDetectLongPolling: true,
-});
+/**
+ * «Режим совместимости» — принудительный long polling. Firestore держит связь
+ * с базой одним длинным потоковым ответом, а расширения-«ускорители»,
+ * антивирусы и корпоративные прокси иногда перехватывают такой ответ и копят
+ * его до конца — который не наступает никогда. Снаружи это выглядит как
+ * соединение «установлено», но ни одного документа не приходит: getDoc
+ * профиля висит без ошибки, и приложение навсегда застывает на «Загружаем
+ * профиль…» (так было у Nurba с SuperchargeBrowser). Long polling ходит
+ * короткими запросами и такие ловушки переживает.
+ *
+ * По умолчанию его НЕ включаем: автоопределение дешевле и быстрее для всех,
+ * у кого сеть в порядке. Включает его сам человек кнопкой на экране загрузки
+ * (AppBootScreen), и выбор помнится на этом устройстве. Сбросить — удалить
+ * ключ `nova:firestore-long-polling` из localStorage.
+ */
+export const FIRESTORE_COMPAT_KEY = "nova:firestore-long-polling";
+
+function compatModeEnabled(): boolean {
+  try {
+    return typeof window !== "undefined" && window.localStorage.getItem(FIRESTORE_COMPAT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Включить режим совместимости на этом устройстве и перезагрузить страницу. */
+export function reloadInCompatMode() {
+  try {
+    window.localStorage.setItem(FIRESTORE_COMPAT_KEY, "1");
+  } catch {
+    // Хранилище недоступно (приватный режим) — просто перезагрузим.
+  }
+  window.location.reload();
+}
+
+export const isFirestoreCompatMode = compatModeEnabled();
+
+// Две настройки взаимоисключающие: вместе initializeFirestore бросает.
+export const db: Firestore = initializeFirestore(
+  app,
+  isFirestoreCompatMode ? { experimentalForceLongPolling: true } : { experimentalAutoDetectLongPolling: true }
+);
 
 export const storage: FirebaseStorage = getStorage(app);
 
