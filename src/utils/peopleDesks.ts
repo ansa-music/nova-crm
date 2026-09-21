@@ -5,6 +5,20 @@ export function personLabel(member?: { name?: string; nickname?: string } | null
   return member.nickname || member.name || "";
 }
 
+/**
+ * Работает ли человек за столом как Технарь. Кроме самой роли (основной или
+ * второй) сюда попадает Owner: стол у него есть, заказы он ведёт как все, и
+ * без этого его стол выпадал из месячных вкладок, «Технарей», загрузки и
+ * дашборда — а помечать свой стол «Столом технаря» руками Nurba не обязан.
+ *
+ * Тимлид и ОС сюда НЕ попадают: у Тимлида столов нет вовсе, а ОС работает
+ * без стола.
+ */
+export function worksAsTechnician(member?: WorkspaceMember | null): boolean {
+  if (!member) return false;
+  return memberHasRole(member, "manager") || member.role === "owner";
+}
+
 export interface PersonDeskGroup {
   key: string;
   uid: string | null;

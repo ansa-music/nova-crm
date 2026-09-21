@@ -37,7 +37,7 @@ import { deleteTechRating, rateTechnician } from "@/services/techRatingService";
 import { confirmDialog } from "@/utils/appDialog";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { formatOrderDate, timeAgo } from "@/utils/date";
-import { personLabel } from "@/utils/peopleDesks";
+import { personLabel, worksAsTechnician } from "@/utils/peopleDesks";
 import {
   addStatusCounts,
   addTechLoad,
@@ -225,17 +225,18 @@ export default function TechniciansPage() {
 
   const technicians = useMemo<TechnicianRow[]>(() => {
     const loadByPage = new Map((loads ?? []).map((l) => [l.pageId, l]));
-    // Технари, plus anyone whose desk the Owner marked «Стол технаря».
+    // Кто работает за столом: Технарь или Owner (`worksAsTechnician`), плюс
+    // столы, помеченные «Стол технаря» руками.
     const flaggedOwners = new Set(pages.filter((p) => p.technicianDesk && p.responsibleUserId).map((p) => p.responsibleUserId));
     return members
-      .filter((m) => m.status === "active" && (memberHasRole(m, "manager") || flaggedOwners.has(m.uid)))
+      .filter((m) => m.status === "active" && (worksAsTechnician(m) || flaggedOwners.has(m.uid)))
       .map((member) => {
         const desks = pages
           .filter(
             (p) =>
               p.responsibleUserId === member.uid &&
               !p.isDashboard &&
-              (memberHasRole(member, "manager") || Boolean(p.technicianDesk))
+              (worksAsTechnician(member) || Boolean(p.technicianDesk))
           )
           .sort((a, b) => a.order - b.order);
         let summary = EMPTY_TECH_LOAD;

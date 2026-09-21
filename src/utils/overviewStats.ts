@@ -1,4 +1,5 @@
 import { isDoneStatusLabel } from "@/utils/columnOptions";
+import { worksAsTechnician } from "@/utils/peopleDesks";
 import {
   addTechLoad,
   EMPTY_TECH_LOAD,
@@ -7,7 +8,6 @@ import {
   type TechLoadSummary,
 } from "@/utils/techLoad";
 import {
-  memberHasRole,
   type DeskLoad,
   type DeskLoadArchive,
   type StatusOption,
@@ -75,14 +75,14 @@ export interface OverviewData {
   os: OverviewOsShare[];
 }
 
-/** Технари (main or add-on role) plus anyone whose desk is marked «Стол технаря», with the desks that count for them. */
+/** Кто работает за столом (`worksAsTechnician`: Технарь или Owner) плюс столы, помеченные «Стол технаря», — с их столами. */
 export function technicianDesks(
   members: WorkspaceMember[],
   pages: WorkspacePage[]
 ): { member: WorkspaceMember; desks: WorkspacePage[] }[] {
   const flaggedOwners = new Set(pages.filter((p) => p.technicianDesk && p.responsibleUserId).map((p) => p.responsibleUserId));
   return members
-    .filter((m) => m.status === "active" && (memberHasRole(m, "manager") || flaggedOwners.has(m.uid)))
+    .filter((m) => m.status === "active" && (worksAsTechnician(m) || flaggedOwners.has(m.uid)))
     .map((member) => ({
       member,
       desks: pages
@@ -90,7 +90,7 @@ export function technicianDesks(
           (p) =>
             p.responsibleUserId === member.uid &&
             !p.isDashboard &&
-            (memberHasRole(member, "manager") || Boolean(p.technicianDesk))
+            (worksAsTechnician(member) || Boolean(p.technicianDesk))
         )
         .sort((a, b) => a.order - b.order),
     }));

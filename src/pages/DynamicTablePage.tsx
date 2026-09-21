@@ -36,7 +36,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { ensureDiskColumn, ensurePriceColumn, fetchPageIfAccessible, setPageTechnicianDesk, togglePageVisibility } from "@/services/pageService";
 import { displayNameOf } from "@/utils/displayName";
-import { canOpenDesk, isRestrictedDeskRole } from "@/utils/peopleDesks";
+import { canOpenDesk, isRestrictedDeskRole, worksAsTechnician } from "@/utils/peopleDesks";
 import { useUiStore } from "@/store/uiStore";
 import { cn } from "@/utils/cn";
 import { recordRecentPage } from "@/hooks/useUserPageNav";
@@ -405,6 +405,10 @@ export default function DynamicTablePage() {
     isResponsible ||
     Boolean(page.personalZoneAllowedUsers?.includes(permissions.uid));
 
+  const responsibleWorksAsTechnician = Boolean(
+    page?.responsibleUserId && worksAsTechnician(members.find((m) => m.uid === page.responsibleUserId))
+  );
+
   async function handleToggleTechnicianDesk(next: boolean) {
     if (!page) return;
     try {
@@ -629,7 +633,10 @@ export default function DynamicTablePage() {
                 )}
               </>
             )}
-            {permissions.role === "owner" && page.responsibleUserId && (
+            {/* Стол Технаря и стол Owner считаются столом технаря сами
+                (`worksAsTechnician`) — галочка там только путала бы: снять её
+                нельзя, а стояла бы она пустой. */}
+            {permissions.role === "owner" && page.responsibleUserId && !responsibleWorksAsTechnician && (
               <DropdownMenuCheckboxItem
                 checked={Boolean(page.technicianDesk)}
                 onCheckedChange={(checked) => void handleToggleTechnicianDesk(checked === true)}

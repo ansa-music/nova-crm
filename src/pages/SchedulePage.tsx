@@ -26,7 +26,7 @@ import { nextMonthKey, previousMonthKey } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
 import { saveScheduleGroup, subscribeScheduleGroup } from "@/services/scheduleGroupService";
 import { setSelfWorkDay } from "@/services/techScheduleService";
-import { personLabel } from "@/utils/peopleDesks";
+import { personLabel, worksAsTechnician } from "@/utils/peopleDesks";
 import { ymdInTimeZone } from "@/utils/date";
 import {
   DEFAULT_CUSTOM_GROUP_NAME,
@@ -105,7 +105,7 @@ export default function SchedulePage() {
       }
       return out;
     };
-    const technicians = take(active.filter((m) => memberHasRole(m, "manager") || deskOwners.has(m.uid)));
+    const technicians = take(active.filter((m) => worksAsTechnician(m) || deskOwners.has(m.uid)));
     const os = take(active.filter((m) => memberHasRole(m, "os")));
     const leads = take(active.filter((m) => m.role === "teamlead" || m.role === "owner"));
     return { technicians, os, leads };
