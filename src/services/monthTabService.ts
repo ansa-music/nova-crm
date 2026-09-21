@@ -22,6 +22,11 @@ export function currentMonthKey(now: number = Date.now()): string {
   return ymdInTimeZone(now).slice(0, 7);
 }
 
+export function nextMonthKey(monthKey: string): string {
+  const [year, month] = monthKey.split("-").map(Number);
+  return month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, "0")}`;
+}
+
 export function previousMonthKey(monthKey: string): string {
   const [year, month] = monthKey.split("-").map(Number);
   return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, "0")}`;

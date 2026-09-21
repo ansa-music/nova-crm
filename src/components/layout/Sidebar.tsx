@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import {
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -267,6 +268,9 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                       Технари
                     </AppNavLink>
                   )}
+                  <AppNavLink collapsed title="График" to="/schedule" icon={CalendarDays} onNavigate={onNavigate}>
+                    График
+                  </AppNavLink>
                   <AppNavLink collapsed title="Заказы" to="/orders" icon={ClipboardList} onNavigate={onNavigate}>
                     Заказы
                   </AppNavLink>
@@ -319,6 +323,9 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                       Технари
                     </AppNavLink>
                   )}
+                  <AppNavLink to="/schedule" icon={CalendarDays} onNavigate={onNavigate}>
+                    График
+                  </AppNavLink>
                   <AppNavLink to="/orders" icon={ClipboardList} onNavigate={onNavigate}>
                     Заказы
                   </AppNavLink>
