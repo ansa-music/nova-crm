@@ -899,6 +899,19 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(['workspaceId', 'uid', 'monthKey', 'selfWork', 'updatedAt']);
       }
 
+      // -----------------------------------------------------------------
+      // Свой раздел графика: название и список людей, которых в workspace
+      // нет (подрядчики). Ведёт руководство, читают все — по графику видно,
+      // кто сегодня работает, а не только кто из участников.
+      // -----------------------------------------------------------------
+      match /scheduleGroups/{groupId} {
+        allow read: if isMember(workspaceId);
+        allow delete: if hasFullAccess(workspaceId);
+        allow create, update: if hasFullAccess(workspaceId)
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.keys().hasOnly(['workspaceId', 'name', 'people', 'updatedAt', 'updatedBy']);
+      }
+
       match /orders/{orderId} {
         allow read: if isMember(workspaceId);
         allow create: if canIssueOrders(workspaceId)

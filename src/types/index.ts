@@ -12,6 +12,7 @@ export * from "@/types/leaderboard";
 export * from "@/types/deskLoad";
 export * from "@/types/orderRating";
 export * from "@/types/techSchedule";
+export * from "@/types/scheduleGroup";
 export * from "@/types/techRating";
 export * from "@/types/viewRequest";
 export * from "@/types/ownerAccessRequest";
