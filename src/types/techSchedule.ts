@@ -17,6 +17,13 @@ export const SCHEDULE_DAY_LABELS: Record<ScheduleDayState, string> = {
   excused: "Отпросился",
 };
 
+/** Гибридная смена: человек в этот день работает не весь день, а с/до. */
+export interface ScheduleHours {
+  /** «HH:MM» по Алматы — как в `<input type="time">`. */
+  from: string;
+  to: string;
+}
+
 export interface TechSchedule {
   id: string;
   workspaceId: string;
@@ -25,8 +32,10 @@ export interface TechSchedule {
   monthKey: string;
   /** Что поставил Тимлид/Owner. Отсутствие дня = рабочий. */
   days: Record<string, Exclude<ScheduleDayState, "work">>;
-  /** Дни, в которые технарь сам нажал «Вышел на смену». Перебивает `days`. */
+  /** Дни с отметкой «пришёл в рабочий день». Перебивает `days`. */
   selfWork: Record<string, boolean>;
+  /** Гибридные смены: день → «с 12:00 до 15:00». День при этом рабочий. */
+  hours?: Record<string, ScheduleHours>;
   updatedAt: number;
   updatedBy: string;
 }
@@ -52,6 +61,22 @@ export function scheduleStateOf(
   if (!schedule) return "work";
   if (schedule.selfWork?.[dayKey]) return "work";
   return schedule.days?.[dayKey] ?? "work";
+}
+
+/**
+ * Часы гибридной смены. День с часами остаётся РАБОЧИМ: человек работает,
+ * просто не весь день, и отклики на заказы ему закрывать не за что.
+ */
+export function scheduleHoursOf(
+  schedule: TechSchedule | null | undefined,
+  dayKey: string
+): ScheduleHours | null {
+  const hours = schedule?.hours?.[dayKey];
+  return hours?.from && hours?.to ? hours : null;
+}
+
+export function formatScheduleHours(hours: ScheduleHours): string {
+  return `${hours.from}–${hours.to}`;
 }
 
 /** Может ли технарь сегодня брать заказы по графику. */

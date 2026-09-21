@@ -25,6 +25,7 @@ import {
   useOrderRatingTotals,
   useOwnerDeskRecount,
   useTechRatings,
+  useTechSchedules,
 } from "@/hooks/useDeskLoads";
 import { usePermissions } from "@/hooks/usePermissions";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
@@ -36,7 +37,7 @@ import { orderRatingId, rateOrder, removeOrderRating } from "@/services/orderRat
 import { deleteTechRating, rateTechnician } from "@/services/techRatingService";
 import { confirmDialog } from "@/utils/appDialog";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
-import { formatOrderDate, timeAgo } from "@/utils/date";
+import { formatOrderDate, timeAgo, ymdInTimeZone } from "@/utils/date";
 import { personLabel, worksAsTechnician } from "@/utils/peopleDesks";
 import {
   addStatusCounts,
@@ -55,12 +56,17 @@ import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { cn } from "@/utils/cn";
 import {
   averageOfTotals,
+  formatScheduleHours,
   memberHasRole,
   ratingMonthKey,
+  scheduleDayKey,
+  scheduleHoursOf,
+  scheduleStateOf,
   type OrderRatingTotals,
   type OsOrders,
   type StatusOption,
   type TechRating,
+  type TechSchedule,
   type WorkspaceMember,
   type WorkspacePage,
 } from "@/types";
@@ -161,6 +167,15 @@ export default function TechniciansPage() {
   const { loads, failed: loadFailed } = useDeskLoads(activeWorkspaceId, canSee);
   const { ratings, failed: ratingsFailed } = useTechRatings(activeWorkspaceId, canSee);
   const { totals: orderTotals } = useOrderRatingTotals(activeWorkspaceId, canSee);
+  // График нужен прямо здесь: у кого сегодня выходной, карточка гаснет — без
+  // этого «Свободен» у отсутствующего читался как «можно отдать заказ».
+  const schedules = useTechSchedules(activeWorkspaceId, monthKey, canSee);
+  const todayKey = scheduleDayKey(ymdInTimeZone(Date.now()));
+  const scheduleByUid = useMemo(() => {
+    const map = new Map<string, TechSchedule>();
+    for (const s of schedules) map.set(s.uid, s);
+    return map;
+  }, [schedules]);
   useOwnerDeskRecount(canSee ? loads : null);
 
   // Оценки живут месяцами. Текущий месяц — то, что сейчас ставят и меняют;
@@ -373,6 +388,18 @@ export default function TechniciansPage() {
   const noDeskCount = technicians.length - withDesk.length;
   const mineCount = technicians.filter((t) => (t.myOrders?.summary.total ?? 0) > 0).length;
   const myOrdersTotal = technicians.reduce((n, t) => n + (t.myOrders?.summary.total ?? 0), 0);
+  /** Сегодня по графику человека нет — карточка гаснет и метится. */
+  function dayOffOf(memberUid: string): { state: "off" | "excused" } | null {
+    const state = scheduleStateOf(scheduleByUid.get(memberUid), todayKey);
+    return state === "work" ? null : { state };
+  }
+
+  /** Гибридная смена на сегодня: «12:00–15:00». */
+  function hoursOf(memberUid: string): string | null {
+    const hours = scheduleHoursOf(scheduleByUid.get(memberUid), todayKey);
+    return hours ? formatScheduleHours(hours) : null;
+  }
+
   const visible = technicians.filter((t) => {
     if (filter === "free") return t.desks.length > 0 && !t.busy;
     // Условие про стол обязано совпадать с busyCount, иначе чип показывает
@@ -786,6 +813,8 @@ export default function TechniciansPage() {
                   key={t.member.uid}
                   member={t.member}
                   isMe={t.member.uid === uid}
+                  dayOff={dayOffOf(t.member.uid)}
+                  todayHours={hoursOf(t.member.uid)}
                   desks={t.desks}
                   deskLinks={isOwner}
                   showPayment={showPayment}

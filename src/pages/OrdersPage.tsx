@@ -436,7 +436,13 @@ export default function OrdersPage() {
                     {order.status === "open" && canClaim && myBlockReason && !claimed && (
                       <span className="inline-flex items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/[0.08] px-2.5 py-1 text-[11px] text-warning">
                         Отклик закрыт: {myBlockReason}
-                        {isScheduleBlock && <span className="opacity-80">· отметить выход может Тимлид</span>}
+                        {/* Отметку ставит руководство, но попросить её можно —
+                            запрос живёт в «Графике», туда и ведём. */}
+                        {isScheduleBlock && (
+                          <Link to="/schedule" className="font-medium underline underline-offset-2 hover:no-underline">
+                            попросить отметку
+                          </Link>
+                        )}
                       </span>
                     )}
                     {order.status === "open" && canClaim && (!myBlockReason || claimed) && (

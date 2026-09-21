@@ -1,7 +1,7 @@
 import { deleteField, onSnapshot, query, setDoc, where, writeBatch, type FirestoreError } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
-import { techScheduleId, type ScheduleDayState, type TechSchedule } from "@/types";
+import { techScheduleId, type ScheduleDayState, type ScheduleHours, type TechSchedule } from "@/types";
 
 /**
  * График месяца по всем технарям. Читают его все участники: «Заказы»
@@ -82,6 +82,34 @@ export async function setCameToWorkDay(input: {
       uid: input.uid,
       monthKey: input.monthKey,
       selfWork: { [input.dayKey]: input.came ? true : deleteField() },
+      updatedAt: Date.now(),
+      updatedBy: input.actorUid,
+    },
+    { merge: true }
+  );
+}
+
+/**
+ * Гибридная смена: «с 12:00 до 15:00». День при этом остаётся рабочим —
+ * часы лежат отдельным полем и на `days` не влияют, иначе человек с
+ * частичной сменой выпадал бы из откликов на заказы целиком.
+ */
+export async function setScheduleHours(input: {
+  workspaceId: string;
+  uid: string;
+  monthKey: string;
+  dayKey: string;
+  hours: ScheduleHours | null;
+  actorUid: string;
+}) {
+  if (!db) throw new Error("Firebase не настроен");
+  await setDoc(
+    paths.techSchedule(input.workspaceId, techScheduleId(input.uid, input.monthKey)),
+    {
+      workspaceId: input.workspaceId,
+      uid: input.uid,
+      monthKey: input.monthKey,
+      hours: { [input.dayKey]: input.hours ?? deleteField() },
       updatedAt: Date.now(),
       updatedBy: input.actorUid,
     },

@@ -890,7 +890,43 @@ service cloud.firestore {
         allow create, update: if hasFullAccess(workspaceId)
           && request.resource.data.workspaceId == workspaceId
           && scheduleId == request.resource.data.uid + '_' + request.resource.data.monthKey
-          && request.resource.data.keys().hasOnly(['workspaceId', 'uid', 'monthKey', 'days', 'selfWork', 'updatedAt', 'updatedBy']);
+          && request.resource.data.keys().hasOnly(['workspaceId', 'uid', 'monthKey', 'days', 'selfWork', 'hours', 'updatedAt', 'updatedBy']);
+      }
+
+      // -----------------------------------------------------------------
+      // Запросы на отметку в графике: «я вышел в выходной, отметьте меня».
+      // Сам график технарь и ОС не правят, но сказать о себе могут — запрос
+      // отдельным документом, и только подтверждение руководства пишет
+      // отметку в график.
+      // -----------------------------------------------------------------
+      match /scheduleRequests/{requestId} {
+        allow read: if isMember(workspaceId);
+
+        // Только про СЕБЯ и только «на рассмотрении». Id собран из uid,
+        // месяца и дня: второй запрос на тот же день перезапишет первый,
+        // а не размножит их.
+        allow create: if isMember(workspaceId)
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.uid == request.auth.uid
+          && requestId == request.auth.uid + '_' + request.resource.data.monthKey + '_' + request.resource.data.dayKey
+          && request.resource.data.status == 'pending'
+          && request.resource.data.keys().hasOnly(['workspaceId', 'uid', 'name', 'monthKey', 'dayKey', 'status', 'createdAt', 'resolvedAt', 'resolvedBy']);
+
+        // Руководство рассматривает; автор может подать заново после отказа,
+        // но снова только 'pending' и только за себя.
+        allow update: if (hasFullAccess(workspaceId)
+            && request.resource.data.uid == resource.data.uid
+            && request.resource.data.keys().hasOnly(['workspaceId', 'uid', 'name', 'monthKey', 'dayKey', 'status', 'createdAt', 'resolvedAt', 'resolvedBy']))
+          || (isMember(workspaceId)
+            && resource.data.uid == request.auth.uid
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.status == 'pending'
+            && request.resource.data.keys().hasOnly(['workspaceId', 'uid', 'name', 'monthKey', 'dayKey', 'status', 'createdAt', 'resolvedAt', 'resolvedBy']));
+
+        // Свой запрос можно отозвать, пока его не рассмотрели (у delete нет
+        // request.resource — смотрим только на resource).
+        allow delete: if hasFullAccess(workspaceId)
+          || (isMember(workspaceId) && resource.data.uid == request.auth.uid && resource.data.status == 'pending');
       }
 
       // -----------------------------------------------------------------

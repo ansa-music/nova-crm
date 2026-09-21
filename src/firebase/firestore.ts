@@ -114,6 +114,10 @@ export const paths = {
     doc(requireDb(), "workspaces", workspaceId, "techSchedule", scheduleId),
   scheduleGroup: (workspaceId: string, groupId: string) =>
     doc(requireDb(), "workspaces", workspaceId, "scheduleGroups", groupId),
+  scheduleRequestsAll: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "scheduleRequests"),
+  scheduleRequest: (workspaceId: string, requestId: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "scheduleRequests", requestId),
   orderRatingsAll: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "orderRatings"),
   orderRating: (workspaceId: string, ratingId: string) =>
     doc(requireDb(), "workspaces", workspaceId, "orderRatings", ratingId),

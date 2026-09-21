@@ -72,6 +72,14 @@ export interface TechnicianCardProps {
   orderStarsOf?: (item: TechnicianOrderItem) => number | null;
   /** Поставить/снять оценку заказу. Есть только у ОС, у которого тут есть заказы. */
   onRateOrder?: (item: TechnicianOrderItem, stars: number) => Promise<void>;
+  /**
+   * Сегодня по графику человек не работает: карточка гаснет и получает
+   * заметную метку. Занятость по заказам тут ни при чём — «Свободен» у того,
+   * кого сегодня нет, читался как «можно отдать заказ».
+   */
+  dayOff: { state: "off" | "excused"; hours?: string | null } | null;
+  /** Сегодняшняя смена с/до, если она короче дня. */
+  todayHours?: string | null;
   /** Owner/Тимлид/Admin: who rated what. */
   ratingDetails: TechnicianRatingDetail[] | null;
   onDeleteRating?: (id: string) => void;
@@ -152,7 +160,23 @@ function StatusChips({ items, compact, limit }: { items: StatusBreakdownItem[]; 
   );
 }
 
-function StatusPill({ noDesk, busy }: { noDesk: boolean; busy: boolean }) {
+function StatusPill({
+  noDesk,
+  busy,
+  dayOff,
+}: {
+  noDesk: boolean;
+  busy: boolean;
+  dayOff: { state: "off" | "excused" } | null;
+}) {
+  // Выходной важнее занятости: человека сегодня просто нет.
+  if (dayOff) {
+    return (
+      <span className="shrink-0 rounded-full border border-destructive/50 bg-destructive/15 px-2 py-0.5 text-[11px] font-semibold uppercase leading-4 tracking-wide text-destructive">
+        {dayOff.state === "off" ? "Выходной" : "Отпросился"}
+      </span>
+    );
+  }
   if (noDesk) {
     return (
       <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium leading-4 text-muted-foreground">
@@ -202,7 +226,7 @@ function MiniScore({ kind, average }: { kind: "overall" | "orders"; average: num
  */
 export function TechnicianCard(props: TechnicianCardProps) {
   const [open, setOpen] = useState(false);
-  const { member, isMe, desks, busy, summary, breakdown, myOrders, rating, orderRating, rater } = props;
+  const { member, isMe, desks, busy, summary, breakdown, myOrders, rating, orderRating, rater, dayOff, todayHours } = props;
   const presence = member.lastActiveAt ? getPresenceStatus(member.lastActiveAt) : "offline";
   const name = personLabel(member) || member.email || "—";
   const noDesk = desks.length === 0;
@@ -220,7 +244,12 @@ export function TechnicianCard(props: TechnicianCardProps) {
         className={cn(
           "group flex h-full w-full flex-col gap-3 rounded-2xl border border-border/70 bg-card/70 p-4 text-left transition-colors",
           "hover:border-primary/45 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          isMe && "border-primary/45"
+          isMe && "border-primary/45",
+          // Сегодня человека нет — карточка гаснет целиком, чтобы в сетке её
+          // было видно как «не сегодня», а не только по метке в углу.
+          // Без `grayscale`: он гасил и саму метку «Выходной», а она должна
+          // остаться красной и заметной.
+          dayOff && "border-border/40 bg-muted/30 opacity-70 hover:opacity-100"
         )}
       >
         <div className="flex min-w-0 items-start gap-3">
@@ -254,9 +283,12 @@ export function TechnicianCard(props: TechnicianCardProps) {
               {" · "}
               {noDesk ? "стола нет" : desks.map((desk) => desk.name).join(", ")}
             </p>
+            {todayHours && !dayOff && (
+              <p className="mt-0.5 truncate text-[11px] text-primary">Сегодня {todayHours}</p>
+            )}
           </div>
 
-          <StatusPill noDesk={noDesk} busy={busy} />
+          <StatusPill noDesk={noDesk} busy={busy} dayOff={props.dayOff} />
         </div>
 
         {/* Полоска статусов и на свёрнутой карточке: в сетке сразу видно, у
@@ -304,6 +336,7 @@ export function TechnicianCard(props: TechnicianCardProps) {
 function TechnicianDialog({
   member,
   isMe,
+  dayOff,
   desks,
   deskLinks,
   showPayment,
@@ -386,7 +419,7 @@ function TechnicianDialog({
                     ))}
               </span>
             </span>
-            <StatusPill noDesk={noDesk} busy={busy} />
+            <StatusPill noDesk={noDesk} busy={busy} dayOff={dayOff} />
           </DialogTitle>
         </DialogHeader>
 

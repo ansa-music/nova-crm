@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Check, CircleSlash, Sun, UserMinus, X } from "lucide-react";
+import { Check, CircleSlash, Clock, Sun, UserMinus, X } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import {
   DropdownMenu,
@@ -10,7 +10,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/utils/cn";
-import { SCHEDULE_DAY_LABELS, scheduleStateOf, type ScheduleDayState, type TechSchedule } from "@/types";
+import {
+  formatScheduleHours,
+  SCHEDULE_DAY_LABELS,
+  scheduleHoursOf,
+  scheduleStateOf,
+  type ScheduleDayState,
+  type ScheduleHours,
+  type TechSchedule,
+} from "@/types";
 
 export const SCHEDULE_STATE_STYLE: Record<ScheduleDayState, string> = {
   work: "border-border/50 text-muted-foreground/70",
@@ -20,8 +28,11 @@ export const SCHEDULE_STATE_STYLE: Record<ScheduleDayState, string> = {
 
 const WEEKDAY_LETTERS = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
 
-/** Что выбрали в меню дня: состояние дня или отметка «пришёл в рабочий день». */
-export type ScheduleDayAction = ScheduleDayState | "came" | "not-came";
+/**
+ * Что выбрали в меню дня: состояние дня, отметка «пришёл в рабочий день» или
+ * часы гибридной смены («hours» открывает диалог, «clear-hours» их снимает).
+ */
+export type ScheduleDayAction = ScheduleDayState | "came" | "not-came" | "hours" | "clear-hours";
 
 /**
  * Инициалы аватарки берутся по первым буквам слов, а своих людей пишут как
@@ -203,30 +214,42 @@ export function ScheduleGrid({
                   const state = stateOf(d);
                   const pending = draft.has(draftKey(row.uid, d));
                   const came = Boolean(schedule?.selfWork?.[d]) && !pending;
+                  // Частичная смена показывается только у рабочего дня: если
+                  // день сделали выходным, часы к нему уже не относятся.
+                  const hours = state === "work" && !pending ? scheduleHoursOf(schedule, d) : null;
                   const cell = (
                     <button
                       type="button"
                       disabled={!canEdit}
                       title={`${row.label} · ${d} — ${SCHEDULE_DAY_LABELS[state]}${
                         came ? " (пришёл в рабочий день)" : ""
-                      }`}
+                      }${hours ? ` · ${formatScheduleHours(hours)}` : ""}`}
                       onClick={editing ? () => onToggleDraft?.(row, d) : undefined}
                       className={cn(
                         "h-7 w-7 rounded-sm border text-[10px] font-semibold transition-colors",
                         SCHEDULE_STATE_STYLE[state],
                         state === "work" && isWeekend(monthKey, d) && "bg-foreground/[0.07]",
+                        hours && "border-primary/50 bg-primary/15 text-primary",
                         d === todayKey && "ring-1 ring-primary/60",
                         pending && "ring-1 ring-primary ring-offset-1 ring-offset-card",
                         canEdit ? "cursor-pointer hover:brightness-125" : "cursor-default"
                       )}
                     >
-                      {state === "off" ? "В" : state === "excused" ? "О" : came ? "✓" : ""}
+                      {state === "off"
+                        ? "В"
+                        : state === "excused"
+                          ? "О"
+                          : hours
+                            ? hours.from.slice(0, 2).replace(/^0/, "")
+                            : came
+                              ? "✓"
+                              : ""}
                     </button>
                   );
                   return (
                     <td key={d} data-day={d} className="p-px text-center">
                       {canEdit && !editing ? (
-                        <DayMenu row={row} dayKey={d} state={state} came={came} onPick={onPickDay}>
+                        <DayMenu row={row} dayKey={d} state={state} came={came} hours={hours} onPick={onPickDay}>
                           {cell}
                         </DayMenu>
                       ) : (
@@ -256,6 +279,7 @@ function DayMenu({
   dayKey,
   state,
   came,
+  hours,
   onPick,
   children,
 }: {
@@ -263,6 +287,7 @@ function DayMenu({
   dayKey: string;
   state: ScheduleDayState;
   came: boolean;
+  hours: ScheduleHours | null;
   onPick?: (row: ScheduleRow, dayKey: string, action: ScheduleDayAction) => void;
   children: React.ReactNode;
 }) {
@@ -272,6 +297,7 @@ function DayMenu({
       <DropdownMenuContent align="center" className="w-56">
         <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
           {row.label} · {dayKey} — {came ? "пришёл в рабочий день" : SCHEDULE_DAY_LABELS[state]}
+          {hours && ` · ${formatScheduleHours(hours)}`}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {(state !== "work" || came) && (
@@ -298,6 +324,17 @@ function DayMenu({
             Обычный рабочий
           </DropdownMenuItem>
         )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => onPick?.(row, dayKey, "hours")}>
+          <Clock className="h-4 w-4" />
+          {hours ? `Часы: ${formatScheduleHours(hours)}` : "Часы работы…"}
+        </DropdownMenuItem>
+        {hours && (
+          <DropdownMenuItem onClick={() => onPick?.(row, dayKey, "clear-hours")}>
+            <Clock className="h-4 w-4" />
+            Убрать часы — весь день
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -315,6 +352,12 @@ export function ScheduleLegend() {
       <span className="inline-flex items-center gap-1.5">
         <span className="flex h-4 w-4 items-center justify-center rounded-sm border border-border/50 text-[9px]">✓</span>
         Пришёл в рабочий день
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="flex h-4 w-4 items-center justify-center rounded-sm border border-primary/50 bg-primary/15 text-[9px] text-primary">
+          12
+        </span>
+        Смена с/до (в клетке — час начала)
       </span>
       <span className="inline-flex items-center gap-1.5">
         <span className="h-4 w-4 rounded-sm border border-border/50 bg-foreground/[0.07]" /> Суббота и воскресенье

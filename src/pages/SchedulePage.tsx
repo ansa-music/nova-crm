@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
+  Check,
   ChevronLeft,
   ChevronRight,
+  Clock,
   HardHat,
   Headset,
   Loader2,
@@ -10,6 +12,7 @@ import {
   Plus,
   ShieldCheck,
   UserPlus,
+  X,
 } from "lucide-react";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -21,6 +24,7 @@ import {
   type ScheduleRow,
 } from "@/components/schedule/ScheduleGrid";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { confirmDialog } from "@/utils/appDialog";
@@ -32,7 +36,13 @@ import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { nextMonthKey, previousMonthKey } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
 import { saveScheduleGroup, subscribeScheduleGroup } from "@/services/scheduleGroupService";
-import { saveScheduleDraft, setCameToWorkDay, setScheduleDay } from "@/services/techScheduleService";
+import { saveScheduleDraft, setCameToWorkDay, setScheduleDay, setScheduleHours } from "@/services/techScheduleService";
+import {
+  cancelScheduleRequest,
+  requestScheduleMark,
+  resolveScheduleRequest,
+  subscribeScheduleRequests,
+} from "@/services/scheduleRequestService";
 import { personLabel, worksAsTechnician } from "@/utils/peopleDesks";
 import { ymdInTimeZone } from "@/utils/date";
 import {
@@ -40,10 +50,14 @@ import {
   memberHasRole,
   newSchedulePersonId,
   scheduleDayKey,
+  scheduleHoursOf,
+  scheduleRequestId,
   scheduleStateOf,
   type ScheduleDayState,
   type ScheduleGroup,
+  type ScheduleHours,
   type SchedulePerson,
+  type ScheduleRequest,
   type TechSchedule,
   type WorkspaceMember,
 } from "@/types";
@@ -70,6 +84,9 @@ export default function SchedulePage() {
   const [monthKey, setMonthKey] = useState(currentMonth);
   const [group, setGroup] = useState<ScheduleGroup | null>(null);
   const [section, setSection] = useState<string>("all");
+  const [requests, setRequests] = useState<ScheduleRequest[]>([]);
+  const [hoursTarget, setHoursTarget] = useState<{ row: ScheduleRow; dayKey: string; hours: ScheduleHours | null } | null>(null);
+  const [requestBusy, setRequestBusy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Map<string, ScheduleDayState>>(new Map());
   const [saving, setSaving] = useState(false);
@@ -95,6 +112,12 @@ export default function SchedulePage() {
     if (!activeWorkspaceId) return;
     return subscribeScheduleGroup(activeWorkspaceId, setGroup, () => setGroup(null));
   }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    setRequests([]);
+    if (!activeWorkspaceId) return;
+    return subscribeScheduleRequests(activeWorkspaceId, monthKey, setRequests, () => setRequests([]));
+  }, [activeWorkspaceId, monthKey]);
 
   const active = useMemo(() => members.filter((m) => m.status === "active" && Boolean(m.uid)), [members]);
 
@@ -143,6 +166,8 @@ export default function SchedulePage() {
   const todayKey = isCurrentMonth ? scheduleDayKey(ymdInTimeZone(Date.now())) : null;
   const myToday = todayKey ? scheduleStateOf(byUid.get(uid), todayKey) : "work";
   const iAmScheduled = active.some((m) => m.uid === uid);
+  const pendingRequests = useMemo(() => requests.filter((r) => r.status === "pending"), [requests]);
+  const myRequest = todayKey ? requests.find((r) => r.id === scheduleRequestId(uid, monthKey, todayKey)) ?? null : null;
 
   /** Клик в режиме правки: только «выходной ↔ рабочий», ничего больше. */
   const toggleDraft = useCallback(
@@ -211,7 +236,18 @@ export default function SchedulePage() {
   async function pickDay(row: ScheduleRow, dayKey: string, action: ScheduleDayAction) {
     if (!activeWorkspaceId) return;
     try {
-      if (action === "came" || action === "not-came") {
+      if (action === "hours") {
+        setHoursTarget({ row, dayKey, hours: scheduleHoursOf(byUid.get(row.uid), dayKey) });
+      } else if (action === "clear-hours") {
+        await setScheduleHours({
+          workspaceId: activeWorkspaceId,
+          uid: row.uid,
+          monthKey,
+          dayKey,
+          hours: null,
+          actorUid: uid,
+        });
+      } else if (action === "came" || action === "not-came") {
         await setCameToWorkDay({
           workspaceId: activeWorkspaceId,
           uid: row.uid,
@@ -232,6 +268,65 @@ export default function SchedulePage() {
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось изменить график");
+    }
+  }
+
+  async function saveHours(hours: ScheduleHours | null) {
+    if (!activeWorkspaceId || !hoursTarget) return;
+    try {
+      await setScheduleHours({
+        workspaceId: activeWorkspaceId,
+        uid: hoursTarget.row.uid,
+        monthKey,
+        dayKey: hoursTarget.dayKey,
+        hours,
+        actorUid: uid,
+      });
+      setHoursTarget(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить часы");
+    }
+  }
+
+  /** «Я вышел в выходной» — запрос руководству, а не правка графика. */
+  async function askForMark() {
+    if (!activeWorkspaceId || !todayKey) return;
+    setRequestBusy(true);
+    try {
+      await requestScheduleMark({
+        workspaceId: activeWorkspaceId,
+        uid,
+        name: personLabel(members.find((m) => m.uid === uid) ?? null) || profile?.email || "—",
+        monthKey,
+        dayKey: todayKey,
+      });
+      toast.success("Запрос отправлен — Тимлид подтвердит отметку");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось отправить запрос");
+    } finally {
+      setRequestBusy(false);
+    }
+  }
+
+  async function withdrawRequest(request: ScheduleRequest) {
+    if (!activeWorkspaceId) return;
+    setRequestBusy(true);
+    try {
+      await cancelScheduleRequest(activeWorkspaceId, request.id);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось отозвать запрос");
+    } finally {
+      setRequestBusy(false);
+    }
+  }
+
+  async function resolveRequest(request: ScheduleRequest, approve: boolean) {
+    if (!activeWorkspaceId) return;
+    try {
+      await resolveScheduleRequest({ workspaceId: activeWorkspaceId, request, approve, actorUid: uid });
+      toast.success(approve ? `${request.name} отмечен(а) на ${request.dayKey}` : "Запрос отклонён");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось обработать запрос");
     }
   }
 
@@ -391,10 +486,58 @@ export default function SchedulePage() {
         </div>
       )}
 
+      {!editing && canEdit && pendingRequests.length > 0 && (
+        <div className="mb-4 flex flex-col gap-2 rounded-xl border border-primary/35 bg-primary/[0.06] p-3">
+          <p className="text-[12px] font-medium">
+            Просят отметить выход <span className="tabular-nums opacity-70">{pendingRequests.length}</span>
+          </p>
+          {pendingRequests.map((request) => (
+            <div key={request.id} className="flex flex-wrap items-center gap-2 text-[12px]">
+              <span className="min-w-0 flex-1 truncate">
+                {request.name} — работал(а) {request.dayKey} {monthLabel}
+              </span>
+              <Button size="sm" className="h-8 gap-1.5" onClick={() => void resolveRequest(request, true)}>
+                <Check className="h-3.5 w-3.5" />
+                Отметить
+              </Button>
+              <Button variant="ghost" size="sm" className="h-8 gap-1.5" onClick={() => void resolveRequest(request, false)}>
+                <X className="h-3.5 w-3.5" />
+                Отклонить
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {!editing && iAmScheduled && myToday !== "work" && (
-        <div className="mb-4 rounded-xl border border-warning/35 bg-warning/[0.08] px-3 py-2.5 text-[12px]">
-          {myToday === "off" ? "Сегодня у вас выходной" : "Сегодня вы отпросились"} — отклики на заказы закрыты.
-          {!canEdit && " Отметить выход может Тимлид."}
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-warning/35 bg-warning/[0.08] px-3 py-2.5 text-[12px]">
+          <p className="min-w-0 flex-1">
+            {myToday === "off" ? "Сегодня у вас выходной" : "Сегодня вы отпросились"} — отклики на заказы закрыты.
+            {!canEdit && " График правит Тимлид, но можно попросить отметить выход."}
+          </p>
+          {!canEdit && myRequest?.status === "pending" && (
+            <>
+              <span className="shrink-0 rounded-md bg-muted px-2 py-1">Запрос отправлен</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="min-h-11 sm:min-h-0"
+                disabled={requestBusy}
+                onClick={() => void withdrawRequest(myRequest)}
+              >
+                Отозвать
+              </Button>
+            </>
+          )}
+          {!canEdit && myRequest?.status !== "pending" && (
+            <Button size="sm" className="min-h-11 gap-1.5 sm:min-h-0" disabled={requestBusy} onClick={() => void askForMark()}>
+              {requestBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Я вышел — прошу отметить
+            </Button>
+          )}
+          {!canEdit && myRequest?.status === "declined" && (
+            <span className="shrink-0 text-muted-foreground">прошлый запрос отклонён</span>
+          )}
         </div>
       )}
 
@@ -437,7 +580,78 @@ export default function SchedulePage() {
           )}
         </div>
       )}
+
+      {hoursTarget && (
+        <HoursDialog
+          target={hoursTarget}
+          monthLabel={monthLabel}
+          onClose={() => setHoursTarget(null)}
+          onSave={(hours) => void saveHours(hours)}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * Часы гибридной смены. Отдельный диалог, а не поле в меню: время вводят
+ * двумя полями, и промахнуться пальцем по такому меню было бы легко.
+ */
+function HoursDialog({
+  target,
+  monthLabel,
+  onClose,
+  onSave,
+}: {
+  target: { row: ScheduleRow; dayKey: string; hours: ScheduleHours | null };
+  monthLabel: string;
+  onClose: () => void;
+  onSave: (hours: ScheduleHours | null) => void;
+}) {
+  const [from, setFrom] = useState(target.hours?.from ?? "12:00");
+  const [to, setTo] = useState(target.hours?.to ?? "15:00");
+  const valid = Boolean(from && to && from < to);
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Clock className="h-4 w-4 shrink-0 text-primary" />
+            Смена с/до
+          </DialogTitle>
+          <DialogDescription>
+            {target.row.label} · {target.dayKey} {monthLabel}. День остаётся рабочим — заказы брать можно.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex items-end gap-2">
+          <label className="flex min-w-0 flex-1 flex-col gap-1 text-[12px] text-muted-foreground">
+            С
+            <Input type="time" value={from} onChange={(e) => setFrom(e.target.value)} className="h-10" />
+          </label>
+          <label className="flex min-w-0 flex-1 flex-col gap-1 text-[12px] text-muted-foreground">
+            До
+            <Input type="time" value={to} onChange={(e) => setTo(e.target.value)} className="h-10" />
+          </label>
+        </div>
+        {!valid && <p className="text-[11px] text-destructive">Начало должно быть раньше конца.</p>}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button className="min-h-11 sm:min-h-0" disabled={!valid} onClick={() => onSave({ from, to })}>
+            Сохранить
+          </Button>
+          {target.hours && (
+            <Button variant="ghost" className="min-h-11 sm:min-h-0" onClick={() => onSave(null)}>
+              Убрать часы
+            </Button>
+          )}
+          <Button variant="ghost" className="ml-auto min-h-11 sm:min-h-0" onClick={onClose}>
+            Отмена
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
