@@ -819,15 +819,19 @@ export default function TechniciansPage() {
 
           {view === "techs" && loads !== null && technicians.length > 0 && visible.length === 0 && (
             <p className="py-16 text-center text-sm text-muted-foreground">
-              {filter === "busy"
-                ? "Сейчас все свободны."
-                : filter === "mine"
-                  ? "В этом месяце ваших заказов у технарей нет."
-                  : filter === "nodesk"
-                    ? "У всех технарей есть стол."
-                    : filter === "away"
-                      ? "Сегодня все на месте."
-                    : "Сейчас все заняты."}
+              {filter === "mine"
+                ? "В этом месяце ваших заказов у технарей нет."
+                : filter === "nodesk"
+                  ? "У всех технарей есть стол."
+                  : filter === "away"
+                    ? "Сегодня все на месте."
+                    : // «Свободны»/«Заняты» пусты: не «все заняты», если на
+                      // самом деле никого нет на месте.
+                      present.length === 0 && awayCount > 0
+                      ? "Сегодня все технари со столом отсутствуют."
+                      : filter === "busy"
+                        ? "Сейчас все свободны."
+                        : "Сейчас все заняты."}
             </p>
           )}
 

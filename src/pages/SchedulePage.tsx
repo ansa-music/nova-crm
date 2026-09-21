@@ -145,9 +145,12 @@ export default function SchedulePage() {
 
   useEffect(() => {
     setRequests([]);
-    if (!activeWorkspaceId) return;
+    // Руководство запросы видит через pendingAll ниже; месячная выборка нужна
+    // только тем, кто подаёт запрос сам (свой запрос за открытый месяц).
+    // Лишний постоянный слушатель на Spark нам ни к чему.
+    if (!activeWorkspaceId || canEdit) return;
     return subscribeScheduleRequests(activeWorkspaceId, monthKey, setRequests, () => setRequests([]));
-  }, [activeWorkspaceId, monthKey]);
+  }, [activeWorkspaceId, monthKey, canEdit]);
 
   // Руководству — все ожидающие запросы, какого бы месяца они ни были. Второй
   // слушатель только у Owner/Тимлида и только пока открыт «График».
@@ -220,6 +223,7 @@ export default function SchedulePage() {
   /** Клик в режиме правки: только «выходной ↔ рабочий», ничего больше. */
   const toggleDraft = useCallback(
     (row: ScheduleRow, dayKey: string) => {
+      if (!scheduleReady) return;
       setDraft((prev) => {
         const next = new Map(prev);
         const key = draftKey(row.uid, dayKey);
@@ -237,7 +241,7 @@ export default function SchedulePage() {
         return next;
       });
     },
-    [byUid]
+    [byUid, scheduleReady]
   );
 
   async function saveDraft() {
@@ -258,9 +262,23 @@ export default function SchedulePage() {
       const [personUid, dayKey] = key.split(":");
       bucket(personUid).days[dayKey] = state;
     }
+    let sent = draft.size;
     for (const [key, value] of hoursDraft) {
       const [personUid, dayKey] = key.split(":");
-      bucket(personUid).hours[dayKey] = value;
+      // Часы ложатся только на день, который ПОСЛЕ сохранения будет рабочим.
+      // Шаблон ставит часы на будни, а человек потом руками возвращает
+      // какой-то будний день к исходному «В» — черновик дня удаляется, а
+      // часы оставались и писались под выходной, невидимые до тех пор, пока
+      // день снова не сделают рабочим.
+      const schedule = byUid.get(personUid);
+      const finalState = draft.get(key) ?? scheduleStateOf(schedule, dayKey);
+      if (finalState !== "work") {
+        if (!scheduleHoursOf(schedule, dayKey)) continue;
+        bucket(personUid).hours[dayKey] = null;
+      } else {
+        bucket(personUid).hours[dayKey] = value;
+      }
+      sent += 1;
     }
     setSaving(true);
     try {
@@ -270,7 +288,7 @@ export default function SchedulePage() {
         actorUid: uid,
         changes: Array.from(byPerson, ([personUid, value]) => ({ uid: personUid, ...value })),
       });
-      toast.success(`График сохранён · изменений: ${total}`);
+      toast.success(`График сохранён · изменений: ${sent}`);
       setDraft(new Map());
       setHoursDraft(new Map());
       setEditing(false);
@@ -305,6 +323,9 @@ export default function SchedulePage() {
    * распорядок недели.
    */
   function applyPattern(pattern: WeekPattern) {
+    // Отказ или «Повторить» посреди правки обнуляют график до []: шаблон
+    // счёл бы базу пустой и затёр разовые отметки.
+    if (!scheduleReady) return;
     const targets = pattern.target === "all" ? patternRows : patternRows.filter((r) => r.uid === pattern.target);
     if (targets.length === 0) return;
     const next = applyWeekPattern({
@@ -343,12 +364,17 @@ export default function SchedulePage() {
           actorUid: uid,
         });
       } else if (action === "came" || action === "not-came") {
+        const schedule = byUid.get(row.uid);
+        const baseState = schedule?.days?.[dayKey];
         await setCameToWorkDay({
           workspaceId: activeWorkspaceId,
           uid: row.uid,
           monthKey,
           dayKey,
           came: action === "came",
+          // Без «пришёл» день вернётся к выходному или «отпросился» — часы
+          // такому дню не положены.
+          clearHours: action === "not-came" && baseState != null && Boolean(schedule?.hours?.[dayKey]),
           actorUid: uid,
         });
       } else {
@@ -527,7 +553,7 @@ export default function SchedulePage() {
             {canEdit &&
               (editing ? (
                 <>
-                  <Button size="sm" className="min-h-11 gap-1.5 sm:min-h-0" disabled={saving} onClick={() => void saveDraft()}>
+                  <Button size="sm" className="min-h-11 gap-1.5 sm:min-h-0" disabled={saving || !scheduleReady} onClick={() => void saveDraft()}>
                     {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     Сохранить
                     {draft.size + hoursDraft.size > 0 && (
@@ -598,7 +624,7 @@ export default function SchedulePage() {
             <CalendarDays className="h-3.5 w-3.5 shrink-0" />
             Сегодня {todayLabel}
           </span>
-          {iAmScheduled && (
+          {iAmScheduled && scheduleReady && (
             <span className="text-muted-foreground">
               {myName}:{" "}
               <span
@@ -623,7 +649,13 @@ export default function SchedulePage() {
             <span className="font-medium tabular-nums">{draft.size + hoursDraft.size}</span> — они уйдут в график одним
             сохранением. Месяц пока не листается.
           </p>
-          <Button variant="outline" size="sm" className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => setPatternOpen(true)}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="min-h-11 gap-1.5 sm:min-h-0"
+            disabled={!scheduleReady}
+            onClick={() => setPatternOpen(true)}
+          >
             <CalendarRange className="h-3.5 w-3.5" />
             Шаблон недели
           </Button>
@@ -680,7 +712,7 @@ export default function SchedulePage() {
         </div>
       )}
 
-      {!editing && iAmScheduled && myToday !== "work" && (
+      {!editing && iAmScheduled && scheduleReady && myToday !== "work" && (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-warning/35 bg-warning/[0.08] px-3 py-2.5 text-[12px]">
           <p className="min-w-0 flex-1">
             {myToday === "off" ? "Сегодня у вас выходной" : "Сегодня вы отпросились"} — отклики на заказы закрыты.

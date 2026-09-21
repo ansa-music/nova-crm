@@ -99,9 +99,11 @@ export function useTechSchedules(workspaceId: string | null, monthKey: string, e
     return subscribeTechSchedules(
       workspaceId,
       monthKey,
-      (next) => {
+      (next, fromServer) => {
         setSchedules(next);
-        setLoaded(true);
+        // «Загружено» — только то, что подтвердил сервер. Снимок из кэша в
+        // офлайне показываем, но править поверх него нельзя (см. сервис).
+        if (fromServer) setLoaded(true);
         setFailed(false);
       },
       () => {

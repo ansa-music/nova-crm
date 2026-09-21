@@ -104,6 +104,7 @@ export default function OrdersPage() {
   // эта страница (см. лимиты слушателей в CLAUDE.md).
   const {
     schedules,
+    loaded: schedulesLoaded,
     failed: schedulesFailed,
     retry: retrySchedules,
   } = useTechSchedules(activeWorkspaceId, monthKey, permissions.isResolved);
@@ -261,13 +262,20 @@ export default function OrdersPage() {
   }
 
   async function handleRandom(order: WorkOrder) {
+    // До первого снимка графика «кто сегодня отсутствует» неизвестен, и
+    // случайный выбор мог бы достаться выходному. При отказе чтения плашка
+    // уже предупреждает — там не держим, иначе «Рандом» умер бы совсем.
+    if (!schedulesLoaded && !schedulesFailed) {
+      toast.info("График ещё загружается — попробуйте через секунду");
+      return;
+    }
     const candidates = candidatesFor(order);
     const pick = pickRandomCandidate(candidates);
     if (!pick) {
       const withDesk = candidates.filter((c) => c.hasDesk);
       toast.error(
         withDesk.length > 0
-          ? "Сегодня все технари со столом на выходном — выдайте вручную"
+          ? "Сегодня все технари со столом отсутствуют (выходной или отпросились) — выдайте вручную"
           : "Некому выдать: ни у кого нет стола"
       );
       return;

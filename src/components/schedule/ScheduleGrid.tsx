@@ -259,7 +259,7 @@ export function ScheduleGrid({
                       // Клетку со сменой открыть можно и без права правки: в ней
                       // виден только час начала, а подсказок на касание нет —
                       // технарь с телефона иначе не узнал бы, до скольки смена.
-                      disabled={!canEdit && !hours}
+                      disabled={!canEdit && !(hours && !editing)}
                       title={`${row.label} · ${d} — ${SCHEDULE_DAY_LABELS[state]}${
                         came ? " (пришёл в рабочий день)" : ""
                       }${hours ? ` · ${formatScheduleHours(hours)}` : ""}`}

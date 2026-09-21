@@ -11,16 +11,28 @@ import { techScheduleId, type ScheduleDayState, type ScheduleHours, type TechSch
 export function subscribeTechSchedules(
   workspaceId: string,
   monthKey: string,
-  onData: (schedules: TechSchedule[]) => void,
+  /**
+   * `fromServer` — снимок подтверждён сервером. Без сети SDK сразу отдаёт
+   * снимок из кэша, и для непрочитанного ещё месяца он ПУСТОЙ: показывать его
+   * можно, а править поверх него нельзя — шаблон недели счёл бы базу пустой.
+   */
+  onData: (schedules: TechSchedule[], fromServer: boolean) => void,
   onError?: (error: FirestoreError) => void
 ) {
   if (!db) {
-    onData([]);
+    onData([], true);
     return () => {};
   }
   return onSnapshot(
     query(paths.techSchedulesAll(workspaceId), where("monthKey", "==", monthKey)),
-    (snapshot) => onData(snapshot.docs.map((d) => ({ ...(d.data() as TechSchedule), id: d.id }))),
+    // Без includeMetadataChanges снимок «из кэша → с сервера» с тем же
+    // содержимым не пришёл бы вовсе, и флаг навсегда остался бы «из кэша».
+    { includeMetadataChanges: true },
+    (snapshot) =>
+      onData(
+        snapshot.docs.map((d) => ({ ...(d.data() as TechSchedule), id: d.id })),
+        !snapshot.metadata.fromCache
+      ),
     withErrorReporting(onError)
   );
 }
@@ -76,6 +88,12 @@ export async function setCameToWorkDay(input: {
   monthKey: string;
   dayKey: string;
   came: boolean;
+  /**
+   * Снять заодно часы дня. Нужно, когда «пришёл» снимают с дня, который под
+   * отметкой остаётся выходным: часы, поставленные «пришедшему», иначе
+   * оставались бы под выходным невидимыми и всплыли бы потом.
+   */
+  clearHours?: boolean;
   actorUid: string;
 }) {
   if (!db) throw new Error("Firebase не настроен");
@@ -86,6 +104,7 @@ export async function setCameToWorkDay(input: {
       uid: input.uid,
       monthKey: input.monthKey,
       selfWork: { [input.dayKey]: input.came ? true : deleteField() },
+      ...(input.clearHours ? { hours: { [input.dayKey]: deleteField() } } : {}),
       updatedAt: Date.now(),
       updatedBy: input.actorUid,
     },
