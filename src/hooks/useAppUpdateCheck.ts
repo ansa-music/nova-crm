@@ -3,6 +3,7 @@ import { useLocation } from "react-router";
 import { waitForPendingWrites } from "firebase/firestore";
 import { toast } from "@/components/ui/sonner";
 import { db } from "@/firebase/firebase";
+import { flushHistory } from "@/services/historyService";
 
 /**
  * «Вышла новая версия — обновите». Сайт — одностраничное приложение: вкладку
@@ -52,9 +53,10 @@ async function reloadSafely() {
   if (reloading) return;
   reloading = true;
   try {
+    // История копится пачкой в памяти — её надо поставить в очередь ДО
+    // ожидания, иначе перезагрузка унесёт последние записи журнала.
+    void flushHistory();
     if (db) await Promise.race([waitForPendingWrites(db), new Promise((resolve) => setTimeout(resolve, 4000))]);
-    // Следом за подтверждённой записью бывает вторая (история изменений).
-    await new Promise((resolve) => setTimeout(resolve, 400));
   } catch {
     /* всё равно перезагружаем */
   }
