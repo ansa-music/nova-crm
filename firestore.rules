@@ -245,7 +245,7 @@ service cloud.firestore {
           && request.resource.data.get('extraRoles', []).hasOnly(['manager', 'os'])
           && (memberId != request.auth.uid
             || !request.resource.data.diff(resource.data).affectedKeys()
-              .hasAny(['role', 'extraRoles', 'osNick', 'osNickValue', 'techNick', 'techNickValue', 'status', 'uid', 'email']))
+              .hasAny(['role', 'extraRoles', 'osNick', 'osNickValue', 'techNick', 'techNickValue', 'otherNick', 'otherNickValue', 'status', 'uid', 'email']))
           && memberId != get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '');
         allow delete: if isTeamLead(workspaceId)
           && resource.data.get('role', '') != 'owner'
@@ -271,7 +271,7 @@ service cloud.firestore {
           && memberDoc(workspaceId, request.resource.data.email).data.role == request.resource.data.role
           // Ник и вторую роль сам себе не вписать: по osNickValue правила
           // открывают заказы и оценки ОС, а ники выдаёт только руководство.
-          && !request.resource.data.keys().hasAny(['osNick', 'osNickValue', 'techNick', 'techNickValue', 'extraRoles']);
+          && !request.resource.data.keys().hasAny(['osNick', 'osNickValue', 'techNick', 'techNickValue', 'otherNick', 'otherNickValue', 'extraRoles']);
 
         // Мгновенного входа (autoApproveJoins) больше нет: новый человек
         // приходит без роли, и роль с ником подтверждает руководство через

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useUiStore } from "@/store/uiStore";
 import { useWorkspaceStore } from "@/store/workspaceStore";
-import { AlertTriangle, Archive, AtSign, Check, ChevronDown, ChevronRight, Clock3, Copy, Link2, Lock, Mail, Pencil, Plus, Search, ShieldCheck, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Clock3, Contact, Copy, Link2, Lock, Mail, Plus, Search, ShieldCheck, Trash2, X } from "lucide-react";
+import { Link, Navigate } from "react-router";
 import { displayNameOf } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -19,9 +20,7 @@ import { RoleSelect } from "@/components/members/RoleSelect";
 import {
   cancelInvite,
   changeMemberRole,
-  nickLabelOf,
   nickOptionsOf,
-  osNickLabel,
   quietActiveMembers,
   type NickKind,
   removeMember,
@@ -37,9 +36,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { NickDialog } from "@/components/members/NickDialog";
-import { NicksTab } from "@/components/members/NicksTab";
+import { MemberNickChip } from "@/components/members/MemberNickChip";
 import { ApproveJoinDialog } from "@/components/members/ApproveJoinDialog";
-import { pageChipClass } from "@/components/common/PageHeader";
+import { canHoldNick, nickKindsShownFor, nickLockReason } from "@/utils/teamGroup";
 import { toggleUserPageAccess } from "@/services/pageService";
 import { rejectJoinRequest, fetchJoinRequests, subscribeJoinRequests } from "@/services/joinRequestService";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
@@ -71,22 +70,13 @@ export default function UsersPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [roleChip, setRoleChip] = useState<Role | "invited" | null>(null);
-  // Ники ОС и технарей: only Тимлид/Owner reach this page (canManageUsers);
-  // rules enforce the same on the member doc and the workspace nick lists.
+  // Ники: only Тимлид/Owner reach this page (canManageUsers); rules enforce
+  // the same on the member doc and the workspace nick lists. Списки ников и
+  // разделы Технари/ОС/Другие — на отдельной странице «Команда» (/team).
   const [nickDialog, setNickDialog] = useState<{ member: WorkspaceMember; kind: NickKind } | null>(null);
   const [approveRequest, setApproveRequest] = useState<JoinRequest | null>(null);
-  // Вкладки «Участники» / «Ники» (?tab=nicks — чтобы ссылкой можно было
-  // открыть сразу ники).
-  const [tab, setTabState] = useState<"people" | "nicks">(() =>
-    new URLSearchParams(window.location.search).get("tab") === "nicks" ? "nicks" : "people"
-  );
-  function setTab(next: "people" | "nicks") {
-    setTabState(next);
-    const url = new URL(window.location.href);
-    if (next === "nicks") url.searchParams.set("tab", "nicks");
-    else url.searchParams.delete("tab");
-    window.history.replaceState(window.history.state, "", url);
-  }
+  // Старая ссылка на вкладку «Ники» (?tab=nicks) ведёт на «Команду».
+  const [legacyNicksLink] = useState(() => new URLSearchParams(window.location.search).get("tab") === "nicks");
 
   const roster = useMemo(
     () =>
@@ -140,6 +130,8 @@ export default function UsersPage() {
     }, 60_000);
     return () => window.clearInterval(interval);
   }, [activeWorkspaceId, permissions.canManageUsers]);
+
+  if (legacyNicksLink) return <Navigate to="/team" replace />;
 
   if (!permissions.isResolved) return null;
 
@@ -287,9 +279,16 @@ export default function UsersPage() {
         title="Пользователи"
         description="Кто в команде и что каждому видно. Owner видит все столы всегда, остальным доступ выдаётся явно; Тимлид таблиц столов не видит."
         actions={
-          <Button className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => setInviteOpen(true)}>
-            <Plus className="h-4 w-4" /> Пригласить
-          </Button>
+          <>
+            <Button asChild variant="outline" className="min-h-11 gap-1.5 sm:min-h-0">
+              <Link to="/team">
+                <Contact className="h-4 w-4" /> Команда и ники
+              </Link>
+            </Button>
+            <Button className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => setInviteOpen(true)}>
+              <Plus className="h-4 w-4" /> Пригласить
+            </Button>
+          </>
         }
       />
 
@@ -374,26 +373,6 @@ export default function UsersPage() {
         </Card>
       )}
 
-      <div className="mb-4 flex flex-wrap gap-1.5" role="tablist" aria-label="Разделы">
-        <button type="button" role="tab" aria-selected={tab === "people"} onClick={() => setTab("people")} className={pageChipClass(tab === "people")}>
-          Участники
-        </button>
-        <button type="button" role="tab" aria-selected={tab === "nicks"} onClick={() => setTab("nicks")} className={pageChipClass(tab === "nicks")}>
-          Ники ОС и технарей
-        </button>
-      </div>
-
-      {tab === "nicks" ? (
-        <NicksTab
-          workspaceId={activeWorkspaceId}
-          workspace={activeWorkspace}
-          members={Array.isArray(members) ? members : []}
-          meUid={profile?.uid ?? ""}
-          viewerIsOwner={viewerIsOwner}
-          onChanged={() => refreshWorkspaceMembers(activeWorkspaceId)}
-        />
-      ) : (
-      <>
       {quiet.length > 0 && (
         <Card className="mb-6">
           <CardHeader>
@@ -476,23 +455,10 @@ export default function UsersPage() {
           const addableRoles = EXTRA_ROLES.filter((r) => r !== member.role && !extraRoles.includes(r));
           const canEditExtraRoles =
             member.status === "active" && Boolean(member.uid) && !selfLocked && (!isOwner || viewerIsOwner);
-          const showOsNick = memberHasRole(member, "os") && member.status === "active" && Boolean(member.uid);
-          // Ник технаря — у тех, кто работает за столом: Технарь или Owner.
-          const showTechNick =
-            (memberHasRole(member, "manager") || member.role === "owner") && member.status === "active" && Boolean(member.uid);
-          const techNick = showTechNick ? nickLabelOf(member, "tech", nickOptionsOf(activeWorkspace, "tech")) : null;
-          const osNick = showOsNick ? osNickLabel(member, activeWorkspace?.responsibleOptions) : null;
-          const osNickMissing =
-            showOsNick &&
-            Boolean(member.osNickValue) &&
-            !activeWorkspace?.responsibleOptions?.some((o) => o.value === member.osNickValue);
-          // «Неактуальный» и «потерян» — разные состояния: первое штатное
-          // (человек ушёл, ник жив и держит его заказы), второе аварийное
-          // (вариант физически удалили из списка).
-          const osNickInactive =
-            showOsNick &&
-            Boolean(member.osNickValue) &&
-            (activeWorkspace?.responsibleOptions?.find((o) => o.value === member.osNickValue)?.inactive ?? false);
+          // Ники — по разделу «Команды» (Технари / ОС / Другие), плюс ник,
+          // оставшийся от прошлой роли: открепить его можно и отсюда.
+          const nickKinds = member.status === "active" && member.uid ? nickKindsShownFor(member) : [];
+          const nickLocked = selfLocked || (isOwner && !viewerIsOwner);
           return (
             <Card key={member.uid || member.email}>
               <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:gap-3 sm:p-4">
@@ -578,72 +544,21 @@ export default function UsersPage() {
                       Свои роли и ник меняет Owner или другой Тимлид
                     </p>
                   )}
-                  {showOsNick && (
-                    <button
-                      type="button"
-                      onClick={() => setNickDialog({ member, kind: "os" })}
-                      disabled={selfLocked || (isOwner && !viewerIsOwner)}
-                      title={selfLocked ? "Свой ник ОС закрепляет Owner или другой Тимлид" : osNick ? "Сменить или открепить ник ОС" : "Закрепить ник ОС"}
-                      className={cn(
-                        "mt-1.5 inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-60",
-                        osNickMissing
-                          ? "border-warning/50 bg-warning/10 text-warning hover:bg-warning/15"
-                          : osNickInactive
-                            ? "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/30"
-                            : osNick
-                            ? "border-amber-400/40 bg-amber-400/10 text-amber-300 hover:bg-amber-400/15"
-                            : "border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
-                      )}
-                    >
-                      {osNickMissing ? (
-                        <AlertTriangle className="h-3 w-3 shrink-0" />
-                      ) : osNickInactive ? (
-                        <Archive className="h-3 w-3 shrink-0" />
-                      ) : (
-                        <AtSign className="h-3 w-3 shrink-0" />
-                      )}
-                      {osNick ? (
-                        <span className="truncate">
-                          ник ОС: <span className="font-semibold">{osNick}</span>
-                          {osNickMissing ? " — удалён из «Ответственный»" : osNickInactive ? " — неактуальный" : ""}
-                        </span>
-                      ) : (
-                        <span>Закрепить ник ОС</span>
-                      )}
-                      <Pencil className="h-3 w-3 shrink-0 opacity-70" />
-                    </button>
-                  )}
-                  {showTechNick && (
-                    <button
-                      type="button"
-                      onClick={() => setNickDialog({ member, kind: "tech" })}
-                      disabled={selfLocked || (isOwner && !viewerIsOwner)}
-                      title={
-                        isOwner && !viewerIsOwner
-                          ? "Ник Owner закрепляет сам Owner"
-                          : selfLocked
-                            ? "Свой ник технаря закрепляет Owner или другой Тимлид"
-                            : techNick
-                              ? "Сменить или открепить ник технаря"
-                              : "Закрепить ник технаря"
-                      }
-                      className={cn(
-                        "mt-1.5 ml-1 inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-60",
-                        techNick
-                          ? "border-teal-400/40 bg-teal-400/10 text-teal-200 hover:bg-teal-400/15"
-                          : "border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
-                      )}
-                    >
-                      <AtSign className="h-3 w-3 shrink-0" />
-                      {techNick ? (
-                        <span className="truncate">
-                          ник технаря: <span className="font-semibold">{techNick}</span>
-                        </span>
-                      ) : (
-                        <span>Закрепить ник технаря</span>
-                      )}
-                      <Pencil className="h-3 w-3 shrink-0 opacity-70" />
-                    </button>
+                  {nickKinds.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                      {nickKinds.map((kind) => (
+                        <MemberNickChip
+                          key={kind}
+                          member={member}
+                          kind={kind}
+                          options={nickOptionsOf(activeWorkspace, kind)}
+                          eligible={canHoldNick(kind, member)}
+                          locked={nickLocked}
+                          lockReason={isOwner && !viewerIsOwner ? nickLockReason(member) : "Свой ник закрепляет Owner или другой Тимлид"}
+                          onClick={() => setNickDialog({ member, kind })}
+                        />
+                      ))}
+                    </div>
                   )}
                 </div>
                 </div>
@@ -726,9 +641,6 @@ export default function UsersPage() {
           );
         })}
       </div>
-
-      </>
-      )}
 
       {nickDialog && (
         <NickDialog

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import {
+  Contact,
   LayoutDashboard,
   Megaphone,
   MessageCircle,
@@ -79,6 +80,10 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
     if (permissions.canManageWorkspace) {
       list.push({ id: "users", kind: "go", label: "Пользователи", href: "/users", icon: Users });
     }
+    // Тот же гейт, что у страницы «Команда» и пункта меню.
+    if (permissions.canManageUsers) {
+      list.push({ id: "team", kind: "go", label: "Команда", hint: "ники технарей, ОС и других", href: "/team", icon: Contact });
+    }
     list.push({
       id: "keys",
       kind: "go",
@@ -88,7 +93,7 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
       run: () => useUiStore.getState().setShortcutsHelpOpen(true),
     });
     return list;
-  }, [permissions.canManageWorkspace]);
+  }, [permissions.canManageWorkspace, permissions.canManageUsers]);
 
   const q = query.trim().toLowerCase();
 

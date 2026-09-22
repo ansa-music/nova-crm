@@ -1,12 +1,24 @@
+import type { Role } from "@/types";
+import { workNickOf } from "@/utils/teamGroup";
+
+type NickedEntity = {
+  techNick?: string;
+  otherNick?: string;
+  role?: Role;
+  extraRoles?: readonly Role[] | null;
+  nickname?: string;
+  name?: string;
+};
+
 /**
- * Как показать человека. Ник технаря (его выдаёт Тимлид, см.
- * `WorkspaceMember.techNick`) идёт первым: технарь работает под ним. Дальше
- * — ник, который человек выбрал себе сам, и полное имя.
+ * Как показать человека. Рабочий ник, выданный руководством (ник технаря —
+ * `WorkspaceMember.techNick`, или ник раздела «Другие» — `otherNick`), идёт
+ * первым: человек работает под ним (если есть оба — ник его раздела,
+ * `workNickOf`). Дальше — ник, который человек выбрал себе сам, и полное
+ * имя. Ник ОС сюда не входит: это ключ заказов, а не подпись.
  */
-export function displayNameOf(
-  entity: { techNick?: string; nickname?: string; name?: string } | null | undefined
-): string {
-  return entity?.techNick?.trim() || entity?.nickname?.trim() || entity?.name?.trim() || "Пользователь";
+export function displayNameOf(entity: NickedEntity | null | undefined): string {
+  return workNickOf(entity) || entity?.nickname?.trim() || entity?.name?.trim() || "Пользователь";
 }
 
 /**
@@ -26,8 +38,13 @@ export function realNameOf(entity: { nickname?: string; name?: string; email?: s
  */
 export function myDisplayName(
   profile: { uid?: string; nickname?: string; name?: string } | null | undefined,
-  members: Array<{ uid: string; techNick?: string }> | null | undefined
+  members:
+    | Array<{ uid: string; techNick?: string; otherNick?: string; role?: Role; extraRoles?: readonly Role[] | null }>
+    | null
+    | undefined
 ): string {
   const me = profile?.uid ? members?.find((m) => m.uid === profile.uid) : null;
-  return displayNameOf(me?.techNick ? { ...profile, techNick: me.techNick } : profile);
+  return displayNameOf(
+    me ? { ...profile, techNick: me.techNick, otherNick: me.otherNick, role: me.role, extraRoles: me.extraRoles } : profile
+  );
 }

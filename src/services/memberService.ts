@@ -332,16 +332,28 @@ export const OS_NICK_MAX_LENGTH = 32;
 export const NICK_MAX_LENGTH = OS_NICK_MAX_LENGTH;
 
 /**
- * Два вида ников с ОДНОЙ моделью: ник ОС живёт в «Ответственном»
- * (`responsibleOptions`, по нему считаются заказы ОС), ник технаря — в своём
- * списке `techNickOptions`. Смешивать списки нельзя: любой столбец
- * «Ответственный» считается ОС-столбцом.
+ * Три вида ников с ОДНОЙ моделью — по разделам «Команды»: ник ОС живёт в
+ * «Ответственном» (`responsibleOptions`, по нему считаются заказы ОС), ник
+ * технаря — в своём списке `techNickOptions`, ник раздела «Другие» (Owner,
+ * Admin, Тимлид без второй роли, Viewer) — в `otherNickOptions`. Смешивать
+ * списки нельзя: любой столбец «Ответственный» считается ОС-столбцом, а
+ * технари и «Другие» — разные разделы графика и «Технарей».
  */
-export type NickKind = "os" | "tech";
+export type NickKind = "os" | "tech" | "other";
 
-export const NICK_KIND_META: Record<NickKind, { list: "responsibleOptions" | "techNickOptions"; label: "osNick" | "techNick"; value: "osNickValue" | "techNickValue"; title: string; listName: string }> = {
+export const NICK_KIND_META: Record<
+  NickKind,
+  {
+    list: "responsibleOptions" | "techNickOptions" | "otherNickOptions";
+    label: "osNick" | "techNick" | "otherNick";
+    value: "osNickValue" | "techNickValue" | "otherNickValue";
+    title: string;
+    listName: string;
+  }
+> = {
   os: { list: "responsibleOptions", label: "osNick", value: "osNickValue", title: "Ник ОС", listName: "«Ответственный»" },
   tech: { list: "techNickOptions", label: "techNick", value: "techNickValue", title: "Ник технаря", listName: "«Ники технарей»" },
+  other: { list: "otherNickOptions", label: "otherNick", value: "otherNickValue", title: "Ник", listName: "«Ники: другие»" },
 };
 
 export function nickOptionsOf(workspace: Partial<Workspace> | null | undefined, kind: NickKind): StatusOption[] {
@@ -466,7 +478,7 @@ function reviveOption(options: StatusOption[], value: string): StatusOption[] {
 }
 
 /**
- * Закрепить за участником ник (ОС или технаря) или открепить (`target`
+ * Закрепить за участником ник (любого вида) или открепить (`target`
  * null). Тимлид/Owner only: self-service правило участника эти поля не
  * пускает, а Тимлид не может поставить ник сам себе. Варианты в списке
  * никогда не переименовываются и не удаляются: на нике могут висеть месяцы

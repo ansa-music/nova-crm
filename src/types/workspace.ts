@@ -44,6 +44,13 @@ export interface Workspace {
    */
   techNickOptions?: StatusOption[];
   /**
+   * Ники раздела «Другие» на «Команде» — для тех, кто не технарь и не ОС:
+   * Owner, Admin, Тимлид без второй роли, Viewer. Своя модель та же, что у
+   * `techNickOptions`, и тоже ОТДЕЛЬНЫЙ список: с никами технарей и ОС он не
+   * смешивается. Пишут Owner и Тимлид.
+   */
+  otherNickOptions?: StatusOption[];
+  /**
    * Same idea, for "Статус" columns: ONE shared, site-wide list instead of
    * each column keeping its own. Every "Статус" column on every page/
    * subpage shows this list; managed from Настройки → Workspace →
@@ -153,7 +160,7 @@ export interface WorkspaceMember {
   osNickValue?: string;
   /**
    * Ник технаря — как у ОС, но из списка `workspace.techNickOptions`. Ставит
-   * его Тимлид или Owner (на «Пользователи» → «Ники» или при одобрении
+   * его Тимлид или Owner (на «Команде» или при одобрении
    * заявки), сам технарь — никогда. С ником технарь РАБОТАЕТ под ним: его
    * показывают так везде (`displayNameOf`/`personLabel` берут `techNick`
    * первым). `techNick` — подпись ника на момент закрепления (ники не
@@ -161,6 +168,14 @@ export interface WorkspaceMember {
    */
   techNick?: string;
   techNickValue?: string;
+  /**
+   * Ник из раздела «Другие» (`workspace.otherNickOptions`) — у Owner, Admin,
+   * Тимлида без второй роли, Viewer. Показывается так же, как ник технаря
+   * (`displayNameOf`/`personLabel`), ставит только руководство; ник Owner —
+   * только сам Owner (Тимлид записи об Owner не правит).
+   */
+  otherNick?: string;
+  otherNickValue?: string;
 }
 
 export type JoinRequestStatus = "pending" | "approved" | "rejected";

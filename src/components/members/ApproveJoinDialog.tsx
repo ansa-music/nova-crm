@@ -13,7 +13,8 @@ import {
   type NickChoice,
 } from "@/components/members/NickDialog";
 import { approveJoinRequest, DEFAULT_JOIN_ROLE, nickKindForRole } from "@/services/joinRequestService";
-import { NICK_KIND_META, nickOptionsOf } from "@/services/memberService";
+import { memberNickValue, NICK_KIND_META, nickOptionsOf, type NickKind } from "@/services/memberService";
+import { realNameOf } from "@/utils/displayName";
 import { refreshWorkspaceMembers } from "@/hooks/useWorkspace";
 import { ROLE_LABELS, type JoinRequest, type Role, type Workspace, type WorkspaceMember } from "@/types";
 
@@ -46,8 +47,16 @@ export function ApproveJoinDialog({
   const options = useMemo(() => (kind ? nickOptionsOf(workspace, kind) : []), [workspace, kind]);
   // Выбор ника живёт по роли: сменили Технаря на ОС — предлагаем тот же ник,
   // но уже из списка ников ОС (а не тащим вариант из чужого списка).
-  const [choices, setChoices] = useState<Partial<Record<"os" | "tech", NickChoice | null>>>({});
+  const [choices, setChoices] = useState<Partial<Record<NickKind, NickChoice | null>>>({});
   const suggested = kind ? suggestNickChoice(request.requestedNick, options, kind, members, request.uid) : null;
+  // Ник, который человек попросил, уже у другого — занятые ники в выборе
+  // скрыты, поэтому говорим об этом прямо, иначе просьба просто пропала бы.
+  const requestedLabel = request.requestedNick?.trim().toLowerCase() ?? "";
+  const requestedOption = kind && requestedLabel ? options.find((o) => o.label.trim().toLowerCase() === requestedLabel) : undefined;
+  const requestedTakenBy =
+    kind && requestedOption
+      ? members.find((m) => m.uid !== request.uid && memberNickValue(m, kind) === requestedOption.value)
+      : undefined;
   const choice = kind ? (kind in choices ? choices[kind] ?? null : suggested) : null;
   const [saving, setSaving] = useState(false);
 
@@ -69,7 +78,7 @@ export function ApproveJoinDialog({
         members,
       });
       const adopted = nickLabel
-        ? await adoptScheduleRowByNick({ workspaceId, memberUid: request.uid, nickLabel, actorUid: approverUid })
+        ? await adoptScheduleRowByNick({ workspaceId, memberUid: request.uid, nickLabel, actorUid: approverUid, kind: kind!, role })
         : null;
       toast.success(`${request.name} в workspace как ${ROLE_LABELS[role]}`, {
         description: nickLabel
@@ -145,9 +154,14 @@ export function ApproveJoinDialog({
               onChoice={(next) => setChoices((prev) => ({ ...prev, [kind]: next }))}
               initialQuery={choice?.kind === "new" ? choice.label : ""}
             />
+            {requestedTakenBy && requestedOption && (
+              <p className="text-[11px] text-warning">
+                Ник «{requestedOption.label}», который просил человек, уже закреплён за {realNameOf(requestedTakenBy)}.
+              </p>
+            )}
             {!choice && (
               <p className="text-[11px] text-muted-foreground">
-                Без ника — его можно закрепить позже на вкладке «Ники».
+                Без ника — его можно закрепить позже на странице «Команда».
               </p>
             )}
           </div>

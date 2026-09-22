@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Archive, AtSign, Check, Plus, Search } from "lucide-react";
+import { Archive, AtSign, Check, Lock, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,7 +25,7 @@ import { confirmDialog } from "@/utils/appDialog";
 import { cn } from "@/utils/cn";
 import { realNameOf } from "@/utils/displayName";
 import { splitOptionsByActivity } from "@/utils/columnOptions";
-import type { StatusOption, WorkspaceMember } from "@/types";
+import type { Role, StatusOption, WorkspaceMember } from "@/types";
 
 export type NickChoice = { kind: "option"; value: string } | { kind: "new"; label: string };
 
@@ -34,14 +34,21 @@ export type NickChoice = { kind: "option"; value: string } | { kind: "new"; labe
  * «ожидающим» под этим ником (свой раздел графика). Переносим его строку и
  * неделю на аккаунт. Сбой переноса ник не отменяет: он уже закреплён.
  * Возвращает имя перенесённой строки или null.
+ *
+ * Ник «Другие» переносит строку только Owner и Тимлиду: Admin и Viewer в
+ * графике не показываются (без своего стола), и перенос молча убрал бы
+ * человека из «Графика».
  */
 export async function adoptScheduleRowByNick(input: {
   workspaceId: string;
   memberUid: string;
   nickLabel: string;
   actorUid: string | null | undefined;
+  kind: NickKind;
+  role: Role;
 }): Promise<string | null> {
   if (!input.nickLabel.trim() || !input.actorUid) return null;
+  if (input.kind === "other" && input.role !== "owner" && input.role !== "teamlead") return null;
   return bindScheduleGroupPersonToMember({
     workspaceId: input.workspaceId,
     memberUid: input.memberUid,
@@ -74,8 +81,11 @@ export function suggestNickChoice(
 }
 
 /**
- * Список ников с поиском: выбрать существующий (занятые другими — видны, но
- * недоступны), раскрыть «неактуальные» или завести новый. Ничего не пишет —
+ * Список ников с поиском: выбрать свободный, раскрыть «неактуальные» или
+ * завести новый. Ники, уже закреплённые за ДРУГИМ аккаунтом, в списке не
+ * показываются вовсе (так просил Nurba — выбирать из них всё равно нельзя);
+ * если ввести такой ник целиком, вместо «Новый ник» появится строка «уже у
+ * такого-то» — иначе было бы непонятно, куда он делся. Ничего не пишет —
  * только выбор; сохраняют NickDialog и одобрение заявки.
  */
 export function NickPicker({
@@ -112,11 +122,14 @@ export function NickPicker({
   }, [members, selfUid, kind]);
 
   const q = query.trim().toLowerCase();
-  const split = splitOptionsByActivity(options, [currentValue, choice?.kind === "option" ? choice.value : null]);
+  const free = options.filter((o) => !pinnedBy.has(o.value));
+  const hiddenTaken = options.length - free.length;
+  const split = splitOptionsByActivity(free, [currentValue, choice?.kind === "option" ? choice.value : null]);
   const match = (list: StatusOption[]) => (q ? list.filter((o) => o.label.toLowerCase().includes(q)) : list);
   const visible = match(split.active);
   const visibleInactive = match(split.inactive);
   const exact = q ? options.find((o) => o.label.trim().toLowerCase() === q) : undefined;
+  const takenExact = exact ? pinnedBy.get(exact.value) : undefined;
   const newLabel = query.trim().slice(0, NICK_MAX_LENGTH);
 
   return (
@@ -141,26 +154,21 @@ export function NickPicker({
 
       <div className="max-h-64 min-h-[3rem] overflow-y-auto rounded-lg border border-border/70 p-1">
         {[...visible, ...(showInactive ? visibleInactive : [])].map((option) => {
-          const owner = pinnedBy.get(option.value);
           const selected = choice?.kind === "option" && choice.value === option.value;
           return (
             <button
               key={option.value}
               type="button"
-              disabled={Boolean(owner)}
               onClick={() => onChoice({ kind: "option", value: option.value })}
               className={cn(
                 "flex min-h-11 w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors sm:min-h-0",
                 selected ? "bg-primary/15 text-foreground" : "hover:bg-accent",
-                option.inactive && !selected && "opacity-70",
-                owner && "cursor-not-allowed opacity-50 hover:bg-transparent"
+                option.inactive && !selected && "opacity-70"
               )}
             >
               <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: `hsl(${option.color})` }} />
               <span className="min-w-0 flex-1 truncate">{option.label}</span>
-              {owner ? (
-                <span className="max-w-[45%] shrink-0 truncate text-[11px] text-muted-foreground">занят: {realNameOf(owner)}</span>
-              ) : option.value === currentValue ? (
+              {option.value === currentValue ? (
                 <span className="shrink-0 text-[11px] text-primary">сейчас</span>
               ) : option.inactive ? (
                 <span className="shrink-0 text-[11px] text-muted-foreground">неактуальный</span>
@@ -179,6 +187,16 @@ export function NickPicker({
             <Archive className="h-3.5 w-3.5 shrink-0" />
             Неактуальные ники · {visibleInactive.length}
           </button>
+        )}
+
+        {exact && takenExact && (
+          <p className="flex min-h-11 items-center gap-2.5 px-2.5 py-2 text-[12px] text-muted-foreground sm:min-h-0">
+            <Lock className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">
+              «<span className="font-medium text-foreground">{exact.label}</span>» уже закреплён за {realNameOf(takenExact)} —
+              сначала открепите его там
+            </span>
+          </p>
         )}
 
         {!exact && newLabel && (
@@ -201,10 +219,18 @@ export function NickPicker({
         {options.length === 0 && !newLabel && (
           <p className="px-2.5 py-3 text-xs text-muted-foreground">Список {meta.listName} пуст — введите ник выше, он добавится.</p>
         )}
-        {options.length > 0 && visible.length === 0 && !newLabel && (
+        {options.length > 0 && free.length === 0 && !newLabel && (
+          <p className="px-2.5 py-3 text-xs text-muted-foreground">Свободных ников нет — введите новый выше, он добавится.</p>
+        )}
+        {free.length > 0 && visible.length === 0 && visibleInactive.length === 0 && !newLabel && (
           <p className="px-2.5 py-3 text-xs text-muted-foreground">Ничего не нашли.</p>
         )}
       </div>
+      {hiddenTaken > 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          Ники, закреплённые за другими, скрыты · {hiddenTaken}
+        </p>
+      )}
       {choice?.kind === "new" && (
         <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <AtSign className="h-3 w-3 shrink-0" />
@@ -227,6 +253,12 @@ const KIND_TEXT: Record<NickKind, { title: string; description: string; unpin: s
     description:
       "Технарь работает под этим ником: так его видно на «Технари», в «Заказах», «Графике» и на столах. Ник живёт в своём списке и не путается с никами ОС.",
     unpin: "ник останется в списке «Ники технарей» свободным, технаря снова будут показывать по его имени.",
+  },
+  other: {
+    title: "Ник",
+    description:
+      "Под этим ником человека видно в «Заказах», «Графике», на «Технари» и на столах. Список «Другие» — отдельный: с никами технарей и ОС он не путается.",
+    unpin: "ник останется в списке «Ники: другие» свободным, человека снова будут показывать по его имени.",
   },
 };
 
@@ -267,7 +299,14 @@ export function NickDialog({
     try {
       await linkMemberNick({ workspaceId, uid: member.uid, kind, target: nickChoiceToTarget(choice), members });
       const label = choice.kind === "option" ? options.find((o) => o.value === choice.value)?.label ?? "" : choice.label;
-      const adopted = await adoptScheduleRowByNick({ workspaceId, memberUid: member.uid, nickLabel: label, actorUid });
+      const adopted = await adoptScheduleRowByNick({
+        workspaceId,
+        memberUid: member.uid,
+        nickLabel: label,
+        actorUid,
+        kind,
+        role: member.role,
+      });
       toast.success(`${text.title} «${label}» закреплён`, {
         description: adopted ? `${name} · график «${adopted}» перенесён на аккаунт` : name,
       });

@@ -1,9 +1,19 @@
 import { memberHasRole, type Role, type WorkspaceMember, type WorkspacePage } from "@/types";
+import { workNickOf } from "@/utils/teamGroup";
 
-/** Подпись человека: ник технаря (если закреплён) → свой ник → имя. См. `displayNameOf`. */
-export function personLabel(member?: { name?: string; nickname?: string; techNick?: string } | null) {
+/** Подпись человека: рабочий ник (технаря или «Другие») → свой ник → имя. См. `displayNameOf`. */
+export function personLabel(
+  member?: {
+    name?: string;
+    nickname?: string;
+    techNick?: string;
+    otherNick?: string;
+    role?: Role;
+    extraRoles?: readonly Role[] | null;
+  } | null
+) {
   if (!member) return "";
-  return member.techNick?.trim() || member.nickname || member.name || "";
+  return workNickOf(member) || member.nickname || member.name || "";
 }
 
 /**

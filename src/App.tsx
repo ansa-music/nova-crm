@@ -20,6 +20,7 @@ const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const DynamicTablePage = lazy(() => import("@/pages/DynamicTablePage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const UsersPage = lazy(() => import("@/pages/UsersPage"));
+const TeamPage = lazy(() => import("@/pages/TeamPage"));
 const PeoplePage = lazy(() => import("@/pages/PeoplePage"));
 const DesksPage = lazy(() => import("@/pages/DesksPage"));
 const AnnouncementsPage = lazy(() => import("@/pages/AnnouncementsPage"));
@@ -115,6 +116,7 @@ function AppShell() {
             <Route path="overview" element={<Navigate to="/dashboard" replace />} />
             <Route path="page/:pageId" element={<DynamicTablePage />} />
             <Route path="users" element={<UsersPage />} />
+            <Route path="team" element={<TeamPage />} />
             <Route path="announcements" element={<AnnouncementsPage />} />
             <Route path="grok-limit" element={<GrokLimitPage />} />
             <Route path="grok-limit/apps" element={<Navigate to="/grok-limit?s=higgsfield" replace />} />

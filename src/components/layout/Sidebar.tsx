@@ -22,6 +22,7 @@ import {
   User,
   Users,
   UsersRound,
+  Contact,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { memberHasRole, rolesLabel, type Role } from "@/types";
@@ -263,6 +264,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink collapsed title="Люди" to="/people" icon={UsersRound} onNavigate={onNavigate}>
                     Люди
                   </AppNavLink>
+                  {showUsersNav && (
+                    <AppNavLink collapsed title="Команда" to="/team" icon={Contact} onNavigate={onNavigate}>
+                      Команда
+                    </AppNavLink>
+                  )}
                   {showTechniciansNav && (
                     <AppNavLink collapsed title="Технари" to="/technicians" icon={HardHat} onNavigate={onNavigate}>
                       Технари
@@ -318,6 +324,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
                     Люди
                   </AppNavLink>
+                  {showUsersNav && (
+                    <AppNavLink to="/team" icon={Contact} onNavigate={onNavigate}>
+                      Команда
+                    </AppNavLink>
+                  )}
                   {showTechniciansNav && (
                     <AppNavLink to="/technicians" icon={HardHat} onNavigate={onNavigate}>
                       Технари
@@ -376,6 +387,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
                 Люди
               </AppNavLink>
+              {showUsersNav && (
+                <AppNavLink to="/team" icon={Contact} onNavigate={onNavigate}>
+                  Команда
+                </AppNavLink>
+              )}
               {showTechniciansNav && (
                 <AppNavLink to="/technicians" icon={HardHat} onNavigate={onNavigate}>
                   Технари

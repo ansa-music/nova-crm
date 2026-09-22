@@ -17,9 +17,14 @@ import { realNameOf } from "@/utils/displayName";
 /** Если человек роль не выбрал (старые заявки) — предлагаем Технаря, как было раньше. */
 export const DEFAULT_JOIN_ROLE: Role = "manager";
 
-/** Какой ник положен роли: Технарь — ник технаря, ОС — ник ОС, остальным — никакого. */
+/**
+ * Какой ник положен роли при одобрении — ник её раздела «Команды»: Технарь —
+ * ник технаря, ОС — ник ОС, Тимлид/Admin/Viewer — ник «Другие». Owner через
+ * заявку не выдаётся (в `RoleSelect` его нет).
+ */
 export function nickKindForRole(role: Role): NickKind | null {
-  return role === "manager" ? "tech" : role === "os" ? "os" : null;
+  if (role === "owner") return null;
+  return role === "manager" ? "tech" : role === "os" ? "os" : "other";
 }
 
 /** Minimal public info shown on the /join/:workspaceId page before the person is a member. */
