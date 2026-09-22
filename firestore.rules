@@ -399,6 +399,21 @@ service cloud.firestore {
               existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/managerPageClaims/$(request.auth.uid)) &&
               getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/managerPageClaims/$(request.auth.uid)).data.pageId == pageId));
 
+        // «Стол ОС» — личная таблица ОС (`osDesk: true`). Роль ОС столов не
+        // создаёт вовсе, поэтому ветка своя и узкая: только за себя, только
+        // помеченный стол ОС и только под id `osdesk_{uid}` — из этого же
+        // выходит «один стол на человека», повторный create того же
+        // документа Firestore отклонит сам, без отдельного документа-заявки,
+        // как у квоты Технаря. Дальше к строкам его пускает обычный
+        // canAccessPage/canEditPage: он ответственный за свой стол.
+        allow create: if isMember(workspaceId) && request.resource.data.workspaceId == workspaceId
+          && hasRole(workspaceId, 'os')
+          && pageId == 'osdesk_' + request.auth.uid
+          && request.resource.data.get('osDesk', false) == true
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.responsibleUserId == request.auth.uid
+          && request.auth.uid in request.resource.data.get('allowedUsers', []);
+
         allow update: if isOwner(workspaceId);
         // Тимлид: who sees, edits and answers for a desk — never its content
         // (columns, name, tabs). Keep in sync with the access writes in
@@ -423,7 +438,10 @@ service cloud.firestore {
         // this workspace, so neither may be rewritten here either.
         allow update: if isMember(workspaceId)
           && resource.data.responsibleUserId == request.auth.uid
-          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['responsibleUserId', 'createdBy', 'workspaceId', 'inactive', 'inactiveAt', 'inactiveBy']);
+          // osDesk снять нельзя: иначе ОС одним merge превращал бы свой
+          // личный стол в обычный — и тот всплывал бы в «Столах», на
+          // дашборде и в «Технарях», где ему делать нечего.
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['responsibleUserId', 'createdBy', 'workspaceId', 'inactive', 'inactiveAt', 'inactiveBy', 'osDesk']);
 
         // Admin (not Owner, who already has full rights above) may assign
         // or reassign who's responsible for this page. setPageResponsible()

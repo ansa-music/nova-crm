@@ -2901,6 +2901,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     } else if (manageOptionsColumn.type === "responsible") {
       if (!canEditSharedLists) throw new Error("Список ответственных меняет только Owner или Тимлид");
       await updateResponsibleOptions(workspaceId, options);
+    } else if (manageOptionsColumn.type === "technician") {
+      // Ники технарей ведутся на «Команде» (там же привязка к людям), и
+      // редактора вариантов у них нет. Без этой ветки диалог молча
+      // показывал «Варианты обновлены», не записав ничего.
+      throw new Error("Ники технарей ведутся на «Команде» — здесь их не меняют");
     } else if (manageOptionsColumn.type === "custom" && manageOptionsColumn.customFieldId) {
       if (!canEditSharedLists) throw new Error("Кастомные поля меняет только Owner или Тимлид");
       await updateCustomFieldOptions(workspaceId, customFields, manageOptionsColumn.customFieldId, options);
@@ -3048,13 +3053,27 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     return sums;
   }, [columns, processedRows, sharedStatusOptions]);
 
+  /**
+   * Нижняя полоса итогов. Денежных столбцов может быть НЕСКОЛЬКО — у стола
+   * ОС их два (цена и апсейл), и суммировать только первый значит спрятать
+   * половину денег. Один столбец подписан «Общий», как было; два и больше —
+   * каждый своим названием. «Готово» показываем только при столбце-статусе:
+   * без него это всегда ноль, и на столе ОС он читался как «ничего не
+   * сделано».
+   */
   const grandTotals = useMemo(() => {
-    const currencyCol = columns.find((c) => c.type === "currency");
-    if (!currencyCol) return null;
-    const tot = columnTotals[currencyCol.key];
-    if (!tot) return { sum: 0, done: 0 };
-    return { sum: tot.sum, done: tot.done ?? 0 };
-  }, [columns, columnTotals]);
+    const currencyCols = columns.filter((c) => c.type === "currency");
+    if (currencyCols.length === 0) return null;
+    return {
+      parts: currencyCols.map((c) => ({
+        key: c.key,
+        label: c.label,
+        sum: columnTotals[c.key]?.sum ?? 0,
+        done: columnTotals[c.key]?.done ?? 0,
+      })),
+      hasStatus: Boolean(footerStatusColumn),
+    };
+  }, [columns, columnTotals, footerStatusColumn]);
 
   const selectionStats = useMemo(() => {
     const bounds = getSelectionBounds();
@@ -3848,14 +3867,20 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
             {grandTotals && (
               <>
-                <p className="flex min-w-0 items-baseline gap-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Общий</span>
-                  <span className="table-totals-sum text-foreground">{formatCurrency(grandTotals.sum)}</span>
-                </p>
-                <p className="flex min-w-0 items-baseline gap-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-success">Готово</span>
-                  <span className="table-totals-sum text-success">{formatCurrency(grandTotals.done)}</span>
-                </p>
+                {grandTotals.parts.map((part) => (
+                  <p key={part.key} className="flex min-w-0 items-baseline gap-2">
+                    <span className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      {grandTotals.parts.length === 1 ? "Общий" : part.label}
+                    </span>
+                    <span className="table-totals-sum text-foreground">{formatCurrency(part.sum)}</span>
+                  </p>
+                ))}
+                {grandTotals.hasStatus && (
+                  <p className="flex min-w-0 items-baseline gap-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-success">Готово</span>
+                    <span className="table-totals-sum text-success">{formatCurrency(grandTotals.parts[0].done)}</span>
+                  </p>
+                )}
               </>
             )}
             {/* Сумма выделенного жила в строке «Итого» и уехала бы вместе с
@@ -3926,6 +3951,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         description={
           manageOptionsColumn?.type === "responsible"
             ? "Общий список для всех столбцов «Ответственный» на сайте — изменения увидят все."
+            : manageOptionsColumn?.type === "technician"
+              ? "Ники технарей ведутся на «Команде» — отсюда их не поменять."
             : manageOptionsColumn?.type === "custom"
               ? `Общий список для всех столбцов «${customFields.find((f) => f.id === manageOptionsColumn.customFieldId)?.name ?? manageOptionsColumn.label}» на сайте — изменения увидят все.`
               : "Список статусов этого стола. «Готово» учитывается на дашборде."

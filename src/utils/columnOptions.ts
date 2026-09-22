@@ -5,7 +5,7 @@ import type { ColumnType, CustomFieldDef, PageColumn, StatusOption, Workspace } 
  * opposed to freeform text/number/date entry.
  */
 export function isOptionColumn(type: ColumnType): boolean {
-  return type === "status" || type === "responsible" || type === "custom";
+  return type === "status" || type === "responsible" || type === "technician" || type === "custom";
 }
 
 /** Seed values shown the first time a workspace has no status list of its own yet. */
@@ -72,6 +72,9 @@ export function splitOptionsByActivity(
 
 export function getColumnOptions(column: PageColumn, workspace: Workspace | null | undefined): StatusOption[] {
   if (column.type === "responsible") return workspace?.responsibleOptions ?? [];
+  // Ники технарей — ОТДЕЛЬНЫЙ список, не «Ответственный»: см. комментарий к
+  // ColumnType. Ведётся на «Команде», здесь только читается.
+  if (column.type === "technician") return workspace?.techNickOptions ?? [];
   if (column.type === "status") return ensureDoneStatus(workspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS);
   if (column.type === "custom") {
     return workspace?.customFields?.find((f) => f.id === column.customFieldId)?.options ?? [];
@@ -133,6 +136,7 @@ export const BASE_COLUMN_TYPE_LABELS: Record<Exclude<ColumnType, "custom">, stri
   currency: "Валюта",
   status: "Статус",
   responsible: "Ответственный",
+  technician: "Технарь",
   date: "Дата",
   email: "Email",
   phone: "Телефон",

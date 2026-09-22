@@ -185,7 +185,13 @@ export function canManagePage(page: WorkspacePage, role: Role, uid: string): boo
   // manages desks they are responsible for — status *variants* stay Owner-only
   // via canManageStatusVariants(effectiveRole), never this check.
   if (role === "owner") return true;
-  if (role === "viewer" || role === "os" || isBlockedFromDesks(role)) return false;
+  // У ОС своих столов нет — кроме ОДНОГО: «Стол ОС» (`page.osDesk`), его
+  // личной таблицы. Там он ответственный, и структуру своей таблицы —
+  // столбцы, ширины, название — ведёт сам; правила это и так разрешают
+  // ответственному. Без этой ветки стол открывался бы только на чтение
+  // ячеек: ни столбец добавить, ни ширину поправить.
+  if (role === "os") return Boolean(page.osDesk) && isResponsibleForPage(page, uid);
+  if (role === "viewer" || isBlockedFromDesks(role)) return false;
   return isResponsibleForPage(page, uid);
 }
 

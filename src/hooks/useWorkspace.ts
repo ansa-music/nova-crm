@@ -249,13 +249,22 @@ export function useActiveWorkspaceDataBootstrap() {
   ]);
 }
 
-const deskSplitCache = new WeakMap<WorkspacePage[], { active: WorkspacePage[]; inactive: WorkspacePage[] }>();
+const deskSplitCache = new WeakMap<WorkspacePage[], { active: WorkspacePage[]; inactive: WorkspacePage[]; os: WorkspacePage[] }>();
 
 /** Active desks vs «Неактуальные», cached per snapshot so every caller shares the same arrays. */
+/**
+ * Столы ОС отделяются ЗДЕСЬ, одним местом на всё приложение: `pages` читают
+ * «Столы», дашборд, «Технари», месячные вкладки, квота и график, и попади
+ * стол ОС в этот список — он всплыл бы во всех шести сразу.
+ */
 function splitDesks(all: WorkspacePage[]) {
   let split = deskSplitCache.get(all);
   if (!split) {
-    split = { active: all.filter((p) => !p.inactive), inactive: all.filter((p) => p.inactive) };
+    split = {
+      active: all.filter((p) => !p.inactive && !p.osDesk),
+      inactive: all.filter((p) => p.inactive && !p.osDesk),
+      os: all.filter((p) => p.osDesk),
+    };
     deskSplitCache.set(all, split);
   }
   return split;
@@ -267,7 +276,7 @@ export function useWorkspace() {
   const setActiveWorkspaceId = useWorkspaceStore((s) => s.setActiveWorkspaceId);
   const members = useWorkspaceStore((s) => s.members);
   const allPages = useWorkspaceStore((s) => s.pages);
-  const { active: pages, inactive: inactivePages } = splitDesks(allPages);
+  const { active: pages, inactive: inactivePages, os: osDesks } = splitDesks(allPages);
   const isLoadingWorkspaces = useWorkspaceStore((s) => s.isLoadingWorkspaces);
   const isLoadingWorkspaceData = useWorkspaceStore((s) => s.isLoadingWorkspaceData);
   const membersLoadState = useWorkspaceStore((s) => s.membersLoadState);
@@ -284,6 +293,8 @@ export function useWorkspace() {
     pages,
     /** Desks retired to «Неактуальные». */
     inactivePages,
+    /** «Столы ОС» — личные таблицы ОС, к работе технарей отношения не имеют. */
+    osDesks,
     /** Every desk, retired ones included (opening a retired desk by link). */
     allPages,
     isLoadingWorkspaces,

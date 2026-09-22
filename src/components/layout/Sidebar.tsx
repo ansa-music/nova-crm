@@ -19,6 +19,7 @@ import {
   PackageCheck,
   Plus,
   Settings,
+  Table2,
   User,
   Users,
   UsersRound,
@@ -183,6 +184,10 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   const showDeskNav = !isOs && !isTeamlead;
   const showGrokNav = !isOs;
   const showTechniciansNav = permissions.canSeeTechnicians && !isOs;
+  // «Стол ОС» — личная таблица ОС. Owner видит пункт тоже: своего стола у
+  // него нет, там будет список чужих — иначе проверить раздел ему нечем.
+  const showOsDeskNav =
+    permissions.isResolved && (permissions.hasRole("os") || permissions.isWorkspaceOwner);
   const homeTo = isOs ? "/technicians" : isTeamlead ? "/users" : myDesk ? `/page/${myDesk.id}` : "/";
   const homeLabel = isOs
     ? "Технари"
@@ -280,6 +285,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink collapsed title="Заказы" to="/orders" icon={ClipboardList} onNavigate={onNavigate}>
                     Заказы
                   </AppNavLink>
+                  {showOsDeskNav && (
+                    <AppNavLink collapsed title="Стол ОС" to="/os-desk" icon={Table2} onNavigate={onNavigate}>
+                      Стол ОС
+                    </AppNavLink>
+                  )}
                   <AppNavLink collapsed title="Настройки" to="/settings" icon={Settings} onNavigate={onNavigate}>
                     Настройки
                   </AppNavLink>
@@ -340,6 +350,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink to="/orders" icon={ClipboardList} onNavigate={onNavigate}>
                     Заказы
                   </AppNavLink>
+                  {showOsDeskNav && (
+                    <AppNavLink to="/os-desk" icon={Table2} onNavigate={onNavigate}>
+                      Стол ОС
+                    </AppNavLink>
+                  )}
                   <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
                     Настройки
                   </AppNavLink>
@@ -400,6 +415,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               <AppNavLink to="/orders" icon={ClipboardList} onNavigate={onNavigate}>
                 Заказы
               </AppNavLink>
+              {showOsDeskNav && (
+                <AppNavLink to="/os-desk" icon={Table2} onNavigate={onNavigate}>
+                  Стол ОС
+                </AppNavLink>
+              )}
               <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
                 Настройки
               </AppNavLink>
