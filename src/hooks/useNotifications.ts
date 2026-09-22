@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { subscribeMyNotifications } from "@/services/notificationService";
+import { cleanupOldReadNotifications, subscribeMyNotifications } from "@/services/notificationService";
 import type { Notification } from "@/types";
 
 /**
@@ -16,11 +16,19 @@ type Reader = (rows: Notification[]) => void;
 interface Shared {
   key: string;
   rows: Notification[];
+  /** Пришёл ли хоть один снимок: пустой `rows` до него значит «не знаем», а не «уведомлений нет». */
+  loaded: boolean;
   readers: Set<Reader>;
   unsubscribe: () => void;
 }
 
 let shared: Shared | null = null;
+
+/**
+ * Чистку старых прочитанных откладываем от старта: при входе и так идут
+ * чтения профиля, столов и участников, а чистке спешить некуда.
+ */
+const CLEANUP_DELAY_MS = 20_000;
 
 function joinShared(workspaceId: string, uid: string, reader: Reader): () => void {
   const key = `${workspaceId}:${uid}`;
@@ -29,12 +37,18 @@ function joinShared(workspaceId: string, uid: string, reader: Reader): () => voi
     shared = null;
   }
   if (!shared) {
-    const next: Shared = { key, rows: [], readers: new Set(), unsubscribe: () => {} };
+    const next: Shared = { key, rows: [], loaded: false, readers: new Set(), unsubscribe: () => {} };
     shared = next;
-    next.unsubscribe = subscribeMyNotifications(workspaceId, uid, (rows) => {
+    const stopListening = subscribeMyNotifications(workspaceId, uid, (rows) => {
       next.rows = rows;
+      next.loaded = true;
       next.readers.forEach((fn) => fn(rows));
     });
+    const cleanupTimer = setTimeout(() => void cleanupOldReadNotifications(workspaceId, uid), CLEANUP_DELAY_MS);
+    next.unsubscribe = () => {
+      clearTimeout(cleanupTimer);
+      stopListening();
+    };
   }
   const current = shared;
   current.readers.add(reader);
@@ -48,6 +62,17 @@ function joinShared(workspaceId: string, uid: string, reader: Reader): () => voi
       if (shared === current) shared = null;
     }
   };
+}
+
+/**
+ * Последний снимок общей подписки — для кода вне React
+ * (markPrivateConversationRead): свежий список уже лежит здесь, и перечитывать
+ * ради него уведомления из базы незачем. null — на этого человека подписки нет
+ * или первый снимок ещё не пришёл; тогда вызывающий сам решает, что делать.
+ */
+export function getSharedNotifications(workspaceId: string, uid: string): Notification[] | null {
+  if (!shared || shared.key !== `${workspaceId}:${uid}` || !shared.loaded) return null;
+  return shared.rows;
 }
 
 export function useNotifications(workspaceId: string | null, uid: string | null, enabled = true) {

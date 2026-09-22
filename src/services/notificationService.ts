@@ -1,4 +1,4 @@
-import { getDocs, onSnapshot, query, serverTimestamp, setDoc, where, writeBatch } from "firebase/firestore";
+import { getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, where, writeBatch } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -97,21 +97,149 @@ function mapNotifications(docs: { id: string; data: () => import("firebase/fires
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export async function fetchMyNotifications(workspaceId: string, uid: string): Promise<Notification[]> {
-  const q = query(paths.notifications(workspaceId), where("targetUid", "==", uid));
+/**
+ * Непрочитанные уведомления с этой ссылкой — запасной путь для
+ * markPrivateConversationRead, когда общая подписка колокольчика ещё не
+ * отдала снимок. Раньше здесь читалась ВСЯ история уведомлений человека (у
+ * технаря — сотни, по одному на каждый заказ биржи) ради одной-двух строк.
+ * Три равенства сервер собирает из одиночных индексов, составной не нужен, а
+ * прочитано будет ровно то, что подходит.
+ */
+export async function fetchMyUnreadNotificationsByHref(workspaceId: string, uid: string, href: string): Promise<Notification[]> {
+  const q = query(
+    paths.notifications(workspaceId),
+    where("targetUid", "==", uid),
+    where("read", "==", false),
+    where("href", "==", href)
+  );
   const snapshot = await getDocs(q);
   return mapNotifications(snapshot.docs);
 }
+
+/**
+ * Сколько последних уведомлений держит живая подписка колокольчика.
+ *
+ * Раньше подписка брала ВСЕ уведомления человека за всё время, и каждый вход
+ * в приложение перечитывал их целиком: квота Spark (50k чтений в сутки)
+ * уходила на старьё, которое в колокольчике никто не листает. 40 — с запасом
+ * больше, чем помещается в выпадашке.
+ */
+export const NOTIFICATIONS_LIVE_LIMIT = 40;
+
+/** «Индекса ещё нет» пишем в консоль один раз: пока индекс строится, отказ приходит на каждую подписку. */
+let indexFallbackLogged = false;
 
 export function subscribeMyNotifications(
   workspaceId: string,
   uid: string,
   cb: (rows: Notification[]) => void
 ) {
-  const q = query(paths.notifications(workspaceId), where("targetUid", "==", uid));
-  return onSnapshot(q, (snap) => {
-    cb(mapNotifications(snap.docs));
-  });
+  const collectionRef = paths.notifications(workspaceId);
+  // Ограниченный запрос требует составного индекса targetUid + createdAt
+  // (firestore.indexes.json). После деплоя индекс строится несколько минут, и
+  // всё это время запрос падает с failed-precondition — тогда откатываемся на
+  // старый полный запрос, иначе колокольчик и всплывашки о заказах молча
+  // опустели бы. `createdAt > 0` отсекает самые первые уведомления, где
+  // createdAt успел побыть Timestamp (август 2026): в порядке Firestore
+  // Timestamp стоит ПОСЛЕ чисел, и при сортировке по убыванию такие
+  // документы навсегда заняли бы верх выдачи вместо свежих.
+  const bounded = query(
+    collectionRef,
+    where("targetUid", "==", uid),
+    where("createdAt", ">", 0),
+    orderBy("createdAt", "desc"),
+    limit(NOTIFICATIONS_LIVE_LIMIT)
+  );
+  let stopped = false;
+  let unsubscribe = onSnapshot(
+    bounded,
+    (snap) => cb(mapNotifications(snap.docs)),
+    (error) => {
+      if (stopped) return;
+      if (error.code !== "failed-precondition") {
+        // Отказ — это «не знаем», а не «уведомлений нет»: последний список
+        // остаётся на экране (см. «Критические уроки» в CLAUDE.md).
+        console.error("Подписка на уведомления отклонена:", error.code, error.message);
+        return;
+      }
+      if (!indexFallbackLogged) {
+        indexFallbackLogged = true;
+        console.warn("Индекс уведомлений ещё строится — пока читаем все уведомления целиком:", error.message);
+      }
+      unsubscribe = onSnapshot(
+        query(collectionRef, where("targetUid", "==", uid)),
+        (snap) => cb(mapNotifications(snap.docs)),
+        (fallbackError) => console.error("Подписка на уведомления отклонена:", fallbackError.code, fallbackError.message)
+      );
+    }
+  );
+  return () => {
+    stopped = true;
+    unsubscribe();
+  };
+}
+
+/** Прочитанные уведомления старше этого срока больше не нужны никому. */
+const NOTIFICATION_KEEP_READ_MS = 14 * 24 * 60 * 60 * 1000;
+const NOTIFICATION_CLEANUP_EVERY_MS = 24 * 60 * 60 * 1000;
+/** За один заход — один batch (лимит 500 операций). Что не влезло, уйдёт завтра. */
+const NOTIFICATION_CLEANUP_MAX = 400;
+/** Когда эта вкладка уже пробовала чистить — на случай, если localStorage недоступен. */
+const cleanupTriedAt = new Map<string, number>();
+
+/**
+ * Раз в сутки на человека удаляет его СОБСТВЕННЫЕ прочитанные уведомления
+ * старше 14 дней.
+ *
+ * Удаления идут отдельной квотой (20k в сутки на Spark), а не записями, и
+ * сами строки колокольчика никому уже не нужны: копятся они быстро — по
+ * одному документу каждому технарю на каждый заказ биржи. Непрочитанные не
+ * трогаем никогда: их человек ещё не видел.
+ *
+ * Правило notifications пускает удалять только свои (`targetUid == я`), и
+ * запрос обязан фильтровать именно по targetUid — иначе list-запрос падает
+ * целиком. Выборка идёт по составному индексу targetUid + read + createdAt,
+ * поэтому читаются ровно те документы, что будут удалены. Пока индекс
+ * строится (или кончилась квота), чистка просто не проходит — отметку не
+ * ставим и пробуем при следующем открытии приложения.
+ */
+export async function cleanupOldReadNotifications(workspaceId: string, uid: string): Promise<void> {
+  if (!db) return;
+  const stampKey = `nova:notif-cleanup:${workspaceId}:${uid}`;
+  const now = Date.now();
+  const triedAt = cleanupTriedAt.get(stampKey);
+  if (triedAt !== undefined && now - triedAt < NOTIFICATION_CLEANUP_EVERY_MS) return;
+  cleanupTriedAt.set(stampKey, now);
+  try {
+    const last = Number(localStorage.getItem(stampKey) ?? 0);
+    if (Number.isFinite(last) && now - last < NOTIFICATION_CLEANUP_EVERY_MS) return;
+  } catch {
+    /* localStorage закрыт (приватный режим) — хватит отметки этой вкладки */
+  }
+  try {
+    const q = query(
+      paths.notifications(workspaceId),
+      where("targetUid", "==", uid),
+      where("read", "==", true),
+      where("createdAt", "<", now - NOTIFICATION_KEEP_READ_MS),
+      orderBy("createdAt"),
+      limit(NOTIFICATION_CLEANUP_MAX)
+    );
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      const batch = writeBatch(db);
+      snapshot.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+    try {
+      localStorage.setItem(stampKey, String(now));
+    } catch {
+      /* без localStorage повторим при следующем открытии вкладки */
+    }
+  } catch (error) {
+    const code = (error as { code?: string } | null)?.code ?? "unknown";
+    console.warn("Чистка старых уведомлений не прошла, повторим позже:", code);
+  }
 }
 
 export async function markNotificationRead(workspaceId: string, id: string) {

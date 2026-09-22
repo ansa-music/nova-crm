@@ -21,10 +21,26 @@ export default function WorkspaceChatPage() {
     [members]
   );
 
+  // Время самого свежего ЧУЖОГО сообщения: отметка «прочитано» пишется, только
+  // когда оно новее уже записанной (и не чаще раза в 30 с — см.
+  // markContextRead). Раньше запись уходила на каждое изменение списка, в том
+  // числе на собственные сообщения и догрузку ранних.
+  const uid = profile?.uid;
+  const latestForeignAt = useMemo(() => {
+    let latest: number | null = null;
+    for (const m of messages) {
+      if (m.authorUid === uid || m.deleted) continue;
+      if (latest === null || m.createdAt > latest) latest = m.createdAt;
+    }
+    return latest;
+  }, [messages, uid]);
+
   useEffect(() => {
-    if (!activeWorkspaceId || !profile?.uid) return;
-    markContextRead(activeWorkspaceId, profile.uid, "workspaceChat");
-  }, [activeWorkspaceId, profile?.uid, messages.length]);
+    if (!activeWorkspaceId || !uid) return;
+    markContextRead(activeWorkspaceId, uid, "workspaceChat", { latestForeignAt }).catch((error) =>
+      console.error("Не удалось отметить чат прочитанным:", error)
+    );
+  }, [activeWorkspaceId, uid, latestForeignAt]);
 
   if (!activeWorkspaceId || !profile) return null;
 
