@@ -35,6 +35,7 @@ import { hasFullAccess } from "@/utils/permissions";
 import { confirmDialog } from "@/utils/appDialog";
 import { parseHttpUrl } from "@/utils/httpUrl";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
+import { OrdersNotifyBanner } from "@/components/common/BrowserNotifySetting";
 import { cn } from "@/utils/cn";
 import { memberHasRole, scheduleDayKey, scheduleStateOf, WORK_ORDER_STATUS_LABELS, WORK_ORDER_URGENCY_LABELS, type WorkOrder, type WorkOrderStatus, type WorkOrderUrgency, type WorkspaceMember, type TechSchedule } from "@/types";
 
@@ -323,6 +324,8 @@ export default function OrdersPage() {
           </button>
         ))}
       />
+
+      {canClaim && <OrdersNotifyBanner className="mb-4" />}
 
       {schedulesFailed && (
         <div className="mb-4">

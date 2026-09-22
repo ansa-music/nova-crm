@@ -2,7 +2,8 @@ import { deleteDoc, deleteField, onSnapshot, orderBy, query, setDoc, updateDoc }
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
-import { normalizeTimestamp } from "@/utils/date";
+import { formatOrderDate, normalizeTimestamp } from "@/utils/date";
+import { formatCurrency } from "@/utils/format";
 import { buildQuickOrderRow } from "@/utils/quickOrder";
 import { sendNotification } from "@/services/notificationService";
 import { addRow, fetchRows, markRowOrder, updateRowCellsBulk } from "@/services/pageService";
@@ -10,6 +11,7 @@ import { addSubPageRow, fetchSubPageRows, fetchSubPages, updateSubPageRowCellsBu
 import { findInProgressStatusOption, getColumnOptions } from "@/utils/columnOptions";
 import { isBlankRow, isFilledCellValue } from "@/utils/blankRow";
 import { currentMonthSubPageId, ensureMonthTab, isMonthlyDesk } from "@/services/monthTabService";
+import { WORK_ORDER_URGENCY_LABELS } from "@/types";
 import type { PageColumn, WorkOrder, WorkOrderClaim, WorkOrderUrgency, Workspace, WorkspaceMember, WorkspacePage } from "@/types";
 
 function mapOrder(data: Record<string, unknown>, id: string): WorkOrder {
@@ -58,6 +60,21 @@ export function orderSummary(order: Pick<WorkOrder, "client" | "minutes" | "pers
   return parts.length ? `${order.client} · ${parts.join(" · ")}` : order.client;
 }
 
+/**
+ * Текст уведомления о новом заказе. Он же уходит во всплывашку браузера, где
+ * видно ровно заголовок и две строки — поэтому срочность и дедлайн стоят
+ * первыми: по ним решают, бросать ли текущее дело.
+ */
+function newOrderBody(order: WorkOrder): string {
+  const parts: string[] = [];
+  if (order.urgency && order.urgency !== "normal") parts.push(WORK_ORDER_URGENCY_LABELS[order.urgency]);
+  if (order.deadline) parts.push(`до ${formatOrderDate(order.deadline)}`);
+  if (order.price != null) parts.push(formatCurrency(order.price));
+  if (order.osLabel) parts.push(`ОС: ${order.osLabel}`);
+  const head = parts.join(" · ");
+  return head ? `${head} — откликнитесь на «Заказах»` : "Откликнитесь на «Заказах», если готовы взять.";
+}
+
 export async function createOrder(input: CreateOrderInput): Promise<WorkOrder> {
   if (!db) throw new Error("Firebase не настроен");
   const now = Date.now();
@@ -96,7 +113,7 @@ export async function createOrder(input: CreateOrderInput): Promise<WorkOrder> {
     {
       workspaceId: input.workspaceId,
       title: `Новый заказ: ${orderSummary(order)}`,
-      body: "Откликнитесь на «Заказах», если готовы взять.",
+      body: newOrderBody(order),
       priority: "important",
       fromUid: input.createdBy,
       fromName: input.createdByName,
