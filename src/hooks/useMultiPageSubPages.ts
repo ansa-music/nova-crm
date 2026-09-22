@@ -1,56 +1,37 @@
-import { useEffect, useState } from "react";
-import { fetchSubPages } from "@/services/subPageService";
+import { getDoc } from "firebase/firestore";
+import { paths } from "@/firebase/firestore";
+import { createOneShotLoadCache, useCachedBatchLoads, type BatchLoadSpec } from "@/hooks/useCachedBatchLoads";
+import type { SubPagePair } from "@/hooks/useMultiSubPageRows";
 import type { SubPage } from "@/types";
 
-const BATCH = 4;
-
-function yieldPaint() {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(resolve, 0);
-  });
+/**
+ * Одна вкладка по умолчанию, а не все вкладки стола. «Дашборду» от
+ * вкладок нужны только колонки вкладки по умолчанию (progressForPage), а
+ * fetchSubPages читал все месячные вкладки стола — год работы это 12+
+ * чтений на стол на каждый заход вместо одного.
+ */
+async function fetchDefaultSubPage(workspaceId: string, pair: SubPagePair): Promise<SubPage[]> {
+  const snap = await getDoc(paths.subPage(workspaceId, pair.pageId, pair.subPageId));
+  // Вкладки нет (удалили) — как раньше, когда её не находили в списке:
+  // progressForPage возьмёт колонки самого стола.
+  return snap.exists() ? [{ id: snap.id, ...snap.data() } as unknown as SubPage] : [];
 }
 
-export function useMultiPageSubPages(workspaceId: string | null, pageIds: string[]) {
-  const [subPagesByPage, setSubPagesByPage] = useState<Record<string, SubPage[]>>({});
-  const key = pageIds.join(",");
+const NO_SUBPAGES: SubPage[] = [];
 
-  useEffect(() => {
-    if (!workspaceId || pageIds.length === 0) {
-      setSubPagesByPage({});
-      return;
-    }
+const spec: BatchLoadSpec<SubPagePair, SubPage[]> = {
+  keyOf: (p) => p.pageId,
+  cacheKeyOf: (p) => `${p.pageId}:${p.subPageId}`,
+  load: fetchDefaultSubPage,
+  empty: NO_SUBPAGES,
+  cache: createOneShotLoadCache<SubPage[]>(),
+  batch: 4,
+};
 
-    let cancelled = false;
-    setSubPagesByPage({});
-
-    async function loadSlice(ids: string[]) {
-      await Promise.all(
-        ids.map(async (pageId) => {
-          try {
-            const subPages = await fetchSubPages(workspaceId as string, pageId);
-            if (!cancelled) setSubPagesByPage((prev) => ({ ...prev, [pageId]: subPages }));
-          } catch {
-            if (!cancelled) setSubPagesByPage((prev) => ({ ...prev, [pageId]: prev[pageId] ?? [] }));
-          }
-        })
-      );
-    }
-
-    void (async () => {
-      await loadSlice(pageIds.slice(0, BATCH));
-      for (let i = BATCH; i < pageIds.length; i += BATCH) {
-        if (cancelled) return;
-        await yieldPaint();
-        if (cancelled) return;
-        await loadSlice(pageIds.slice(i, i + BATCH));
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, key]);
-
-  return subPagesByPage;
+/**
+ * Keyed by pageId; each value holds just that desk's default tab (or
+ * nothing if it's gone). Cached for 15 minutes (see useCachedBatchLoads).
+ */
+export function useMultiPageSubPages(workspaceId: string | null, pairs: SubPagePair[], bypass?: (pair: SubPagePair) => boolean) {
+  return useCachedBatchLoads(workspaceId, pairs, spec, bypass);
 }

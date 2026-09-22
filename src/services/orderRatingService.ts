@@ -1,6 +1,7 @@
 import { onSnapshot, query, runTransaction, where, type FirestoreError } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
+import { previousMonthKey } from "@/services/monthTabService";
 import type { OrderRating, OrderRatingTotals } from "@/types";
 
 export function orderRatingId(pageId: string, rowId: string) {
@@ -12,11 +13,16 @@ export function orderRatingTotalsId(osUid: string, technicianUid: string, monthK
 }
 
 /**
- * Итоги по всем парам — маленькая коллекция, её читает каждый участник
- * («Технари» и «Дашборд» показывают рейтинг по заказам всем).
+ * Итоги по всем парам — её читает каждый участник («Технари» и «Дашборд»
+ * показывают рейтинг по заказам всем). Документ на пару ОС×Технарь В МЕСЯЦ,
+ * так что коллекция растёт каждый месяц, а экранам нужны только текущий
+ * месяц и закреплённый итог прошлого — их и читаем. `monthKey` у итогов был
+ * с самого их появления, `in` по одному полю обходится автоматическим
+ * индексом. Сменился месяц — хук переподписывается с новой парой месяцев.
  */
 export function subscribeOrderRatingTotals(
   workspaceId: string,
+  monthKey: string,
   onData: (totals: OrderRatingTotals[]) => void,
   onError?: (error: FirestoreError) => void
 ) {
@@ -25,7 +31,7 @@ export function subscribeOrderRatingTotals(
     return () => {};
   }
   return onSnapshot(
-    paths.orderRatingTotalsAll(workspaceId),
+    query(paths.orderRatingTotalsAll(workspaceId), where("monthKey", "in", [previousMonthKey(monthKey), monthKey])),
     (snapshot) => onData(snapshot.docs.map((d) => ({ ...(d.data() as OrderRatingTotals), id: d.id }))),
     withErrorReporting(onError)
   );
@@ -36,10 +42,17 @@ export function subscribeOrderRatingTotals(
  * название заказа, а ОС не должен видеть чужие заказы (и Тимлид — ничьи).
  * Правило пускает по `osUid`, запрос повторяет его ровно — иначе
  * неоднородные права уронят весь list (см. CLAUDE.md).
+ *
+ * Только за `monthKey`: оценки нужны лишь, чтобы подсветить звёзды у заказов
+ * в «Мои заказы», а там только заказы вкладки текущего месяца — и оценить их
+ * можно было только в этом же месяце. Без фильтра каждая подписка ОС
+ * перечитывала бы все его оценки за всё время (по документу на заказ). Два
+ * равенства сервер собирает из одиночных индексов — составной не нужен.
  */
 export function subscribeMyOrderRatings(
   workspaceId: string,
   osUid: string,
+  monthKey: string,
   onData: (ratings: OrderRating[]) => void,
   onError?: (error: FirestoreError) => void
 ) {
@@ -48,7 +61,7 @@ export function subscribeMyOrderRatings(
     return () => {};
   }
   return onSnapshot(
-    query(paths.orderRatingsAll(workspaceId), where("osUid", "==", osUid)),
+    query(paths.orderRatingsAll(workspaceId), where("osUid", "==", osUid), where("monthKey", "==", monthKey)),
     (snapshot) => onData(snapshot.docs.map((d) => ({ ...(d.data() as OrderRating), id: d.id }))),
     withErrorReporting(onError)
   );

@@ -68,7 +68,7 @@ export default function MessagesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [otherMembers, search, unreadOnly, conversations]);
 
-  const { messages, chatId } = usePrivateChat(activeWorkspaceId, profile?.uid ?? null, selectedUid);
+  const { messages, chatId, hasEarlier, loadEarlier } = usePrivateChat(activeWorkspaceId, profile?.uid ?? null, selectedUid);
   const selectedMember = selectedUid ? (memberByUid.get(selectedUid) ?? null) : null;
   const openMeta = chatId ? conversations.find((c) => c.id === chatId) : undefined;
   const threadUnread = Boolean(openMeta?.unread);
@@ -80,17 +80,35 @@ export default function MessagesPage() {
   async function markThreadRead(otherUid: string, id: string) {
     if (!activeWorkspaceId || !profile?.uid) return;
     markReadLocal(`private:${id}`);
-    await markPrivateConversationRead(activeWorkspaceId, profile.uid, otherUid, id);
+    // Кнопка — явное «прочитано»: без проверок и без 30-секундной паузы.
+    await markPrivateConversationRead(activeWorkspaceId, profile.uid, otherUid, id, { force: true });
   }
+
+  // Время самого свежего ЧУЖОГО сообщения в открытой переписке — отметка
+  // «прочитано» пишется, только когда оно новее уже записанной (и не чаще раза
+  // в 30 с, см. markContextRead). Учитываем и карточку переписки: меню считает
+  // непрочитанным именно по ней, а приходит она ПОСЛЕ самого сообщения.
+  const meUid = profile?.uid;
+  const latestForeignAt = useMemo(() => {
+    let latest: number | null = null;
+    for (const m of messages) {
+      if (m.authorUid === meUid || m.deleted) continue;
+      if (latest === null || m.createdAt > latest) latest = m.createdAt;
+    }
+    if (openMeta && openMeta.lastMessageFromUid !== meUid && (latest === null || openMeta.lastMessageAt > latest)) {
+      latest = openMeta.lastMessageAt;
+    }
+    return latest;
+  }, [messages, meUid, openMeta]);
 
   // Auto-mark on open using existing readMarkers. Button still shows while unread.
   useEffect(() => {
     if (!activeWorkspaceId || !profile?.uid || !selectedUid || !chatId) return;
     markReadLocal(`private:${chatId}`);
-    void markPrivateConversationRead(activeWorkspaceId, profile.uid, selectedUid, chatId);
+    void markPrivateConversationRead(activeWorkspaceId, profile.uid, selectedUid, chatId, { latestForeignAt });
     // markReadLocal is recreated each render — listing it loops the write.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspaceId, profile?.uid, selectedUid, chatId, messages.length]);
+  }, [activeWorkspaceId, profile?.uid, selectedUid, chatId, latestForeignAt]);
 
   if (!activeWorkspaceId || !profile) return null;
 
@@ -290,6 +308,8 @@ export default function MessagesPage() {
               <ChatPanel
                 key={chatId ?? selectedUid}
                 messages={messages}
+                hasEarlier={hasEarlier}
+                onLoadEarlier={loadEarlier}
                 currentUid={profile.uid}
                 onSend={handleSend}
                 onEdit={async (id, text) => {

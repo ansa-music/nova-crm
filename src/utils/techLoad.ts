@@ -197,9 +197,20 @@ export function collectOsOrders(
   return out;
 }
 
-/** Stable comparison key of one ОС's published order list. */
-export function osOrdersSignature(orders: OsOrderItem[], subPageId: string, monthKey: string): string {
-  return JSON.stringify([monthKey, subPageId, orders.map((o) => [o.rowId, o.title, o.status, o.date, o.updatedAt])]);
+/**
+ * Stable comparison key of one ОС's published order list.
+ *
+ * Без `updatedAt` заказа (в сам документ он по-прежнему пишется): он
+ * меняется от ЛЮБОЙ правки строки — цены, ссылки, заметки, — и каждая такая
+ * правка переписывала списки всех ОС этой строки, хотя по делу ОС видит
+ * только название, статус и дату. Порядок (свежие сверху) в подписи остался:
+ * если правка подняла заказ наверх, список и так перепишется.
+ * `responsibleUserId` — в подписи, потому что подпись теперь переживает
+ * перезагрузку (localStorage): переназначенный стол с теми же заказами иначе
+ * так и держал бы в документе прежнего технаря.
+ */
+export function osOrdersSignature(orders: OsOrderItem[], subPageId: string, monthKey: string, responsibleUserId: string): string {
+  return JSON.stringify([monthKey, subPageId, responsibleUserId, orders.map((o) => [o.rowId, o.title, o.status, o.date])]);
 }
 
 function sortedEntries<T>(record: Record<string, T> | undefined): [string, T][] {
@@ -221,9 +232,16 @@ function countsSignature(load: Partial<DeskLoadCounts> & Pick<DeskLoad, "subPage
   ];
 }
 
-/** Stable comparison key of everything counted from the rows — publish only when it changed. */
-export function deskLoadSignature(load: Partial<DeskLoadCounts> & Pick<DeskLoad, "subPageId" | "monthKey">): string {
-  return JSON.stringify([...countsSignature(load), sortedEntries(load.osLastOrderAt)]);
+/**
+ * Stable comparison key of everything counted from the rows — publish only
+ * when it changed. `responsibleUserId` входит по той же причине, что и в
+ * osOrdersSignature: подпись помнится между перезагрузками, а правила и
+ * оценки технарей (techRatings) верят именно `responsibleUserId` документа.
+ */
+export function deskLoadSignature(
+  load: Partial<DeskLoadCounts> & Pick<DeskLoad, "subPageId" | "monthKey" | "responsibleUserId">
+): string {
+  return JSON.stringify([...countsSignature(load), sortedEntries(load.osLastOrderAt), load.responsibleUserId]);
 }
 
 /**
@@ -233,11 +251,11 @@ export function deskLoadSignature(load: Partial<DeskLoadCounts> & Pick<DeskLoad,
  */
 export function deskLoadNeedsPublish(
   current: DeskLoad | undefined,
-  next: DeskLoadCounts & Pick<DeskLoad, "subPageId" | "monthKey">
+  next: Partial<DeskLoadCounts> & Pick<DeskLoad, "subPageId" | "monthKey">
 ): boolean {
   if (!current) return true;
   if (JSON.stringify(countsSignature(current)) !== JSON.stringify(countsSignature(next))) return true;
-  return Object.entries(next.osLastOrderAt).some(([os, at]) => (current.osLastOrderAt?.[os] ?? 0) < at);
+  return Object.entries(next.osLastOrderAt ?? {}).some(([os, at]) => (current.osLastOrderAt?.[os] ?? 0) < at);
 }
 
 /** Keeps each ОС's newest order day, drops ones older than the keep window. */

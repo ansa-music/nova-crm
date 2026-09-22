@@ -10,11 +10,11 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths, subscribe, withErrorReporting } from "@/firebase/firestore";
+import { paths, subscribeWithSource, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { hasRowExtras } from "@/utils/rowExtras";
 import { ymdPartsInTimeZone } from "@/utils/date";
-import { ROW_REORDER_CHUNK, stripUndefined } from "@/services/pageService";
+import { ROW_REORDER_CHUNK, rowsToRenumber, stripUndefined } from "@/services/pageService";
 import type { PageColumn, PageIconName, PageRow, StatusOption, SubPage } from "@/types";
 import {
   mirrorDeleteRow,
@@ -37,14 +37,20 @@ export function subscribeToSubPages(
 ) {
   const q = query(paths.subPages(workspaceId, pageId), orderBy("order", "asc"));
 
-  // Same stale-empty-cache guard used elsewhere in the app: avoids a flash
-  // of "no tabs yet" before the real server snapshot arrives.
+  // Первый снимок из кэша не отдаём сразу — ждём сервер (до 1,2 с): пустой
+  // кэш давал вспышку «вкладок нет», а с LRU-кэшем в памяти (firebase.ts)
+  // кэш бывает и НЕпустым, но старым — например, без вкладки нового месяца,
+  // и стол открылся бы не на той вкладке (вкладку по умолчанию выбирают по
+  // первому снимку). `includeMetadataChanges` — чтобы подтверждение сервера
+  // без изменений в документах тоже пришло сразу, а не через 1,2 с.
   let cancelled = false;
   let emittedOnce = false;
   let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastEmittedKey = "";
 
   const unsubscribe = onSnapshot(
     q,
+    { includeMetadataChanges: true },
     (snapshot) => {
       if (cancelled) return;
       const subPages = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as SubPage);
@@ -52,15 +58,21 @@ export function subscribeToSubPages(
         clearTimeout(pendingTimer);
         pendingTimer = null;
       }
-      if (snapshot.metadata.fromCache && subPages.length === 0 && !emittedOnce) {
+      if (snapshot.metadata.fromCache && !emittedOnce) {
         pendingTimer = setTimeout(() => {
           if (!cancelled) {
             emittedOnce = true;
-            onData([]);
+            onData(subPages);
           }
         }, 1200);
         return;
       }
+      // Снимки «только метаданные» (подтверждение сервера, флаг
+      // hasPendingWrites) с теми же вкладками не пересылаем: новый массив
+      // зря перезапускал бы эффекты у подписчиков.
+      const key = snapshot.docs.map((d) => `${d.id}@${JSON.stringify(d.data())}`).join("|");
+      if (emittedOnce && key === lastEmittedKey) return;
+      lastEmittedKey = key;
       emittedOnce = true;
       onData(subPages);
     },
@@ -288,10 +300,10 @@ export function subscribeToSubPageRows(
   workspaceId: string,
   pageId: string,
   subPageId: string,
-  onData: (rows: PageRow[]) => void
+  onData: (rows: PageRow[], fromServer: boolean) => void
 ) {
   const q = query(paths.subPageRows(workspaceId, pageId, subPageId), orderBy("order", "asc"));
-  return subscribe<PageRow>(q, onData);
+  return subscribeWithSource<PageRow>(q, onData);
 }
 
 export async function fetchSubPages(workspaceId: string, pageId: string): Promise<SubPage[]> {
@@ -420,17 +432,20 @@ export async function duplicateSubPageRow(
   return copy;
 }
 
+/** `currentOrders` — см. reorderRows: строки, уже стоящие на месте, не пишутся. */
 export async function reorderSubPageRows(
   workspaceId: string,
   pageId: string,
   subPageId: string,
-  orderedRowIds: string[]
+  orderedRowIds: string[],
+  currentOrders?: ReadonlyMap<string, number>
 ) {
   if (!db) return;
-  for (let start = 0; start < orderedRowIds.length; start += ROW_REORDER_CHUNK) {
+  const changed = rowsToRenumber(orderedRowIds, currentOrders);
+  for (let start = 0; start < changed.length; start += ROW_REORDER_CHUNK) {
     const batch = writeBatch(db);
-    orderedRowIds.slice(start, start + ROW_REORDER_CHUNK).forEach((rowId, i) => {
-      batch.set(paths.subPageRow(workspaceId, pageId, subPageId, rowId), { order: start + i }, { merge: true });
+    changed.slice(start, start + ROW_REORDER_CHUNK).forEach(({ rowId, order }) => {
+      batch.set(paths.subPageRow(workspaceId, pageId, subPageId, rowId), { order }, { merge: true });
     });
     await batch.commit();
   }

@@ -24,6 +24,21 @@ export function useSyncedTableRows(
   const [supabaseOk, setSupabaseOk] = useState(false);
   const [fsReady, setFsReady] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  /**
+   * Последний снимок строк пришёл с сервера. Таблица рисуется и по кэшу
+   * (`isLoading` снимается сразу), а решения «за стол» — публикация
+   * счётчиков в «Технари» — ждут этого флага: с LRU-кэшем повторное открытие
+   * стола сначала отдаёт строки с прошлого визита, сколько угодно старые.
+   */
+  const [serverSynced, setServerSynced] = useState(false);
+  /**
+   * Чьи строки сейчас в состоянии. Сброс флагов идёт в эффекте, то есть на
+   * рендер ПОЗЖЕ смены вкладки, и в этот один рендер хук отдавал строки
+   * прошлой вкладки как «загружены и с сервера» — публикация счётчиков успевала
+   * посчитать их за новую вкладку. Флаги сверяем с ключом прямо в рендере.
+   */
+  const scopeKey = workspaceId && pageId ? `${workspaceId}/${pageId}/${subPageId ?? ""}` : "";
+  const [dataKey, setDataKey] = useState("");
   const copyKeyRef = useRef<string>("");
 
   useEffect(() => {
@@ -32,19 +47,24 @@ export function useSyncedTableRows(
       setSupabaseRows(null);
       setSupabaseOk(false);
       setFsReady(false);
+      setServerSynced(false);
       setIsLoading(false);
       return;
     }
 
     setIsLoading(true);
     setFsReady(false);
+    setServerSynced(false);
     setSupabaseOk(false);
     setSupabaseRows(null);
     copyKeyRef.current = "";
 
-    const onFs = (data: PageRow[]) => {
+    const key = `${workspaceId}/${pageId}/${subPageId ?? ""}`;
+    const onFs = (data: PageRow[], fromServer: boolean) => {
+      setDataKey(key);
       setFirestoreRows(data);
       setFsReady(true);
+      setServerSynced(fromServer);
       setIsLoading(false);
     };
 
@@ -66,7 +86,7 @@ export function useSyncedTableRows(
   }, [workspaceId, pageId, subPageId]);
 
   useEffect(() => {
-    if (!workspaceId || !pageId || !fsReady || !supabaseOk) return;
+    if (!workspaceId || !pageId || !fsReady || !supabaseOk || dataKey !== scopeKey) return;
     const scope = `${pageId}:${subPageId ?? "main"}`;
     const key = `${scope}:${firestoreRows.length > 0 ? "data" : "empty"}`;
     if (copyKeyRef.current === key) return;
@@ -80,14 +100,19 @@ export function useSyncedTableRows(
       void copyMissingRowRecords(ws, pid, sid, snapshot).catch(() => undefined);
     }, 0);
     return () => window.clearTimeout(t);
-  }, [workspaceId, pageId, subPageId, firestoreRows, fsReady, supabaseOk]);
+  }, [workspaceId, pageId, subPageId, firestoreRows, fsReady, supabaseOk, dataKey, scopeKey]);
 
   const rows = useMemo(
     () => mergeFirestoreAndSupabaseRows(firestoreRows, supabaseOk ? supabaseRows : null),
     [firestoreRows, supabaseRows, supabaseOk]
   );
 
-  return { rows, isLoading };
+  const current = scopeKey !== "" && dataKey === scopeKey;
+  return {
+    rows,
+    isLoading: scopeKey !== "" && (isLoading || !current),
+    serverSynced: serverSynced && current,
+  };
 }
 
 export function usePageRows(workspaceId: string | null, pageId: string | null) {

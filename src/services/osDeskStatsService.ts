@@ -14,7 +14,7 @@ import type { PageColumn, PageRow, WorkspacePage } from "@/types";
  *
  * Читается РАЗОВО и только строки этого месяца (`createdAt >= начало
  * месяца`), а не вся история и не подпиской: на Spark у нас лимит и чтений,
- * и слушателей. Плюс кэш на 5 минут на модуле — переходы туда-обратно по
+ * и слушателей. Плюс кэш на 15 минут на модуле — переходы туда-обратно по
  * меню не перечитывают столы заново; «Обновить» перечитывает принудительно.
  */
 export interface OsDeskMonthStats {
@@ -26,7 +26,11 @@ export interface OsDeskMonthStats {
   lastActivityAt: number | null;
 }
 
-const CACHE_TTL_MS = 5 * 60_000;
+// Было 5 минут, но каждая сводка — это ВСЕ строки месяца каждой вкладки
+// стола ОС, и любой заход на «Столы ОС» позже пяти минут читал их заново.
+// Цифры тут — итог месяца, а не табло: четверть часа задержки никому не
+// мешает, а кому нужно прямо сейчас — есть «Обновить».
+const CACHE_TTL_MS = 15 * 60_000;
 const cache = new Map<string, { at: number; stats: OsDeskMonthStats }>();
 
 /** 00:00 первого числа текущего месяца по Алматы. */
@@ -62,7 +66,8 @@ export async function fetchOsDeskMonthStats(
   const now = opts.now ?? Date.now();
   const monthStart = almatyMonthStartMillis(now);
   const todayStart = almatyMidnightMillis(now);
-  const key = `${workspaceId}:${page.id}:${monthStart}`;
+  // День — в ключе: иначе после полуночи «Сегодня» до 15 минут показывало бы вчерашнее.
+  const key = `${workspaceId}:${page.id}:${monthStart}:${todayStart}`;
   const hit = cache.get(key);
   if (!opts.force && hit && now - hit.at < CACHE_TTL_MS) return hit.stats;
 

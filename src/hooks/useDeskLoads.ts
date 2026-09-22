@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -8,7 +8,15 @@ import { currentMonthSubPageId, isMonthlyDesk } from "@/services/monthTabService
 import { subscribeMyOrderRatings, subscribeOrderRatingTotals } from "@/services/orderRatingService";
 import { subscribeTechRatings } from "@/services/techRatingService";
 import { subscribeTechSchedules } from "@/services/techScheduleService";
-import type { DeskLoad, DeskLoadArchive, OrderRating, OrderRatingTotals, TechRating, TechSchedule } from "@/types";
+import type {
+  DeskLoad,
+  DeskLoadArchive,
+  OrderRating,
+  OrderRatingTotals,
+  TechRating,
+  TechSchedule,
+  WorkspacePage,
+} from "@/types";
 
 /**
  * Every desk's month counts, live. `loads` stays null until the first
@@ -17,24 +25,32 @@ import type { DeskLoad, DeskLoadArchive, OrderRating, OrderRatingTotals, TechRat
 export function useDeskLoads(workspaceId: string | null, enabled: boolean) {
   const [loads, setLoads] = useState<DeskLoad[] | null>(null);
   const [failed, setFailed] = useState(false);
+  // Снимок подтверждён сервером (а не из LRU-кэша) — только по такому можно
+  // решать, какие столы пересчитывать (useOwnerDeskRecount).
+  const [synced, setSynced] = useState(false);
   useEffect(() => {
     setLoads(null);
     setFailed(false);
+    setSynced(false);
     if (!workspaceId || !enabled) return;
     return subscribeDeskLoads(
       workspaceId,
-      (next) => {
+      (next, fromCache) => {
         setLoads(next);
         setFailed(false);
+        if (!fromCache) setSynced(true);
       },
       () => setFailed(true)
     );
   }, [workspaceId, enabled]);
-  return { loads, failed };
+  return { loads, failed, synced };
 }
 
-/** Every ОС rating of every Технарь, live. */
-export function useTechRatings(workspaceId: string | null, enabled: boolean) {
+/**
+ * ОС-оценки технарей за `monthKey` и прошлый месяц, live — больше ни один
+ * экран не показывает (см. subscribeTechRatings).
+ */
+export function useTechRatings(workspaceId: string | null, monthKey: string, enabled: boolean) {
   const [ratings, setRatings] = useState<TechRating[] | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -43,22 +59,24 @@ export function useTechRatings(workspaceId: string | null, enabled: boolean) {
     if (!workspaceId || !enabled) return;
     return subscribeTechRatings(
       workspaceId,
+      monthKey,
       (next) => {
         setRatings(next);
         setFailed(false);
       },
       () => setFailed(true)
     );
-  }, [workspaceId, enabled]);
+  }, [workspaceId, monthKey, enabled]);
   return { ratings, failed };
 }
 
 /**
- * Итоги оценок за заказы по всем парам ОС↔Технарь. Отказ в чтении — это
- * «неизвестно», а не «оценок нет»: пустой список вместо отказа показал бы
- * всем технарям нулевой рейтинг, которого на самом деле никто не ставил.
+ * Итоги оценок за заказы по всем парам ОС↔Технарь — за `monthKey` и прошлый
+ * месяц. Отказ в чтении — это «неизвестно», а не «оценок нет»: пустой список
+ * вместо отказа показал бы всем технарям нулевой рейтинг, которого на самом
+ * деле никто не ставил.
  */
-export function useOrderRatingTotals(workspaceId: string | null, enabled: boolean) {
+export function useOrderRatingTotals(workspaceId: string | null, monthKey: string, enabled: boolean) {
   const [totals, setTotals] = useState<OrderRatingTotals[] | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -67,13 +85,14 @@ export function useOrderRatingTotals(workspaceId: string | null, enabled: boolea
     if (!workspaceId || !enabled) return;
     return subscribeOrderRatingTotals(
       workspaceId,
+      monthKey,
       (next) => {
         setTotals(next);
         setFailed(false);
       },
       () => setFailed(true)
     );
-  }, [workspaceId, enabled]);
+  }, [workspaceId, monthKey, enabled]);
   return { totals, failed };
 }
 
@@ -116,14 +135,14 @@ export function useTechSchedules(workspaceId: string | null, monthKey: string, e
   return { schedules, loaded, failed, retry };
 }
 
-/** Оценки заказов, которые поставил САМ смотрящий ОС — чтобы показать их в «Мои заказы». */
-export function useMyOrderRatings(workspaceId: string | null, osUid: string, enabled: boolean) {
+/** Оценки заказов за `monthKey`, которые поставил САМ смотрящий ОС — чтобы показать их в «Мои заказы». */
+export function useMyOrderRatings(workspaceId: string | null, osUid: string, monthKey: string, enabled: boolean) {
   const [ratings, setRatings] = useState<OrderRating[]>([]);
   useEffect(() => {
     setRatings([]);
     if (!workspaceId || !osUid || !enabled) return;
-    return subscribeMyOrderRatings(workspaceId, osUid, setRatings, () => setRatings([]));
-  }, [workspaceId, osUid, enabled]);
+    return subscribeMyOrderRatings(workspaceId, osUid, monthKey, setRatings, () => setRatings([]));
+  }, [workspaceId, osUid, monthKey, enabled]);
   return ratings;
 }
 
@@ -152,7 +171,24 @@ const REFRESH_EVERY_MS = 5 * 60 * 1000;
  * чего в приложении перестают проходить ЛЮБЫЕ записи (resource-exhausted).
  */
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
+/**
+ * Как часто пересчёт сам просыпается, пока экран открыт и на виду. Раньше он
+ * запускался заново на КАЖДОЕ обновление `members` и `pages` из контекста —
+ * это новые массивы на любой правке любой страницы и на каждом обновлении
+ * списка участников. Теперь — по таймеру, при возвращении на вкладку и когда
+ * реально поменялся набор столов или их месячные вкладки (`deskTabsKey`).
+ */
+const RECOUNT_TICK_MS = 15 * 60 * 1000;
 const lastRefreshAt = new Map<string, number>();
+/**
+ * Когда строки вкладки (`pageId:subPageId`) последний раз сверили со
+ * счётчиками — после КАЖДОГО пересчёта, в том числе «ничего не изменилось».
+ * Без этого стол, где никто не работает, пересчитывался весь день каждые
+ * 5 минут: цифры совпадали, публиковать было нечего, `updatedAt` документа
+ * так и оставался старше 2 часов — и каждый следующий проход снова читал все
+ * его строки (аудит квоты 22.09.2026: ~24 000 чтений в день).
+ */
+const verifiedAt = new Map<string, number>();
 
 /**
  * Owner-only background recount: the Owner can read every desk, so desks
@@ -160,7 +196,7 @@ const lastRefreshAt = new Map<string, number>();
  * Everyone else relies on the counts each desk publishes while its Технарь
  * works in it.
  */
-export function useOwnerDeskRecount(loads: DeskLoad[] | null) {
+export function useOwnerDeskRecount(loads: DeskLoad[] | null, synced = true) {
   const { activeWorkspace, activeWorkspaceId, members, pages } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
@@ -171,41 +207,85 @@ export function useOwnerDeskRecount(loads: DeskLoad[] | null) {
   loadsRef.current = loads;
   const optionsRef = useRef(activeWorkspace?.responsibleOptions ?? []);
   optionsRef.current = activeWorkspace?.responsibleOptions ?? [];
-  const loadsReady = loads !== null;
+  const pagesRef = useRef(pages);
+  pagesRef.current = pages;
+  const membersRef = useRef(members);
+  membersRef.current = members;
+  // Только по снимку с СЕРВЕРА: кэш мог быть двухчасовой давности, и тогда
+  // «устарели» оказались бы все столы разом (полный пересчёт).
+  const loadsReady = loads !== null && synced;
+  // Какие столы месячные и на какой они вкладке — одной строкой. Меняется,
+  // только когда столов стало больше/меньше, участники догрузились или
+  // автопилот перевёл стол на новую вкладку, — тогда пересчитываем сразу,
+  // не дожидаясь таймера.
+  const deskTabsKey = useMemo(
+    () =>
+      pages
+        .filter((p) => isMonthlyDesk(p, members))
+        .map((p) => `${p.id}:${currentMonthSubPageId(p, monthKey) ?? ""}`)
+        .join("|"),
+    [pages, members, monthKey]
+  );
 
   useEffect(() => {
     if (!isOwner || !activeWorkspaceId || !uid || !loadsReady) return;
-    const startedAt = Date.now();
-    const desks = pages.filter((p) => {
-      const subPageId = currentMonthSubPageId(p, monthKey);
-      if (!subPageId || !isMonthlyDesk(p, members)) return false;
-      const key = `${p.id}:${subPageId}`;
-      if (startedAt - (lastRefreshAt.get(key) ?? 0) < REFRESH_EVERY_MS) return false;
-      // Свежие счётчики этой же вкладки — читать строки не надо. Нет
-      // документа, другая вкладка (сменился месяц) или он давно не
-      // обновлялся — пересчитываем.
-      const published = loadsRef.current?.find((l) => l.pageId === p.id);
-      if (published && published.subPageId === subPageId && startedAt - (published.updatedAt ?? 0) < STALE_AFTER_MS) {
-        return false;
+    const recount = () => {
+      const startedAt = Date.now();
+      const desks: { page: WorkspacePage; key: string }[] = [];
+      for (const p of pagesRef.current) {
+        const subPageId = currentMonthSubPageId(p, monthKey);
+        if (!subPageId || !isMonthlyDesk(p, membersRef.current)) continue;
+        const key = `${p.id}:${subPageId}`;
+        if (startedAt - (lastRefreshAt.get(key) ?? 0) < REFRESH_EVERY_MS) continue;
+        // Свежие счётчики этой же вкладки — читать строки не надо. Свежесть —
+        // по последней публикации ИЛИ нашей последней сверке, что позже. Нет
+        // документа или он про другую вкладку (сменился месяц) — в счёт идёт
+        // только сверка этой вкладки; давно не сверяли — пересчитываем.
+        const published = loadsRef.current?.find((l) => l.pageId === p.id);
+        const publishedAt = published && published.subPageId === subPageId ? published.updatedAt ?? 0 : 0;
+        if (startedAt - Math.max(publishedAt, verifiedAt.get(key) ?? 0) < STALE_AFTER_MS) continue;
+        lastRefreshAt.set(key, startedAt);
+        desks.push({ page: p, key });
       }
-      lastRefreshAt.set(key, startedAt);
-      return true;
-    });
-    if (desks.length === 0) return;
-    void (async () => {
-      for (let i = 0; i < desks.length; i += 3) {
-        await Promise.all(
-          desks.slice(i, i + 3).map((desk) =>
-            refreshDeskLoadFromRows(
-              desk,
-              monthKey,
-              uid,
-              loadsRef.current?.find((l) => l.pageId === desk.id),
-              optionsRef.current
-            ).catch((error) => console.warn(`Не удалось пересчитать стол ${desk.id}:`, error))
-          )
-        );
-      }
-    })();
-  }, [isOwner, activeWorkspaceId, uid, loadsReady, members, pages, monthKey]);
+      if (desks.length === 0) return;
+      void (async () => {
+        for (let i = 0; i < desks.length; i += 3) {
+          await Promise.all(
+            desks.slice(i, i + 3).map(async ({ page: desk, key }) => {
+              const checkedAt = Date.now();
+              try {
+                await refreshDeskLoadFromRows(
+                  desk,
+                  monthKey,
+                  uid,
+                  loadsRef.current?.find((l) => l.pageId === desk.id),
+                  optionsRef.current
+                );
+                // Опубликовал он или цифры и так совпали — строки на этот
+                // момент сверены. Ошибка (например, та же квота) сверкой не
+                // считается: повторим не раньше, чем через REFRESH_EVERY_MS.
+                verifiedAt.set(key, checkedAt);
+              } catch (error) {
+                console.warn(`Не удалось пересчитать стол ${desk.id}:`, error);
+              }
+            })
+          );
+        }
+      })();
+    };
+    recount();
+    // Свёрнутая вкладка по таймеру не пересчитывает — догонит, когда на неё
+    // вернутся (как usePolledData).
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") recount();
+    }, RECOUNT_TICK_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") recount();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [isOwner, activeWorkspaceId, uid, loadsReady, monthKey, deskTabsKey]);
 }

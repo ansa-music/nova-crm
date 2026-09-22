@@ -4,7 +4,10 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  limit,
   onSnapshot,
+  orderBy,
+  query,
   serverTimestamp,
   setDoc,
 } from "firebase/firestore";
@@ -41,6 +44,32 @@ export function subscribeToChat(
       items.forEach((m) => (m.createdAt = normalizeTimestamp(m.createdAt)));
       items.sort((a, b) => orderKey(a) - orderKey(b));
       onData(items);
+    },
+    withErrorReporting(onError)
+  );
+}
+
+/**
+ * Только ПОСЛЕДНИЕ `max` сообщений. Подписка на весь чат читала каждое
+ * сообщение за всё время — при каждом открытии, у каждого человека (счётчик
+ * непрочитанных в меню висит у всех), и это съедало дневную квоту Spark.
+ * Сортируем по `serverOrderAt` (он есть у всех сообщений после перехода на
+ * серверное время); совсем старые сообщения без него сюда не попадают —
+ * их показывает «Показать ранние» (`fetchChat`, разово по кнопке).
+ */
+export function subscribeToRecentChat(
+  ref: CollectionReference<DocumentData>,
+  max: number,
+  onData: (messages: ChatMessage[], hasEarlier: boolean) => void,
+  onError?: (error: import("firebase/firestore").FirestoreError) => void
+) {
+  return onSnapshot(
+    query(ref, orderBy("serverOrderAt", "desc"), limit(max)),
+    (snapshot) => {
+      const items = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as ChatMessage & { serverOrderAt?: unknown });
+      items.forEach((m) => (m.createdAt = normalizeTimestamp(m.createdAt)));
+      items.sort((a, b) => orderKey(a) - orderKey(b));
+      onData(items, snapshot.size >= max);
     },
     withErrorReporting(onError)
   );

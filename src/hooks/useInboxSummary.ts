@@ -1,9 +1,18 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { paths } from "@/firebase/firestore";
-import { subscribeToChat } from "@/services/chatService";
-import { subscribeMyConversations, subscribeReadMarkers } from "@/services/inboxService";
+import { subscribeToRecentChat } from "@/services/chatService";
+import { joinSharedSubscription } from "@/utils/sharedSubscription";
+import { localReadMark, subscribeMyConversations, subscribeReadMarkers } from "@/services/inboxService";
 import { INBOX_CHANGED_EVENT } from "@/utils/inboxEvents";
 import type { ChatMessage, PrivateChatMeta } from "@/types";
+
+/**
+ * Сколько последних сообщений общего чата смотрит счётчик непрочитанных.
+ * Подписка висит у КАЖДОГО в меню, и каждый её старт читает все N
+ * документов (квота Spark). Значку хватает и 10: «10 непрочитанных» и «50»
+ * для человека значат одно — пора заглянуть в чат.
+ */
+const UNREAD_WINDOW = 10;
 
 export function useInboxSummary(
   workspaceId: string | null,
@@ -38,34 +47,68 @@ export function useInboxSummary(
       return;
     }
     setReadMarkersLoaded(false);
+    // Общие подписки (одна на приложение) — меню снимается и ставится
+    // заново при полноэкранной таблице и на телефоне, и каждая новая
+    // подписка перечитывала бы всё заново (квота Spark). Для счётчика
+    // непрочитанных хватает последних 10 сообщений общего чата: больше
+    // значок всё равно не покажет.
     const unsubs: Array<() => void> = [];
     if (includeWorkspaceChat) {
-      unsubs.push(subscribeToChat(paths.workspaceChat(workspaceId), setWorkspaceMessages));
+      unsubs.push(
+        joinSharedSubscription<ChatMessage[]>(
+          `inbox:wschat:${workspaceId}`,
+          (emit) => subscribeToRecentChat(paths.workspaceChat(workspaceId), UNREAD_WINDOW, (items) => emit(items)),
+          setWorkspaceMessages
+        )
+      );
     } else {
       setWorkspaceMessages([]);
     }
-    unsubs.push(subscribeMyConversations(workspaceId, uid, setConversations));
     unsubs.push(
-      subscribeReadMarkers(workspaceId, uid, (map) => {
-        setReadMarkers(map);
-        setReadMarkersLoaded(true);
-      })
+      joinSharedSubscription<PrivateChatMeta[]>(
+        `inbox:convs:${workspaceId}:${uid}`,
+        (emit) => subscribeMyConversations(workspaceId, uid, emit),
+        setConversations
+      )
+    );
+    unsubs.push(
+      joinSharedSubscription<Record<string, number>>(
+        `inbox:marks:${workspaceId}:${uid}`,
+        (emit) => subscribeReadMarkers(workspaceId, uid, emit),
+        (map) => {
+          setReadMarkers(map);
+          setReadMarkersLoaded(true);
+        }
+      )
     );
     return () => unsubs.forEach((u) => u());
   }, [active, workspaceId, uid, includeWorkspaceChat]);
 
+  // Отметка «прочитано» этой вкладки (inboxService.localReadMark) ставится
+  // сразу, а в базу уходит не чаще раза в 30 с — перечитываем её на каждый
+  // пинг, чтобы значок гас мгновенно.
+  const [localTick, setLocalTick] = useState(0);
   useEffect(() => {
     function onChanged() {
-      /* live onSnapshot already feeds inbox; ping stays for other listeners */
+      setLocalTick((n) => n + 1);
     }
     window.addEventListener(INBOX_CHANGED_EVENT, onChanged);
     return () => window.removeEventListener(INBOX_CHANGED_EVENT, onChanged);
   }, []);
 
-  const mergedReads = useMemo(
-    () => ({ ...readMarkers, ...optimisticReads }),
-    [readMarkers, optimisticReads]
-  );
+  const mergedReads = useMemo(() => {
+    const merged: Record<string, number> = { ...readMarkers, ...optimisticReads };
+    if (workspaceId && uid) {
+      const contexts = ["workspaceChat", ...conversations.map((c) => `private:${c.id}`)];
+      for (const ctx of contexts) {
+        const local = localReadMark(workspaceId, uid, ctx);
+        if (local !== undefined && local > (merged[ctx] ?? 0)) merged[ctx] = local;
+      }
+    }
+    return merged;
+    // localTick — перечитать локальные отметки после пинга.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readMarkers, optimisticReads, conversations, workspaceId, uid, localTick]);
 
   const workspaceChatUnread = useMemo(() => {
     if (!readMarkersLoaded) return 0;

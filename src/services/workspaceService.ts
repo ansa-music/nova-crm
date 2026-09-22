@@ -1,4 +1,4 @@
-import { deleteDoc, deleteField, DocumentData, onSnapshot, runTransaction, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { deleteDoc, deleteField, DocumentData, increment, onSnapshot, runTransaction, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -58,6 +58,12 @@ export async function updateWorkspace(workspaceId: string, patch: Partial<Worksp
  * workspace-doc write; this is just a thin, purpose-named wrapper around
  * `updateWorkspace` for the Settings UI.
  */
+/** «Обновить сайт у всех» — Owner. Все открытые вкладки перезагрузятся (см. Workspace.reloadEpoch). */
+export async function requestReloadEverywhere(workspaceId: string) {
+  if (!db) throw new Error("Firebase не настроен");
+  await updateDoc(paths.workspace(workspaceId), { reloadEpoch: increment(1) });
+}
+
 export async function updateResponsibleOptions(workspaceId: string, options: StatusOption[]) {
   await updateWorkspace(workspaceId, { responsibleOptions: options });
 }

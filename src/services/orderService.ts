@@ -1,4 +1,20 @@
-import { deleteDoc, deleteField, onSnapshot, orderBy, query, setDoc, updateDoc } from "firebase/firestore";
+import {
+  deleteDoc,
+  deleteField,
+  getCountFromServer,
+  getDoc,
+  getDocFromServer,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  setDoc,
+  startAfter,
+  updateDoc,
+  where,
+  type QueryDocumentSnapshot,
+} from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -12,7 +28,17 @@ import { findInProgressStatusOption, getColumnOptions } from "@/utils/columnOpti
 import { isBlankRow, isFilledCellValue } from "@/utils/blankRow";
 import { currentMonthSubPageId, ensureMonthTab, isMonthlyDesk } from "@/services/monthTabService";
 import { WORK_ORDER_URGENCY_LABELS } from "@/types";
-import type { PageColumn, WorkOrder, WorkOrderClaim, WorkOrderClaimScope, WorkOrderUrgency, Workspace, WorkspaceMember, WorkspacePage } from "@/types";
+import type {
+  PageColumn,
+  WorkOrder,
+  WorkOrderClaim,
+  WorkOrderClaimScope,
+  WorkOrderStatus,
+  WorkOrderUrgency,
+  Workspace,
+  WorkspaceMember,
+  WorkspacePage,
+} from "@/types";
 
 function mapOrder(data: Record<string, unknown>, id: string): WorkOrder {
   const row = { id, ...data } as WorkOrder;
@@ -24,14 +50,91 @@ function mapOrder(data: Record<string, unknown>, id: string): WorkOrder {
   };
 }
 
-/** Живой список заказов workspace, новые сверху. Подписка живёт только пока открыта страница «Заказы». */
-export function subscribeOrders(workspaceId: string, cb: (orders: WorkOrder[]) => void, onError?: (e: unknown) => void) {
-  const q = query(paths.orders(workspaceId), orderBy("createdAt", "desc"));
+/**
+ * Статусы, которые живут на бирже и нужны вживую. «В столах» и «Отменённые» —
+ * история: она только растёт (сотни заказов за месяц), а живая подписка на
+ * всю коллекцию перечитывала её целиком при каждом открытии «Заказов» и
+ * платила чтение за каждое изменение любого заказа — квота Spark.
+ */
+export const LIVE_ORDER_STATUSES = ["open", "assigned"] as const satisfies readonly WorkOrderStatus[];
+export type HistoryOrderStatus = Exclude<WorkOrderStatus, (typeof LIVE_ORDER_STATUSES)[number]>;
+
+export function isHistoryOrderStatus(status: WorkOrderStatus): status is HistoryOrderStatus {
+  return status === "taken" || status === "cancelled";
+}
+
+/**
+ * Живые заказы (открытые и выданные), новые сверху. Подписка живёт только
+ * пока открыта страница «Заказы».
+ *
+ * Сортировка — на клиенте: `in` вместе с `orderBy` по другому полю требует
+ * составного индекса, а живых заказов единицы. `fromCache` отдаётся вторым
+ * аргументом (снимки метаданных включены): странице нужно знать, какой снимок
+ * уже подтверждён сервером, — только по таким она считает, что заказ ушёл с
+ * биржи, и только ими кормит зелёный пункт меню.
+ */
+export function subscribeOrders(
+  workspaceId: string,
+  cb: (orders: WorkOrder[], fromCache: boolean) => void,
+  onError?: (e: unknown) => void
+) {
+  const q = query(paths.orders(workspaceId), where("status", "in", [...LIVE_ORDER_STATUSES]));
   return onSnapshot(
     q,
-    (snap) => cb(snap.docs.map((d) => mapOrder(d.data(), d.id))),
+    { includeMetadataChanges: true },
+    (snap) =>
+      cb(
+        snap.docs.map((d) => mapOrder(d.data(), d.id)).sort((a, b) => b.createdAt - a.createdAt),
+        snap.metadata.fromCache
+      ),
     (error) => onError?.(error)
   );
+}
+
+/** Сколько заказов истории читается за раз («Показать ещё» — следующие столько же). */
+export const ORDER_HISTORY_PAGE_SIZE = 60;
+
+export interface OrderHistoryPage {
+  orders: WorkOrder[];
+  /** Курсор для «Показать ещё» — последний прочитанный заказ; null — не прочитано ни одного. */
+  cursor: QueryDocumentSnapshot | null;
+  hasMore: boolean;
+}
+
+/**
+ * Страница истории заказов — разово, по запросу, новые сверху.
+ *
+ * Без фильтра по статусу, одним потоком на обе вкладки истории: `status ==`
+ * вместе с `orderBy("createdAt")` требует составного индекса, а сортировка по
+ * одному полю идёт по одиночному. В странице попадутся и живые заказы — их
+ * страница берёт из подписки, а отсюда отбрасывает.
+ */
+export async function fetchOrderHistoryPage(workspaceId: string, after: QueryDocumentSnapshot | null): Promise<OrderHistoryPage> {
+  const q = after
+    ? query(paths.orders(workspaceId), orderBy("createdAt", "desc"), startAfter(after), limit(ORDER_HISTORY_PAGE_SIZE))
+    : query(paths.orders(workspaceId), orderBy("createdAt", "desc"), limit(ORDER_HISTORY_PAGE_SIZE));
+  const snapshot = await getDocs(q);
+  return {
+    orders: snapshot.docs.map((d) => mapOrder(d.data(), d.id)),
+    cursor: snapshot.docs[snapshot.docs.length - 1] ?? after,
+    hasMore: snapshot.size === ORDER_HISTORY_PAGE_SIZE,
+  };
+}
+
+/**
+ * Сколько заказов в этом статусе — для чипов «В столах» / «Отменённые».
+ * Агрегат считается на сервере и стоит одно чтение на каждую тысячу
+ * заказов, а не по чтению на заказ; одно равенство индекса не требует.
+ */
+export async function countOrdersWithStatus(workspaceId: string, status: WorkOrderStatus): Promise<number> {
+  const snapshot = await getCountFromServer(query(paths.orders(workspaceId), where("status", "==", status)));
+  return snapshot.data().count;
+}
+
+/** Один заказ разово: куда он ушёл с биржи (в стол, в отмену или удалён — null). */
+export async function fetchOrder(workspaceId: string, orderId: string): Promise<WorkOrder | null> {
+  const snapshot = await getDoc(paths.order(workspaceId, orderId));
+  return snapshot.exists() ? mapOrder(snapshot.data(), snapshot.id) : null;
 }
 
 export interface CreateOrderInput {
@@ -364,6 +467,26 @@ export function orderRowId(orderId: string): string {
   return `row_${orderId.replace(/[^A-Za-z0-9_-]/g, "")}`;
 }
 
+/**
+ * Заказ уже не ждёт этого технаря: его забрали в стол (с другого устройства),
+ * передали другому или отменили. Это не сбой — автозаезд такой заказ молча
+ * пропускает.
+ */
+export class OrderNotAssignedError extends Error {
+  constructor() {
+    super("Заказ уже не ждёт вас: его забрали в стол, передали другому или отменили");
+    this.name = "OrderNotAssignedError";
+  }
+}
+
+/** Нет связи с сервером — заказ не сверить; автозаезд повторит сам, когда связь вернётся. */
+export class OrderOfflineError extends Error {
+  constructor() {
+    super("Нет связи с сервером — заказ заберётся, когда появится сеть");
+    this.name = "OrderOfflineError";
+  }
+}
+
 export async function takeOrderToDesk(input: {
   workspaceId: string;
   order: WorkOrder;
@@ -375,7 +498,23 @@ export async function takeOrderToDesk(input: {
   me: { uid: string; name: string };
 }) {
   if (!db) throw new Error("Firebase не настроен");
-  const { workspaceId, order, page, me } = input;
+  const { workspaceId, page, me } = input;
+  // Заказ сверяем С СЕРВЕРОМ, а не верим тому, что пришло в подписке: с
+  // LRU-кэшем повторная подписка (смена workspace, выход и вход в той же
+  // вкладке) сначала отдаёт заказы, какими они были в кэше, — «выдан вам»,
+  // хотя телефон технаря давно забрал его в стол или Owner передал другому.
+  // По такому снимку в стол ложилась вторая строка того же заказа, а
+  // `status: taken` потом отклоняли правила. Одно чтение на заезд.
+  let freshSnap;
+  try {
+    freshSnap = await getDocFromServer(paths.order(workspaceId, input.order.id));
+  } catch (error) {
+    if ((error as { code?: string } | null)?.code === "unavailable") throw new OrderOfflineError();
+    throw error;
+  }
+  const fresh = freshSnap.exists() ? mapOrder(freshSnap.data(), freshSnap.id) : null;
+  if (!fresh || fresh.status !== "assigned" || fresh.assignedUid !== me.uid) throw new OrderNotAssignedError();
+  const order = fresh;
   const subPageId = isMonthlyDesk(page, input.members)
     ? (currentMonthSubPageId(page, input.monthKey) ?? (await ensureMonthTab(page, input.monthKey, me.uid)))
     : null;
@@ -432,7 +571,9 @@ export async function takeOrderToDesk(input: {
   // Строка этого заказа уже может лежать в столе — после повтора, второй
   // вкладки того же технаря или сбоя записи статуса. Тогда пишем в неё, а не
   // занимаем ещё один слот.
-  const mine = rows.find((r) => r.id === orderRowId(order.id));
+  // Своя строка — и по выведенному id, и по метке `orderId`: заказ, занявший
+  // пустой слот, лежит под id слота.
+  const mine = rows.find((r) => r.id === orderRowId(order.id) || r.orderId === order.id);
   const blank = mine ?? rows.find((r) => isBlankRow(r));
   let row;
   if (blank) {

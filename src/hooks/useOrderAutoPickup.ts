@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
-import { takeOrderToDesk } from "@/services/orderService";
+import { OrderNotAssignedError, OrderOfflineError, takeOrderToDesk } from "@/services/orderService";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -37,9 +37,18 @@ function enqueuePickup<T>(task: () => Promise<T>): Promise<T> {
  * заказ приедет при первом же открытии — статус `assigned` ждёт его в базе.
  *
  * Слушатель один на сессию и только у технаря со столом: `assignedUid == me`
- * — это его собственные заказы, их единицы (лимиты listener'ов на Spark, см.
- * CLAUDE.md). Статус фильтруется на клиенте, чтобы не заводить составной
- * индекс ради второго равенства.
+ * — это его собственные заказы (лимиты listener'ов на Spark, см. CLAUDE.md).
+ * Статус фильтруется на сервере (`status == "assigned"`): без него подписка
+ * при каждом входе перечитывала ВСЕ заказы, которые технарь когда-либо
+ * забирал, — они так и числятся за ним со статусом `taken`. Два равенства
+ * сервер собирает из одиночных индексов, составной индекс не нужен.
+ * Проверка статуса в колбэке осталась страховкой.
+ *
+ * Снимки ИЗ КЭША пропускаем (`includeMetadataChanges`, чтобы переход «кэш →
+ * сервер» пришёл, даже если ничего не поменялось): с LRU-кэшем в памяти
+ * повторная подписка сначала отдаёт заказы, какими они были когда-то, и
+ * давно забранный заказ снова выглядел бы «выданным». Окончательную
+ * проверку делает сам `takeOrderToDesk` — чтением с сервера.
  */
 export function useOrderAutoPickup() {
   const { profile } = useAuth();
@@ -70,10 +79,12 @@ export function useOrderAutoPickup() {
 
   useEffect(() => {
     if (!enabled || !activeWorkspaceId || !myDesk) return;
-    const q = query(paths.orders(activeWorkspaceId), where("assignedUid", "==", uid));
+    const q = query(paths.orders(activeWorkspaceId), where("assignedUid", "==", uid), where("status", "==", "assigned"));
     const unsubscribe = onSnapshot(
       q,
+      { includeMetadataChanges: true },
       (snap) => {
+        if (snap.metadata.fromCache) return;
         for (const docSnap of snap.docs) {
           const order = { id: docSnap.id, ...docSnap.data() } as WorkOrder;
           if (order.status !== "assigned") continue;
@@ -101,6 +112,15 @@ export function useOrderAutoPickup() {
               });
             })
             .catch((error) => {
+              // Заказ уже не наш (забран с другого устройства, передан,
+              // отменён) — не сбой: молчим и не повторяем.
+              if (error instanceof OrderNotAssignedError) return;
+              // Пропала связь — тоже не повод звать человека: снимок с сервера
+              // после переподключения повторит заезд сам.
+              if (error instanceof OrderOfflineError) {
+                handledRef.current.delete(order.id);
+                return;
+              }
               // Не получилось — разрешаем повтор на следующем снапшоте или
               // следующем открытии приложения; заказ остаётся `assigned`.
               // Молчать тут нельзя: человеку уже пришло «заказ едет в ваш

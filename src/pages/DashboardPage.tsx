@@ -26,8 +26,9 @@ import {
   useTechRatings,
 } from "@/hooks/useDeskLoads";
 import { MonthlyRatingTop, type MonthlyTopEntry } from "@/components/technicians/MonthlyRatingTop";
+import { useMembersRefresh } from "@/hooks/useMembersRefresh";
 import { usePermissions } from "@/hooks/usePermissions";
-import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
+import { useWorkspace } from "@/hooks/useWorkspace";
 import { osNickLabel } from "@/services/memberService";
 import { currentMonthSubPageId, previousMonthKey } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
@@ -71,17 +72,17 @@ export default function DashboardPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (!activeWorkspaceId || !enabled) return;
-    void refreshWorkspaceMembers(activeWorkspaceId).catch(() => undefined);
-  }, [activeWorkspaceId, enabled]);
+  // Список участников в браузере не живой — освежаем при открытии, но через
+  // общий 5-минутный порог: иначе каждый возврат на дашборд перечитывал весь
+  // список заново (~по чтению на участника, из дневной квоты Spark).
+  useMembersRefresh(activeWorkspaceId, enabled, false);
 
   const monthKeys = useMemo(() => recentMonthKeys(monthKey, MONTHS_SHOWN), [monthKey]);
-  const { loads, failed: loadsFailed } = useDeskLoads(activeWorkspaceId, enabled);
-  const { ratings, failed: ratingsFailed } = useTechRatings(activeWorkspaceId, enabled);
-  const { totals: orderTotals } = useOrderRatingTotals(activeWorkspaceId, enabled);
+  const { loads, failed: loadsFailed, synced: loadsSynced } = useDeskLoads(activeWorkspaceId, enabled);
+  const { ratings, failed: ratingsFailed } = useTechRatings(activeWorkspaceId, monthKey, enabled);
+  const { totals: orderTotals } = useOrderRatingTotals(activeWorkspaceId, monthKey, enabled);
   const history = useDeskLoadHistory(activeWorkspaceId, monthKeys[0], enabled);
-  useOwnerDeskRecount(enabled ? loads : null);
+  useOwnerDeskRecount(enabled ? loads : null, loadsSynced);
 
   // Рейтинг на дашборде — ТОЛЬКО за текущий месяц, как и всё остальное на
   // этом экране. Прошлый месяц не исчезает: он закреплён карточкой сверху,

@@ -1,60 +1,22 @@
-import { useEffect, useState } from "react";
+import { createOneShotLoadCache, useCachedBatchLoads, type BatchLoadSpec } from "@/hooks/useCachedBatchLoads";
 import { fetchRows } from "@/services/pageService";
 import type { PageRow } from "@/types";
 
-const BATCH = 3;
+const NO_ROWS: PageRow[] = [];
 
-function yieldPaint() {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(resolve, 0);
-  });
-}
+const spec: BatchLoadSpec<string, PageRow[]> = {
+  keyOf: (pageId) => pageId,
+  cacheKeyOf: (pageId) => pageId,
+  load: fetchRows,
+  empty: NO_ROWS,
+  cache: createOneShotLoadCache<PageRow[]>(),
+  batch: 3,
+};
 
 /**
- * Dashboard aggregate rows. One-shot getDocs in small batches — never an
- * onSnapshot per desk (Spark cannot afford N live row listeners).
+ * Dashboard aggregate rows of desks without a default tab, keyed by pageId.
+ * One-shot reads, cached for 15 minutes (see useCachedBatchLoads).
  */
-export function useMultiPageRows(workspaceId: string | null, pageIds: string[]) {
-  const [rowsByPage, setRowsByPage] = useState<Record<string, PageRow[]>>({});
-  const key = pageIds.join(",");
-
-  useEffect(() => {
-    if (!workspaceId || pageIds.length === 0) {
-      setRowsByPage({});
-      return;
-    }
-
-    let cancelled = false;
-    setRowsByPage({});
-
-    async function loadSlice(ids: string[]) {
-      await Promise.all(
-        ids.map(async (pageId) => {
-          try {
-            const rows = await fetchRows(workspaceId as string, pageId);
-            if (!cancelled) setRowsByPage((prev) => ({ ...prev, [pageId]: rows }));
-          } catch {
-            if (!cancelled) setRowsByPage((prev) => ({ ...prev, [pageId]: prev[pageId] ?? [] }));
-          }
-        })
-      );
-    }
-
-    void (async () => {
-      await loadSlice(pageIds.slice(0, BATCH));
-      for (let i = BATCH; i < pageIds.length; i += BATCH) {
-        if (cancelled) return;
-        await yieldPaint();
-        if (cancelled) return;
-        await loadSlice(pageIds.slice(i, i + BATCH));
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, key]);
-
-  return rowsByPage;
+export function useMultiPageRows(workspaceId: string | null, pageIds: string[], bypass?: (pageId: string) => boolean) {
+  return useCachedBatchLoads(workspaceId, pageIds, spec, bypass);
 }

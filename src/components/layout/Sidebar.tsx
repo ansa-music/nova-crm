@@ -21,6 +21,7 @@ import {
   Settings,
   Table2,
   ScanEye,
+  RefreshCw,
   User,
   Users,
   UsersRound,
@@ -28,6 +29,9 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { memberHasRole, rolesLabel, type Role } from "@/types";
+import { confirmDialog } from "@/utils/appDialog";
+import { toast } from "@/components/ui/sonner";
+import { requestReloadEverywhere } from "@/services/workspaceService";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -569,6 +573,28 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               {canCreateWorkspace && (
                 <DropdownMenuItem onClick={() => setCreateWsOpen(true)}>
                   <Plus className="h-4 w-4" /> Создать workspace
+                </DropdownMenuItem>
+              )}
+              {/* Только Owner: перезагрузить сайт во всех открытых вкладках команды. */}
+              {permissions.isWorkspaceOwner && activeWorkspaceId && (
+                <DropdownMenuItem
+                  onClick={async () => {
+                    const ok = await confirmDialog({
+                      title: "Обновить сайт у всех?",
+                      description:
+                        "Во всех открытых вкладках команды страница перезагрузится (через 30 секунд, у свёрнутых — сразу; кто печатает — после ввода). Несохранённое в открытых окнах пропадёт.",
+                      confirmLabel: "Обновить у всех",
+                    });
+                    if (!ok) return;
+                    try {
+                      await requestReloadEverywhere(activeWorkspaceId);
+                      toast.success("Сайт обновится у всех", { description: "И у вас — через 30 секунд." });
+                    } catch (error) {
+                      toast.error(error instanceof Error ? error.message : "Не удалось отправить обновление");
+                    }
+                  }}
+                >
+                  <RefreshCw className="h-4 w-4" /> Обновить сайт у всех
                 </DropdownMenuItem>
               )}
               {!mobile && (

@@ -1,15 +1,38 @@
-import { deleteDoc, onSnapshot, setDoc, updateDoc, type FirestoreError } from "firebase/firestore";
+import { deleteDoc, onSnapshot, query, setDoc, updateDoc, where, type FirestoreError } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
+import { previousMonthKey } from "@/services/monthTabService";
+import { almatyNoonMillis } from "@/utils/date";
 import type { TechRating } from "@/types";
 
 export function techRatingId(osUid: string, technicianUid: string, monthKey: string) {
   return `${osUid}_${technicianUid}_${monthKey}`;
 }
 
-/** Live while «Технари» is open — a small collection, one doc per ОС per Технарь. */
+/** 00:00 первого числа месяца ПЕРЕД `monthKey` по Алматы (UTC+5, без летнего времени). */
+function previousMonthStartMillis(monthKey: string): number {
+  const [year, month] = previousMonthKey(monthKey).split("-").map(Number);
+  return almatyNoonMillis(year, month - 1, 1) - 12 * 60 * 60 * 1000;
+}
+
+/**
+ * Live while «Технари» or «Дашборд» is open. Одна оценка на пару ОС×Технарь
+ * В МЕСЯЦ — коллекция растёт каждый месяц, а оба экрана показывают только
+ * текущий месяц и закреплённый итог прошлого. Поэтому читаем лишь оценки с
+ * начала прошлого месяца: без границы каждая подписка на Spark оплачивала бы
+ * всю историю оценок целиком.
+ *
+ * Граница по `createdAt`, а не по `monthKey`: у оценок, поставленных до
+ * перехода на помесячные, поля monthKey нет, и их месяц — месяц createdAt
+ * (`ratingMonthKey`). У помесячных createdAt не раньше начала их месяца
+ * (документ заводится первой оценкой В ЭТОМ месяце), так что ни одна оценка
+ * текущего или прошлого месяца за границу не выпадает. Один диапазон по
+ * одному полю — хватает автоматического индекса, составной не нужен.
+ * `monthKey` — текущий месяц экрана: сменился месяц — хук переподписывается.
+ */
 export function subscribeTechRatings(
   workspaceId: string,
+  monthKey: string,
   onData: (ratings: TechRating[]) => void,
   onError?: (error: FirestoreError) => void
 ) {
@@ -18,7 +41,7 @@ export function subscribeTechRatings(
     return () => {};
   }
   return onSnapshot(
-    paths.techRatings(workspaceId),
+    query(paths.techRatings(workspaceId), where("createdAt", ">=", previousMonthStartMillis(monthKey))),
     (snapshot) => onData(snapshot.docs.map((d) => ({ ...(d.data() as TechRating), id: d.id }))),
     withErrorReporting(onError)
   );

@@ -229,6 +229,11 @@ export async function signInWithEmail(email: string, password: string) {
 export async function signOutUser() {
   clearRedirectFlag();
   await signOut(requireAuth());
+  // Начать с чистой страницы: кэш Firestore в памяти (LRU, firebase.ts) и
+  // кэши на модулях (столы дашборда, сводки ОС, leaderboard) принадлежат
+  // вышедшему. Следующий, кто войдёт в этой же вкладке, иначе сначала получал
+  // бы его снимки — заказы, выданные «ему», строки его столов.
+  window.location.replace("/");
 }
 
 export function subscribeToAuthChanges(callback: (user: User | null) => void) {

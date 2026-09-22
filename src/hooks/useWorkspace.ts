@@ -77,6 +77,39 @@ const membersCache: {
   ownMember: WorkspaceMember | null;
 } = { workspaceId: null, roster: [], ownMember: null };
 
+/** Структурное сравнение без учёта порядка ключей: снимок Firestore не обещает тот же порядок полей. */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((value, i) => deepEqual(value, b[i]));
+  }
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  if (keys.length !== Object.keys(right).length) return false;
+  return keys.every((key) => Object.prototype.hasOwnProperty.call(right, key) && deepEqual(left[key], right[key]));
+}
+
+/**
+ * Новый own-member снимок отличается от прошлого ТОЛЬКО `lastActiveAt` —
+ * то есть это пульс присутствия, а не правка роли/ника/extraRoles.
+ * Такой снимок не публикуется новым массивом `members`: каждый эффект,
+ * зависящий от [members] (включая useOwnerDeskRecount), перезапускался по
+ * таймеру пульса, раньше каждые 3 минуты, и тянул за собой лишние чтения.
+ * Первый снимок (prev === null) и исчезновение документа (next === null)
+ * публикуются всегда.
+ */
+function differsOnlyInPresence(prev: WorkspaceMember | null, next: WorkspaceMember | null): boolean {
+  if (!prev || !next) return false;
+  const a: Partial<WorkspaceMember> = { ...prev };
+  const b: Partial<WorkspaceMember> = { ...next };
+  delete a.lastActiveAt;
+  delete b.lastActiveAt;
+  return deepEqual(a, b);
+}
+
 /** Subscribes to members + pages of whichever workspace is currently active. Call once in the app layout. */
 export function useActiveWorkspaceDataBootstrap() {
   const uid = useAuthStore((s) => s.firebaseUser?.uid);
@@ -191,8 +224,13 @@ export function useActiveWorkspaceDataBootstrap() {
           uid,
           (own) => {
             if (generation !== generationRef.current) return;
+            const prevOwn = membersCache.ownMember;
+            // Кэш обновляем всегда — следующая публикация (дочитанный ростер,
+            // refreshWorkspaceMembers, правка роли) возьмёт свежий lastActiveAt.
+            // А сам массив members пульс больше не пересобирает — см.
+            // differsOnlyInPresence.
             membersCache.ownMember = own;
-            publishMembers();
+            if (!differsOnlyInPresence(prevOwn, own)) publishMembers();
             confirmMembers();
           },
           (error) => {
@@ -305,9 +343,10 @@ export function useWorkspace() {
 
 export async function refreshWorkspaceMembers(workspaceId: string) {
   const list = await fetchMembers(workspaceId);
-  // Feed the bootstrap's cache too, or the next own-member snapshot (the
-  // presence heartbeat alone fires one every few minutes) republishes the
-  // roster from page load and undoes this refresh.
+  // Feed the bootstrap's cache too, or the next own-member snapshot that
+  // publishes (any change beyond the heartbeat's lastActiveAt — those no
+  // longer republish) re-emits the roster from page load and undoes this
+  // refresh.
   if (membersCache.workspaceId === workspaceId) membersCache.roster = list;
   const uid = useAuthStore.getState().firebaseUser?.uid;
   const email = useAuthStore.getState().profile?.email;
