@@ -340,7 +340,7 @@ export function TableToolbar({
         <button
           type="button"
           onClick={onClearHighlights}
-          className="table-chip inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-primary/45 bg-primary/12 px-2.5 text-[11px] font-medium text-primary"
+          className="table-chip inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-warning/55 bg-warning/15 px-2.5 text-[11px] font-medium text-warning"
           title="Снять подсветку с новых заказов"
         >
           <Sparkles className="h-3 w-3" />

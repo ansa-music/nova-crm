@@ -19,6 +19,8 @@ import {
   type NickKind,
   type NickTarget,
 } from "@/services/memberService";
+import { bindScheduleGroupPersonToMember } from "@/services/scheduleGroupService";
+import { usePermissions } from "@/hooks/usePermissions";
 import { confirmDialog } from "@/utils/appDialog";
 import { cn } from "@/utils/cn";
 import { realNameOf } from "@/utils/displayName";
@@ -26,6 +28,27 @@ import { splitOptionsByActivity } from "@/utils/columnOptions";
 import type { StatusOption, WorkspaceMember } from "@/types";
 
 export type NickChoice = { kind: "option"; value: string } | { kind: "new"; label: string };
+
+/**
+ * Ник закрепили за аккаунтом — а в графике человека могли завести заранее,
+ * «ожидающим» под этим ником (свой раздел графика). Переносим его строку и
+ * неделю на аккаунт. Сбой переноса ник не отменяет: он уже закреплён.
+ * Возвращает имя перенесённой строки или null.
+ */
+export async function adoptScheduleRowByNick(input: {
+  workspaceId: string;
+  memberUid: string;
+  nickLabel: string;
+  actorUid: string | null | undefined;
+}): Promise<string | null> {
+  if (!input.nickLabel.trim() || !input.actorUid) return null;
+  return bindScheduleGroupPersonToMember({
+    workspaceId: input.workspaceId,
+    memberUid: input.memberUid,
+    osNickLabel: input.nickLabel,
+    actorUid: input.actorUid,
+  }).catch(() => null);
+}
 
 export function nickChoiceToTarget(choice: NickChoice): NickTarget {
   return choice.kind === "option" ? { optionValue: choice.value } : { newNick: choice.label };
@@ -225,6 +248,7 @@ export function NickDialog({
   onClose: () => void;
   onSaved: () => Promise<void> | void;
 }) {
+  const { uid: actorUid } = usePermissions();
   const value = memberNickValue(member, kind);
   const currentValue = value && options.some((o) => o.value === value) ? value : null;
   const [choice, setChoice] = useState<NickChoice | null>(currentValue ? { kind: "option", value: currentValue } : null);
@@ -243,9 +267,12 @@ export function NickDialog({
     try {
       await linkMemberNick({ workspaceId, uid: member.uid, kind, target: nickChoiceToTarget(choice), members });
       const label = choice.kind === "option" ? options.find((o) => o.value === choice.value)?.label ?? "" : choice.label;
-      await onSaved();
-      toast.success(`${text.title} «${label}» закреплён`, { description: name });
+      const adopted = await adoptScheduleRowByNick({ workspaceId, memberUid: member.uid, nickLabel: label, actorUid });
+      toast.success(`${text.title} «${label}» закреплён`, {
+        description: adopted ? `${name} · график «${adopted}» перенесён на аккаунт` : name,
+      });
       onClose();
+      await Promise.resolve(onSaved()).catch(() => undefined);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось закрепить ник");
     } finally {
@@ -264,9 +291,9 @@ export function NickDialog({
     setSaving(true);
     try {
       await linkMemberNick({ workspaceId, uid: member.uid, kind, target: null, members });
-      await onSaved();
       toast.success("Ник откреплён");
       onClose();
+      await Promise.resolve(onSaved()).catch(() => undefined);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось открепить ник");
     } finally {

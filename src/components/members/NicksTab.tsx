@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
-import { NickDialog } from "@/components/members/NickDialog";
+import { adoptScheduleRowByNick, NickDialog } from "@/components/members/NickDialog";
 import {
   addNickOption,
   linkMemberNick,
@@ -364,9 +364,12 @@ function BindMemberDialog({
     setSaving(member.uid);
     try {
       await linkMemberNick({ workspaceId, uid: member.uid, kind, target: { optionValue: option.value }, members });
-      await onSaved();
-      toast.success(`«${option.label}» привязан`, { description: realNameOf(member) });
+      const adopted = await adoptScheduleRowByNick({ workspaceId, memberUid: member.uid, nickLabel: option.label, actorUid: meUid });
+      toast.success(`«${option.label}» привязан`, {
+        description: adopted ? `${realNameOf(member)} · график «${adopted}» перенесён на аккаунт` : realNameOf(member),
+      });
       onClose();
+      await Promise.resolve(onSaved()).catch(() => undefined);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось привязать ник");
     } finally {

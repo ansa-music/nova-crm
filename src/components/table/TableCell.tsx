@@ -36,7 +36,14 @@ interface TableCellProps {
   isExpanded?: boolean;
   trailing?: ReactNode;
   /** «Визитка клиента» button in the client column; summary is null while the card is empty. */
-  clientCard?: { summary: string | null; canEdit: boolean; onOpen: () => void; fromOrder?: boolean } | null;
+  clientCard?: {
+    summary: string | null;
+    canEdit: boolean;
+    onOpen: () => void;
+    fromOrder?: boolean;
+    /** Заказ только что приехал с биржи и подсветку ещё не сняли. */
+    isNewOrder?: boolean;
+  } | null;
   coarsePointer?: boolean;
   /** Current table search — matching substrings get highlighted. */
   searchQuery?: string;
@@ -516,7 +523,9 @@ export function TableCell({
                 // Фиолетовый — «это приехало с «Заказов», а не заведено руками».
                 // Метка постоянная, в отличие от подсветки новой строки, и
                 // цвет специально не тот, что у обычной визитки и статусов.
-                clientCard.summary && clientCard.fromOrder
+                clientCard.summary && clientCard.isNewOrder
+                  ? "border-warning/60 bg-warning/20 text-warning hover:bg-warning/30"
+                  : clientCard.summary && clientCard.fromOrder
                   ? "border-violet-400/55 bg-violet-400/15 text-violet-200 hover:bg-violet-400/25"
                   : clientCard.summary
                   ? "border-primary/45 bg-primary/12 text-primary hover:bg-primary/20"

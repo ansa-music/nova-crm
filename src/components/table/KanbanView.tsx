@@ -421,7 +421,7 @@ function KanbanCardBody({
         // Новый заказ виден и на доске — иначе технарь снимет подсветку,
         // так и не поняв, какая карточка приехала.
         row.highlight
-          ? "border-primary/55 bg-primary/10"
+          ? "border-warning/70 bg-warning/[0.12]"
           : row.orderId
             ? "border-violet-400/45 bg-violet-400/[0.07]"
             : "border-border bg-card",
@@ -430,6 +430,11 @@ function KanbanCardBody({
     >
       {responsibleOption && (
         <MemberAvatar id={responsibleOption.value} name={responsibleOption.label} className="absolute right-2 top-2 h-5 w-5" />
+      )}
+      {row.highlight && (
+        <span className="mb-1 inline-block rounded-full border border-warning/60 bg-warning/20 px-1.5 text-[10px] font-semibold uppercase leading-4 text-warning">
+          новый
+        </span>
       )}
       {title ? <p className={cn("line-clamp-2 font-medium leading-snug", responsibleOption && "pr-6")}>{title}</p> : <p className="italic text-muted-foreground">Без названия</p>}
       <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground">

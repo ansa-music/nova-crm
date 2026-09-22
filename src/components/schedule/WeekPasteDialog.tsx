@@ -18,9 +18,19 @@ function cellText(cell: ParsedWeekCell | undefined): string {
 }
 
 export interface WeekPasteResult {
+  /** Пусто, если человека ещё нет — его заводят по `newName`. */
   personId: string;
+  /**
+   * Имя нового человека для своего раздела: в таблице руководства есть те, у
+   * кого аккаунта пока нет. Его же кладём как ник ОС — когда ник закрепят за
+   * аккаунтом, строка графика переедет на него.
+   */
+  newName?: string;
   cells: Record<string, ParsedWeekCell>;
 }
+
+/** Значение в списке «кому»: завести нового человека в своём разделе. */
+const ADD_NEW = "__new__";
 
 /**
  * Вставка недели из Google Sheets / Excel. Таблицу у руководства уже ведут
@@ -35,11 +45,14 @@ export interface WeekPasteResult {
 export function WeekPasteDialog({
   rows,
   initialText,
+  canAddPeople = false,
   onClose,
   onApply,
 }: {
   rows: ScheduleRow[];
   initialText?: string;
+  /** Можно ли заводить людей, которых в графике ещё нет (свой раздел). */
+  canAddPeople?: boolean;
   onClose: () => void;
   onApply: (result: WeekPasteResult[]) => void;
 }) {
@@ -60,7 +73,7 @@ export function WeekPasteDialog({
 
   const target = (index: number) => picked[index] ?? autoMatch[index] ?? SKIP;
   const chosen = parsed.rows.map((_, i) => target(i));
-  const duplicates = new Set(chosen.filter((id, i) => id && chosen.indexOf(id) !== i));
+  const duplicates = new Set(chosen.filter((id, i) => id && id !== ADD_NEW && chosen.indexOf(id) !== i));
   const matched = chosen.filter(Boolean).length;
   const unknownCells = parsed.rows.reduce(
     (sum, row, i) => sum + (chosen[i] ? Object.values(row.cells).filter((c) => c.kind === "unknown").length : 0),
@@ -71,6 +84,10 @@ export function WeekPasteDialog({
     const out: WeekPasteResult[] = [];
     parsed.rows.forEach((row, i) => {
       const id = chosen[i];
+      if (id === ADD_NEW) {
+        out.push({ personId: "", newName: row.name, cells: row.cells });
+        return;
+      }
       if (id && !duplicates.has(id)) out.push({ personId: id, cells: row.cells });
     });
     onApply(out);
@@ -165,6 +182,7 @@ export function WeekPasteDialog({
                             title={dup ? "Этот человек выбран у двух строк — ни одна не запишется" : undefined}
                           >
                             <option value={SKIP}>— пропустить —</option>
+                            {canAddPeople && <option value={ADD_NEW}>+ завести «{row.name}»</option>}
                             {rows.map((r) => (
                               <option key={r.uid} value={r.uid}>
                                 {r.label}

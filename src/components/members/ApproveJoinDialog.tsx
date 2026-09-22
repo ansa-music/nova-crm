@@ -5,7 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/sonner";
 import { RoleSelect } from "@/components/members/RoleSelect";
-import { NickPicker, nickChoiceToTarget, suggestNickChoice, type NickChoice } from "@/components/members/NickDialog";
+import {
+  adoptScheduleRowByNick,
+  NickPicker,
+  nickChoiceToTarget,
+  suggestNickChoice,
+  type NickChoice,
+} from "@/components/members/NickDialog";
 import { approveJoinRequest, DEFAULT_JOIN_ROLE, nickKindForRole } from "@/services/joinRequestService";
 import { NICK_KIND_META, nickOptionsOf } from "@/services/memberService";
 import { refreshWorkspaceMembers } from "@/hooks/useWorkspace";
@@ -62,8 +68,13 @@ export function ApproveJoinDialog({
         approvedBy: approverUid,
         members,
       });
+      const adopted = nickLabel
+        ? await adoptScheduleRowByNick({ workspaceId, memberUid: request.uid, nickLabel, actorUid: approverUid })
+        : null;
       toast.success(`${request.name} в workspace как ${ROLE_LABELS[role]}`, {
-        description: nickLabel ? `Ник: ${nickLabel}` : undefined,
+        description: nickLabel
+          ? `Ник: ${nickLabel}${adopted ? ` · график «${adopted}» перенесён на аккаунт` : ""}`
+          : undefined,
       });
       onClose();
       // Одобрение уже записано — сбой обновления списка его не отменяет.
