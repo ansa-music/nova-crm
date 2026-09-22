@@ -159,11 +159,11 @@ export default function TechniciansPage() {
   // Other members' docs aren't live — refresh so nicks, desks and "last
   // seen" are current when the screen opens. Через общий 5-минутный порог:
   // «Технари» ↔ «Дашборд» туда-обратно иначе перечитывали список каждый раз.
-  useMembersRefresh(activeWorkspaceId, canSee);
+  useMembersRefresh(activeWorkspaceId, canSee, false);
 
   // A denied read is "unknown", not "everyone is free" — never show an
   // empty list as if it were real data (loadFailed/ratingsFailed).
-  const { loads, failed: loadFailed } = useDeskLoads(activeWorkspaceId, canSee);
+  const { loads, failed: loadFailed, synced: loadsSynced } = useDeskLoads(activeWorkspaceId, canSee);
   const { ratings, failed: ratingsFailed } = useTechRatings(activeWorkspaceId, monthKey, canSee);
   const { totals: orderTotals } = useOrderRatingTotals(activeWorkspaceId, monthKey, canSee);
   // График нужен прямо здесь: у кого сегодня выходной, карточка гаснет — без
@@ -175,7 +175,7 @@ export default function TechniciansPage() {
     for (const s of schedules) map.set(s.uid, s);
     return map;
   }, [schedules]);
-  useOwnerDeskRecount(canSee ? loads : null);
+  useOwnerDeskRecount(canSee ? loads : null, loadsSynced);
 
   // Оценки живут месяцами. Текущий месяц — то, что сейчас ставят и меняют;
   // прошлый — закрытый итог, он висит наверху, чтобы в первых числах экран

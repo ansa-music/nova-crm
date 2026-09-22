@@ -66,7 +66,8 @@ export async function fetchOsDeskMonthStats(
   const now = opts.now ?? Date.now();
   const monthStart = almatyMonthStartMillis(now);
   const todayStart = almatyMidnightMillis(now);
-  const key = `${workspaceId}:${page.id}:${monthStart}`;
+  // День — в ключе: иначе после полуночи «Сегодня» до 15 минут показывало бы вчерашнее.
+  const key = `${workspaceId}:${page.id}:${monthStart}:${todayStart}`;
   const hit = cache.get(key);
   if (!opts.force && hit && now - hit.at < CACHE_TTL_MS) return hit.stats;
 

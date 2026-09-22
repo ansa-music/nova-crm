@@ -229,7 +229,18 @@ export async function cleanupOldReadNotifications(workspaceId: string, uid: stri
     if (!snapshot.empty) {
       const batch = writeBatch(db);
       snapshot.docs.forEach((d) => batch.delete(d.ref));
-      await batch.commit();
+      try {
+        await batch.commit();
+      } catch (commitError) {
+        // Выборка уже оплачена — не повторять её на каждом открытии
+        // приложения: следующая попытка через 6 часов.
+        try {
+          localStorage.setItem(stampKey, String(now - NOTIFICATION_CLEANUP_EVERY_MS + 6 * 60 * 60 * 1000));
+        } catch {
+          /* без localStorage — хватит отметки вкладки */
+        }
+        throw commitError;
+      }
     }
     try {
       localStorage.setItem(stampKey, String(now));

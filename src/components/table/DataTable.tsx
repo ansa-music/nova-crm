@@ -856,12 +856,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   async function persistManualOrder(orderedIds: string[]) {
-    // Сохранённый порядок строк: строки, уже стоящие на своём номере, не
-    // переписываются. `order` здесь — то, по чему таблица и рисует строки
-    // (при живом мосте его приносит Supabase, а туда reorderRows всегда
-    // пишет весь порядок целиком).
-    const currentOrders = new Map(rows.map((r) => [r.id, r.order]));
-    await reorderRows(workspaceId, page.id, orderedIds, currentOrders);
+    // Полная перенумерация, без «пропустить уже стоящие на месте»: `order`
+    // в `rows` при живом мосте может прийти из Supabase (слитая строка берёт
+    // его оттуда, если та копия новее), а она бывает отставшей — и тогда
+    // Firestore, источник правды, остался бы с дублями номеров. Перетаскивают
+    // редко; ревью квоты 22.09.2026 решило, что экономия того не стоит.
+    await reorderRows(workspaceId, page.id, orderedIds);
     if (!manualRowOrder) await setTabRowOrderManual(workspaceId, page.id, subPageId ?? null);
   }
 
@@ -2540,13 +2540,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       setOptimisticRowOrder(reordered);
       try {
         await persistManualOrder(reordered);
-        // После перестановки у каждой строки `order` = её место в `reordered`,
-        // после отмены — место в `before`. Отмене и повтору поэтому хватает
-        // переписать только строки, у которых эти два места различаются.
-        const orderIn = (ids: string[]) => new Map(ids.map((id, i) => [id, i]));
+        // Отмена и повтор — тоже полной перенумерацией: между ними мог
+        // случиться другой порядок, и частичная запись восстановила бы его
+        // лишь наполовину.
         pushCommand({
-          undo: () => reorderRows(workspaceId, page.id, before, orderIn(reordered)),
-          redo: () => reorderRows(workspaceId, page.id, reordered, orderIn(before)),
+          undo: () => reorderRows(workspaceId, page.id, before),
+          redo: () => reorderRows(workspaceId, page.id, reordered),
         });
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Не удалось переставить строку");

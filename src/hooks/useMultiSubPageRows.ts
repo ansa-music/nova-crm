@@ -33,6 +33,6 @@ const spec: BatchLoadSpec<SubPagePair, PageRow[]> = {
  * Keyed by subPageRowsKey(pageId, subPageId). One-shot reads — no live
  * listeners; cached for 15 minutes (see useCachedBatchLoads).
  */
-export function useMultiSubPageRows(workspaceId: string | null, pairs: SubPagePair[]) {
-  return useCachedBatchLoads(workspaceId, pairs, spec);
+export function useMultiSubPageRows(workspaceId: string | null, pairs: SubPagePair[], bypass?: (pair: SubPagePair) => boolean) {
+  return useCachedBatchLoads(workspaceId, pairs, spec, bypass);
 }

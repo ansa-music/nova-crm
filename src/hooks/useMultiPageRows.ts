@@ -17,6 +17,6 @@ const spec: BatchLoadSpec<string, PageRow[]> = {
  * Dashboard aggregate rows of desks without a default tab, keyed by pageId.
  * One-shot reads, cached for 15 minutes (see useCachedBatchLoads).
  */
-export function useMultiPageRows(workspaceId: string | null, pageIds: string[]) {
-  return useCachedBatchLoads(workspaceId, pageIds, spec);
+export function useMultiPageRows(workspaceId: string | null, pageIds: string[], bypass?: (pageId: string) => boolean) {
+  return useCachedBatchLoads(workspaceId, pageIds, spec, bypass);
 }

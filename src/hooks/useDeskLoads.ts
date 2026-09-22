@@ -25,20 +25,25 @@ import type {
 export function useDeskLoads(workspaceId: string | null, enabled: boolean) {
   const [loads, setLoads] = useState<DeskLoad[] | null>(null);
   const [failed, setFailed] = useState(false);
+  // Снимок подтверждён сервером (а не из LRU-кэша) — только по такому можно
+  // решать, какие столы пересчитывать (useOwnerDeskRecount).
+  const [synced, setSynced] = useState(false);
   useEffect(() => {
     setLoads(null);
     setFailed(false);
+    setSynced(false);
     if (!workspaceId || !enabled) return;
     return subscribeDeskLoads(
       workspaceId,
-      (next) => {
+      (next, fromCache) => {
         setLoads(next);
         setFailed(false);
+        if (!fromCache) setSynced(true);
       },
       () => setFailed(true)
     );
   }, [workspaceId, enabled]);
-  return { loads, failed };
+  return { loads, failed, synced };
 }
 
 /**
@@ -191,7 +196,7 @@ const verifiedAt = new Map<string, number>();
  * Everyone else relies on the counts each desk publishes while its Технарь
  * works in it.
  */
-export function useOwnerDeskRecount(loads: DeskLoad[] | null) {
+export function useOwnerDeskRecount(loads: DeskLoad[] | null, synced = true) {
   const { activeWorkspace, activeWorkspaceId, members, pages } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
@@ -206,7 +211,9 @@ export function useOwnerDeskRecount(loads: DeskLoad[] | null) {
   pagesRef.current = pages;
   const membersRef = useRef(members);
   membersRef.current = members;
-  const loadsReady = loads !== null;
+  // Только по снимку с СЕРВЕРА: кэш мог быть двухчасовой давности, и тогда
+  // «устарели» оказались бы все столы разом (полный пересчёт).
+  const loadsReady = loads !== null && synced;
   // Какие столы месячные и на какой они вкладке — одной строкой. Меняется,
   // только когда столов стало больше/меньше, участники догрузились или
   // автопилот перевёл стол на новую вкладку, — тогда пересчитываем сразу,

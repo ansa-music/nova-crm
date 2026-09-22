@@ -37,14 +37,20 @@ export function subscribeToSubPages(
 ) {
   const q = query(paths.subPages(workspaceId, pageId), orderBy("order", "asc"));
 
-  // Same stale-empty-cache guard used elsewhere in the app: avoids a flash
-  // of "no tabs yet" before the real server snapshot arrives.
+  // Первый снимок из кэша не отдаём сразу — ждём сервер (до 1,2 с): пустой
+  // кэш давал вспышку «вкладок нет», а с LRU-кэшем в памяти (firebase.ts)
+  // кэш бывает и НЕпустым, но старым — например, без вкладки нового месяца,
+  // и стол открылся бы не на той вкладке (вкладку по умолчанию выбирают по
+  // первому снимку). `includeMetadataChanges` — чтобы подтверждение сервера
+  // без изменений в документах тоже пришло сразу, а не через 1,2 с.
   let cancelled = false;
   let emittedOnce = false;
   let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastEmittedKey = "";
 
   const unsubscribe = onSnapshot(
     q,
+    { includeMetadataChanges: true },
     (snapshot) => {
       if (cancelled) return;
       const subPages = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as SubPage);
@@ -52,15 +58,21 @@ export function subscribeToSubPages(
         clearTimeout(pendingTimer);
         pendingTimer = null;
       }
-      if (snapshot.metadata.fromCache && subPages.length === 0 && !emittedOnce) {
+      if (snapshot.metadata.fromCache && !emittedOnce) {
         pendingTimer = setTimeout(() => {
           if (!cancelled) {
             emittedOnce = true;
-            onData([]);
+            onData(subPages);
           }
         }, 1200);
         return;
       }
+      // Снимки «только метаданные» (подтверждение сервера, флаг
+      // hasPendingWrites) с теми же вкладками не пересылаем: новый массив
+      // зря перезапускал бы эффекты у подписчиков.
+      const key = snapshot.docs.map((d) => `${d.id}@${JSON.stringify(d.data())}`).join("|");
+      if (emittedOnce && key === lastEmittedKey) return;
+      lastEmittedKey = key;
       emittedOnce = true;
       onData(subPages);
     },

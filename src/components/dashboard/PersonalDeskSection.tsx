@@ -9,7 +9,7 @@ import { WaitingForYou } from "@/components/dashboard/WaitingForYou";
 import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialog";
 import { DeskStudioSheet } from "@/components/pagesnav/DeskStudioSheet";
 import { useAuth } from "@/hooks/useAuth";
-import { isLoadedOk } from "@/hooks/useCachedBatchLoads";
+import { isFresh, isLoadedOk } from "@/hooks/useCachedBatchLoads";
 import { useMultiPageRows } from "@/hooks/useMultiPageRows";
 import { useMultiPageSubPages } from "@/hooks/useMultiPageSubPages";
 import { subPageRowsKey, useMultiSubPageRows } from "@/hooks/useMultiSubPageRows";
@@ -52,7 +52,13 @@ export function PersonalDeskSection() {
     studioPages.find((p) => p.id === studioPageId) ?? (studioPageId && myDesk?.id === studioPageId ? myDesk : null);
 
   const rowPageIds = useMemo(() => studioPages.filter((p) => !p.defaultSubPageId).map((p) => p.id), [studioPages]);
-  const rowLoads = useMultiPageRows(activeWorkspaceId, rowPageIds);
+  // Свои столы — всегда с сервера (см. bypass в useCachedBatchLoads).
+  const myUid = profile?.uid ?? "";
+  const ownPageIds = useMemo(
+    () => new Set(studioPages.filter((p) => p.responsibleUserId === myUid).map((p) => p.id)),
+    [studioPages, myUid]
+  );
+  const rowLoads = useMultiPageRows(activeWorkspaceId, rowPageIds, (pageId) => ownPageIds.has(pageId));
   const rowsByPage = rowLoads.data;
   const defaultSubPagePairs = useMemo(
     () =>
@@ -62,9 +68,9 @@ export function PersonalDeskSection() {
     [studioPages]
   );
   // Колонки — только вкладки по умолчанию (одно чтение на стол), строки — её же.
-  const subPageLoads = useMultiPageSubPages(activeWorkspaceId, defaultSubPagePairs);
+  const subPageLoads = useMultiPageSubPages(activeWorkspaceId, defaultSubPagePairs, (pair) => ownPageIds.has(pair.pageId));
   const subPagesByPage = subPageLoads.data;
-  const subRowLoads = useMultiSubPageRows(activeWorkspaceId, defaultSubPagePairs);
+  const subRowLoads = useMultiSubPageRows(activeWorkspaceId, defaultSubPagePairs, (pair) => ownPageIds.has(pair.pageId));
   const rowsBySubPage = subRowLoads.data;
   const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
 
@@ -114,11 +120,27 @@ export function PersonalDeskSection() {
   );
   const publishDesks = permissions.role === "owner" ? deskProgress : myProgress;
 
+  // В общий leaderboard — только столы, прочитанные с сервера в этот заход:
+  // цифры из 15-минутного кэша могли бы затереть свежие, записанные технарём.
+  const freshDeskIds = useMemo(
+    () =>
+      new Set(
+        studioPages
+          .filter((p) =>
+            p.defaultSubPageId
+              ? isFresh(subPageLoads, p.id) && isFresh(subRowLoads, subPageRowsKey(p.id, p.defaultSubPageId))
+              : isFresh(rowLoads, p.id)
+          )
+          .map((p) => p.id)
+      ),
+    [studioPages, rowLoads, subPageLoads, subRowLoads]
+  );
+
   const leaderboardEntries = useMemo((): LeaderboardEntryDraft[] => {
     if (!loadsComplete) return [];
     return publishDesks.flatMap((desk) => {
       const uid = desk.page.responsibleUserId;
-      if (!uid || !knownDeskIds.has(desk.page.id)) return [];
+      if (!uid || !knownDeskIds.has(desk.page.id) || !freshDeskIds.has(desk.page.id)) return [];
       const pieces = nowOrderCounts([desk], statusOptions);
       return [
         {
@@ -133,7 +155,7 @@ export function PersonalDeskSection() {
         },
       ];
     });
-  }, [loadsComplete, publishDesks, knownDeskIds, statusOptions]);
+  }, [loadsComplete, publishDesks, knownDeskIds, freshDeskIds, statusOptions]);
   // Таймер сбрасывается только когда сдвинулись сами числа, а не ссылки
   // на массивы (statusOptions и столы пересоздаются на любом снимке).
   const leaderboardKey = useMemo(() => JSON.stringify(leaderboardEntries), [leaderboardEntries]);

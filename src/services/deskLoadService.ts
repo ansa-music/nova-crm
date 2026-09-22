@@ -111,10 +111,23 @@ function signatureHash(signature: string): string {
   return `${signature.length.toString(36)}.${(4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36)}`;
 }
 
-/** Эту подпись этот браузер уже опубликовал — сервер её принял (в этой вкладке или в другой). */
+/**
+ * Сколько доверять памяти «этот браузер уже записал»: дольше — пусть решает
+ * транзакция (она сверяет с сервером: 1 чтение, запись только при
+ * расхождении). Другой человек мог с тех пор переписать документ, и память
+ * навсегда закрыла бы исправление; заодно раз в 90 минут обновляется
+ * updatedAt — по нему пересчёт Owner видит, что стол жив.
+ */
+const MEMORY_TRUST_MS = 90 * 60_000;
+
+/** Эту подпись этот браузер уже опубликовал недавно — сервер её принял (в этой вкладке или в другой). */
 export function isPublishedSignature(key: string, signature: string): boolean {
   try {
-    return window.localStorage.getItem(key) === signatureHash(signature);
+    const stored = window.localStorage.getItem(key) ?? "";
+    const [hash, at] = stored.split("@");
+    if (hash !== signatureHash(signature)) return false;
+    // Старый формат (без времени) — не доверяем: пусть решит транзакция.
+    return Boolean(at) && Date.now() - Number(at) < MEMORY_TRUST_MS;
   } catch {
     return false;
   }
@@ -122,7 +135,7 @@ export function isPublishedSignature(key: string, signature: string): boolean {
 
 export function rememberPublishedSignature(key: string, signature: string) {
   try {
-    window.localStorage.setItem(key, signatureHash(signature));
+    window.localStorage.setItem(key, `${signatureHash(signature)}@${Date.now()}`);
   } catch {
     /* без localStorage в следующий раз просто запишем ещё раз */
   }
@@ -134,7 +147,8 @@ export function rememberPublishedSignature(key: string, signature: string) {
  */
 export function forgetPublishedSignature(key: string, signature: string) {
   try {
-    if (window.localStorage.getItem(key) === signatureHash(signature)) window.localStorage.removeItem(key);
+    const stored = window.localStorage.getItem(key) ?? "";
+    if (stored.split("@")[0] === signatureHash(signature)) window.localStorage.removeItem(key);
   } catch {
     /* нечего забывать */
   }
@@ -175,7 +189,10 @@ export async function refreshDeskLoadFromRows(
     Object.entries(osOrders).map(async ([osValue, orders]) => {
       const key = osOrdersSignatureKey(page.id, osValue);
       const signature = osOrdersSignature(orders, subPageId, monthKey, responsibleUserId);
-      if (isPublishedSignature(key, signature)) return;
+      // Здесь память «уже записано» НЕ спрашиваем: пересчёт — путь догнать
+      // стол, который мог переписать кто-то другой, и собственная память
+      // Owner оставила бы в базе чужой устаревший список. Сюда и так
+      // доходят только столы, у которых цифры реально разошлись.
       try {
         await publishOsOrders({ ...base, osValue, monthKey, subPageId, orders });
         rememberPublishedSignature(key, signature);
@@ -210,18 +227,30 @@ export function subscribeDeskLoadHistory(
  * collection that changes a few times an hour. Polling it would cost far
  * more reads for a screen an ОС keeps open all day.
  */
+/**
+ * `fromCache` — снимок из памяти SDK (LRU-кэш: при повторной подписке он
+ * приходит первым и может быть старым). По такому снимку можно рисовать, но
+ * нельзя РЕШАТЬ — пересчёт Owner решал бы «устарело» по кэшу и перечитывал
+ * все столы. `includeMetadataChanges` нужен, чтобы переход кэш → сервер без
+ * изменений в документах тоже дошёл до подписчика.
+ */
 export function subscribeDeskLoads(
   workspaceId: string,
-  onData: (loads: DeskLoad[]) => void,
+  onData: (loads: DeskLoad[], fromCache: boolean) => void,
   onError?: (error: FirestoreError) => void
 ) {
   if (!db) {
-    onData([]);
+    onData([], false);
     return () => {};
   }
   return onSnapshot(
     paths.deskLoads(workspaceId),
-    (snapshot) => onData(snapshot.docs.map((d) => ({ ...(d.data() as DeskLoad), pageId: d.id }))),
+    { includeMetadataChanges: true },
+    (snapshot) =>
+      onData(
+        snapshot.docs.map((d) => ({ ...(d.data() as DeskLoad), pageId: d.id })),
+        snapshot.metadata.fromCache
+      ),
     withErrorReporting(onError)
   );
 }

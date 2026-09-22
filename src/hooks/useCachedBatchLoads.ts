@@ -54,6 +54,12 @@ export interface BatchLoadState<T> {
    * публиковать такие числа нельзя (см. leaderboard в PersonalDeskSection).
    */
   failed: Record<string, true>;
+  /**
+   * Ключи, прочитанные с СЕРВЕРА в этот заход (не из 15-минутного кэша).
+   * Публиковать в общий leaderboard можно только их: из кэша ушли бы цифры
+   * до 15 минут давности поверх свежих, записанных самим технарём.
+   */
+  fresh: Record<string, true>;
 }
 
 export interface BatchLoadSpec<I, T> {
@@ -67,6 +73,11 @@ export interface BatchLoadSpec<I, T> {
   batch: number;
 }
 
+/** Ключ прочитан с сервера в этот заход (см. BatchLoadState.fresh). */
+export function isFresh<T>(state: BatchLoadState<T>, key: string): boolean {
+  return Boolean(state.fresh[key]);
+}
+
 /** Есть ли у ключа настоящие данные: прочитан и чтение не упало. */
 export function isLoadedOk<T>(state: BatchLoadState<T>, key: string): boolean {
   return key in state.data && !state.failed[key];
@@ -78,16 +89,22 @@ function yieldPaint() {
   });
 }
 
-function fromCache<I, T>(workspaceId: string | null, items: I[], spec: BatchLoadSpec<I, T>): BatchLoadState<T> {
+function fromCache<I, T>(
+  workspaceId: string | null,
+  items: I[],
+  spec: BatchLoadSpec<I, T>,
+  bypass?: (item: I) => boolean
+): BatchLoadState<T> {
   const data: Record<string, T> = {};
   if (workspaceId) {
     const now = Date.now();
     for (const item of items) {
+      if (bypass?.(item)) continue;
       const hit = spec.cache.peek(`${workspaceId}/${spec.cacheKeyOf(item)}`, now);
       if (hit !== undefined) data[spec.keyOf(item)] = hit;
     }
   }
-  return { data, failed: {} };
+  return { data, failed: {}, fresh: {} };
 }
 
 /**
@@ -99,19 +116,26 @@ function fromCache<I, T>(workspaceId: string | null, items: I[], spec: BatchLoad
 export function useCachedBatchLoads<I, T>(
   workspaceId: string | null,
   items: I[],
-  spec: BatchLoadSpec<I, T>
+  spec: BatchLoadSpec<I, T>,
+  /**
+   * Мимо кэша — СВОИ столы: после своей правки человек сразу идёт на
+   * «Дашборд» и видел бы цифры 15-минутной давности. Своих столов 1–2,
+   * экономию кэш делает на чужих (у Owner их десятки).
+   */
+  bypass?: (item: I) => boolean
 ): BatchLoadState<T> {
-  const [state, setState] = useState<BatchLoadState<T>>(() => fromCache(workspaceId, items, spec));
+  const [state, setState] = useState<BatchLoadState<T>>(() => fromCache(workspaceId, items, spec, bypass));
   const key = items.map(spec.cacheKeyOf).join(",");
+  const bypassKey = bypass ? items.filter(bypass).map(spec.cacheKeyOf).join(",") : "";
 
   useEffect(() => {
     if (!workspaceId || items.length === 0) {
-      setState({ data: {}, failed: {} });
+      setState({ data: {}, failed: {}, fresh: {} });
       return;
     }
 
     let cancelled = false;
-    const initial = fromCache(workspaceId, items, spec);
+    const initial = fromCache(workspaceId, items, spec, bypass);
     setState(initial);
     const missing = items.filter((item) => !(spec.keyOf(item) in initial.data));
 
@@ -123,12 +147,14 @@ export function useCachedBatchLoads<I, T>(
             const value = await spec.cache.load(`${workspaceId}/${spec.cacheKeyOf(item)}`, () =>
               spec.load(workspaceId as string, item)
             );
-            if (!cancelled) setState((prev) => ({ ...prev, data: { ...prev.data, [k]: value } }));
+            if (!cancelled)
+              setState((prev) => ({ ...prev, data: { ...prev.data, [k]: value }, fresh: { ...prev.fresh, [k]: true } }));
           } catch {
             if (!cancelled)
               setState((prev) => ({
                 data: { ...prev.data, [k]: prev.data[k] ?? spec.empty },
                 failed: { ...prev.failed, [k]: true },
+                fresh: prev.fresh,
               }));
           }
         })
@@ -149,7 +175,7 @@ export function useCachedBatchLoads<I, T>(
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, key]);
+  }, [workspaceId, key, bypassKey]);
 
   return state;
 }

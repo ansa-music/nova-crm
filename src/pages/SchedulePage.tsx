@@ -171,7 +171,7 @@ export default function SchedulePage() {
   // Чужие member-документы не живые — обновим, иначе у только что
   // заведённого человека не будет ни ника, ни фото. Через общий 5-минутный
   // порог, чтобы переходы между экранами не перечитывали список каждый раз.
-  useMembersRefresh(activeWorkspaceId, true);
+  useMembersRefresh(activeWorkspaceId, true, false);
 
   useEffect(() => {
     setGroup(null);

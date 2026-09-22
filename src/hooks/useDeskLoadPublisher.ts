@@ -170,12 +170,37 @@ export function useDeskLoadPublisher({
    * вкладку. Старые цифры тогда не пишем: первая публикация прежнего месяца
    * поверх нового ещё и отправила бы новый месяц в архив (deskLoadHistory).
    */
-  function stillMonthTab(targetPageId: string, targetSubPageId: string, targetMonthKey: string): boolean {
+  /**
+   * `atSchedule` — стол, каким он был, когда запись поставили в очередь: стол,
+   * открытый по ссылке, в сторе может и не лежать, и после перехода на другой
+   * стол отложенную запись иначе выбросило бы вместо того, чтобы дописать.
+   */
+  function stillMonthTab(
+    targetPageId: string,
+    targetSubPageId: string,
+    targetMonthKey: string,
+    atSchedule?: { id: string; autoMonthKey?: string; autoMonthSubPageId?: string } | null
+  ): boolean {
     const now = liveTabRef.current;
     if (now.monthKey !== targetMonthKey) return false;
-    const live = now.page?.id === targetPageId ? now.page : now.allPages.find((p) => p.id === targetPageId);
+    const live =
+      (now.page?.id === targetPageId ? now.page : now.allPages.find((p) => p.id === targetPageId)) ??
+      (atSchedule?.id === targetPageId ? atSchedule : null);
     return Boolean(live && live.autoMonthKey === targetMonthKey && live.autoMonthSubPageId === targetSubPageId);
   }
+
+  // Память браузера «уже записал» спрашиваем только для ПЕРВОГО расчёта после
+  // открытия стола (повторное открытие, вторая вкладка, Owner заглянул) —
+  // дальше в сессии сравниваем со своим последним расчётом, а совпадения с
+  // сервером отсекает транзакция publishDeskLoad (1 чтение, без записи).
+  // Иначе чужая более свежая запись навсегда оставалась бы в базе, стоило
+  // цифрам этого браузера совпасть с тем, что он писал когда-то.
+  const trustDeskMemoryRef = useRef(true);
+  const trustOsMemoryRef = useRef(true);
+  useEffect(() => {
+    trustDeskMemoryRef.current = true;
+    trustOsMemoryRef.current = true;
+  }, [pageId, subPageId]);
 
   // С какого момента стол открыт с загруженными строками — для MIN_SETTLED_MS.
   // Объявлен раньше эффектов публикации: в одном коммите он срабатывает первым.
@@ -201,7 +226,9 @@ export function useDeskLoadPublisher({
     const target = `${pageId}:${subPageId}`;
     const memoryKey = deskLoadSignatureKey(pageId, subPageId);
     const signature = deskLoadSignature({ ...counts, subPageId, monthKey, responsibleUserId });
-    if (signature === lastSignatureRef.current || isPublishedSignature(memoryKey, signature)) {
+    const trustMemory = trustDeskMemoryRef.current;
+    trustDeskMemoryRef.current = false;
+    if (signature === lastSignatureRef.current || (trustMemory && isPublishedSignature(memoryKey, signature))) {
       // Цифры снова такие, какие уже в базе, — промежуточное состояние этого
       // же стола писать незачем.
       if (pendingDeskRef.current?.target === target) cancelPending(pendingDeskRef);
@@ -224,11 +251,10 @@ export function useDeskLoadPublisher({
       daySums: counts.daySums,
       updatedBy: uid,
     };
+    const pageAtSchedule = liveTabRef.current.page?.id === pageId ? liveTabRef.current.page : null;
     schedulePending(pendingDeskRef, target, signature, liveSinceRef.current, () => {
-      if (!stillMonthTab(pageId, subPageId, monthKey)) return;
+      if (!stillMonthTab(pageId, subPageId, monthKey, pageAtSchedule)) return;
       lastSignatureRef.current = signature;
-      // Вторая вкладка этого же браузера успела записать то же самое.
-      if (isPublishedSignature(memoryKey, signature)) return;
       publishDeskLoad(load).then(
         // Помним только то, что принял сервер: вкладку закрывают посреди
         // записи (pagehide), и «запомненная», но не дошедшая запись осталась
@@ -256,15 +282,19 @@ export function useDeskLoadPublisher({
       if (pendingOsRef.current?.target === target) cancelPending(pendingOsRef);
       return;
     }
+    const trustOsMemory = trustOsMemoryRef.current;
+    trustOsMemoryRef.current = false;
+    const pageAtScheduleOs = liveTabRef.current.page?.id === pageId ? liveTabRef.current.page : null;
     schedulePending(pendingOsRef, target, signature, liveSinceRef.current, () => {
-      if (!stillMonthTab(pageId, subPageId, monthKey)) return;
+      if (!stillMonthTab(pageId, subPageId, monthKey, pageAtScheduleOs)) return;
       lastOsFiredRef.current = signature;
       for (const { osValue, orders, signature: listSignature } of lists) {
         const key = `${pageId}:${osValue}`;
         if (lastOsSignaturesRef.current.get(key) === listSignature) continue;
         lastOsSignaturesRef.current.set(key, listSignature);
         const memoryKey = osOrdersSignatureKey(pageId, osValue);
-        if (isPublishedSignature(memoryKey, listSignature)) continue;
+        // Память браузера — только для первого расчёта после открытия стола.
+        if (trustOsMemory && isPublishedSignature(memoryKey, listSignature)) continue;
         publishOsOrders({ pageId, workspaceId, responsibleUserId, osValue, monthKey, subPageId, orders, updatedBy: uid }).then(
           () => rememberPublishedSignature(memoryKey, listSignature),
           (error) => {

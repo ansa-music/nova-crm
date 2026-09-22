@@ -13,7 +13,17 @@ import { refreshWorkspaceMembers } from "@/hooks/useWorkspace";
 const MIN_GAP_MS = 5 * 60_000;
 const lastRefreshAt = new Map<string, number>();
 
-export function useMembersRefresh(workspaceId: string | null | undefined, enabled: boolean) {
+export function useMembersRefresh(
+  workspaceId: string | null | undefined,
+  enabled: boolean,
+  /**
+   * Освежать и при возвращении на вкладку. На «Пользователях»/«Команде» — да
+   * (там раньше был опрос раз в минуту), на «Дашборде», «Технарях» и
+   * «Графике» — нет: там список читали только при открытии, и возврат на
+   * вкладку не должен добавлять чтений.
+   */
+  refreshOnVisible = true
+) {
   useEffect(() => {
     if (!workspaceId || !enabled) return;
     const refresh = (force: boolean) => {
@@ -26,10 +36,11 @@ export function useMembersRefresh(workspaceId: string | null | undefined, enable
     // Открыли экран — один раз, но тоже не чаще раза в 5 минут: переходы
     // «Пользователи» ↔ «Команда» туда-обратно иначе читали бы список каждый раз.
     refresh(false);
+    if (!refreshOnVisible) return;
     const onVisible = () => {
       if (document.visibilityState === "visible") refresh(false);
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [workspaceId, enabled]);
+  }, [workspaceId, enabled, refreshOnVisible]);
 }

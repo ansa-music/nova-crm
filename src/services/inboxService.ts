@@ -70,7 +70,10 @@ export interface MarkReadOptions {
  */
 const knownReadMarks = new Map<string, number>();
 const lastReadMarkWriteAt = new Map<string, number>();
-const pendingReadMarks = new Map<string, { timer: ReturnType<typeof setTimeout>; latestForeignAt: number | undefined }>();
+const pendingReadMarks = new Map<
+  string,
+  { timer: ReturnType<typeof setTimeout>; latestForeignAt: number | undefined; requestedAt: number }
+>();
 
 function readMarkerId(uid: string, context: string): string {
   return `${uid}_${context.replace(/[^a-zA-Z0-9:_-]/g, "")}`;
@@ -90,10 +93,23 @@ function alreadyRead(key: string, latestForeignAt: number | undefined): boolean 
   return known !== undefined && known >= latestForeignAt;
 }
 
-async function writeReadMarker(workspaceId: string, uid: string, context: string) {
+/**
+ * «Прочитано до» по мнению ЭТОЙ вкладки — ставится сразу при вызове, ещё до
+ * (возможно, отложенной на 30 с) записи в базу: значок непрочитанного в меню
+ * гаснет мгновенно, а не через полминуты.
+ */
+const localReadMarks = new Map<string, number>();
+
+export function localReadMark(workspaceId: string, uid: string, context: string): number | undefined {
+  return localReadMarks.get(`${workspaceId}|${readMarkerId(uid, context)}`);
+}
+
+async function writeReadMarker(workspaceId: string, uid: string, context: string, at: number = Date.now()) {
   const id = readMarkerId(uid, context);
   const key = `${workspaceId}|${id}`;
-  const lastReadAt = Date.now();
+  // Время ВЫЗОВА, а не момента записи: отложенная запись иначе пометила бы
+  // прочитанными сообщения, пришедшие уже после того, как человек ушёл из чата.
+  const lastReadAt = at;
   const previous = knownReadMarks.get(key);
   knownReadMarks.set(key, lastReadAt);
   lastReadMarkWriteAt.set(key, lastReadAt);
@@ -117,10 +133,14 @@ export async function markContextRead(workspaceId: string, uid: string, context:
   if (!db) return;
   const key = `${workspaceId}|${readMarkerId(uid, context)}`;
   const pending = pendingReadMarks.get(key);
+  const calledAt = Date.now();
   if (!opts.force) {
     if (opts.latestForeignAt === null) return;
     const latestForeignAt = opts.latestForeignAt;
     if (alreadyRead(key, latestForeignAt)) return;
+    // Для значка — сразу; в базу — как решит порог ниже.
+    localReadMarks.set(key, Math.max(localReadMarks.get(key) ?? 0, calledAt));
+    pingInboxChanged();
     const sinceLastWrite = Date.now() - (lastReadMarkWriteAt.get(key) ?? 0);
     if (sinceLastWrite < READ_MARK_MIN_GAP_MS) {
       if (pending) {
@@ -129,14 +149,16 @@ export async function markContextRead(workspaceId: string, uid: string, context:
           pending.latestForeignAt === undefined || latestForeignAt === undefined
             ? undefined
             : Math.max(pending.latestForeignAt, latestForeignAt);
+        pending.requestedAt = calledAt;
         return;
       }
       const entry = {
         latestForeignAt,
+        requestedAt: calledAt,
         timer: setTimeout(() => {
           pendingReadMarks.delete(key);
           if (alreadyRead(key, entry.latestForeignAt)) return;
-          writeReadMarker(workspaceId, uid, context).catch((error) =>
+          writeReadMarker(workspaceId, uid, context, entry.requestedAt).catch((error) =>
             console.error("Не удалось записать отметку «прочитано»:", error)
           );
         }, READ_MARK_MIN_GAP_MS - sinceLastWrite),
@@ -149,7 +171,8 @@ export async function markContextRead(workspaceId: string, uid: string, context:
     clearTimeout(pending.timer);
     pendingReadMarks.delete(key);
   }
-  await writeReadMarker(workspaceId, uid, context);
+  localReadMarks.set(key, Math.max(localReadMarks.get(key) ?? 0, calledAt));
+  await writeReadMarker(workspaceId, uid, context, calledAt);
 }
 
 /** Уведомления, которые прямо сейчас отмечаются прочитанными (или только что отмечены). */
