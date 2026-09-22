@@ -117,6 +117,20 @@ service cloud.firestore {
               && request.auth.uid in pageData.get('personalZoneAllowedUsers', []))));
     }
 
+    /**
+     * «Наблюдатель» — тихое право Owner: чужие столы на ЧТЕНИЕ.
+     *
+     * Отдельная коллекция, а не поле в `members`: member-документы читает весь
+     * workspace, и признак был бы виден каждому. Здесь его видят только Owner и
+     * сам наблюдатель. Клауза от документа стола не зависит, поэтому
+     * нефильтрованный list столов и строк наблюдателю проходит (см. урок про
+     * list-запросы).
+     */
+    function isDeskObserver(workspaceId) {
+      return isMember(workspaceId)
+        && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/deskObservers/$(request.auth.uid));
+    }
+
     // Тимлид со второй ролью Технаря: ведёт людей И работает за столом,
     // поэтому чужие столы ему открыты на ЧТЕНИЕ без запроса просмотра.
     // Правка так не даётся: canEditPage всё равно требует ответственного
@@ -131,6 +145,8 @@ service cloud.firestore {
     function canAccessPage(workspaceId, pageData) {
       return isOwner(workspaceId) ||
         isTeamLeadTech(workspaceId) ||
+        // Наблюдатель — ДО isDeskBlocked: право выдано человеку, а не роли.
+        isDeskObserver(workspaceId) ||
         (!isDeskBlocked(workspaceId) && (
           isResponsiblePage(workspaceId, pageData) ||
           (isMember(workspaceId) && request.auth.uid in pageData.get('allowedUsers', []))));
@@ -1158,6 +1174,15 @@ service cloud.firestore {
 
       // Кто управляет провайдерами. Читают все, кому открыт «Грок лимит»
       // (видно, кому уйдёт запрос), пишет только Owner.
+      // «Наблюдатели»: кому Owner тихо открыл чужие столы на чтение. Список
+      // читает только Owner; наблюдатель видит РОВНО свой документ, остальные
+      // участники — ничего, поэтому право и остаётся незаметным. Пишет Owner.
+      match /deskObservers/{observerId} {
+        allow read: if isOwner(workspaceId)
+          || (isMember(workspaceId) && request.auth.uid == observerId);
+        allow write: if isOwner(workspaceId);
+      }
+
       match /grokSettings/{settingId} {
         allow read: if canUseGrok(workspaceId);
         allow delete: if isOwner(workspaceId);

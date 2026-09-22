@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAppBootstrap } from "@/hooks/useAppBootstrap";
@@ -31,6 +31,7 @@ import {
   isDeskBlockedFor,
   isResponsibleForPage,
 } from "@/utils/permissions";
+import { deskObserverState, subscribeDeskObserverState } from "@/services/deskObserverService";
 import { findOwnMembership } from "@/services/memberService";
 import { managerHasReachedPageQuota } from "@/services/managerPageQuota";
 import { EXTRA_ROLES, type Role, type WorkspacePage } from "@/types";
@@ -61,6 +62,10 @@ import { EXTRA_ROLES, type Role, type WorkspacePage } from "@/types";
  */
 export function usePermissions() {
   const { profile } = useAuth();
+  // Тихое право Owner «видит все столы на чтение» (deskObserverService).
+  // Снимок читается один раз за сессию и лежит на модуле — здесь только
+  // подписка, чтобы права пересчитались, когда он придёт.
+  const isDeskObserver = useSyncExternalStore(subscribeDeskObserverState, deskObserverState).observer;
   const { members, activeWorkspace, membersLoadState, pages } = useWorkspace();
   const { isReady } = useAppBootstrap();
 
@@ -168,11 +173,17 @@ export function usePermissions() {
        */
       hasFullDeskAccess: isOwnerOfWorkspace || realRole === "owner",
 
-      /** Тимлид + Технарь: чужие столы открыты на ЧТЕНИЕ без запроса просмотра. */
-      seesAllDesks: isResolved && !isOwnerOfWorkspace && seesAllDesks(roles),
+      /**
+       * Чужие столы открыты на ЧТЕНИЕ без запроса просмотра: Тимлид + Технарь
+       * по роли, либо «наблюдатель» — тихое право, выданное Owner.
+       */
+      seesAllDesks: isResolved && !isOwnerOfWorkspace && (seesAllDesks(roles) || isDeskObserver),
       canAccessPage: (page: WorkspacePage) => {
         if (!isResolved || !uid) return false;
         if (isOwnerOfWorkspace) return true;
+        // Наблюдатель — ДО проверки deskBlocked: право выдаётся человеку, а не
+        // роли, и Тимлиду без Технаря оно тоже должно работать.
+        if (isDeskObserver) return true;
         if (deskBlocked) return false;
         if (seesAllDesks(roles)) return true;
         if (isResponsibleForPage(page, uid)) return true;
@@ -188,6 +199,6 @@ export function usePermissions() {
       /** Move desks to «Неактуальные» and back — Owner and Тимлид (by real role, like users admin). */
       canRetireDesks: isResolved && (isOwnerOfWorkspace || canRetireDesks(realRole)),
     }),
-    [effectiveRole, realRole, activeRole, isSimulating, roles, deskBlocked, deskCreatorRole, uid, isResolved, hasMembership, isOwnerOfWorkspace, activeWorkspace?.ownerId, pages]
+    [effectiveRole, realRole, activeRole, isSimulating, roles, deskBlocked, deskCreatorRole, uid, isResolved, hasMembership, isOwnerOfWorkspace, isDeskObserver, activeWorkspace?.ownerId, pages]
   );
 }
