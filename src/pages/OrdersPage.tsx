@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { IssueOrderDialog, type IssueOrderForm } from "@/components/orders/IssueOrderDialog";
 import { AssignOrderDialog } from "@/components/orders/AssignOrderDialog";
+import { RandomWheelDialog, type WheelCandidate } from "@/components/orders/RandomWheelDialog";
 import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -19,7 +20,8 @@ import {
   assignOrder,
   createOrder,
   deleteOrder,
-  pickRandomCandidate,
+  orderRandomPool,
+  pickFromPool,
   setOrderCancelled,
   setOrderClaim,
   subscribeOrders,
@@ -81,6 +83,12 @@ export default function OrdersPage() {
   // пришедшие уже после открытия, иначе «Рандом» считает claims пустыми и
   // отдаёт заказ НЕ откликнувшемуся.
   const [assignForId, setAssignForId] = useState<string | null>(null);
+  /**
+   * Барабан «Рандома». Победитель и пул фиксируются В МОМЕНТ броска и живут
+   * здесь: заказ во время вращения уже уезжает в `assigned`, и пересчёт
+   * кандидатов по живому снимку опустошил бы колесо на середине.
+   */
+  const [wheel, setWheel] = useState<{ order: WorkOrder; pool: WheelCandidate[]; winner: OrderCandidate } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [ordersError, setOrdersError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -256,10 +264,11 @@ export default function OrdersPage() {
     }
   }
 
-  async function handleAssign(order: WorkOrder, candidate: OrderCandidate) {
+  async function handleAssign(order: WorkOrder, candidate: OrderCandidate, opts: { silent?: boolean } = {}) {
     if (!activeWorkspaceId || !profile) return;
     await assignOrder({ workspaceId: activeWorkspaceId, order, technician: { uid: candidate.uid, name: candidate.name }, actorUid: profile.uid, actorName: myName });
-    toast.success(`Заказ выдан: ${candidate.name}`);
+    // У барабана результат написан прямо на экране — тост поверх него лишний.
+    if (!opts.silent) toast.success(`Заказ выдан: ${candidate.name}`);
   }
 
   async function handleRandom(order: WorkOrder) {
@@ -271,7 +280,8 @@ export default function OrdersPage() {
       return;
     }
     const candidates = candidatesFor(order);
-    const pick = pickRandomCandidate(candidates);
+    const pool = orderRandomPool(candidates);
+    const pick = pickFromPool(pool);
     if (!pick) {
       const withDesk = candidates.filter((c) => c.hasDesk);
       toast.error(
@@ -281,7 +291,8 @@ export default function OrdersPage() {
       );
       return;
     }
-    await handleAssign(order, pick);
+    // Дальше показывает барабан — он же и запишет выдачу, параллельно вращению.
+    setWheel({ order, pool, winner: pick });
   }
 
   async function handleTake(order: WorkOrder) {
@@ -607,6 +618,16 @@ export default function OrdersPage() {
           if (!assignFor) return;
           await handleRandom(assignFor);
         }}
+      />
+      <RandomWheelDialog
+        pool={wheel?.pool ?? []}
+        winnerUid={wheel?.winner.uid ?? null}
+        orderClient={wheel?.order.client ?? ""}
+        onAssign={async () => {
+          if (!wheel) return;
+          await handleAssign(wheel.order, wheel.winner, { silent: true });
+        }}
+        onClose={() => setWheel(null)}
       />
     </div>
   );

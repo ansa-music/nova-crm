@@ -199,12 +199,20 @@ export function orderRandomPool(candidates: OrderCandidate[]): OrderCandidate[] 
   return claimed.length > 0 ? claimed : withDesk;
 }
 
-export function pickRandomCandidate(candidates: OrderCandidate[]): OrderCandidate | null {
-  const pool = orderRandomPool(candidates);
+/**
+ * Бросок по уже посчитанному пулу. Отдельно от `pickRandomCandidate`, потому
+ * что барабан «Рандома» рисует ТОТ ЖЕ пул, из которого тянули: считать пул
+ * дважды — верный способ показать одно, а выдать другое.
+ */
+export function pickFromPool(pool: OrderCandidate[]): OrderCandidate | null {
   if (pool.length === 0) return null;
   const bytes = new Uint32Array(1);
   crypto.getRandomValues(bytes);
   return pool[bytes[0] % pool.length];
+}
+
+export function pickRandomCandidate(candidates: OrderCandidate[]): OrderCandidate | null {
+  return pickFromPool(orderRandomPool(candidates));
 }
 
 export async function assignOrder(input: {
