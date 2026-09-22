@@ -7,6 +7,7 @@ import { useNotifications } from "@/hooks/useNotifications";
 import {
   NOTIFY_OPEN_EVENT,
   ORDER_SOUND_BLOCKED_EVENT,
+  pageSoundReady,
   playAlertSound,
   playOrderSound,
   primeAlertSoundOnFirstInteraction,
@@ -104,9 +105,12 @@ export function useNotificationAlerts() {
     saveSeen(seen);
     // Сначала звук — один на пачку, даже если заказов приехало три. Про
     // заказ — свой звук (файл Nurba), остальное — короткий сигнал.
+    // Готов ли свой звук — смотрим ДО запуска: от этого зависит, будет ли
+    // всплывашка беззвучной (звучит только свой) или с системным звуком.
+    const silent = pageSoundReady();
     if (fresh.some(isOrderNotification)) playOrderSound();
     else playAlertSound();
-    for (const n of fresh.slice(0, 3)) announce(n, navigate);
+    for (const n of fresh.slice(0, 3)) announce(n, navigate, silent);
   }, [notifications, activeWorkspaceId, uid, navigate]);
 }
 
@@ -121,13 +125,13 @@ function hrefOf(n: Notification): string | null {
   return null;
 }
 
-function announce(n: Notification, navigate: (to: string) => void) {
+function announce(n: Notification, navigate: (to: string) => void, silent: boolean) {
   const href = hrefOf(n);
   // Вкладка на виду — всплывашка поверх неё выглядит как сбой; там свой тост.
   // `hasFocus` важен отдельно от `visibilityState`: окно браузера может быть
   // открыто на втором мониторе и формально «видимо», а человек — в другом окне.
   const hidden = document.visibilityState !== "visible" || !document.hasFocus();
-  const shown = hidden && showBrowserNotification({ title: n.title, body: n.body, tag: n.id, href });
+  const shown = hidden && showBrowserNotification({ title: n.title, body: n.body, tag: n.id, href, silent });
   if (shown) return;
   toast(n.title, {
     description: n.body,
