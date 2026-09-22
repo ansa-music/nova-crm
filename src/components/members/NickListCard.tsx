@@ -16,6 +16,7 @@ import {
   type NickKind,
 } from "@/services/memberService";
 import { confirmDialog } from "@/utils/appDialog";
+import { firestoreErrorText } from "@/utils/dbError";
 import { cn } from "@/utils/cn";
 import { realNameOf } from "@/utils/displayName";
 import { canHoldNick, nickLockedFor, nickLockReason } from "@/utils/teamGroup";
@@ -109,8 +110,11 @@ export function NickListCard({
       await addNickOption({ workspaceId, kind, label });
       setNewNick("");
       toast.success(`Ник «${label}» добавлен — привяжите его к человеку, когда он придёт`);
+      // Счётчики «свободных» и «без ника» считаются по участникам — без этого
+      // они оставались вчерашними до следующего захода на страницу.
+      await Promise.resolve(onChanged()).catch(() => undefined);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось добавить ник");
+      toast.error("Не удалось добавить ник", { description: firestoreErrorText(error, "База не приняла запись") });
     } finally {
       setAdding(false);
     }
@@ -130,7 +134,7 @@ export function NickListCard({
       toast.success("Ник отвязан");
       await Promise.resolve(onChanged()).catch(() => undefined);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось отвязать ник");
+      toast.error("Не удалось отвязать ник", { description: firestoreErrorText(error, "База не приняла запись") });
     } finally {
       setBusy(null);
     }
@@ -142,7 +146,7 @@ export function NickListCard({
       await setNickOptionInactive({ workspaceId, kind, value: option.value, inactive: !option.inactive });
       toast.success(option.inactive ? `«${option.label}» снова в работе` : `«${option.label}» — в неактуальных`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось изменить ник");
+      toast.error("Не удалось изменить ник", { description: firestoreErrorText(error, "База не приняла запись") });
     } finally {
       setBusy(null);
     }
@@ -330,7 +334,7 @@ function BindMemberDialog({
       onClose();
       await Promise.resolve(onSaved()).catch(() => undefined);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось привязать ник");
+      toast.error("Не удалось привязать ник", { description: firestoreErrorText(error, "База не приняла запись") });
     } finally {
       setSaving(null);
     }
