@@ -12,9 +12,29 @@
  * там остаётся звук и тост, поэтому `supported()` проверяем всегда.
  */
 
+import orderSoundUrl from "@/assets/sounds/new-order.mp3";
+
 const PREF_KEY = "nova:browser-notify";
 /** Событие «человек кликнул по всплывашке» — навигацию делает React-слой. */
 export const NOTIFY_OPEN_EVENT = "nova:notify-open";
+
+/** Для «Как включить»: шаги в Chrome, Safari и на телефоне разные. */
+export type NotifyBrowser = "chrome" | "edge" | "yandex" | "opera" | "firefox" | "safari-mac" | "android" | "ios" | "other";
+
+export function detectNotifyBrowser(): NotifyBrowser {
+  if (typeof navigator === "undefined") return "other";
+  const ua = navigator.userAgent;
+  const iPadOs = /Macintosh/.test(ua) && (navigator.maxTouchPoints ?? 0) > 1;
+  if (/iPhone|iPad|iPod/.test(ua) || iPadOs) return "ios";
+  if (/Android/.test(ua)) return "android";
+  if (/YaBrowser/.test(ua)) return "yandex";
+  if (/Edg\//.test(ua)) return "edge";
+  if (/OPR\//.test(ua)) return "opera";
+  if (/Firefox\//.test(ua)) return "firefox";
+  if (/Chrome\//.test(ua)) return "chrome";
+  if (/Safari\//.test(ua)) return "safari-mac";
+  return "other";
+}
 
 export function browserNotifySupported(): boolean {
   return typeof window !== "undefined" && "Notification" in window;
@@ -88,6 +108,36 @@ export function browserNotifyActive(): boolean {
 }
 
 /**
+ * Перечитать разрешение — после того как человек поменял его в настройках
+ * сайта («Как включить»). Chrome обновляет `Notification.permission` сразу,
+ * без перезагрузки.
+ */
+export function refreshBrowserNotifyState() {
+  publishState();
+}
+
+/**
+ * Следить за разрешением самим: вернул человек «Разрешить» в настройках
+ * сайта — плашка и колокольчик меняются сами, без «обновите страницу».
+ * Permissions API есть не везде (Safari до 16) — там хватает «Проверить».
+ */
+let permissionWatchStarted = false;
+export function watchBrowserNotifyPermission() {
+  if (permissionWatchStarted || typeof navigator === "undefined" || !navigator.permissions?.query) return;
+  permissionWatchStarted = true;
+  void navigator.permissions
+    .query({ name: "notifications" as PermissionName })
+    .then((status) => {
+      status.onchange = () => publishState();
+    })
+    .catch(() => {
+      permissionWatchStarted = false;
+    });
+  // Вернулись на вкладку из настроек браузера — тоже перечитать.
+  window.addEventListener("focus", () => publishState());
+}
+
+/**
  * Спрашивать разрешение можно только по клику: Chrome и Safari молча
  * отклоняют запрос без жеста, и второй раз спросить уже нельзя.
  */
@@ -151,7 +201,93 @@ function ensureAudio(): AudioContext | null {
 
 /** Создать и разбудить контекст в момент клика — дальше звук пойдёт и из фона. */
 export function primeAlertSound() {
-  ensureAudio();
+  const ctx = ensureAudio();
+  if (ctx) void loadOrderSound(ctx);
+}
+
+/**
+ * Будить звук по ПЕРВОМУ касанию страницы, а не только по кнопке
+ * «Включить»: браузер не даёт играть звук странице, с которой человек ещё ни
+ * разу не взаимодействовал, — и первый заказ после входа уходил в тишину у
+ * всех, кто ни разу не нажимал «Включить». Один раз на загрузку.
+ */
+let primeListenersAttached = false;
+export function primeAlertSoundOnFirstInteraction() {
+  if (primeListenersAttached || typeof window === "undefined") return;
+  primeListenersAttached = true;
+  const prime = () => {
+    primeAlertSound();
+    window.removeEventListener("pointerdown", prime, true);
+    window.removeEventListener("keydown", prime, true);
+  };
+  window.addEventListener("pointerdown", prime, true);
+  window.addEventListener("keydown", prime, true);
+}
+
+/**
+ * Звук заказа — файл, который выбрал Nurba (`assets/sounds/new-order.mp3`).
+ * Играем его через тот же AudioContext, что и короткий сигнал: контекст,
+ * разбуженный кликом, играет и из фоновой вкладки, а `new Audio().play()` без
+ * свежего жеста браузер может заглушить. Декодируем один раз и держим буфер.
+ */
+let orderSoundBuffer: AudioBuffer | null = null;
+let orderSoundLoading: Promise<AudioBuffer | null> | null = null;
+
+function loadOrderSound(ctx: AudioContext): Promise<AudioBuffer | null> {
+  if (orderSoundBuffer) return Promise.resolve(orderSoundBuffer);
+  orderSoundLoading =
+    orderSoundLoading ??
+    fetch(orderSoundUrl)
+      .then((res) => res.arrayBuffer())
+      .then((data) => ctx.decodeAudioData(data))
+      .then((buffer) => {
+        orderSoundBuffer = buffer;
+        return buffer;
+      })
+      .catch(() => {
+        orderSoundLoading = null;
+        return null;
+      });
+  return orderSoundLoading;
+}
+
+/**
+ * Звук уведомления о ЗАКАЗЕ. Не вышло (нет AudioContext, файл не
+ * загрузился) — обычным `<audio>`, а если и он не может — коротким сигналом:
+ * заказ без звука — ровно то, от чего это всё делалось.
+ */
+export function playOrderSound() {
+  if (browserNotifyMuted()) return;
+  const ctx = ensureAudio();
+  const fallback = () => {
+    try {
+      const audio = new Audio(orderSoundUrl);
+      audio.volume = 0.9;
+      void audio.play().catch(() => playAlertSound());
+    } catch {
+      playAlertSound();
+    }
+  };
+  if (!ctx) {
+    fallback();
+    return;
+  }
+  void loadOrderSound(ctx).then((buffer) => {
+    if (!buffer) {
+      fallback();
+      return;
+    }
+    try {
+      const source = ctx.createBufferSource();
+      const gain = ctx.createGain();
+      gain.gain.value = 0.9;
+      source.buffer = buffer;
+      source.connect(gain).connect(ctx.destination);
+      source.start();
+    } catch {
+      fallback();
+    }
+  });
 }
 
 /**
@@ -189,7 +325,7 @@ export function playAlertSound() {
  * тост, иначе человек нажал кнопку и не понял, сработало ли.
  */
 export function previewBrowserNotification(): boolean {
-  playAlertSound();
+  playOrderSound();
   return showBrowserNotification({
     title: "Новый заказ",
     body: "Так будет выглядеть уведомление о заказе с биржи.",

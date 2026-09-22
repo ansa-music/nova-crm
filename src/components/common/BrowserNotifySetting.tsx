@@ -10,6 +10,7 @@ import {
   subscribeBrowserNotify,
 } from "@/utils/browserNotify";
 import { cn } from "@/utils/cn";
+import { openNotifyHelp } from "@/components/common/NotifyHelpDialog";
 
 /**
  * Разрешение на всплывашки спрашивают ТОЛЬКО по клику: без жеста Chrome и
@@ -21,14 +22,20 @@ function useNotifyState() {
   const { permission, muted } = useSyncExternalStore(subscribeBrowserNotify, browserNotifyState);
 
   async function enable() {
+    // Уже запрещено — спрашивать бесполезно (браузер молча ответит «нет»):
+    // сразу показываем, как включить в ЕГО браузере.
+    if (permission === "denied") {
+      openNotifyHelp("denied");
+      return;
+    }
     const next = await requestBrowserNotify();
     setBrowserNotifyMuted(false);
     if (next === "granted") toast.success("Уведомления включены", { description: "Новый заказ придёт всплывашкой и звуком." });
-    else if (next === "denied") {
-      toast.error("Браузер запретил уведомления", {
-        description: "Разрешите их для сайта: замок слева в адресной строке → «Уведомления».",
-      });
-    } else if (next === "unsupported") {
+    else if (next === "denied") openNotifyHelp("denied");
+    // «default» после вопроса — его закрыли или Chrome спрятал вопрос в
+    // адресную строку (тихий режим): тоже подсказываем.
+    else if (next === "default") openNotifyHelp("dismissed");
+    else if (next === "unsupported") {
       toast.info("Этот браузер не умеет всплывашки", { description: "Звук и уведомление в колокольчике работают." });
     }
   }
@@ -58,8 +65,8 @@ export function BrowserNotifyRow() {
           <span className="block text-sm font-medium">Включить уведомления браузера</span>
           <span className="block text-xs text-muted-foreground">
             {permission === "denied"
-              ? "Сейчас запрещены — нажмите, чтобы увидеть, как их вернуть"
-              : "Новый заказ придёт, даже если вкладка свёрнута"}
+              ? "Сейчас запрещены в браузере — нажмите, покажем, как включить"
+              : "Новый заказ придёт со звуком, даже если вкладка свёрнута"}
           </span>
         </span>
       </button>
@@ -131,9 +138,11 @@ export function OrdersNotifyBanner({ className }: { className?: string }) {
             : "Включите уведомления — новый заказ придёт со звуком, даже если вкладка свёрнута."}
       </span>
       {denied ? (
-        <span className="text-xs text-muted-foreground">Замок в адресной строке → «Уведомления» → Разрешить</span>
+        <Button size="sm" className="min-h-11 sm:h-9 sm:min-h-0" onClick={() => openNotifyHelp("denied")}>
+          Как включить
+        </Button>
       ) : (
-        <Button size="sm" className="h-9" onClick={() => (muted ? toggleMute() : void enable())}>
+        <Button size="sm" className="min-h-11 sm:h-9 sm:min-h-0" onClick={() => (muted ? toggleMute() : void enable())}>
           Включить
         </Button>
       )}

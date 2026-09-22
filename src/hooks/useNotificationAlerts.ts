@@ -4,7 +4,14 @@ import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useNotifications } from "@/hooks/useNotifications";
-import { NOTIFY_OPEN_EVENT, playAlertSound, showBrowserNotification } from "@/utils/browserNotify";
+import {
+  NOTIFY_OPEN_EVENT,
+  playAlertSound,
+  playOrderSound,
+  primeAlertSoundOnFirstInteraction,
+  showBrowserNotification,
+  watchBrowserNotifyPermission,
+} from "@/utils/browserNotify";
 import { pickFreshNotifications } from "@/utils/freshNotifications";
 import type { Notification } from "@/types";
 
@@ -62,6 +69,11 @@ export function useNotificationAlerts() {
   }, [activeWorkspaceId, uid]);
 
   useEffect(() => {
+    primeAlertSoundOnFirstInteraction();
+    watchBrowserNotifyPermission();
+  }, []);
+
+  useEffect(() => {
     const onOpen = (event: Event) => {
       const href = (event as CustomEvent<string>).detail;
       if (typeof href === "string" && href.startsWith("/")) navigate(href);
@@ -78,10 +90,17 @@ export function useNotificationAlerts() {
     if (fresh.length === 0) return;
     for (const n of fresh) seen.add(n.id);
     saveSeen(seen);
-    // Сначала звук — один на пачку, даже если заказов приехало три.
-    playAlertSound();
+    // Сначала звук — один на пачку, даже если заказов приехало три. Про
+    // заказ — свой звук (файл Nurba), остальное — короткий сигнал.
+    if (fresh.some(isOrderNotification)) playOrderSound();
+    else playAlertSound();
     for (const n of fresh.slice(0, 3)) announce(n, navigate);
   }, [notifications, activeWorkspaceId, uid, navigate]);
+}
+
+/** Уведомление про заказ: всё, что ведёт на «Заказы» (новый, «открыт всем», отклик, выдача). */
+function isOrderNotification(n: Notification): boolean {
+  return typeof n.href === "string" && n.href.startsWith("/orders");
 }
 
 function hrefOf(n: Notification): string | null {

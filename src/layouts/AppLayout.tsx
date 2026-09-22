@@ -16,6 +16,7 @@ import { ShortcutsHelpDialog } from "@/components/common/ShortcutsHelpDialog";
 import { GlobalUndoHotkeys } from "@/components/common/GlobalUndoHotkeys";
 import { GoChordHotkeys } from "@/components/common/GoChordHotkeys";
 import { AppDialogHost } from "@/components/common/AppDialogHost";
+import { NotifyHelpHost } from "@/components/common/NotifyHelpDialog";
 import { AccentColorSync } from "@/components/common/AccentColorSync";
 import { RemovedFromWorkspace } from "@/components/common/RemovedFromWorkspace";
 import { Button } from "@/components/ui/button";
@@ -141,6 +142,7 @@ export function AppLayout() {
       <GlobalUndoHotkeys />
       <GoChordHotkeys />
       <AppDialogHost />
+      <NotifyHelpHost />
       <AccentColorSync />
       {!isCompactNav && !isFullscreen && <Sidebar />}
       <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${isFullscreen ? "" : "rounded-2xl border border-primary/[0.12] bg-white/[0.04]"}`}>
