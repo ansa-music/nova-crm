@@ -871,13 +871,15 @@ interface UpdateCellContext {
   userId: string;
   userName: string;
   action?: "update" | "restore";
+  /** Пустую строку заполнили впервые — см. PageRow.filledAt. */
+  filledAt?: number;
 }
 
 export async function updateRowCell(ctx: UpdateCellContext) {
   if (!db) return;
   await setDoc(
     paths.row(ctx.workspaceId, ctx.pageId, ctx.rowId),
-    { cells: { [ctx.field]: ctx.newValue }, updatedAt: Date.now() },
+    { cells: { [ctx.field]: ctx.newValue }, updatedAt: Date.now(), ...(ctx.filledAt ? { filledAt: ctx.filledAt } : {}) },
     { merge: true }
   );
   mirrorPatchRowCells(ctx.rowId, ctx.field, ctx.newValue);
@@ -906,7 +908,9 @@ export async function updateRowCellsBulk(
   patch: Record<string, string | number | null>,
   extras?: PageRow["extras"] | null,
   /** Подсветить строку как новую — см. PageRow.highlight. */
-  highlight?: boolean
+  highlight?: boolean,
+  /** Пустую строку заполнили впервые — см. PageRow.filledAt. */
+  filledAt?: number
 ) {
   if (!db) return;
   await setDoc(
@@ -916,6 +920,7 @@ export async function updateRowCellsBulk(
       updatedAt: Date.now(),
       ...(extras === undefined ? {} : { extras: extras ?? deleteField() }),
       ...(highlight ? { highlight: true } : {}),
+      ...(filledAt ? { filledAt } : {}),
     },
     { merge: true }
   );

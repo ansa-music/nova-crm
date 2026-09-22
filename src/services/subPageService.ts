@@ -341,12 +341,14 @@ export async function updateSubPageRowCell(
   subPageId: string,
   rowId: string,
   field: string,
-  newValue: string | number | null
+  newValue: string | number | null,
+  /** Пустую строку заполнили впервые — см. PageRow.filledAt. */
+  filledAt?: number
 ) {
   if (!db) return;
   await setDoc(
     paths.subPageRow(workspaceId, pageId, subPageId, rowId),
-    { cells: { [field]: newValue }, updatedAt: Date.now() },
+    { cells: { [field]: newValue }, updatedAt: Date.now(), ...(filledAt ? { filledAt } : {}) },
     { merge: true }
   );
   mirrorPatchRowCells(rowId, field, newValue);
@@ -361,7 +363,9 @@ export async function updateSubPageRowCellsBulk(
   patch: Record<string, string | number | null>,
   extras?: PageRow["extras"] | null,
   /** Подсветить строку как новую — см. PageRow.highlight. */
-  highlight?: boolean
+  highlight?: boolean,
+  /** Пустую строку заполнили впервые — см. PageRow.filledAt. */
+  filledAt?: number
 ) {
   if (!db) return;
   await setDoc(
@@ -371,6 +375,7 @@ export async function updateSubPageRowCellsBulk(
       updatedAt: Date.now(),
       ...(extras === undefined ? {} : { extras: extras ?? deleteField() }),
       ...(highlight ? { highlight: true } : {}),
+      ...(filledAt ? { filledAt } : {}),
     },
     { merge: true }
   );

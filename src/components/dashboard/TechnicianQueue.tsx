@@ -31,7 +31,8 @@ export function TechnicianQueue({
 }) {
   const { profile } = useAuth();
   const permissions = usePermissions();
-  const { activeWorkspaceId, pages } = useWorkspace();
+  // allPages — чтобы запрос к столу ОС (его нет в `pages`) тоже находил стол.
+  const { activeWorkspaceId, pages, allPages } = useWorkspace();
   // App shell already subscribed (NotificationBell / useOpenApprovedDesk). Shared hook — no extra onSnapshot.
   const { requests, resolveRequest } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const navigate = useNavigate();
@@ -72,7 +73,7 @@ export function TechnicianQueue({
     setBusyId(request.id);
     try {
       const page =
-        pages.find((p) => p.id === request.pageId) ?? desks.find((d) => d.page.id === request.pageId)?.page;
+        allPages.find((p) => p.id === request.pageId) ?? desks.find((d) => d.page.id === request.pageId)?.page;
       await resolveRequest(request, page, status, displayNameOf(profile));
       toast.success(status === "approved" ? "Доступ открыт" : "Запрос отклонён");
     } catch (error) {

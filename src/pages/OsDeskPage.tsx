@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router";
-import { ClipboardList, Loader2 } from "lucide-react";
+import { Navigate, useNavigate } from "react-router";
+import { Loader2 } from "lucide-react";
 import { EmptyState } from "@/components/common/EmptyState";
-import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -15,8 +14,8 @@ import { myDisplayName } from "@/utils/displayName";
  *
  * Сама таблица рисуется обычным `/page/:id` (весь движок стола уже там),
  * поэтому здесь только «найти свой стол, при первом заходе завести и увести
- * на него». Owner своего стола ОС не имеет — ему показываем список чужих:
- * он и так видит все столы, а иначе проверить раздел ему было бы нечем.
+ * на него». Кто сам не ОС — уходит на «Столы ОС» (`OsDesksPage`): общий
+ * мониторинг всех столов ОС.
  */
 export default function OsDeskPage() {
   const { activeWorkspaceId, osDesks, members } = useWorkspace();
@@ -89,43 +88,7 @@ export default function OsDeskPage() {
     );
   }
 
-  if (permissions.isWorkspaceOwner) {
-    return (
-      <div className="mx-auto w-full max-w-3xl p-5 sm:p-8">
-        <PageHeader
-          eyebrow="Студия"
-          title="Столы ОС"
-          description="Личные таблицы ОС: имя, номер, цена, апсейл, технарь. Кроме самого ОС их видите только вы."
-        />
-        {osDesks.length === 0 ? (
-          <EmptyState eyebrow="Столы ОС" title="Столов ОС пока нет" description="Стол заводится сам, когда ОС первый раз открывает свой раздел." />
-        ) : (
-          <div className="flex flex-col gap-2">
-            {osDesks.map((page) => {
-              const owner = members.find((m) => m.uid === page.responsibleUserId);
-              return (
-                <Link
-                  key={page.id}
-                  to={`/page/${page.id}`}
-                  className="flex items-center gap-3 rounded-xl border border-border bg-card/60 p-3 transition-colors hover:border-primary/40 hover:bg-accent/40"
-                >
-                  <ClipboardList className="h-4 w-4 shrink-0 text-primary" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{page.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">{owner?.name ?? owner?.email ?? "владелец не в участниках"}</p>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="mx-auto w-full max-w-2xl p-5 sm:p-8">
-      <EmptyState eyebrow="Стол ОС" title="Раздел только для ОС" description="Свой стол здесь заводит и ведёт ОС — остальным он не показывается." />
-    </div>
-  );
+  // Своего стола ОС нет — ведём на общий мониторинг «Столы ОС»: там все столы
+  // ОС, руководство смотрит их напрямую, остальные — по запросу.
+  return <Navigate to="/os-desks" replace />;
 }

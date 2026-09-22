@@ -164,10 +164,14 @@ export function canOpenDesk(opts: {
   deskBlocked: boolean;
   /** usePermissions().seesAllDesks — Тимлид + Технарь: чужие столы на чтение. */
   seesAllDesks?: boolean;
+  /** usePermissions().seesOsDesks — Owner и любой Тимлид: столы ОС напрямую. */
+  seesOsDesks?: boolean;
 }): boolean {
   const uid = opts.uid ?? "";
   if (!uid) return false;
   if (opts.isOwner) return true;
+  // Стол ОС: руководство смотрит напрямую, сам ОС — свой (даже Тимлид + ОС).
+  if (opts.page.osDesk && (opts.seesOsDesks || opts.page.responsibleUserId === uid)) return true;
   // Тимлид (not also a Технарь): no desk tables, whatever the ACL says (firestore.rules agrees).
   if (opts.deskBlocked) return false;
   if (opts.seesAllDesks) return true;

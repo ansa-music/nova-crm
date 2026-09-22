@@ -205,6 +205,15 @@ export interface PageRow {
   createdAt: number;
   updatedAt: number;
   /**
+   * Когда пустая строка-слот (`isBlankRow`) впервые получила значение. Слот
+   * заводится заранее (Enter на последней строке, «Добавить строку»), и
+   * `createdAt` у него — время слота, а не заказа: без этого поля заказ,
+   * вписанный утром в слот, заведённый вчера, считался бы вчерашним
+   * («Столы ОС»: сегодня / за месяц). Пишет `DataTable` при первом
+   * заполнении; дата заказа = max(createdAt, filledAt).
+   */
+  filledAt?: number;
+  /**
    * «Визитка клиента» — optional details that aren't table columns: how
    * many characters, how many minutes, free-form wishes. See utils/rowExtras.
    */

@@ -325,15 +325,27 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const updateRowHeight = subPageId
     ? (wsId: string, pId: string, rowId: string, height: number) => updateSubPageRowHeight(wsId, pId, subPageId, rowId, height)
     : updateRowHeightBase;
-  const fillRowService = subPageId
-    ? (
-        wsId: string,
-        pId: string,
-        rowId: string,
-        patch: Record<string, string | number | null>,
-        extras?: PageRow["extras"] | null
-      ) => updateSubPageRowCellsBulk(wsId, pId, subPageId, rowId, patch, extras)
-    : updateRowCellsBulkBase;
+  /**
+   * Пустую строку-слот заполняют впервые — ставим `filledAt` (см.
+   * PageRow.filledAt): дата заказа — момент заполнения, а не момент слота.
+   */
+  function firstFillAt(rowId: string, values: Array<string | number | null>): number | undefined {
+    const row = rows.find((r) => r.id === rowId);
+    if (!row || !isBlankRow(row)) return undefined;
+    return values.some((v) => isFilledCellValue(v)) ? Date.now() : undefined;
+  }
+  const fillRowService = (
+    wsId: string,
+    pId: string,
+    rowId: string,
+    patch: Record<string, string | number | null>,
+    extras?: PageRow["extras"] | null
+  ) => {
+    const filledAt = firstFillAt(rowId, Object.values(patch));
+    return subPageId
+      ? updateSubPageRowCellsBulk(wsId, pId, subPageId, rowId, patch, extras, undefined, filledAt)
+      : updateRowCellsBulkBase(wsId, pId, rowId, patch, extras, undefined, filledAt);
+  };
   const updatePageColumns = subPageId
     ? (wsId: string, pId: string, cols: typeof page.columns) => updateSubPageColumns(wsId, pId, subPageId, cols)
     : updatePageColumnsBase;
@@ -363,11 +375,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     ? (wsId: string, pId: string, cols: typeof page.columns, colKey: string) => deleteSubPageColumn(wsId, pId, subPageId, cols, colKey)
     : deleteColumnServiceBase;
   async function updateRowCell(ctx: Parameters<typeof updateRowCellBase>[0]) {
+    const filledAt = ctx.filledAt ?? firstFillAt(ctx.rowId, [ctx.newValue]);
     if (subPageId) {
-      await updateSubPageRowCell(ctx.workspaceId, ctx.pageId, subPageId, ctx.rowId, ctx.field, ctx.newValue);
+      await updateSubPageRowCell(ctx.workspaceId, ctx.pageId, subPageId, ctx.rowId, ctx.field, ctx.newValue, filledAt);
       return;
     }
-    await updateRowCellBase(ctx);
+    await updateRowCellBase({ ...ctx, filledAt });
   }
 
   const [activeCell, setActiveCell] = useState<CellAddress | null>(null);

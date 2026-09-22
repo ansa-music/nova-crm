@@ -7,6 +7,7 @@ import { pingInboxChanged } from "@/utils/inboxEvents";
 import { sendNotification } from "@/services/notificationService";
 import { toggleUserPageAccess } from "@/services/pageService";
 import type { ViewRequest, WorkspacePage } from "@/types";
+import { isOsDeskId } from "@/services/osDeskService";
 
 function mapRequests(docs: { id: string; data: () => import("firebase/firestore").DocumentData }[]): ViewRequest[] {
   return docs
@@ -90,13 +91,16 @@ export async function requestDeskView(input: {
   await sendNotification(
     {
       workspaceId: input.workspaceId,
-      title: `${input.fromName} просит смотреть стол ${input.page.name}`,
+      title: input.page.osDesk
+        ? `${input.fromName} просит смотреть «${input.page.name}»`
+        : `${input.fromName} просит смотреть стол ${input.page.name}`,
       body: "Принять или отклонить запрос на просмотр.",
       priority: "important",
       fromUid: input.fromUid,
       fromName: input.fromName,
       target: "selected",
-      href: "/desks",
+      // Столов ОС в «Столах» нет — ведём на сам стол.
+      href: input.page.osDesk ? `/page/${input.page.id}` : "/desks",
       pageId: input.page.id,
       kind: "view-request",
       viewRequestId: id,
@@ -127,6 +131,12 @@ export async function resolveDeskViewRequest(input: {
   // to press. This way a failed grant throws with the request untouched, so
   // the caller's error toast is honest and Принять can simply be clicked
   // again.
+  // Без стола выдать доступ нечем — и тогда нельзя писать «одобрено»: запрос
+  // закрылся бы, а человек остался бы без доступа и без кнопки повторить.
+  // (Так было со столами ОС: колокольчик искал стол среди обычных столов.)
+  if (input.status === "approved" && !input.page) {
+    throw new Error("Стол не найден — обновите страницу и попробуйте ещё раз");
+  }
   if (input.status === "approved" && input.page) {
     await toggleUserPageAccess(input.workspaceId, input.page, input.request.fromUid, true);
   }
@@ -150,7 +160,12 @@ export async function resolveDeskViewRequest(input: {
       fromUid: input.actorUid,
       fromName: input.actorName,
       target: "selected",
-      href: input.status === "approved" ? `/page/${input.request.pageId}` : "/desks",
+      href:
+        input.status === "approved"
+          ? `/page/${input.request.pageId}`
+          : isOsDeskId(input.request.pageId)
+            ? "/os-desks"
+            : "/desks",
       pageId: input.request.pageId,
       kind: "view-request-result",
       viewRequestId: input.request.id,

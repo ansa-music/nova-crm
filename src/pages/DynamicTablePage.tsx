@@ -35,6 +35,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { ensureDiskColumn, ensurePriceColumn, fetchPageIfAccessible, setPageTechnicianDesk, togglePageVisibility } from "@/services/pageService";
+import { isOsDeskId } from "@/services/osDeskService";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { canOpenDesk, isRestrictedDeskRole, worksAsTechnician } from "@/utils/peopleDesks";
 import { useUiStore } from "@/store/uiStore";
@@ -104,7 +105,12 @@ export default function DynamicTablePage() {
     if (pageFetchKeyRef.current === key) return;
     pageFetchKeyRef.current = key;
     let cancelled = false;
-    void fetchPageIfAccessible(activeWorkspaceId, pageId, permissions.uid, permissions.seesAllDesks)
+    void fetchPageIfAccessible(
+      activeWorkspaceId,
+      pageId,
+      permissions.uid,
+      permissions.seesAllDesks || (permissions.seesOsDesks && isOsDeskId(pageId))
+    )
       .then((docPage) => {
         if (!cancelled && docPage) setFetchedPage(docPage);
       })
@@ -132,7 +138,8 @@ export default function DynamicTablePage() {
         uid: permissions.uid,
         isOwner: hasFullDeskAccess,
         deskBlocked: permissions.deskBlocked,
-      seesAllDesks: permissions.seesAllDesks,
+        seesAllDesks: permissions.seesAllDesks,
+        seesOsDesks: permissions.seesOsDesks,
       })
     : false;
   // Owner / responsible / allowedUsers — the same three cases canAccessPage
@@ -396,7 +403,10 @@ export default function DynamicTablePage() {
     (r) => r.pageId === page.id && r.status === "pending" && r.toUid === profile?.uid
   );
   const responsibleMember = members.find((m) => m.uid === page.responsibleUserId) ?? null;
-  const canOpenAccess = permissions.canManagePage(page) || permissions.canAssignResponsible;
+  // Стол ОС принадлежит своему ОС: Тимлид смотрит его, но ответственного не
+  // меняет и доступ не раздаёт (правила тоже не дают переназначить).
+  const canOpenAccess = permissions.canManagePage(page) || (permissions.canAssignResponsible && !page.osDesk);
+  const canRetireThisDesk = permissions.canRetireDesks && (!page.osDesk || permissions.hasFullDeskAccess);
   // Personal Space is visible only to whoever is actually responsible for
   // THIS page (or explicitly whitelisted) — being a Manager elsewhere in the
   // workspace does not grant it. Owner keeps oversight, matching how every
@@ -620,7 +630,7 @@ export default function DynamicTablePage() {
             )}
             {/* Owner-only: Технарь desks get month tabs and a row on «Технари»
                 on their own; any other desk (e.g. the Owner's) opts in here. */}
-            {permissions.canRetireDesks && (
+            {canRetireThisDesk && (
               <>
                 <DropdownMenuSeparator />
                 {page.inactive ? (
@@ -656,7 +666,7 @@ export default function DynamicTablePage() {
             <span className="font-medium">Стол в неактуальных.</span>{" "}
             <span className="text-muted-foreground">Его нет в «Столах», на дашборде и в «Технарях» — данные сохранены.</span>
           </span>
-          {permissions.canRetireDesks && (
+          {canRetireThisDesk && (
             <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => void restoreDesk(page, members, permissions.uid)}>
               <ArchiveRestore className="h-3.5 w-3.5" /> Вернуть
             </Button>

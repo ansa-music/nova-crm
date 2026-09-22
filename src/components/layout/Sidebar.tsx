@@ -20,6 +20,7 @@ import {
   Plus,
   Settings,
   Table2,
+  ScanEye,
   User,
   Users,
   UsersRound,
@@ -184,10 +185,12 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   const showDeskNav = !isOs && !isTeamlead;
   const showGrokNav = !isOs;
   const showTechniciansNav = permissions.canSeeTechnicians && !isOs;
-  // «Стол ОС» — личная таблица ОС. Owner видит пункт тоже: своего стола у
-  // него нет, там будет список чужих — иначе проверить раздел ему нечем.
-  const showOsDeskNav =
-    permissions.isResolved && (permissions.hasRole("os") || permissions.isWorkspaceOwner);
+  // «Стол ОС» — личная таблица ОС, пункт только у ОС (и как второй роли).
+  // «Столы ОС» — мониторинг всех столов ОС: у всех, кроме чистого ОС (у него
+  // свой «Стол ОС»). Owner и Тимлид смотрят столы напрямую, остальные — по
+  // запросу к ОС.
+  const showOsDeskNav = permissions.isResolved && permissions.hasRole("os");
+  const showOsDesksNav = permissions.isResolved && !isOs;
   const homeTo = isOs ? "/technicians" : isTeamlead ? "/users" : myDesk ? `/page/${myDesk.id}` : "/";
   const homeLabel = isOs
     ? "Технари"
@@ -290,6 +293,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                       Стол ОС
                     </AppNavLink>
                   )}
+                  {showOsDesksNav && (
+                    <AppNavLink collapsed title="Столы ОС" to="/os-desks" icon={ScanEye} onNavigate={onNavigate}>
+                      Столы ОС
+                    </AppNavLink>
+                  )}
                   <AppNavLink collapsed title="Настройки" to="/settings" icon={Settings} onNavigate={onNavigate}>
                     Настройки
                   </AppNavLink>
@@ -355,6 +363,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                       Стол ОС
                     </AppNavLink>
                   )}
+                  {showOsDesksNav && (
+                    <AppNavLink to="/os-desks" icon={ScanEye} onNavigate={onNavigate}>
+                      Столы ОС
+                    </AppNavLink>
+                  )}
                   <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
                     Настройки
                   </AppNavLink>
@@ -418,6 +431,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               {showOsDeskNav && (
                 <AppNavLink to="/os-desk" icon={Table2} onNavigate={onNavigate}>
                   Стол ОС
+                </AppNavLink>
+              )}
+              {showOsDesksNav && (
+                <AppNavLink to="/os-desks" icon={ScanEye} onNavigate={onNavigate}>
+                  Столы ОС
                 </AppNavLink>
               )}
               <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>

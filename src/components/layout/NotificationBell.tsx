@@ -38,7 +38,8 @@ function notificationHref(n: Notification): string | null {
 
 export function NotificationBell({ className }: { className?: string }) {
   const { profile } = useAuth();
-  const { activeWorkspaceId, pages } = useWorkspace();
+  // allPages, а не pages: запросы бывают и к столам ОС, которых в `pages` нет.
+  const { activeWorkspaceId, allPages: pages } = useWorkspace();
   const { notifications, unreadCount, reload, markReadLocal } = useNotifications(activeWorkspaceId, profile?.uid ?? null);
   const { requests, resolveRequest, reload: reloadRequests } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const permissions = usePermissions();
