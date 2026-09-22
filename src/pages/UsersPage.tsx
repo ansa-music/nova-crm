@@ -46,6 +46,7 @@ import { timeAgo } from "@/utils/date";
 import { useAuth } from "@/hooks/useAuth";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useMembersRefresh } from "@/hooks/useMembersRefresh";
 import { EXTRA_ROLES, memberHasRole, ROLE_LABELS, rolesOf, type JoinRequest, type PageIconName, type Role, type WorkspaceMember } from "@/types";
 import { confirmDialog } from "@/utils/appDialog";
 
@@ -122,14 +123,8 @@ export default function UsersPage() {
     if (approveRequest && !joinRequests.some((r) => r.uid === approveRequest.uid)) setApproveRequest(null);
   }, [joinRequests, approveRequest]);
 
-  useEffect(() => {
-    if (!activeWorkspaceId || !permissions.canManageUsers) return;
-    void refreshWorkspaceMembers(activeWorkspaceId);
-    const interval = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refreshWorkspaceMembers(activeWorkspaceId!);
-    }, 60_000);
-    return () => window.clearInterval(interval);
-  }, [activeWorkspaceId, permissions.canManageUsers]);
+  // Не каждую минуту, а при открытии и возвращении на вкладку (≤ раза в 5 мин).
+  useMembersRefresh(activeWorkspaceId, permissions.canManageUsers);
 
   if (legacyNicksLink) return <Navigate to="/team" replace />;
 

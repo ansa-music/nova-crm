@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { Contact, Lock, Search, ShieldCheck, Users } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
@@ -11,6 +11,7 @@ import { NickDialog } from "@/components/members/NickDialog";
 import { NickListCard } from "@/components/members/NickListCard";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useMembersRefresh } from "@/hooks/useMembersRefresh";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { nickLabelOf, nickOptionsOf, type NickKind } from "@/services/memberService";
 import { cn } from "@/utils/cn";
@@ -76,17 +77,10 @@ export default function TeamPage() {
     window.history.replaceState(window.history.state, "", url);
   }
 
-  // Список участников в браузере не живой: освежаем при входе и раз в минуту,
-  // чтобы «без ника»/«свободен» были правдой. Занятость ника при записи всё
-  // равно проверяет сервер (`assertNickFree`).
-  useEffect(() => {
-    if (!activeWorkspaceId || !permissions.canManageUsers) return;
-    void refreshWorkspaceMembers(activeWorkspaceId).catch(() => undefined);
-    const interval = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refreshWorkspaceMembers(activeWorkspaceId).catch(() => undefined);
-    }, 60_000);
-    return () => window.clearInterval(interval);
-  }, [activeWorkspaceId, permissions.canManageUsers]);
+  // Список участников в браузере не живой: освежаем при входе и при возврате
+  // на вкладку (не чаще раза в 5 минут — квота Spark). Занятость ника при
+  // записи всё равно проверяет сервер (`assertNickFree`).
+  useMembersRefresh(activeWorkspaceId, permissions.canManageUsers);
 
   const people = useMemo(
     () => (Array.isArray(members) ? members : []).filter((m) => m.status === "active" && Boolean(m.uid)),
