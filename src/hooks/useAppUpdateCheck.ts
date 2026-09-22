@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { useLocation } from "react-router";
 import { waitForPendingWrites } from "firebase/firestore";
 import { toast } from "@/components/ui/sonner";
 import { db } from "@/firebase/firebase";
@@ -21,10 +20,14 @@ import { useWorkspace } from "@/hooks/useWorkspace";
  *    (документ workspace и так живой — лишних чтений нет). Сравниваем со
  *    значением на момент загрузки, а не по часам — часы у всех разные.
  *
- * Как перезагружаем: свёрнутая вкладка — сразу; вкладка на виду — через 30 с
- * с тостом «Обновить сейчас». Человек печатает или открыт диалог — ждём, но
- * не дольше 2 минут: это «принудительно». Перед перезагрузкой ждём, пока уйдут
- * на сервер последние правки (`reloadSafely`).
+ * Новая версия — только тост «Обновить» (сама не перезагружает: каждая
+ * перезагрузка заново читает все подписки, ~340 чтений на вкладку, и волна
+ * после каждого деплоя съедала квоту Spark). ПРИНУДИТЕЛЬНО — по кнопке Owner:
+ * вкладка на виду — через 30 с с тостом «Обновить сейчас», человек печатает
+ * или открыт диалог — ждём, но не дольше 2 минут; свёрнутая — когда на неё
+ * вернутся (брошенные фоновые вкладки не перечитывают всё впустую).
+ * Перед перезагрузкой ждём, пока уйдут на сервер последние правки
+ * (`reloadSafely`).
  */
 
 const CHECK_EVERY_MS = 2 * 60_000;
@@ -33,6 +36,7 @@ const COUNTDOWN_MS = 30_000;
 const MAX_WAIT_BUSY_MS = 2 * 60_000;
 const TOAST_ID = "nova-app-update";
 const PRELOAD_RELOAD_KEY = "nova:preload-reload-at";
+
 
 /**
  * Главный бандл ЭТОГО сайта. Только свой origin: расширение браузера может
@@ -81,9 +85,29 @@ function userIsBusy(): boolean {
 let scheduled = false;
 function scheduleForcedReload(reason: "deploy" | "owner") {
   if (scheduled || reloading) return;
+  // Новая версия — только ПРЕДЛАГАЕМ обновиться. Сама по каждому деплою
+  // перезагрузка стоила ~8 500 чтений на деплой (каждая вкладка заново читает
+  // все подписки), а деплоев бывает по 20 в день — аудит квоты 22.09.2026
+  // поставил это первым пунктом. Принудительно — только кнопкой Owner.
+  if (reason === "deploy") {
+    toast("Вышла новая версия Nova", {
+      id: TOAST_ID,
+      description: "Обновите страницу, когда будет удобно.",
+      duration: Infinity,
+      action: { label: "Обновить", onClick: () => void reloadSafely() },
+    });
+    return;
+  }
   scheduled = true;
   if (document.visibilityState !== "visible") {
-    void reloadSafely();
+    // Свёрнутая вкладка: обновим, когда на неё вернутся, — брошенные фоновые
+    // вкладки иначе перечитывали бы всё впустую.
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      document.removeEventListener("visibilitychange", onVisible);
+      void reloadSafely();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return;
   }
   toast(reason === "owner" ? "Owner обновляет сайт у всех" : "Вышла новая версия Nova", {
@@ -95,21 +119,23 @@ function scheduleForcedReload(reason: "deploy" | "owner") {
   const startedAt = Date.now();
   const attempt = () => {
     if (reloading) return;
-    if (document.visibilityState === "visible" && userIsBusy() && Date.now() - startedAt < COUNTDOWN_MS + MAX_WAIT_BUSY_MS) {
+    // Ушёл с вкладки во время отсчёта — дождёмся, пока вернётся.
+    if (document.visibilityState !== "visible") {
+      const onVisible = () => {
+        if (document.visibilityState !== "visible") return;
+        document.removeEventListener("visibilitychange", onVisible);
+        void reloadSafely();
+      };
+      document.addEventListener("visibilitychange", onVisible);
+      return;
+    }
+    if (userIsBusy() && Date.now() - startedAt < COUNTDOWN_MS + MAX_WAIT_BUSY_MS) {
       window.setTimeout(attempt, 5000);
       return;
     }
     void reloadSafely();
   };
   window.setTimeout(attempt, COUNTDOWN_MS);
-  // Ушёл с вкладки, пока шёл отсчёт, — обновляем сразу, пока он не смотрит.
-  const onHidden = () => {
-    if (document.visibilityState === "hidden") {
-      document.removeEventListener("visibilitychange", onHidden);
-      void reloadSafely();
-    }
-  };
-  document.addEventListener("visibilitychange", onHidden);
 }
 
 async function latestEntry(): Promise<string | null> {
@@ -120,10 +146,8 @@ async function latestEntry(): Promise<string | null> {
 }
 
 export function useAppUpdateCheck() {
-  const location = useLocation();
   const { activeWorkspace } = useWorkspace();
   const updateReadyRef = useRef(false);
-  const firstPathRef = useRef(location.pathname + location.search);
   const epochBaselineRef = useRef<{ workspaceId: string; epoch: number } | null>(null);
 
   useEffect(() => {
@@ -196,12 +220,4 @@ export function useAppUpdateCheck() {
     }
   }, [activeWorkspace]);
 
-  // Новая версия уже есть, а человек перешёл в другой раздел — загружаем
-  // этот раздел уже новым кодом, не дожидаясь отсчёта.
-  useEffect(() => {
-    const path = location.pathname + location.search;
-    if (path === firstPathRef.current) return;
-    firstPathRef.current = path;
-    if (updateReadyRef.current) void reloadSafely();
-  }, [location.pathname, location.search]);
 }
