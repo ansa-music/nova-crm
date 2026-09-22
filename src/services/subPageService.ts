@@ -14,7 +14,7 @@ import { paths, subscribe, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { hasRowExtras } from "@/utils/rowExtras";
 import { ymdPartsInTimeZone } from "@/utils/date";
-import { ROW_REORDER_CHUNK, stripUndefined } from "@/services/pageService";
+import { ROW_REORDER_CHUNK, rowsToRenumber, stripUndefined } from "@/services/pageService";
 import type { PageColumn, PageIconName, PageRow, StatusOption, SubPage } from "@/types";
 import {
   mirrorDeleteRow,
@@ -420,17 +420,20 @@ export async function duplicateSubPageRow(
   return copy;
 }
 
+/** `currentOrders` — см. reorderRows: строки, уже стоящие на месте, не пишутся. */
 export async function reorderSubPageRows(
   workspaceId: string,
   pageId: string,
   subPageId: string,
-  orderedRowIds: string[]
+  orderedRowIds: string[],
+  currentOrders?: ReadonlyMap<string, number>
 ) {
   if (!db) return;
-  for (let start = 0; start < orderedRowIds.length; start += ROW_REORDER_CHUNK) {
+  const changed = rowsToRenumber(orderedRowIds, currentOrders);
+  for (let start = 0; start < changed.length; start += ROW_REORDER_CHUNK) {
     const batch = writeBatch(db);
-    orderedRowIds.slice(start, start + ROW_REORDER_CHUNK).forEach((rowId, i) => {
-      batch.set(paths.subPageRow(workspaceId, pageId, subPageId, rowId), { order: start + i }, { merge: true });
+    changed.slice(start, start + ROW_REORDER_CHUNK).forEach(({ rowId, order }) => {
+      batch.set(paths.subPageRow(workspaceId, pageId, subPageId, rowId), { order }, { merge: true });
     });
     await batch.commit();
   }

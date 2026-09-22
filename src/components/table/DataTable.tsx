@@ -71,6 +71,7 @@ import {
   reorderRows as reorderRowsBase,
   updateRowCell as updateRowCellBase,
   updateRowCellsBulk as updateRowCellsBulkBase,
+  updateRowCellsWithHistory,
   updateRowHeight as updateRowHeightBase,
   updatePageColumns as updatePageColumnsBase,
   addColumn as addColumnServiceBase,
@@ -258,6 +259,19 @@ function compareColumnsBySchema(a: { order: number }, b: { order: number }, ai: 
   return ai - bi;
 }
 
+/** Одна ячейка многоячеечной правки (вставка, заполнение, очистка). */
+interface CellEdit {
+  rowId: string;
+  colKey: string;
+  oldValue: string;
+  newValue: string;
+}
+
+/** Та же правка наоборот — для undo многоячеечной операции. */
+function invertCellEdit(edit: CellEdit): CellEdit {
+  return { ...edit, oldValue: edit.newValue, newValue: edit.oldValue };
+}
+
 interface DataTableProps {
   workspaceId: string;
   page: WorkspacePage;
@@ -320,7 +334,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     ? (wsId: string, pId: string, row: PageRow, order: number) => duplicateSubPageRow(wsId, pId, subPageId, row, order)
     : duplicateRowServiceBase;
   const reorderRows = subPageId
-    ? (wsId: string, pId: string, orderedIds: string[]) => reorderSubPageRows(wsId, pId, subPageId, orderedIds)
+    ? (wsId: string, pId: string, orderedIds: string[], currentOrders?: ReadonlyMap<string, number>) =>
+        reorderSubPageRows(wsId, pId, subPageId, orderedIds, currentOrders)
     : reorderRowsBase;
   const updateRowHeight = subPageId
     ? (wsId: string, pId: string, rowId: string, height: number) => updateSubPageRowHeight(wsId, pId, subPageId, rowId, height)
@@ -841,7 +856,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   async function persistManualOrder(orderedIds: string[]) {
-    await reorderRows(workspaceId, page.id, orderedIds);
+    // Сохранённый порядок строк: строки, уже стоящие на своём номере, не
+    // переписываются. `order` здесь — то, по чему таблица и рисует строки
+    // (при живом мосте его приносит Supabase, а туда reorderRows всегда
+    // пишет весь порядок целиком).
+    const currentOrders = new Map(rows.map((r) => [r.id, r.order]));
+    await reorderRows(workspaceId, page.id, orderedIds, currentOrders);
     if (!manualRowOrder) await setTabRowOrderManual(workspaceId, page.id, subPageId ?? null);
   }
 
@@ -1030,6 +1050,28 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     [canEdit, columns, rows]
   );
 
+  /**
+   * Auto-fill the FIRST column of the table (whatever it's called —
+   * "Название" or anything else, order 0) — the very first time it goes
+   * from empty to non-empty, if there's a "Дата" column on this table
+   * AND it's still empty, stamp it with today's date. Only ever fires
+   * once per row: the moment the date column already holds something
+   * (auto-filled or hand-picked), this never touches it again.
+   * Returns the key of that "Дата" column, or null when nothing to stamp.
+   */
+  function autoDateColumnFor(rowId: string, colKey: string, oldValue: string, newValue: string): string | null {
+    if (columns[0]?.key !== colKey || oldValue.trim() || !newValue.trim()) return null;
+    const dateCol = columns.find((c) => c.type === "date");
+    // Первый столбец сам и есть «Дата» — ставить уже нечего. Без этой
+    // проверки persistCellEdit на записанной дате снова попадал сюда с той же
+    // устаревшей `rows` (дата «ещё пустая») и писал дату по кругу без конца.
+    if (!dateCol || dateCol.key === colKey) return null;
+    const row = rows.find((r) => r.id === rowId);
+    const currentDateValue = row?.cells[dateCol.key];
+    const dateIsEmpty = currentDateValue === undefined || currentDateValue === null || currentDateValue === "";
+    return dateIsEmpty ? dateCol.key : null;
+  }
+
   async function persistCellEdit(rowId: string, colKey: string, oldValue: string, newValue: string) {
     const col = columns.find((c) => c.key === colKey);
     if (col?.type === "url") {
@@ -1055,22 +1097,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       });
       pendingWrites.confirm(rowId, colKey, version);
 
-      // Auto-fill the FIRST column of the table (whatever it's called —
-      // "Название" or anything else, order 0) — the very first time it goes
-      // from empty to non-empty, if there's a "Дата" column on this table
-      // AND it's still empty, stamp it with today's date. Only ever fires
-      // once per row: the moment the date column already holds something
-      // (auto-filled or hand-picked), this never touches it again.
-      const isFirstColumn = columns[0]?.key === colKey;
-      if (isFirstColumn && !oldValue.trim() && newValue.trim()) {
-        const dateCol = columns.find((c) => c.type === "date");
-        const row = rows.find((r) => r.id === rowId);
-        const currentDateValue = dateCol ? row?.cells[dateCol.key] : undefined;
-        const dateIsEmpty = currentDateValue === undefined || currentDateValue === null || currentDateValue === "";
-        if (dateCol && dateIsEmpty) {
-          await persistCellEdit(rowId, dateCol.key, "", String(Date.now()));
-        }
-      }
+      const autoDateKey = autoDateColumnFor(rowId, colKey, oldValue, newValue);
+      if (autoDateKey) await persistCellEdit(rowId, autoDateKey, "", String(Date.now()));
     } catch (error) {
       pendingWrites.fail(rowId, colKey, version);
       toast.error("Не удалось сохранить значение", {
@@ -1084,6 +1112,106 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       });
       throw error;
     }
+  }
+
+  /**
+   * Несколько ячеек одной строки — одной merge-записью строки. На основной
+   * вкладке история пишется по ячейке, как в updateRowCell; во вкладке
+   * истории нет и так (см. updateSubPageRowCell).
+   */
+  async function updateRowCells(rowId: string, cells: CellEdit[]) {
+    if (cells.length === 0) return;
+    const filledAt = firstFillAt(rowId, cells.map((c) => c.newValue));
+    if (subPageId) {
+      const patch: Record<string, string | number | null> = {};
+      for (const c of cells) patch[c.colKey] = c.newValue;
+      await updateSubPageRowCellsBulk(workspaceId, page.id, subPageId, rowId, patch, undefined, undefined, filledAt);
+      return;
+    }
+    await updateRowCellsWithHistory({
+      workspaceId,
+      pageId: page.id,
+      pageName: page.name,
+      rowId,
+      changes: cells.map((c) => ({
+        field: c.colKey,
+        fieldLabel: columns.find((col) => col.key === c.colKey)?.label ?? c.colKey,
+        oldValue: c.oldValue,
+        newValue: c.newValue,
+      })),
+      userId,
+      userName,
+      filledAt,
+    });
+  }
+
+  /**
+   * Многоячеечная правка (вставка, заполнение, очистка диапазона) — ОДНА
+   * запись на строку, а не на ячейку: блок 5 столбцов × 20 строк стоил сотню
+   * записей строк вместо двадцати. Всё остальное — как у persistCellEdit на
+   * каждую ячейку: проверка ссылок, pendingWrites begin/confirm/fail по ячейке,
+   * автодата первого столбца (здесь она едет в той же записи строки), история.
+   * Undo-команду кладёт вызывающий — одну на всю операцию, и её undo/redo
+   * зовут эту же функцию. Бросает, если не сохранилась хоть одна строка, —
+   * иначе undoStore счёл бы отмену выполненной.
+   */
+  async function persistCellEdits(edits: CellEdit[]) {
+    const byRow = new Map<string, CellEdit[]>();
+    let badUrl = false;
+    for (const e of edits) {
+      let newValue = e.newValue;
+      if (columns.find((c) => c.key === e.colKey)?.type === "url") {
+        newValue = newValue.trim();
+        if (newValue && !isHttpUrl(newValue)) {
+          badUrl = true;
+          continue;
+        }
+      }
+      const list = byRow.get(e.rowId) ?? [];
+      list.push({ ...e, newValue });
+      byRow.set(e.rowId, list);
+    }
+    // Один тост на всю вставку, а не по тосту на каждую плохую ячейку.
+    if (badUrl) toast.error("Нужна ссылка http(s) — Google Drive, Яндекс Диск или любая https");
+
+    const failed: CellEdit[] = [];
+    let firstError: unknown = null;
+    await Promise.all(
+      [...byRow].map(async ([rowId, rowEdits]) => {
+        const cells = [...rowEdits];
+        // Автодата — тем же правилом, что в persistCellEdit, но той же записью
+        // строки, а не второй. Если «Дата» сама есть во вставке, побеждает
+        // вставленное значение.
+        for (const e of rowEdits) {
+          const dateKey = autoDateColumnFor(rowId, e.colKey, e.oldValue, e.newValue);
+          if (dateKey && !cells.some((c) => c.colKey === dateKey)) {
+            cells.push({ rowId, colKey: dateKey, oldValue: "", newValue: String(Date.now()) });
+          }
+        }
+        const versions = cells.map((c) => pendingWrites.begin(rowId, c.colKey, c.newValue));
+        try {
+          await updateRowCells(rowId, cells);
+          cells.forEach((c, i) => pendingWrites.confirm(rowId, c.colKey, versions[i]));
+        } catch (error) {
+          cells.forEach((c, i) => pendingWrites.fail(rowId, c.colKey, versions[i]));
+          failed.push(...rowEdits);
+          if (firstError === null) firstError = error;
+        }
+      })
+    );
+    if (failed.length === 0) return;
+    // Один тост на всю операцию: при кончившейся квоте по тосту на ячейку
+    // засыпали бы весь экран.
+    toast.error("Не удалось сохранить значение", {
+      description: `Не сохранено ячеек: ${failed.length}. Текст остался на месте. Повторите сохранение.`,
+      action: {
+        label: "Повторить",
+        onClick: () => {
+          void persistCellEdits(failed).catch(() => undefined);
+        },
+      },
+    });
+    throw firstError;
   }
 
   async function moveActiveAfterCommit(direction: "down" | "right" | "left" | "none", rowIsBlank = false) {
@@ -1213,6 +1341,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   function handleStatusChange(rowId: string, colKey: string, value: string) {
     const row = rows.find((r) => r.id === rowId);
     const oldValue = String(row?.cells[colKey] ?? "");
+    // Выбрали то, что уже стоит, — писать нечего (раньше это была запись в
+    // строку, запись в историю и пустая undo-команда). Сверяем и с базой, и с
+    // ещё летящей своей записью: при быстром «А → Б → А» база ещё помнит «А»,
+    // но в пути «Б», и без второй проверки последнее «А» потерялось бы.
+    const shownValue = String(pendingWrites.resolve(rowId, colKey, row?.cells[colKey] ?? null) ?? "");
+    if (value === oldValue && value === shownValue) return;
     persistCellEdit(rowId, colKey, oldValue, value);
     pushCommand({
       undo: () => persistCellEdit(rowId, colKey, value, oldValue),
@@ -1509,14 +1643,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       });
     });
     if (edits.length === 0) return;
-    for (const e of edits) persistCellEdit(e.rowId, e.colKey, e.oldValue, e.newValue);
+    // Одна запись на строку, а не на ячейку — см. persistCellEdits. Тост об
+    // ошибке она показывает сама.
+    persistCellEdits(edits).catch(() => undefined);
     pushCommand({
-      undo: async () => {
-        await Promise.all(edits.map((e) => persistCellEdit(e.rowId, e.colKey, e.newValue, e.oldValue)));
-      },
-      redo: async () => {
-        await Promise.all(edits.map((e) => persistCellEdit(e.rowId, e.colKey, e.oldValue, e.newValue)));
-      },
+      undo: () => persistCellEdits(edits.map(invertCellEdit)),
+      redo: () => persistCellEdits(edits),
     });
   }
 
@@ -1616,7 +1748,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     // Batch all cleared cells into ONE undo command (see the same fix and
     // rationale on applyMatrixPasteAt above) — one command per cell meant
     // a single Ctrl+Z after clearing a block only restored the last cell.
-    const edits: { rowId: string; colKey: string; oldValue: string }[] = [];
+    const edits: CellEdit[] = [];
     for (let r = bounds.rowStart; r <= bounds.rowEnd; r++) {
       const row = rows.find((rr) => rr.id === rowIds[r]);
       if (!row) continue;
@@ -1624,18 +1756,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         const col = displayColumns[c];
         if (!col) continue;
         const oldValue = String(row.cells[col.key] ?? "");
-        if (oldValue) edits.push({ rowId: row.id, colKey: col.key, oldValue });
+        if (oldValue) edits.push({ rowId: row.id, colKey: col.key, oldValue, newValue: "" });
       }
     }
     if (edits.length === 0) return;
-    for (const e of edits) persistCellEdit(e.rowId, e.colKey, e.oldValue, "");
+    // Одна запись на строку, а не на ячейку — см. persistCellEdits.
+    persistCellEdits(edits).catch(() => undefined);
     pushCommand({
-      undo: async () => {
-        await Promise.all(edits.map((e) => persistCellEdit(e.rowId, e.colKey, "", e.oldValue)));
-      },
-      redo: async () => {
-        await Promise.all(edits.map((e) => persistCellEdit(e.rowId, e.colKey, e.oldValue, "")));
-      },
+      undo: () => persistCellEdits(edits.map(invertCellEdit)),
+      redo: () => persistCellEdits(edits),
     });
   }
 
@@ -1735,14 +1864,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       }
     });
     if (edits.length === 0) return;
-    for (const e of edits) persistCellEdit(e.rowId, e.colKey, e.oldValue, e.newValue);
+    // Одна запись на строку, а не на ячейку — см. persistCellEdits. Тост об
+    // ошибке она показывает сама.
+    persistCellEdits(edits).catch(() => undefined);
     pushCommand({
-      undo: async () => {
-        await Promise.all(edits.map((e) => persistCellEdit(e.rowId, e.colKey, e.newValue, e.oldValue)));
-      },
-      redo: async () => {
-        await Promise.all(edits.map((e) => persistCellEdit(e.rowId, e.colKey, e.oldValue, e.newValue)));
-      },
+      undo: () => persistCellEdits(edits.map(invertCellEdit)),
+      redo: () => persistCellEdits(edits),
     });
     // Extend the selection over the filled block so a second drag continues it.
     const last = targetIds[targetIds.length - 1];
@@ -1860,14 +1987,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         }
       }
       if (edits.length === 0) return;
-      for (const e of edits) persistCellEdit(e.rowId, e.colKey, e.oldValue, e.newValue);
+      // Одна запись на строку, а не на ячейку — см. persistCellEdits. Тост об
+      // ошибке она показывает сама.
+      persistCellEdits(edits).catch(() => undefined);
       pushCommand({
-        undo: async () => {
-          await Promise.all(edits.map((e) => persistCellEdit(e.rowId, e.colKey, e.newValue, e.oldValue)));
-        },
-        redo: async () => {
-          await Promise.all(edits.map((e) => persistCellEdit(e.rowId, e.colKey, e.oldValue, e.newValue)));
-        },
+        undo: () => persistCellEdits(edits.map(invertCellEdit)),
+        redo: () => persistCellEdits(edits),
       });
       return;
     }
@@ -2194,9 +2319,16 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     window.removeEventListener("pointerup", handleResizeEnd);
     if (!state) return;
     if (state.type === "col") {
+      // Клик по ручке без движения — ширина та же, и переписывать весь
+      // список столбцов стола незачем. Сравниваем с СОХРАНЁННОЙ шириной, а не
+      // со стартовой: у столбца без ширины (или вне пределов) стартовая уже
+      // поправлена clampColumnWidth, и такая запись остаётся, как была.
+      if (columns.find((c) => c.key === state.colKey)?.width === state.lastValue) return;
       const newColumns = columns.map((c) => (c.key === state.colKey ? { ...c, width: state.lastValue } : c));
       updatePageColumns(workspaceId, page.id, newColumns);
     } else {
+      // То же для высоты строки: без движения — без записи.
+      if (rows.find((r) => r.id === state.rowId)?.height === state.lastValue) return;
       updateRowHeight(workspaceId, page.id, state.rowId, state.lastValue);
     }
   }
@@ -2408,9 +2540,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       setOptimisticRowOrder(reordered);
       try {
         await persistManualOrder(reordered);
+        // После перестановки у каждой строки `order` = её место в `reordered`,
+        // после отмены — место в `before`. Отмене и повтору поэтому хватает
+        // переписать только строки, у которых эти два места различаются.
+        const orderIn = (ids: string[]) => new Map(ids.map((id, i) => [id, i]));
         pushCommand({
-          undo: () => reorderRows(workspaceId, page.id, before),
-          redo: () => reorderRows(workspaceId, page.id, reordered),
+          undo: () => reorderRows(workspaceId, page.id, before, orderIn(reordered)),
+          redo: () => reorderRows(workspaceId, page.id, reordered, orderIn(before)),
         });
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Не удалось переставить строку");

@@ -927,6 +927,57 @@ export async function updateRowCell(ctx: UpdateCellContext) {
   }
 }
 
+interface UpdateCellsContext {
+  workspaceId: string;
+  pageId: string;
+  pageName: string;
+  rowId: string;
+  changes: Array<{
+    field: string;
+    fieldLabel: string;
+    oldValue: string | number | null;
+    newValue: string | number | null;
+  }>;
+  userId: string;
+  userName: string;
+  /** Пустую строку заполнили впервые — см. PageRow.filledAt. */
+  filledAt?: number;
+}
+
+/**
+ * Несколько ячеек ОДНОЙ строки (вставка, заполнение, очистка диапазона) —
+ * одной merge-записью строки, а не записью на ячейку: вставка блока 5×20
+ * стоила сотню записей строк вместо двадцати. История — та же, что у
+ * updateRowCell: по записи на каждую реально изменённую ячейку, иначе
+ * вставка пропала бы из «Истории изменений».
+ */
+export async function updateRowCellsWithHistory(ctx: UpdateCellsContext) {
+  // Пустая карта `cells` в merge-записи стёрла бы все ячейки строки.
+  if (!db || ctx.changes.length === 0) return;
+  const patch: Record<string, string | number | null> = {};
+  for (const change of ctx.changes) patch[change.field] = change.newValue;
+  await updateRowCellsBulk(ctx.workspaceId, ctx.pageId, ctx.rowId, patch, undefined, undefined, ctx.filledAt);
+  await Promise.all(
+    ctx.changes
+      .filter((change) => change.oldValue !== change.newValue)
+      .map((change) =>
+        logChange({
+          workspaceId: ctx.workspaceId,
+          pageId: ctx.pageId,
+          pageName: ctx.pageName,
+          rowId: ctx.rowId,
+          field: change.field,
+          fieldLabel: change.fieldLabel,
+          oldValue: change.oldValue,
+          newValue: change.newValue,
+          action: "update",
+          userId: ctx.userId,
+          userName: ctx.userName,
+        })
+      )
+  );
+}
+
 /** `extras`: undefined leaves them alone, null removes them. */
 export async function updateRowCellsBulk(
   workspaceId: string,
@@ -1021,12 +1072,41 @@ export async function duplicateRow(workspaceId: string, pageId: string, row: Pag
 /** Firestore batches cap at 500 writes; long desks renumber in chunks. */
 export const ROW_REORDER_CHUNK = 450;
 
-export async function reorderRows(workspaceId: string, pageId: string, orderedRowIds: string[]) {
+/**
+ * Какие строки реально надо переписать при перестановке: у каких сохранённый
+ * `order` не совпадает с новым местом. Перетаскивание одной строки на пару
+ * позиций раньше переписывало ВЕСЬ стол — сотни записей на бесплатном плане
+ * ради двух-трёх сдвинувшихся строк. Без `currentOrders` — как раньше, все.
+ */
+export function rowsToRenumber(
+  orderedRowIds: string[],
+  currentOrders?: ReadonlyMap<string, number>
+): Array<{ rowId: string; order: number }> {
+  const result: Array<{ rowId: string; order: number }> = [];
+  orderedRowIds.forEach((rowId, order) => {
+    if (currentOrders?.get(rowId) !== order) result.push({ rowId, order });
+  });
+  return result;
+}
+
+/**
+ * `currentOrders` — сохранённый сейчас `order` каждой строки (id → order):
+ * строки, уже стоящие на своём номере, не пишутся. Зеркало в Supabase всё
+ * равно получает весь порядок: оно не тратит квоту Firestore, а полная
+ * перенумерация там чинит заодно и отставшую копию.
+ */
+export async function reorderRows(
+  workspaceId: string,
+  pageId: string,
+  orderedRowIds: string[],
+  currentOrders?: ReadonlyMap<string, number>
+) {
   if (!db) return;
-  for (let start = 0; start < orderedRowIds.length; start += ROW_REORDER_CHUNK) {
+  const changed = rowsToRenumber(orderedRowIds, currentOrders);
+  for (let start = 0; start < changed.length; start += ROW_REORDER_CHUNK) {
     const batch = writeBatch(db);
-    orderedRowIds.slice(start, start + ROW_REORDER_CHUNK).forEach((rowId, i) => {
-      batch.set(paths.row(workspaceId, pageId, rowId), { order: start + i }, { merge: true });
+    changed.slice(start, start + ROW_REORDER_CHUNK).forEach(({ rowId, order }) => {
+      batch.set(paths.row(workspaceId, pageId, rowId), { order }, { merge: true });
     });
     await batch.commit();
   }
