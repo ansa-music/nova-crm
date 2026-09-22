@@ -17,6 +17,7 @@ import { paths, withErrorReporting } from "@/firebase/firestore";
 import { COLOR_PRESETS } from "@/components/common/ColorPicker";
 import { displayNameOf, realNameOf } from "@/utils/displayName";
 import { generateId } from "@/utils/id";
+import { withDbTimeout } from "@/utils/dbError";
 import { addOwnWorkspaceId } from "@/services/authService";
 import { EXTRA_ROLES, type Role, type StatusOption, type Workspace, type WorkspaceMember } from "@/types";
 
@@ -408,12 +409,15 @@ export async function assertNickFree(input: {
 }): Promise<string | null> {
   if (!db) return null;
   const meta = NICK_KIND_META[input.kind];
-  const workspaceSnap = await getDocFromServer(paths.workspace(input.workspaceId));
+  // Оба чтения — строго с сервера (кэш соврал бы про занятость), а значит,
+  // без связи они висят: потолок ожидания обязателен.
+  const workspaceSnap = await withDbTimeout(getDocFromServer(paths.workspace(input.workspaceId)), "Проверка ника");
   const options = nickOptionsOf(workspaceSnap.data() as Partial<Workspace> | undefined, input.kind);
   const { option } = resolveNickOption(options, input.target, input.previous);
   if (!options.some((o) => o.value === option.value)) return null;
-  const holders = await getDocsFromServer(
-    query(paths.members(input.workspaceId), where(meta.value, "==", option.value))
+  const holders = await withDbTimeout(
+    getDocsFromServer(query(paths.members(input.workspaceId), where(meta.value, "==", option.value))),
+    "Проверка ника"
   );
   const other = holders.docs.map((d) => d.data() as WorkspaceMember).find((m) => m.uid !== input.selfUid);
   if (other) throw new Error(`Ник «${option.label}» уже закреплён за ${realNameOf(other)}`);
@@ -512,7 +516,7 @@ export async function linkMemberNick(input: {
         : null,
     });
   }
-  return runTransaction(db, async (tx) => {
+  return withDbTimeout(runTransaction(db, async (tx) => {
     const workspaceSnap = await tx.get(workspaceRef);
     const memberSnap = await tx.get(memberRef);
     if (!memberSnap.exists()) throw new Error("Участник не найден");
@@ -532,7 +536,7 @@ export async function linkMemberNick(input: {
     if (nextOptions) tx.set(workspaceRef, { [meta.list]: nextOptions }, { merge: true });
     tx.set(memberRef, { [meta.label]: option.label, [meta.value]: option.value }, { merge: true });
     return option.value;
-  });
+  }), "Ник");
 }
 
 /** Pins an ОС account to its «Ответственный» nick — see `linkMemberNick`. */
@@ -554,7 +558,7 @@ export async function addNickOption(input: { workspaceId: string; kind: NickKind
   if (!db) throw new Error("Firebase не настроен");
   const meta = NICK_KIND_META[input.kind];
   const workspaceRef = paths.workspace(input.workspaceId);
-  return runTransaction(db, async (tx) => {
+  return withDbTimeout(runTransaction(db, async (tx) => {
     const snap = await tx.get(workspaceRef);
     const options = nickOptionsOf(snap.data() as Partial<Workspace> | undefined, input.kind);
     const label = input.label.trim().slice(0, NICK_MAX_LENGTH);
@@ -565,7 +569,7 @@ export async function addNickOption(input: { workspaceId: string; kind: NickKind
     const option: StatusOption = { value: generateId("opt"), label, color: COLOR_PRESETS[options.length % COLOR_PRESETS.length] };
     tx.set(workspaceRef, { [meta.list]: [...options, option] }, { merge: true });
     return option;
-  });
+  }), "Новый ник");
 }
 
 /**
@@ -581,7 +585,7 @@ export async function setNickOptionInactive(input: {
   if (!db) throw new Error("Firebase не настроен");
   const meta = NICK_KIND_META[input.kind];
   const workspaceRef = paths.workspace(input.workspaceId);
-  await runTransaction(db, async (tx) => {
+  await withDbTimeout(runTransaction(db, async (tx) => {
     const snap = await tx.get(workspaceRef);
     const options = nickOptionsOf(snap.data() as Partial<Workspace> | undefined, input.kind);
     if (!options.some((o) => o.value === input.value)) throw new Error("Этого ника уже нет в списке");
@@ -589,7 +593,7 @@ export async function setNickOptionInactive(input: {
       ? options.map((o) => (o.value === input.value ? { ...o, inactive: true } : o))
       : reviveOption(options, input.value);
     tx.set(workspaceRef, { [meta.list]: next }, { merge: true });
-  });
+  }), "Неактуальный ник");
 }
 
 /**

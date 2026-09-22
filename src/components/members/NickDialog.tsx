@@ -23,6 +23,7 @@ import { bindScheduleGroupPersonToMember } from "@/services/scheduleGroupService
 import { usePermissions } from "@/hooks/usePermissions";
 import { confirmDialog } from "@/utils/appDialog";
 import { cn } from "@/utils/cn";
+import { firestoreErrorText } from "@/utils/dbError";
 import { realNameOf } from "@/utils/displayName";
 import { splitOptionsByActivity } from "@/utils/columnOptions";
 import type { Role, StatusOption, WorkspaceMember } from "@/types";
@@ -313,7 +314,7 @@ export function NickDialog({
       onClose();
       await Promise.resolve(onSaved()).catch(() => undefined);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось закрепить ник");
+      toast.error("Не удалось закрепить ник", { description: firestoreErrorText(error, "База не приняла запись") });
     } finally {
       setSaving(false);
     }
@@ -334,7 +335,7 @@ export function NickDialog({
       onClose();
       await Promise.resolve(onSaved()).catch(() => undefined);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось открепить ник");
+      toast.error("Не удалось открепить ник", { description: firestoreErrorText(error, "База не приняла запись") });
     } finally {
       setSaving(false);
     }

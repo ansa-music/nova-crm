@@ -13,6 +13,7 @@ import {
 } from "@/services/memberService";
 import type { JoinRequest, JoinRequestRole, Role, Workspace, WorkspaceMember } from "@/types";
 import { realNameOf } from "@/utils/displayName";
+import { withDbTimeout } from "@/utils/dbError";
 
 /** Если человек роль не выбрал (старые заявки) — предлагаем Технаря, как было раньше. */
 export const DEFAULT_JOIN_ROLE: Role = "manager";
@@ -145,7 +146,7 @@ export async function approveJoinRequest(input: {
   const expectedValue = kind && input.nick
     ? await assertNickFree({ workspaceId, kind, target: input.nick, selfUid: request.uid })
     : null;
-  return runTransaction(db, async (tx) => {
+  return withDbTimeout(runTransaction(db, async (tx) => {
     const workspaceSnap = await tx.get(workspaceRef);
     const memberSnap = await tx.get(memberRef);
     const stubSnap = request.email ? await tx.get(stubRef) : null;
@@ -198,7 +199,7 @@ export async function approveJoinRequest(input: {
       { merge: true }
     );
     return { nickLabel };
-  });
+  }), "Одобрение заявки");
 }
 
 /** Отклонить: участник не создаётся, человек может подать заявку снова. */

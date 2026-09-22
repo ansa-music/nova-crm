@@ -15,6 +15,7 @@ import {
 import { approveJoinRequest, DEFAULT_JOIN_ROLE, nickKindForRole } from "@/services/joinRequestService";
 import { memberNickValue, NICK_KIND_META, nickOptionsOf, type NickKind } from "@/services/memberService";
 import { realNameOf } from "@/utils/displayName";
+import { firestoreErrorText } from "@/utils/dbError";
 import { refreshWorkspaceMembers } from "@/hooks/useWorkspace";
 import { ROLE_LABELS, type JoinRequest, type Role, type Workspace, type WorkspaceMember } from "@/types";
 
@@ -89,7 +90,7 @@ export function ApproveJoinDialog({
       // Одобрение уже записано — сбой обновления списка его не отменяет.
       await Promise.resolve(onApproved()).catch(() => undefined);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось одобрить заявку");
+      toast.error("Не удалось одобрить заявку", { description: firestoreErrorText(error, "База не приняла запись") });
     } finally {
       setSaving(false);
     }
