@@ -142,6 +142,16 @@ export function useDeskLoadHistory(workspaceId: string | null, fromMonthKey: str
 // screen that recounts. Keyed by the tab, so a desk the month autopilot
 // rolls over while a screen is open gets counted right away.
 const REFRESH_EVERY_MS = 5 * 60 * 1000;
+/**
+ * Стол, который недавно опубликовал счётчики САМ, пересчитывать незачем: пока
+ * технарь работает, его сессия делает это живьём, а менять строки чужого
+ * стола всё равно некому. Пересчёт же стоит дорого — он ЧИТАЕТ ВСЕ СТРОКИ
+ * месячной вкладки каждого стола, и на бесплатном тарифе Firebase (50k чтений
+ * в день) открытый весь день дашборд Owner в одиночку съедал дневную квоту:
+ * 15 столов × ~100 строк каждые 5 минут — это ~18 000 чтений в час, после
+ * чего в приложении перестают проходить ЛЮБЫЕ записи (resource-exhausted).
+ */
+const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 const lastRefreshAt = new Map<string, number>();
 
 /**
@@ -171,6 +181,13 @@ export function useOwnerDeskRecount(loads: DeskLoad[] | null) {
       if (!subPageId || !isMonthlyDesk(p, members)) return false;
       const key = `${p.id}:${subPageId}`;
       if (startedAt - (lastRefreshAt.get(key) ?? 0) < REFRESH_EVERY_MS) return false;
+      // Свежие счётчики этой же вкладки — читать строки не надо. Нет
+      // документа, другая вкладка (сменился месяц) или он давно не
+      // обновлялся — пересчитываем.
+      const published = loadsRef.current?.find((l) => l.pageId === p.id);
+      if (published && published.subPageId === subPageId && startedAt - (published.updatedAt ?? 0) < STALE_AFTER_MS) {
+        return false;
+      }
       lastRefreshAt.set(key, startedAt);
       return true;
     });

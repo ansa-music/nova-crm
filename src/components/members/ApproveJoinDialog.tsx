@@ -60,6 +60,12 @@ export function ApproveJoinDialog({
       : undefined;
   const choice = kind ? (kind in choices ? choices[kind] ?? null : suggested) : null;
   const [saving, setSaving] = useState(false);
+  /**
+   * Ошибка показывается ПРЯМО В ОКНЕ, а не только тостом: тост живёт внизу
+   * справа, за диалогом его не видно, и «нажимаю — ничего не происходит»
+   * выглядит именно так. Тост оставлен для тех, кто уже закрыл окно.
+   */
+  const [error, setError] = useState<string | null>(null);
 
   // Список участников в браузере не живой — освежаем, чтобы «занят» в
   // выборе ника был правдой. Окончательно занятость проверяет сервер.
@@ -69,6 +75,7 @@ export function ApproveJoinDialog({
 
   async function approve() {
     setSaving(true);
+    setError(null);
     try {
       const { nickLabel } = await approveJoinRequest({
         workspaceId,
@@ -89,8 +96,11 @@ export function ApproveJoinDialog({
       onClose();
       // Одобрение уже записано — сбой обновления списка его не отменяет.
       await Promise.resolve(onApproved()).catch(() => undefined);
-    } catch (error) {
-      toast.error("Не удалось одобрить заявку", { description: firestoreErrorText(error, "База не приняла запись") });
+    } catch (e) {
+      const text = firestoreErrorText(e, "База не приняла запись");
+      setError(text);
+      console.error("approveJoinRequest failed:", e);
+      toast.error("Не удалось одобрить заявку", { description: text });
     } finally {
       setSaving(false);
     }
@@ -170,13 +180,19 @@ export function ApproveJoinDialog({
           <p className="text-[11px] text-muted-foreground">Для роли «{ROLE_LABELS[role]}» ник не нужен.</p>
         )}
 
+        {error && (
+          <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
+            {error}
+          </p>
+        )}
+
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Отмена
           </Button>
           <Button className="gap-1.5" onClick={() => void approve()} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-            Впустить
+            {saving ? "Впускаю…" : "Впустить"}
           </Button>
         </DialogFooter>
       </DialogContent>
