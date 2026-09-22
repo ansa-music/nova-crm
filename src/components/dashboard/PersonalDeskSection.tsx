@@ -9,19 +9,28 @@ import { WaitingForYou } from "@/components/dashboard/WaitingForYou";
 import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialog";
 import { DeskStudioSheet } from "@/components/pagesnav/DeskStudioSheet";
 import { useAuth } from "@/hooks/useAuth";
+import { isLoadedOk } from "@/hooks/useCachedBatchLoads";
 import { useMultiPageRows } from "@/hooks/useMultiPageRows";
 import { useMultiPageSubPages } from "@/hooks/useMultiPageSubPages";
-import { useMultiSubPageRows } from "@/hooks/useMultiSubPageRows";
+import { subPageRowsKey, useMultiSubPageRows } from "@/hooks/useMultiSubPageRows";
 import { usePeopleDesks } from "@/hooks/usePeopleDesks";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { updateLeaderboardEntry } from "@/services/leaderboardService";
+import { publishLeaderboardEntries, type LeaderboardEntryDraft } from "@/services/leaderboardService";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { doneMonthTotal } from "@/utils/dashboardTrends";
 import { nowOrderCounts, progressForPage } from "@/utils/deskProgress";
 import { formatCurrency } from "@/utils/format";
 import { resolvedCoverUrl } from "@/utils/peopleDesks";
 import { isResponsibleForPage } from "@/utils/permissions";
+import type { PageRow } from "@/types";
+
+/**
+ * Пауза перед записью leaderboard: строки столов приходят партиями, и
+ * каждая партия пересчитывает все столы. Пишем то, на чём числа
+ * успокоились, а не каждую промежуточную версию.
+ */
+const LEADERBOARD_PUBLISH_DEBOUNCE_MS = 3_000;
 
 /**
  * The personal top of «Дашборд»: join requests (Owner/Тимлид), your own desk
@@ -43,9 +52,8 @@ export function PersonalDeskSection() {
     studioPages.find((p) => p.id === studioPageId) ?? (studioPageId && myDesk?.id === studioPageId ? myDesk : null);
 
   const rowPageIds = useMemo(() => studioPages.filter((p) => !p.defaultSubPageId).map((p) => p.id), [studioPages]);
-  const rowsByPage = useMultiPageRows(activeWorkspaceId, rowPageIds);
-  const subPageMetaIds = useMemo(() => studioPages.filter((p) => p.defaultSubPageId).map((p) => p.id), [studioPages]);
-  const subPagesByPage = useMultiPageSubPages(activeWorkspaceId, subPageMetaIds);
+  const rowLoads = useMultiPageRows(activeWorkspaceId, rowPageIds);
+  const rowsByPage = rowLoads.data;
   const defaultSubPagePairs = useMemo(
     () =>
       studioPages
@@ -53,16 +61,52 @@ export function PersonalDeskSection() {
         .map((p) => ({ pageId: p.id, subPageId: p.defaultSubPageId as string })),
     [studioPages]
   );
-  const rowsBySubPage = useMultiSubPageRows(activeWorkspaceId, defaultSubPagePairs);
+  // Колонки — только вкладки по умолчанию (одно чтение на стол), строки — её же.
+  const subPageLoads = useMultiPageSubPages(activeWorkspaceId, defaultSubPagePairs);
+  const subPagesByPage = subPageLoads.data;
+  const subRowLoads = useMultiSubPageRows(activeWorkspaceId, defaultSubPagePairs);
+  const rowsBySubPage = subRowLoads.data;
   const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
 
   const deskProgress = useMemo(
-    () => studioPages.map((page) => progressForPage(page, subPagesByPage, rowsBySubPage, rowsByPage, statusOptions)),
+    () =>
+      studioPages.map((page) => {
+        // progressForPage ищет строки вкладки по её id, а id месячных вкладок
+        // одинаковый на всех столах — даём ему строки именно этого стола.
+        const tabId = page.defaultSubPageId;
+        const tabRows = tabId ? rowsBySubPage[subPageRowsKey(page.id, tabId)] : undefined;
+        const ownTabRows: Record<string, PageRow[]> = tabId && tabRows ? { [tabId]: tabRows } : {};
+        return progressForPage(page, subPagesByPage, ownTabRows, rowsByPage, statusOptions);
+      }),
     [studioPages, subPagesByPage, rowsBySubPage, rowsByPage, statusOptions]
   );
+  // Числа стола известны, только когда его строки (и колонки вкладки по
+  // умолчанию) реально прочитаны. Пока грузится или чтение упало, у
+  // progressForPage выходит «0 ₸ / 0%» — это «не знаем», а не ноль: такие
+  // нули мигали на обложке своего стола и уходили в leaderboard.
+  const knownDeskIds = useMemo(
+    () =>
+      new Set(
+        studioPages
+          .filter((p) =>
+            p.defaultSubPageId
+              ? isLoadedOk(subPageLoads, p.id) && isLoadedOk(subRowLoads, subPageRowsKey(p.id, p.defaultSubPageId))
+              : isLoadedOk(rowLoads, p.id)
+          )
+          .map((p) => p.id)
+      ),
+    [studioPages, rowLoads, subPageLoads, subRowLoads]
+  );
+  // Все загрузчики получили все свои ключи (пусть и с ошибкой) — пересчёт
+  // больше не будет дёргаться от каждой новой партии строк.
+  const loadsComplete =
+    rowPageIds.every((id) => id in rowsByPage) &&
+    defaultSubPagePairs.every(
+      (p) => p.pageId in subPagesByPage && subPageRowsKey(p.pageId, p.subPageId) in rowsBySubPage
+    );
   const myDeskProgress = useMemo(
-    () => (myDesk ? deskProgress.find((d) => d.page.id === myDesk.id) : undefined),
-    [deskProgress, myDesk]
+    () => (myDesk && knownDeskIds.has(myDesk.id) ? deskProgress.find((d) => d.page.id === myDesk.id) : undefined),
+    [deskProgress, myDesk, knownDeskIds]
   );
   const myProgress = useMemo(
     () => (profile ? deskProgress.filter((p) => isResponsibleForPage(p.page, profile.uid)) : []),
@@ -70,27 +114,40 @@ export function PersonalDeskSection() {
   );
   const publishDesks = permissions.role === "owner" ? deskProgress : myProgress;
 
-  useEffect(() => {
-    if (!activeWorkspaceId || !profile) return;
-    publishDesks.forEach((desk) => {
+  const leaderboardEntries = useMemo((): LeaderboardEntryDraft[] => {
+    if (!loadsComplete) return [];
+    return publishDesks.flatMap((desk) => {
       const uid = desk.page.responsibleUserId;
-      if (!uid) return;
+      if (!uid || !knownDeskIds.has(desk.page.id)) return [];
       const pieces = nowOrderCounts([desk], statusOptions);
-      updateLeaderboardEntry(activeWorkspaceId, {
-        pageId: desk.page.id,
-        pageName: desk.page.name,
-        responsibleUserId: uid,
-        doneTotal: desk.doneTotal,
-        grandTotal: desk.grandTotal,
-        percent: desk.percent,
-        openCount: pieces.open,
-        doneCount: pieces.done,
-      }).catch(() => {
-        /* best-effort */
-      });
+      return [
+        {
+          pageId: desk.page.id,
+          pageName: desk.page.name,
+          responsibleUserId: uid,
+          doneTotal: desk.doneTotal,
+          grandTotal: desk.grandTotal,
+          percent: desk.percent,
+          openCount: pieces.open,
+          doneCount: pieces.done,
+        },
+      ];
     });
+  }, [loadsComplete, publishDesks, knownDeskIds, statusOptions]);
+  // Таймер сбрасывается только когда сдвинулись сами числа, а не ссылки
+  // на массивы (statusOptions и столы пересоздаются на любом снимке).
+  const leaderboardKey = useMemo(() => JSON.stringify(leaderboardEntries), [leaderboardEntries]);
+
+  useEffect(() => {
+    if (!activeWorkspaceId || !profile || leaderboardEntries.length === 0) return;
+    const workspaceId = activeWorkspaceId;
+    const entries = leaderboardEntries;
+    const timer = window.setTimeout(() => {
+      void publishLeaderboardEntries(workspaceId, entries);
+    }, LEADERBOARD_PUBLISH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [publishDesks, activeWorkspaceId, profile?.uid]);
+  }, [leaderboardKey, activeWorkspaceId, profile?.uid]);
 
   const myDeskGoal = myDeskProgress?.page.monthlyGoal ?? 0;
   // monthlyGoal is a per-MONTH target: compare it with this month's «Готово».
