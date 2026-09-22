@@ -6,7 +6,12 @@ import {
   browserLocalPersistence,
   browserPopupRedirectResolver,
 } from "firebase/auth";
-import { type Firestore, initializeFirestore } from "firebase/firestore";
+import {
+  type Firestore,
+  initializeFirestore,
+  memoryLocalCache,
+  memoryLruGarbageCollector,
+} from "firebase/firestore";
 import { type FirebaseStorage, getStorage } from "firebase/storage";
 import { getAnalytics, isSupported, type Analytics } from "firebase/analytics";
 
@@ -94,10 +99,31 @@ export function reloadInCompatMode() {
 
 export const isFirestoreCompatMode = compatModeEnabled();
 
-// Две настройки взаимоисключающие: вместе initializeFirestore бросает.
+/**
+ * Кэш — в памяти вкладки, но со сборщиком LRU вместо «жадного» по умолчанию.
+ * Жадный выбрасывает документы запроса и его resume-токен, как только
+ * закрылась последняя подписка на него, поэтому каждый переход «Дашборд» ↔
+ * «Технари» ↔ «График» заново оплачивался полным чтением всех выборок экрана.
+ * На Spark (50 000 чтений в день) это одна из причин, по которой квота
+ * кончилась 22.09.2026. LRU держит их до 40 МБ: повторная подписка в течение
+ * ~30 минут продолжается с токена, и сервер присылает (и списывает) только то,
+ * что успело измениться.
+ *
+ * Именно память, не IndexedDB: после перезагрузки кэш пуст, и вчерашние
+ * данные между сессиями не всплывают. Первый снимок повторной подписки может
+ * прийти из кэша (`fromCache`) — места, где это важно для записи, уже это
+ * проверяют (график, шаблон недели, пустые снимки при загрузке).
+ */
+const localCache = memoryLocalCache({
+  garbageCollector: memoryLruGarbageCollector({ cacheSizeBytes: 40 * 1024 * 1024 }),
+});
+
+// Две настройки long polling взаимоисключающие: вместе initializeFirestore бросает.
 export const db: Firestore = initializeFirestore(
   app,
-  isFirestoreCompatMode ? { experimentalForceLongPolling: true } : { experimentalAutoDetectLongPolling: true }
+  isFirestoreCompatMode
+    ? { localCache, experimentalForceLongPolling: true }
+    : { localCache, experimentalAutoDetectLongPolling: true }
 );
 
 export const storage: FirebaseStorage = getStorage(app);
