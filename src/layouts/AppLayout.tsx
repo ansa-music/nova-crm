@@ -31,6 +31,7 @@ import { useOrderAutoPickup } from "@/hooks/useOrderAutoPickup";
 import { useNotificationAlerts } from "@/hooks/useNotificationAlerts";
 import { useAppUpdateCheck } from "@/hooks/useAppUpdateCheck";
 import { useDeskObserverLoad } from "@/hooks/useDeskObserverLoad";
+import { useOpenOrdersWatch } from "@/hooks/useOpenOrdersWatch";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useIsTablet } from "@/hooks/useMediaQuery";
@@ -59,6 +60,8 @@ export function AppLayout() {
   useAppUpdateCheck();
   // Тихое право «видит все столы» — разовое чтение своего документа.
   useDeskObserverLoad();
+  // Один слушатель открытых заказов — зелёный пункт «Заказы» в меню.
+  useOpenOrdersWatch();
   const location = useLocation();
 
   const { phase } = useAppBootstrap();

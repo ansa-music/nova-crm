@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import {
   CalendarDays,
@@ -51,6 +51,7 @@ import { signOutUser } from "@/firebase/auth";
 import { setActiveRole } from "@/services/memberService";
 import { cn } from "@/utils/cn";
 import { useUiStore } from "@/store/uiStore";
+import { openOrdersState, subscribeOpenOrdersState } from "@/services/openOrdersPulse";
 import { THEME_OPTIONS } from "@/components/layout/ThemeToggle";
 import { usePeopleDesks } from "@/hooks/usePeopleDesks";
 import { useInboxSummary } from "@/hooks/useInboxSummary";
@@ -62,20 +63,29 @@ import { useInboxSummary } from "@/hooks/useInboxSummary";
  * (see index.css) so this and the desk list in PageNavItem stay one visual
  * language. Inactive rows slide 3px toward the content on pointer hover.
  */
-function navActiveClass(active: boolean, collapsed?: boolean) {
+/**
+ * `alert` — «здесь вас ждёт заказ»: пункт горит зелёным (`--success`), пока
+ * это правда. Зелёный взят намеренно не акцентный: акцентом подсвечен
+ * АКТИВНЫЙ пункт, и «где я сейчас» не должно спорить с «куда надо зайти».
+ */
+function navActiveClass(active: boolean, collapsed?: boolean, alert?: boolean) {
   if (collapsed) {
     return cn(
       "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200",
       active
         ? "nav-link-active"
-        : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-primary"
+        : alert
+          ? "bg-success/15 text-success hover:bg-success/25"
+          : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-primary"
     );
   }
   return cn(
     "flex min-h-11 w-full items-center gap-2.5 rounded-full px-3 text-left text-[14px] font-medium transition-all duration-200",
     active
       ? "nav-link-active"
-      : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-primary motion-safe:hover:translate-x-[3px]"
+      : alert
+        ? "bg-success/15 text-success hover:bg-success/25 motion-safe:hover:translate-x-[3px]"
+        : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-primary motion-safe:hover:translate-x-[3px]"
   );
 }
 
@@ -102,6 +112,7 @@ function AppNavLink({
   badge,
   collapsed,
   title,
+  alert,
 }: {
   to: string;
   end?: boolean;
@@ -112,6 +123,8 @@ function AppNavLink({
   badge?: number;
   collapsed?: boolean;
   title?: string;
+  /** Зелёная подсветка «сюда приехал заказ». */
+  alert?: boolean;
 }) {
   const { pathname } = useLocation();
   const active = forceActive ?? pathMatches(pathname, to, end);
@@ -122,17 +135,25 @@ function AppNavLink({
       title={title}
       data-nav-active={active ? "true" : undefined}
       onClick={() => onNavigate?.()}
-      className={navActiveClass(active, collapsed)}
+      className={navActiveClass(active, collapsed, alert)}
     >
       {collapsed ? (
         <span className="relative">
           <Icon className="h-4 w-4" />
           {badge ? <span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-primary" /> : null}
+          {/* Не только цвет: в свёрнутом меню видна одна иконка, и точка
+              отличает «зелёный пункт» от просто наведения. */}
+          {alert && !badge ? (
+            <span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-success motion-safe:animate-pulse" />
+          ) : null}
         </span>
       ) : (
         <>
           <Icon className="h-4 w-4 shrink-0" />
           <span className="min-w-0 flex-1 truncate">{children}</span>
+          {alert && !badge ? (
+            <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-success motion-safe:animate-pulse" />
+          ) : null}
           {badge ? (
             <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
               {badge > 9 ? "9+" : badge}
@@ -193,6 +214,17 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   // запросу к ОС.
   const showOsDeskNav = permissions.isResolved && permissions.hasRole("os");
   const showOsDesksNav = permissions.isResolved && !isOs;
+  /**
+   * Зелёные пункты меню:
+   * — «Заказы», пока на бирже есть хоть один ОТКРЫТЫЙ заказ (живое состояние,
+   *   забрали последний — гаснет само);
+   * — «Мой стол», когда на стол приехал заказ и его ещё не открывали
+   *   (метка снимается при открытии стола, переживает перезагрузку).
+   */
+  const openOrders = useSyncExternalStore(subscribeOpenOrdersState, openOrdersState);
+  const ordersAlert = openOrders.loaded && openOrders.count > 0;
+  const deskAlerts = useUiStore((s) => s.deskAlerts);
+  const deskAlert = Boolean(myDesk && deskAlerts.includes(myDesk.id));
   const homeTo = isOs ? "/technicians" : isTeamlead ? "/users" : myDesk ? `/page/${myDesk.id}` : "/";
   const homeLabel = isOs
     ? "Технари"
@@ -260,7 +292,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
             <nav className="relative mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
               {collapsed ? (
                 <>
-                  <AppNavLink collapsed title={homeLabel} to={homeTo} icon={HomeIcon} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
+                  <AppNavLink collapsed title={homeLabel} to={homeTo} icon={HomeIcon} forceActive={homeActive} alert={deskAlert} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                     {homeLabel}
                   </AppNavLink>
                   <AppNavLink collapsed title="Дашборд" to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
@@ -287,7 +319,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink collapsed title="График" to="/schedule" icon={CalendarDays} onNavigate={onNavigate}>
                     График
                   </AppNavLink>
-                  <AppNavLink collapsed title="Заказы" to="/orders" icon={ClipboardList} onNavigate={onNavigate}>
+                  <AppNavLink collapsed title="Заказы" to="/orders" icon={ClipboardList} alert={ordersAlert} onNavigate={onNavigate}>
                     Заказы
                   </AppNavLink>
                   {showOsDeskNav && (
@@ -330,7 +362,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                 </>
               ) : (
                 <>
-                  <AppNavLink to={homeTo} icon={HomeIcon} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
+                  <AppNavLink to={homeTo} icon={HomeIcon} forceActive={homeActive} alert={deskAlert} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                     {homeLabel}
                   </AppNavLink>
                   <AppNavLink to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
@@ -357,7 +389,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <AppNavLink to="/schedule" icon={CalendarDays} onNavigate={onNavigate}>
                     График
                   </AppNavLink>
-                  <AppNavLink to="/orders" icon={ClipboardList} onNavigate={onNavigate}>
+                  <AppNavLink to="/orders" icon={ClipboardList} alert={ordersAlert} onNavigate={onNavigate}>
                     Заказы
                   </AppNavLink>
                   {showOsDeskNav && (
@@ -403,7 +435,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
           )}
           {mobile && (
             <nav className="relative mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
-              <AppNavLink to={homeTo} icon={HomeIcon} forceActive={homeActive} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
+              <AppNavLink to={homeTo} icon={HomeIcon} forceActive={homeActive} alert={deskAlert} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
                 {homeLabel}
               </AppNavLink>
               <AppNavLink to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
@@ -427,7 +459,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   Технари
                 </AppNavLink>
               )}
-              <AppNavLink to="/orders" icon={ClipboardList} onNavigate={onNavigate}>
+              <AppNavLink to="/orders" icon={ClipboardList} alert={ordersAlert} onNavigate={onNavigate}>
                 Заказы
               </AppNavLink>
               {showOsDeskNav && (

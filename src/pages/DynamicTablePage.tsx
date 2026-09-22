@@ -68,6 +68,13 @@ export default function DynamicTablePage() {
   const permissions = usePermissions();
   const { profile } = useAuth();
   const { requests, resolveRequest, requestView, latestForPage, reload: reloadViewRequests, isLoading: viewRequestsLoading } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
+  const clearDeskAlert = useUiStore((s) => s.clearDeskAlert);
+  // Стол открыли — зелёная метка «сюда приехал заказ» в меню гаснет.
+  // Именно здесь, а не на клике по пункту меню: стол открывают и с обложки,
+  // и по ссылке из уведомления, и метка повисла бы навсегда.
+  useEffect(() => {
+    if (pageId) clearDeskAlert(pageId);
+  }, [pageId, clearDeskAlert]);
   const setTableFullscreen = useUiStore((s) => s.setTableFullscreen);
   const setTableImmersive = useUiStore((s) => s.setTableImmersive);
   const tableFullscreen = useUiStore((s) => s.tableFullscreen);

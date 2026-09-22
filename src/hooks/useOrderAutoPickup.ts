@@ -9,6 +9,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import { myDisplayName } from "@/utils/displayName";
 import { toast } from "@/components/ui/sonner";
+import { useUiStore } from "@/store/uiStore";
 import type { WorkOrder } from "@/types";
 
 /**
@@ -91,6 +92,10 @@ export function useOrderAutoPickup() {
             })
           )
             .then(() => {
+              // Зелёная метка на «Мой стол» в меню — гаснет, когда стол
+              // откроют. Тост человек может и не застать: заказ приезжает,
+              // пока он в другом разделе или вовсе отошёл.
+              useUiStore.getState().markDeskAlert(myDesk.id);
               toast.success(`Новый заказ в столе: ${order.client}`, {
                 description: "Строка подсвечена, пока вы не снимете подсветку.",
               });
