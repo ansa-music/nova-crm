@@ -162,7 +162,10 @@ export function canOpenDesk(opts: {
   isOwner: boolean;
   /** usePermissions().deskBlocked — a Тимлид without the Технарь role. */
   deskBlocked: boolean;
-  /** usePermissions().seesAllDesks — Тимлид + Технарь: чужие столы на чтение. */
+  /**
+   * usePermissions().seesAllDesks — чужие столы на чтение: Тимлид + Технарь
+   * по роли либо «наблюдатель» (тихое право Owner).
+   */
   seesAllDesks?: boolean;
   /** usePermissions().seesOsDesks — Owner и любой Тимлид: столы ОС напрямую. */
   seesOsDesks?: boolean;
@@ -172,9 +175,12 @@ export function canOpenDesk(opts: {
   if (opts.isOwner) return true;
   // Стол ОС: руководство смотрит напрямую, сам ОС — свой (даже Тимлид + ОС).
   if (opts.page.osDesk && (opts.seesOsDesks || opts.page.responsibleUserId === uid)) return true;
+  // «Видит все столы» стоит ВЫШЕ deskBlocked: у Тимлида + Технаря блокировки и
+  // так нет, а наблюдателем Owner может назначить кого угодно, включая Тимлида
+  // — право выдано человеку, а не роли (firestore.rules проверяет так же).
+  if (opts.seesAllDesks) return true;
   // Тимлид (not also a Технарь): no desk tables, whatever the ACL says (firestore.rules agrees).
   if (opts.deskBlocked) return false;
-  if (opts.seesAllDesks) return true;
   if (opts.page.responsibleUserId === uid) return true;
   return Boolean(opts.page.allowedUsers?.includes(uid));
 }

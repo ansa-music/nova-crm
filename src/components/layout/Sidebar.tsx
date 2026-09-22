@@ -182,7 +182,9 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   // only a Тимлид who isn't also a Технарь loses desks.
   const isOs = permissions.isResolved && permissions.roles.every((role) => role === "os");
   const isTeamlead = permissions.isResolved && permissions.deskBlocked;
-  const showDeskNav = !isOs && !isTeamlead;
+  // Наблюдателю (тихое право Owner) «Столы» нужны — иначе чужой стол открыть
+  // неоткуда; `seesAllDesks` здесь и означает это право.
+  const showDeskNav = (!isOs && !isTeamlead) || permissions.seesAllDesks;
   const showGrokNav = !isOs;
   const showTechniciansNav = permissions.canSeeTechnicians && !isOs;
   // «Стол ОС» — личная таблица ОС, пункт только у ОС (и как второй роли).

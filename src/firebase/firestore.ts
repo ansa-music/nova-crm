@@ -150,6 +150,11 @@ export const paths = {
   grokAppAccount: (workspaceId: string, id: string) =>
     doc(requireDb(), "workspaces", workspaceId, "grokAppAccounts", id),
   grokSettings: (workspaceId: string, id: string) => doc(requireDb(), "workspaces", workspaceId, "grokSettings", id),
+
+  /** «Наблюдатели» — кому Owner тихо открыл чужие столы на чтение. Читают только Owner и сам человек. */
+  deskObservers: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "deskObservers"),
+  deskObserver: (workspaceId: string, uid: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "deskObservers", uid),
   grokAccessStubs: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "grokAccessStubs"),
   grokAccessStub: (workspaceId: string, id: string) => doc(requireDb(), "workspaces", workspaceId, "grokAccessStubs", id),
   grokAccessRequests: (workspaceId: string) =>

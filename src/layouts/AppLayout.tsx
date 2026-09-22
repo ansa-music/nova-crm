@@ -28,6 +28,7 @@ import { useMonthTabAutopilot } from "@/hooks/useMonthTabAutopilot";
 import { useWeekTemplateAutopilot } from "@/hooks/useWeekTemplateAutopilot";
 import { useOrderAutoPickup } from "@/hooks/useOrderAutoPickup";
 import { useNotificationAlerts } from "@/hooks/useNotificationAlerts";
+import { useDeskObserverLoad } from "@/hooks/useDeskObserverLoad";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useIsTablet } from "@/hooks/useMediaQuery";
@@ -53,6 +54,8 @@ export function AppLayout() {
   // Звук и всплывашка браузера на новое уведомление. Здесь, а не в
   // колокольчике: в полноэкранной таблице колокольчика на экране нет.
   useNotificationAlerts();
+  // Тихое право «видит все столы» — разовое чтение своего документа.
+  useDeskObserverLoad();
   const location = useLocation();
 
   const { phase } = useAppBootstrap();
