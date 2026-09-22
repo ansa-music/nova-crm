@@ -1,4 +1,11 @@
-export type ColumnType = "text" | "number" | "currency" | "status" | "responsible" | "custom" | "date" | "email" | "phone" | "url";
+/**
+ * `responsible` — ник ОС (общий список `workspace.responsibleOptions`),
+ * `technician` — ник ТЕХНАРЯ (`workspace.techNickOptions`). Это РАЗНЫЕ типы
+ * намеренно: любой столбец `responsible` считается ОС-столбцом
+ * (`osColumnsOf` в utils/techLoad.ts), и технари, положенные туда, посчитались
+ * бы как ОС в заказах, оценках и на дашборде.
+ */
+export type ColumnType = "text" | "number" | "currency" | "status" | "responsible" | "technician" | "custom" | "date" | "email" | "phone" | "url";
 
 export interface StatusOption {
   value: string;
@@ -105,6 +112,15 @@ export interface WorkspacePage {
   inactive?: boolean;
   inactiveAt?: number | null;
   inactiveBy?: string | null;
+  /**
+   * «Стол ОС» — личная таблица ОС, к работе технарей отношения не имеющая.
+   * Живёт в той же коллекции `pages` (весь движок таблицы, вкладок и прав
+   * уже там), но ВЕЗДЕ отделён: `useWorkspace().pages` его не отдаёт, поэтому
+   * он не попадает ни в «Столы», ни на дашборд, ни в «Технари», ни в месячные
+   * вкладки, ни в квоту Технаря. Создаётся с фиксированным id
+   * `osdesk_{uid}` — один на человека, второй просто не создастся.
+   */
+  osDesk?: boolean;
   /** Reserved for a future public/private page toggle. Not yet enforced anywhere — always treat as "public" until wired up. */
   visibility?: "public" | "private";
   /** Uids explicitly allowed into this page's Personal Space (Reports/Finance/Notes), beyond the Owner and responsibleUserId who always have it. */

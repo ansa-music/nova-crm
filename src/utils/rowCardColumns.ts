@@ -29,7 +29,10 @@ export function pickRowCardColumns(columns: PageColumn[]): RowCardColumns {
   return {
     title: columns.find(isPlainText) ?? columns.find((c) => !isOptionColumn(c.type)),
     currency: columns.find((c) => c.type === "currency"),
-    responsible: columns.find((c) => c.type === "responsible"),
+    // На столе технаря это ОС, на столе ОС столбца «Ответственный» нет вовсе —
+    // там в этом месте стоит ник технаря. Иначе в «Карточках» на телефоне у
+    // ОС не было бы видно, кто заказ делает.
+    responsible: columns.find((c) => c.type === "responsible") ?? columns.find((c) => c.type === "technician"),
     date: columns.find((c) => c.type === "date"),
     phone: columns.find((c) => c.type === "phone"),
     status: columns.find((c) => c.type === "status"),

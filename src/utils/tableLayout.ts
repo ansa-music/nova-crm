@@ -7,6 +7,7 @@ export function minColumnWidth(type: ColumnType): number {
       return 148;
     case "status":
     case "responsible":
+    case "technician":
     case "custom":
       return 132;
     case "date":
