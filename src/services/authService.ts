@@ -78,18 +78,28 @@ export async function syncPhotoToMemberships(uid: string, workspaceIds: string[]
 /**
  * Presence heartbeat: refreshes `lastActiveAt` on the person's own member
  * doc in every workspace they belong to. Called periodically while the app
- * is open (see useHeartbeat hook) — never blocks on failure.
+ * is open (see usePresenceHeartbeat) — never blocks on failure.
+ *
+ * `at` приходит от хука: он же пишет это время в межвкладочный штамп
+ * `nova:beat:{uid}`, и оба должны совпадать с тем, что легло в документ.
+ * Возвращает true, если запись дошла хотя бы в один workspace, — только
+ * тогда хук ставит штамп. «Хотя бы один», а не «все»: устаревший id в
+ * workspaceIds отказывал бы вечно и навсегда отключал общие на вкладки
+ * ворота, а с ними — всю экономию записей.
  */
-export async function updatePresenceHeartbeat(uid: string, workspaceIds: string[]) {
-  await Promise.all(
+export async function updatePresenceHeartbeat(uid: string, workspaceIds: string[], at: number = Date.now()): Promise<boolean> {
+  const results = await Promise.all(
     workspaceIds.map(async (workspaceId) => {
       try {
-        await setDoc(paths.member(workspaceId, uid), { lastActiveAt: Date.now() }, { merge: true });
+        await setDoc(paths.member(workspaceId, uid), { lastActiveAt: at }, { merge: true });
+        return true;
       } catch (error) {
         console.error(`Failed to update presence heartbeat for workspace ${workspaceId}:`, error);
+        return false;
       }
     })
   );
+  return results.some(Boolean);
 }
 
 /**

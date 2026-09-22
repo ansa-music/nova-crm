@@ -1,7 +1,10 @@
 export type PresenceStatus = "online" | "away" | "offline";
 
-const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
-const AWAY_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+// Пороги держатся от шага пульса (usePresenceHeartbeat: раз в 15 минут, не
+// чаще раза в 12 на все вкладки). При прежних 2 минутах «в сети» было короче
+// самого шага — живой человек почти всё время числился «недавно».
+const ONLINE_THRESHOLD_MS = 20 * 60 * 1000; // 20 minutes
+const AWAY_THRESHOLD_MS = 60 * 60 * 1000; // 60 minutes
 
 export function getPresenceStatus(lastActiveAt: number | undefined | null): PresenceStatus {
   if (!lastActiveAt) return "offline";
