@@ -21,5 +21,6 @@ export * from "@/types/ownerAccessRequest";
 export * from "@/types/workOrder";
 export * from "@/types/grokAccount";
 export * from "@/types/grokAppAccount";
+export * from "@/types/grokAccess";
 
 export * from "@/types/dailyDispatch";

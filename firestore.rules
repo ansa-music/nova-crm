@@ -1025,6 +1025,24 @@ service cloud.firestore {
           && resource.data.get('allowedUids', []).hasAll(request.resource.data.get('allowedUids', []));
       }
 
+      // Право «управляет Хиксом» (и 11 Labs, и «Другими») — ОТДЕЛЬНОЕ от ролей
+      // право страницы «Грок лимит» (src/types/grokAccess.ts): кто закрывает
+      // и открывает аккаунты подписок этого провайдера и рассматривает
+      // запросы на доступ. Список ведёт только Owner в grokSettings/access,
+      // по ключу `provider` аккаунта. exists() — до get(): без документа get()
+      // бросает, и правило падало бы вместо «нет права».
+      function isGrokManager(workspaceId, provider) {
+        return exists(/databases/$(database)/documents/workspaces/$(workspaceId)/grokSettings/access)
+          && request.auth.uid in get(/databases/$(database)/documents/workspaces/$(workspaceId)/grokSettings/access)
+            .data.get('managers', {}).get(provider, []);
+      }
+      // Открыть/закрыть аккаунт провайдера и рассмотреть запрос: Owner или
+      // тот, кому Owner дал право на этот провайдер. Тимлид — только если ему
+      // это право дали: роль тут ничего не решает.
+      function canGrantGrokApp(workspaceId, provider) {
+        return isOwner(workspaceId) || isGrokManager(workspaceId, provider);
+      }
+
       match /grokAccounts/{accountId} {
         allow read: if canUseGrok(workspaceId);
         allow create: if canUseGrok(workspaceId)
@@ -1038,8 +1056,9 @@ service cloud.firestore {
       }
 
       // Аккаунт подписки (Хикс, 11 Labs, прочее) можно закрыть на список
-      // людей: `restricted: true` + `allowedUids`. Владеет доступом только
-      // Owner/Тимлид.
+      // людей: `restricted: true` + `allowedUids`. Владеет доступом Owner и
+      // тот, кому Owner дал право на провайдер (canGrantGrokApp) — Тимлид
+      // как таковой больше нет: право отдельное от ролей.
       //
       // ВАЖНО: в правиле ЧТЕНИЯ поля читаются НАПРЯМУЮ, без `.get(поле,
       // дефолт)`. На list-запросе `.get()` не ограничивает выдачу: проверено
@@ -1048,21 +1067,89 @@ service cloud.firestore {
       // целиком, как и должен. Плата за это — документ обязан иметь поле
       // `restricted`; старым записям его проставляет разовый backfill из
       // сессии руководства (`backfillGrokAppRestricted`).
+      // Управляющий провайдером читает все его аккаунты, в том числе
+      // закрытые, — иначе ему нечего открывать. Клиент для этого делает
+      // отдельный запрос `where provider == X`: тогда `resource.data.provider`
+      // известен из фильтра, и list-запрос проходит.
       match /grokAppAccounts/{accountId} {
         allow read: if canUseGrok(workspaceId)
           && (hasFullAccess(workspaceId)
             || resource.data.restricted == false
-            || request.auth.uid in resource.data.allowedUids);
+            || request.auth.uid in resource.data.allowedUids
+            || isGrokManager(workspaceId, resource.data.provider));
         allow create: if canUseGrok(workspaceId)
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.updatedByUid == request.auth.uid
           && grokCreateNicknameOk(workspaceId)
           && (hasFullAccess(workspaceId) || request.resource.data.get('restricted', false) == false);
+        // Список доступа меняет только тот, кто вправе открывать аккаунты
+        // провайдера (и старого, и нового — иначе аккаунт можно было бы
+        // перетащить в свой раздел и открыть себе).
         allow update: if canUseGrok(workspaceId)
           && request.resource.data.updatedByUid == request.auth.uid
           && (isManagement(workspaceId) || grokNicknamePreserved())
-          && (hasFullAccess(workspaceId) || grokAppAccessPreserved());
+          && ((canGrantGrokApp(workspaceId, resource.data.get('provider', 'other'))
+              && canGrantGrokApp(workspaceId, request.resource.data.get('provider', 'other')))
+            || grokAppAccessPreserved());
         allow delete: if canUseGrok(workspaceId);
+      }
+
+      // Кто управляет провайдерами. Читают все, кому открыт «Грок лимит»
+      // (видно, кому уйдёт запрос), пишет только Owner.
+      match /grokSettings/{settingId} {
+        allow read: if canUseGrok(workspaceId);
+        allow delete: if isOwner(workspaceId);
+        allow create, update: if isOwner(workspaceId)
+          && settingId == 'access'
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.keys().hasOnly(['workspaceId', 'managers', 'updatedAt', 'updatedBy']);
+      }
+
+      // Витрина закрытых аккаунтов: только сервис и название, БЕЗ логина и
+      // пароля — чтобы технарь мог запросить доступ к тому, чего не видит.
+      // Пишет её тот, кто вправе открывать аккаунты этого провайдера.
+      match /grokAccessStubs/{accountId} {
+        allow read: if canUseGrok(workspaceId);
+        allow create: if canUseGrok(workspaceId)
+          && canGrantGrokApp(workspaceId, request.resource.data.provider)
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.keys().hasOnly(['workspaceId', 'provider', 'providerOther', 'title', 'updatedAt']);
+        allow update: if canUseGrok(workspaceId)
+          && canGrantGrokApp(workspaceId, resource.data.provider)
+          && canGrantGrokApp(workspaceId, request.resource.data.provider)
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.keys().hasOnly(['workspaceId', 'provider', 'providerOther', 'title', 'updatedAt']);
+        allow delete: if canUseGrok(workspaceId) && canGrantGrokApp(workspaceId, resource.data.provider);
+      }
+
+      // Запрос на доступ к закрытому аккаунту: `{accountId}_{uid}`, один на
+      // человека и аккаунт. Пишет его сам человек — только за себя и только
+      // `pending`; рассматривает (approved/declined) — тот, кто вправе
+      // открывать аккаунты провайдера. Сам запрос прав НЕ даёт: доступ
+      // появляется только от записи в allowedUids аккаунта, а её правило
+      // выше пускает лишь управляющего. Поэтому подложить в запрос чужой
+      // провайдер бесполезно — чужой управляющий аккаунт не откроет.
+      match /grokAccessRequests/{requestId} {
+        allow read: if canUseGrok(workspaceId)
+          && (resource.data.uid == request.auth.uid
+            || isOwner(workspaceId)
+            || isGrokManager(workspaceId, resource.data.provider));
+        allow create: if canUseGrok(workspaceId)
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.uid == request.auth.uid
+          && requestId == request.resource.data.accountId + '_' + request.auth.uid
+          && request.resource.data.status == 'pending'
+          && request.resource.data.keys().hasOnly(['workspaceId', 'accountId', 'provider', 'uid', 'name', 'accountTitle', 'status', 'createdAt', 'resolvedAt', 'resolvedBy', 'resolvedByName']);
+        allow update: if canUseGrok(workspaceId)
+          && request.resource.data.keys().hasOnly(['workspaceId', 'accountId', 'provider', 'uid', 'name', 'accountTitle', 'status', 'createdAt', 'resolvedAt', 'resolvedBy', 'resolvedByName'])
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.accountId == resource.data.accountId
+          && request.resource.data.provider == resource.data.provider
+          && (canGrantGrokApp(workspaceId, resource.data.provider)
+            || (resource.data.uid == request.auth.uid && request.resource.data.status == 'pending'));
+        allow delete: if canUseGrok(workspaceId)
+          && ((resource.data.uid == request.auth.uid && resource.data.status == 'pending')
+            || canGrantGrokApp(workspaceId, resource.data.provider));
       }
 
       // -----------------------------------------------------------------

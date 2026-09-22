@@ -14,7 +14,14 @@ export interface Notification {
   relatedAnnouncementId?: string | null;
   pageId?: string | null;
   href?: string | null;
-  kind?: "view-request" | "view-request-result" | "owner-request" | "owner-request-result" | null;
+  kind?:
+    | "view-request"
+    | "view-request-result"
+    | "owner-request"
+    | "owner-request-result"
+    | "grok-access-request"
+    | "grok-access-result"
+    | null;
   viewRequestId?: string | null;
   /** id заявки на права Owner (совпадает с uid заявителя) — для кнопок в колокольчике. */
   ownerRequestId?: string | null;

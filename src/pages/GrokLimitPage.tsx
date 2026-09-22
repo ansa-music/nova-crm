@@ -8,6 +8,12 @@ import { toast } from "@/components/ui/sonner";
 import { GrokAccountDialog } from "@/components/grok/GrokAccountDialog";
 import { GrokAppDialog } from "@/components/grok/GrokAppDialog";
 import { GrokAccessDialog } from "@/components/grok/GrokAccessDialog";
+import {
+  GrokLockedAccounts,
+  GrokManagersDialog,
+  GrokManagersLine,
+  GrokRequestsPanel,
+} from "@/components/grok/GrokAccessPanels";
 import { GrokPoolRow, type PoolAccount, type PoolPatch } from "@/components/grok/GrokPoolRow";
 import { useAuth } from "@/hooks/useAuth";
 import { useGrokAccounts } from "@/hooks/useGrokAccounts";
@@ -15,15 +21,32 @@ import { useGrokAppAccounts } from "@/hooks/useGrokAppAccounts";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { deleteGrokAccount, getGrokAccountStatus, updateGrokAccount, type GrokAccountStatus } from "@/services/grokAccountService";
+import { backfillGrokAppRestricted, deleteGrokAppAccount, updateGrokAppAccount } from "@/services/grokAppAccountService";
 import {
-  backfillGrokAppRestricted,
-  deleteGrokAppAccount,
+  managedProvidersOf,
+  requestGrokAccess,
+  resolveGrokAccessRequest,
+  saveGrokSectionManagers,
   setGrokAppAccess,
-  updateGrokAppAccount,
-} from "@/services/grokAppAccountService";
+  subscribeGrokAccessSettings,
+  subscribeGrokAccessStubs,
+  subscribeMyGrokAccessRequests,
+  subscribePendingGrokAccessRequests,
+  syncGrokAccessStubs,
+  withdrawGrokAccessRequest,
+} from "@/services/grokAccessService";
 import { grokLoginMethodLabel, grokLoginMethodOf } from "@/types/grokAccount";
 import { grokAppProviderLabel, type GrokAppAccount, type GrokAppProvider } from "@/types/grokAppAccount";
-import type { GrokAccount } from "@/types";
+import {
+  grokSectionOfProvider,
+  GROK_SECTION_PROVIDERS,
+  type GrokAccessRequest,
+  type GrokAccessSettings,
+  type GrokAccessStub,
+  type GrokAccount,
+  type GrokAppSectionId,
+} from "@/types";
+import { personLabel } from "@/utils/peopleDesks";
 import { confirmDialog, promptDialog } from "@/utils/appDialog";
 import { cn } from "@/utils/cn";
 import { formatResetCountdown } from "@/utils/date";
@@ -81,23 +104,100 @@ export default function GrokLimitPage() {
   const isOs = isResolved && roles.every((r) => r === "os");
   const { activeWorkspaceId, members } = useWorkspace();
   const workspaceId = isOs ? null : activeWorkspaceId;
-  // Доступом к аккаунтам подписок распоряжается только руководство — оно же
-  // видит их все, даже закрытые.
-  const canManageAccess = role === "owner" || role === "teamlead";
+  const uid = profile?.uid ?? "";
+  // Owner и Тимлид видят все аккаунты подписок, даже закрытые. А ОТКРЫВАЕТ
+  // их (и решает запросы на доступ) — Owner и те, кому Owner дал право на
+  // раздел: это право страницы, отдельное от ролей (types/grokAccess.ts).
+  const seesAll = role === "owner" || role === "teamlead";
+  const isOwnerRole = role === "owner";
+  const [accessSettings, setAccessSettings] = useState<GrokAccessSettings | null>(null);
+  useEffect(() => {
+    setAccessSettings(null);
+    if (!workspaceId) return;
+    return subscribeGrokAccessSettings(workspaceId, setAccessSettings, () => setAccessSettings(null));
+  }, [workspaceId]);
+  const managedProviders = useMemo(
+    () => (isOwnerRole ? [] : managedProvidersOf(accessSettings, uid)),
+    [isOwnerRole, accessSettings, uid]
+  );
+  const managedKey = managedProviders.slice().sort().join(",");
+  const canGrant = (provider: GrokAppProvider) => isOwnerRole || managedProviders.includes(provider);
+  const grantScope: GrokAppProvider[] | "all" = isOwnerRole ? "all" : managedProviders;
   const { accounts: grokAccounts, isLoading: grokLoading } = useGrokAccounts(workspaceId);
-  const { accounts: appAccounts, isLoading: appsLoading } = useGrokAppAccounts(workspaceId, {
-    seesAll: canManageAccess,
-    uid: profile?.uid ?? "",
-  });
+  const {
+    accounts: appAccounts,
+    isLoading: appsLoading,
+    complete: appsComplete,
+  } = useGrokAppAccounts(workspaceId, { seesAll, uid, managedProviders });
   const [accessDialog, setAccessDialog] = useState<GrokAppAccount | null>(null);
   const [accessSaving, setAccessSaving] = useState(false);
+  const [managersDialog, setManagersDialog] = useState<GrokAppSectionId | null>(null);
+  const [managersSaving, setManagersSaving] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   // Старым аккаунтам разово проставляем `restricted: false`: без поля они не
   // попадают в запрос «открытые» и у технарей пропали бы из списка.
   useEffect(() => {
-    if (!workspaceId || !canManageAccess || appsLoading) return;
+    if (!workspaceId || !seesAll || appsLoading) return;
     void backfillGrokAppRestricted(workspaceId, appAccounts).catch(() => undefined);
-  }, [workspaceId, canManageAccess, appsLoading, appAccounts]);
+  }, [workspaceId, seesAll, appsLoading, appAccounts]);
+
+  // Витрина закрытых аккаунтов (без секретов) и свои запросы на доступ.
+  const [stubs, setStubs] = useState<GrokAccessStub[]>([]);
+  const [stubsLoaded, setStubsLoaded] = useState(false);
+  useEffect(() => {
+    setStubs([]);
+    setStubsLoaded(false);
+    if (!workspaceId) return;
+    return subscribeGrokAccessStubs(
+      workspaceId,
+      (next) => {
+        setStubs(next);
+        setStubsLoaded(true);
+      },
+      () => setStubsLoaded(false)
+    );
+  }, [workspaceId]);
+  const [myRequests, setMyRequests] = useState<GrokAccessRequest[]>([]);
+  useEffect(() => {
+    setMyRequests([]);
+    if (!workspaceId || !uid) return;
+    return subscribeMyGrokAccessRequests(workspaceId, uid, setMyRequests, () => setMyRequests([]));
+  }, [workspaceId, uid]);
+  const [pendingRequests, setPendingRequests] = useState<GrokAccessRequest[]>([]);
+  useEffect(() => {
+    setPendingRequests([]);
+    if (!workspaceId) return;
+    const scope: GrokAppProvider[] | "all" = isOwnerRole ? "all" : managedKey ? (managedKey.split(",") as GrokAppProvider[]) : [];
+    return subscribePendingGrokAccessRequests(workspaceId, scope, setPendingRequests, () => setPendingRequests([]));
+  }, [workspaceId, isOwnerRole, managedKey]);
+
+  // Сверка витрины — из сессии того, кто вправе её писать, и только когда
+  // список аккаунтов ПОЛНЫЙ (все запросы ответили с сервера): иначе удалилась
+  // бы карточка аккаунта, который просто ещё не доехал. Изменение, пришедшее
+  // во время прогона, не теряем — но и сразу после своей же записи второй
+  // прогон не нужен: снимок витрины придёт сам.
+  const syncingRef = useRef(false);
+  const rerunRef = useRef(false);
+  const [syncTick, setSyncTick] = useState(0);
+  useEffect(() => {
+    if (!workspaceId || !appsComplete || !stubsLoaded) return;
+    if (grantScope !== "all" && grantScope.length === 0) return;
+    if (syncingRef.current) {
+      rerunRef.current = true;
+      return;
+    }
+    syncingRef.current = true;
+    rerunRef.current = false;
+    void syncGrokAccessStubs({ workspaceId, accounts: appAccounts, stubs, providers: grantScope })
+      .catch((error) => console.error("Не удалось сверить витрину закрытых аккаунтов:", error))
+      .finally(() => {
+        syncingRef.current = false;
+        if (rerunRef.current) setSyncTick((n) => n + 1);
+      });
+    // grantScope пересобирается каждый рендер — зависимость по его ключу.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId, appsComplete, stubsLoaded, appAccounts, stubs, isOwnerRole, managedKey, syncTick]);
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
@@ -216,6 +316,20 @@ export default function GrokLimitPage() {
   const totalAvailable = SECTIONS.reduce((n, s) => n + stats[s.id].available, 0);
   const totalAccounts = entries.length;
 
+  const visibleAppIds = new Set(appAccounts.map((a) => a.id));
+  const myRequestByAccount = new Map(myRequests.map((r) => [r.accountId, r]));
+  const lockedStubs = stubs
+    .filter((stub) => !visibleAppIds.has(stub.id))
+    .filter((stub) =>
+      searching ? stub.title.toLowerCase().includes(q) : grokSectionOfProvider(stub.provider) === section
+    )
+    .sort((a, b) => a.title.localeCompare(b.title, "ru"));
+  const pendingBySection = (id: SectionId) => pendingRequests.filter((r) => grokSectionOfProvider(r.provider) === id);
+  const managersOfSection = (id: GrokAppSectionId) =>
+    Array.from(new Set(GROK_SECTION_PROVIDERS[id].flatMap((provider) => accessSettings?.managers?.[provider] ?? [])));
+  const ownerUids = members.filter((m) => m.status === "active" && m.role === "owner").map((m) => m.uid);
+  const labelOfUid = (memberUid: string) => personLabel(members.find((m) => m.uid === memberUid) ?? null) || "—";
+
   if (!activeWorkspaceId) return null;
 
   // ОС doesn't use Грок лимит (firestore.rules deny the collection to them too).
@@ -268,7 +382,7 @@ export default function GrokLimitPage() {
     try {
       await setGrokAppAccess({
         workspaceId,
-        id: account.id,
+        account,
         allowedUids: uids,
         actorUid: profile.uid,
         actorName: displayNameOf(profile),
@@ -285,8 +399,71 @@ export default function GrokLimitPage() {
   async function deleteEntry(entry: Entry) {
     if (!(await confirmDialog({ title: `Удалить ${entry.serviceLabel} «${entry.nickname?.trim() || entry.email}»?`, destructive: true }))) return;
     if (entry.raw.kind === "grok") await deleteGrokAccount(activeWorkspaceId!, entry.id);
-    else await deleteGrokAppAccount(activeWorkspaceId!, entry.id);
+    else await deleteGrokAppAccount(activeWorkspaceId!, entry.id, canGrant(entry.raw.account.provider));
     toast.success("Аккаунт удалён");
+  }
+
+  async function saveManagers(sectionId: GrokAppSectionId, uids: string[]) {
+    if (!workspaceId || !profile) return;
+    setManagersSaving(true);
+    try {
+      await saveGrokSectionManagers({ workspaceId, section: sectionId, uids, actorUid: profile.uid });
+      toast.success(uids.length > 0 ? `Управляют разделом: ${uids.length}` : "Разделом управляет только Owner");
+      setManagersDialog(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить");
+    } finally {
+      setManagersSaving(false);
+    }
+  }
+
+  async function askAccess(stub: GrokAccessStub) {
+    if (!workspaceId || !profile) return;
+    setBusyId(stub.id);
+    try {
+      const notifyUids = Array.from(new Set([...(accessSettings?.managers?.[stub.provider] ?? []), ...ownerUids])).filter(
+        (id) => id !== profile.uid
+      );
+      await requestGrokAccess({ workspaceId, stub, uid: profile.uid, name: displayNameOf(profile), notifyUids });
+      toast.success("Запрос отправлен — откроют те, кто управляет разделом");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось отправить запрос");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function withdrawAccess(request: GrokAccessRequest) {
+    if (!workspaceId) return;
+    setBusyId(request.accountId);
+    try {
+      await withdrawGrokAccessRequest(workspaceId, request.id);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось отозвать запрос");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function resolveAccess(request: GrokAccessRequest, approve: boolean) {
+    if (!workspaceId || !profile) return;
+    setBusyId(request.id);
+    try {
+      await resolveGrokAccessRequest({
+        workspaceId,
+        request,
+        approve,
+        account: appAccounts.find((a) => a.id === request.accountId) ?? null,
+        stubExists: stubs.some((s) => s.id === request.accountId),
+        actorUid: profile.uid,
+        actorName: displayNameOf(profile),
+      });
+      toast.success(approve ? `${request.name}: доступ открыт` : "Запрос отклонён");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось обработать запрос");
+    } finally {
+      setBusyId(null);
+    }
   }
 
   function editEntry(entry: Entry) {
@@ -361,7 +538,16 @@ export default function GrokLimitPage() {
                 >
                   <span className="flex min-w-0 items-baseline justify-between gap-2">
                     <span className="truncate text-[15px] font-semibold sm:text-base">{s.title}</span>
-                    <span className="hidden truncate text-[10px] text-muted-foreground sm:inline">{s.subtitle}</span>
+                    {pendingBySection(s.id).length > 0 ? (
+                      <span
+                        className="shrink-0 rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground"
+                        title="Просят доступ"
+                      >
+                        {pendingBySection(s.id).length}
+                      </span>
+                    ) : (
+                      <span className="hidden truncate text-[10px] text-muted-foreground sm:inline">{s.subtitle}</span>
+                    )}
                   </span>
                   <span className="mt-2 flex items-baseline gap-1">
                     <span className={cn("text-2xl font-semibold leading-none", st.available > 0 ? "text-success" : "text-muted-foreground")}>
@@ -388,6 +574,21 @@ export default function GrokLimitPage() {
               );
             })}
           </div>
+
+          {!searching && section !== "grok" && (
+            <GrokManagersLine
+              names={managersOfSection(section).map(labelOfUid)}
+              canEdit={isOwnerRole}
+              onEdit={() => setManagersDialog(section)}
+            />
+          )}
+          {!searching && section !== "grok" && (
+            <GrokRequestsPanel
+              requests={pendingBySection(section)}
+              busyId={busyId}
+              onResolve={(request, approve) => void resolveAccess(request, approve)}
+            />
+          )}
 
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative sm:w-80">
@@ -443,10 +644,10 @@ export default function GrokLimitPage() {
             </div>
           )}
 
-          {!loading && searching && visible.length === 0 && (
+          {!loading && searching && visible.length === 0 && lockedStubs.length === 0 && (
             <p className="py-12 text-center text-sm text-muted-foreground">Ничего не нашли во всех разделах.</p>
           )}
-          {!loading && !searching && currentStats.total === 0 && (
+          {!loading && !searching && currentStats.total === 0 && lockedStubs.length === 0 && (
             <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border py-12 text-center">
               <p className="text-sm text-muted-foreground">В «{current.title}» пока нет аккаунтов.</p>
               <Button size="sm" className="gap-1.5" onClick={openCreate}>
@@ -479,7 +680,7 @@ export default function GrokLimitPage() {
                       onRename={() => void renameEntry(entry)}
                       onDelete={() => void deleteEntry(entry)}
                       onAccess={
-                        canManageAccess && entry.raw.kind === "app"
+                        entry.raw.kind === "app" && canGrant(entry.raw.account.provider)
                           ? () => setAccessDialog(entry.raw.kind === "app" ? entry.raw.account : null)
                           : undefined
                       }
@@ -488,6 +689,17 @@ export default function GrokLimitPage() {
                 </ul>
               </section>
             ))}
+
+          {!loading && (
+            <GrokLockedAccounts
+              stubs={lockedStubs}
+              myRequests={myRequestByAccount}
+              showService={searching || section === "other"}
+              busyId={busyId}
+              onRequest={(stub) => void askAccess(stub)}
+              onWithdraw={(request) => void withdrawAccess(request)}
+            />
+          )}
         </div>
       </div>
 
@@ -505,6 +717,17 @@ export default function GrokLimitPage() {
           saving={accessSaving}
           onClose={() => setAccessDialog(null)}
           onSave={(uids) => void saveAccess(accessDialog, uids)}
+        />
+      )}
+
+      {managersDialog && (
+        <GrokManagersDialog
+          sectionTitle={SECTIONS.find((s) => s.id === managersDialog)?.title ?? ""}
+          members={members}
+          managerUids={managersOfSection(managersDialog)}
+          saving={managersSaving}
+          onClose={() => setManagersDialog(null)}
+          onSave={(uids) => void saveManagers(managersDialog, uids)}
         />
       )}
 
