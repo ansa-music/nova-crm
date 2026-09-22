@@ -27,8 +27,9 @@ import {
   useTechRatings,
   useTechSchedules,
 } from "@/hooks/useDeskLoads";
+import { useMembersRefresh } from "@/hooks/useMembersRefresh";
 import { usePermissions } from "@/hooks/usePermissions";
-import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
+import { useWorkspace } from "@/hooks/useWorkspace";
 import { osNickLabel } from "@/services/memberService";
 import { subscribeMyOsOrders } from "@/services/osOrdersService";
 import { currentMonthSubPageId, previousMonthKey } from "@/services/monthTabService";
@@ -155,18 +156,16 @@ export default function TechniciansPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  // Other members' docs aren't live — refresh once so nicks, desks and
-  // "last seen" are current when the screen opens.
-  useEffect(() => {
-    if (!activeWorkspaceId || !canSee) return;
-    void refreshWorkspaceMembers(activeWorkspaceId).catch(() => undefined);
-  }, [activeWorkspaceId, canSee]);
+  // Other members' docs aren't live — refresh so nicks, desks and "last
+  // seen" are current when the screen opens. Через общий 5-минутный порог:
+  // «Технари» ↔ «Дашборд» туда-обратно иначе перечитывали список каждый раз.
+  useMembersRefresh(activeWorkspaceId, canSee);
 
   // A denied read is "unknown", not "everyone is free" — never show an
   // empty list as if it were real data (loadFailed/ratingsFailed).
   const { loads, failed: loadFailed } = useDeskLoads(activeWorkspaceId, canSee);
-  const { ratings, failed: ratingsFailed } = useTechRatings(activeWorkspaceId, canSee);
-  const { totals: orderTotals } = useOrderRatingTotals(activeWorkspaceId, canSee);
+  const { ratings, failed: ratingsFailed } = useTechRatings(activeWorkspaceId, monthKey, canSee);
+  const { totals: orderTotals } = useOrderRatingTotals(activeWorkspaceId, monthKey, canSee);
   // График нужен прямо здесь: у кого сегодня выходной, карточка гаснет — без
   // этого «Свободен» у отсутствующего читался как «можно отдать заказ».
   const { schedules, failed: schedulesFailed, retry: retrySchedules } = useTechSchedules(activeWorkspaceId, monthKey, canSee);
@@ -199,7 +198,8 @@ export default function TechniciansPage() {
     [orderTotals, prevMonthKey]
   );
   // Свои оценки заказов — чтобы в «Мои заказы» было видно, что уже оценено.
-  const myOrderRatings = useMyOrderRatings(activeWorkspaceId, uid, isOsViewer);
+  // Только этого месяца: в «Мои заказы» лишь заказы вкладки текущего месяца.
+  const myOrderRatings = useMyOrderRatings(activeWorkspaceId, uid, monthKey, isOsViewer);
   const myOrderRatingByOrder = useMemo(() => {
     const map = new Map<string, number>();
     for (const r of myOrderRatings) map.set(orderRatingId(r.pageId, r.rowId), r.stars);

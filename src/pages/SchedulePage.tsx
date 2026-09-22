@@ -37,8 +37,9 @@ import { confirmDialog } from "@/utils/appDialog";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import { useTechSchedules } from "@/hooks/useDeskLoads";
+import { useMembersRefresh } from "@/hooks/useMembersRefresh";
 import { usePermissions } from "@/hooks/usePermissions";
-import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
+import { useWorkspace } from "@/hooks/useWorkspace";
 import { nextMonthKey, previousMonthKey } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
 import { saveScheduleGroup, subscribeScheduleGroup } from "@/services/scheduleGroupService";
@@ -167,12 +168,10 @@ export default function SchedulePage() {
     return map;
   }, [schedules]);
 
-  // Чужие member-документы не живые — обновим разово, иначе у только что
-  // заведённого человека не будет ни ника, ни фото.
-  useEffect(() => {
-    if (!activeWorkspaceId) return;
-    void refreshWorkspaceMembers(activeWorkspaceId).catch(() => undefined);
-  }, [activeWorkspaceId]);
+  // Чужие member-документы не живые — обновим, иначе у только что
+  // заведённого человека не будет ни ника, ни фото. Через общий 5-минутный
+  // порог, чтобы переходы между экранами не перечитывали список каждый раз.
+  useMembersRefresh(activeWorkspaceId, true);
 
   useEffect(() => {
     setGroup(null);

@@ -33,8 +33,11 @@ export function useDeskLoads(workspaceId: string | null, enabled: boolean) {
   return { loads, failed };
 }
 
-/** Every ОС rating of every Технарь, live. */
-export function useTechRatings(workspaceId: string | null, enabled: boolean) {
+/**
+ * ОС-оценки технарей за `monthKey` и прошлый месяц, live — больше ни один
+ * экран не показывает (см. subscribeTechRatings).
+ */
+export function useTechRatings(workspaceId: string | null, monthKey: string, enabled: boolean) {
   const [ratings, setRatings] = useState<TechRating[] | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -43,22 +46,24 @@ export function useTechRatings(workspaceId: string | null, enabled: boolean) {
     if (!workspaceId || !enabled) return;
     return subscribeTechRatings(
       workspaceId,
+      monthKey,
       (next) => {
         setRatings(next);
         setFailed(false);
       },
       () => setFailed(true)
     );
-  }, [workspaceId, enabled]);
+  }, [workspaceId, monthKey, enabled]);
   return { ratings, failed };
 }
 
 /**
- * Итоги оценок за заказы по всем парам ОС↔Технарь. Отказ в чтении — это
- * «неизвестно», а не «оценок нет»: пустой список вместо отказа показал бы
- * всем технарям нулевой рейтинг, которого на самом деле никто не ставил.
+ * Итоги оценок за заказы по всем парам ОС↔Технарь — за `monthKey` и прошлый
+ * месяц. Отказ в чтении — это «неизвестно», а не «оценок нет»: пустой список
+ * вместо отказа показал бы всем технарям нулевой рейтинг, которого на самом
+ * деле никто не ставил.
  */
-export function useOrderRatingTotals(workspaceId: string | null, enabled: boolean) {
+export function useOrderRatingTotals(workspaceId: string | null, monthKey: string, enabled: boolean) {
   const [totals, setTotals] = useState<OrderRatingTotals[] | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -67,13 +72,14 @@ export function useOrderRatingTotals(workspaceId: string | null, enabled: boolea
     if (!workspaceId || !enabled) return;
     return subscribeOrderRatingTotals(
       workspaceId,
+      monthKey,
       (next) => {
         setTotals(next);
         setFailed(false);
       },
       () => setFailed(true)
     );
-  }, [workspaceId, enabled]);
+  }, [workspaceId, monthKey, enabled]);
   return { totals, failed };
 }
 
@@ -116,14 +122,14 @@ export function useTechSchedules(workspaceId: string | null, monthKey: string, e
   return { schedules, loaded, failed, retry };
 }
 
-/** Оценки заказов, которые поставил САМ смотрящий ОС — чтобы показать их в «Мои заказы». */
-export function useMyOrderRatings(workspaceId: string | null, osUid: string, enabled: boolean) {
+/** Оценки заказов за `monthKey`, которые поставил САМ смотрящий ОС — чтобы показать их в «Мои заказы». */
+export function useMyOrderRatings(workspaceId: string | null, osUid: string, monthKey: string, enabled: boolean) {
   const [ratings, setRatings] = useState<OrderRating[]>([]);
   useEffect(() => {
     setRatings([]);
     if (!workspaceId || !osUid || !enabled) return;
-    return subscribeMyOrderRatings(workspaceId, osUid, setRatings, () => setRatings([]));
-  }, [workspaceId, osUid, enabled]);
+    return subscribeMyOrderRatings(workspaceId, osUid, monthKey, setRatings, () => setRatings([]));
+  }, [workspaceId, osUid, monthKey, enabled]);
   return ratings;
 }
 
