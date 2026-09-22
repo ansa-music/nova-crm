@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { createOneShotLoadCache, useCachedBatchLoads, type BatchLoadSpec } from "@/hooks/useCachedBatchLoads";
 import { fetchSubPageRows } from "@/services/subPageService";
 import type { PageRow } from "@/types";
 
@@ -7,56 +7,32 @@ export interface SubPagePair {
   subPageId: string;
 }
 
-const BATCH = 3;
-
-function yieldPaint() {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(resolve, 0);
-  });
+/**
+ * Ключ строк вкладки — `pageId:subPageId`, а не один subPageId: у месячных
+ * вкладок автопилота id одинаковый на всех столах (`month-YYYY-MM`,
+ * monthTabId в monthTabService), и по одному subPageId строки всех таких
+ * столов слипались в одни — у Owner все столы технарей показывали и
+ * публиковали в leaderboard одни и те же суммы.
+ */
+export function subPageRowsKey(pageId: string, subPageId: string): string {
+  return `${pageId}:${subPageId}`;
 }
 
-/** Keyed by subPageId. One-shot reads — no live listeners. */
+const NO_ROWS: PageRow[] = [];
+
+const spec: BatchLoadSpec<SubPagePair, PageRow[]> = {
+  keyOf: (p) => subPageRowsKey(p.pageId, p.subPageId),
+  cacheKeyOf: (p) => subPageRowsKey(p.pageId, p.subPageId),
+  load: (workspaceId, p) => fetchSubPageRows(workspaceId, p.pageId, p.subPageId),
+  empty: NO_ROWS,
+  cache: createOneShotLoadCache<PageRow[]>(),
+  batch: 3,
+};
+
+/**
+ * Keyed by subPageRowsKey(pageId, subPageId). One-shot reads — no live
+ * listeners; cached for 15 minutes (see useCachedBatchLoads).
+ */
 export function useMultiSubPageRows(workspaceId: string | null, pairs: SubPagePair[]) {
-  const [rowsBySubPage, setRowsBySubPage] = useState<Record<string, PageRow[]>>({});
-  const key = pairs.map((p) => `${p.pageId}:${p.subPageId}`).join(",");
-
-  useEffect(() => {
-    if (!workspaceId || pairs.length === 0) {
-      setRowsBySubPage({});
-      return;
-    }
-
-    let cancelled = false;
-    setRowsBySubPage({});
-
-    async function loadSlice(slice: SubPagePair[]) {
-      await Promise.all(
-        slice.map(async (p) => {
-          try {
-            const rows = await fetchSubPageRows(workspaceId as string, p.pageId, p.subPageId);
-            if (!cancelled) setRowsBySubPage((prev) => ({ ...prev, [p.subPageId]: rows }));
-          } catch {
-            if (!cancelled) setRowsBySubPage((prev) => ({ ...prev, [p.subPageId]: prev[p.subPageId] ?? [] }));
-          }
-        })
-      );
-    }
-
-    void (async () => {
-      await loadSlice(pairs.slice(0, BATCH));
-      for (let i = BATCH; i < pairs.length; i += BATCH) {
-        if (cancelled) return;
-        await yieldPaint();
-        if (cancelled) return;
-        await loadSlice(pairs.slice(i, i + BATCH));
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, key]);
-
-  return rowsBySubPage;
+  return useCachedBatchLoads(workspaceId, pairs, spec);
 }
