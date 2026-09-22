@@ -28,6 +28,7 @@ import {
 } from "@/components/schedule/ScheduleGrid";
 import { WeekPasteDialog, type WeekPasteResult } from "@/components/schedule/WeekPasteDialog";
 import { WeekTemplateGrid } from "@/components/schedule/WeekTemplateGrid";
+import { MyScheduleCard } from "@/components/schedule/MyScheduleCard";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -79,15 +80,6 @@ import {
 } from "@/types";
 
 type ScheduleView = "month" | "week";
-const VIEW_KEY = "nova:schedule-view";
-
-function readView(): ScheduleView {
-  try {
-    return window.localStorage.getItem(VIEW_KEY) === "week" ? "week" : "month";
-  } catch {
-    return "month";
-  }
-}
 
 type Brush = { kind: "off" | "work" | "hours"; from: string; to: string };
 
@@ -139,8 +131,11 @@ export default function SchedulePage() {
   const [draft, setDraft] = useState<Map<string, ScheduleDayState>>(new Map());
   const [hoursDraft, setHoursDraft] = useState<Map<string, ScheduleHours | null>>(new Map());
   const [saving, setSaving] = useState(false);
-  // Вид «Неделя» — постоянный распорядок (см. types/scheduleTemplate.ts).
-  const [view, setViewState] = useState<ScheduleView>(readView);
+  // «График» ВСЕГДА открывается на «Неделе» — постоянном распорядке (см.
+  // types/scheduleTemplate.ts): так просил Nurba. Выбор «Месяц» не
+  // запоминаем — иначе у того, кто хоть раз открыл месяц, неделя по
+  // умолчанию пропала бы навсегда.
+  const [view, setViewState] = useState<ScheduleView>("week");
   const [template, setTemplate] = useState<WeekTemplate | null>(null);
   const [templateLoaded, setTemplateLoaded] = useState(false);
   const [templateFailed, setTemplateFailed] = useState(false);
@@ -251,7 +246,6 @@ export default function SchedulePage() {
   const myToday = todayKey ? scheduleStateOf(byUid.get(uid), todayKey) : "work";
   const iAmScheduled = active.some((m) => m.uid === uid);
   const myName = personLabel(active.find((m) => m.uid === uid) ?? null) || "Вы";
-  const myHours = todayKey ? scheduleHoursOf(byUid.get(uid), todayKey) : null;
   const todayLabel = formatDate(Date.now(), "d MMMM, EEEE");
   const pendingRequests = useMemo(
     () =>
@@ -491,11 +485,6 @@ export default function SchedulePage() {
   function setView(next: ScheduleView) {
     if (editing || weekEditing) return;
     setViewState(next);
-    try {
-      window.localStorage.setItem(VIEW_KEY, next);
-    } catch {
-      // Приватный режим — вид просто не запомнится.
-    }
   }
 
   // Неделю слушаем только пока она открыта: лишний постоянный слушатель на
@@ -713,6 +702,9 @@ export default function SchedulePage() {
   const visible = (id: string) => section === "all" || section === id;
   const nothingAtAll = sections.length === 0 && !showCustom;
 
+  /** Есть ли смотрящий в самом графике (Viewer и Admin без стола туда не попадают). */
+  const inSchedule = sections.some((s) => s.rows.some((row) => row.uid === uid));
+
   /** Кого предлагать при вставке недели: все строки графика, во всех разделах. */
   const patternRows = useMemo(
     () => [...sections.flatMap((s) => s.rows), ...customRows],
@@ -899,27 +891,21 @@ export default function SchedulePage() {
       {/* Сегодняшняя дата по Алматы и своё состояние на сегодня: график
           открывают ровно чтобы это узнать, а искать себя в сетке на 31
           колонку глазами — то, на что и жаловались. */}
-      {isCurrentMonth && (
-        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
-          <span className="inline-flex items-center gap-1.5 rounded-lg border border-primary/35 bg-primary/[0.07] px-2.5 py-1 font-medium text-primary">
-            <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-            Сегодня {todayLabel}
-          </span>
-          {iAmScheduled && scheduleReady && (
-            <span className="text-muted-foreground">
-              {myName}:{" "}
-              <span
-                className={cn(
-                  "font-medium",
-                  myToday === "off" ? "text-destructive" : myToday === "excused" ? "text-warning" : "text-foreground"
-                )}
-              >
-                {myToday === "off" ? "выходной" : myToday === "excused" ? "отпросились" : "рабочий день"}
-              </span>
-              {myHours && myToday === "work" && <span className="text-primary"> · смена {formatScheduleHours(myHours)}</span>}
+      {/* Свой график — крупно и ОТДЕЛЬНО от общей сетки: «График» открывают,
+          чтобы узнать «когда у меня смена», а искать себя глазами в таблице на
+          30 человек — то, на что и жаловались. Кого в графике нет (Viewer,
+          Admin без стола), тем остаётся просто сегодняшняя дата. */}
+      {inSchedule && activeWorkspaceId ? (
+        <MyScheduleCard workspaceId={activeWorkspaceId} uid={uid} name={myName} todayYmd={todayYmd} />
+      ) : (
+        isCurrentMonth && (
+          <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-primary/35 bg-primary/[0.07] px-2.5 py-1 font-medium text-primary">
+              <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+              Сегодня {todayLabel}
             </span>
-          )}
-        </div>
+          </div>
+        )
       )}
 
       {editing && (

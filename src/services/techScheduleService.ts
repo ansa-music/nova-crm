@@ -38,6 +38,29 @@ export function subscribeTechSchedules(
 }
 
 /**
+ * График ОДНОГО человека за месяц — для карточки «Мой график». Отдельный
+ * точечный слушатель, а не общий список: карточка показывает эту и следующую
+ * неделю и не зависит от того, какой месяц открыт в общей сетке.
+ */
+export function subscribeTechSchedule(
+  workspaceId: string,
+  uid: string,
+  monthKey: string,
+  onData: (schedule: TechSchedule | null) => void,
+  onError?: (error: FirestoreError) => void
+) {
+  if (!db) {
+    onData(null);
+    return () => {};
+  }
+  return onSnapshot(
+    paths.techSchedule(workspaceId, techScheduleId(uid, monthKey)),
+    (snapshot) => onData(snapshot.exists() ? { ...(snapshot.data() as TechSchedule), id: snapshot.id } : null),
+    withErrorReporting(onError)
+  );
+}
+
+/**
  * Часы дня для записи с merge. Вложенная карта при merge СЛИВАЕТСЯ со
  * старой: без явного удаления подпись «10–12, 15–19» от прошлой смены
  * оставалась бы у новых часов и показывалась вместо них. `undefined`
