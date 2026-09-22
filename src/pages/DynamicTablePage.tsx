@@ -177,11 +177,11 @@ export default function DynamicTablePage() {
   const tabScopeReady = tabsReady && appliedDefaultForPageRef.current === pageId;
   const listenMainRows = Boolean(hasAccess && page && tabScopeReady && !activeSubPageId);
   const listenSubRows = Boolean(hasAccess && page && tabScopeReady && activeSubPageId);
-  const { rows: pageRows, isLoading: pageRowsLoading } = usePageRows(
+  const { rows: pageRows, isLoading: pageRowsLoading, serverSynced: pageRowsSynced } = usePageRows(
     activeWorkspaceId,
     listenMainRows && page ? page.id : null
   );
-  const { rows: subPageRows, isLoading: subPageRowsLoading } = useSubPageRows(
+  const { rows: subPageRows, isLoading: subPageRowsLoading, serverSynced: subPageRowsSynced } = useSubPageRows(
     activeWorkspaceId,
     listenSubRows && page ? page.id : null,
     listenSubRows ? activeSubPageId : null
@@ -238,12 +238,14 @@ export default function DynamicTablePage() {
 
   const rows = activeSubPageId ? subPageRows : pageRows;
   const rowsLoading = !tabsReady || (activeSubPageId ? subPageRowsLoading : pageRowsLoading);
+  const rowsFromServer = tabsReady && (activeSubPageId ? subPageRowsSynced : pageRowsSynced);
 
   useDeskLoadPublisher({
     page: hasAccess ? page : null,
     subPage: activeSubPage,
     rows,
     rowsLoading,
+    rowsFromServer,
     canEdit: Boolean(page && permissions.canEditPageData(page)),
     uid: permissions.uid,
     responsibleOptions: activeWorkspace?.responsibleOptions,

@@ -259,12 +259,47 @@ export async function markNotificationRead(workspaceId: string, id: string) {
   pingInboxChanged();
 }
 
+/** Сколько непрочитанных ЗА окном подписки добираем за одно открытие колокольчика. */
+const UNREAD_SWEEP_MAX = 200;
+
+/**
+ * Живая подписка видит только последние NOTIFICATIONS_LIVE_LIMIT. Если окно
+ * забито непрочитанными до самого старого — за ним наверняка лежат ещё
+ * (технарь пару дней не заходил, а заказы биржи шли), и отметить надо и их:
+ * чистка удаляет только ПРОЧИТАННЫЕ, и такие строки висели бы вечно, а через
+ * две недели всплывали бы в колокольчике «9+» из старья.
+ */
+function windowMayHideUnread(notifications: Notification[]): Notification | null {
+  if (notifications.length < NOTIFICATIONS_LIVE_LIMIT) return null;
+  let oldest: Notification | null = null;
+  for (const n of notifications) if (!oldest || n.createdAt < oldest.createdAt) oldest = n;
+  return oldest && !oldest.read ? oldest : null;
+}
+
 export async function markAllNotificationsRead(workspaceId: string, notifications: Notification[]) {
   if (!db) return;
   const unread = notifications.filter((n) => !n.read);
   if (unread.length === 0) return;
+  const ids = new Set(unread.map((n) => n.id));
+  const oldestUnread = windowMayHideUnread(notifications);
+  if (oldestUnread?.targetUid) {
+    try {
+      const snapshot = await getDocs(
+        query(
+          paths.notifications(workspaceId),
+          where("targetUid", "==", oldestUnread.targetUid),
+          where("read", "==", false),
+          limit(UNREAD_SWEEP_MAX)
+        )
+      );
+      snapshot.docs.forEach((d) => ids.add(d.id));
+    } catch (error) {
+      // Не вышло добрать — отметим хотя бы видимые.
+      console.warn("Не удалось дочитать старые непрочитанные уведомления:", (error as { code?: string })?.code);
+    }
+  }
   const batch = writeBatch(db);
-  unread.forEach((n) => batch.set(paths.notification(workspaceId, n.id), { read: true }, { merge: true }));
+  ids.forEach((id) => batch.set(paths.notification(workspaceId, id), { read: true }, { merge: true }));
   await batch.commit();
   pingInboxChanged();
 }

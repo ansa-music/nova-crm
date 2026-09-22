@@ -13,7 +13,7 @@ import {
   type Query,
 } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths, subscribe, withErrorReporting } from "@/firebase/firestore";
+import { paths, subscribeWithSource, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { hasRowExtras } from "@/utils/rowExtras";
 import { logChange } from "@/services/historyService";
@@ -843,13 +843,14 @@ export async function duplicatePage(workspaceId: string, page: WorkspacePage, ne
 // Rows
 // ---------------------------------------------------------------------------
 
+/** `fromServer` — снимок подтверждён сервером, а не взят из кэша (см. subscribeWithSource). */
 export function subscribeToRows(
   workspaceId: string,
   pageId: string,
-  onData: (rows: PageRow[]) => void
+  onData: (rows: PageRow[], fromServer: boolean) => void
 ) {
   const q = query(paths.rows(workspaceId, pageId), orderBy("order", "asc"));
-  return subscribe<PageRow>(q, onData);
+  return subscribeWithSource<PageRow>(q, onData);
 }
 
 /** One-shot row read for dashboards — no live listener. */

@@ -110,6 +110,7 @@ export function useDeskLoadPublisher({
   subPage,
   rows,
   rowsLoading,
+  rowsFromServer,
   canEdit,
   uid,
   responsibleOptions = NO_OPTIONS,
@@ -118,6 +119,15 @@ export function useDeskLoadPublisher({
   subPage: SubPage | null;
   rows: PageRow[];
   rowsLoading: boolean;
+  /**
+   * Строки подтверждены сервером (useSyncedTableRows.serverSynced). По кэшу
+   * НЕ считаем и не ставим в очередь: с LRU-кэшем повторное открытие стола
+   * сначала отдаёт строки прошлого визита, и отложенная запись (таймер или
+   * уход со стола до ответа сервера) затирала бы свежие счётчики, которые
+   * записал сам технарь с телефона, — а пересчёт Owner по свежему updatedAt
+   * два часа такой стол не трогает.
+   */
+  rowsFromServer: boolean;
   canEdit: boolean;
   uid: string;
   /** Shared «Ответственный» list — resolves ОС columns to option values. */
@@ -141,7 +151,7 @@ export function useDeskLoadPublisher({
       page.autoMonthKey === monthKey &&
       page.autoMonthSubPageId === subPage.id
   );
-  const active = isMonthTab && canEdit && !rowsLoading && Boolean(uid);
+  const active = isMonthTab && canEdit && !rowsLoading && rowsFromServer && Boolean(uid);
 
   const counts = useMemo(
     () => (active && subPage ? countDeskLoad(subPage.columns, rows, responsibleOptions, monthKey) : null),
@@ -208,14 +218,23 @@ export function useDeskLoadPublisher({
     liveSinceRef.current = active && pageId && subPageId ? Date.now() : 0;
   }, [active, pageId, subPageId]);
 
-  // Закрыли вкладку или ушли со стола — дописать отложенное, а не выбросить.
+  // Ушли со стола, свернули или закрыли вкладку — дописать отложенное, а не
+  // выбросить. Главный повод — `visibilitychange` → hidden: страница ещё
+  // жива, и транзакция deskLoad (ей сначала нужен ответ сервера) успевает
+  // пройти. На `pagehide` её уже не дождаться, а телефон, свернув браузер,
+  // pagehide часто не шлёт вовсе — только hidden, после чего таймеры стоят.
   useEffect(() => {
     const flushAll = () => {
       flushPending(pendingDeskRef);
       flushPending(pendingOsRef);
     };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flushAll();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", flushAll);
     return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", flushAll);
       flushAll();
     };
@@ -230,7 +249,11 @@ export function useDeskLoadPublisher({
     trustDeskMemoryRef.current = false;
     if (signature === lastSignatureRef.current || (trustMemory && isPublishedSignature(memoryKey, signature))) {
       // Цифры снова такие, какие уже в базе, — промежуточное состояние этого
-      // же стола писать незачем.
+      // же стола писать незачем. Совпадение с памятью браузера запоминаем
+      // как «последнее записанное»: иначе второй такой же расчёт (строки
+      // приходят снимками, Supabase догоняет) уже без доверия к памяти
+      // поставил бы ту же запись в очередь.
+      lastSignatureRef.current = signature;
       if (pendingDeskRef.current?.target === target) cancelPending(pendingDeskRef);
       return;
     }
@@ -282,8 +305,19 @@ export function useDeskLoadPublisher({
       if (pendingOsRef.current?.target === target) cancelPending(pendingOsRef);
       return;
     }
-    const trustOsMemory = trustOsMemoryRef.current;
-    trustOsMemoryRef.current = false;
+    // Память браузера — только для первого расчёта после открытия стола, и
+    // спрашиваем её СРАЗУ, а не в отложенной записи: второй расчёт в те же
+    // 10 с подменяет запись в очереди, и доверие первого расчёта терялось —
+    // каждое открытие стола переписывало все списки ОС. Подтверждённое
+    // памятью кладём в «уже записано» этой сессии.
+    if (trustOsMemoryRef.current) {
+      trustOsMemoryRef.current = false;
+      for (const { osValue, signature: listSignature } of lists) {
+        if (isPublishedSignature(osOrdersSignatureKey(pageId, osValue), listSignature)) {
+          lastOsSignaturesRef.current.set(`${pageId}:${osValue}`, listSignature);
+        }
+      }
+    }
     const pageAtScheduleOs = liveTabRef.current.page?.id === pageId ? liveTabRef.current.page : null;
     schedulePending(pendingOsRef, target, signature, liveSinceRef.current, () => {
       if (!stillMonthTab(pageId, subPageId, monthKey, pageAtScheduleOs)) return;
@@ -293,8 +327,6 @@ export function useDeskLoadPublisher({
         if (lastOsSignaturesRef.current.get(key) === listSignature) continue;
         lastOsSignaturesRef.current.set(key, listSignature);
         const memoryKey = osOrdersSignatureKey(pageId, osValue);
-        // Память браузера — только для первого расчёта после открытия стола.
-        if (trustOsMemory && isPublishedSignature(memoryKey, listSignature)) continue;
         publishOsOrders({ pageId, workspaceId, responsibleUserId, osValue, monthKey, subPageId, orders, updatedBy: uid }).then(
           () => rememberPublishedSignature(memoryKey, listSignature),
           (error) => {

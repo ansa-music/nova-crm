@@ -24,6 +24,13 @@ export function useSyncedTableRows(
   const [supabaseOk, setSupabaseOk] = useState(false);
   const [fsReady, setFsReady] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  /**
+   * Последний снимок строк пришёл с сервера. Таблица рисуется и по кэшу
+   * (`isLoading` снимается сразу), а решения «за стол» — публикация
+   * счётчиков в «Технари» — ждут этого флага: с LRU-кэшем повторное открытие
+   * стола сначала отдаёт строки с прошлого визита, сколько угодно старые.
+   */
+  const [serverSynced, setServerSynced] = useState(false);
   const copyKeyRef = useRef<string>("");
 
   useEffect(() => {
@@ -32,19 +39,22 @@ export function useSyncedTableRows(
       setSupabaseRows(null);
       setSupabaseOk(false);
       setFsReady(false);
+      setServerSynced(false);
       setIsLoading(false);
       return;
     }
 
     setIsLoading(true);
     setFsReady(false);
+    setServerSynced(false);
     setSupabaseOk(false);
     setSupabaseRows(null);
     copyKeyRef.current = "";
 
-    const onFs = (data: PageRow[]) => {
+    const onFs = (data: PageRow[], fromServer: boolean) => {
       setFirestoreRows(data);
       setFsReady(true);
+      setServerSynced(fromServer);
       setIsLoading(false);
     };
 
@@ -87,7 +97,7 @@ export function useSyncedTableRows(
     [firestoreRows, supabaseRows, supabaseOk]
   );
 
-  return { rows, isLoading };
+  return { rows, isLoading, serverSynced };
 }
 
 export function usePageRows(workspaceId: string | null, pageId: string | null) {

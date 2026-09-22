@@ -10,7 +10,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths, subscribe, withErrorReporting } from "@/firebase/firestore";
+import { paths, subscribeWithSource, withErrorReporting } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { hasRowExtras } from "@/utils/rowExtras";
 import { ymdPartsInTimeZone } from "@/utils/date";
@@ -300,10 +300,10 @@ export function subscribeToSubPageRows(
   workspaceId: string,
   pageId: string,
   subPageId: string,
-  onData: (rows: PageRow[]) => void
+  onData: (rows: PageRow[], fromServer: boolean) => void
 ) {
   const q = query(paths.subPageRows(workspaceId, pageId, subPageId), orderBy("order", "asc"));
-  return subscribe<PageRow>(q, onData);
+  return subscribeWithSource<PageRow>(q, onData);
 }
 
 export async function fetchSubPages(workspaceId: string, pageId: string): Promise<SubPage[]> {

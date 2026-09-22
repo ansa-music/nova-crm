@@ -250,6 +250,39 @@ export function subscribe<T>(
   );
 }
 
+/**
+ * Как `subscribe`, но ещё говорит, пришёл ли снимок С СЕРВЕРА.
+ *
+ * С LRU-кэшем в памяти (firebase.ts) повторная подписка сначала отдаёт то,
+ * что лежало в кэше с прошлого раза, — сколько угодно старое. Рисовать это
+ * можно, а решать по нему (публиковать счётчики стола, класть заказ в стол)
+ * нельзя. `includeMetadataChanges` нужен, чтобы переход «кэш → сервер»
+ * пришёл отдельным событием, даже если ни один документ не поменялся;
+ * прочие события «поменялась только служебная метка» (запись подтвердилась)
+ * отбрасываем — без этой опции их не было бы вовсе.
+ */
+export function subscribeWithSource<T>(
+  ref: Query<DocumentData> | CollectionReference<DocumentData>,
+  onData: (items: T[], fromServer: boolean) => void,
+  onError?: (error: FirestoreError) => void
+) {
+  let delivered = false;
+  let lastFromServer = false;
+  return onSnapshot(
+    ref,
+    { includeMetadataChanges: true },
+    (snapshot) => {
+      const fromServer = !snapshot.metadata.fromCache;
+      if (delivered && fromServer === lastFromServer && snapshot.docChanges().length === 0) return;
+      delivered = true;
+      lastFromServer = fromServer;
+      const items = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as T);
+      onData(items, fromServer);
+    },
+    withErrorReporting(onError)
+  );
+}
+
 export function subscribeToDoc<T>(
   ref: DocumentReference<DocumentData>,
   onData: (item: T | null) => void,

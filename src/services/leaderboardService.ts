@@ -25,8 +25,14 @@ export async function updateLeaderboardEntry(workspaceId: string, entry: Leaderb
  * заход — строки столов приходят партиями) переписывал запись КАЖДОГО
  * стола, у Owner — всех столов, даже если ни одна цифра не сдвинулась.
  * На Spark (20 000 записей в сутки) это тысячи пустых записей в день.
+ *
+ * Память живёт ограниченно (MEMORY_TRUST_MS), как у deskLoad: вкладку
+ * Owner теперь не перезагружают днями, а запись мог с тех пор переписать
+ * сам технарь. Цифры вернулись к тем, что писала эта вкладка, — и вечная
+ * память навсегда оставила бы в базе чужое промежуточное значение.
  */
-const lastPublished = new Map<string, string>();
+const lastPublished = new Map<string, { signature: string; at: number }>();
+const MEMORY_TRUST_MS = 90 * 60_000;
 
 function entrySignature(entry: LeaderboardEntryDraft): string {
   // responsibleUserId — сверх чисел: стол передали другому, цифры те же, а
@@ -53,14 +59,15 @@ export async function publishLeaderboardEntries(workspaceId: string, entries: Le
       const key = `${workspaceId}/${entry.pageId}`;
       const signature = entrySignature(entry);
       const previous = lastPublished.get(key);
-      if (previous === signature) return;
+      if (previous?.signature === signature && Date.now() - previous.at < MEMORY_TRUST_MS) return;
       // Отмечаем до ответа сервера, чтобы второй пересчёт, пока эта запись
       // в пути, не отправил её же ещё раз.
-      lastPublished.set(key, signature);
+      const mark = { signature, at: Date.now() };
+      lastPublished.set(key, mark);
       try {
         await updateLeaderboardEntry(workspaceId, entry);
       } catch {
-        if (lastPublished.get(key) !== signature) return;
+        if (lastPublished.get(key) !== mark) return;
         if (previous === undefined) lastPublished.delete(key);
         else lastPublished.set(key, previous);
       }

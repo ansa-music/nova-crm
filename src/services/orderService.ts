@@ -3,6 +3,7 @@ import {
   deleteField,
   getCountFromServer,
   getDoc,
+  getDocFromServer,
   getDocs,
   limit,
   onSnapshot,
@@ -466,6 +467,18 @@ export function orderRowId(orderId: string): string {
   return `row_${orderId.replace(/[^A-Za-z0-9_-]/g, "")}`;
 }
 
+/**
+ * Заказ уже не ждёт этого технаря: его забрали в стол (с другого устройства),
+ * передали другому или отменили. Это не сбой — автозаезд такой заказ молча
+ * пропускает.
+ */
+export class OrderNotAssignedError extends Error {
+  constructor() {
+    super("Заказ уже не ждёт вас: его забрали в стол, передали другому или отменили");
+    this.name = "OrderNotAssignedError";
+  }
+}
+
 export async function takeOrderToDesk(input: {
   workspaceId: string;
   order: WorkOrder;
@@ -477,7 +490,17 @@ export async function takeOrderToDesk(input: {
   me: { uid: string; name: string };
 }) {
   if (!db) throw new Error("Firebase не настроен");
-  const { workspaceId, order, page, me } = input;
+  const { workspaceId, page, me } = input;
+  // Заказ сверяем С СЕРВЕРОМ, а не верим тому, что пришло в подписке: с
+  // LRU-кэшем повторная подписка (смена workspace, выход и вход в той же
+  // вкладке) сначала отдаёт заказы, какими они были в кэше, — «выдан вам»,
+  // хотя телефон технаря давно забрал его в стол или Owner передал другому.
+  // По такому снимку в стол ложилась вторая строка того же заказа, а
+  // `status: taken` потом отклоняли правила. Одно чтение на заезд.
+  const freshSnap = await getDocFromServer(paths.order(workspaceId, input.order.id));
+  const fresh = freshSnap.exists() ? mapOrder(freshSnap.data(), freshSnap.id) : null;
+  if (!fresh || fresh.status !== "assigned" || fresh.assignedUid !== me.uid) throw new OrderNotAssignedError();
+  const order = fresh;
   const subPageId = isMonthlyDesk(page, input.members)
     ? (currentMonthSubPageId(page, input.monthKey) ?? (await ensureMonthTab(page, input.monthKey, me.uid)))
     : null;
@@ -534,7 +557,9 @@ export async function takeOrderToDesk(input: {
   // Строка этого заказа уже может лежать в столе — после повтора, второй
   // вкладки того же технаря или сбоя записи статуса. Тогда пишем в неё, а не
   // занимаем ещё один слот.
-  const mine = rows.find((r) => r.id === orderRowId(order.id));
+  // Своя строка — и по выведенному id, и по метке `orderId`: заказ, занявший
+  // пустой слот, лежит под id слота.
+  const mine = rows.find((r) => r.id === orderRowId(order.id) || r.orderId === order.id);
   const blank = mine ?? rows.find((r) => isBlankRow(r));
   let row;
   if (blank) {

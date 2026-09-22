@@ -4,7 +4,11 @@ import { paths } from "@/firebase/firestore";
 import { normalizeTimestamp } from "@/utils/date";
 import type { PrivateChatMeta, ReadMarker } from "@/types";
 import { pingInboxChanged } from "@/utils/inboxEvents";
-import { fetchMyUnreadNotificationsByHref, markNotificationRead } from "@/services/notificationService";
+import {
+  NOTIFICATIONS_LIVE_LIMIT,
+  fetchMyUnreadNotificationsByHref,
+  markNotificationRead,
+} from "@/services/notificationService";
 import { getSharedNotifications } from "@/hooks/useNotifications";
 
 export async function upsertPrivateChatMeta(
@@ -178,6 +182,12 @@ export async function markContextRead(workspaceId: string, uid: string, context:
 /** Уведомления, которые прямо сейчас отмечаются прочитанными (или только что отмечены). */
 const markingNotificationIds = new Set<string>();
 const MARKING_MEMORY_MS = 10_000;
+/**
+ * Когда переписку последний раз добирали запросом за окном колокольчика.
+ * Вызов идёт на каждое новое сообщение, а добирать нужно раз на открытие.
+ */
+const hrefSweptAt = new Map<string, number>();
+const HREF_SWEEP_EVERY_MS = 10 * 60_000;
 
 /** Marks the private thread read (existing readMarkers) and matching bell rows (read: true). */
 export async function markPrivateConversationRead(
@@ -192,7 +202,22 @@ export async function markPrivateConversationRead(
   // Уведомления берём из общей подписки колокольчика — она и так живая, а
   // перечитывать ради пары строк всю историю уведомлений человека незачем.
   // Снимка ещё нет — узкий запрос только по непрочитанным с этой ссылкой.
-  const notifs = getSharedNotifications(workspaceId, uid) ?? (await fetchMyUnreadNotificationsByHref(workspaceId, uid, href));
+  const shared = getSharedNotifications(workspaceId, uid);
+  let notifs = shared ?? (await fetchMyUnreadNotificationsByHref(workspaceId, uid, href));
+  // Окно колокольчика — последние 40: уведомление о сообщении, за которым
+  // пришло 40 заказов биржи, в него уже не попадает, и не отметилось бы
+  // никогда. Окно полное — добираем узким запросом, раз в 10 минут на переписку.
+  const sweepKey = `${workspaceId}:${uid}:${href}`;
+  if (shared && shared.length >= NOTIFICATIONS_LIVE_LIMIT && Date.now() - (hrefSweptAt.get(sweepKey) ?? 0) >= HREF_SWEEP_EVERY_MS) {
+    hrefSweptAt.set(sweepKey, Date.now());
+    try {
+      const older = await fetchMyUnreadNotificationsByHref(workspaceId, uid, href);
+      const known = new Set(shared.map((n) => n.id));
+      notifs = [...shared, ...older.filter((n) => !known.has(n.id))];
+    } catch {
+      hrefSweptAt.delete(sweepKey);
+    }
+  }
   // Match by href alone. The old second branch ("from peerUid, not an
   // announcement, no pageId") was meant to catch private-chat
   // notifications, but notifyMentions() never sets pageId for ANY mention
