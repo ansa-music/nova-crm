@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import {
   browserNotifyState,
+  playOrderSound,
   previewBrowserNotification,
   requestBrowserNotify,
   setBrowserNotifyMuted,
@@ -51,14 +52,47 @@ function useNotifyState() {
 export function BrowserNotifyRow() {
   const { permission, muted, enable, toggleMute } = useNotifyState();
 
-  if (permission === "unsupported") return null;
+  // Звук есть и там, где всплывашек нет (iPhone), и до разрешения — поэтому
+  // «Проверить звук» доступен всегда: услышать свой звук заказа можно сразу.
+  const soundTest = (
+    <button
+      type="button"
+      onClick={() => playOrderSound()}
+      className="shrink-0 rounded-full border border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+    >
+      Проверить звук
+    </button>
+  );
+
+  if (permission === "unsupported") {
+    return (
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <Bell className="h-4 w-4 shrink-0 text-primary" />
+        <span className="min-w-0 flex-1 text-xs text-muted-foreground">
+          {muted ? "Звук заказов выключен" : "Новый заказ придёт звуком, пока вкладка открыта"}
+        </span>
+        {!muted && soundTest}
+        <button
+          type="button"
+          onClick={toggleMute}
+          className={cn(
+            "shrink-0 rounded-full border px-2 py-1 text-[11px] font-medium transition-colors",
+            muted ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {muted ? "Включить" : "Выключить"}
+        </button>
+      </div>
+    );
+  }
 
   if (permission !== "granted") {
     return (
+      <div className="flex items-stretch border-b border-border bg-primary/[0.06]">
       <button
         type="button"
         onClick={() => void enable()}
-        className="flex w-full items-center gap-2 border-b border-border bg-primary/[0.06] px-3 py-2.5 text-left transition-colors hover:bg-primary/10"
+        className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-primary/10"
       >
         <BellRing className="h-4 w-4 shrink-0 text-primary" />
         <span className="min-w-0 flex-1">
@@ -70,6 +104,8 @@ export function BrowserNotifyRow() {
           </span>
         </span>
       </button>
+      {!muted && <span className="flex items-center pr-3">{soundTest}</span>}
+      </div>
     );
   }
 

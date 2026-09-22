@@ -6,6 +6,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { useNotifications } from "@/hooks/useNotifications";
 import {
   NOTIFY_OPEN_EVENT,
+  ORDER_SOUND_BLOCKED_EVENT,
   playAlertSound,
   playOrderSound,
   primeAlertSoundOnFirstInteraction,
@@ -71,6 +72,17 @@ export function useNotificationAlerts() {
   useEffect(() => {
     primeAlertSoundOnFirstInteraction();
     watchBrowserNotifyPermission();
+    // Браузер заглушил звук заказа (по странице ещё не кликали) — говорим об
+    // этом и даём включить одним нажатием: нажатие и есть нужный жест.
+    const onBlocked = () =>
+      toast("Звук заказа заглушён браузером", {
+        id: "nova-order-sound-blocked",
+        description: "Браузер не играет звук, пока по странице не кликнули. Нажмите — и звук заработает.",
+        duration: 30_000,
+        action: { label: "Включить звук", onClick: () => playOrderSound() },
+      });
+    window.addEventListener(ORDER_SOUND_BLOCKED_EVENT, onBlocked);
+    return () => window.removeEventListener(ORDER_SOUND_BLOCKED_EVENT, onBlocked);
   }, []);
 
   useEffect(() => {

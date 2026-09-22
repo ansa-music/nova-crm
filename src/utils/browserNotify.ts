@@ -324,39 +324,51 @@ function loadOrderSound(ctx: AudioContext): Promise<AudioBuffer | null> {
  * загрузился) — обычным `<audio>`, а если и он не может — коротким сигналом:
  * заказ без звука — ровно то, от чего это всё делалось.
  */
+/** Звук заказа браузер заглушил (не было касания страницы) — показать «Включить звук». */
+export const ORDER_SOUND_BLOCKED_EVENT = "nova:order-sound-blocked";
+
+/**
+ * Разбудить контекст, но НЕ ждать вечно: `resume()` без жеста не падает, а
+ * висит до следующего клика — и тогда все звуки, накопившиеся за час, разом
+ * грянули бы на первом же касании. 300 мс и хватит.
+ */
+async function wakeContext(ctx: AudioContext): Promise<boolean> {
+  if (ctx.state === "running") return true;
+  await Promise.race([ctx.resume().catch(() => undefined), new Promise((resolve) => setTimeout(resolve, 300))]);
+  return (ctx.state as AudioContextState) === "running";
+}
+
 export function playOrderSound() {
   if (browserNotifyMuted()) return;
+  const requestedAt = Date.now();
   const ctx = ensureAudio();
-  const fallback = () => {
+  // `<audio>` — запасной путь; не вышло и его — честно говорим, что звук
+  // заглушён, а не играем «бип» на спящем контексте (он бы прозвучал потом).
+  const viaElement = () => {
     const el = orderAudio();
+    const blocked = () => window.dispatchEvent(new CustomEvent(ORDER_SOUND_BLOCKED_EVENT));
     if (!el) {
-      playAlertSound();
+      blocked();
       return;
     }
     try {
       el.muted = false;
       el.currentTime = 0;
-      void el.play().catch(() => playAlertSound());
+      void el.play().catch(blocked);
     } catch {
-      playAlertSound();
+      blocked();
     }
   };
   if (!ctx) {
-    fallback();
+    viaElement();
     return;
   }
   void loadOrderSound(ctx).then(async (buffer) => {
-    // Контекст мог уснуть (вкладка долго в фоне) — будим; не проснулся —
-    // играем `<audio>`: на спящем контексте звук ушёл бы в тишину без ошибки.
-    if (ctx.state !== "running") {
-      try {
-        await ctx.resume();
-      } catch {
-        /* нет жеста */
-      }
-    }
-    if (!buffer || ctx.state !== "running") {
-      fallback();
+    const running = await wakeContext(ctx);
+    // Звук про заказ полминуты спустя уже только путает.
+    if (Date.now() - requestedAt > 30_000) return;
+    if (!buffer || !running) {
+      viaElement();
       return;
     }
     try {
@@ -367,7 +379,7 @@ export function playOrderSound() {
       source.connect(gain).connect(ctx.destination);
       source.start();
     } catch {
-      fallback();
+      viaElement();
     }
   });
 }
@@ -380,6 +392,14 @@ export function playAlertSound() {
   if (browserNotifyMuted()) return;
   const ctx = ensureAudio();
   if (!ctx) return;
+  // На спящем контексте сигнал не пропал бы, а прозвучал позже, на первом
+  // клике, — не к месту. Не проснулся — молчим.
+  void wakeContext(ctx).then((running) => {
+    if (running) beep(ctx);
+  });
+}
+
+function beep(ctx: AudioContext) {
   try {
     const now = ctx.currentTime;
     for (const [index, freq] of [880, 1175].entries()) {
