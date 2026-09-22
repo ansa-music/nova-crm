@@ -68,7 +68,7 @@ export default function MessagesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [otherMembers, search, unreadOnly, conversations]);
 
-  const { messages, chatId } = usePrivateChat(activeWorkspaceId, profile?.uid ?? null, selectedUid);
+  const { messages, chatId, hasEarlier, loadEarlier } = usePrivateChat(activeWorkspaceId, profile?.uid ?? null, selectedUid);
   const selectedMember = selectedUid ? (memberByUid.get(selectedUid) ?? null) : null;
   const openMeta = chatId ? conversations.find((c) => c.id === chatId) : undefined;
   const threadUnread = Boolean(openMeta?.unread);
@@ -290,6 +290,8 @@ export default function MessagesPage() {
               <ChatPanel
                 key={chatId ?? selectedUid}
                 messages={messages}
+                hasEarlier={hasEarlier}
+                onLoadEarlier={loadEarlier}
                 currentUid={profile.uid}
                 onSend={handleSend}
                 onEdit={async (id, text) => {

@@ -31,6 +31,9 @@ interface ChatPanelProps {
   emptyMessage?: string;
   /** Enables @mention autocomplete + highlighting + notifying the mentioned person. */
   mentionableUsers?: MentionableUser[];
+  /** Показаны не все сообщения — кнопка «Показать ранние» наверху ленты. */
+  hasEarlier?: boolean;
+  onLoadEarlier?: () => void;
 }
 
 /**
@@ -88,6 +91,8 @@ export function ChatPanel({
   onDelete,
   emptyMessage,
   mentionableUsers = [],
+  hasEarlier = false,
+  onLoadEarlier,
 }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
@@ -213,6 +218,17 @@ export function ChatPanel({
           isNearBottomRef.current = el.scrollHeight - (el.scrollTop + el.clientHeight) < 120;
         }}
       >
+        {hasEarlier && onLoadEarlier && !search.trim() && (
+          <div className="mb-3 flex justify-center">
+            <button
+              type="button"
+              onClick={onLoadEarlier}
+              className="min-h-11 rounded-full border border-border px-3 text-[12px] text-muted-foreground transition-colors hover:text-foreground sm:min-h-0 sm:py-1"
+            >
+              Показать ранние сообщения
+            </button>
+          </div>
+        )}
         {displayedMessages.length === 0 && (
           <p className="py-12 text-center text-sm text-muted-foreground">
             {search.trim() ? "Ничего не найдено" : emptyMessage ?? "Сообщений пока нет"}

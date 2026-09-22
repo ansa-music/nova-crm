@@ -1,9 +1,13 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { paths } from "@/firebase/firestore";
-import { subscribeToChat } from "@/services/chatService";
+import { subscribeToRecentChat } from "@/services/chatService";
+import { joinSharedSubscription } from "@/utils/sharedSubscription";
 import { subscribeMyConversations, subscribeReadMarkers } from "@/services/inboxService";
 import { INBOX_CHANGED_EVENT } from "@/utils/inboxEvents";
 import type { ChatMessage, PrivateChatMeta } from "@/types";
+
+/** Сколько последних сообщений общего чата смотрит счётчик непрочитанных. */
+const UNREAD_WINDOW = 50;
 
 export function useInboxSummary(
   workspaceId: string | null,
@@ -38,18 +42,39 @@ export function useInboxSummary(
       return;
     }
     setReadMarkersLoaded(false);
+    // Общие подписки (одна на приложение) — меню снимается и ставится
+    // заново при полноэкранной таблице и на телефоне, и каждая новая
+    // подписка перечитывала бы всё заново (квота Spark). Для счётчика
+    // непрочитанных хватает последних 50 сообщений общего чата: больше
+    // значок всё равно не покажет.
     const unsubs: Array<() => void> = [];
     if (includeWorkspaceChat) {
-      unsubs.push(subscribeToChat(paths.workspaceChat(workspaceId), setWorkspaceMessages));
+      unsubs.push(
+        joinSharedSubscription<ChatMessage[]>(
+          `inbox:wschat:${workspaceId}`,
+          (emit) => subscribeToRecentChat(paths.workspaceChat(workspaceId), UNREAD_WINDOW, (items) => emit(items)),
+          setWorkspaceMessages
+        )
+      );
     } else {
       setWorkspaceMessages([]);
     }
-    unsubs.push(subscribeMyConversations(workspaceId, uid, setConversations));
     unsubs.push(
-      subscribeReadMarkers(workspaceId, uid, (map) => {
-        setReadMarkers(map);
-        setReadMarkersLoaded(true);
-      })
+      joinSharedSubscription<PrivateChatMeta[]>(
+        `inbox:convs:${workspaceId}:${uid}`,
+        (emit) => subscribeMyConversations(workspaceId, uid, emit),
+        setConversations
+      )
+    );
+    unsubs.push(
+      joinSharedSubscription<Record<string, number>>(
+        `inbox:marks:${workspaceId}:${uid}`,
+        (emit) => subscribeReadMarkers(workspaceId, uid, emit),
+        (map) => {
+          setReadMarkers(map);
+          setReadMarkersLoaded(true);
+        }
+      )
     );
     return () => unsubs.forEach((u) => u());
   }, [active, workspaceId, uid, includeWorkspaceChat]);

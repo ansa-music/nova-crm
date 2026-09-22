@@ -14,7 +14,7 @@ import type { ChatMessage } from "@/types";
 export default function WorkspaceChatPage() {
   const { activeWorkspaceId, members } = useWorkspace();
   const { profile } = useAuth();
-  const messages = useWorkspaceChat(activeWorkspaceId);
+  const { messages, hasEarlier, loadEarlier } = useWorkspaceChat(activeWorkspaceId);
 
   const mentionableUsers = useMemo(
     () => members.filter((m) => m.status === "active").map((m) => ({ uid: m.uid, name: displayNameOf(m) })),
@@ -58,6 +58,8 @@ export default function WorkspaceChatPage() {
           onDelete={(id) => deleteChatMessage(chatRef, id)}
           emptyMessage="Пока никто ничего не написал — начните обсуждение первым"
           mentionableUsers={mentionableUsers}
+          hasEarlier={hasEarlier}
+          onLoadEarlier={loadEarlier}
         />
       </div>
     </div>
