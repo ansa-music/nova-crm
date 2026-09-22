@@ -942,6 +942,21 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(['workspaceId', 'name', 'people', 'updatedAt', 'updatedBy']);
       }
 
+      // -----------------------------------------------------------------
+      // Постоянная неделя графика (src/types/scheduleTemplate.ts): один
+      // документ `week` на workspace — у кого по каким дням выходной и смена.
+      // Ведёт и раскладывает её в techSchedule только руководство (той же
+      // пачкой, что и месяц), читают все: неделю видно всей команде.
+      // -----------------------------------------------------------------
+      match /scheduleTemplates/{templateId} {
+        allow read: if isMember(workspaceId);
+        allow delete: if hasFullAccess(workspaceId);
+        allow create, update: if hasFullAccess(workspaceId)
+          && templateId == 'week'
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.keys().hasOnly(['workspaceId', 'people', 'updatedAt', 'updatedBy']);
+      }
+
       match /orders/{orderId} {
         allow read: if isMember(workspaceId);
         allow create: if canIssueOrders(workspaceId)

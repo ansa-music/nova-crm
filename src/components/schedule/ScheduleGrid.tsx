@@ -38,7 +38,7 @@ export type ScheduleDayAction = ScheduleDayState | "came" | "not-came" | "hours"
  * Инициалы аватарки берутся по первым буквам слов, а своих людей пишут как
  * «Асхат (монтаж)» — скобка попадала в кружок. Оставляем только буквы.
  */
-function initialsName(label: string): string {
+export function initialsName(label: string): string {
   return label.replace(/[^\p{L}\p{N}\s]+/gu, " ").replace(/\s+/g, " ").trim() || label;
 }
 

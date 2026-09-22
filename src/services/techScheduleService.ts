@@ -1,4 +1,4 @@
-import { deleteField, onSnapshot, query, setDoc, where, writeBatch, type FirestoreError } from "firebase/firestore";
+import { deleteField, onSnapshot, query, setDoc, where, writeBatch, type FirestoreError, type WriteBatch } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
 import { techScheduleId, type ScheduleDayState, type ScheduleHours, type TechSchedule } from "@/types";
@@ -35,6 +35,16 @@ export function subscribeTechSchedules(
       ),
     withErrorReporting(onError)
   );
+}
+
+/**
+ * Часы дня для записи с merge. Вложенная карта при merge СЛИВАЕТСЯ со
+ * старой: без явного удаления подпись «10–12, 15–19» от прошлой смены
+ * оставалась бы у новых часов и показывалась вместо них. `undefined`
+ * внутри тоже нельзя — `ignoreUndefinedProperties` выключен.
+ */
+function hoursWrite(hours: ScheduleHours) {
+  return { from: hours.from, to: hours.to || "", label: hours.label ? hours.label : deleteField() };
 }
 
 /**
@@ -132,7 +142,7 @@ export async function setScheduleHours(input: {
       workspaceId: input.workspaceId,
       uid: input.uid,
       monthKey: input.monthKey,
-      hours: { [input.dayKey]: input.hours ?? deleteField() },
+      hours: { [input.dayKey]: input.hours ? hoursWrite(input.hours) : deleteField() },
       updatedAt: Date.now(),
       updatedBy: input.actorUid,
     },
@@ -146,6 +156,12 @@ export async function setScheduleHours(input: {
  * записей, и на середине прерванное сохранение оставило бы месяц наполовину
  * правленым.
  */
+export interface ScheduleDraftChange {
+  uid: string;
+  days?: Record<string, ScheduleDayState>;
+  hours?: Record<string, ScheduleHours | null>;
+}
+
 export async function saveScheduleDraft(input: {
   workspaceId: string;
   monthKey: string;
@@ -155,15 +171,24 @@ export async function saveScheduleDraft(input: {
    * (`null` = снять часы). Шаблон недели раскладывает месяц разом, поэтому
    * тут легко набирается под сотню дней — всё равно один batch.
    */
-  changes: Array<{
-    uid: string;
-    days?: Record<string, ScheduleDayState>;
-    hours?: Record<string, ScheduleHours | null>;
-  }>;
+  changes: ScheduleDraftChange[];
 }) {
   if (!db) throw new Error("Firebase не настроен");
   if (input.changes.length === 0) return;
   const batch = writeBatch(db);
+  addScheduleChangesToBatch(batch, input);
+  await batch.commit();
+}
+
+/**
+ * Те же записи, что у `saveScheduleDraft`, но в ЧУЖОЙ batch: неделя графика
+ * пишет себя и раскладку по месяцам одной пачкой, чтобы после сбоя не
+ * остаться с новой неделей и старым месяцем.
+ */
+export function addScheduleChangesToBatch(
+  batch: WriteBatch,
+  input: { workspaceId: string; monthKey: string; actorUid: string; changes: ScheduleDraftChange[] }
+) {
   for (const change of input.changes) {
     const days: Record<string, unknown> = {};
     const selfWork: Record<string, unknown> = {};
@@ -175,7 +200,7 @@ export async function saveScheduleDraft(input: {
       selfWork[dayKey] = deleteField();
     }
     for (const [dayKey, value] of Object.entries(change.hours ?? {})) {
-      hours[dayKey] = value ?? deleteField();
+      hours[dayKey] = value ? hoursWrite(value) : deleteField();
     }
     // Выходной и «отпросился» снимают часы того же дня (см. setScheduleDay).
     for (const [dayKey, state] of Object.entries(change.days ?? {})) {
@@ -198,5 +223,4 @@ export async function saveScheduleDraft(input: {
     if (Object.keys(hours).length > 0) data.hours = hours;
     batch.set(paths.techSchedule(input.workspaceId, techScheduleId(change.uid, input.monthKey)), data, { merge: true });
   }
-  await batch.commit();
 }
