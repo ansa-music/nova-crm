@@ -993,20 +993,24 @@ service cloud.firestore {
 
       match /orders/{orderId} {
         allow read: if isMember(workspaceId);
-        // «Свободные / Все» (`claimScope` — кто может откликнуться) — кнопка
-        // ТОЛЬКО Owner/Тимлида: выдающий ОС заказ создаёт «Свободным» и это
-        // поле не трогает. Нет поля — «free».
+        // «Свободные / Все» (`claimScope` — кто может откликнуться; нет поля
+        // — «free») переключают Owner, Тимлид и ВСЕ ОС — у любого открытого
+        // заказа, не только своего (просьба Nurba). Значение — только free/all.
         allow create: if canIssueOrders(workspaceId)
           && request.resource.data.workspaceId == workspaceId
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.status == 'open'
-          && (request.resource.data.get('claimScope', 'free') == 'free'
-            || (hasFullAccess(workspaceId) && request.resource.data.claimScope == 'all'));
+          && request.resource.data.get('claimScope', 'free') in ['free', 'all'];
         // Выдающий (или Owner/Тимлид) распоряжается заказом целиком.
         allow update: if (hasFullAccess(workspaceId)
-            && request.resource.data.get('claimScope', 'free') in ['free', 'all'])
-          || (canIssueOrders(workspaceId) && resource.data.createdBy == request.auth.uid
-            && request.resource.data.get('claimScope', 'free') == resource.data.get('claimScope', 'free'));
+            || (canIssueOrders(workspaceId) && resource.data.createdBy == request.auth.uid))
+          && request.resource.data.get('claimScope', 'free') in ['free', 'all'];
+        // Любой ОС — «Свободные / Все» у ЧУЖОГО открытого заказа: только это
+        // поле (и отметка времени), больше в чужом заказе ничего.
+        allow update: if canIssueOrders(workspaceId)
+          && resource.data.status == 'open'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimScope', 'updatedAt'])
+          && request.resource.data.claimScope in ['free', 'all'];
         allow delete: if hasFullAccess(workspaceId)
           || (canIssueOrders(workspaceId) && resource.data.createdBy == request.auth.uid);
         // Технарь: отклик — только свой ключ в claims, только у открытого заказа.
