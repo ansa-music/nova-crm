@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "react-router";
+import { waitForPendingWrites } from "firebase/firestore";
 import { toast } from "@/components/ui/sonner";
+import { db } from "@/firebase/firebase";
 
 /**
  * «Вышла новая версия — обновите». Сайт — одностраничное приложение: вкладку
@@ -22,14 +24,41 @@ const CHECK_EVERY_MS = 5 * 60_000;
 const MIN_GAP_MS = 60_000;
 const TOAST_ID = "nova-app-update";
 
+/**
+ * Главный бандл ЭТОГО сайта. Только свой origin: расширение браузера может
+ * вставить свой `…/assets/index-XXXX.js` раньше нашего, и тогда «новая
+ * версия» находилась бы всегда, а каждый переход перезагружал бы страницу.
+ */
 function currentEntry(): string | null {
-  const script = document.querySelector<HTMLScriptElement>('script[type="module"][src*="/assets/index-"]');
-  if (!script) return null;
-  try {
-    return new URL(script.src, window.location.href).pathname;
-  } catch {
-    return null;
+  for (const script of Array.from(document.querySelectorAll<HTMLScriptElement>('script[type="module"][src*="/assets/index-"]'))) {
+    try {
+      const url = new URL(script.src, window.location.href);
+      if (url.origin === window.location.origin) return url.pathname;
+    } catch {
+      /* кривой src — не наш */
+    }
   }
+  return null;
+}
+
+/**
+ * Перезагрузить, но сначала дождаться, пока уйдут на сервер последние правки:
+ * клик по разделу сразу после ввода в ячейку коммитит её, и перезагрузка в
+ * тот же миг обрывала бы запись (кэш Firestore только в памяти). Ждём не
+ * дольше 4 с — без сети ждать бесконечно нельзя.
+ */
+let reloading = false;
+async function reloadSafely() {
+  if (reloading) return;
+  reloading = true;
+  try {
+    if (db) await Promise.race([waitForPendingWrites(db), new Promise((resolve) => setTimeout(resolve, 4000))]);
+    // Следом за подтверждённой записью бывает вторая (история изменений).
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  } catch {
+    /* всё равно перезагружаем */
+  }
+  window.location.reload();
 }
 
 async function latestEntry(): Promise<string | null> {
@@ -64,7 +93,7 @@ export function useAppUpdateCheck() {
           id: TOAST_ID,
           description: "Обновите страницу, чтобы получить последние изменения.",
           duration: Infinity,
-          action: { label: "Обновить", onClick: () => window.location.reload() },
+          action: { label: "Обновить", onClick: () => void reloadSafely() },
         });
       } catch {
         /* нет сети — проверим в следующий раз */
@@ -91,6 +120,6 @@ export function useAppUpdateCheck() {
     const path = location.pathname + location.search;
     if (path === firstPathRef.current) return;
     firstPathRef.current = path;
-    if (updateReadyRef.current) window.location.reload();
+    if (updateReadyRef.current) void reloadSafely();
   }, [location.pathname, location.search]);
 }
