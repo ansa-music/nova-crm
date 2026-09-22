@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
+import type { QueryDocumentSnapshot } from "firebase/firestore";
 import { CalendarClock, Clock3, ExternalLink, Hand, Inbox, Link2, Phone, Plus, Shuffle, Trash2, Undo2, UserCheck, Users, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -18,8 +19,12 @@ import { currentMonthSubPageId } from "@/services/monthTabService";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import {
   assignOrder,
+  countOrdersWithStatus,
   createOrder,
   deleteOrder,
+  fetchOrder,
+  fetchOrderHistoryPage,
+  isHistoryOrderStatus,
   orderRandomPool,
   pickFromPool,
   setOrderCancelled,
@@ -28,8 +33,11 @@ import {
   subscribeOrders,
   takeOrderToDesk,
   unassignOrder,
+  type HistoryOrderStatus,
   type OrderCandidate,
 } from "@/services/orderService";
+import { feedOpenOrdersFromPage, releaseOpenOrdersPageFeed } from "@/services/openOrdersPulse";
+import { firestoreErrorText } from "@/utils/dbError";
 import { parseOptionalNumber } from "@/utils/quickOrder";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { formatCurrency } from "@/utils/format";
@@ -57,6 +65,34 @@ import {
 } from "@/types";
 
 const TABS: WorkOrderStatus[] = ["open", "assigned", "taken", "cancelled"];
+const HISTORY_TABS: HistoryOrderStatus[] = ["taken", "cancelled"];
+
+type HistoryCounts = Record<HistoryOrderStatus, number | null>;
+const UNKNOWN_HISTORY_COUNTS: HistoryCounts = { taken: null, cancelled: null };
+
+/** История: только «В столах» и «Отменённые», без повторов, новые сверху. Свежая версия заказа побеждает. */
+function mergeHistory(prev: WorkOrder[], incoming: WorkOrder[]): WorkOrder[] {
+  const byId = new Map(prev.map((o) => [o.id, o]));
+  for (const order of incoming) {
+    if (isHistoryOrderStatus(order.status)) byId.set(order.id, order);
+    else byId.delete(order.id);
+  }
+  return Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** Счётчик чипа, пока он неизвестен (null), не трогаем — иначе «не знаем» превратилось бы в число. */
+function bumpHistoryCount(counts: HistoryCounts, status: HistoryOrderStatus, delta: number): HistoryCounts {
+  const current = counts[status];
+  if (current === null) return counts;
+  return { ...counts, [status]: Math.max(0, current + delta) };
+}
+
+/**
+ * Заказ, появившийся на бирже, считается НОВЫМ, если создан не раньше чем за
+ * столько до первого снимка страницы (запас на расхождение часов устройств).
+ * Более старый — это заказ, который вернули из отменённых.
+ */
+const NEW_ORDER_SLACK_MS = 5 * 60_000;
 
 /** «YYYY-MM-DD» из поля даты → полдень этого дня по Алматы (или null). */
 function deadlineMillis(raw: string): number | null {
@@ -84,7 +120,12 @@ const STATUS_TONE: Record<WorkOrderStatus, string> = {
  * «Заказы» — биржа между ОС и технарями. ОС/Тимлид/Owner выдаёт заказ,
  * технари откликаются, выдающий отдаёт заказ одному из них (или рандому),
  * назначенный забирает его в свой стол — строка заполняется сама.
- * Подписка на заказы живёт только пока открыта эта страница.
+ * Подписка на заказы живёт только пока открыта эта страница, и вживую —
+ * только открытые и выданные. «В столах» и «Отменённые» — история: она
+ * читается разово страницами по 60 при первом заходе на вкладку
+ * («Показать ещё» — следующие), а числа на их чипах — серверным подсчётом.
+ * Живая подписка на всю коллекцию перечитывала историю при каждом открытии
+ * страницы и платила чтение за каждое изменение любого заказа (квота Spark).
  */
 export default function OrdersPage() {
   const { profile } = useAuth();
@@ -107,6 +148,20 @@ export default function OrdersPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [ordersError, setOrdersError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  /** История («В столах» + «Отменённые»); null — ещё не читали. */
+  const [history, setHistory] = useState<WorkOrder[] | null>(null);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  /** Текст отказа первой страницы истории — с кодом, чтобы было видно, что сломалось. */
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyCounts, setHistoryCounts] = useState<HistoryCounts>(UNKNOWN_HISTORY_COUNTS);
+  const [historyCountsTick, setHistoryCountsTick] = useState(0);
+  /** Для колбэков подписки: она живёт долго и иначе видела бы историю своего первого рендера. */
+  const historyRef = useRef<WorkOrder[] | null>(null);
+  historyRef.current = history;
+  const historyCursorRef = useRef<QueryDocumentSnapshot | null>(null);
+  /** Поколение истории: после смены workspace старые ответы не должны лечь в новую историю. */
+  const historyGenRef = useRef(0);
 
   const uid = profile?.uid ?? "";
   const myName = myDisplayName(profile, members);
@@ -226,15 +281,81 @@ export default function OrdersPage() {
     return map;
   }, [pages]);
 
+  // Другой workspace — своя история: старую выбрасываем, ответы в пути отбрасываем.
+  useEffect(() => {
+    historyGenRef.current += 1;
+    historyCursorRef.current = null;
+    setHistory(null);
+    setHistoryHasMore(false);
+    setHistoryLoading(false);
+    setHistoryError(null);
+    setHistoryCounts(UNKNOWN_HISTORY_COUNTS);
+  }, [activeWorkspaceId]);
+
   useEffect(() => {
     setOrders(null);
     setOrdersError(false);
     if (!activeWorkspaceId) return;
-    return subscribeOrders(
-      activeWorkspaceId,
-      (rows) => {
+    const workspaceId = activeWorkspaceId;
+    /** Последний снимок, подтверждённый сервером: по разнице с ним видно, кто ушёл с биржи и кто пришёл. */
+    let baseline: Map<string, WorkOrder> | null = null;
+    let baselineAt = 0;
+
+    /**
+     * Заказ ушёл с биржи — забрали в стол, отменили или удалили. Куда именно,
+     * подписка не говорит (она видит только живые), поэтому один разовый
+     * `getDoc`: одно чтение вместо перечитывания всей истории.
+     */
+    function onLeftLive(order: WorkOrder) {
+      const gen = historyGenRef.current;
+      fetchOrder(workspaceId, order.id).then(
+        (fresh) => {
+          if (gen !== historyGenRef.current || !fresh || !isHistoryOrderStatus(fresh.status)) return;
+          const status = fresh.status;
+          setHistoryCounts((counts) => bumpHistoryCount(counts, status, 1));
+          setHistory((prev) => (prev === null ? prev : mergeHistory(prev, [fresh])));
+        },
+        (error) => console.error("fetchOrder failed:", error)
+      );
+    }
+
+    /** Заказ появился на бирже: новый — историю не трогает, вернули из отменённых — убираем оттуда. */
+    function onEnteredLive(order: WorkOrder) {
+      const was = historyRef.current?.find((o) => o.id === order.id);
+      if (was) {
+        setHistory((prev) => (prev === null ? prev : prev.filter((o) => o.id !== order.id)));
+        if (isHistoryOrderStatus(was.status)) {
+          const status = was.status;
+          setHistoryCounts((counts) => bumpHistoryCount(counts, status, -1));
+        }
+        return;
+      }
+      // Старый заказ вернули на биржу, а в прочитанной истории его нет —
+      // откуда он пришёл, не знаем: пересчитываем чипы (два агрегата).
+      if (order.createdAt < baselineAt - NEW_ORDER_SLACK_MS) setHistoryCountsTick((tick) => tick + 1);
+    }
+
+    const unsubscribe = subscribeOrders(
+      workspaceId,
+      (rows, fromCache) => {
         setOrdersError(false);
         setOrders(rows);
+        // Первый снимок может прийти из кэша и не знать о части заказов —
+        // «ушёл с биржи» по нему было бы ложным. Считаем только по снимкам,
+        // подтверждённым сервером.
+        if (fromCache) return;
+        // Зелёный пункт «Заказы» кормим отсюда: свой слушатель ему, пока
+        // страница открыта, не нужен.
+        feedOpenOrdersFromPage(workspaceId, rows.filter((o) => o.status === "open").length);
+        const next = new Map(rows.map((o) => [o.id, o]));
+        const prev = baseline;
+        baseline = next;
+        if (!prev) {
+          baselineAt = Date.now();
+          return;
+        }
+        for (const [id, order] of prev) if (!next.has(id)) onLeftLive(order);
+        for (const [id, order] of next) if (!prev.has(id)) onEnteredLive(order);
       },
       (error) => {
         // Отказ в чтении НЕЛЬЗЯ отдавать как «заказов нет» (см. «Критические
@@ -242,17 +363,77 @@ export default function OrdersPage() {
         // неотличим от пустой биржи, и ОС выдаёт дубль. onSnapshot после
         // ошибки сам не переподключается — нужен явный повтор.
         console.error("subscribeOrders failed:", error);
+        releaseOpenOrdersPageFeed(workspaceId);
         setOrdersError(true);
       }
     );
+    return () => {
+      unsubscribe();
+      releaseOpenOrdersPageFeed(workspaceId);
+    };
   }, [activeWorkspaceId, reloadKey]);
 
+  // Числа на чипах истории — агрегатом на сервере (одно чтение на тысячу
+  // заказов), а не чтением самих заказов. Дальше их двигают переходы на бирже.
+  useEffect(() => {
+    if (!activeWorkspaceId) return;
+    const workspaceId = activeWorkspaceId;
+    let cancelled = false;
+    for (const status of HISTORY_TABS) {
+      countOrdersWithStatus(workspaceId, status).then(
+        (count) => {
+          if (!cancelled) setHistoryCounts((counts) => ({ ...counts, [status]: count }));
+        },
+        (error) => console.error(`countOrdersWithStatus(${status}) failed:`, error)
+      );
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceId, historyCountsTick]);
+
+  const historyTab = isHistoryOrderStatus(tab);
+
+  async function loadHistory(more: boolean) {
+    if (!activeWorkspaceId) return;
+    const workspaceId = activeWorkspaceId;
+    const gen = historyGenRef.current;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const page = await fetchOrderHistoryPage(workspaceId, more ? historyCursorRef.current : null);
+      if (gen !== historyGenRef.current) return;
+      historyCursorRef.current = page.cursor;
+      setHistoryHasMore(page.hasMore);
+      setHistory((prev) => mergeHistory(more ? (prev ?? []) : [], page.orders));
+    } catch (error) {
+      if (gen !== historyGenRef.current) return;
+      console.error("fetchOrderHistoryPage failed:", error);
+      const text = firestoreErrorText(error, "Не удалось загрузить заказы");
+      // Уже показанный список не прячем из-за неудачного «Показать ещё».
+      if (more) toast.error(text);
+      else setHistoryError(text);
+    } finally {
+      if (gen === historyGenRef.current) setHistoryLoading(false);
+    }
+  }
+
+  // История читается, только когда на её вкладку зашли, и один раз.
+  useEffect(() => {
+    if (historyTab && history === null && !historyLoading && historyError === null) void loadHistory(false);
+    // loadHistory пересоздаётся каждый рендер — в зависимостях он зациклил бы чтение.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyTab, history, historyLoading, historyError, activeWorkspaceId]);
+
   const counts = useMemo(() => {
-    const c: Record<WorkOrderStatus, number> = { open: 0, assigned: 0, taken: 0, cancelled: 0 };
-    for (const o of orders ?? []) c[o.status] += 1;
+    const c: Record<WorkOrderStatus, number | null> = { open: 0, assigned: 0, ...historyCounts };
+    for (const o of orders ?? []) if (o.status === "open" || o.status === "assigned") c[o.status] = (c[o.status] ?? 0) + 1;
     return c;
-  }, [orders]);
-  const visible = useMemo(() => (orders ?? []).filter((o) => o.status === tab), [orders, tab]);
+  }, [orders, historyCounts]);
+  const visible = useMemo(
+    () => (historyTab ? (history ?? []) : (orders ?? [])).filter((o) => o.status === tab),
+    [orders, history, historyTab, tab]
+  );
   /** Живой заказ для диалога — он переживает отклики, выдачу и отмену. */
   const assignFor = useMemo(() => (assignForId ? ((orders ?? []).find((o) => o.id === assignForId) ?? null) : null), [orders, assignForId]);
 
@@ -393,7 +574,7 @@ export default function OrdersPage() {
         filters={TABS.map((status) => (
           <button key={status} type="button" onClick={() => setTab(status)} className={pageChipClass(tab === status)}>
             {status === "open" ? "Открытые" : status === "assigned" ? "Выданные" : status === "taken" ? "В столах" : "Отменённые"}
-            <span className="tabular-nums text-[10px] opacity-80">{counts[status]}</span>
+            {counts[status] !== null && <span className="tabular-nums text-[10px] opacity-80">{counts[status]}</span>}
           </button>
         ))}
       />
@@ -415,7 +596,18 @@ export default function OrdersPage() {
         </div>
       )}
 
-      {ordersError ? (
+      {historyTab && history === null && historyError !== null ? (
+        <EmptyState
+          eyebrow="Заказы"
+          title="Не удалось загрузить заказы"
+          description={`Список не прочитался — это не значит, что заказов нет. ${historyError}`}
+          action={
+            <Button variant="outline" onClick={() => setHistoryError(null)}>
+              Повторить
+            </Button>
+          }
+        />
+      ) : !historyTab && ordersError ? (
         <EmptyState
           eyebrow="Заказы"
           title="Не удалось загрузить заказы"
@@ -426,14 +618,36 @@ export default function OrdersPage() {
             </Button>
           }
         />
-      ) : orders === null ? (
+      ) : (historyTab ? history === null : orders === null) ? (
         <p className="py-10 text-center text-sm text-muted-foreground">Загружаем заказы…</p>
       ) : visible.length === 0 ? (
         <EmptyState
           eyebrow="Заказы"
-          title={tab === "open" ? "Открытых заказов нет" : tab === "assigned" ? "Выданных заказов нет" : tab === "taken" ? "В столы пока ничего не забрали" : "Отменённых нет"}
+          title={
+            tab === "open"
+              ? "Открытых заказов нет"
+              : tab === "assigned"
+                ? "Выданных заказов нет"
+                : historyHasMore
+                  ? tab === "taken"
+                    ? "Среди последних заказов в столы ничего не забрали"
+                    : "Среди последних заказов отменённых нет"
+                  : tab === "taken"
+                    ? "В столы пока ничего не забрали"
+                    : "Отменённых нет"
+          }
           description={tab === "open" && canIssue ? "Нажмите «Выдать заказ» — технари получат уведомление." : undefined}
-          action={tab === "open" && canIssue ? <Button className="gap-1.5" onClick={() => setIssueOpen(true)}><Plus className="h-4 w-4" /> Выдать заказ</Button> : undefined}
+          action={
+            tab === "open" && canIssue ? (
+              <Button className="gap-1.5" onClick={() => setIssueOpen(true)}>
+                <Plus className="h-4 w-4" /> Выдать заказ
+              </Button>
+            ) : historyTab && historyHasMore ? (
+              <Button variant="outline" className="min-h-11 sm:min-h-0" disabled={historyLoading} onClick={() => void loadHistory(true)}>
+                {historyLoading ? "Загружаем…" : "Показать ещё"}
+              </Button>
+            ) : undefined
+          }
         />
       ) : (
         <div className="flex flex-col gap-3">
@@ -698,7 +912,19 @@ export default function OrdersPage() {
                         onClick={async () => {
                           if (!activeWorkspaceId) return;
                           if (!(await confirmDialog({ title: `Удалить заказ «${order.client}»?`, description: order.status === "taken" ? "Строка в столе технаря останется." : undefined, destructive: true }))) return;
-                          void withBusy(order.id, () => deleteOrder(activeWorkspaceId, order.id), "Не удалось удалить");
+                          void withBusy(
+                            order.id,
+                            async () => {
+                              await deleteOrder(activeWorkspaceId, order.id);
+                              // История не живая — убираем удалённый сами, и из счётчика чипа тоже.
+                              setHistory((prev) => (prev === null ? prev : prev.filter((o) => o.id !== order.id)));
+                              if (isHistoryOrderStatus(order.status)) {
+                                const status = order.status;
+                                setHistoryCounts((c) => bumpHistoryCount(c, status, -1));
+                              }
+                            },
+                            "Не удалось удалить"
+                          );
                         }}
                       >
                         <Trash2 className="h-3.5 w-3.5" /> Удалить
@@ -709,6 +935,16 @@ export default function OrdersPage() {
               </article>
             );
           })}
+          {historyTab && historyHasMore && (
+            <Button
+              variant="outline"
+              className="min-h-11 self-center sm:min-h-0"
+              disabled={historyLoading}
+              onClick={() => void loadHistory(true)}
+            >
+              {historyLoading ? "Загружаем…" : "Показать ещё"}
+            </Button>
+          )}
         </div>
       )}
 

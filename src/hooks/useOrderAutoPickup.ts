@@ -37,9 +37,12 @@ function enqueuePickup<T>(task: () => Promise<T>): Promise<T> {
  * заказ приедет при первом же открытии — статус `assigned` ждёт его в базе.
  *
  * Слушатель один на сессию и только у технаря со столом: `assignedUid == me`
- * — это его собственные заказы, их единицы (лимиты listener'ов на Spark, см.
- * CLAUDE.md). Статус фильтруется на клиенте, чтобы не заводить составной
- * индекс ради второго равенства.
+ * — это его собственные заказы (лимиты listener'ов на Spark, см. CLAUDE.md).
+ * Статус фильтруется на сервере (`status == "assigned"`): без него подписка
+ * при каждом входе перечитывала ВСЕ заказы, которые технарь когда-либо
+ * забирал, — они так и числятся за ним со статусом `taken`. Два равенства
+ * сервер собирает из одиночных индексов, составной индекс не нужен.
+ * Проверка статуса в колбэке осталась страховкой.
  */
 export function useOrderAutoPickup() {
   const { profile } = useAuth();
@@ -70,7 +73,7 @@ export function useOrderAutoPickup() {
 
   useEffect(() => {
     if (!enabled || !activeWorkspaceId || !myDesk) return;
-    const q = query(paths.orders(activeWorkspaceId), where("assignedUid", "==", uid));
+    const q = query(paths.orders(activeWorkspaceId), where("assignedUid", "==", uid), where("status", "==", "assigned"));
     const unsubscribe = onSnapshot(
       q,
       (snap) => {

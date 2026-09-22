@@ -6,8 +6,13 @@ import { subscribeMyConversations, subscribeReadMarkers } from "@/services/inbox
 import { INBOX_CHANGED_EVENT } from "@/utils/inboxEvents";
 import type { ChatMessage, PrivateChatMeta } from "@/types";
 
-/** Сколько последних сообщений общего чата смотрит счётчик непрочитанных. */
-const UNREAD_WINDOW = 50;
+/**
+ * Сколько последних сообщений общего чата смотрит счётчик непрочитанных.
+ * Подписка висит у КАЖДОГО в меню, и каждый её старт читает все N
+ * документов (квота Spark). Значку хватает и 10: «10 непрочитанных» и «50»
+ * для человека значат одно — пора заглянуть в чат.
+ */
+const UNREAD_WINDOW = 10;
 
 export function useInboxSummary(
   workspaceId: string | null,
@@ -45,7 +50,7 @@ export function useInboxSummary(
     // Общие подписки (одна на приложение) — меню снимается и ставится
     // заново при полноэкранной таблице и на телефоне, и каждая новая
     // подписка перечитывала бы всё заново (квота Spark). Для счётчика
-    // непрочитанных хватает последних 50 сообщений общего чата: больше
+    // непрочитанных хватает последних 10 сообщений общего чата: больше
     // значок всё равно не покажет.
     const unsubs: Array<() => void> = [];
     if (includeWorkspaceChat) {
