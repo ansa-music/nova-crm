@@ -6,6 +6,13 @@
 export interface SchedulePerson {
   id: string;
   name: string;
+  /**
+   * Ник ОС, за которым человек закреплён ЗАРАНЕЕ — пока у него нет аккаунта.
+   * Когда этот ник закрепят за живым участником, его строка графика вместе с
+   * неделей переедет на аккаунт (`bindScheduleGroupPersonToMember`), а здесь
+   * исчезнет: два места с одним и тем же человеком разъехались бы за неделю.
+   */
+  osNick?: string;
 }
 
 export interface ScheduleGroup {

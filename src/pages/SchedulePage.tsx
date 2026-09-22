@@ -454,12 +454,14 @@ export default function SchedulePage() {
     }
   }
 
-  async function saveGroup(name: string, people: SchedulePerson[]) {
-    if (!activeWorkspaceId) return;
+  async function saveGroup(name: string, people: SchedulePerson[]): Promise<boolean> {
+    if (!activeWorkspaceId) return false;
     try {
       await saveScheduleGroup({ workspaceId: activeWorkspaceId, name, people, actorUid: uid });
+      return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось сохранить раздел");
+      return false;
     }
   }
 
@@ -594,10 +596,32 @@ export default function SchedulePage() {
     );
   }
 
-  function applyPaste(result: WeekPasteResult[]) {
+  async function applyPaste(result: WeekPasteResult[]) {
     if (weekLocked) return;
+    // В таблице руководства есть те, у кого аккаунта ещё нет: заводим их в
+    // своём разделе и тем же именем ставим ник ОС — при закреплении ника
+    // строка графика переедет на аккаунт.
+    const additions = result.filter((r) => !r.personId && r.newName?.trim());
+    const newIdByName = new Map<string, string>();
+    if (additions.length > 0) {
+      const people = [...groupPeople];
+      for (const add of additions) {
+        const name = add.newName!.trim();
+        if (newIdByName.has(name)) continue;
+        const id = newSchedulePersonId();
+        newIdByName.set(name, id);
+        people.push({ id, name, osNick: name });
+      }
+      // Не завели — не пишем им неделю: строки бы не было, а запись осталась.
+      if (!(await saveGroup(groupName, people))) return;
+      toast.success(`Завели в разделе «${groupName}»: ${newIdByName.size}`);
+    }
     putWeekCells(
-      result.map(({ personId, cells: parsed }) => {
+      result.flatMap(({ personId, newName, cells: parsed }) => {
+        const id = personId || newIdByName.get((newName ?? "").trim()) || "";
+        if (!id) return [];
+        return [{ id, parsed }];
+      }).map(({ id: personId, parsed }) => {
         const current = weekCellsOfId(personId);
         const cells: Record<string, WeekCell> = {};
         // Только распознанные клетки: пустая и непонятная оставляют день как был.
@@ -1156,7 +1180,8 @@ export default function SchedulePage() {
           rows={patternRows}
           initialText={paste.text}
           onClose={() => setPaste(null)}
-          onApply={applyPaste}
+          canAddPeople={canEdit}
+          onApply={(result) => void applyPaste(result)}
         />
       )}
 

@@ -12,6 +12,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { linkMemberOsNick, OS_NICK_MAX_LENGTH } from "@/services/memberService";
+import { bindScheduleGroupPersonToMember } from "@/services/scheduleGroupService";
+import { usePermissions } from "@/hooks/usePermissions";
 import { confirmDialog } from "@/utils/appDialog";
 import { cn } from "@/utils/cn";
 import { displayNameOf } from "@/utils/displayName";
@@ -41,6 +43,7 @@ export function OsNickDialog({
   onClose: () => void;
   onSaved: () => Promise<void> | void;
 }) {
+  const { uid: actorUid } = usePermissions();
   const currentValue = member.osNickValue && options.some((o) => o.value === member.osNickValue) ? member.osNickValue : null;
   const [query, setQuery] = useState("");
   const [showInactive, setShowInactive] = useState(false);
@@ -76,8 +79,18 @@ export function OsNickDialog({
       const target = choice.kind === "option" ? { optionValue: choice.value } : { newNick: choice.label };
       await linkMemberOsNick({ workspaceId, uid: member.uid, target, members });
       const label = choice.kind === "option" ? options.find((o) => o.value === choice.value)?.label ?? "" : choice.label;
+      // График могли завести заранее — на «ожидающего» человека с этим ником.
+      // Теперь у него есть аккаунт: переносим строку графика на него.
+      const adopted = await bindScheduleGroupPersonToMember({
+        workspaceId,
+        memberUid: member.uid,
+        osNickLabel: label,
+        actorUid,
+      }).catch(() => null);
       await onSaved();
-      toast.success(`Ник ОС «${label}» закреплён`, { description: name });
+      toast.success(`Ник ОС «${label}» закреплён`, {
+        description: adopted ? `${name} · график «${adopted}» перенесён на аккаунт` : name,
+      });
       onClose();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось закрепить ник");
