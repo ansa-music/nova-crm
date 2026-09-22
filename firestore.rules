@@ -975,12 +975,21 @@ service cloud.firestore {
 
       match /orders/{orderId} {
         allow read: if isMember(workspaceId);
+        // «Свободные / Все» (`claimScope` — кто может откликнуться) — кнопка
+        // ТОЛЬКО Owner/Тимлида: выдающий ОС заказ создаёт «Свободным» и это
+        // поле не трогает. Нет поля — «free».
         allow create: if canIssueOrders(workspaceId)
           && request.resource.data.workspaceId == workspaceId
           && request.resource.data.createdBy == request.auth.uid
-          && request.resource.data.status == 'open';
+          && request.resource.data.status == 'open'
+          && (request.resource.data.get('claimScope', 'free') == 'free'
+            || (hasFullAccess(workspaceId) && request.resource.data.claimScope == 'all'));
         // Выдающий (или Owner/Тимлид) распоряжается заказом целиком.
-        allow update, delete: if hasFullAccess(workspaceId)
+        allow update: if (hasFullAccess(workspaceId)
+            && request.resource.data.get('claimScope', 'free') in ['free', 'all'])
+          || (canIssueOrders(workspaceId) && resource.data.createdBy == request.auth.uid
+            && request.resource.data.get('claimScope', 'free') == resource.data.get('claimScope', 'free'));
+        allow delete: if hasFullAccess(workspaceId)
           || (canIssueOrders(workspaceId) && resource.data.createdBy == request.auth.uid);
         // Технарь: отклик — только свой ключ в claims, только у открытого заказа.
         allow update: if hasRole(workspaceId, 'manager')

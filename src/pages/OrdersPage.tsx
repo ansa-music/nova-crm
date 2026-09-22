@@ -24,6 +24,7 @@ import {
   pickFromPool,
   setOrderCancelled,
   setOrderClaim,
+  setOrderClaimScope,
   subscribeOrders,
   takeOrderToDesk,
   unassignOrder,
@@ -39,7 +40,21 @@ import { parseHttpUrl } from "@/utils/httpUrl";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { OrdersNotifyBanner } from "@/components/common/BrowserNotifySetting";
 import { cn } from "@/utils/cn";
-import { memberHasRole, scheduleDayKey, scheduleStateOf, WORK_ORDER_STATUS_LABELS, WORK_ORDER_URGENCY_LABELS, type WorkOrder, type WorkOrderStatus, type WorkOrderUrgency, type WorkspaceMember, type TechSchedule } from "@/types";
+import {
+  memberHasRole,
+  orderClaimScope,
+  scheduleDayKey,
+  scheduleStateOf,
+  WORK_ORDER_CLAIM_SCOPE_LABELS,
+  WORK_ORDER_STATUS_LABELS,
+  WORK_ORDER_URGENCY_LABELS,
+  type WorkOrder,
+  type WorkOrderClaimScope,
+  type WorkOrderStatus,
+  type WorkOrderUrgency,
+  type WorkspaceMember,
+  type TechSchedule,
+} from "@/types";
 
 const TABS: WorkOrderStatus[] = ["open", "assigned", "taken", "cancelled"];
 
@@ -108,9 +123,11 @@ export default function OrdersPage() {
     [myMembership?.osNickValue, myMembership?.osNick, osOptions]
   );
 
-  // График и загрузка столов — ровно для двух запретов на отклик: «сегодня
-  // выходной» и «уже есть заказ в работе». Оба живут только пока открыта
-  // эта страница (см. лимиты слушателей в CLAUDE.md).
+  // График и загрузка столов — для запретов на отклик: «сегодня выходной» /
+  // «отпросился» (всегда) и «уже есть заказ в работе» (если заказ открыт
+  // только свободным), а у выдающего — для пометок и приоритета «Рандома».
+  // Обе подписки живут только пока открыта эта страница (см. лимиты
+  // слушателей в CLAUDE.md).
   const {
     schedules,
     loaded: schedulesLoaded,
@@ -146,13 +163,57 @@ export default function OrdersPage() {
     [pages, loads, monthKey, statusOptions, kinds]
   );
 
-  /** Почему этот технарь сейчас не может взять заказ — null, если может. */
-  function blockReasonFor(technicianUid: string): string | null {
+  /** Выходной и «отпросился» закрывают отклик на ЛЮБОЙ заказ. */
+  function scheduleBlockReasonFor(technicianUid: string): string | null {
     const state = scheduleStateOf(scheduleByUid.get(technicianUid), todayKey);
     if (state === "off") return "сегодня выходной";
     if (state === "excused") return "отпросился";
-    if (inWorkUids.has(technicianUid)) return "уже есть заказ в работе";
     return null;
+  }
+
+  /**
+   * Почему технарь не может откликнуться на ЭТОТ заказ. Заказ «в работе»
+   * закрывает отклик, только пока заказ открыт «Свободным» (по умолчанию);
+   * «Все» — кнопка Owner/Тимлида у заказа — пускает и занятых.
+   */
+  function claimBlockReasonFor(technicianUid: string, order: WorkOrder): string | null {
+    return (
+      scheduleBlockReasonFor(technicianUid) ??
+      (orderClaimScope(order) === "free" && inWorkUids.has(technicianUid) ? "уже есть заказ в работе" : null)
+    );
+  }
+
+  /** Для выдачи: график плюс «уже есть заказ в работе» — предупреждение и приоритет «Рандома», не запрет. */
+  function blockReasonFor(technicianUid: string): string | null {
+    return scheduleBlockReasonFor(technicianUid) ?? (inWorkUids.has(technicianUid) ? "уже есть заказ в работе" : null);
+  }
+
+  /**
+   * Кому сказать, что заказ открыли всем: занятым технарям, которые сегодня
+   * на смене и ещё не откликнулись, — до этого у них стояло «Отклик закрыт».
+   */
+  function busyTechniciansToNotify(order: WorkOrder): string[] {
+    return technicians
+      .filter(
+        (m) =>
+          m.uid !== uid &&
+          inWorkUids.has(m.uid) &&
+          !order.claims[m.uid] &&
+          scheduleStateOf(scheduleByUid.get(m.uid), todayKey) === "work"
+      )
+      .map((m) => m.uid);
+  }
+
+  async function handleClaimScope(order: WorkOrder, scope: WorkOrderClaimScope) {
+    if (!activeWorkspaceId || orderClaimScope(order) === scope) return;
+    await setOrderClaimScope({
+      workspaceId: activeWorkspaceId,
+      order,
+      scope,
+      actor: { uid, name: myName },
+      notifyUids: scope === "all" ? busyTechniciansToNotify(order) : [],
+    });
+    toast.success(scope === "all" ? `«${order.client}»: откликаются все технари` : `«${order.client}»: откликаются только свободные`);
   }
 
   const technicians = useMemo(
@@ -214,12 +275,13 @@ export default function OrdersPage() {
     }));
   }
 
-  const myBlockReason = canClaim ? blockReasonFor(uid) : null;
   /**
    * Выходной и «отпросился» снимает ТОЛЬКО руководство: график — документ
-   * Тимлида, и кнопки «вышел на смену» у человека больше нет.
+   * Тимлида, и кнопки «вышел на смену» у человека больше нет — поэтому у
+   * такого запрета есть ссылка «попросить отметку». «Заказ в работе»
+   * снимает кнопка «Все» у заказа.
    */
-  const isScheduleBlock = myBlockReason === "сегодня выходной" || myBlockReason === "отпросился";
+  const myScheduleBlock = canClaim ? scheduleBlockReasonFor(uid) : null;
 
   async function withBusy(id: string, fn: () => Promise<void>, fail: string) {
     setBusyId(id);
@@ -280,7 +342,7 @@ export default function OrdersPage() {
       return;
     }
     const candidates = candidatesFor(order);
-    const pool = orderRandomPool(candidates);
+    const pool = orderRandomPool(candidates, orderClaimScope(order));
     const pick = pickFromPool(pool);
     if (!pick) {
       const withDesk = candidates.filter((c) => c.hasDesk);
@@ -382,6 +444,9 @@ export default function OrdersPage() {
             const claimed = Boolean(order.claims[uid]);
             const claimants = Object.values(order.claims).sort((a, b) => a.at - b.at);
             const busy = busyId === order.id;
+            const claimScope = orderClaimScope(order);
+            const myBlockReason = canClaim ? claimBlockReasonFor(uid, order) : null;
+            const isScheduleBlock = Boolean(myScheduleBlock);
             return (
               <article key={order.id} className={cn("rounded-2xl border bg-card/70 p-4", isAssignee && order.status === "assigned" ? "border-primary/50 shadow-[0_0_0_1px_hsl(var(--primary)/0.2)]" : "border-border/70")}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -398,6 +463,14 @@ export default function OrdersPage() {
                       )}
                       {isAssignee && order.status === "assigned" && (
                         <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium text-primary">выдан вам</span>
+                      )}
+                      {order.status === "open" && claimScope === "all" && (
+                        <span
+                          className="rounded-full border border-sky-400/40 bg-sky-400/10 px-2 py-0.5 text-[10px] font-medium text-sky-200"
+                          title="Откликнуться могут все технари, даже с заказом в работе"
+                        >
+                          откликаются все
+                        </span>
                       )}
                     </p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
@@ -481,10 +554,11 @@ export default function OrdersPage() {
                   )}
 
                   <div className="ml-auto flex flex-wrap gap-1.5">
-                    {/* Отклик закрыт, если сегодня выходной / отпросился или
-                        уже есть заказ в работе. Отозвать свой старый отклик
-                        при этом МОЖНО — иначе он навсегда повиснет на заказе
-                        у человека, которого сегодня нет. */}
+                    {/* Отклик закрыт, если сегодня выходной / отпросился или —
+                        пока заказ открыт «Свободным» — уже есть заказ в работе.
+                        Отозвать свой старый отклик при этом МОЖНО — иначе он
+                        навсегда повиснет на заказе у человека, которого сегодня
+                        нет. */}
                     {order.status === "open" && canClaim && myBlockReason && !claimed && (
                       <span className="inline-flex items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/[0.08] px-2.5 py-1 text-[11px] text-warning">
                         Отклик закрыт: {myBlockReason}
@@ -525,6 +599,38 @@ export default function OrdersPage() {
                       <Button size="sm" className="h-8 gap-1.5" disabled={busy || !myDesk} title={myDesk ? undefined : "У вас нет своего стола — заказ некуда положить"} onClick={() => void handleTake(order)}>
                         <Inbox className="h-3.5 w-3.5" /> {myDesk ? "Забрать в стол" : "Нет своего стола"}
                       </Button>
+                    )}
+                    {/* «Свободные / Все» — кто может откликнуться. Постоянно у
+                        каждого открытого заказа, только у Owner и Тимлида:
+                        быстро открыть заказ и занятым, когда свободных нет. */}
+                    {fullAccess && order.status === "open" && (
+                      <div
+                        role="radiogroup"
+                        aria-label="Кто может откликнуться"
+                        title="Кто может откликнуться: только свободные (без заказа в работе) или все технари"
+                        className="inline-flex h-8 items-center rounded-lg border border-border bg-background/40 p-0.5"
+                      >
+                        {(["free", "all"] as const).map((scope) => (
+                          <button
+                            key={scope}
+                            type="button"
+                            role="radio"
+                            aria-checked={claimScope === scope}
+                            disabled={busy}
+                            onClick={() => void withBusy(order.id, () => handleClaimScope(order, scope), "Не удалось переключить")}
+                            className={cn(
+                              "h-full rounded-md px-2.5 text-[12px] font-medium transition-colors disabled:opacity-60",
+                              claimScope === scope
+                                ? scope === "all"
+                                  ? "bg-sky-400/15 text-sky-200"
+                                  : "bg-primary/15 text-primary"
+                                : "text-muted-foreground hover:text-foreground"
+                            )}
+                          >
+                            {WORK_ORDER_CLAIM_SCOPE_LABELS[scope]}
+                          </button>
+                        ))}
+                      </div>
                     )}
                     {canManage && order.status === "open" && (
                       <>

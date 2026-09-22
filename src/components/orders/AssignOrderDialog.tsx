@@ -7,7 +7,7 @@ import { timeAgo } from "@/utils/date";
 import { cn } from "@/utils/cn";
 import { orderRandomPool, type OrderCandidate } from "@/services/orderService";
 import { toast } from "@/components/ui/sonner";
-import type { WorkOrder, WorkspaceMember } from "@/types";
+import { orderClaimScope, type WorkOrder, type WorkspaceMember } from "@/types";
 
 interface AssignOrderDialogProps {
   order: WorkOrder | null;
@@ -24,7 +24,7 @@ export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, o
   const others = candidates.filter((c) => c.claimedAt == null);
   // Тот же пул, что и у сервиса, — иначе кнопка «Рандом» на карточке
   // работает, а в диалоге выключена (или наоборот).
-  const randomPool = orderRandomPool(candidates);
+  const randomPool = orderRandomPool(candidates, orderClaimScope(order));
 
   async function run(key: string, fn: () => Promise<void>) {
     setBusy(key);
@@ -97,9 +97,10 @@ export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, o
         >
           {busy === "__random" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shuffle className="h-4 w-4" />}
           {/* Подпись — по тому, из кого РЕАЛЬНО разыгрывается, а не по тому,
-              были ли отклики вообще: если откликнулись только занятые или
-              выходные, пул — свободные без отклика, и «из откликнувшихся»
-              было бы враньём. */}
+              были ли отклики вообще: если откликнулись только выходные (или
+              только занятые, пока заказ открыт «Свободным»), пул — вышедшие
+              без отклика, и «из откликнувшихся» было бы враньём. У заказа,
+              открытого «Всем», отклик занятого — обычный отклик. */}
           {randomPool.length > 0 && randomPool.every((c) => c.claimedAt != null)
             ? `Рандом из откликнувшихся (${randomPool.length})`
             : randomPool.length > 0

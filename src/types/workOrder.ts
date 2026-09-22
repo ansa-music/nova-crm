@@ -9,6 +9,19 @@ export const WORK_ORDER_URGENCY_LABELS: Record<WorkOrderUrgency, string> = {
   fire: "Горит",
 };
 
+/**
+ * Кто может откликнуться на заказ: «free» — только свободные (у кого нет
+ * заказа «в работе»), «all» — все технари. Переключают Owner и Тимлид прямо
+ * у заказа («Свободные / Все»); выходной и «отпросился» закрывают отклик в
+ * любом режиме.
+ */
+export type WorkOrderClaimScope = "free" | "all";
+
+export const WORK_ORDER_CLAIM_SCOPE_LABELS: Record<WorkOrderClaimScope, string> = {
+  free: "Свободные",
+  all: "Все",
+};
+
 /** Отклик технаря на заказ. Ключ в `WorkOrder.claims` — uid, так правило пускает менять только свой. */
 export interface WorkOrderClaim {
   uid: string;
@@ -59,8 +72,14 @@ export interface WorkOrder {
   takenSubPageId: string | null;
   takenRowId: string | null;
   cancelledAt: number | null;
+  /** Кто может откликнуться. Нет поля — «free»: так было всегда. */
+  claimScope?: WorkOrderClaimScope;
   createdAt: number;
   updatedAt: number;
+}
+
+export function orderClaimScope(order: Pick<WorkOrder, "claimScope"> | null | undefined): WorkOrderClaimScope {
+  return order?.claimScope === "all" ? "all" : "free";
 }
 
 export const WORK_ORDER_STATUS_LABELS: Record<WorkOrderStatus, string> = {

@@ -12,7 +12,7 @@ import { findInProgressStatusOption, getColumnOptions } from "@/utils/columnOpti
 import { isBlankRow, isFilledCellValue } from "@/utils/blankRow";
 import { currentMonthSubPageId, ensureMonthTab, isMonthlyDesk } from "@/services/monthTabService";
 import { WORK_ORDER_URGENCY_LABELS } from "@/types";
-import type { PageColumn, WorkOrder, WorkOrderClaim, WorkOrderUrgency, Workspace, WorkspaceMember, WorkspacePage } from "@/types";
+import type { PageColumn, WorkOrder, WorkOrderClaim, WorkOrderClaimScope, WorkOrderUrgency, Workspace, WorkspaceMember, WorkspacePage } from "@/types";
 
 function mapOrder(data: Record<string, unknown>, id: string): WorkOrder {
   const row = { id, ...data } as WorkOrder;
@@ -157,7 +157,11 @@ export interface OrderCandidate {
   /** Есть ли у технаря стол — без стола заказ забрать некуда. */
   hasDesk: boolean;
   claimedAt: number | null;
-  /** «сегодня выходной» / «отпросился» / «уже есть заказ в работе»; null — свободен. */
+  /**
+   * «сегодня выходной» / «отпросился» / «уже есть заказ в работе»; null —
+   * свободен. Для ВЫДАЮЩЕГО это пометка (бейдж и приоритет «Рандома»);
+   * откликнуться занятый может, только если заказ открыт «Всем».
+   */
   blockedReason?: string | null;
   /**
    * Сегодня по графику человека НЕТ (выходной или отпросился). Отдельным
@@ -174,15 +178,23 @@ export interface OrderCandidate {
  * пустым. Диалог и карточка обязаны звать именно эту функцию, иначе кнопка
  * в одном месте работает, а в другом выключена.
  *
- * Занятые и те, у кого сегодня выходной, из СЛУЧАЙНОГО выбора выпадают: если
+ * Те, у кого сегодня выходной, из СЛУЧАЙНОГО выбора выпадают всегда: если
  * человека сегодня нет, отдавать ему заказ броском монеты — прямой способ
  * уронить срок. Руками отдать всё равно можно (и ОС об этом просил) — это
  * осознанное решение живого человека, а не случайность.
  *
+ * Порядок зависит от того, кому открыт отклик (`WorkOrder.claimScope`):
+ * - «Свободные» (по умолчанию): свободные откликнувшиеся → свободные
+ *   молчащие → занятые откликнувшиеся → все со столом. Руководство сказало
+ *   «только свободные» — старый отклик занятого (он мог откликнуться, пока
+ *   заказ был открыт всем) свободного не перебивает.
+ * - «Все»: свободные откликнувшиеся → занятые откликнувшиеся → свободные
+ *   молчащие → все со столом. Здесь отклик занятого значит «возьму ещё
+ *   один», и он важнее свободного, который промолчал.
  * Последний фоллбэк — все со столом: «Рандом» не должен превращаться в
  * мёртвую кнопку в день, когда свободных нет вовсе.
  */
-export function orderRandomPool(candidates: OrderCandidate[]): OrderCandidate[] {
+export function orderRandomPool(candidates: OrderCandidate[], scope: WorkOrderClaimScope = "free"): OrderCandidate[] {
   // Кого сегодня нет, в случайный выбор не попадает НИКОГДА — ни в основной
   // пул, ни в запасной. Раньше запасной вариант («свободных нет — берём всех
   // со столом») возвращал и выходных: в воскресенье при трёх технарях, из
@@ -192,11 +204,13 @@ export function orderRandomPool(candidates: OrderCandidate[]): OrderCandidate[] 
   const free = withDesk.filter((c) => !c.blockedReason);
   const claimedFree = free.filter((c) => c.claimedAt != null);
   if (claimedFree.length > 0) return claimedFree;
-  if (free.length > 0) return free;
-  // Свободных нет — остаются только занятые, но вышедшие сегодня: лучше
-  // заказ в очередь живому человеку, чем мёртвая кнопка.
   const claimed = withDesk.filter((c) => c.claimedAt != null);
-  return claimed.length > 0 ? claimed : withDesk;
+  if (scope === "all" && claimed.length > 0) return claimed;
+  if (free.length > 0) return free;
+  if (claimed.length > 0) return claimed;
+  // Никто не откликнулся и свободных нет — все вышедшие сегодня со столом:
+  // лучше заказ в очередь живому человеку, чем мёртвая кнопка.
+  return withDesk;
 }
 
 /**
@@ -211,8 +225,40 @@ export function pickFromPool(pool: OrderCandidate[]): OrderCandidate | null {
   return pool[bytes[0] % pool.length];
 }
 
-export function pickRandomCandidate(candidates: OrderCandidate[]): OrderCandidate | null {
-  return pickFromPool(orderRandomPool(candidates));
+export function pickRandomCandidate(candidates: OrderCandidate[], scope: WorkOrderClaimScope = "free"): OrderCandidate | null {
+  return pickFromPool(orderRandomPool(candidates, scope));
+}
+
+/**
+ * «Свободные / Все» у заказа — кто может откликнуться. Пишут Owner и Тимлид
+ * (правило заказов: выдающий-ОС это поле не трогает). Открыли всем —
+ * занятым технарям, которые сегодня на смене, уходит уведомление: сами они
+ * до этого видели «Отклик закрыт» и на заказ больше не смотрели.
+ */
+export async function setOrderClaimScope(input: {
+  workspaceId: string;
+  order: WorkOrder;
+  scope: WorkOrderClaimScope;
+  actor: { uid: string; name: string };
+  notifyUids: string[];
+}) {
+  if (!db) throw new Error("Firebase не настроен");
+  await updateDoc(paths.order(input.workspaceId, input.order.id), { claimScope: input.scope, updatedAt: Date.now() });
+  if (input.scope === "all" && input.notifyUids.length > 0) {
+    await sendNotification(
+      {
+        workspaceId: input.workspaceId,
+        title: `Заказ ${input.order.client} открыт всем`,
+        body: "Можно откликнуться, даже если у вас уже есть заказ в работе.",
+        priority: "normal",
+        fromUid: input.actor.uid,
+        fromName: input.actor.name,
+        target: "selected",
+        href: "/orders",
+      },
+      input.notifyUids
+    ).catch(() => {});
+  }
 }
 
 export async function assignOrder(input: {
