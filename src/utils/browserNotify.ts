@@ -199,29 +199,78 @@ function ensureAudio(): AudioContext | null {
   }
 }
 
+/**
+ * Запасной путь для звука заказа — `<audio>`. На iPhone он играет вне жеста,
+ * только если ЭТОТ ЖЕ элемент уже хоть раз запускали жестом: поэтому элемент
+ * один на приложение и «отпирается» беззвучным запуском при первом касании.
+ */
+let orderAudioElement: HTMLAudioElement | null = null;
+let orderAudioUnlocked = false;
+
+function orderAudio(): HTMLAudioElement | null {
+  if (typeof Audio === "undefined") return null;
+  if (!orderAudioElement) {
+    orderAudioElement = new Audio(orderSoundUrl);
+    orderAudioElement.preload = "auto";
+    orderAudioElement.volume = 0.9;
+  }
+  return orderAudioElement;
+}
+
+function unlockOrderAudio() {
+  if (orderAudioUnlocked) return;
+  const el = orderAudio();
+  if (!el) return;
+  try {
+    el.muted = true;
+    void el
+      .play()
+      .then(() => {
+        el.pause();
+        el.currentTime = 0;
+        orderAudioUnlocked = true;
+      })
+      .catch(() => {
+        /* не жест — попробуем на следующем касании */
+      })
+      .finally(() => {
+        el.muted = false;
+      });
+  } catch {
+    el.muted = false;
+  }
+}
+
 /** Создать и разбудить контекст в момент клика — дальше звук пойдёт и из фона. */
 export function primeAlertSound() {
   const ctx = ensureAudio();
   if (ctx) void loadOrderSound(ctx);
+  unlockOrderAudio();
 }
 
 /**
- * Будить звук по ПЕРВОМУ касанию страницы, а не только по кнопке
- * «Включить»: браузер не даёт играть звук странице, с которой человек ещё ни
- * разу не взаимодействовал, — и первый заказ после входа уходил в тишину у
- * всех, кто ни разу не нажимал «Включить». Один раз на загрузку.
+ * Будить звук по касанию страницы, а не только по кнопке «Включить»:
+ * браузер не даёт играть звук странице, с которой человек ещё не
+ * взаимодействовал, — и первый заказ после входа уходил в тишину.
+ *
+ * События — те, что браузер считает жестом: на телефоне это `pointerup` /
+ * `touchend` / `click`, а НЕ `pointerdown` (им звук на касании не
+ * отпирается). Слушаем, пока звук реально не проснулся, а не один раз:
+ * касание, которое браузер жестом не посчитал, иначе снимало бы слушатели
+ * впустую.
  */
+const PRIME_EVENTS = ["pointerdown", "pointerup", "touchend", "click", "keydown"] as const;
 let primeListenersAttached = false;
 export function primeAlertSoundOnFirstInteraction() {
   if (primeListenersAttached || typeof window === "undefined") return;
   primeListenersAttached = true;
   const prime = () => {
     primeAlertSound();
-    window.removeEventListener("pointerdown", prime, true);
-    window.removeEventListener("keydown", prime, true);
+    const ready = audioContext?.state === "running" && orderAudioUnlocked;
+    if (!ready) return;
+    for (const type of PRIME_EVENTS) window.removeEventListener(type, prime, true);
   };
-  window.addEventListener("pointerdown", prime, true);
-  window.addEventListener("keydown", prime, true);
+  for (const type of PRIME_EVENTS) window.addEventListener(type, prime, true);
 }
 
 /**
@@ -233,13 +282,32 @@ export function primeAlertSoundOnFirstInteraction() {
 let orderSoundBuffer: AudioBuffer | null = null;
 let orderSoundLoading: Promise<AudioBuffer | null> | null = null;
 
+/**
+ * `decodeAudioData` обещанием умеют не все: старый Safari понимает только
+ * колбэки и возвращает undefined — тогда `.then` падал, и вместо звука заказа
+ * играл запасной сигнал. Поддерживаем обе формы.
+ */
+function decodeAudio(ctx: AudioContext, data: ArrayBuffer): Promise<AudioBuffer> {
+  return new Promise((resolve, reject) => {
+    try {
+      const maybe = ctx.decodeAudioData(data, resolve, reject) as Promise<AudioBuffer> | undefined;
+      if (maybe && typeof maybe.then === "function") maybe.then(resolve, reject);
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
 function loadOrderSound(ctx: AudioContext): Promise<AudioBuffer | null> {
   if (orderSoundBuffer) return Promise.resolve(orderSoundBuffer);
   orderSoundLoading =
     orderSoundLoading ??
     fetch(orderSoundUrl)
-      .then((res) => res.arrayBuffer())
-      .then((data) => ctx.decodeAudioData(data))
+      .then((res) => {
+        if (!res.ok) throw new Error(`order sound ${res.status}`);
+        return res.arrayBuffer();
+      })
+      .then((data) => decodeAudio(ctx, data))
       .then((buffer) => {
         orderSoundBuffer = buffer;
         return buffer;
@@ -260,10 +328,15 @@ export function playOrderSound() {
   if (browserNotifyMuted()) return;
   const ctx = ensureAudio();
   const fallback = () => {
+    const el = orderAudio();
+    if (!el) {
+      playAlertSound();
+      return;
+    }
     try {
-      const audio = new Audio(orderSoundUrl);
-      audio.volume = 0.9;
-      void audio.play().catch(() => playAlertSound());
+      el.muted = false;
+      el.currentTime = 0;
+      void el.play().catch(() => playAlertSound());
     } catch {
       playAlertSound();
     }
@@ -272,8 +345,17 @@ export function playOrderSound() {
     fallback();
     return;
   }
-  void loadOrderSound(ctx).then((buffer) => {
-    if (!buffer) {
+  void loadOrderSound(ctx).then(async (buffer) => {
+    // Контекст мог уснуть (вкладка долго в фоне) — будим; не проснулся —
+    // играем `<audio>`: на спящем контексте звук ушёл бы в тишину без ошибки.
+    if (ctx.state !== "running") {
+      try {
+        await ctx.resume();
+      } catch {
+        /* нет жеста */
+      }
+    }
+    if (!buffer || ctx.state !== "running") {
       fallback();
       return;
     }
