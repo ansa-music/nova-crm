@@ -516,6 +516,33 @@ export async function togglePageVisibility(
 }
 
 /**
+ * «Доступ ко всем столам» (кнопка Owner на «Столах»): тот же переключатель,
+ * что `togglePageVisibility`, но на все переданные столы разом. Открыть —
+ * просмотр всем активным участникам (editableUsers НЕ трогаем: правка не
+ * выдаётся и не отнимается); закрыть — только ответственный, остальные по
+ * запросу. Пачками по 400 записей (лимит batch — 500). Возвращает число столов.
+ */
+export async function setAllDesksVisibility(
+  workspaceId: string,
+  desks: WorkspacePage[],
+  open: boolean,
+  allActiveMemberUids: string[]
+): Promise<number> {
+  if (!db) throw new Error("Firebase не настроен");
+  const now = Date.now();
+  for (let i = 0; i < desks.length; i += 400) {
+    const batch = writeBatch(db);
+    for (const page of desks.slice(i, i + 400)) {
+      const keep = [page.responsibleUserId].filter((id): id is string => Boolean(id));
+      const allowedUsers = open ? Array.from(new Set([...allActiveMemberUids, ...keep])) : keep;
+      batch.set(paths.page(workspaceId, page.id), { allowedUsers, hiddenByResponsible: !open, updatedAt: now }, { merge: true });
+    }
+    await batch.commit();
+  }
+  return desks.length;
+}
+
+/**
  * Owner/Тимлид: move a desk to «Неактуальные» or bring it back — nothing is
  * deleted. Retiring a Технарь's desk also frees their one-desk claim when it
  * points at this desk, so they can start a new one; bringing it back

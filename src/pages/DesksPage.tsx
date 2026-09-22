@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { DeskCoverGrid } from "@/components/dashboard/DeskCoverGrid";
 import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { restoreDesk, retireDesk } from "@/components/desks/deskRetireActions";
+import { AllDesksAccessButton } from "@/components/desks/AllDesksAccessButton";
 import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
 import { Button } from "@/components/ui/button";
 import {
@@ -138,6 +139,10 @@ export default function DesksPage() {
         description="Обложки видны всем. Свой стол открывается сразу, чужой и скрытый — после разрешения."
         actions={
           <>
+            {/* Только Owner: разом открыть все столы на просмотр или закрыть. */}
+            {permissions.isWorkspaceOwner && activeWorkspaceId && (
+              <AllDesksAccessButton workspaceId={activeWorkspaceId} pages={pages} members={members} />
+            )}
             {inactivePages.length > 0 && (
               <Button type="button" variant="outline" className="min-h-11 gap-1.5" onClick={() => setInactiveOpen(true)}>
                 <Archive className="h-3.5 w-3.5" />
