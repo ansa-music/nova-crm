@@ -2,7 +2,14 @@ import { useEffect, useMemo, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { publishDeskLoad } from "@/services/deskLoadService";
+import {
+  deskLoadSignatureKey,
+  forgetPublishedSignature,
+  isPublishedSignature,
+  osOrdersSignatureKey,
+  publishDeskLoad,
+  rememberPublishedSignature,
+} from "@/services/deskLoadService";
 import { sendNotification } from "@/services/notificationService";
 import { publishOsOrders } from "@/services/osOrdersService";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
@@ -12,6 +19,74 @@ import type { OsOrderItem, PageRow, StatusOption, SubPage, WorkspacePage } from 
 
 const NO_OPTIONS: StatusOption[] = [];
 
+/**
+ * Сколько цифры должны простоять без изменений, прежде чем уйти в базу.
+ * Было 1,5 с — и каждая пачка правок за столом (поменял статус, поправил,
+ * вернул) давала по записи в deskLoad и в каждый затронутый osOrders; аудит
+ * квоты 22.09.2026 насчитал на этом ~2 500 записей в день. ОС всё равно не
+ * успевает переключиться на «Технари» быстрее десяти секунд.
+ */
+const PUBLISH_DEBOUNCE_MS = 10_000;
+/**
+ * Уходя со стола (размонтирование, закрытие вкладки, переход на другую
+ * вкладку/стол) отложенную публикацию дописываем сразу, а не выбрасываем —
+ * иначе с паузой в 10 с терялись бы последние правки. Но только если стол к
+ * этому моменту был открыт хотя бы 1,5 с (прежняя пауза): сразу после
+ * открытия снимок из кэша бывает пустым, и такой миг нельзя отправить ОС как
+ * «0 заказов».
+ */
+const MIN_SETTLED_MS = 1500;
+
+/** One publish waiting out PUBLISH_DEBOUNCE_MS. */
+type PendingPublish = {
+  /** `${pageId}:${subPageId}` the data was counted from. */
+  target: string;
+  signature: string;
+  /** Since when the desk has been open with rows loaded (for MIN_SETTLED_MS). */
+  liveSince: number;
+  timer: number;
+  run: () => void;
+};
+type PendingSlot = { current: PendingPublish | null };
+
+function cancelPending(slot: PendingSlot) {
+  const pending = slot.current;
+  if (!pending) return;
+  slot.current = null;
+  window.clearTimeout(pending.timer);
+}
+
+function flushPending(slot: PendingSlot) {
+  const pending = slot.current;
+  if (!pending) return;
+  slot.current = null;
+  window.clearTimeout(pending.timer);
+  if (Date.now() - pending.liveSince >= MIN_SETTLED_MS) pending.run();
+}
+
+/**
+ * Trailing debounce keyed by the signature: data with the SAME signature
+ * only refreshes the payload and doesn't push the timer back — otherwise
+ * every rows snapshot (other cells being typed) would postpone the publish
+ * indefinitely. A pending publish of another desk/tab is flushed first.
+ */
+function schedulePending(slot: PendingSlot, target: string, signature: string, liveSince: number, run: () => void) {
+  const current = slot.current;
+  if (current && current.target === target && current.signature === signature) {
+    current.run = run;
+    return;
+  }
+  if (current && current.target !== target) flushPending(slot);
+  else cancelPending(slot);
+  const pending: PendingPublish = { target, signature, liveSince, timer: 0, run };
+  pending.timer = window.setTimeout(() => {
+    if (slot.current !== pending) return;
+    slot.current = null;
+    pending.run();
+  }, PUBLISH_DEBOUNCE_MS);
+  slot.current = pending;
+}
+
 /** What each order looked like at the last publish — to tell the ОС what changed. */
 type OrderSnapshot = { pageId: string; subPageId: string; byRow: Map<string, { status: string; title: string; os: string[] }> };
 
@@ -19,9 +94,13 @@ type OrderSnapshot = { pageId: string; subPageId: string; byRow: Map<string, { s
  * Keeps «Технари» current from the desk itself: while this month's tab is
  * open with its rows loaded, every change to the order counts is published
  * as the desk's DeskLoad, and each ОС's own order list as their OsOrders.
- * Nothing is written when the numbers didn't change. Debounced — a snapshot
- * can briefly come back empty from cache before the real rows, and that
- * blip must not reach the ОС as «0 заказов».
+ * Nothing is written when the numbers didn't change — and "didn't change"
+ * is remembered per browser (localStorage, see deskLoadService), so a
+ * remount, a second tab or the Owner opening the desk doesn't rewrite the
+ * same numbers. Debounced (PUBLISH_DEBOUNCE_MS) — a snapshot can briefly
+ * come back empty from cache before the real rows, and that blip must not
+ * reach the ОС as «0 заказов»; a pending publish is flushed on leaving the
+ * desk (MIN_SETTLED_MS).
  *
  * When a published order's status changes, the ОС who gave it gets a
  * notification — from this session's baseline on, never on first load.
@@ -45,11 +124,16 @@ export function useDeskLoadPublisher({
   responsibleOptions?: StatusOption[];
 }) {
   const monthKey = useCurrentMonthKey();
-  const { members, activeWorkspace } = useWorkspace();
+  const { members, activeWorkspace, allPages } = useWorkspace();
   const { profile } = useAuth();
   const lastSignatureRef = useRef("");
   const lastOsSignaturesRef = useRef(new Map<string, string>());
+  /** All ОС lists as of the last fired publish — the notification baseline moves only then. */
+  const lastOsFiredRef = useRef("");
   const lastOrdersRef = useRef<OrderSnapshot | null>(null);
+  const pendingDeskRef = useRef<PendingPublish | null>(null);
+  const pendingOsRef = useRef<PendingPublish | null>(null);
+  const liveSinceRef = useRef(0);
 
   const isMonthTab = Boolean(
     page?.responsibleUserId &&
@@ -77,55 +161,123 @@ export function useDeskLoadPublisher({
   const membersRef = useRef(members);
   membersRef.current = members;
   const fromName = myDisplayName(profile, members);
+  const liveTabRef = useRef({ page, allPages, monthKey });
+  liveTabRef.current = { page, allPages, monthKey };
+
+  /**
+   * Отложенная публикация уходит через 10 с или при уходе со стола — к этому
+   * моменту месяц мог смениться, а автопилот перевести стол на новую
+   * вкладку. Старые цифры тогда не пишем: первая публикация прежнего месяца
+   * поверх нового ещё и отправила бы новый месяц в архив (deskLoadHistory).
+   */
+  function stillMonthTab(targetPageId: string, targetSubPageId: string, targetMonthKey: string): boolean {
+    const now = liveTabRef.current;
+    if (now.monthKey !== targetMonthKey) return false;
+    const live = now.page?.id === targetPageId ? now.page : now.allPages.find((p) => p.id === targetPageId);
+    return Boolean(live && live.autoMonthKey === targetMonthKey && live.autoMonthSubPageId === targetSubPageId);
+  }
+
+  // С какого момента стол открыт с загруженными строками — для MIN_SETTLED_MS.
+  // Объявлен раньше эффектов публикации: в одном коммите он срабатывает первым.
+  useEffect(() => {
+    liveSinceRef.current = active && pageId && subPageId ? Date.now() : 0;
+  }, [active, pageId, subPageId]);
+
+  // Закрыли вкладку или ушли со стола — дописать отложенное, а не выбросить.
+  useEffect(() => {
+    const flushAll = () => {
+      flushPending(pendingDeskRef);
+      flushPending(pendingOsRef);
+    };
+    window.addEventListener("pagehide", flushAll);
+    return () => {
+      window.removeEventListener("pagehide", flushAll);
+      flushAll();
+    };
+  }, []);
 
   useEffect(() => {
     if (!counts || !pageId || !workspaceId || !responsibleUserId || !subPageId) return;
-    const signature = deskLoadSignature({ ...counts, subPageId, monthKey });
-    if (signature === lastSignatureRef.current) return;
-    const timer = window.setTimeout(() => {
+    const target = `${pageId}:${subPageId}`;
+    const memoryKey = deskLoadSignatureKey(pageId, subPageId);
+    const signature = deskLoadSignature({ ...counts, subPageId, monthKey, responsibleUserId });
+    if (signature === lastSignatureRef.current || isPublishedSignature(memoryKey, signature)) {
+      // Цифры снова такие, какие уже в базе, — промежуточное состояние этого
+      // же стола писать незачем.
+      if (pendingDeskRef.current?.target === target) cancelPending(pendingDeskRef);
+      return;
+    }
+    const load = {
+      pageId,
+      workspaceId,
+      responsibleUserId,
+      monthKey,
+      subPageId,
+      total: counts.total,
+      statusCounts: counts.statusCounts,
+      osCounts: counts.osCounts,
+      osStatusCounts: counts.osStatusCounts,
+      osLastOrderAt: counts.osLastOrderAt,
+      grandTotal: counts.grandTotal,
+      statusSums: counts.statusSums,
+      dayCounts: counts.dayCounts,
+      daySums: counts.daySums,
+      updatedBy: uid,
+    };
+    schedulePending(pendingDeskRef, target, signature, liveSinceRef.current, () => {
+      if (!stillMonthTab(pageId, subPageId, monthKey)) return;
       lastSignatureRef.current = signature;
-      publishDeskLoad({
-        pageId,
-        workspaceId,
-        responsibleUserId,
-        monthKey,
-        subPageId,
-        total: counts.total,
-        statusCounts: counts.statusCounts,
-        osCounts: counts.osCounts,
-        osStatusCounts: counts.osStatusCounts,
-        osLastOrderAt: counts.osLastOrderAt,
-        grandTotal: counts.grandTotal,
-        statusSums: counts.statusSums,
-        dayCounts: counts.dayCounts,
-        daySums: counts.daySums,
-        updatedBy: uid,
-      }).catch((error) => {
-        lastSignatureRef.current = "";
-        console.warn(`Не удалось обновить загрузку стола ${pageId}:`, error);
-      });
-    }, 1500);
-    return () => window.clearTimeout(timer);
+      // Вторая вкладка этого же браузера успела записать то же самое.
+      if (isPublishedSignature(memoryKey, signature)) return;
+      publishDeskLoad(load).then(
+        // Помним только то, что принял сервер: вкладку закрывают посреди
+        // записи (pagehide), и «запомненная», но не дошедшая запись осталась
+        // бы в базе старой — следующее открытие стола её бы уже не повторило.
+        () => rememberPublishedSignature(memoryKey, signature),
+        (error) => {
+          lastSignatureRef.current = "";
+          forgetPublishedSignature(memoryKey, signature);
+          console.warn(`Не удалось обновить загрузку стола ${pageId}:`, error);
+        }
+      );
+    });
   }, [counts, pageId, workspaceId, responsibleUserId, subPageId, monthKey, uid]);
 
   useEffect(() => {
     if (!osOrders || !pageId || !workspaceId || !responsibleUserId || !subPageId) return;
-    const timer = window.setTimeout(() => {
-      for (const [osValue, orders] of Object.entries(osOrders)) {
+    const target = `${pageId}:${subPageId}`;
+    const lists = Object.entries(osOrders).map(([osValue, orders]) => ({
+      osValue,
+      orders,
+      signature: osOrdersSignature(orders, subPageId, monthKey, responsibleUserId),
+    }));
+    const signature = JSON.stringify(lists.map((l) => [l.osValue, l.signature]));
+    if (signature === lastOsFiredRef.current) {
+      if (pendingOsRef.current?.target === target) cancelPending(pendingOsRef);
+      return;
+    }
+    schedulePending(pendingOsRef, target, signature, liveSinceRef.current, () => {
+      if (!stillMonthTab(pageId, subPageId, monthKey)) return;
+      lastOsFiredRef.current = signature;
+      for (const { osValue, orders, signature: listSignature } of lists) {
         const key = `${pageId}:${osValue}`;
-        const signature = osOrdersSignature(orders, subPageId, monthKey);
-        if (lastOsSignaturesRef.current.get(key) === signature) continue;
-        lastOsSignaturesRef.current.set(key, signature);
-        publishOsOrders({ pageId, workspaceId, responsibleUserId, osValue, monthKey, subPageId, orders, updatedBy: uid }).catch(
+        if (lastOsSignaturesRef.current.get(key) === listSignature) continue;
+        lastOsSignaturesRef.current.set(key, listSignature);
+        const memoryKey = osOrdersSignatureKey(pageId, osValue);
+        if (isPublishedSignature(memoryKey, listSignature)) continue;
+        publishOsOrders({ pageId, workspaceId, responsibleUserId, osValue, monthKey, subPageId, orders, updatedBy: uid }).then(
+          () => rememberPublishedSignature(memoryKey, listSignature),
           (error) => {
             lastOsSignaturesRef.current.delete(key);
+            forgetPublishedSignature(memoryKey, listSignature);
+            // Следующий же снимок строк повторит запись, как и раньше.
+            lastOsFiredRef.current = "";
             console.warn(`Не удалось обновить заказы ОС на столе ${pageId}:`, error);
           }
         );
       }
       notifyStatusChanges(osOrders);
-    }, 1500);
-    return () => window.clearTimeout(timer);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [osOrders, pageId, workspaceId, responsibleUserId, subPageId, monthKey, uid]);
 
