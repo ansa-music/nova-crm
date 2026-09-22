@@ -140,6 +140,10 @@ export async function syncGrokAccessStubs(input: {
     if (current && current.provider === data.provider && current.providerOther === data.providerOther && current.title === data.title) {
       continue;
     }
+    // Чужая карточка (провайдер, которым я не управляю) — переписать её мне
+    // не дадут, а отказ одной записи уронил бы всю пачку, и сверка крутилась
+    // бы по кругу. Её поправит тот, кто управляет её разделом.
+    if (current && !inScope(current.provider)) continue;
     batch.set(paths.grokAccessStub(input.workspaceId, id), { ...data, updatedAt: Date.now() });
     writes += 1;
   }
@@ -166,6 +170,8 @@ export async function setGrokAppAccess(input: {
   workspaceId: string;
   account: GrokAppAccount;
   allowedUids: string[];
+  /** Есть ли карточка на витрине: удалять несуществующую незачем. */
+  stubExists: boolean;
   actorUid: string;
   actorName: string;
 }) {
@@ -186,9 +192,17 @@ export async function setGrokAppAccess(input: {
   const stub = paths.grokAccessStub(input.workspaceId, input.account.id);
   if (restricted) {
     batch.set(stub, { ...stubData({ ...input.account, workspaceId: input.workspaceId }), updatedAt: Date.now() });
-  } else {
+  } else if (input.stubExists) {
     batch.delete(stub);
   }
+  await batch.commit();
+}
+
+/** Убрать запросы к аккаунтам, которых больше нет (удалили без чистки). */
+export async function deleteGrokAccessRequests(workspaceId: string, requestIds: string[]) {
+  if (!db || requestIds.length === 0) return;
+  const batch = writeBatch(db);
+  for (const id of requestIds) batch.delete(paths.grokAccessRequest(workspaceId, id));
   await batch.commit();
 }
 

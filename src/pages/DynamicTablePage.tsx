@@ -35,7 +35,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { ensureDiskColumn, ensurePriceColumn, fetchPageIfAccessible, setPageTechnicianDesk, togglePageVisibility } from "@/services/pageService";
-import { displayNameOf } from "@/utils/displayName";
+import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { canOpenDesk, isRestrictedDeskRole, worksAsTechnician } from "@/utils/peopleDesks";
 import { useUiStore } from "@/store/uiStore";
 import { cn } from "@/utils/cn";
@@ -371,7 +371,7 @@ export default function DynamicTablePage() {
               page={page}
               mine={latestForPage(page.id)}
               onRequest={async () => {
-                await requestView(page, displayNameOf(profile), toUid);
+                await requestView(page, myDisplayName(profile, members), toUid);
                 await reloadViewRequests();
               }}
             />
@@ -718,7 +718,7 @@ export default function DynamicTablePage() {
                 canEdit={canEditData}
                 canEditStructure={permissions.canManagePage(page)}
                 userId={profile?.uid ?? ""}
-                userName={displayNameOf(profile)}
+                userName={myDisplayName(profile, members)}
                 focusRowId={focusRowId}
               />
             )}
@@ -732,7 +732,7 @@ export default function DynamicTablePage() {
           onOpenChange={() => setSettingsOpen(false)}
           canToggleVisibility={isResponsible}
           pendingRequests={pendingDeskRequests}
-          onResolveRequest={(request, status) => resolveRequest(request, page, status, displayNameOf(profile))}
+          onResolveRequest={(request, status) => resolveRequest(request, page, status, myDisplayName(profile, members))}
         />
       )}
       {permissions.canManagePage(page) && (

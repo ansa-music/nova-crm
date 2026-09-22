@@ -9,6 +9,7 @@ import { GrokAccountDialog } from "@/components/grok/GrokAccountDialog";
 import { GrokAppDialog } from "@/components/grok/GrokAppDialog";
 import { GrokAccessDialog } from "@/components/grok/GrokAccessDialog";
 import {
+  canUseGrokMember,
   GrokLockedAccounts,
   GrokManagersDialog,
   GrokManagersLine,
@@ -23,6 +24,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { deleteGrokAccount, getGrokAccountStatus, updateGrokAccount, type GrokAccountStatus } from "@/services/grokAccountService";
 import { backfillGrokAppRestricted, deleteGrokAppAccount, updateGrokAppAccount } from "@/services/grokAppAccountService";
 import {
+  deleteGrokAccessRequests,
   managedProvidersOf,
   requestGrokAccess,
   resolveGrokAccessRequest,
@@ -50,7 +52,7 @@ import { personLabel } from "@/utils/peopleDesks";
 import { confirmDialog, promptDialog } from "@/utils/appDialog";
 import { cn } from "@/utils/cn";
 import { formatResetCountdown } from "@/utils/date";
-import { displayNameOf } from "@/utils/displayName";
+import { myDisplayName } from "@/utils/displayName";
 
 type SectionId = "grok" | "higgsfield" | "elevenlabs" | "other";
 type StatusFilter = "all" | GrokAccountStatus;
@@ -139,23 +141,29 @@ export default function GrokLimitPage() {
   // попадают в запрос «открытые» и у технарей пропали бы из списка.
   useEffect(() => {
     if (!workspaceId || !seesAll || appsLoading) return;
-    void backfillGrokAppRestricted(workspaceId, appAccounts).catch(() => undefined);
-  }, [workspaceId, seesAll, appsLoading, appAccounts]);
+    if (!profile) return;
+    void backfillGrokAppRestricted(workspaceId, appAccounts, { uid: profile.uid, name: myDisplayName(profile, members) }).catch(
+      (error) => console.error("Не удалось проставить restricted старым аккаунтам:", error)
+    );
+  }, [workspaceId, seesAll, appsLoading, appAccounts, profile]);
 
   // Витрина закрытых аккаунтов (без секретов) и свои запросы на доступ.
   const [stubs, setStubs] = useState<GrokAccessStub[]>([]);
-  const [stubsLoaded, setStubsLoaded] = useState(false);
+  // Витрина «загружена» — для КАКОГО workspace: при переключении в том же
+  // рендере старая витрина иначе сошла бы за новую.
+  const [stubsFor, setStubsFor] = useState<string | null>(null);
+  const stubsLoaded = Boolean(workspaceId) && stubsFor === workspaceId;
   useEffect(() => {
     setStubs([]);
-    setStubsLoaded(false);
+    setStubsFor(null);
     if (!workspaceId) return;
     return subscribeGrokAccessStubs(
       workspaceId,
       (next) => {
         setStubs(next);
-        setStubsLoaded(true);
+        setStubsFor(workspaceId);
       },
-      () => setStubsLoaded(false)
+      () => setStubsFor(null)
     );
   }, [workspaceId]);
   const [myRequests, setMyRequests] = useState<GrokAccessRequest[]>([]);
@@ -189,15 +197,27 @@ export default function GrokLimitPage() {
     }
     syncingRef.current = true;
     rerunRef.current = false;
+    // Запросы к аккаунтам, которых больше нет ни в списке, ни на витрине, —
+    // их удалили; решать нечего, а висели бы в счётчике раздела.
+    const inScope = (provider: GrokAppProvider) => grantScope === "all" || grantScope.includes(provider);
+    const orphanRequests = pendingRequests
+      .filter((r) => inScope(r.provider))
+      .filter((r) => !appAccounts.some((a) => a.id === r.accountId) && !stubs.some((st) => st.id === r.accountId))
+      .map((r) => r.id);
     void syncGrokAccessStubs({ workspaceId, accounts: appAccounts, stubs, providers: grantScope })
+      .then(() => deleteGrokAccessRequests(workspaceId, orphanRequests))
+      .then(() => {
+        // Повтор — только после УСПЕХА: отказ сервера и повтор той же пачки
+        // иначе крутились бы по кругу, пока открыта вкладка.
+        if (rerunRef.current) setSyncTick((n) => n + 1);
+      })
       .catch((error) => console.error("Не удалось сверить витрину закрытых аккаунтов:", error))
       .finally(() => {
         syncingRef.current = false;
-        if (rerunRef.current) setSyncTick((n) => n + 1);
       });
     // grantScope пересобирается каждый рендер — зависимость по его ключу.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, appsComplete, stubsLoaded, appAccounts, stubs, isOwnerRole, managedKey, syncTick]);
+  }, [workspaceId, appsComplete, stubsLoaded, appAccounts, stubs, pendingRequests, isOwnerRole, managedKey, syncTick]);
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
@@ -302,7 +322,13 @@ export default function GrokLimitPage() {
     return out;
   }, [entries, now]);
 
-  const shownSections = SECTIONS.filter((s) => s.id !== "other" || stats.other.total > 0 || section === "other");
+  // «Другие» — если там есть хоть что-то: свои аккаунты, закрытые карточки
+  // (иначе технарь не нашёл бы, где запросить доступ) — а Owner видит раздел
+  // всегда, чтобы назначить, кто им управляет.
+  const hasOtherStubs = stubs.some((stub) => grokSectionOfProvider(stub.provider) === "other");
+  const shownSections = SECTIONS.filter(
+    (s) => s.id !== "other" || stats.other.total > 0 || hasOtherStubs || isOwnerRole || section === "other"
+  );
   const q = query.trim().toLowerCase();
   const matches = (e: Entry) =>
     `${e.nickname ?? ""} ${e.email} ${e.phone ?? ""} ${e.note ?? ""} ${e.serviceLabel} ${e.methodLabel}`.toLowerCase().includes(q);
@@ -318,17 +344,42 @@ export default function GrokLimitPage() {
 
   const visibleAppIds = new Set(appAccounts.map((a) => a.id));
   const myRequestByAccount = new Map(myRequests.map((r) => [r.accountId, r]));
-  const lockedStubs = stubs
-    .filter((stub) => !visibleAppIds.has(stub.id))
-    .filter((stub) =>
-      searching ? stub.title.toLowerCase().includes(q) : grokSectionOfProvider(stub.provider) === section
-    )
-    .sort((a, b) => a.title.localeCompare(b.title, "ru"));
+  // Закрытые карточки — только когда список аккаунтов ПОЛНЫЙ: пока доезжает
+  // запрос «мои» или «по провайдеру», свои же аккаунты показались бы здесь
+  // закрытыми с кнопкой «Запросить доступ» самому себе.
+  const lockedStubs = !appsComplete
+    ? []
+    : stubs
+        .filter((stub) => !visibleAppIds.has(stub.id))
+        .filter((stub) =>
+          searching
+            ? `${stub.title} ${grokAppProviderLabel(stub.provider, stub.providerOther)}`.toLowerCase().includes(q)
+            : grokSectionOfProvider(stub.provider) === section
+        )
+        .sort((a, b) => a.title.localeCompare(b.title, "ru"));
   const pendingBySection = (id: SectionId) => pendingRequests.filter((r) => grokSectionOfProvider(r.provider) === id);
+  // Управляющие — только живые участники, которым страница открыта: ушедший
+  // или чистый ОС в списке остался бы, но решить запрос не смог бы.
+  const canManageGrok = (memberUid: string) => {
+    const member = members.find((m) => m.uid === memberUid);
+    return Boolean(member && member.status === "active" && canUseGrokMember(member));
+  };
   const managersOfSection = (id: GrokAppSectionId) =>
-    Array.from(new Set(GROK_SECTION_PROVIDERS[id].flatMap((provider) => accessSettings?.managers?.[provider] ?? [])));
+    Array.from(new Set(GROK_SECTION_PROVIDERS[id].flatMap((provider) => accessSettings?.managers?.[provider] ?? []))).filter(
+      canManageGrok
+    );
   const ownerUids = members.filter((m) => m.status === "active" && m.role === "owner").map((m) => m.uid);
   const labelOfUid = (memberUid: string) => personLabel(members.find((m) => m.uid === memberUid) ?? null) || "—";
+  const describeRequest = (request: GrokAccessRequest) => {
+    const member = members.find((m) => m.uid === request.uid);
+    const account = appAccounts.find((a) => a.id === request.accountId);
+    const stub = stubs.find((st) => st.id === request.accountId);
+    return {
+      who: member ? personLabel(member) || member.email || "—" : "не участник",
+      email: member?.email ?? null,
+      account: account ? account.nickname?.trim() || account.email : stub?.title ?? "аккаунт удалён",
+    };
+  };
 
   if (!activeWorkspaceId) return null;
 
@@ -354,7 +405,7 @@ export default function GrokLimitPage() {
 
   async function patchEntry(entry: Entry, patch: PoolPatch) {
     if (!profile) return;
-    const name = displayNameOf(profile);
+    const name = myDisplayName(profile, members);
     if (entry.raw.kind === "grok") await updateGrokAccount(activeWorkspaceId!, entry.id, patch, profile.uid, name);
     else await updateGrokAppAccount(activeWorkspaceId!, entry.id, patch, profile.uid, name);
   }
@@ -380,14 +431,24 @@ export default function GrokLimitPage() {
     if (!workspaceId || !profile) return;
     setAccessSaving(true);
     try {
+      // Диалог открыт со снимком списка, а пока он был открыт, кому-то могли
+      // открыть доступ по запросу. Пишем РАЗНИЦУ поверх живого списка — иначе
+      // сохранение молча отняло бы только что выданный доступ.
+      const initial = account.restricted ? account.allowedUids ?? [] : [];
+      const live = appAccounts.find((a) => a.id === account.id) ?? account;
+      const liveList = live.restricted ? live.allowedUids ?? [] : [];
+      const added = uids.filter((id) => !initial.includes(id));
+      const removed = initial.filter((id) => !uids.includes(id));
+      const finalUids = Array.from(new Set([...liveList, ...added])).filter((id) => !removed.includes(id));
       await setGrokAppAccess({
         workspaceId,
-        account,
-        allowedUids: uids,
+        account: live,
+        allowedUids: finalUids,
+        stubExists: stubs.some((st) => st.id === account.id),
         actorUid: profile.uid,
-        actorName: displayNameOf(profile),
+        actorName: myDisplayName(profile, members),
       });
-      toast.success(uids.length > 0 ? `Доступ открыт: ${uids.length}` : "Аккаунт открыт всем");
+      toast.success(finalUids.length > 0 ? `Доступ открыт: ${finalUids.length}` : "Аккаунт открыт всем");
       setAccessDialog(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось изменить доступ");
@@ -398,9 +459,28 @@ export default function GrokLimitPage() {
 
   async function deleteEntry(entry: Entry) {
     if (!(await confirmDialog({ title: `Удалить ${entry.serviceLabel} «${entry.nickname?.trim() || entry.email}»?`, destructive: true }))) return;
-    if (entry.raw.kind === "grok") await deleteGrokAccount(activeWorkspaceId!, entry.id);
-    else await deleteGrokAppAccount(activeWorkspaceId!, entry.id, canGrant(entry.raw.account.provider));
-    toast.success("Аккаунт удалён");
+    try {
+      if (entry.raw.kind === "grok") {
+        await deleteGrokAccount(activeWorkspaceId!, entry.id);
+      } else {
+        // Карточку витрины и запросы к аккаунту убирает тот, кто управляет
+        // разделом; у остальных на это нет прав — почистит сверка витрины.
+        const grant = canGrant(entry.raw.account.provider);
+        await deleteGrokAppAccount(
+          activeWorkspaceId!,
+          entry.id,
+          grant
+            ? {
+                stub: stubs.some((st) => st.id === entry.id),
+                requestIds: pendingRequests.filter((r) => r.accountId === entry.id).map((r) => r.id),
+              }
+            : undefined
+        );
+      }
+      toast.success("Аккаунт удалён");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось удалить аккаунт");
+    }
   }
 
   async function saveManagers(sectionId: GrokAppSectionId, uids: string[]) {
@@ -421,10 +501,10 @@ export default function GrokLimitPage() {
     if (!workspaceId || !profile) return;
     setBusyId(stub.id);
     try {
-      const notifyUids = Array.from(new Set([...(accessSettings?.managers?.[stub.provider] ?? []), ...ownerUids])).filter(
-        (id) => id !== profile.uid
-      );
-      await requestGrokAccess({ workspaceId, stub, uid: profile.uid, name: displayNameOf(profile), notifyUids });
+      const notifyUids = Array.from(
+        new Set([...(accessSettings?.managers?.[stub.provider] ?? []).filter(canManageGrok), ...ownerUids])
+      ).filter((id) => id !== profile.uid);
+      await requestGrokAccess({ workspaceId, stub, uid: profile.uid, name: myDisplayName(profile, members), notifyUids });
       toast.success("Запрос отправлен — откроют те, кто управляет разделом");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось отправить запрос");
@@ -456,7 +536,7 @@ export default function GrokLimitPage() {
         account: appAccounts.find((a) => a.id === request.accountId) ?? null,
         stubExists: stubs.some((s) => s.id === request.accountId),
         actorUid: profile.uid,
-        actorName: displayNameOf(profile),
+        actorName: myDisplayName(profile, members),
       });
       toast.success(approve ? `${request.name}: доступ открыт` : "Запрос отклонён");
     } catch (error) {
@@ -585,6 +665,7 @@ export default function GrokLimitPage() {
           {!searching && section !== "grok" && (
             <GrokRequestsPanel
               requests={pendingBySection(section)}
+              describe={describeRequest}
               busyId={busyId}
               onResolve={(request, approve) => void resolveAccess(request, approve)}
             />

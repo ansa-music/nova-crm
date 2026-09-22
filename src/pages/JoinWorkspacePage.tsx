@@ -1,18 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { Building2, Clock, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Building2, Loader2 } from "lucide-react";
+import { JoinRequestForm } from "@/components/members/JoinRequestForm";
 import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import {
-  getPublicWorkspaceInfo,
-  selfJoinWorkspace,
-  submitJoinRequest,
-  subscribeToOwnJoinRequest,
-} from "@/services/joinRequestService";
+import { getPublicWorkspaceInfo, submitJoinRequest, subscribeToOwnJoinRequest } from "@/services/joinRequestService";
 import { addOwnWorkspaceId } from "@/services/authService";
-import type { JoinRequest, Workspace } from "@/types";
+import type { JoinRequest, JoinRequestRole, Workspace } from "@/types";
 import { clearJoinIntent, rememberJoinIntent } from "@/utils/joinIntent";
 
 export default function JoinWorkspacePage() {
@@ -21,10 +16,8 @@ export default function JoinWorkspacePage() {
   const { profile } = useAuth();
   const { workspaces, isLoadingWorkspaces } = useWorkspace();
   const [workspace, setWorkspace] = useState<Workspace | null | undefined>(undefined);
-  const [ownRequest, setOwnRequest] = useState<JoinRequest | null>(null);
+  const [ownRequest, setOwnRequest] = useState<JoinRequest | null | undefined>(undefined);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [autoJoinFailed, setAutoJoinFailed] = useState(false);
-  const autoJoinAttemptedRef = useRef(false);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -47,37 +40,6 @@ export default function JoinWorkspacePage() {
     }
   }, [workspaceId, workspaces, isLoadingWorkspaces, navigate]);
 
-  // Instant join: the workspace has autoApproveJoins on, so skip the
-  // request-and-wait flow entirely — create the member record the moment
-  // we know who's asking, no click needed. Guarded by a ref (not just
-  // state) so a re-render mid-flight — e.g. StrictMode's double-invoke, or
-  // `workspace`/`profile` settling on different ticks — can never fire a
-  // second concurrent attempt; selfJoinWorkspace is separately idempotent
-  // (returns the existing doc if one already exists) as a second layer.
-  useEffect(() => {
-    if (!workspaceId || !workspace?.autoApproveJoins || !profile?.uid) return;
-    if (isLoadingWorkspaces || workspaces.some((w) => w.id === workspaceId)) return;
-    if (autoJoinAttemptedRef.current) return;
-    autoJoinAttemptedRef.current = true;
-    selfJoinWorkspace(workspaceId, profile.uid, profile.email, profile.name, profile.photoURL)
-      .then(() => addOwnWorkspaceId(profile.uid, workspaceId))
-      .then(() => {
-        // Same brief delay as the approved-request path below, for the same
-        // reason: give the workspace-list listener a beat to pick up the
-        // fresh id before navigating in.
-        setTimeout(() => {
-          clearJoinIntent();
-          navigate("/", { replace: true });
-        }, 400);
-      })
-      .catch((error) => {
-        console.error("Не удалось выполнить мгновенный вход:", error);
-        toast.error("Не удалось войти автоматически — отправьте запрос вручную");
-        autoJoinAttemptedRef.current = false;
-        setAutoJoinFailed(true);
-      });
-  }, [workspaceId, workspace?.autoApproveJoins, profile, isLoadingWorkspaces, workspaces, navigate]);
-
   useEffect(() => {
     if (!workspaceId || !profile?.uid) return;
     return subscribeToOwnJoinRequest(workspaceId, profile.uid, (request) => {
@@ -98,11 +60,12 @@ export default function JoinWorkspacePage() {
     });
   }, [workspaceId, profile?.uid, navigate]);
 
-  async function handleRequestAccess() {
+  async function handleRequestAccess(wish: { role: JoinRequestRole; nick: string }) {
     if (!workspaceId || !profile) return;
     setIsSubmitting(true);
     try {
-      await submitJoinRequest(workspaceId, profile.uid, profile.email, profile.name, profile.photoURL);
+      await submitJoinRequest(workspaceId, profile.uid, profile.email, profile.name, profile.photoURL, wish);
+      toast.success("Заявка отправлена — Тимлид подтвердит роль и ник");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось отправить заявку");
     } finally {
@@ -127,19 +90,6 @@ export default function JoinWorkspacePage() {
     );
   }
 
-  // Instant join is on and hasn't failed — never show "Запросить доступ" at
-  // all, just the brief loading beat while the effect above lets them in.
-  // If it does fail (e.g. a rules deploy lag), autoJoinFailed flips and we
-  // fall through to the normal request-and-wait card below as a safety net.
-  if (workspace.autoApproveJoins && !autoJoinFailed) {
-    return (
-      <div className="flex h-screen flex-col items-center justify-center gap-3 bg-background px-4 text-center">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">Входим в «{workspace.name}»...</p>
-      </div>
-    );
-  }
-
   return (
     <div className="flex h-screen items-center justify-center bg-background px-4">
       <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-xl border border-border bg-card p-8 text-center shadow-sm">
@@ -152,23 +102,23 @@ export default function JoinWorkspacePage() {
         <div>
           <h1 className="text-lg font-semibold">{workspace.name}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Чтобы работать в этом workspace, нужно одобрение от его владельца.
+            Новые участники приходят без роли: выберите, кем работаете, и Тимлид вас впустит.
           </p>
         </div>
 
-        {ownRequest?.status === "pending" ? (
-          <div className="flex items-center gap-2 rounded-lg bg-muted px-4 py-2.5 text-sm text-muted-foreground">
-            <Clock className="h-4 w-4" /> Заявка отправлена, ждём подтверждения
-          </div>
+        {ownRequest === undefined ? (
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         ) : ownRequest?.status === "approved" ? (
           <div className="flex items-center gap-2 rounded-lg bg-success/10 px-4 py-2.5 text-sm text-success">
             <Loader2 className="h-4 w-4 animate-spin" /> Доступ открыт, переходим в workspace...
           </div>
         ) : (
-          <Button onClick={handleRequestAccess} disabled={isSubmitting} className="w-full">
-            {isSubmitting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-            Запросить доступ
-          </Button>
+          <JoinRequestForm
+            workspace={workspace}
+            request={ownRequest}
+            submitting={isSubmitting}
+            onSubmit={(wish) => void handleRequestAccess(wish)}
+          />
         )}
       </div>
     </div>

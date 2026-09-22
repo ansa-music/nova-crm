@@ -6,7 +6,7 @@ import { publishDeskLoad } from "@/services/deskLoadService";
 import { sendNotification } from "@/services/notificationService";
 import { publishOsOrders } from "@/services/osOrdersService";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
-import { displayNameOf } from "@/utils/displayName";
+import { myDisplayName } from "@/utils/displayName";
 import { collectOsOrders, countDeskLoad, deskLoadSignature, osOrdersSignature } from "@/utils/techLoad";
 import type { OsOrderItem, PageRow, StatusOption, SubPage, WorkspacePage } from "@/types";
 
@@ -76,7 +76,7 @@ export function useDeskLoadPublisher({
   const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
   const membersRef = useRef(members);
   membersRef.current = members;
-  const fromName = displayNameOf(profile);
+  const fromName = myDisplayName(profile, members);
 
   useEffect(() => {
     if (!counts || !pageId || !workspaceId || !responsibleUserId || !subPageId) return;

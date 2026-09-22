@@ -101,6 +101,7 @@ export function subscribeToGrokAppAccounts(
       (error) => {
         console.error(`Не удалось прочитать аккаунты подписок (${key}):`, error);
         parts.set(key, new Map());
+        confirmed.delete(key);
         emit();
       }
     )
@@ -113,13 +114,23 @@ export function subscribeToGrokAppAccounts(
  * попадают в запрос «открытые» и пропадают у всех, кроме руководства.
  * Вызывается из сессии Owner/Тимлида, которая видит коллекцию целиком.
  */
-export async function backfillGrokAppRestricted(workspaceId: string, accounts: GrokAppAccount[]) {
+export async function backfillGrokAppRestricted(
+  workspaceId: string,
+  accounts: GrokAppAccount[],
+  actor: { uid: string; name: string }
+) {
   if (!db) return;
   const legacy = accounts.filter((a) => a.restricted === undefined);
   if (legacy.length === 0) return;
   const batch = writeBatch(db);
+  // Правило правки требует `updatedByUid == я`: запись одного `restricted`
+  // оставляла чужой uid последнего редактора и падала — вся пачка, молча.
   for (const account of legacy) {
-    batch.set(paths.grokAppAccount(workspaceId, account.id), { restricted: false }, { merge: true });
+    batch.set(
+      paths.grokAppAccount(workspaceId, account.id),
+      { restricted: false, updatedByUid: actor.uid, updatedByName: actor.name, updatedAt: Date.now() },
+      { merge: true }
+    );
   }
   await batch.commit();
 }
@@ -214,14 +225,21 @@ export async function updateGrokAppAccount(
  * с витрины закрытых; у технаря на неё прав нет — её уберёт сверка витрины
  * в сессии управляющего.
  */
-export async function deleteGrokAppAccount(workspaceId: string, id: string, withStub = false) {
+export async function deleteGrokAppAccount(
+  workspaceId: string,
+  id: string,
+  cleanup?: { stub: boolean; requestIds: string[] }
+) {
   if (!db) return;
-  if (!withStub) {
+  if (!cleanup || (!cleanup.stub && cleanup.requestIds.length === 0)) {
     await deleteDoc(paths.grokAppAccount(workspaceId, id));
     return;
   }
   const batch = writeBatch(db);
   batch.delete(paths.grokAppAccount(workspaceId, id));
-  batch.delete(paths.grokAccessStub(workspaceId, id));
+  if (cleanup.stub) batch.delete(paths.grokAccessStub(workspaceId, id));
+  // Запросы к удалённому аккаунту решать уже нечего — иначе они висели бы в
+  // списке и в счётчике раздела, а «Открыть доступ» падало бы.
+  for (const requestId of cleanup.requestIds) batch.delete(paths.grokAccessRequest(workspaceId, requestId));
   await batch.commit();
 }

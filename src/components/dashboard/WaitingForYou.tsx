@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Mail, UserPlus, X } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
+import { ApproveJoinDialog } from "@/components/members/ApproveJoinDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,13 +9,7 @@ import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
-import {
-  approveJoinRequest,
-  DEFAULT_JOIN_ROLE,
-  fetchJoinRequests,
-  rejectJoinRequest,
-  subscribeJoinRequests,
-} from "@/services/joinRequestService";
+import { fetchJoinRequests, rejectJoinRequest, subscribeJoinRequests } from "@/services/joinRequestService";
 import { resendInvite } from "@/services/memberService";
 import { ROLE_LABELS, type JoinRequest, type WorkspaceMember } from "@/types";
 import { timeAgo } from "@/utils/date";
@@ -26,9 +21,10 @@ function normalizeEmail(email: string | undefined | null): string {
 /** Owner-only feed of pending join requests and unused invite stubs. Empty → nothing. */
 export function WaitingForYou() {
   const { profile } = useAuth();
-  const { activeWorkspaceId, members } = useWorkspace();
+  const { activeWorkspaceId, activeWorkspace, members } = useWorkspace();
   const permissions = usePermissions();
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
+  const [approveRequest, setApproveRequest] = useState<JoinRequest | null>(null);
 
   const canShow = permissions.canManageUsers;
 
@@ -68,28 +64,27 @@ export function WaitingForYou() {
     return invites;
   }, [members, joins]);
 
+  // Заявку рассмотрели в другом месте — диалог по ней закрываем; иначе он
+  // исчез бы вместе с пустым списком и открылся сам при следующей заявке.
+  useEffect(() => {
+    if (approveRequest && !joins.some((r) => r.uid === approveRequest.uid)) setApproveRequest(null);
+  }, [joins, approveRequest]);
+
   if (!canShow || !activeWorkspaceId) return null;
   if (joins.length === 0 && pendingInvites.length === 0) return null;
 
-  async function handleApprove(request: JoinRequest) {
+  async function afterApprove() {
+    await refreshWorkspaceMembers(activeWorkspaceId!);
     try {
-      await approveJoinRequest(activeWorkspaceId!, request, DEFAULT_JOIN_ROLE, profile?.uid ?? "");
-      await refreshWorkspaceMembers(activeWorkspaceId!);
-      toast.success(`${request.name} добавлен(а) в workspace как Технарь`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось одобрить заявку");
-    } finally {
-      try {
-        setJoinRequests(await fetchJoinRequests(activeWorkspaceId!));
-      } catch {
-        setJoinRequests((prev) => prev.filter((r) => r.uid !== request.uid));
-      }
+      setJoinRequests(await fetchJoinRequests(activeWorkspaceId!));
+    } catch {
+      // Подписка на заявки и так обновит список.
     }
   }
 
   async function handleReject(uid: string) {
     try {
-      await rejectJoinRequest(activeWorkspaceId!, uid);
+      await rejectJoinRequest(activeWorkspaceId!, uid, profile?.uid);
       toast.success("Заявка отклонена");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось отклонить заявку");
@@ -145,7 +140,10 @@ export function WaitingForYou() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{request.name}</p>
                   <p className="truncate text-xs text-muted-foreground">{request.email}</p>
-                  <p className="text-xs text-muted-foreground">хочет вступить · {timeAgo(request.requestedAt)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {request.requestedRole ? `${ROLE_LABELS[request.requestedRole]}` : "роль не выбрал"}
+                    {request.requestedNick ? ` · ник «${request.requestedNick}»` : ""} · {timeAgo(request.requestedAt)}
+                  </p>
                 </div>
                 <div className="flex flex-wrap gap-2 sm:shrink-0">
                   <Button
@@ -159,7 +157,7 @@ export function WaitingForYou() {
                   <Button
                     size="sm"
                     className="min-h-11 flex-1 gap-1.5 sm:flex-none"
-                    onClick={() => handleApprove(request)}
+                    onClick={() => setApproveRequest(request)}
                   >
                     <Check className="h-3.5 w-3.5" /> Одобрить
                   </Button>
@@ -208,6 +206,17 @@ export function WaitingForYou() {
           </div>
         )}
       </CardContent>
+      {approveRequest && (
+        <ApproveJoinDialog
+          workspaceId={activeWorkspaceId}
+          workspace={activeWorkspace}
+          request={approveRequest}
+          members={Array.isArray(members) ? members : []}
+          approverUid={profile?.uid ?? ""}
+          onClose={() => setApproveRequest(null)}
+          onApproved={afterApprove}
+        />
+      )}
     </Card>
   );
 }

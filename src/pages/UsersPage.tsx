@@ -19,8 +19,11 @@ import { RoleSelect } from "@/components/members/RoleSelect";
 import {
   cancelInvite,
   changeMemberRole,
+  nickLabelOf,
+  nickOptionsOf,
   osNickLabel,
   quietActiveMembers,
+  type NickKind,
   removeMember,
   resendInvite,
   setMemberExtraRoles,
@@ -33,9 +36,12 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { OsNickDialog } from "@/components/members/OsNickDialog";
+import { NickDialog } from "@/components/members/NickDialog";
+import { NicksTab } from "@/components/members/NicksTab";
+import { ApproveJoinDialog } from "@/components/members/ApproveJoinDialog";
+import { pageChipClass } from "@/components/common/PageHeader";
 import { toggleUserPageAccess } from "@/services/pageService";
-import { approveJoinRequest, rejectJoinRequest, fetchJoinRequests, subscribeJoinRequests, DEFAULT_JOIN_ROLE } from "@/services/joinRequestService";
+import { rejectJoinRequest, fetchJoinRequests, subscribeJoinRequests } from "@/services/joinRequestService";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { timeAgo } from "@/utils/date";
 import { useAuth } from "@/hooks/useAuth";
@@ -65,9 +71,22 @@ export default function UsersPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [roleChip, setRoleChip] = useState<Role | "invited" | null>(null);
-  // Ник ОС: only Тимлид/Owner reach this page (canManageUsers); rules
-  // enforce the same on the member doc and the shared «Ответственный» list.
-  const [osNickMember, setOsNickMember] = useState<WorkspaceMember | null>(null);
+  // Ники ОС и технарей: only Тимлид/Owner reach this page (canManageUsers);
+  // rules enforce the same on the member doc and the workspace nick lists.
+  const [nickDialog, setNickDialog] = useState<{ member: WorkspaceMember; kind: NickKind } | null>(null);
+  const [approveRequest, setApproveRequest] = useState<JoinRequest | null>(null);
+  // Вкладки «Участники» / «Ники» (?tab=nicks — чтобы ссылкой можно было
+  // открыть сразу ники).
+  const [tab, setTabState] = useState<"people" | "nicks">(() =>
+    new URLSearchParams(window.location.search).get("tab") === "nicks" ? "nicks" : "people"
+  );
+  function setTab(next: "people" | "nicks") {
+    setTabState(next);
+    const url = new URL(window.location.href);
+    if (next === "nicks") url.searchParams.set("tab", "nicks");
+    else url.searchParams.delete("tab");
+    window.history.replaceState(window.history.state, "", url);
+  }
 
   const roster = useMemo(
     () =>
@@ -107,6 +126,12 @@ export default function UsersPage() {
     return subscribeJoinRequests(activeWorkspaceId, setJoinRequests);
   }, [activeWorkspaceId, permissions.canManageUsers]);
 
+  // Заявку рассмотрел кто-то другой, пока диалог был открыт, — закрываем его:
+  // иначе «Впустить» упёрся бы в «уже рассмотрели».
+  useEffect(() => {
+    if (approveRequest && !joinRequests.some((r) => r.uid === approveRequest.uid)) setApproveRequest(null);
+  }, [joinRequests, approveRequest]);
+
   useEffect(() => {
     if (!activeWorkspaceId || !permissions.canManageUsers) return;
     void refreshWorkspaceMembers(activeWorkspaceId);
@@ -144,25 +169,18 @@ export default function UsersPage() {
     setTimeout(() => setLinkCopied(false), 2000);
   }
 
-  async function handleApproveRequest(request: JoinRequest) {
+  async function afterApprove() {
+    await refreshWorkspaceMembers(activeWorkspaceId!);
     try {
-      await approveJoinRequest(activeWorkspaceId!, request, DEFAULT_JOIN_ROLE, profile?.uid ?? "");
-      await refreshWorkspaceMembers(activeWorkspaceId!);
-      toast.success(`${request.name} добавлен(а) в workspace как Технарь`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось одобрить заявку");
-    } finally {
-      try {
-        setJoinRequests(await fetchJoinRequests(activeWorkspaceId!));
-      } catch {
-        setJoinRequests((prev) => prev.filter((r) => r.uid !== request.uid));
-      }
+      setJoinRequests(await fetchJoinRequests(activeWorkspaceId!));
+    } catch {
+      // Подписка на заявки и так обновит список.
     }
   }
 
   async function handleRejectRequest(uid: string) {
     try {
-      await rejectJoinRequest(activeWorkspaceId!, uid);
+      await rejectJoinRequest(activeWorkspaceId!, uid, profile?.uid);
       toast.success("Заявка отклонена");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось отклонить заявку");
@@ -294,9 +312,8 @@ export default function UsersPage() {
             <section className="flex flex-col gap-2">
               <h3 className="section">Ссылка для вступления</h3>
               <p className="text-xs text-muted-foreground">
-                {activeWorkspace?.autoApproveJoins
-                  ? "По этой ссылке человек сразу попадает в workspace как Технарь — без вашего одобрения. Отключить можно в Настройках → Workspace."
-                  : "По этой ссылке человек не создаёт свой workspace — он отправляет вам заявку, и вы решаете, впустить его или нет."}
+                По этой ссылке человек приходит без роли: выбирает, кем работает (Технарь или ОС), пишет свой ник, если он
+                есть, — и ждёт одобрения. Вы можете впустить как есть или поменять роль и ник.
               </p>
               <div className="flex items-center gap-2">
                 <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted px-3 py-2 text-xs">{joinLink}</code>
@@ -316,28 +333,67 @@ export default function UsersPage() {
             <CardTitle className="flex items-center gap-2">
               <Link2 className="h-4 w-4" /> Заявки на вступление ({joinRequests.length})
             </CardTitle>
-            <CardDescription>При одобрении человек становится Технарь и может создать один свой стол. Роль можно сменить после (Owner / Технарь / Viewer).</CardDescription>
+            <CardDescription>
+              Новые люди приходят без роли и сами пишут, кем работают и под каким ником. «Одобрить» — проверить роль и ник
+              (можно поменять) и впустить.
+            </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
             {joinRequests.map((request) => (
-              <div key={request.uid} className="flex items-center gap-3 rounded-lg border border-border p-3">
-                <MemberAvatar id={request.uid} name={request.name} photoURL={request.photoURL} className="h-8 w-8" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{request.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">{request.email}</p>
+              <div key={request.uid} className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:gap-3">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <MemberAvatar id={request.uid} name={request.name} photoURL={request.photoURL} className="h-8 w-8 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{request.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">{request.email}</p>
+                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                      {request.requestedRole ? (
+                        <span className="text-foreground">{ROLE_LABELS[request.requestedRole]}</span>
+                      ) : (
+                        "роль не выбрал"
+                      )}
+                      {request.requestedNick && (
+                        <>
+                          {" "}· ник <span className="font-medium text-foreground">«{request.requestedNick}»</span>
+                        </>
+                      )}
+                    </p>
+                  </div>
                 </div>
-                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleRejectRequest(request.uid)}>
-                  <X className="h-3.5 w-3.5" /> Отклонить
-                </Button>
-                <Button size="sm" className="gap-1.5" onClick={() => handleApproveRequest(request)}>
-                  <Check className="h-3.5 w-3.5" /> Одобрить
-                </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" className="min-h-11 flex-1 gap-1.5 sm:min-h-0 sm:flex-none" onClick={() => handleRejectRequest(request.uid)}>
+                    <X className="h-3.5 w-3.5" /> Отклонить
+                  </Button>
+                  <Button size="sm" className="min-h-11 flex-1 gap-1.5 sm:min-h-0 sm:flex-none" onClick={() => setApproveRequest(request)}>
+                    <Check className="h-3.5 w-3.5" /> Одобрить
+                  </Button>
+                </div>
               </div>
             ))}
           </CardContent>
         </Card>
       )}
 
+      <div className="mb-4 flex flex-wrap gap-1.5" role="tablist" aria-label="Разделы">
+        <button type="button" role="tab" aria-selected={tab === "people"} onClick={() => setTab("people")} className={pageChipClass(tab === "people")}>
+          Участники
+        </button>
+        <button type="button" role="tab" aria-selected={tab === "nicks"} onClick={() => setTab("nicks")} className={pageChipClass(tab === "nicks")}>
+          Ники ОС и технарей
+        </button>
+      </div>
+
+      {tab === "nicks" ? (
+        <NicksTab
+          workspaceId={activeWorkspaceId}
+          workspace={activeWorkspace}
+          members={Array.isArray(members) ? members : []}
+          meUid={profile?.uid ?? ""}
+          viewerIsOwner={viewerIsOwner}
+          onChanged={() => refreshWorkspaceMembers(activeWorkspaceId)}
+        />
+      ) : (
+      <>
       {quiet.length > 0 && (
         <Card className="mb-6">
           <CardHeader>
@@ -421,6 +477,10 @@ export default function UsersPage() {
           const canEditExtraRoles =
             member.status === "active" && Boolean(member.uid) && !selfLocked && (!isOwner || viewerIsOwner);
           const showOsNick = memberHasRole(member, "os") && member.status === "active" && Boolean(member.uid);
+          // Ник технаря — у тех, кто работает за столом: Технарь или Owner.
+          const showTechNick =
+            (memberHasRole(member, "manager") || member.role === "owner") && member.status === "active" && Boolean(member.uid);
+          const techNick = showTechNick ? nickLabelOf(member, "tech", nickOptionsOf(activeWorkspace, "tech")) : null;
           const osNick = showOsNick ? osNickLabel(member, activeWorkspace?.responsibleOptions) : null;
           const osNickMissing =
             showOsNick &&
@@ -521,8 +581,8 @@ export default function UsersPage() {
                   {showOsNick && (
                     <button
                       type="button"
-                      onClick={() => setOsNickMember(member)}
-                      disabled={selfLocked}
+                      onClick={() => setNickDialog({ member, kind: "os" })}
+                      disabled={selfLocked || (isOwner && !viewerIsOwner)}
                       title={selfLocked ? "Свой ник ОС закрепляет Owner или другой Тимлид" : osNick ? "Сменить или открепить ник ОС" : "Закрепить ник ОС"}
                       className={cn(
                         "mt-1.5 inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-60",
@@ -549,6 +609,38 @@ export default function UsersPage() {
                         </span>
                       ) : (
                         <span>Закрепить ник ОС</span>
+                      )}
+                      <Pencil className="h-3 w-3 shrink-0 opacity-70" />
+                    </button>
+                  )}
+                  {showTechNick && (
+                    <button
+                      type="button"
+                      onClick={() => setNickDialog({ member, kind: "tech" })}
+                      disabled={selfLocked || (isOwner && !viewerIsOwner)}
+                      title={
+                        isOwner && !viewerIsOwner
+                          ? "Ник Owner закрепляет сам Owner"
+                          : selfLocked
+                            ? "Свой ник технаря закрепляет Owner или другой Тимлид"
+                            : techNick
+                              ? "Сменить или открепить ник технаря"
+                              : "Закрепить ник технаря"
+                      }
+                      className={cn(
+                        "mt-1.5 ml-1 inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-60",
+                        techNick
+                          ? "border-teal-400/40 bg-teal-400/10 text-teal-200 hover:bg-teal-400/15"
+                          : "border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                      )}
+                    >
+                      <AtSign className="h-3 w-3 shrink-0" />
+                      {techNick ? (
+                        <span className="truncate">
+                          ник технаря: <span className="font-semibold">{techNick}</span>
+                        </span>
+                      ) : (
+                        <span>Закрепить ник технаря</span>
                       )}
                       <Pencil className="h-3 w-3 shrink-0 opacity-70" />
                     </button>
@@ -635,14 +727,29 @@ export default function UsersPage() {
         })}
       </div>
 
-      {osNickMember && (
-        <OsNickDialog
+      </>
+      )}
+
+      {nickDialog && (
+        <NickDialog
           workspaceId={activeWorkspaceId}
-          member={osNickMember}
+          kind={nickDialog.kind}
+          member={nickDialog.member}
           members={Array.isArray(members) ? members : []}
-          options={activeWorkspace?.responsibleOptions ?? []}
-          onClose={() => setOsNickMember(null)}
+          options={nickOptionsOf(activeWorkspace, nickDialog.kind)}
+          onClose={() => setNickDialog(null)}
           onSaved={() => refreshWorkspaceMembers(activeWorkspaceId)}
+        />
+      )}
+      {approveRequest && (
+        <ApproveJoinDialog
+          workspaceId={activeWorkspaceId}
+          workspace={activeWorkspace}
+          request={approveRequest}
+          members={Array.isArray(members) ? members : []}
+          approverUid={profile?.uid ?? ""}
+          onClose={() => setApproveRequest(null)}
+          onApproved={afterApprove}
         />
       )}
     </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Clock, Loader2, LogOut, UserX } from "lucide-react";
+import { Loader2, LogOut, UserX } from "lucide-react";
+import { JoinRequestForm } from "@/components/members/JoinRequestForm";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -7,7 +8,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { signOutUser } from "@/firebase/auth";
 import { removeOwnWorkspaceId } from "@/services/authService";
 import { submitJoinRequest, subscribeToOwnJoinRequest } from "@/services/joinRequestService";
-import type { JoinRequest } from "@/types";
+import type { JoinRequest, JoinRequestRole } from "@/types";
 
 /**
  * Аккаунт, которого удалили из участников, всё ещё видит workspace: его id
@@ -33,11 +34,11 @@ export function RemovedFromWorkspace() {
 
   const others = workspaces.filter((w) => w.id !== activeWorkspaceId);
 
-  async function handleRequest() {
+  async function handleRequest(wish: { role: JoinRequestRole; nick: string }) {
     if (!activeWorkspaceId || !profile) return;
     setBusy("request");
     try {
-      await submitJoinRequest(activeWorkspaceId, profile.uid, profile.email, profile.name, profile.photoURL);
+      await submitJoinRequest(activeWorkspaceId, profile.uid, profile.email, profile.name, profile.photoURL, wish);
       toast.success("Заявка отправлена");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось отправить заявку");
@@ -67,8 +68,6 @@ export function RemovedFromWorkspace() {
     }
   }
 
-  const pending = request?.status === "pending";
-
   return (
     <div className="cyber-grid flex h-screen flex-col items-center justify-center gap-5 bg-background px-4 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground">
@@ -82,15 +81,15 @@ export function RemovedFromWorkspace() {
         </p>
       </div>
       <div className="flex w-full max-w-xs flex-col gap-2">
-        {pending ? (
-          <div className="flex items-center justify-center gap-2 rounded-lg bg-muted px-4 py-2.5 text-sm text-muted-foreground">
-            <Clock className="h-4 w-4" /> Заявка отправлена, ждём подтверждения
-          </div>
+        {request === undefined ? (
+          <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
         ) : (
-          <Button onClick={() => void handleRequest()} disabled={busy !== null || request === undefined}>
-            {busy === "request" && <Loader2 className="h-4 w-4 animate-spin" />}
-            {request?.status === "rejected" ? "Запросить доступ ещё раз" : "Запросить доступ"}
-          </Button>
+          <JoinRequestForm
+            workspace={activeWorkspace}
+            request={request}
+            submitting={busy === "request"}
+            onSubmit={(wish) => void handleRequest(wish)}
+          />
         )}
         {others.map((w) => (
           <Button key={w.id} variant="outline" onClick={() => setActiveWorkspaceId(w.id)} disabled={busy !== null}>

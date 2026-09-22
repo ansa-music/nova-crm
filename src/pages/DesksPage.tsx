@@ -23,7 +23,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { formatDate } from "@/utils/date";
-import { displayNameOf } from "@/utils/displayName";
+import { myDisplayName } from "@/utils/displayName";
 import { canOpenDesk, deskOwnerName, personLabel, resolvedCoverUrl } from "@/utils/peopleDesks";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { cn } from "@/utils/cn";
@@ -102,7 +102,7 @@ export default function DesksPage() {
   async function sendRequest(page: WorkspacePage) {
     const toUid = page.responsibleUserId || ownerId;
     if (!toUid) throw new Error("Нет ответственного у стола");
-    await requestView(page, displayNameOf(profile), toUid);
+    await requestView(page, myDisplayName(profile, members), toUid);
     await reload();
   }
 

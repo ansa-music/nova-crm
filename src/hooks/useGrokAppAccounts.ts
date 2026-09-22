@@ -14,12 +14,16 @@ export function useGrokAppAccounts(
 ) {
   const [accounts, setAccounts] = useState<GrokAppAccount[]>([]);
   const [isLoading, setIsLoading] = useState(Boolean(workspaceId));
-  const [complete, setComplete] = useState(false);
+  // «Полный» относится к КОНКРЕТНОЙ подписке: сменились права или workspace —
+  // старый флаг в том же рендере сказал бы «полный» про старый список, и
+  // сверка витрины удалила бы карточки аккаунтов, которых в нём нет.
+  const [completeKey, setCompleteKey] = useState<string | null>(null);
   const { seesAll, uid } = viewer;
   const managedKey = (viewer.managedProviders ?? []).slice().sort().join(",");
+  const subscriptionKey = `${workspaceId ?? ""}|${seesAll}|${uid}|${managedKey}`;
 
   useEffect(() => {
-    setComplete(false);
+    setCompleteKey(null);
     if (!workspaceId || (!seesAll && !uid)) {
       setAccounts([]);
       setIsLoading(false);
@@ -31,12 +35,14 @@ export function useGrokAppAccounts(
       (next, done) => {
         setAccounts(next);
         setIsLoading(false);
-        setComplete(done);
+        setCompleteKey(done ? subscriptionKey : null);
       },
       { seesAll, uid, managedProviders: managedKey ? (managedKey.split(",") as GrokAppProvider[]) : [] }
     );
     return unsubscribe;
+    // subscriptionKey собран из тех же зависимостей.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, seesAll, uid, managedKey]);
 
-  return { accounts, isLoading, complete };
+  return { accounts, isLoading, complete: completeKey === subscriptionKey };
 }

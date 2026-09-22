@@ -8,10 +8,16 @@ import { cn } from "@/utils/cn";
 import { personLabel } from "@/utils/peopleDesks";
 import {
   grokAppProviderLabel,
+  rolesOf,
   type GrokAccessRequest,
   type GrokAccessStub,
   type WorkspaceMember,
 } from "@/types";
+
+/** Открыт ли человеку «Грок лимит» — зеркало canUseGrok: чистому ОС нет. */
+export function canUseGrokMember(member: WorkspaceMember): boolean {
+  return !rolesOf(member).every((role) => role === "os");
+}
 
 /**
  * Кто управляет разделом «Грок лимита» (Хикс, 11 Labs, Другие). Это право
@@ -33,15 +39,25 @@ export function GrokManagersDialog({
   onClose: () => void;
   onSave: (uids: string[]) => void;
 }) {
-  const [selected, setSelected] = useState<string[]>(managerUids);
+  // Только те, кому «Грок лимит» вообще открыт: чистый ОС страницу не видит
+  // (canUseGrok), и назначенный управляющим он ничего бы решить не смог.
+  const eligible = useMemo(
+    () =>
+      members.filter(
+        (m) => m.status === "active" && Boolean(m.uid) && m.role !== "owner" && canUseGrokMember(m)
+      ),
+    [members]
+  );
+  // Метки только у тех, кого видно в списке: иначе ушедший участник сидел бы в
+  // «Сохранить · N» невидимым и записывался заново при каждом сохранении.
+  const [selected, setSelected] = useState<string[]>(() => managerUids.filter((id) => eligible.some((m) => m.uid === id)));
   const [search, setSearch] = useState("");
   const people = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return members
-      .filter((m) => m.status === "active" && Boolean(m.uid) && m.role !== "owner")
+    return eligible
       .filter((m) => !q || `${personLabel(m)} ${m.email ?? ""}`.toLowerCase().includes(q))
       .sort((a, b) => personLabel(a).localeCompare(personLabel(b), "ru"));
-  }, [members, search]);
+  }, [eligible, search]);
 
   function toggle(uid: string) {
     setSelected((prev) => (prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]));
@@ -57,7 +73,8 @@ export function GrokManagersDialog({
           </DialogTitle>
           <DialogDescription>
             Отмеченные закрывают и открывают аккаунты «{sectionTitle}» и решают запросы на доступ. Это право только этой
-            страницы: роль человека (Технарь, ОС, Тимлид) на него не влияет. Owner может всё и так.
+            страницы и ролью не выдаётся — его нужно дать отдельно. В списке те, кому «Грок лимит» открыт (не чистые ОС);
+            Owner может всё и так.
           </DialogDescription>
         </DialogHeader>
 
@@ -151,10 +168,17 @@ export function GrokManagersLine({
 /** Запросы на доступ — у тех, кто вправе их решить. */
 export function GrokRequestsPanel({
   requests,
+  describe,
   busyId,
   onResolve,
 }: {
   requests: GrokAccessRequest[];
+  /**
+   * Кто и к чему — НЕ из самого запроса: имя и название аккаунта в нём пишет
+   * сам просящий, и подложить «Анна Петрова → Хикс тест» было бы легко.
+   * Человек берётся из участников по uid, аккаунт — из витрины/аккаунта.
+   */
+  describe: (request: GrokAccessRequest) => { who: string; email: string | null; account: string };
   busyId: string | null;
   onResolve: (request: GrokAccessRequest, approve: boolean) => void;
 }) {
@@ -165,12 +189,15 @@ export function GrokRequestsPanel({
         <ShieldCheck className="h-3.5 w-3.5 text-primary" />
         Просят доступ <span className="tabular-nums opacity-70">{requests.length}</span>
       </p>
-      {requests.map((request) => (
+      {requests.map((request) => {
+        const info = describe(request);
+        return (
         <div key={request.id} className="flex flex-col gap-2 text-[12px] sm:flex-row sm:items-center">
           <p className="min-w-0 flex-1">
-            <span className="font-semibold">{request.name}</span>
+            <span className="font-semibold">{info.who}</span>
+            {info.email && <span className="text-muted-foreground"> ({info.email})</span>}
             <span className="text-muted-foreground"> → </span>
-            {request.accountTitle}
+            {info.account}
           </p>
           <div className="flex gap-2">
             <Button
@@ -194,7 +221,8 @@ export function GrokRequestsPanel({
             </Button>
           </div>
         </div>
-      ))}
+        );
+      })}
     </section>
   );
 }

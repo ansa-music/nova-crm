@@ -1,11 +1,26 @@
-import { getDoc, getDocs, onSnapshot, setDoc } from "firebase/firestore";
+import { getDoc, getDocs, onSnapshot, runTransaction, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, subscribeToDoc } from "@/firebase/firestore";
-import { deleteInvitedStubIfPresent } from "@/services/memberService";
-import type { JoinRequest, Role, Workspace, WorkspaceMember } from "@/types";
+import {
+  assertNickFree,
+  assertSameNick,
+  NICK_KIND_META,
+  nickOptionsOf,
+  NICK_MAX_LENGTH,
+  resolveNickOption,
+  type NickKind,
+  type NickTarget,
+} from "@/services/memberService";
+import type { JoinRequest, JoinRequestRole, Role, Workspace, WorkspaceMember } from "@/types";
+import { realNameOf } from "@/utils/displayName";
 
-/** New accepted joiners become Технарь so they can create exactly one own desk. Owner can still reassign. */
+/** Если человек роль не выбрал (старые заявки) — предлагаем Технаря, как было раньше. */
 export const DEFAULT_JOIN_ROLE: Role = "manager";
+
+/** Какой ник положен роли: Технарь — ник технаря, ОС — ник ОС, остальным — никакого. */
+export function nickKindForRole(role: Role): NickKind | null {
+  return role === "manager" ? "tech" : role === "os" ? "os" : null;
+}
 
 /** Minimal public info shown on the /join/:workspaceId page before the person is a member. */
 export async function getPublicWorkspaceInfo(workspaceId: string): Promise<Workspace | null> {
@@ -26,15 +41,22 @@ export function subscribeToPublicWorkspaceInfo(
   return subscribeToDoc<Workspace>(paths.workspace(workspaceId), onData);
 }
 
-/** The requester creates their own request doc — this is what a "join link" click does. */
+/**
+ * Заявка на вход — её пишет сам человек. Новый пользователь приходит БЕЗ
+ * роли: он выбирает, кем работает (Технарь или ОС), и ник, если он у него
+ * уже есть. Решает Тимлид или выше — может одобрить как есть или поменять.
+ * Документ пишется ЦЕЛИКОМ (без merge): правило проверяет точный набор ключей.
+ */
 export async function submitJoinRequest(
   workspaceId: string,
   uid: string,
   email: string,
   name: string,
-  photoURL?: string | null
+  photoURL?: string | null,
+  wish?: { role: JoinRequestRole; nick?: string }
 ): Promise<JoinRequest> {
   if (!db) throw new Error("Firebase не настроен");
+  const nick = wish?.nick?.trim().slice(0, NICK_MAX_LENGTH) ?? "";
   const request: JoinRequest = {
     id: uid,
     uid,
@@ -44,6 +66,8 @@ export async function submitJoinRequest(
     workspaceId,
     status: "pending",
     requestedAt: Date.now(),
+    ...(wish ? { requestedRole: wish.role } : {}),
+    ...(nick ? { requestedNick: nick } : {}),
   };
   await setDoc(paths.joinRequest(workspaceId, uid), request);
   return request;
@@ -84,84 +108,100 @@ export function subscribeJoinRequests(workspaceId: string, cb: (rows: JoinReques
 }
 
 /**
- * Owner approves: creates a real member record, then marks the request
- * approved (kept for the requester's own UI + audit trail).
+ * Одобрить заявку: создать участника с ролью (и ником, если он положен
+ * роли), дописать новый ник в список и закрыть заявку — ОДНОЙ транзакцией.
+ * Раньше это были три записи подряд, и сбой между ними оставлял участника с
+ * заявкой «на рассмотрении»: человек так и не узнавал, что его пустили.
  *
- * Defensive check: refuses outright if the requester already has a member
- * doc (most importantly if they're the Owner). This should never normally
- * happen — JoinWorkspacePage redirects existing members away from the
- * request flow before a request can even be submitted — but this exists as
- * a second, independent line of defense so a stray/duplicate request can
- * never silently downgrade someone's existing role again.
+ * Отказывает, если участник уже есть (даже Owner): одобрение поверх живого
+ * участника молча понизило бы ему роль. И если заявку уже рассмотрели —
+ * второй Тимлид в соседней вкладке не должен её переиграть.
  */
-export async function approveJoinRequest(workspaceId: string, request: JoinRequest, role: Role, approvedBy: string) {
-  if (!db) return;
-  const existing = await getDoc(paths.member(workspaceId, request.uid));
-  if (existing.exists()) {
-    await deleteInvitedStubIfPresent(workspaceId, request.email, request.uid);
-    throw new Error(
-      `${request.name} уже состоит в этом workspace (роль: ${(existing.data() as WorkspaceMember).role}). Заявка отклонена автоматически — обновите список участников.`
-    );
-  }
-  const member: WorkspaceMember = {
-    uid: request.uid,
-    email: request.email,
-    name: request.name,
-    photoURL: request.photoURL ?? null,
-    role,
-    status: "active",
-    invitedAt: request.requestedAt,
-    invitedBy: approvedBy,
-    joinedAt: Date.now(),
-  };
-  await setDoc(paths.member(workspaceId, request.uid), member);
-  await deleteInvitedStubIfPresent(workspaceId, request.email, request.uid);
-  await setDoc(paths.joinRequest(workspaceId, request.uid), { status: "approved" }, { merge: true });
-}
-
-/** Owner rejects: marks the request rejected, no member is created. */
-export async function rejectJoinRequest(workspaceId: string, uid: string) {
-  if (!db) return;
-  await setDoc(paths.joinRequest(workspaceId, uid), { status: "rejected" }, { merge: true });
-}
-
-/**
- * The instant-join counterpart to approveJoinRequest — used only when the
- * workspace has `autoApproveJoins` on (see JoinWorkspacePage). Creates the
- * real member record directly, with no pending request and no Owner click
- * in between. Role/status are hard-coded here AND re-enforced by the
- * Firestore rule that actually authorizes this write (a signed-in user may
- * only ever create their OWN member doc this way, and only as
- * role: 'manager', status: 'active') — this function can't be tricked into
- * granting more than that even if called with different arguments.
- *
- * Same defensive re-check as approveJoinRequest: refuses if a member doc
- * already exists for this uid (e.g. a stale tab racing a second attempt).
- */
-export async function selfJoinWorkspace(
-  workspaceId: string,
-  uid: string,
-  email: string,
-  name: string,
-  photoURL?: string | null
-): Promise<WorkspaceMember> {
+export async function approveJoinRequest(input: {
+  workspaceId: string;
+  request: JoinRequest;
+  role: Role;
+  /** Ник для роли (Технарь/ОС); null — без ника. */
+  nick: NickTarget | null;
+  approvedBy: string;
+  /** Список участников на клиенте — для проверки «ник уже у другого». */
+  members: WorkspaceMember[];
+}): Promise<{ nickLabel: string | null }> {
   if (!db) throw new Error("Firebase не настроен");
-  const existing = await getDoc(paths.member(workspaceId, uid));
-  if (existing.exists()) {
-    return existing.data() as WorkspaceMember;
-  }
-  const member: WorkspaceMember = {
-    uid,
-    email: email.trim().toLowerCase(),
-    name,
-    photoURL: photoURL ?? null,
-    role: DEFAULT_JOIN_ROLE,
-    status: "active",
-    invitedAt: Date.now(),
-    invitedBy: uid,
-    joinedAt: Date.now(),
-  };
-  await setDoc(paths.member(workspaceId, uid), member);
-  await deleteInvitedStubIfPresent(workspaceId, member.email, uid);
-  return member;
+  const { workspaceId, request } = input;
+  const kind = nickKindForRole(input.role);
+  const workspaceRef = paths.workspace(workspaceId);
+  const memberRef = paths.member(workspaceId, request.uid);
+  const stubRef = paths.member(workspaceId, request.email);
+  const requestRef = paths.joinRequest(workspaceId, request.uid);
+  // Свободен ли ник — свежим запросом к серверу (см. assertNickFree): список
+  // участников в браузере не живой, а занятый ник ОС открыл бы новичку чужие
+  // заказы и оценки.
+  const expectedValue = kind && input.nick
+    ? await assertNickFree({ workspaceId, kind, target: input.nick, selfUid: request.uid })
+    : null;
+  return runTransaction(db, async (tx) => {
+    const workspaceSnap = await tx.get(workspaceRef);
+    const memberSnap = await tx.get(memberRef);
+    const stubSnap = request.email ? await tx.get(stubRef) : null;
+    const requestSnap = await tx.get(requestRef);
+    if (memberSnap.exists()) {
+      throw new Error(
+        `${request.name} уже состоит в этом workspace (роль: ${(memberSnap.data() as WorkspaceMember).role}). Обновите список участников.`
+      );
+    }
+    if (!requestSnap.exists() || (requestSnap.data() as JoinRequest).status !== "pending") {
+      throw new Error("Эту заявку уже рассмотрели — обновите страницу");
+    }
+
+    const now = Date.now();
+    const member: WorkspaceMember = {
+      uid: request.uid,
+      email: request.email,
+      name: request.name,
+      photoURL: request.photoURL ?? null,
+      role: input.role,
+      status: "active",
+      invitedAt: request.requestedAt,
+      invitedBy: input.approvedBy,
+      joinedAt: now,
+    };
+    let nickLabel: string | null = null;
+    if (kind && input.nick) {
+      const meta = NICK_KIND_META[kind];
+      const options = nickOptionsOf(workspaceSnap.data() as Partial<Workspace> | undefined, kind);
+      const { option, nextOptions } = resolveNickOption(options, input.nick);
+      assertSameNick(option, options.some((o) => o.value === option.value), expectedValue);
+      const takenBy = input.members.find((m) => m.uid !== request.uid && m[meta.value] === option.value);
+      if (takenBy) throw new Error(`Ник «${option.label}» уже закреплён за ${realNameOf(takenBy)}`);
+      if (nextOptions) tx.set(workspaceRef, { [meta.list]: nextOptions }, { merge: true });
+      Object.assign(member, { [meta.label]: option.label, [meta.value]: option.value });
+      nickLabel = option.label;
+    }
+    tx.set(memberRef, member);
+    // Приглашение по почте на того же человека теряет смысл — он уже внутри.
+    if (stubSnap?.exists() && (stubSnap.data() as WorkspaceMember).status === "invited") tx.delete(stubRef);
+    tx.set(
+      requestRef,
+      {
+        status: "approved",
+        approvedRole: input.role,
+        approvedNick: nickLabel,
+        resolvedAt: now,
+        resolvedBy: input.approvedBy,
+      },
+      { merge: true }
+    );
+    return { nickLabel };
+  });
+}
+
+/** Отклонить: участник не создаётся, человек может подать заявку снова. */
+export async function rejectJoinRequest(workspaceId: string, uid: string, resolvedBy?: string) {
+  if (!db) return;
+  await setDoc(
+    paths.joinRequest(workspaceId, uid),
+    { status: "rejected", resolvedAt: Date.now(), ...(resolvedBy ? { resolvedBy } : {}) },
+    { merge: true }
+  );
 }

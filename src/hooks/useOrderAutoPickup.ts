@@ -7,7 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
-import { displayNameOf } from "@/utils/displayName";
+import { myDisplayName } from "@/utils/displayName";
 import { toast } from "@/components/ui/sonner";
 import type { WorkOrder } from "@/types";
 
@@ -87,7 +87,7 @@ export function useOrderAutoPickup() {
               workspace: latest.workspace,
               members: latest.members,
               monthKey: latest.monthKey,
-              me: { uid, name: displayNameOf(latest.profile) },
+              me: { uid, name: myDisplayName(latest.profile, latest.members) },
             })
           )
             .then(() => {
