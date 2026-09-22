@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useNotifications } from "@/hooks/useNotifications";
+import { BrowserNotifyRow } from "@/components/common/BrowserNotifySetting";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { useOwnerAccessRequests } from "@/hooks/useOwnerAccessRequests";
 import { markAllNotificationsRead, markNotificationRead } from "@/services/notificationService";
@@ -97,6 +98,7 @@ export function NotificationBell({ className }: { className?: string }) {
             Непрочитанные
           </button>
         </div>
+        <BrowserNotifyRow />
         <div className="max-h-96 overflow-y-auto">
           {visible.length === 0 ? (
             <div className="p-4 text-center text-sm text-muted-foreground">

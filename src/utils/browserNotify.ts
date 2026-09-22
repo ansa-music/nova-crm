@@ -1,0 +1,203 @@
+/**
+ * Уведомления САМОГО БРАУЗЕРА (Web Notifications API) — то, что всплывает
+ * поверх окон, когда вкладка с Nova свёрнута. Колокольчик в шапке про новый
+ * заказ узнаёт мгновенно, но его никто не видит: технарь в это время в другой
+ * программе.
+ *
+ * Firebase Cloud Messaging здесь НЕ используется — на Spark его нет, да и
+ * push без открытой вкладки требует service worker и сервера. Это честный
+ * «пока сайт открыт» уровень: вкладка может быть свёрнута или в фоне, но
+ * должна быть открыта. На iPhone Safari `Notification` в обычной вкладке
+ * отсутствует вовсе (только у установленного на экран «Домой» приложения) —
+ * там остаётся звук и тост, поэтому `supported()` проверяем всегда.
+ */
+
+const PREF_KEY = "nova:browser-notify";
+/** Событие «человек кликнул по всплывашке» — навигацию делает React-слой. */
+export const NOTIFY_OPEN_EVENT = "nova:notify-open";
+
+export function browserNotifySupported(): boolean {
+  return typeof window !== "undefined" && "Notification" in window;
+}
+
+export function browserNotifyPermission(): NotificationPermission | "unsupported" {
+  if (!browserNotifySupported()) return "unsupported";
+  try {
+    return Notification.permission;
+  } catch {
+    return "unsupported";
+  }
+}
+
+/** Выключатель самого человека — отдельно от разрешения браузера. */
+export function browserNotifyMuted(): boolean {
+  try {
+    return localStorage.getItem(PREF_KEY) === "off";
+  } catch {
+    return false;
+  }
+}
+
+export function setBrowserNotifyMuted(muted: boolean) {
+  try {
+    if (muted) localStorage.setItem(PREF_KEY, "off");
+    else localStorage.removeItem(PREF_KEY);
+  } catch {
+    /* приватный режим — не беда, останется на эту сессию */
+  }
+  publishState();
+}
+
+/**
+ * Состояние на ОДИН экран, а не на компонент: переключатель живёт и в
+ * колокольчике, и плашкой на «Заказах». Со своим `useState` у каждого
+ * выключенные в колокольчике всплывашки не возвращали плашку на «Заказах» —
+ * пока страницу не перезагрузят.
+ */
+export interface BrowserNotifyState {
+  permission: NotificationPermission | "unsupported";
+  muted: boolean;
+}
+
+let stateSnapshot: BrowserNotifyState = { permission: "default", muted: false };
+const stateListeners = new Set<() => void>();
+
+function publishState() {
+  const next: BrowserNotifyState = { permission: browserNotifyPermission(), muted: browserNotifyMuted() };
+  if (next.permission === stateSnapshot.permission && next.muted === stateSnapshot.muted) return;
+  // Ссылка на объект обязана меняться ТОЛЬКО при настоящем изменении:
+  // useSyncExternalStore сравнивает снимки по ссылке и зациклится иначе.
+  stateSnapshot = next;
+  stateListeners.forEach((fn) => fn());
+}
+
+export function subscribeBrowserNotify(listener: () => void): () => void {
+  stateListeners.add(listener);
+  return () => {
+    stateListeners.delete(listener);
+  };
+}
+
+export function browserNotifyState(): BrowserNotifyState {
+  return stateSnapshot;
+}
+
+/** Всплывашка реально покажется: и разрешение есть, и человек не выключил. */
+export function browserNotifyActive(): boolean {
+  return browserNotifyPermission() === "granted" && !browserNotifyMuted();
+}
+
+/**
+ * Спрашивать разрешение можно только по клику: Chrome и Safari молча
+ * отклоняют запрос без жеста, и второй раз спросить уже нельзя.
+ */
+export async function requestBrowserNotify(): Promise<NotificationPermission | "unsupported"> {
+  if (!browserNotifySupported()) return "unsupported";
+  try {
+    const result = await Notification.requestPermission();
+    if (result === "granted") setBrowserNotifyMuted(false);
+    publishState();
+    // Разрешение дают жестом — тем же жестом «расталкиваем» звук: без клика
+    // AudioContext остаётся suspended и первый же сигнал уходит в тишину.
+    primeAlertSound();
+    return result;
+  } catch {
+    return browserNotifyPermission();
+  }
+}
+
+export interface BrowserNotifyInput {
+  title: string;
+  body: string;
+  /** Одинаковый tag схлопывает повторы одного события в одну всплывашку. */
+  tag?: string;
+  href?: string | null;
+}
+
+export function showBrowserNotification({ title, body, tag, href }: BrowserNotifyInput): boolean {
+  if (!browserNotifyActive()) return false;
+  try {
+    const notification = new Notification(title, { body, tag, icon: "/logo.svg" });
+    notification.onclick = () => {
+      try {
+        window.focus();
+        notification.close();
+        if (href) window.dispatchEvent(new CustomEvent(NOTIFY_OPEN_EVENT, { detail: href }));
+      } catch {
+        /* окно могли закрыть */
+      }
+    };
+    return true;
+  } catch {
+    // Firefox бросает, если вызвать конструктор без service worker на Android.
+    return false;
+  }
+}
+
+let audioContext: AudioContext | null = null;
+
+function ensureAudio(): AudioContext | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) return null;
+    audioContext = audioContext ?? new Ctor();
+    if (audioContext.state === "suspended") void audioContext.resume();
+    return audioContext;
+  } catch {
+    return null;
+  }
+}
+
+/** Создать и разбудить контекст в момент клика — дальше звук пойдёт и из фона. */
+export function primeAlertSound() {
+  ensureAudio();
+}
+
+/**
+ * Короткий двойной сигнал. Именно он, а не всплывашка, заставляет поднять
+ * глаза: всплывашку на macOS и Windows легко пропустить, звук — нет.
+ */
+export function playAlertSound() {
+  if (browserNotifyMuted()) return;
+  const ctx = ensureAudio();
+  if (!ctx) return;
+  try {
+    const now = ctx.currentTime;
+    for (const [index, freq] of [880, 1175].entries()) {
+      const at = now + index * 0.16;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      // Резкий старт щёлкает — поэтому короткий подъём и плавный спад.
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.14, at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.14);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(at);
+      osc.stop(at + 0.16);
+    }
+  } catch {
+    /* звук — не повод ронять уведомление */
+  }
+}
+
+/**
+ * «Проверить» рядом с переключателем: тот же путь, что у настоящего заказа.
+ * Возвращает false, если всплывашку показать не удалось — вызывающий покажет
+ * тост, иначе человек нажал кнопку и не понял, сработало ли.
+ */
+export function previewBrowserNotification(): boolean {
+  playAlertSound();
+  return showBrowserNotification({
+    title: "Новый заказ",
+    body: "Так будет выглядеть уведомление о заказе с биржи.",
+    tag: "nova-preview",
+    href: "/orders",
+  });
+}
+
+// Первый снимок берём после объявления всех читателей — на верхнем уровне
+// модуля `browserNotifyPermission` ещё не определена при инициализации поля.
+publishState();

@@ -27,6 +27,7 @@ import { useOpenApprovedDesk } from "@/hooks/useOpenApprovedDesk";
 import { useMonthTabAutopilot } from "@/hooks/useMonthTabAutopilot";
 import { useWeekTemplateAutopilot } from "@/hooks/useWeekTemplateAutopilot";
 import { useOrderAutoPickup } from "@/hooks/useOrderAutoPickup";
+import { useNotificationAlerts } from "@/hooks/useNotificationAlerts";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useIsTablet } from "@/hooks/useMediaQuery";
@@ -49,6 +50,9 @@ export function AppLayout() {
   useMonthTabAutopilot();
   useWeekTemplateAutopilot();
   useOrderAutoPickup();
+  // Звук и всплывашка браузера на новое уведомление. Здесь, а не в
+  // колокольчике: в полноэкранной таблице колокольчика на экране нет.
+  useNotificationAlerts();
   const location = useLocation();
 
   const { phase } = useAppBootstrap();
