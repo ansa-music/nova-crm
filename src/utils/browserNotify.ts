@@ -162,12 +162,19 @@ export interface BrowserNotifyInput {
   /** Одинаковый tag схлопывает повторы одного события в одну всплывашку. */
   tag?: string;
   href?: string | null;
+  /**
+   * Без системного звука. Всплывашка браузера звучит СТАНДАРТНЫМ звуком
+   * Windows/macOS/Android, и свой звук ей задать нельзя (в Notifications API
+   * такого параметра нет) — поэтому, когда страница сама играет звук заказа,
+   * системный выключаем: иначе вместо звука Nurba слышен «обычный».
+   */
+  silent?: boolean;
 }
 
-export function showBrowserNotification({ title, body, tag, href }: BrowserNotifyInput): boolean {
+export function showBrowserNotification({ title, body, tag, href, silent }: BrowserNotifyInput): boolean {
   if (!browserNotifyActive()) return false;
   try {
-    const notification = new Notification(title, { body, tag, icon: "/logo.svg" });
+    const notification = new Notification(title, { body, tag, icon: "/logo.svg", silent: Boolean(silent) });
     notification.onclick = () => {
       try {
         window.focus();
@@ -426,13 +433,26 @@ function beep(ctx: AudioContext) {
  * Возвращает false, если всплывашку показать не удалось — вызывающий покажет
  * тост, иначе человек нажал кнопку и не понял, сработало ли.
  */
+/**
+ * Сможет ли страница сама сыграть звук ПРЯМО СЕЙЧАС: звук разбужен касанием
+ * (контекст работает или `<audio>` отперт) и не выключен. Тогда всплывашку
+ * показываем беззвучной — звучит только свой звук. Нет — оставляем системный:
+ * лучше «обычный» звук, чем заказ в тишине.
+ */
+export function pageSoundReady(): boolean {
+  if (browserNotifyMuted()) return false;
+  return audioContext?.state === "running" || orderAudioUnlocked;
+}
+
 export function previewBrowserNotification(): boolean {
+  const silent = pageSoundReady();
   playOrderSound();
   return showBrowserNotification({
     title: "Новый заказ",
     body: "Так будет выглядеть уведомление о заказе с биржи.",
     tag: "nova-preview",
     href: "/orders",
+    silent,
   });
 }
 
