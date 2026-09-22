@@ -13,6 +13,7 @@ import { useAppBootstrap } from "@/hooks/useAppBootstrap";
 import { wasGoogleRedirectPending } from "@/firebase/auth";
 import { joinPathAfterLogin, rememberJoinIntentFromPath } from "@/utils/joinIntent";
 import { DISPATCH_ENABLED } from "@/config/features";
+import { SiteStatusBanner } from "@/components/common/SiteStatusBanner";
 
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
 const HomePage = lazy(() => import("@/pages/HomePage"));
@@ -146,6 +147,8 @@ export default function App() {
       <ThemeProvider>
         <TooltipProvider delayDuration={200}>
           <AppShell />
+          {/* Объявление на весь сайт (public/status.json) — поверх всего, даже экрана загрузки. */}
+          <SiteStatusBanner />
           <Toaster />
         </TooltipProvider>
       </ThemeProvider>
