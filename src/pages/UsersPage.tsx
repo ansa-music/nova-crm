@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useUiStore } from "@/store/uiStore";
 import { useWorkspaceStore } from "@/store/workspaceStore";
-import { Check, ChevronDown, ChevronRight, Clock3, Contact, Copy, Link2, Lock, Mail, Plus, Search, ShieldCheck, Trash2, X } from "lucide-react";
+import { firestoreErrorText } from "@/utils/dbError";
+import { Check, ChevronDown, ChevronRight, Clock3, Contact, Copy, Link2, Lock, Mail, Plus, Search, ShieldCheck, Trash2, UserX, X } from "lucide-react";
 import { Link, Navigate } from "react-router";
 import { displayNameOf } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
@@ -23,6 +24,7 @@ import {
   nickOptionsOf,
   quietActiveMembers,
   type NickKind,
+  deleteMemberCompletely,
   removeMember,
   resendInvite,
   setMemberExtraRoles,
@@ -237,6 +239,35 @@ export default function UsersPage() {
       toast.success("Пользователь удалён");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось удалить пользователя");
+    }
+  }
+
+  /**
+   * Полное удаление — только Owner. Стол и ник остаются: стол со всеми
+   * строками, ник — в списке workspace, чтобы подписи в старых заказах не
+   * превратились в «—».
+   */
+  async function handleDeleteFully(member: WorkspaceMember) {
+    const name = displayNameOf(member);
+    const email = (member.email ?? "").trim();
+    const ok = await confirmDialog({
+      title: `Удалить ${name} полностью?`,
+      description:
+        `Уйдёт доступ и все следы адреса ${email || "—"}: участник, приглашение по почте, заявки на вход и тихие доступы. ` +
+        "Стол со всеми заказами и ник в списке останутся — их удаление отдельное. Вернуть человека можно только новой заявкой.",
+      destructive: true,
+      confirmLabel: "Удалить полностью",
+      cancelLabel: "Отмена",
+    });
+    if (!ok) return;
+    try {
+      const { removed } = await deleteMemberCompletely({ workspaceId: activeWorkspaceId!, member });
+      await refreshWorkspaceMembers(activeWorkspaceId!);
+      toast.success(`${name} удалён полностью`, {
+        description: removed.joinRequests > 0 ? `Заявок на вход удалено: ${removed.joinRequests}` : "Стол и ник не тронуты",
+      });
+    } catch (error) {
+      toast.error("Не удалось удалить пользователя", { description: firestoreErrorText(error, "База не приняла запись") });
     }
   }
 
@@ -585,9 +616,23 @@ export default function UsersPage() {
                   </Button>
                 ) : (
                   !isOwner && !selfLocked && (
-                    <Button variant="ghost" size="icon" title="Удалить" onClick={() => handleRemove(member.uid, displayNameOf(member))}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    viewerIsOwner ? (
+                      // Owner удаляет ПОЛНОСТЬЮ — вместе с адресом; Тимлиду
+                      // остаётся обычное «убрать из workspace». Две кнопки
+                      // рядом путали бы: разница между ними не видна.
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Удалить полностью — вместе с адресом (стол и ник останутся)"
+                        onClick={() => void handleDeleteFully(member)}
+                      >
+                        <UserX className="h-4 w-4 text-destructive" />
+                      </Button>
+                    ) : (
+                      <Button variant="ghost" size="icon" title="Убрать из workspace" onClick={() => handleRemove(member.uid, displayNameOf(member))}>
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    )
                   )
                 )}
                 {!isOwner && member.status === "active" && (
