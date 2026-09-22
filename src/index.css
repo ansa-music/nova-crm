@@ -1157,13 +1157,26 @@ html body[data-scroll-locked] {
 
 /* Строка, приехавшая заказом с «Заказов»: держится подсвеченной, пока
    технарь сам не снимет подсветку чипом «N новых» в тулбаре. */
+/* Новый заказ с «Заказов» — ЯНТАРНЫЙ, а не цвета акцента: акцентом в таблице
+   подсвечены выделение, активная ячейка и «добавлено недавно», и технарь
+   путал приехавший заказ с собственной строкой. */
 .table-instrument tbody tr.table-row-new td {
-  background: hsl(var(--primary) / 0.1);
-  box-shadow: inset 0 1px 0 hsl(var(--primary) / 0.22), inset 0 -1px 0 hsl(var(--primary) / 0.22);
+  background: hsl(var(--warning) / 0.14);
+  box-shadow: inset 0 1px 0 hsl(var(--warning) / 0.4), inset 0 -1px 0 hsl(var(--warning) / 0.4);
 }
 .table-instrument tbody tr.table-row-new .table-row-rail {
-  background: hsl(var(--primary));
+  background: hsl(var(--warning));
   opacity: 1;
+}
+/* Полоса слева у новой строки — даже когда у стола нет своего цвета-рейла. */
+.table-instrument tbody tr.table-row-new td:first-child::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: hsl(var(--warning));
 }
 
 /* Ghost "+ Новая строка" at the bottom of the grid. */

@@ -92,7 +92,7 @@ export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder }: 
                   // на телефоне стол открывается карточками, а чип «N новых»
                   // в тулбаре не показывает, КАКАЯ из карточек новая.
                   row.highlight
-                    ? "border-primary/55 bg-primary/10"
+                    ? "border-warning/70 bg-warning/[0.12]"
                     : row.orderId
                       ? "border-violet-400/45 bg-violet-400/[0.07]"
                       : "border-border bg-card"
@@ -110,6 +110,14 @@ export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder }: 
                     )}
                   </div>
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground">
+                    {/* Не просто цвет: подпись «новый» читается и в чёрно-белом
+                        режиме, и тем, кто цвета различает плохо. Стоит в строке
+                        мета-данных, а не у заголовка — там он съедал имя клиента. */}
+                    {row.highlight && (
+                      <span className="rounded-full border border-warning/60 bg-warning/20 px-1.5 text-[10px] font-semibold uppercase leading-4 text-warning">
+                        новый
+                      </span>
+                    )}
                     {fields.status && statusValue && (
                       <StatusBadge value={statusValue} options={fields.status.statusOptions ?? []} />
                     )}

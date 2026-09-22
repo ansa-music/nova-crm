@@ -355,6 +355,7 @@ function TableRowInner({
                     canEdit,
                     onOpen: () => onOpenClientCard(row.id),
                     fromOrder: Boolean(row.orderId),
+                    isNewOrder: Boolean(row.highlight),
                   }
                 : null
             }
