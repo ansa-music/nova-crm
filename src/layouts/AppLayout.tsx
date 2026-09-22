@@ -16,6 +16,7 @@ import { ShortcutsHelpDialog } from "@/components/common/ShortcutsHelpDialog";
 import { GlobalUndoHotkeys } from "@/components/common/GlobalUndoHotkeys";
 import { GoChordHotkeys } from "@/components/common/GoChordHotkeys";
 import { AppDialogHost } from "@/components/common/AppDialogHost";
+import { DbQuotaBanner } from "@/components/common/DbQuotaBanner";
 import { NotifyHelpHost } from "@/components/common/NotifyHelpDialog";
 import { AccentColorSync } from "@/components/common/AccentColorSync";
 import { RemovedFromWorkspace } from "@/components/common/RemovedFromWorkspace";
@@ -147,6 +148,7 @@ export function AppLayout() {
       <GlobalUndoHotkeys />
       <GoChordHotkeys />
       <AppDialogHost />
+      <DbQuotaBanner />
       <NotifyHelpHost />
       <AccentColorSync />
       {!isCompactNav && !isFullscreen && <Sidebar />}

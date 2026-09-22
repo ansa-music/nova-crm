@@ -35,8 +35,43 @@ function errorCode(error: unknown): string | null {
   return null;
 }
 
+/**
+ * Квота кончилась — это НЕ беда одной кнопки: в этот момент в приложении не
+ * проходит ни одна запись, у всех сразу. Поэтому первый же такой отказ
+ * поднимает флаг на всё приложение, и `DbQuotaBanner` говорит об этом прямо,
+ * а не оставляет людей гадать, почему «ничего не сохраняется».
+ */
+let quotaHit = false;
+const quotaListeners = new Set<() => void>();
+
+export function dbQuotaHit(): boolean {
+  return quotaHit;
+}
+
+export function subscribeDbQuota(listener: () => void): () => void {
+  quotaListeners.add(listener);
+  return () => {
+    quotaListeners.delete(listener);
+  };
+}
+
+export function clearDbQuotaHit() {
+  if (!quotaHit) return;
+  quotaHit = false;
+  quotaListeners.forEach((fn) => fn());
+}
+
+function noteDbError(code: string | null) {
+  if (code !== "resource-exhausted" || quotaHit) return;
+  quotaHit = true;
+  quotaListeners.forEach((fn) => fn());
+}
+
 export function firestoreErrorText(error: unknown, fallback: string): string {
   const code = errorCode(error);
+  // Единственное место, через которое отказ базы доходит до человека, — оно
+  // же и самое честное, чтобы поднять общий флаг.
+  noteDbError(code);
   if (code) {
     const text = CODE_TEXT[code];
     return text ? `${text} (${code})` : `${fallback} (${code})`;

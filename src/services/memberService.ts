@@ -623,6 +623,72 @@ export async function removeMember(workspaceId: string, uid: string) {
 }
 
 /**
+ * ПОЛНОЕ удаление человека — только Owner (просьба Nurba).
+ *
+ * «Убрать из workspace» (`removeMember`) снимает доступ, но адрес остаётся в
+ * следах: приглашение по почте, заявка на вход, тихое право наблюдателя. Тут
+ * вычищается всё, что привязано к АДРЕСУ и аккаунту:
+ *   - участник `members/{uid}`;
+ *   - приглашение `members/{email}` (оно заведено по почте);
+ *   - ВСЕ заявки на вход с этим адресом — и по uid, и по почте: человек мог
+ *     подаваться с другого аккаунта на ту же почту;
+ *   - `deskObservers/{uid}` — иначе, вернув человека, ему молча вернулись бы
+ *     чужие столы на чтение.
+ *
+ * НЕ ТРОГАЕТ (так и просили): **стол** — он остаётся со своим
+ * `responsibleUserId`, строками и вкладками, и **ник** — вариант остаётся в
+ * списке workspace, а значит подписи и цвета в старых заказах резолвятся как
+ * раньше. Доступа это не даёт: и `isResponsiblePage`, и ветка `allowedUsers`
+ * в правилах требуют членства, а его больше нет.
+ *
+ * Всё одним `writeBatch`: половинчатое удаление (участника нет, а заявка
+ * «одобрена» висит) — ровно то состояние, из-за которого человек потом не
+ * может ни зайти, ни подать заявку заново.
+ */
+export interface FullDeleteResult {
+  /** Что именно удалили — для честного тоста. */
+  removed: { member: boolean; invite: boolean; joinRequests: number; observer: boolean };
+}
+
+export async function deleteMemberCompletely(input: {
+  workspaceId: string;
+  member: Pick<WorkspaceMember, "uid" | "email">;
+}): Promise<FullDeleteResult> {
+  if (!db) throw new Error("Firebase не настроен");
+  const { workspaceId } = input;
+  const uid = input.member.uid?.trim() ?? "";
+  const email = normalizeMemberEmail(input.member.email);
+  if (!uid && !email) throw new Error("У записи нет ни аккаунта, ни адреса — удалять нечего");
+
+  // Заявки ищем ДО батча: запрос внутри него SDK не умеет.
+  const requestDocs = new Map<string, ReturnType<typeof paths.joinRequest>>();
+  if (uid) requestDocs.set(uid, paths.joinRequest(workspaceId, uid));
+  if (email) {
+    const byEmail = await withDbTimeout(
+      getDocs(query(paths.joinRequests(workspaceId), where("email", "==", email))),
+      "Заявки на вход"
+    );
+    for (const d of byEmail.docs) requestDocs.set(d.id, paths.joinRequest(workspaceId, d.id));
+  }
+
+  const batch = writeBatch(db);
+  if (uid) batch.delete(paths.member(workspaceId, uid));
+  if (email) batch.delete(paths.member(workspaceId, email));
+  for (const ref of requestDocs.values()) batch.delete(ref);
+  if (uid) batch.delete(paths.deskObserver(workspaceId, uid));
+  await withDbTimeout(batch.commit(), "Удаление пользователя");
+
+  return {
+    removed: {
+      member: Boolean(uid),
+      invite: Boolean(email),
+      joinRequests: requestDocs.size,
+      observer: Boolean(uid),
+    },
+  };
+}
+
+/**
  * Called right after a successful sign-in: converts any pending
  * email-keyed invites that match this account into active memberships.
  */
