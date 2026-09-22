@@ -245,7 +245,7 @@ service cloud.firestore {
           && request.resource.data.get('extraRoles', []).hasOnly(['manager', 'os'])
           && (memberId != request.auth.uid
             || !request.resource.data.diff(resource.data).affectedKeys()
-              .hasAny(['role', 'extraRoles', 'osNick', 'osNickValue', 'status', 'uid', 'email']))
+              .hasAny(['role', 'extraRoles', 'osNick', 'osNickValue', 'techNick', 'techNickValue', 'status', 'uid', 'email']))
           && memberId != get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '');
         allow delete: if isTeamLead(workspaceId)
           && resource.data.get('role', '') != 'owner'
@@ -268,24 +268,15 @@ service cloud.firestore {
           && request.resource.data.status == 'active'
           && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.resource.data.email))
           && memberDoc(workspaceId, request.resource.data.email).data.status == 'invited'
-          && memberDoc(workspaceId, request.resource.data.email).data.role == request.resource.data.role;
+          && memberDoc(workspaceId, request.resource.data.email).data.role == request.resource.data.role
+          // Ник и вторую роль сам себе не вписать: по osNickValue правила
+          // открывают заказы и оценки ОС, а ники выдаёт только руководство.
+          && !request.resource.data.keys().hasAny(['osNick', 'osNickValue', 'techNick', 'techNickValue', 'extraRoles']);
 
-        // Instant join: when the Owner has turned on Workspace.autoApproveJoins,
-        // a brand-new signed-in user may create their OWN member record
-        // directly — skipping the joinRequests pending/approve dance
-        // entirely. Hard-locked to role 'manager' / status 'active' (the
-        // same DEFAULT_JOIN_ROLE approveJoinRequest() always used), so this
-        // can never be used to self-grant admin/owner regardless of what the
-        // client sends. This is the actual security boundary for the
-        // feature — JoinWorkspacePage.tsx only decides whether to attempt
-        // it, this rule decides whether it's allowed.
-        allow create: if signedIn()
-          && request.auth.uid == memberId
-          && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('autoApproveJoins', false) == true
-          && request.auth.token.email is string
-          && request.resource.data.email == authEmailLower()
-          && request.resource.data.role == 'manager'
-          && request.resource.data.status == 'active';
+        // Мгновенного входа (autoApproveJoins) больше нет: новый человек
+        // приходит без роли, и роль с ником подтверждает руководство через
+        // заявку (joinRequests ниже). Правило самосоздания участника убрано —
+        // оно же пускало вписать себе любые поля.
 
         // Cleanup of the placeholder email-keyed invite doc once claimed.
         allow delete: if signedIn()
@@ -303,6 +294,16 @@ service cloud.firestore {
       // record separately), or reject.
       // -----------------------------------------------------------------
       match /joinRequests/{uid} {
+        // Заявку человек пишет сам: кем работает (только Технарь или ОС) и
+        // свой ник — это пожелание, а не право: роль и ник выдаёт
+        // одобряющий, создавая участника. Набор ключей — ровно тот, что пишет
+        // submitJoinRequest (без merge, целиком).
+        function joinRequestShapeOk() {
+          return request.resource.data.keys().hasOnly(['id', 'uid', 'email', 'name', 'photoURL', 'workspaceId', 'status', 'requestedAt', 'requestedRole', 'requestedNick'])
+            && request.resource.data.get('requestedRole', 'manager') in ['manager', 'os']
+            && request.resource.data.get('requestedNick', '') is string
+            && request.resource.data.get('requestedNick', '').size() <= 32;
+        }
         allow read: if hasFullAccess(workspaceId) || (signedIn() && request.auth.uid == uid);
         allow create: if signedIn()
           && request.auth.uid == uid
@@ -310,17 +311,23 @@ service cloud.firestore {
           && request.resource.data.status == 'pending'
           && request.resource.data.email is string
           && request.auth.token.email is string
-          && request.resource.data.email == authEmailLower();
+          && request.resource.data.email == authEmailLower()
+          && joinRequestShapeOk();
+        // Подать заново можно после отказа, поправить — пока ждёт, а после
+        // одобрения — только если человека с тех пор убрали из участников
+        // (раньше такой бывший участник упирался в отказ правил навсегда).
         allow update: if hasFullAccess(workspaceId)
           || (signedIn()
             && request.auth.uid == uid
             && resource.data.uid == uid
             && request.resource.data.uid == uid
             && request.resource.data.status == 'pending'
-            && resource.data.status in ['rejected', 'pending']
+            && (resource.data.status in ['rejected', 'pending']
+              || (resource.data.status == 'approved' && !isMember(workspaceId)))
             && request.resource.data.email is string
             && request.auth.token.email is string
-            && request.resource.data.email == authEmailLower());
+            && request.resource.data.email == authEmailLower()
+            && joinRequestShapeOk());
         allow delete: if hasFullAccess(workspaceId) || (signedIn() && request.auth.uid == uid);
       }
 
@@ -1025,6 +1032,40 @@ service cloud.firestore {
           && resource.data.get('allowedUids', []).hasAll(request.resource.data.get('allowedUids', []));
       }
 
+      // Право «управляет Хиксом» (и 11 Labs, и «Другими») — ОТДЕЛЬНОЕ от ролей
+      // право страницы «Грок лимит» (src/types/grokAccess.ts): кто закрывает
+      // и открывает аккаунты подписок этого провайдера и рассматривает
+      // запросы на доступ. Список ведёт только Owner в grokSettings/access,
+      // по ключу `provider` аккаунта. exists() — до get(): без документа get()
+      // бросает, и правило падало бы вместо «нет права».
+      function isGrokManager(workspaceId, provider) {
+        return exists(/databases/$(database)/documents/workspaces/$(workspaceId)/grokSettings/access)
+          && request.auth.uid in get(/databases/$(database)/documents/workspaces/$(workspaceId)/grokSettings/access)
+            .data.get('managers', {}).get(provider, []);
+      }
+      // Открыть/закрыть аккаунт провайдера и рассмотреть запрос: Owner или
+      // тот, кому Owner дал право на этот провайдер. Тимлид — только если ему
+      // это право дали: роль тут ничего не решает.
+      function canGrantGrokApp(workspaceId, provider) {
+        return isOwner(workspaceId) || isGrokManager(workspaceId, provider);
+      }
+      // Правка/удаление аккаунта подписки: открытый — любому с «Грок
+      // лимитом», закрытый — только тому, кто его и так читает.
+      function canTouchGrokApp(workspaceId) {
+        return resource.data.get('restricted', false) != true
+          || hasFullAccess(workspaceId)
+          || request.auth.uid in resource.data.get('allowedUids', [])
+          || canGrantGrokApp(workspaceId, resource.data.get('provider', 'other'));
+      }
+      // Провайдер закрытого аккаунта решает, чей управляющий его читает, —
+      // значит, менять его можно только с правом на оба раздела.
+      function grokProviderChangeOk(workspaceId) {
+        return request.resource.data.get('provider', 'other') == resource.data.get('provider', 'other')
+          || resource.data.get('restricted', false) != true
+          || (canGrantGrokApp(workspaceId, resource.data.get('provider', 'other'))
+            && canGrantGrokApp(workspaceId, request.resource.data.get('provider', 'other')));
+      }
+
       match /grokAccounts/{accountId} {
         allow read: if canUseGrok(workspaceId);
         allow create: if canUseGrok(workspaceId)
@@ -1038,8 +1079,9 @@ service cloud.firestore {
       }
 
       // Аккаунт подписки (Хикс, 11 Labs, прочее) можно закрыть на список
-      // людей: `restricted: true` + `allowedUids`. Владеет доступом только
-      // Owner/Тимлид.
+      // людей: `restricted: true` + `allowedUids`. Владеет доступом Owner и
+      // тот, кому Owner дал право на провайдер (canGrantGrokApp) — Тимлид
+      // как таковой больше нет: право отдельное от ролей.
       //
       // ВАЖНО: в правиле ЧТЕНИЯ поля читаются НАПРЯМУЮ, без `.get(поле,
       // дефолт)`. На list-запросе `.get()` не ограничивает выдачу: проверено
@@ -1048,21 +1090,104 @@ service cloud.firestore {
       // целиком, как и должен. Плата за это — документ обязан иметь поле
       // `restricted`; старым записям его проставляет разовый backfill из
       // сессии руководства (`backfillGrokAppRestricted`).
+      // Управляющий провайдером читает все его аккаунты, в том числе
+      // закрытые, — иначе ему нечего открывать. Клиент для этого делает
+      // отдельный запрос `where provider == X`: тогда `resource.data.provider`
+      // известен из фильтра, и list-запрос проходит.
       match /grokAppAccounts/{accountId} {
         allow read: if canUseGrok(workspaceId)
           && (hasFullAccess(workspaceId)
             || resource.data.restricted == false
-            || request.auth.uid in resource.data.allowedUids);
+            || request.auth.uid in resource.data.allowedUids
+            || isGrokManager(workspaceId, resource.data.provider));
         allow create: if canUseGrok(workspaceId)
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.updatedByUid == request.auth.uid
           && grokCreateNicknameOk(workspaceId)
           && (hasFullAccess(workspaceId) || request.resource.data.get('restricted', false) == false);
+        // Список доступа меняет только тот, кто вправе открывать аккаунты
+        // провайдера (и старого, и нового — иначе аккаунт можно было бы
+        // перетащить в свой раздел и открыть себе).
+        //
+        // ЗАКРЫТЫЙ аккаунт трогает (правит, удаляет) только тот, кто вправе
+        // его читать, и его провайдер не меняется без права на оба раздела.
+        // Без этого id из витрины хватало, чтобы чужой merge перенёс аккаунт в
+        // раздел своего управляющего — и тот читал пароль (ревью, проверено
+        // эмулятором).
         allow update: if canUseGrok(workspaceId)
           && request.resource.data.updatedByUid == request.auth.uid
           && (isManagement(workspaceId) || grokNicknamePreserved())
-          && (hasFullAccess(workspaceId) || grokAppAccessPreserved());
-        allow delete: if canUseGrok(workspaceId);
+          && canTouchGrokApp(workspaceId)
+          && grokProviderChangeOk(workspaceId)
+          && ((canGrantGrokApp(workspaceId, resource.data.get('provider', 'other'))
+              && canGrantGrokApp(workspaceId, request.resource.data.get('provider', 'other')))
+            || grokAppAccessPreserved());
+        allow delete: if canUseGrok(workspaceId) && canTouchGrokApp(workspaceId);
+      }
+
+      // Кто управляет провайдерами. Читают все, кому открыт «Грок лимит»
+      // (видно, кому уйдёт запрос), пишет только Owner.
+      match /grokSettings/{settingId} {
+        allow read: if canUseGrok(workspaceId);
+        allow delete: if isOwner(workspaceId);
+        allow create, update: if isOwner(workspaceId)
+          && settingId == 'access'
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.keys().hasOnly(['workspaceId', 'managers', 'updatedAt', 'updatedBy']);
+      }
+
+      // Витрина закрытых аккаунтов: только сервис и название, БЕЗ логина и
+      // пароля — чтобы технарь мог запросить доступ к тому, чего не видит.
+      // Пишет её тот, кто вправе открывать аккаунты этого провайдера.
+      match /grokAccessStubs/{accountId} {
+        allow read: if canUseGrok(workspaceId);
+        allow create: if canUseGrok(workspaceId)
+          && canGrantGrokApp(workspaceId, request.resource.data.provider)
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.keys().hasOnly(['workspaceId', 'provider', 'providerOther', 'title', 'updatedAt']);
+        allow update: if canUseGrok(workspaceId)
+          && canGrantGrokApp(workspaceId, resource.data.provider)
+          && canGrantGrokApp(workspaceId, request.resource.data.provider)
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.keys().hasOnly(['workspaceId', 'provider', 'providerOther', 'title', 'updatedAt']);
+        // Удалить несуществующую карточку — не ошибка: у открытых аккаунтов её
+        // нет, а пачка «удалить аккаунт + карточку» иначе падала целиком.
+        allow delete: if canUseGrok(workspaceId)
+          && (resource == null || canGrantGrokApp(workspaceId, resource.data.provider));
+      }
+
+      // Запрос на доступ к закрытому аккаунту: `{accountId}_{uid}`, один на
+      // человека и аккаунт. Пишет его сам человек — только за себя и только
+      // `pending`; рассматривает (approved/declined) — тот, кто вправе
+      // открывать аккаунты провайдера. Сам запрос прав НЕ даёт: доступ
+      // появляется только от записи в allowedUids аккаунта, а её правило
+      // выше пускает лишь управляющего. Поэтому подложить в запрос чужой
+      // провайдер бесполезно — чужой управляющий аккаунт не откроет.
+      match /grokAccessRequests/{requestId} {
+        allow read: if canUseGrok(workspaceId)
+          && (resource.data.uid == request.auth.uid
+            || isOwner(workspaceId)
+            || isGrokManager(workspaceId, resource.data.provider));
+        // Провайдер запроса — ровно провайдер карточки закрытого аккаунта:
+        // иначе запрос можно было бы увести к «своему» управляющему.
+        allow create: if canUseGrok(workspaceId)
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.uid == request.auth.uid
+          && requestId == request.resource.data.accountId + '_' + request.auth.uid
+          && request.resource.data.status == 'pending'
+          && request.resource.data.keys().hasOnly(['workspaceId', 'accountId', 'provider', 'uid', 'name', 'accountTitle', 'status', 'createdAt', 'resolvedAt', 'resolvedBy', 'resolvedByName'])
+          && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/grokAccessStubs/$(request.resource.data.accountId))
+          && get(/databases/$(database)/documents/workspaces/$(workspaceId)/grokAccessStubs/$(request.resource.data.accountId)).data.provider == request.resource.data.provider;
+        allow update: if canUseGrok(workspaceId)
+          && request.resource.data.keys().hasOnly(['workspaceId', 'accountId', 'provider', 'uid', 'name', 'accountTitle', 'status', 'createdAt', 'resolvedAt', 'resolvedBy', 'resolvedByName'])
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.accountId == resource.data.accountId
+          && request.resource.data.provider == resource.data.provider
+          && (canGrantGrokApp(workspaceId, resource.data.provider)
+            || (resource.data.uid == request.auth.uid && request.resource.data.status == 'pending'));
+        allow delete: if canUseGrok(workspaceId)
+          && ((resource.data.uid == request.auth.uid && resource.data.status == 'pending')
+            || canGrantGrokApp(workspaceId, resource.data.provider));
       }
 
       // -----------------------------------------------------------------

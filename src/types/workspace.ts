@@ -34,6 +34,16 @@ export interface Workspace {
    */
   responsibleOptions?: StatusOption[];
   /**
+   * Ники технарей — ОТДЕЛЬНЫЙ от «Ответственного» список, по той же модели,
+   * что ники ОС (`value` — личность ника, `label` — как показать, `inactive`
+   * — ушёл). В «Ответственный» их класть нельзя: любой столбец «Ответственный»
+   * считается ОС-столбцом (`osColumnsOf`), и технари посчитались бы как ОС в
+   * заказах, оценках и на дашборде. Пишут Owner и Тимлид (правило документа
+   * workspace), ники не переименовываются и не удаляются — только
+   * «неактуальные».
+   */
+  techNickOptions?: StatusOption[];
+  /**
    * Same idea, for "Статус" columns: ONE shared, site-wide list instead of
    * each column keeping its own. Every "Статус" column on every page/
    * subpage shows this list; managed from Настройки → Workspace →
@@ -141,6 +151,16 @@ export interface WorkspaceMember {
    */
   osNick?: string;
   osNickValue?: string;
+  /**
+   * Ник технаря — как у ОС, но из списка `workspace.techNickOptions`. Ставит
+   * его Тимлид или Owner (на «Пользователи» → «Ники» или при одобрении
+   * заявки), сам технарь — никогда. С ником технарь РАБОТАЕТ под ним: его
+   * показывают так везде (`displayNameOf`/`personLabel` берут `techNick`
+   * первым). `techNick` — подпись ника на момент закрепления (ники не
+   * переименовываются, так что она и есть текущая).
+   */
+  techNick?: string;
+  techNickValue?: string;
 }
 
 export type JoinRequestStatus = "pending" | "approved" | "rejected";
@@ -160,4 +180,21 @@ export interface JoinRequest {
   workspaceId: string;
   status: JoinRequestStatus;
   requestedAt: number;
+  /**
+   * Кем человек просится: Технарь или ОС. Новый пользователь приходит БЕЗ
+   * роли — роли «никто» у участника не бывает (Viewer — полноправный
+   * участник), поэтому до одобрения он просто не участник, а его выбор
+   * лежит здесь. Тимлид или выше одобряет как есть или меняет роль и ник.
+   */
+  requestedRole?: JoinRequestRole;
+  /** Ник, под которым человек уже работал (если есть), — как он его написал. */
+  requestedNick?: string;
+  /** Что в итоге выдали — для истории и для экрана самого человека. */
+  approvedRole?: Role;
+  approvedNick?: string | null;
+  resolvedAt?: number;
+  resolvedBy?: string;
 }
+
+/** Роли, которые можно запросить при входе. */
+export type JoinRequestRole = "manager" | "os";

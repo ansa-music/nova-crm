@@ -28,7 +28,7 @@ import {
   type OrderCandidate,
 } from "@/services/orderService";
 import { parseOptionalNumber } from "@/utils/quickOrder";
-import { displayNameOf } from "@/utils/displayName";
+import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { formatCurrency } from "@/utils/format";
 import { almatyNoonMillis, formatOrderDate, timeAgo, ymdInTimeZone } from "@/utils/date";
 import { hasFullAccess } from "@/utils/permissions";
@@ -86,7 +86,7 @@ export default function OrdersPage() {
   const [reloadKey, setReloadKey] = useState(0);
 
   const uid = profile?.uid ?? "";
-  const myName = displayNameOf(profile);
+  const myName = myDisplayName(profile, members);
   const canIssue = permissions.isResolved && (hasFullAccess(permissions.role) || permissions.hasRole("os"));
   const canClaim = permissions.isResolved && permissions.hasRole("manager");
   const fullAccess = permissions.isResolved && hasFullAccess(permissions.role);

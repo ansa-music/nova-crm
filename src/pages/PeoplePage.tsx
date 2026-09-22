@@ -12,7 +12,7 @@ import { usePeopleDesks } from "@/hooks/usePeopleDesks";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { displayNameOf } from "@/utils/displayName";
+import { myDisplayName } from "@/utils/displayName";
 import { canOpenDesk, groupDeskSubtitle, personLabel } from "@/utils/peopleDesks";
 import { getPresenceStatus, PRESENCE_DOT_COLOR } from "@/utils/presence";
 import { memberHasRole, ROLE_LABELS, rolesOf } from "@/types";
@@ -97,7 +97,7 @@ export default function PeoplePage() {
   async function sendRequest(page: WorkspacePage) {
     const toUid = page.responsibleUserId || ownerId;
     if (!toUid) throw new Error("Нет ответственного у стола");
-    await requestView(page, displayNameOf(profile), toUid);
+    await requestView(page, myDisplayName(profile, members), toUid);
     await reload();
   }
 

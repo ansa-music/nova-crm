@@ -1,8 +1,21 @@
-import { deleteDoc, deleteField, getDoc, getDocs, onSnapshot, query, runTransaction, setDoc, where, writeBatch } from "firebase/firestore";
+import {
+  deleteDoc,
+  deleteField,
+  getDoc,
+  getDocFromServer,
+  getDocs,
+  getDocsFromServer,
+  onSnapshot,
+  query,
+  runTransaction,
+  setDoc,
+  where,
+  writeBatch,
+} from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
 import { COLOR_PRESETS } from "@/components/common/ColorPicker";
-import { displayNameOf } from "@/utils/displayName";
+import { displayNameOf, realNameOf } from "@/utils/displayName";
 import { generateId } from "@/utils/id";
 import { addOwnWorkspaceId } from "@/services/authService";
 import { EXTRA_ROLES, type Role, type StatusOption, type Workspace, type WorkspaceMember } from "@/types";
@@ -316,90 +329,254 @@ export async function setMemberExtraRoles(workspaceId: string, uid: string, main
 }
 
 export const OS_NICK_MAX_LENGTH = 32;
+export const NICK_MAX_LENGTH = OS_NICK_MAX_LENGTH;
+
+/**
+ * Два вида ников с ОДНОЙ моделью: ник ОС живёт в «Ответственном»
+ * (`responsibleOptions`, по нему считаются заказы ОС), ник технаря — в своём
+ * списке `techNickOptions`. Смешивать списки нельзя: любой столбец
+ * «Ответственный» считается ОС-столбцом.
+ */
+export type NickKind = "os" | "tech";
+
+export const NICK_KIND_META: Record<NickKind, { list: "responsibleOptions" | "techNickOptions"; label: "osNick" | "techNick"; value: "osNickValue" | "techNickValue"; title: string; listName: string }> = {
+  os: { list: "responsibleOptions", label: "osNick", value: "osNickValue", title: "Ник ОС", listName: "«Ответственный»" },
+  tech: { list: "techNickOptions", label: "techNick", value: "techNickValue", title: "Ник технаря", listName: "«Ники технарей»" },
+};
+
+export function nickOptionsOf(workspace: Partial<Workspace> | null | undefined, kind: NickKind): StatusOption[] {
+  return (workspace?.[NICK_KIND_META[kind].list] as StatusOption[] | undefined) ?? [];
+}
+
+export function memberNickValue(member: Partial<WorkspaceMember> | null | undefined, kind: NickKind): string | null {
+  return (member?.[NICK_KIND_META[kind].value] as string | undefined) || null;
+}
+
+/** Ник как его показывать: текущая подпись варианта, иначе сохранённая. */
+export function nickLabelOf(
+  member: Partial<WorkspaceMember> | null | undefined,
+  kind: NickKind,
+  options: StatusOption[] | undefined
+): string | null {
+  const value = memberNickValue(member, kind);
+  if (!value) return null;
+  const option = options?.find((o) => o.value === value);
+  return option?.label.trim() || (member?.[NICK_KIND_META[kind].label] as string | undefined)?.trim() || null;
+}
 
 /** The ОС nick as shown everywhere: its «Ответственный» option's current label, else the saved nick. */
 export function osNickLabel(
   member: Pick<WorkspaceMember, "osNick" | "osNickValue"> | null | undefined,
   responsibleOptions: StatusOption[] | undefined
 ): string | null {
-  if (!member?.osNickValue) return null;
-  const option = responsibleOptions?.find((o) => o.value === member.osNickValue);
-  return option?.label.trim() || member.osNick?.trim() || null;
+  return nickLabelOf(member, "os", responsibleOptions);
+}
+
+export type NickTarget = { optionValue: string } | { newNick: string };
+
+export const displayNameOfMember = displayNameOf;
+
+/**
+ * Свободен ли ник — по СВЕЖЕМУ запросу к серверу, а не по списку участников в
+ * браузере: тот не живой, и ник, закреплённый другим руководителем минуту
+ * назад, выглядел бы свободным. Два ОС с одним `osNickValue` читали бы заказы
+ * и ставили оценки друг за друга (правила смотрят только на свой ник).
+ * Запрос внутри транзакции SDK не умеет — поэтому здесь, прямо перед ней, а
+ * транзакция сверяет, что ник всё тот же (`expectedValue`).
+ *
+ * Возвращает value существующего варианта, в который попадёт выбор, или null,
+ * если ник будет новым (держателей у нового быть не может).
+ */
+export async function assertNickFree(input: {
+  workspaceId: string;
+  kind: NickKind;
+  target: NickTarget;
+  selfUid: string;
+  previous?: { label?: string | null; value?: string | null } | null;
+}): Promise<string | null> {
+  if (!db) return null;
+  const meta = NICK_KIND_META[input.kind];
+  const workspaceSnap = await getDocFromServer(paths.workspace(input.workspaceId));
+  const options = nickOptionsOf(workspaceSnap.data() as Partial<Workspace> | undefined, input.kind);
+  const { option } = resolveNickOption(options, input.target, input.previous);
+  if (!options.some((o) => o.value === option.value)) return null;
+  const holders = await getDocsFromServer(
+    query(paths.members(input.workspaceId), where(meta.value, "==", option.value))
+  );
+  const other = holders.docs.map((d) => d.data() as WorkspaceMember).find((m) => m.uid !== input.selfUid);
+  if (other) throw new Error(`Ник «${option.label}» уже закреплён за ${realNameOf(other)}`);
+  return option.value;
+}
+
+/** Ник в транзакции должен совпасть с тем, что проверили на свободу. */
+export function assertSameNick(option: StatusOption, existedBefore: boolean, expectedValue: string | null) {
+  if (existedBefore ? option.value !== expectedValue : expectedValue !== null) {
+    throw new Error("Список ников только что изменился — попробуйте ещё раз");
+  }
 }
 
 /**
- * Pins an ОС account to its nick — an option of the shared «Ответственный»
- * list — or unpins it (`target` null). Тимлид/Owner only: the self-service
- * member rule doesn't allow these fields. Existing options are never renamed
- * or removed: nicks already in the list may sit on months of orders, and
- * pinning one makes all of them this ОС's at once.
- *   { optionValue } — an option already in the list;
- *   { newNick }     — reuses an option with that name, else appends one
- *                     (with the ОС's old value if the Owner had deleted it).
- * Returns the pinned option value.
+ * Найти или завести вариант ника в списке. `{ optionValue }` — уже есть в
+ * списке; `{ newNick }` — берём вариант с таким именем (без учёта регистра),
+ * иначе дописываем новый (со СТАРЫМ value человека, если его вариант когда-то
+ * удалили и имя совпало — тогда вернутся и его старые заказы). Неактуальный
+ * вариант, закреплённый за живым человеком, снова актуален. `nextOptions` —
+ * новый список, если его нужно записать, иначе null.
  */
-export async function linkMemberOsNick(input: {
+export function resolveNickOption(
+  options: StatusOption[],
+  target: NickTarget,
+  previous?: { label?: string | null; value?: string | null } | null
+): { option: StatusOption; nextOptions: StatusOption[] | null } {
+  if ("optionValue" in target) {
+    const option = options.find((o) => o.value === target.optionValue);
+    if (!option) throw new Error("Этого ника уже нет в списке");
+    return { option, nextOptions: option.inactive ? reviveOption(options, option.value) : null };
+  }
+  const nick = target.newNick.trim().slice(0, NICK_MAX_LENGTH);
+  if (!nick) throw new Error("Введите ник");
+  const lower = nick.toLowerCase();
+  const existing = options.find((o) => o.label.trim().toLowerCase() === lower);
+  if (existing) return { option: existing, nextOptions: existing.inactive ? reviveOption(options, existing.value) : null };
+  const oldValueFree =
+    Boolean(previous?.value) &&
+    !options.some((o) => o.value === previous!.value) &&
+    (previous?.label ?? "").trim().toLowerCase() === lower;
+  const option: StatusOption = {
+    value: oldValueFree ? previous!.value! : generateId("opt"),
+    label: nick,
+    color: COLOR_PRESETS[options.length % COLOR_PRESETS.length],
+  };
+  return { option, nextOptions: [...options, option] };
+}
+
+/**
+ * Ник закрепили за живым аккаунтом — значит он снова в работе, и прятать его
+ * в «Неактуальных» больше незачем. Ключ УДАЛЯЕМ: `undefined` внутри элемента
+ * массива роняет запись целиком (ignoreUndefinedProperties выключен), а
+ * `false` осталось бы мусором во всех документах.
+ */
+function reviveOption(options: StatusOption[], value: string): StatusOption[] {
+  return options.map((o) => {
+    if (o.value !== value) return o;
+    const next = { ...o };
+    delete next.inactive;
+    return next;
+  });
+}
+
+/**
+ * Закрепить за участником ник (ОС или технаря) или открепить (`target`
+ * null). Тимлид/Owner only: self-service правило участника эти поля не
+ * пускает, а Тимлид не может поставить ник сам себе. Варианты в списке
+ * никогда не переименовываются и не удаляются: на нике могут висеть месяцы
+ * заказов. Возвращает value закреплённого варианта.
+ *
+ * «Ник уже у другого» проверяется по списку участников на клиенте — правила
+ * уникальность не держат (как и у ников ОС).
+ */
+export async function linkMemberNick(input: {
   workspaceId: string;
   uid: string;
-  target: { optionValue: string } | { newNick: string } | null;
+  kind: NickKind;
+  target: NickTarget | null;
   members: WorkspaceMember[];
 }): Promise<string | null> {
   if (!db) return null;
+  const meta = NICK_KIND_META[input.kind];
   const workspaceRef = paths.workspace(input.workspaceId);
   const memberRef = paths.member(input.workspaceId, input.uid);
+  const target = input.target;
+  let expectedValue: string | null = null;
+  if (target) {
+    const current = input.members.find((m) => m.uid === input.uid);
+    expectedValue = await assertNickFree({
+      workspaceId: input.workspaceId,
+      kind: input.kind,
+      target,
+      selfUid: input.uid,
+      previous: current
+        ? { label: current[meta.label] as string | undefined, value: current[meta.value] as string | undefined }
+        : null,
+    });
+  }
   return runTransaction(db, async (tx) => {
     const workspaceSnap = await tx.get(workspaceRef);
     const memberSnap = await tx.get(memberRef);
     if (!memberSnap.exists()) throw new Error("Участник не найден");
     const member = memberSnap.data() as WorkspaceMember;
-    if (!input.target) {
-      tx.set(memberRef, { osNick: deleteField(), osNickValue: deleteField() }, { merge: true });
+    if (!target) {
+      tx.set(memberRef, { [meta.label]: deleteField(), [meta.value]: deleteField() }, { merge: true });
       return null;
     }
-    const options = (workspaceSnap.data() as Partial<Workspace> | undefined)?.responsibleOptions ?? [];
-    let option: StatusOption | undefined;
-    let appended = false;
-    if ("optionValue" in input.target) {
-      const value = input.target.optionValue;
-      option = options.find((o) => o.value === value);
-      if (!option) throw new Error("Этого ника уже нет в списке «Ответственный»");
-    } else {
-      const nick = input.target.newNick.trim().slice(0, OS_NICK_MAX_LENGTH);
-      if (!nick) throw new Error("Введите ник");
-      const lower = nick.toLowerCase();
-      option = options.find((o) => o.label.trim().toLowerCase() === lower);
-      if (!option) {
-        const oldValueFree =
-          member.osNickValue &&
-          !options.some((o) => o.value === member.osNickValue) &&
-          (member.osNick ?? "").trim().toLowerCase() === lower;
-        option = {
-          value: oldValueFree ? member.osNickValue! : generateId("opt"),
-          label: nick,
-          color: COLOR_PRESETS[options.length % COLOR_PRESETS.length],
-        };
-        appended = true;
-      }
-    }
-    const takenBy = input.members.find((m) => m.uid !== input.uid && m.osNickValue === option!.value);
-    if (takenBy) throw new Error(`Ник «${option.label}» уже закреплён за другим ОС: ${displayNameOf(takenBy)}`);
-    if (appended) {
-      tx.set(workspaceRef, { responsibleOptions: [...options, option] }, { merge: true });
-    } else if (option.inactive) {
-      // Ник закрепили за живым аккаунтом — значит он снова в работе, и прятать
-      // его в «Неактуальных» больше незачем. Ключ УДАЛЯЕМ: `undefined` внутри
-      // элемента массива роняет запись целиком (ignoreUndefinedProperties у нас
-      // выключен), а `false` осталось бы мусором во всех документах.
-      const revived = options.map((o) => {
-        if (o.value !== option!.value) return o;
-        const next = { ...o };
-        delete next.inactive;
-        return next;
-      });
-      tx.set(workspaceRef, { responsibleOptions: revived }, { merge: true });
-    }
-    tx.set(memberRef, { osNick: option.label, osNickValue: option.value }, { merge: true });
+    const options = nickOptionsOf(workspaceSnap.data() as Partial<Workspace> | undefined, input.kind);
+    const { option, nextOptions } = resolveNickOption(options, target, {
+      label: member[meta.label] as string | undefined,
+      value: member[meta.value] as string | undefined,
+    });
+    assertSameNick(option, options.some((o) => o.value === option.value), expectedValue);
+    const takenBy = input.members.find((m) => m.uid !== input.uid && m[meta.value] === option.value);
+    if (takenBy) throw new Error(`Ник «${option.label}» уже закреплён за ${realNameOf(takenBy)}`);
+    if (nextOptions) tx.set(workspaceRef, { [meta.list]: nextOptions }, { merge: true });
+    tx.set(memberRef, { [meta.label]: option.label, [meta.value]: option.value }, { merge: true });
     return option.value;
+  });
+}
+
+/** Pins an ОС account to its «Ответственный» nick — see `linkMemberNick`. */
+export async function linkMemberOsNick(input: {
+  workspaceId: string;
+  uid: string;
+  target: NickTarget | null;
+  members: WorkspaceMember[];
+}): Promise<string | null> {
+  return linkMemberNick({ ...input, kind: "os" });
+}
+
+/**
+ * Завести свободный ник в списке — под него ещё нет аккаунта (человек
+ * придёт позже и попросит его в заявке). Транзакцией: список пишется
+ * целиком, и параллельная правка иначе потеряла бы чужой ник.
+ */
+export async function addNickOption(input: { workspaceId: string; kind: NickKind; label: string }): Promise<StatusOption> {
+  if (!db) throw new Error("Firebase не настроен");
+  const meta = NICK_KIND_META[input.kind];
+  const workspaceRef = paths.workspace(input.workspaceId);
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(workspaceRef);
+    const options = nickOptionsOf(snap.data() as Partial<Workspace> | undefined, input.kind);
+    const label = input.label.trim().slice(0, NICK_MAX_LENGTH);
+    if (!label) throw new Error("Введите ник");
+    if (options.some((o) => o.label.trim().toLowerCase() === label.toLowerCase())) {
+      throw new Error(`Ник «${label}» уже есть в списке`);
+    }
+    const option: StatusOption = { value: generateId("opt"), label, color: COLOR_PRESETS[options.length % COLOR_PRESETS.length] };
+    tx.set(workspaceRef, { [meta.list]: [...options, option] }, { merge: true });
+    return option;
+  });
+}
+
+/**
+ * «В неактуальные» / «Вернуть» — вместо удаления: ник уходит из быстрого
+ * выбора, но остаётся в заказах и подписях. Флаг при возврате УДАЛЯЕТСЯ.
+ */
+export async function setNickOptionInactive(input: {
+  workspaceId: string;
+  kind: NickKind;
+  value: string;
+  inactive: boolean;
+}) {
+  if (!db) throw new Error("Firebase не настроен");
+  const meta = NICK_KIND_META[input.kind];
+  const workspaceRef = paths.workspace(input.workspaceId);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(workspaceRef);
+    const options = nickOptionsOf(snap.data() as Partial<Workspace> | undefined, input.kind);
+    if (!options.some((o) => o.value === input.value)) throw new Error("Этого ника уже нет в списке");
+    const next = input.inactive
+      ? options.map((o) => (o.value === input.value ? { ...o, inactive: true } : o))
+      : reviveOption(options, input.value);
+    tx.set(workspaceRef, { [meta.list]: next }, { merge: true });
   });
 }
 

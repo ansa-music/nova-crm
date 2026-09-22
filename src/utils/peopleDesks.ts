@@ -1,8 +1,9 @@
 import { memberHasRole, type Role, type WorkspaceMember, type WorkspacePage } from "@/types";
 
-export function personLabel(member?: { name?: string; nickname?: string } | null) {
+/** Подпись человека: ник технаря (если закреплён) → свой ник → имя. См. `displayNameOf`. */
+export function personLabel(member?: { name?: string; nickname?: string; techNick?: string } | null) {
   if (!member) return "";
-  return member.nickname || member.name || "";
+  return member.techNick?.trim() || member.nickname || member.name || "";
 }
 
 /**

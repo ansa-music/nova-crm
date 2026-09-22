@@ -1,4 +1,4 @@
-import { deleteDoc, getDocs, onSnapshot, query, setDoc, where, writeBatch } from "firebase/firestore";
+import { deleteDoc, getDocs, onSnapshot, query, setDoc, where, writeBatch, type Query } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -46,81 +46,67 @@ function sortAccounts(items: GrokAppAccount[]): GrokAppAccount[] {
  * Живой список аккаунтов подписок.
  *
  * Owner и Тимлид читают коллекцию целиком. Остальным правила отдают только
- * открытые аккаунты и те, куда их пустили, поэтому у них ДВА запроса —
- * «открытые» и «мои» — и результат склеивается. Одним запросом нельзя:
- * list-запрос в Firestore падает целиком, если хоть один документ в выдаче
- * закрыт правилами (см. CLAUDE.md).
+ * открытые аккаунты, те, куда их пустили, и — тем, кто управляет разделом
+ * (право страницы, не роль, см. types/grokAccess.ts), — все аккаунты своих
+ * провайдеров. Поэтому у них НЕСКОЛЬКО запросов, и результат склеивается.
+ * Одним запросом нельзя: list-запрос в Firestore падает целиком, если хоть
+ * один документ в выдаче закрыт правилами (см. CLAUDE.md).
  *
  * Документы без поля `restricted` в запрос «открытые» НЕ попадают — Firestore
  * не возвращает записи без поля фильтра. Поэтому у старых аккаунтов поле
  * проставляется разово: `backfillGrokAppRestricted` из сессии руководства.
+ *
+ * `complete` — все запросы уже ответили С СЕРВЕРА. Только после этого список
+ * полный, и сверка витрины закрытых аккаунтов не удалит карточку живого
+ * аккаунта, который просто ещё не доехал.
  */
 export function subscribeToGrokAppAccounts(
   workspaceId: string,
-  cb: (accounts: GrokAppAccount[]) => void,
-  viewer: { seesAll: boolean; uid: string }
+  cb: (accounts: GrokAppAccount[], complete: boolean) => void,
+  viewer: { seesAll: boolean; uid: string; managedProviders?: GrokAppProvider[] }
 ) {
   if (viewer.seesAll) {
-    return onSnapshot(paths.grokAppAccounts(workspaceId), (snapshot) => {
-      cb(mapAccounts(snapshot.docs));
+    return onSnapshot(paths.grokAppAccounts(workspaceId), { includeMetadataChanges: true }, (snapshot) => {
+      cb(mapAccounts(snapshot.docs), !snapshot.metadata.fromCache);
     });
   }
 
-  const open = new Map<string, GrokAppAccount>();
-  const mine = new Map<string, GrokAppAccount>();
+  const parts = new Map<string, Map<string, GrokAppAccount>>();
+  const confirmed = new Set<string>();
+  const sources: Array<{ key: string; q: Query }> = [
+    { key: "open", q: query(paths.grokAppAccounts(workspaceId), where("restricted", "==", false)) },
+    { key: "mine", q: query(paths.grokAppAccounts(workspaceId), where("allowedUids", "array-contains", viewer.uid)) },
+    ...(viewer.managedProviders ?? []).map((provider) => ({
+      key: `provider:${provider}`,
+      q: query(paths.grokAppAccounts(workspaceId), where("provider", "==", provider)),
+    })),
+  ];
   const emit = () => {
     const merged = new Map<string, GrokAppAccount>();
-    for (const [id, account] of open) merged.set(id, account);
-    for (const [id, account] of mine) merged.set(id, account);
-    cb(sortAccounts(Array.from(merged.values())));
+    for (const part of parts.values()) for (const [id, account] of part) merged.set(id, account);
+    cb(sortAccounts(Array.from(merged.values())), sources.every((s) => confirmed.has(s.key)));
   };
-
-  const unsubOpen = onSnapshot(
-    query(paths.grokAppAccounts(workspaceId), where("restricted", "==", false)),
-    (snapshot) => {
-      open.clear();
-      for (const account of mapAccounts(snapshot.docs)) open.set(account.id, account);
-      emit();
-    }
+  const stops = sources.map(({ key, q }) =>
+    onSnapshot(
+      q,
+      { includeMetadataChanges: true },
+      (snapshot) => {
+        parts.set(key, new Map(mapAccounts(snapshot.docs).map((a) => [a.id, a])));
+        if (!snapshot.metadata.fromCache) confirmed.add(key);
+        emit();
+      },
+      // Отказ одной части не роняет остальные: открытые и «мои» аккаунты
+      // человек всё равно видит. Но и «полным» список после отказа не
+      // считается — иначе сверка витрины удалила бы карточки этой части.
+      (error) => {
+        console.error(`Не удалось прочитать аккаунты подписок (${key}):`, error);
+        parts.set(key, new Map());
+        confirmed.delete(key);
+        emit();
+      }
+    )
   );
-  const unsubMine = onSnapshot(
-    query(paths.grokAppAccounts(workspaceId), where("allowedUids", "array-contains", viewer.uid)),
-    (snapshot) => {
-      mine.clear();
-      for (const account of mapAccounts(snapshot.docs)) mine.set(account.id, account);
-      emit();
-    }
-  );
-  return () => {
-    unsubOpen();
-    unsubMine();
-  };
-}
-
-/**
- * Открыть аккаунт списку людей. Пустой список = аккаунт снова открыт всем:
- * «закрыт и никому не открыт» — состояние, из которого его никто, кроме
- * руководства, уже не увидит, и заводить его случайным кликом незачем.
- */
-export async function setGrokAppAccess(input: {
-  workspaceId: string;
-  id: string;
-  allowedUids: string[];
-  actorUid: string;
-  actorName: string;
-}) {
-  if (!db) throw new Error("Firebase не настроен");
-  await setDoc(
-    paths.grokAppAccount(input.workspaceId, input.id),
-    {
-      restricted: input.allowedUids.length > 0,
-      allowedUids: input.allowedUids,
-      updatedByUid: input.actorUid,
-      updatedByName: input.actorName,
-      updatedAt: Date.now(),
-    },
-    { merge: true }
-  );
+  return () => stops.forEach((stop) => stop());
 }
 
 /**
@@ -128,13 +114,23 @@ export async function setGrokAppAccess(input: {
  * попадают в запрос «открытые» и пропадают у всех, кроме руководства.
  * Вызывается из сессии Owner/Тимлида, которая видит коллекцию целиком.
  */
-export async function backfillGrokAppRestricted(workspaceId: string, accounts: GrokAppAccount[]) {
+export async function backfillGrokAppRestricted(
+  workspaceId: string,
+  accounts: GrokAppAccount[],
+  actor: { uid: string; name: string }
+) {
   if (!db) return;
   const legacy = accounts.filter((a) => a.restricted === undefined);
   if (legacy.length === 0) return;
   const batch = writeBatch(db);
+  // Правило правки требует `updatedByUid == я`: запись одного `restricted`
+  // оставляла чужой uid последнего редактора и падала — вся пачка, молча.
   for (const account of legacy) {
-    batch.set(paths.grokAppAccount(workspaceId, account.id), { restricted: false }, { merge: true });
+    batch.set(
+      paths.grokAppAccount(workspaceId, account.id),
+      { restricted: false, updatedByUid: actor.uid, updatedByName: actor.name, updatedAt: Date.now() },
+      { merge: true }
+    );
   }
   await batch.commit();
 }
@@ -224,7 +220,26 @@ export async function updateGrokAppAccount(
   );
 }
 
-export async function deleteGrokAppAccount(workspaceId: string, id: string) {
+/**
+ * Удалить аккаунт. Тот, кто управляет разделом, заодно убирает его карточку
+ * с витрины закрытых; у технаря на неё прав нет — её уберёт сверка витрины
+ * в сессии управляющего.
+ */
+export async function deleteGrokAppAccount(
+  workspaceId: string,
+  id: string,
+  cleanup?: { stub: boolean; requestIds: string[] }
+) {
   if (!db) return;
-  await deleteDoc(paths.grokAppAccount(workspaceId, id));
+  if (!cleanup || (!cleanup.stub && cleanup.requestIds.length === 0)) {
+    await deleteDoc(paths.grokAppAccount(workspaceId, id));
+    return;
+  }
+  const batch = writeBatch(db);
+  batch.delete(paths.grokAppAccount(workspaceId, id));
+  if (cleanup.stub) batch.delete(paths.grokAccessStub(workspaceId, id));
+  // Запросы к удалённому аккаунту решать уже нечего — иначе они висели бы в
+  // списке и в счётчике раздела, а «Открыть доступ» падало бы.
+  for (const requestId of cleanup.requestIds) batch.delete(paths.grokAccessRequest(workspaceId, requestId));
+  await batch.commit();
 }

@@ -149,6 +149,13 @@ export const paths = {
     collection(requireDb(), "workspaces", workspaceId, "grokAppAccounts"),
   grokAppAccount: (workspaceId: string, id: string) =>
     doc(requireDb(), "workspaces", workspaceId, "grokAppAccounts", id),
+  grokSettings: (workspaceId: string, id: string) => doc(requireDb(), "workspaces", workspaceId, "grokSettings", id),
+  grokAccessStubs: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "grokAccessStubs"),
+  grokAccessStub: (workspaceId: string, id: string) => doc(requireDb(), "workspaces", workspaceId, "grokAccessStubs", id),
+  grokAccessRequests: (workspaceId: string) =>
+    collection(requireDb(), "workspaces", workspaceId, "grokAccessRequests"),
+  grokAccessRequest: (workspaceId: string, id: string) =>
+    doc(requireDb(), "workspaces", workspaceId, "grokAccessRequests", id),
 
   viewRequests: (workspaceId: string) =>
     collection(requireDb(), "workspaces", workspaceId, "viewRequests"),
