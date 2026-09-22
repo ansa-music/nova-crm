@@ -31,6 +31,14 @@ export function useSyncedTableRows(
    * стола сначала отдаёт строки с прошлого визита, сколько угодно старые.
    */
   const [serverSynced, setServerSynced] = useState(false);
+  /**
+   * Чьи строки сейчас в состоянии. Сброс флагов идёт в эффекте, то есть на
+   * рендер ПОЗЖЕ смены вкладки, и в этот один рендер хук отдавал строки
+   * прошлой вкладки как «загружены и с сервера» — публикация счётчиков успевала
+   * посчитать их за новую вкладку. Флаги сверяем с ключом прямо в рендере.
+   */
+  const scopeKey = workspaceId && pageId ? `${workspaceId}/${pageId}/${subPageId ?? ""}` : "";
+  const [dataKey, setDataKey] = useState("");
   const copyKeyRef = useRef<string>("");
 
   useEffect(() => {
@@ -51,7 +59,9 @@ export function useSyncedTableRows(
     setSupabaseRows(null);
     copyKeyRef.current = "";
 
+    const key = `${workspaceId}/${pageId}/${subPageId ?? ""}`;
     const onFs = (data: PageRow[], fromServer: boolean) => {
+      setDataKey(key);
       setFirestoreRows(data);
       setFsReady(true);
       setServerSynced(fromServer);
@@ -76,7 +86,7 @@ export function useSyncedTableRows(
   }, [workspaceId, pageId, subPageId]);
 
   useEffect(() => {
-    if (!workspaceId || !pageId || !fsReady || !supabaseOk) return;
+    if (!workspaceId || !pageId || !fsReady || !supabaseOk || dataKey !== scopeKey) return;
     const scope = `${pageId}:${subPageId ?? "main"}`;
     const key = `${scope}:${firestoreRows.length > 0 ? "data" : "empty"}`;
     if (copyKeyRef.current === key) return;
@@ -90,14 +100,19 @@ export function useSyncedTableRows(
       void copyMissingRowRecords(ws, pid, sid, snapshot).catch(() => undefined);
     }, 0);
     return () => window.clearTimeout(t);
-  }, [workspaceId, pageId, subPageId, firestoreRows, fsReady, supabaseOk]);
+  }, [workspaceId, pageId, subPageId, firestoreRows, fsReady, supabaseOk, dataKey, scopeKey]);
 
   const rows = useMemo(
     () => mergeFirestoreAndSupabaseRows(firestoreRows, supabaseOk ? supabaseRows : null),
     [firestoreRows, supabaseRows, supabaseOk]
   );
 
-  return { rows, isLoading, serverSynced };
+  const current = scopeKey !== "" && dataKey === scopeKey;
+  return {
+    rows,
+    isLoading: scopeKey !== "" && (isLoading || !current),
+    serverSynced: serverSynced && current,
+  };
 }
 
 export function usePageRows(workspaceId: string | null, pageId: string | null) {

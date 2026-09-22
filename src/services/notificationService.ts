@@ -276,32 +276,51 @@ function windowMayHideUnread(notifications: Notification[]): Notification | null
   return oldest && !oldest.read ? oldest : null;
 }
 
+/** Добор за окном уже идёт — повторное открытие колокольчика его не дублирует. */
+const unreadSweepsInFlight = new Set<string>();
+
 export async function markAllNotificationsRead(workspaceId: string, notifications: Notification[]) {
   if (!db) return;
   const unread = notifications.filter((n) => !n.read);
   if (unread.length === 0) return;
-  const ids = new Set(unread.map((n) => n.id));
   const oldestUnread = windowMayHideUnread(notifications);
-  if (oldestUnread?.targetUid) {
-    try {
-      const snapshot = await getDocs(
-        query(
-          paths.notifications(workspaceId),
-          where("targetUid", "==", oldestUnread.targetUid),
-          where("read", "==", false),
-          limit(UNREAD_SWEEP_MAX)
-        )
-      );
-      snapshot.docs.forEach((d) => ids.add(d.id));
-    } catch (error) {
-      // Не вышло добрать — отметим хотя бы видимые.
-      console.warn("Не удалось дочитать старые непрочитанные уведомления:", (error as { code?: string })?.code);
-    }
-  }
+  // Сначала — видимые: запись сразу отражается в подписке (read: true
+  // локально), и повторное открытие колокольчика видит «всё прочитано», а
+  // не отправляет то же самое ещё раз.
   const batch = writeBatch(db);
-  ids.forEach((id) => batch.set(paths.notification(workspaceId, id), { read: true }, { merge: true }));
-  await batch.commit();
+  unread.forEach((n) => batch.set(paths.notification(workspaceId, n.id), { read: true }, { merge: true }));
+  const committed = batch.commit();
   pingInboxChanged();
+  await committed;
+  const targetUid = oldestUnread?.targetUid;
+  const sweepKey = `${workspaceId}:${targetUid}`;
+  if (!oldestUnread || !targetUid || unreadSweepsInFlight.has(sweepKey)) return;
+  unreadSweepsInFlight.add(sweepKey);
+  try {
+    // Только то, что СТАРШЕ окна (видимые уже отмечены), от старых к новым —
+    // тот же составной индекс targetUid + read + createdAt, что у чистки.
+    const snapshot = await getDocs(
+      query(
+        paths.notifications(workspaceId),
+        where("targetUid", "==", targetUid),
+        where("read", "==", false),
+        where("createdAt", "<", oldestUnread.createdAt),
+        orderBy("createdAt"),
+        limit(UNREAD_SWEEP_MAX)
+      )
+    );
+    if (!snapshot.empty) {
+      const older = writeBatch(db);
+      snapshot.docs.forEach((d) => older.set(d.ref, { read: true }, { merge: true }));
+      await older.commit();
+      pingInboxChanged();
+    }
+  } catch (error) {
+    // Не вышло добрать — видимые уже отмечены, остальное доберёт следующее открытие.
+    console.warn("Не удалось дочитать старые непрочитанные уведомления:", (error as { code?: string })?.code);
+  } finally {
+    unreadSweepsInFlight.delete(sweepKey);
+  }
 }
 
 /** Pings each @mentioned person with a lightweight notification. Never blocks/breaks sending the chat message itself if it fails. */

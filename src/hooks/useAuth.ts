@@ -58,6 +58,14 @@ export function useAuthBootstrap() {
       }
 
       const uid = user?.uid ?? null;
+      // Вошедший человек сменился (вышел, в том числе в ДРУГОЙ вкладке — вход
+      // общий на браузер, или вошёл другой) — начать с чистой страницы: кэш
+      // Firestore в памяти и кэши на модулях принадлежат прошлому. Первый
+      // вход (было «никого») страницу не трогает.
+      if (authCallbackSettled && typeof lastAppliedUid === "string" && lastAppliedUid !== uid) {
+        window.location.replace("/");
+        return;
+      }
       const isSameUser = lastAppliedUid === uid && authCallbackSettled;
       lastAppliedUid = uid;
       authCallbackSettled = true;

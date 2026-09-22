@@ -479,6 +479,14 @@ export class OrderNotAssignedError extends Error {
   }
 }
 
+/** Нет связи с сервером — заказ не сверить; автозаезд повторит сам, когда связь вернётся. */
+export class OrderOfflineError extends Error {
+  constructor() {
+    super("Нет связи с сервером — заказ заберётся, когда появится сеть");
+    this.name = "OrderOfflineError";
+  }
+}
+
 export async function takeOrderToDesk(input: {
   workspaceId: string;
   order: WorkOrder;
@@ -497,7 +505,13 @@ export async function takeOrderToDesk(input: {
   // хотя телефон технаря давно забрал его в стол или Owner передал другому.
   // По такому снимку в стол ложилась вторая строка того же заказа, а
   // `status: taken` потом отклоняли правила. Одно чтение на заезд.
-  const freshSnap = await getDocFromServer(paths.order(workspaceId, input.order.id));
+  let freshSnap;
+  try {
+    freshSnap = await getDocFromServer(paths.order(workspaceId, input.order.id));
+  } catch (error) {
+    if ((error as { code?: string } | null)?.code === "unavailable") throw new OrderOfflineError();
+    throw error;
+  }
   const fresh = freshSnap.exists() ? mapOrder(freshSnap.data(), freshSnap.id) : null;
   if (!fresh || fresh.status !== "assigned" || fresh.assignedUid !== me.uid) throw new OrderNotAssignedError();
   const order = fresh;

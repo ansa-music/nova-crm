@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
-import { OrderNotAssignedError, takeOrderToDesk } from "@/services/orderService";
+import { OrderNotAssignedError, OrderOfflineError, takeOrderToDesk } from "@/services/orderService";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -115,6 +115,12 @@ export function useOrderAutoPickup() {
               // Заказ уже не наш (забран с другого устройства, передан,
               // отменён) — не сбой: молчим и не повторяем.
               if (error instanceof OrderNotAssignedError) return;
+              // Пропала связь — тоже не повод звать человека: снимок с сервера
+              // после переподключения повторит заезд сам.
+              if (error instanceof OrderOfflineError) {
+                handledRef.current.delete(order.id);
+                return;
+              }
               // Не получилось — разрешаем повтор на следующем снапшоте или
               // следующем открытии приложения; заказ остаётся `assigned`.
               // Молчать тут нельзя: человеку уже пришло «заказ едет в ваш

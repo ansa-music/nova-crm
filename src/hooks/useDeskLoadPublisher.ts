@@ -56,6 +56,29 @@ function cancelPending(slot: PendingSlot) {
   window.clearTimeout(pending.timer);
 }
 
+/**
+ * Свернули вкладку: дописать сразу — только на тач-устройствах и только
+ * «устоявшееся» (MIN_SETTLED_MS). На телефоне свёрнутый браузер замораживает
+ * таймеры (а pagehide часто не шлёт вовсе), и запись иначе ждала бы
+ * следующего открытия. На десктопе 10-секундный таймер в фоновой вкладке
+ * работает, и сброс на каждое переключение вкладки (переписал из WhatsApp —
+ * вернулся — дописал) писал бы промежуточное состояние по разу на переход.
+ * Молодую запись не выбрасываем, как на уходе со стола, а оставляем в очереди.
+ */
+function flushSettledOnHide(slot: PendingSlot) {
+  const pending = slot.current;
+  if (!pending || Date.now() - pending.liveSince < MIN_SETTLED_MS) return;
+  flushPending(slot);
+}
+
+function isTouchDevice(): boolean {
+  try {
+    return window.matchMedia("(pointer: coarse)").matches;
+  } catch {
+    return false;
+  }
+}
+
 function flushPending(slot: PendingSlot) {
   const pending = slot.current;
   if (!pending) return;
@@ -218,18 +241,20 @@ export function useDeskLoadPublisher({
     liveSinceRef.current = active && pageId && subPageId ? Date.now() : 0;
   }, [active, pageId, subPageId]);
 
-  // Ушли со стола, свернули или закрыли вкладку — дописать отложенное, а не
-  // выбросить. Главный повод — `visibilitychange` → hidden: страница ещё
-  // жива, и транзакция deskLoad (ей сначала нужен ответ сервера) успевает
-  // пройти. На `pagehide` её уже не дождаться, а телефон, свернув браузер,
-  // pagehide часто не шлёт вовсе — только hidden, после чего таймеры стоят.
+  // Ушли со стола или закрыли вкладку — дописать отложенное, а не выбросить.
+  // Телефон, свернув браузер, pagehide часто не шлёт вовсе — только
+  // `visibilitychange` → hidden, после чего таймеры стоят; страница в этот
+  // момент ещё жива, и транзакция deskLoad (ей сначала нужен ответ сервера)
+  // успевает пройти. См. flushSettledOnHide.
   useEffect(() => {
     const flushAll = () => {
       flushPending(pendingDeskRef);
       flushPending(pendingOsRef);
     };
     const onVisibility = () => {
-      if (document.visibilityState === "hidden") flushAll();
+      if (document.visibilityState !== "hidden" || !isTouchDevice()) return;
+      flushSettledOnHide(pendingDeskRef);
+      flushSettledOnHide(pendingOsRef);
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", flushAll);
