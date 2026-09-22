@@ -209,15 +209,21 @@ export function subscribeToPages(
   };
 }
 
-/** One-shot page get for a direct desk URL when the list store is still empty. */
+/**
+ * One-shot page get for a direct desk URL when the list store is still empty.
+ * `seesAllDesks` — Тимлид + Технарь: чужой стол открывается по ссылке без
+ * запроса просмотра, как и в правилах (`isTeamLeadTech`).
+ */
 export async function fetchPageIfAccessible(
   workspaceId: string,
   pageId: string,
-  uid: string
+  uid: string,
+  seesAllDesks = false
 ): Promise<WorkspacePage | null> {
   const snap = await getDoc(paths.page(workspaceId, pageId));
   if (!snap.exists()) return null;
   const page = { id: snap.id, ...snap.data() } as WorkspacePage;
+  if (seesAllDesks) return page;
   if (page.responsibleUserId === uid || (page.allowedUsers ?? []).includes(uid)) return page;
   return null;
 }

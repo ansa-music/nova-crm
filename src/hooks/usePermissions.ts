@@ -23,6 +23,7 @@ import {
   canRemoveMembers,
   canRestoreHistory,
   canSeeTechnicians,
+  seesAllDesks,
   canSendNotifications,
   canSimulateRole,
   canViewHistory,
@@ -167,10 +168,13 @@ export function usePermissions() {
        */
       hasFullDeskAccess: isOwnerOfWorkspace || realRole === "owner",
 
+      /** Тимлид + Технарь: чужие столы открыты на ЧТЕНИЕ без запроса просмотра. */
+      seesAllDesks: isResolved && !isOwnerOfWorkspace && seesAllDesks(roles),
       canAccessPage: (page: WorkspacePage) => {
         if (!isResolved || !uid) return false;
         if (isOwnerOfWorkspace) return true;
         if (deskBlocked) return false;
+        if (seesAllDesks(roles)) return true;
         if (isResponsibleForPage(page, uid)) return true;
         return roles.some((role) => canAccessPage(page, role, uid, activeWorkspace?.ownerId));
       },

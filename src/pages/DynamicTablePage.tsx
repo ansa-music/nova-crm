@@ -104,7 +104,7 @@ export default function DynamicTablePage() {
     if (pageFetchKeyRef.current === key) return;
     pageFetchKeyRef.current = key;
     let cancelled = false;
-    void fetchPageIfAccessible(activeWorkspaceId, pageId, permissions.uid)
+    void fetchPageIfAccessible(activeWorkspaceId, pageId, permissions.uid, permissions.seesAllDesks)
       .then((docPage) => {
         if (!cancelled && docPage) setFetchedPage(docPage);
       })
@@ -132,6 +132,7 @@ export default function DynamicTablePage() {
         uid: permissions.uid,
         isOwner: hasFullDeskAccess,
         deskBlocked: permissions.deskBlocked,
+      seesAllDesks: permissions.seesAllDesks,
       })
     : false;
   // Owner / responsible / allowedUsers — the same three cases canAccessPage

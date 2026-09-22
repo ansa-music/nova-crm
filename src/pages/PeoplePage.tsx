@@ -83,6 +83,7 @@ export default function PeoplePage() {
       uid: profile?.uid,
       isOwner,
       deskBlocked: permissions.deskBlocked,
+      seesAllDesks: permissions.seesAllDesks,
     });
   }
 

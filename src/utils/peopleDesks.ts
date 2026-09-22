@@ -151,12 +151,15 @@ export function canOpenDesk(opts: {
   isOwner: boolean;
   /** usePermissions().deskBlocked — a Тимлид without the Технарь role. */
   deskBlocked: boolean;
+  /** usePermissions().seesAllDesks — Тимлид + Технарь: чужие столы на чтение. */
+  seesAllDesks?: boolean;
 }): boolean {
   const uid = opts.uid ?? "";
   if (!uid) return false;
   if (opts.isOwner) return true;
   // Тимлид (not also a Технарь): no desk tables, whatever the ACL says (firestore.rules agrees).
   if (opts.deskBlocked) return false;
+  if (opts.seesAllDesks) return true;
   if (opts.page.responsibleUserId === uid) return true;
   return Boolean(opts.page.allowedUsers?.includes(uid));
 }

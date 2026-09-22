@@ -45,6 +45,19 @@ export function isDeskBlockedFor(roles: Role[]): boolean {
   return roles.includes("teamlead") && !roles.includes("manager") && !roles.includes("owner");
 }
 
+/**
+ * Тимлид со второй ролью Технаря видит ЧУЖИЕ столы без запроса просмотра:
+ * он и людей ведёт, и сам работает за столом, а бегать за доступом к каждой
+ * таблице технаря — ровно то, от чего просили избавить. Зеркало
+ * `isTeamLeadTech()` в firestore.rules.
+ *
+ * Это ТОЛЬКО просмотр: правка по-прежнему у ответственного и у тех, кого
+ * внесли в `editableUsers`.
+ */
+export function seesAllDesks(roles: Role[]): boolean {
+  return roles.includes("teamlead") && roles.includes("manager");
+}
+
 export function canManageWorkspace(role: Role): boolean {
   return hasFullAccess(role);
 }

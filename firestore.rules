@@ -117,11 +117,20 @@ service cloud.firestore {
               && request.auth.uid in pageData.get('personalZoneAllowedUsers', []))));
     }
 
-    // Owner: every page. Тимлид: none. Responsible person: their own desk
-    // even if hidden or missing from allowedUsers. Everyone else: explicit
-    // allowedUsers grant.
+    // Тимлид со второй ролью Технаря: ведёт людей И работает за столом,
+    // поэтому чужие столы ему открыты на ЧТЕНИЕ без запроса просмотра.
+    // Правка так не даётся: canEditPage всё равно требует ответственного
+    // или явный editableUsers.
+    function isTeamLeadTech(workspaceId) {
+      return isTeamLead(workspaceId) && hasExtraRole(workspaceId, 'manager');
+    }
+
+    // Owner: every page. Тимлид: none, если он не Технарь. Responsible
+    // person: their own desk even if hidden or missing from allowedUsers.
+    // Everyone else: explicit allowedUsers grant.
     function canAccessPage(workspaceId, pageData) {
       return isOwner(workspaceId) ||
+        isTeamLeadTech(workspaceId) ||
         (!isDeskBlocked(workspaceId) && (
           isResponsiblePage(workspaceId, pageData) ||
           (isMember(workspaceId) && request.auth.uid in pageData.get('allowedUsers', []))));

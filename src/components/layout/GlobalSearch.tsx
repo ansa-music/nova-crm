@@ -106,6 +106,7 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
             uid: profile?.uid,
             isOwner,
             deskBlocked: permissions.deskBlocked,
+      seesAllDesks: permissions.seesAllDesks,
           })
         )
         .filter((p) => !q || p.name.toLowerCase().includes(q))
@@ -137,6 +138,7 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
             uid: profile?.uid,
             isOwner,
             deskBlocked: permissions.deskBlocked,
+      seesAllDesks: permissions.seesAllDesks,
           })
         );
         return {
