@@ -1,4 +1,4 @@
-import { deleteField, onSnapshot, query, setDoc, where, writeBatch, type FirestoreError } from "firebase/firestore";
+import { deleteField, onSnapshot, query, setDoc, where, writeBatch, type FirestoreError, type WriteBatch } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
 import { techScheduleId, type ScheduleDayState, type ScheduleHours, type TechSchedule } from "@/types";
@@ -11,18 +11,63 @@ import { techScheduleId, type ScheduleDayState, type ScheduleHours, type TechSch
 export function subscribeTechSchedules(
   workspaceId: string,
   monthKey: string,
-  onData: (schedules: TechSchedule[]) => void,
+  /**
+   * `fromServer` — снимок подтверждён сервером. Без сети SDK сразу отдаёт
+   * снимок из кэша, и для непрочитанного ещё месяца он ПУСТОЙ: показывать его
+   * можно, а править поверх него нельзя — шаблон недели счёл бы базу пустой.
+   */
+  onData: (schedules: TechSchedule[], fromServer: boolean) => void,
   onError?: (error: FirestoreError) => void
 ) {
   if (!db) {
-    onData([]);
+    onData([], true);
     return () => {};
   }
   return onSnapshot(
     query(paths.techSchedulesAll(workspaceId), where("monthKey", "==", monthKey)),
-    (snapshot) => onData(snapshot.docs.map((d) => ({ ...(d.data() as TechSchedule), id: d.id }))),
+    // Без includeMetadataChanges снимок «из кэша → с сервера» с тем же
+    // содержимым не пришёл бы вовсе, и флаг навсегда остался бы «из кэша».
+    { includeMetadataChanges: true },
+    (snapshot) =>
+      onData(
+        snapshot.docs.map((d) => ({ ...(d.data() as TechSchedule), id: d.id })),
+        !snapshot.metadata.fromCache
+      ),
     withErrorReporting(onError)
   );
+}
+
+/**
+ * График ОДНОГО человека за месяц — для карточки «Мой график». Отдельный
+ * точечный слушатель, а не общий список: карточка показывает эту и следующую
+ * неделю и не зависит от того, какой месяц открыт в общей сетке.
+ */
+export function subscribeTechSchedule(
+  workspaceId: string,
+  uid: string,
+  monthKey: string,
+  onData: (schedule: TechSchedule | null) => void,
+  onError?: (error: FirestoreError) => void
+) {
+  if (!db) {
+    onData(null);
+    return () => {};
+  }
+  return onSnapshot(
+    paths.techSchedule(workspaceId, techScheduleId(uid, monthKey)),
+    (snapshot) => onData(snapshot.exists() ? { ...(snapshot.data() as TechSchedule), id: snapshot.id } : null),
+    withErrorReporting(onError)
+  );
+}
+
+/**
+ * Часы дня для записи с merge. Вложенная карта при merge СЛИВАЕТСЯ со
+ * старой: без явного удаления подпись «10–12, 15–19» от прошлой смены
+ * оставалась бы у новых часов и показывалась вместо них. `undefined`
+ * внутри тоже нельзя — `ignoreUndefinedProperties` выключен.
+ */
+function hoursWrite(hours: ScheduleHours) {
+  return { from: hours.from, to: hours.to || "", label: hours.label ? hours.label : deleteField() };
 }
 
 /**
@@ -50,6 +95,10 @@ export async function setScheduleDay(input: {
       monthKey: input.monthKey,
       days: { [input.dayKey]: input.state === "work" ? deleteField() : input.state },
       selfWork: { [input.dayKey]: deleteField() },
+      // Часы бывают только у рабочего дня. Оставленные под выходным, они
+      // пропадали из клетки и меню, а при возврате дня в рабочие молча
+      // всплывали — смена, которую никто уже не ставил.
+      ...(input.state === "work" ? {} : { hours: { [input.dayKey]: deleteField() } }),
       updatedAt: Date.now(),
       updatedBy: input.actorUid,
     },
@@ -72,6 +121,12 @@ export async function setCameToWorkDay(input: {
   monthKey: string;
   dayKey: string;
   came: boolean;
+  /**
+   * Снять заодно часы дня. Нужно, когда «пришёл» снимают с дня, который под
+   * отметкой остаётся выходным: часы, поставленные «пришедшему», иначе
+   * оставались бы под выходным невидимыми и всплыли бы потом.
+   */
+  clearHours?: boolean;
   actorUid: string;
 }) {
   if (!db) throw new Error("Firebase не настроен");
@@ -82,6 +137,7 @@ export async function setCameToWorkDay(input: {
       uid: input.uid,
       monthKey: input.monthKey,
       selfWork: { [input.dayKey]: input.came ? true : deleteField() },
+      ...(input.clearHours ? { hours: { [input.dayKey]: deleteField() } } : {}),
       updatedAt: Date.now(),
       updatedBy: input.actorUid,
     },
@@ -109,7 +165,7 @@ export async function setScheduleHours(input: {
       workspaceId: input.workspaceId,
       uid: input.uid,
       monthKey: input.monthKey,
-      hours: { [input.dayKey]: input.hours ?? deleteField() },
+      hours: { [input.dayKey]: input.hours ? hoursWrite(input.hours) : deleteField() },
       updatedAt: Date.now(),
       updatedBy: input.actorUid,
     },
@@ -123,6 +179,12 @@ export async function setScheduleHours(input: {
  * записей, и на середине прерванное сохранение оставило бы месяц наполовину
  * правленым.
  */
+export interface ScheduleDraftChange {
+  uid: string;
+  days?: Record<string, ScheduleDayState>;
+  hours?: Record<string, ScheduleHours | null>;
+}
+
 export async function saveScheduleDraft(input: {
   workspaceId: string;
   monthKey: string;
@@ -132,15 +194,24 @@ export async function saveScheduleDraft(input: {
    * (`null` = снять часы). Шаблон недели раскладывает месяц разом, поэтому
    * тут легко набирается под сотню дней — всё равно один batch.
    */
-  changes: Array<{
-    uid: string;
-    days?: Record<string, ScheduleDayState>;
-    hours?: Record<string, ScheduleHours | null>;
-  }>;
+  changes: ScheduleDraftChange[];
 }) {
   if (!db) throw new Error("Firebase не настроен");
   if (input.changes.length === 0) return;
   const batch = writeBatch(db);
+  addScheduleChangesToBatch(batch, input);
+  await batch.commit();
+}
+
+/**
+ * Те же записи, что у `saveScheduleDraft`, но в ЧУЖОЙ batch: неделя графика
+ * пишет себя и раскладку по месяцам одной пачкой, чтобы после сбоя не
+ * остаться с новой неделей и старым месяцем.
+ */
+export function addScheduleChangesToBatch(
+  batch: WriteBatch,
+  input: { workspaceId: string; monthKey: string; actorUid: string; changes: ScheduleDraftChange[] }
+) {
   for (const change of input.changes) {
     const days: Record<string, unknown> = {};
     const selfWork: Record<string, unknown> = {};
@@ -152,22 +223,27 @@ export async function saveScheduleDraft(input: {
       selfWork[dayKey] = deleteField();
     }
     for (const [dayKey, value] of Object.entries(change.hours ?? {})) {
-      hours[dayKey] = value ?? deleteField();
+      hours[dayKey] = value ? hoursWrite(value) : deleteField();
     }
-    batch.set(
-      paths.techSchedule(input.workspaceId, techScheduleId(change.uid, input.monthKey)),
-      {
-        workspaceId: input.workspaceId,
-        uid: change.uid,
-        monthKey: input.monthKey,
-        days,
-        selfWork,
-        hours,
-        updatedAt: Date.now(),
-        updatedBy: input.actorUid,
-      },
-      { merge: true }
-    );
+    // Выходной и «отпросился» снимают часы того же дня (см. setScheduleDay).
+    for (const [dayKey, state] of Object.entries(change.days ?? {})) {
+      if (state !== "work") hours[dayKey] = deleteField();
+    }
+    // ПУСТУЮ карту отправлять нельзя. SDK кладёт пустой объект в маску
+    // обновления целиком («создать пустую карту»), и при merge:true сервер
+    // ЗАМЕНЯЕТ всё поле на {}: сохранение одних выходных стирало человеку все
+    // часы смен за месяц, а сохранение одних часов — все выходные,
+    // «отпросился» и «пришёл». Поле уходит, только если в нём есть ключи.
+    const data: Record<string, unknown> = {
+      workspaceId: input.workspaceId,
+      uid: change.uid,
+      monthKey: input.monthKey,
+      updatedAt: Date.now(),
+      updatedBy: input.actorUid,
+    };
+    if (Object.keys(days).length > 0) data.days = days;
+    if (Object.keys(selfWork).length > 0) data.selfWork = selfWork;
+    if (Object.keys(hours).length > 0) data.hours = hours;
+    batch.set(paths.techSchedule(input.workspaceId, techScheduleId(change.uid, input.monthKey)), data, { merge: true });
   }
-  await batch.commit();
 }

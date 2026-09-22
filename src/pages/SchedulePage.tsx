@@ -3,6 +3,8 @@ import {
   CalendarDays,
   CalendarRange,
   Check,
+  ClipboardPaste,
+  Paintbrush,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -24,7 +26,9 @@ import {
   type ScheduleDayAction,
   type ScheduleRow,
 } from "@/components/schedule/ScheduleGrid";
-import { WeekPatternDialog, type WeekPattern } from "@/components/schedule/WeekPatternDialog";
+import { WeekPasteDialog, type WeekPasteResult } from "@/components/schedule/WeekPasteDialog";
+import { WeekTemplateGrid } from "@/components/schedule/WeekTemplateGrid";
+import { MyScheduleCard } from "@/components/schedule/MyScheduleCard";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -38,22 +42,28 @@ import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { nextMonthKey, previousMonthKey } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
 import { saveScheduleGroup, subscribeScheduleGroup } from "@/services/scheduleGroupService";
+import { saveWeekTemplate, subscribeWeekTemplate } from "@/services/scheduleTemplateService";
 import { saveScheduleDraft, setCameToWorkDay, setScheduleDay, setScheduleHours } from "@/services/techScheduleService";
 import {
   cancelScheduleRequest,
   requestScheduleMark,
   resolveScheduleRequest,
+  subscribePendingScheduleRequests,
   subscribeScheduleRequests,
 } from "@/services/scheduleRequestService";
 import { cn } from "@/utils/cn";
 import { personLabel, worksAsTechnician } from "@/utils/peopleDesks";
-import { applyWeekPattern } from "@/utils/schedulePattern";
+import { applyParsedCell } from "@/utils/weekTemplate";
 import { formatDate, ymdInTimeZone } from "@/utils/date";
 import {
+  cellsOfEntry,
   DEFAULT_CUSTOM_GROUP_NAME,
   formatScheduleHours,
   memberHasRole,
   newSchedulePersonId,
+  normalizeWeekEntry,
+  sameScheduleHours,
+  sameWeek,
   scheduleDayKey,
   scheduleHoursOf,
   scheduleRequestId,
@@ -64,8 +74,33 @@ import {
   type SchedulePerson,
   type ScheduleRequest,
   type TechSchedule,
+  type WeekCell,
+  type WeekTemplate,
   type WorkspaceMember,
 } from "@/types";
+
+type ScheduleView = "month" | "week";
+
+type Brush = { kind: "off" | "work" | "hours"; from: string; to: string };
+
+const WORK_CELL: WeekCell = { off: false, hours: null };
+
+function sameCell(a: WeekCell, b: WeekCell): boolean {
+  return a.off === b.off && sameScheduleHours(a.hours, b.hours);
+}
+
+/**
+ * «19 сент.» — день запроса вместе с месяцем: в списке руководства теперь
+ * бывают запросы и за прошлый месяц, одного числа мало.
+ */
+function requestDateLabel(request: ScheduleRequest): string {
+  const [year, month] = request.monthKey.split("-").map(Number);
+  const day = Number(request.dayKey);
+  if (!year || !month || !day) return request.dayKey;
+  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", timeZone: "UTC" }).format(
+    new Date(Date.UTC(year, month - 1, day))
+  );
+}
 
 /**
  * «График» — один экран на всех, кто работает по сменам. Разделы намеренно
@@ -95,12 +130,37 @@ export default function SchedulePage() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Map<string, ScheduleDayState>>(new Map());
   const [hoursDraft, setHoursDraft] = useState<Map<string, ScheduleHours | null>>(new Map());
-  const [patternOpen, setPatternOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  // «График» ВСЕГДА открывается на «Неделе» — постоянном распорядке (см.
+  // types/scheduleTemplate.ts): так просил Nurba. Выбор «Месяц» не
+  // запоминаем — иначе у того, кто хоть раз открыл месяц, неделя по
+  // умолчанию пропала бы навсегда.
+  const [view, setViewState] = useState<ScheduleView>("week");
+  const [template, setTemplate] = useState<WeekTemplate | null>(null);
+  const [templateLoaded, setTemplateLoaded] = useState(false);
+  const [templateFailed, setTemplateFailed] = useState(false);
+  const [templateAttempt, setTemplateAttempt] = useState(0);
+  const [weekEditing, setWeekEditing] = useState(false);
+  // Черновик недели хранит ТОЛЬКО тронутые дни (человек → день недели → клетка),
+  // а не снимок всей недели: иначе сохранение молча откатывало бы дни, которые
+  // за это время поменял другой руководитель.
+  const [weekDraft, setWeekDraft] = useState<Map<string, Record<string, WeekCell>>>(new Map());
+  const [brush, setBrush] = useState<Brush>({ kind: "off", from: "12:00", to: "" });
+  const [paste, setPaste] = useState<{ text: string } | null>(null);
+  const [weekSaving, setWeekSaving] = useState(false);
 
   const uid = profile?.uid ?? "";
   const canEdit = permissions.canRetireDesks && Boolean(activeWorkspaceId);
-  const schedules = useTechSchedules(activeWorkspaceId, monthKey, permissions.isResolved);
+  const {
+    schedules,
+    loaded: schedulesLoaded,
+    failed: schedulesFailed,
+    retry: retrySchedules,
+  } = useTechSchedules(activeWorkspaceId, monthKey, permissions.isResolved);
+  // Править можно только поверх ПРОЧИТАННОГО графика: до первого снимка
+  // (и при отказе) база выглядит пустой, и шаблон недели или меню дня
+  // сравнивали бы правку с пустотой — «отпросился» и «пришёл» затирались.
+  const scheduleReady = schedulesLoaded && !schedulesFailed;
   const byUid = useMemo(() => {
     const map = new Map<string, TechSchedule>();
     for (const s of schedules) map.set(s.uid, s);
@@ -122,9 +182,21 @@ export default function SchedulePage() {
 
   useEffect(() => {
     setRequests([]);
-    if (!activeWorkspaceId) return;
+    // Руководство запросы видит через pendingAll ниже; месячная выборка нужна
+    // только тем, кто подаёт запрос сам (свой запрос за открытый месяц).
+    // Лишний постоянный слушатель на Spark нам ни к чему.
+    if (!activeWorkspaceId || canEdit) return;
     return subscribeScheduleRequests(activeWorkspaceId, monthKey, setRequests, () => setRequests([]));
-  }, [activeWorkspaceId, monthKey]);
+  }, [activeWorkspaceId, monthKey, canEdit]);
+
+  // Руководству — все ожидающие запросы, какого бы месяца они ни были. Второй
+  // слушатель только у Owner/Тимлида и только пока открыт «График».
+  const [pendingAll, setPendingAll] = useState<ScheduleRequest[]>([]);
+  useEffect(() => {
+    setPendingAll([]);
+    if (!activeWorkspaceId || !canEdit) return;
+    return subscribePendingScheduleRequests(activeWorkspaceId, setPendingAll, () => setPendingAll([]));
+  }, [activeWorkspaceId, canEdit]);
 
   const active = useMemo(() => members.filter((m) => m.status === "active" && Boolean(m.uid)), [members]);
 
@@ -174,27 +246,38 @@ export default function SchedulePage() {
   const myToday = todayKey ? scheduleStateOf(byUid.get(uid), todayKey) : "work";
   const iAmScheduled = active.some((m) => m.uid === uid);
   const myName = personLabel(active.find((m) => m.uid === uid) ?? null) || "Вы";
-  const myHours = todayKey ? scheduleHoursOf(byUid.get(uid), todayKey) : null;
   const todayLabel = formatDate(Date.now(), "d MMMM, EEEE");
-  const pendingRequests = useMemo(() => requests.filter((r) => r.status === "pending"), [requests]);
+  const pendingRequests = useMemo(
+    () =>
+      (canEdit ? pendingAll : requests.filter((r) => r.status === "pending")).slice().sort(
+        (a, b) => a.monthKey.localeCompare(b.monthKey) || Number(a.dayKey) - Number(b.dayKey)
+      ),
+    [canEdit, pendingAll, requests]
+  );
   const myRequest = todayKey ? requests.find((r) => r.id === scheduleRequestId(uid, monthKey, todayKey)) ?? null : null;
 
   /** Клик в режиме правки: только «выходной ↔ рабочий», ничего больше. */
   const toggleDraft = useCallback(
     (row: ScheduleRow, dayKey: string) => {
+      if (!scheduleReady) return;
       setDraft((prev) => {
         const next = new Map(prev);
         const key = draftKey(row.uid, dayKey);
         const stored = scheduleStateOf(byUid.get(row.uid), dayKey);
         const shown = next.get(key) ?? stored;
-        const wanted: ScheduleDayState = shown === "off" ? "work" : "off";
+        // Клик переключает выходной, а «вернуть» значит вернуть ИСХОДНОЕ. Для
+        // «отпросился» это само «отпросился», а не «рабочий»: иначе два
+        // случайных касания (О → В → пусто) молча стирали согласование, и
+        // обратно к «О» по клику было не прийти. Сделать такой день рабочим
+        // — осознанное действие, оно есть в меню дня («Обычный рабочий»).
+        const wanted: ScheduleDayState = shown === "off" ? (stored === "excused" ? "excused" : "work") : "off";
         // Вернулись к тому, что уже лежит в базе — писать этот день не за чем.
         if (wanted === stored) next.delete(key);
         else next.set(key, wanted);
         return next;
       });
     },
-    [byUid]
+    [byUid, scheduleReady]
   );
 
   async function saveDraft() {
@@ -215,9 +298,23 @@ export default function SchedulePage() {
       const [personUid, dayKey] = key.split(":");
       bucket(personUid).days[dayKey] = state;
     }
+    let sent = draft.size;
     for (const [key, value] of hoursDraft) {
       const [personUid, dayKey] = key.split(":");
-      bucket(personUid).hours[dayKey] = value;
+      // Часы ложатся только на день, который ПОСЛЕ сохранения будет рабочим.
+      // Шаблон ставит часы на будни, а человек потом руками возвращает
+      // какой-то будний день к исходному «В» — черновик дня удаляется, а
+      // часы оставались и писались под выходной, невидимые до тех пор, пока
+      // день снова не сделают рабочим.
+      const schedule = byUid.get(personUid);
+      const finalState = draft.get(key) ?? scheduleStateOf(schedule, dayKey);
+      if (finalState !== "work") {
+        if (!scheduleHoursOf(schedule, dayKey)) continue;
+        bucket(personUid).hours[dayKey] = null;
+      } else {
+        bucket(personUid).hours[dayKey] = value;
+      }
+      sent += 1;
     }
     setSaving(true);
     try {
@@ -227,7 +324,7 @@ export default function SchedulePage() {
         actorUid: uid,
         changes: Array.from(byPerson, ([personUid, value]) => ({ uid: personUid, ...value })),
       });
-      toast.success(`График сохранён · изменений: ${total}`);
+      toast.success(`График сохранён · изменений: ${sent}`);
       setDraft(new Map());
       setHoursDraft(new Map());
       setEditing(false);
@@ -254,36 +351,6 @@ export default function SchedulePage() {
     setEditing(false);
   }
 
-  /**
-   * Шаблон недели на весь месяц. Пишем в ЧЕРНОВИК: человек видит, что
-   * получилось, правит исключения руками и сохраняет одним нажатием.
-   *
-   * Дни «отпросился» шаблон не трогает — это разовое согласование, а не
-   * распорядок недели.
-   */
-  function applyPattern(pattern: WeekPattern) {
-    const targets = pattern.target === "all" ? patternRows : patternRows.filter((r) => r.uid === pattern.target);
-    if (targets.length === 0) return;
-    const next = applyWeekPattern({
-      uids: targets.map((row) => row.uid),
-      monthKey,
-      schedules: byUid,
-      draft,
-      hoursDraft,
-      offDows: pattern.offDows,
-      hoursMode: pattern.hoursMode,
-      hours: pattern.hours,
-      hoursDows: pattern.hoursDows,
-    });
-    setDraft(next.draft);
-    setHoursDraft(next.hoursDraft);
-    setPatternOpen(false);
-    const changed = next.draft.size + next.hoursDraft.size;
-    toast.success(
-      changed === 0 ? "В графике и так всё по шаблону" : `Разложили на месяц · изменений: ${changed} — проверьте и сохраните`
-    );
-  }
-
   /** Меню дня в обычном виде — разовая отметка, пишется сразу. */
   async function pickDay(row: ScheduleRow, dayKey: string, action: ScheduleDayAction) {
     if (!activeWorkspaceId) return;
@@ -300,12 +367,17 @@ export default function SchedulePage() {
           actorUid: uid,
         });
       } else if (action === "came" || action === "not-came") {
+        const schedule = byUid.get(row.uid);
+        const baseState = schedule?.days?.[dayKey];
         await setCameToWorkDay({
           workspaceId: activeWorkspaceId,
           uid: row.uid,
           monthKey,
           dayKey,
           came: action === "came",
+          // Без «пришёл» день вернётся к выходному или «отпросился» — часы
+          // такому дню не положены.
+          clearHours: action === "not-came" && baseState != null && Boolean(schedule?.hours?.[dayKey]),
           actorUid: uid,
         });
       } else {
@@ -410,6 +482,215 @@ export default function SchedulePage() {
     setMonthKey(next);
   }
 
+  function setView(next: ScheduleView) {
+    if (editing || weekEditing) return;
+    setViewState(next);
+  }
+
+  // Неделю слушаем только пока она открыта: лишний постоянный слушатель на
+  // Spark ни к чему, а «Месяц» её не читает.
+  useEffect(() => {
+    setTemplate(null);
+    setTemplateLoaded(false);
+    setTemplateFailed(false);
+    if (!activeWorkspaceId || view !== "week") return;
+    return subscribeWeekTemplate(
+      activeWorkspaceId,
+      (next, fromServer) => {
+        setTemplate(next);
+        if (fromServer) {
+          setTemplateLoaded(true);
+          setTemplateFailed(false);
+        }
+      },
+      () => setTemplateFailed(true)
+    );
+  }, [activeWorkspaceId, view, templateAttempt]);
+
+  // Править неделю — только поверх ПРОЧИТАННОЙ с сервера: сохранение сравнивает
+  // месяц с прошлой неделей, и пустая неделя из кэша сочла бы руками
+  // поставленные выходные частью распорядка.
+  const templateReady = templateLoaded && !templateFailed;
+  const storedWeek = useMemo(() => {
+    const map = new Map<string, Record<string, WeekCell>>();
+    for (const [personId, entry] of Object.entries(template?.people ?? {})) map.set(personId, cellsOfEntry(entry));
+    return map;
+  }, [template]);
+  const emptyWeek = useMemo(() => cellsOfEntry(null), []);
+  const storedCells = useCallback((personId: string) => storedWeek.get(personId) ?? emptyWeek, [storedWeek, emptyWeek]);
+  const weekCellsOfId = useCallback(
+    (personId: string): Record<string, WeekCell> => ({ ...storedCells(personId), ...(weekDraft.get(personId) ?? {}) }),
+    [weekDraft, storedCells]
+  );
+  const weekCellsOf = useCallback((row: ScheduleRow) => weekCellsOfId(row.uid), [weekCellsOfId]);
+  const weekPending = useCallback(
+    (row: ScheduleRow, dow: number) => Boolean(weekDraft.get(row.uid)?.[String(dow)]),
+    [weekDraft]
+  );
+  const todayYmd = ymdInTimeZone(Date.now());
+  const todayDow = new Date(`${todayYmd}T00:00:00Z`).getUTCDay();
+  const brushHoursValid = brush.kind !== "hours" || (Boolean(brush.from) && (!brush.to || brush.from < brush.to));
+  const brushCell: WeekCell =
+    brush.kind === "off"
+      ? { off: true, hours: null }
+      : brush.kind === "hours"
+        ? { off: false, hours: { from: brush.from, to: brush.to } }
+        : WORK_CELL;
+
+  /**
+   * Положить в черновик тронутые дни. День, вернувшийся к сохранённому, из
+   * черновика уходит, человек без тронутых дней — тоже.
+   */
+  const putWeekCells = useCallback(
+    (updates: Array<{ personId: string; cells: Record<string, WeekCell> }>) => {
+      setWeekDraft((prev) => {
+        const next = new Map(prev);
+        for (const { personId, cells } of updates) {
+          const stored = storedCells(personId);
+          const merged: Record<string, WeekCell> = { ...(next.get(personId) ?? {}), ...cells };
+          for (const [dow, cell] of Object.entries(merged)) {
+            if (sameCell(cell, stored[dow] ?? WORK_CELL)) delete merged[dow];
+          }
+          if (Object.keys(merged).length === 0) next.delete(personId);
+          else next.set(personId, merged);
+        }
+        return next;
+      });
+    },
+    [storedCells]
+  );
+
+  const weekLocked = !templateReady || weekSaving;
+
+  /**
+   * Повторный клик той же кистью ВОЗВРАЩАЕТ клетку к сохранённому, а не
+   * делает её «работой»: иначе промах по столбцу «Вс» и клик для отмены
+   * стирали людям их настоящие выходные и смены. Если сохранённое и есть
+   * кисть — тогда да, в рабочий день.
+   */
+  function toggleBack(personId: string, dow: string): WeekCell {
+    const stored = storedCells(personId)[dow] ?? WORK_CELL;
+    return sameCell(stored, brushCell) ? WORK_CELL : stored;
+  }
+
+  function paintCell(row: ScheduleRow, dow: number) {
+    if (weekLocked || !brushHoursValid) return;
+    const key = String(dow);
+    const current = weekCellsOf(row)[key] ?? WORK_CELL;
+    const value = sameCell(current, brushCell) && brush.kind !== "work" ? toggleBack(row.uid, key) : brushCell;
+    putWeekCells([{ personId: row.uid, cells: { [key]: value } }]);
+  }
+
+  /** Клик по дню недели — вся колонка раздела. Если она уже вся такая — возвращаем как было. */
+  function paintColumn(rows: ScheduleRow[], dow: number) {
+    if (weekLocked || !brushHoursValid || rows.length === 0) return;
+    const key = String(dow);
+    const allSame = rows.every((row) => sameCell(weekCellsOf(row)[key] ?? WORK_CELL, brushCell));
+    putWeekCells(
+      rows.map((row) => ({
+        personId: row.uid,
+        cells: { [key]: allSame && brush.kind !== "work" ? toggleBack(row.uid, key) : brushCell },
+      }))
+    );
+  }
+
+  function applyPaste(result: WeekPasteResult[]) {
+    if (weekLocked) return;
+    putWeekCells(
+      result.map(({ personId, cells: parsed }) => {
+        const current = weekCellsOfId(personId);
+        const cells: Record<string, WeekCell> = {};
+        // Только распознанные клетки: пустая и непонятная оставляют день как был.
+        for (const [dow, cell] of Object.entries(parsed)) {
+          if (cell.kind === "off" || cell.kind === "work" || cell.kind === "hours") {
+            cells[dow] = applyParsedCell(current[dow] ?? WORK_CELL, cell);
+          }
+        }
+        return { personId, cells };
+      })
+    );
+    setPaste(null);
+    setWeekEditing(true);
+    // Вставка задевает людей из всех разделов — показываем все, чтобы
+    // изменённые строки нельзя было не увидеть из-за фильтра.
+    setSection("all");
+    toast.success(`Перенесли неделю ${result.length} чел. — проверьте и нажмите «Сохранить»`);
+  }
+
+  // Ctrl+V с таблицей из Google Sheets прямо на неделе — без поиска кнопки.
+  // Поля ввода не трогаем: там вставка своя.
+  useEffect(() => {
+    if (view !== "week" || !canEdit || paste || weekSaving) return;
+    function onPaste(event: ClipboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      const text = event.clipboardData?.getData("text/plain") ?? "";
+      if (!text.includes("\t")) return;
+      event.preventDefault();
+      if (!templateReady) {
+        toast.error("Неделя ещё загружается — вставьте через секунду");
+        return;
+      }
+      setPaste({ text });
+    }
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [view, canEdit, paste, templateReady, weekSaving]);
+
+  async function saveWeek() {
+    if (!activeWorkspaceId || !templateReady || weekSaving) return;
+    // Неделя = сохранённая СЕЙЧАС + тронутые дни: чужие правки других дней,
+    // пришедшие за время редактирования, не откатываются.
+    const changes = Array.from(weekDraft.keys(), (personId) => ({
+      personId,
+      entry: normalizeWeekEntry(weekCellsOfId(personId)),
+    })).filter((change) => !sameWeek(change.entry, template?.people?.[change.personId]));
+    if (changes.length === 0) {
+      setWeekDraft(new Map());
+      setWeekEditing(false);
+      return;
+    }
+    setWeekSaving(true);
+    // Месяц и день — из ОДНОГО чтения часов в момент сохранения: ключ месяца
+    // из хука обновляется раз в минуту, и в первую минуту 1-го числа пара
+    // «прошлый месяц + день 1» переписала бы весь прошлый месяц.
+    const nowYmd = ymdInTimeZone(Date.now());
+    try {
+      const result = await saveWeekTemplate({
+        workspaceId: activeWorkspaceId,
+        actorUid: uid,
+        previous: template,
+        changes,
+        window: { currentMonth: nowYmd.slice(0, 7), today: Number(nowYmd.slice(8, 10)) },
+      });
+      toast.success(
+        result.days > 0
+          ? `Неделя сохранена · людей: ${result.people}, дней в графике изменено: ${result.days}`
+          : `Неделя сохранена · людей: ${result.people}`
+      );
+      setWeekDraft(new Map());
+      setWeekEditing(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить неделю");
+    } finally {
+      setWeekSaving(false);
+    }
+  }
+
+  async function cancelWeek() {
+    if (weekDraft.size > 0) {
+      const ok = await confirmDialog({
+        title: "Выйти без сохранения?",
+        description: `Изменена неделя у ${weekDraft.size} чел. Это не попадёт в график.`,
+        confirmLabel: "Выйти",
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    setWeekDraft(new Map());
+    setWeekEditing(false);
+  }
+
   const monthLabel = monthTabNameForKey(monthKey).toLowerCase();
   const sections = [
     { id: "tech", title: "Технари", icon: HardHat, rows: rowsOf(groups.technicians) },
@@ -421,7 +702,10 @@ export default function SchedulePage() {
   const visible = (id: string) => section === "all" || section === id;
   const nothingAtAll = sections.length === 0 && !showCustom;
 
-  /** Кого предлагать в шаблоне: те, кто сейчас на экране. */
+  /** Есть ли смотрящий в самом графике (Viewer и Admin без стола туда не попадают). */
+  const inSchedule = sections.some((s) => s.rows.some((row) => row.uid === uid));
+
+  /** Кого предлагать при вставке недели: все строки графика, во всех разделах. */
   const patternRows = useMemo(
     () => [...sections.flatMap((s) => s.rows), ...customRows],
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -433,7 +717,7 @@ export default function SchedulePage() {
     todayKey,
     schedules: byUid,
     meUid: uid,
-    canEdit,
+    canEdit: canEdit && scheduleReady,
     editing,
     draft,
     hoursDraft,
@@ -447,7 +731,13 @@ export default function SchedulePage() {
         eyebrow="Студия"
         title="График"
         description={
-          !canEdit
+          view === "week"
+            ? !canEdit
+              ? "Постоянная неделя команды: у кого какие выходные и смены. Разовые выходные и отгулы — во вкладке «Месяц»."
+              : weekEditing
+                ? "Выберите кисть и кликайте по клеткам, клик по дню недели — весь столбец. Можно вставить таблицу из Google Sheets (Ctrl+V). В график уйдёт по «Сохранить»."
+                : "Постоянная неделя каждого: выходные и смены по дням недели. Ставится один раз и сама раскладывается в график — на этот и следующий месяц."
+            : !canEdit
             ? "Кто работает, у кого выходной и кто отпросился. График ведёт Тимлид."
             : editing
               ? "Режим правки: клик по дню ставит и снимает выходной. Ничего не уйдёт в базу, пока не нажмёте «Сохранить»."
@@ -455,6 +745,26 @@ export default function SchedulePage() {
         }
         actions={
           <div className="flex shrink-0 flex-wrap items-center gap-1">
+            <div className="mr-1 inline-flex rounded-lg border border-border p-0.5" role="tablist" aria-label="Вид графика">
+              {(["month", "week"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === v}
+                  disabled={editing || weekEditing}
+                  onClick={() => setView(v)}
+                  className={cn(
+                    "min-h-10 rounded-md px-3 text-[12px] transition-colors disabled:opacity-50 sm:min-h-8",
+                    view === v ? "bg-primary/15 font-medium text-primary" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {v === "month" ? "Месяц" : "Неделя"}
+                </button>
+              ))}
+            </div>
+            {view === "month" && (
+            <>
             <Button
               variant="outline"
               size="icon"
@@ -481,10 +791,42 @@ export default function SchedulePage() {
                 Сегодня
               </Button>
             )}
-            {canEdit &&
+            </>
+            )}
+            {canEdit && view === "week" &&
+              (weekEditing ? (
+                <>
+                  <Button
+                    size="sm"
+                    className="min-h-11 gap-1.5 sm:min-h-0"
+                    disabled={weekSaving || !templateReady}
+                    onClick={() => void saveWeek()}
+                  >
+                    {weekSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    Сохранить
+                    {weekDraft.size > 0 && <span className="tabular-nums opacity-80">{weekDraft.size}</span>}
+                  </Button>
+                  <Button variant="ghost" size="sm" className="min-h-11 sm:min-h-0" disabled={weekSaving} onClick={() => void cancelWeek()}>
+                    Отмена
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="min-h-11 gap-1.5 sm:min-h-0"
+                  disabled={!templateReady}
+                  title={templateReady ? undefined : "Неделя ещё не загрузилась"}
+                  onClick={() => setWeekEditing(true)}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Изменить неделю
+                </Button>
+              ))}
+            {canEdit && view === "month" &&
               (editing ? (
                 <>
-                  <Button size="sm" className="min-h-11 gap-1.5 sm:min-h-0" disabled={saving} onClick={() => void saveDraft()}>
+                  <Button size="sm" className="min-h-11 gap-1.5 sm:min-h-0" disabled={saving || !scheduleReady} onClick={() => void saveDraft()}>
                     {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     Сохранить
                     {draft.size + hoursDraft.size > 0 && (
@@ -502,7 +844,14 @@ export default function SchedulePage() {
                   </Button>
                 </>
               ) : (
-                <Button variant="outline" size="sm" className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => setEditing(true)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="min-h-11 gap-1.5 sm:min-h-0"
+                  disabled={!scheduleReady}
+                  title={scheduleReady ? undefined : "График ещё не загрузился"}
+                  onClick={() => setEditing(true)}
+                >
                   <Pencil className="h-3.5 w-3.5" />
                   Редактировать
                 </Button>
@@ -542,27 +891,21 @@ export default function SchedulePage() {
       {/* Сегодняшняя дата по Алматы и своё состояние на сегодня: график
           открывают ровно чтобы это узнать, а искать себя в сетке на 31
           колонку глазами — то, на что и жаловались. */}
-      {isCurrentMonth && (
-        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
-          <span className="inline-flex items-center gap-1.5 rounded-lg border border-primary/35 bg-primary/[0.07] px-2.5 py-1 font-medium text-primary">
-            <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-            Сегодня {todayLabel}
-          </span>
-          {iAmScheduled && (
-            <span className="text-muted-foreground">
-              {myName}:{" "}
-              <span
-                className={cn(
-                  "font-medium",
-                  myToday === "off" ? "text-destructive" : myToday === "excused" ? "text-warning" : "text-foreground"
-                )}
-              >
-                {myToday === "off" ? "выходной" : myToday === "excused" ? "отпросились" : "рабочий день"}
-              </span>
-              {myHours && myToday === "work" && <span className="text-primary"> · смена {formatScheduleHours(myHours)}</span>}
+      {/* Свой график — крупно и ОТДЕЛЬНО от общей сетки: «График» открывают,
+          чтобы узнать «когда у меня смена», а искать себя глазами в таблице на
+          30 человек — то, на что и жаловались. Кого в графике нет (Viewer,
+          Admin без стола), тем остаётся просто сегодняшняя дата. */}
+      {inSchedule && activeWorkspaceId ? (
+        <MyScheduleCard workspaceId={activeWorkspaceId} uid={uid} name={myName} todayYmd={todayYmd} />
+      ) : (
+        isCurrentMonth && (
+          <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-primary/35 bg-primary/[0.07] px-2.5 py-1 font-medium text-primary">
+              <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+              Сегодня {todayLabel}
             </span>
-          )}
-        </div>
+          </div>
+        )
       )}
 
       {editing && (
@@ -571,12 +914,96 @@ export default function SchedulePage() {
           <p className="min-w-0 flex-1">
             Отмечаете выходные на {monthLabel}. Изменений:{" "}
             <span className="font-medium tabular-nums">{draft.size + hoursDraft.size}</span> — они уйдут в график одним
-            сохранением. Месяц пока не листается.
+            сохранением. Месяц пока не листается. Здесь — разовые исключения; постоянные выходные по дням недели
+            ставятся во вкладке «Неделя» и раскладываются на месяцы сами.
           </p>
-          <Button variant="outline" size="sm" className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => setPatternOpen(true)}>
-            <CalendarRange className="h-3.5 w-3.5" />
-            Шаблон недели
-          </Button>
+        </div>
+      )}
+
+      {view === "week" && weekEditing && (
+        <div className="mb-4 flex flex-col gap-2 rounded-xl border border-primary/35 bg-primary/[0.07] px-3 py-2.5 text-[12px]">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Paintbrush className="h-3.5 w-3.5 shrink-0 text-primary" />
+            <span className="mr-1 font-medium">Кисть</span>
+            {(
+              [
+                ["off", "Выходной"],
+                ["work", "Рабочий"],
+                ["hours", "Смена с/до"],
+              ] as const
+            ).map(([kind, label]) => (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => setBrush((prev) => ({ ...prev, kind }))}
+                className={pageChipClass(brush.kind === kind)}
+              >
+                {label}
+              </button>
+            ))}
+            {brush.kind === "hours" && (
+              <span className="inline-flex items-center gap-1">
+                <Input
+                  type="time"
+                  aria-label="Смена с"
+                  value={brush.from}
+                  onChange={(e) => setBrush((prev) => ({ ...prev, from: e.target.value }))}
+                  className="h-9 w-[6.5rem]"
+                />
+                <span className="text-muted-foreground">до</span>
+                <Input
+                  type="time"
+                  aria-label="Смена до (можно пусто)"
+                  value={brush.to}
+                  onChange={(e) => setBrush((prev) => ({ ...prev, to: e.target.value }))}
+                  className="h-9 w-[6.5rem]"
+                />
+              </span>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto min-h-11 gap-1.5 sm:min-h-0"
+              disabled={weekLocked}
+              onClick={() => setPaste({ text: "" })}
+            >
+              <ClipboardPaste className="h-3.5 w-3.5" />
+              Вставить из таблицы
+            </Button>
+          </div>
+          <p className="text-muted-foreground">
+            {brush.kind === "hours" && !brushHoursValid
+              ? "Начало смены должно быть раньше конца. «До» можно оставить пустым — будет «с 12:00»."
+              : `Клик по клетке — кисть, повторный клик снимает. Клик по дню недели — весь столбец раздела. Изменена неделя у ${weekDraft.size} чел.`}
+          </p>
+        </div>
+      )}
+
+      {view === "week" && templateFailed && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+          <span className="min-w-0 flex-1">Неделя не загрузилась — показана пустой, правка выключена.</span>
+          <button
+            type="button"
+            onClick={() => setTemplateAttempt((n) => n + 1)}
+            className="min-h-11 shrink-0 font-medium underline underline-offset-2 sm:min-h-0"
+          >
+            Повторить
+          </button>
+        </div>
+      )}
+
+      {view === "month" && schedulesFailed && (
+        <div className="mb-4">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+            <span className="min-w-0 flex-1">График не загрузился — показано пустым, правка выключена.</span>
+            <button
+              type="button"
+              onClick={retrySchedules}
+              className="min-h-11 shrink-0 font-medium underline underline-offset-2 sm:min-h-0"
+            >
+              Повторить
+            </button>
+          </div>
         </div>
       )}
 
@@ -586,24 +1013,36 @@ export default function SchedulePage() {
             Просят отметить выход <span className="tabular-nums opacity-70">{pendingRequests.length}</span>
           </p>
           {pendingRequests.map((request) => (
-            <div key={request.id} className="flex flex-wrap items-center gap-2 text-[12px]">
-              <span className="min-w-0 flex-1 truncate">
-                {request.name} — работал(а) {request.dayKey} {monthLabel}
-              </span>
-              <Button size="sm" className="h-8 gap-1.5" onClick={() => void resolveRequest(request, true)}>
-                <Check className="h-3.5 w-3.5" />
-                Отметить
-              </Button>
-              <Button variant="ghost" size="sm" className="h-8 gap-1.5" onClick={() => void resolveRequest(request, false)}>
-                <X className="h-3.5 w-3.5" />
-                Отклонить
-              </Button>
+            // Дата — ПЕРВОЙ и без обрезки: раньше она стояла в конце строки, и
+            // на телефоне две кнопки съедали место — Тимлид подтверждал
+            // вслепую, не видя, за какой день ставит отметку.
+            <div key={request.id} className="flex flex-col gap-2 text-[12px] sm:flex-row sm:items-center">
+              <p className="min-w-0 flex-1">
+                <span className="font-semibold tabular-nums">{requestDateLabel(request)}</span>
+                <span className="text-muted-foreground"> · </span>
+                {request.name} — работал(а)
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" className="min-h-11 flex-1 gap-1.5 sm:h-8 sm:min-h-0 sm:flex-none" onClick={() => void resolveRequest(request, true)}>
+                  <Check className="h-3.5 w-3.5" />
+                  Отметить
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="min-h-11 flex-1 gap-1.5 sm:h-8 sm:min-h-0 sm:flex-none"
+                  onClick={() => void resolveRequest(request, false)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Отклонить
+                </Button>
+              </div>
             </div>
           ))}
         </div>
       )}
 
-      {!editing && iAmScheduled && myToday !== "work" && (
+      {!editing && !weekEditing && iAmScheduled && scheduleReady && myToday !== "work" && (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-warning/35 bg-warning/[0.08] px-3 py-2.5 text-[12px]">
           <p className="min-w-0 flex-1">
             {myToday === "off" ? "Сегодня у вас выходной" : "Сегодня вы отпросились"} — отклики на заказы закрыты.
@@ -647,7 +1086,20 @@ export default function SchedulePage() {
             (s) =>
               (editing || visible(s.id)) && (
                 <Section key={s.id} icon={s.icon} title={s.title} count={s.rows.length}>
-                  <ScheduleGrid {...gridProps} rows={s.rows} />
+                  {view === "week" ? (
+                    <WeekTemplateGrid
+                      rows={s.rows}
+                      cellsOf={weekCellsOf}
+                      isPending={weekPending}
+                      meUid={uid}
+                      todayDow={todayDow}
+                      editing={weekEditing && !weekSaving}
+                      onCellClick={paintCell}
+                      onColumnClick={(dow) => paintColumn(s.rows, dow)}
+                    />
+                  ) : (
+                    <ScheduleGrid {...gridProps} rows={s.rows} />
+                  )}
                 </Section>
               )
           )}
@@ -656,17 +1108,41 @@ export default function SchedulePage() {
             <CustomSection
               name={groupName}
               rows={customRows}
-              canEdit={canEdit && !editing}
+              canEdit={canEdit && !editing && !weekEditing}
               onRename={(next) => void saveGroup(next, groupPeople)}
               onAdd={(name) => void saveGroup(groupName, [...groupPeople, { id: newSchedulePersonId(), name }])}
             >
-              <ScheduleGrid {...gridProps} rows={customRows} onRemoveRow={(row) => void removePerson(row)} />
+              {view === "week" ? (
+                <WeekTemplateGrid
+                  rows={customRows}
+                  cellsOf={weekCellsOf}
+                  isPending={weekPending}
+                  meUid={uid}
+                  todayDow={todayDow}
+                  editing={weekEditing && !weekSaving}
+                  onCellClick={paintCell}
+                  onColumnClick={(dow) => paintColumn(customRows, dow)}
+                />
+              ) : (
+                <ScheduleGrid {...gridProps} rows={customRows} onRemoveRow={(row) => void removePerson(row)} />
+              )}
             </CustomSection>
           )}
 
-          <ScheduleLegend />
+          {view === "week" ? (
+            <p className="flex items-start gap-1.5 text-[11px] leading-4 text-muted-foreground">
+              <CalendarRange className="mt-px h-3.5 w-3.5 shrink-0" />
+              <span>
+                Неделя сама раскладывается во вкладку «Месяц»: с сегодняшнего дня и на весь следующий месяц, а 1-го числа —
+                ещё на месяц вперёд. Выходные и смены, поставленные в месяце руками, «отпросился» и «пришёл» она не
+                перетирает.
+              </span>
+            </p>
+          ) : (
+            <ScheduleLegend />
+          )}
 
-          {!isCurrentMonth && (
+          {view === "month" && !isCurrentMonth && (
             <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <CalendarDays className="h-3.5 w-3.5 shrink-0" />
               Открыт не текущий месяц — «сегодня» в сетке не подсвечено.
@@ -675,12 +1151,12 @@ export default function SchedulePage() {
         </div>
       )}
 
-      {patternOpen && (
-        <WeekPatternDialog
+      {paste && (
+        <WeekPasteDialog
           rows={patternRows}
-          monthLabel={monthLabel}
-          onClose={() => setPatternOpen(false)}
-          onApply={applyPattern}
+          initialText={paste.text}
+          onClose={() => setPaste(null)}
+          onApply={applyPaste}
         />
       )}
 
@@ -712,8 +1188,9 @@ function HoursDialog({
   onSave: (hours: ScheduleHours | null) => void;
 }) {
   const [from, setFrom] = useState(target.hours?.from ?? "12:00");
-  const [to, setTo] = useState(target.hours?.to ?? "15:00");
-  const valid = Boolean(from && to && from < to);
+  const [to, setTo] = useState(target.hours ? target.hours.to : "15:00");
+  // «До» можно оставить пустым — «с 12:45» без конца смены, как в недельной таблице.
+  const valid = Boolean(from) && (!to || from < to);
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -738,7 +1215,11 @@ function HoursDialog({
             <Input type="time" value={to} onChange={(e) => setTo(e.target.value)} className="h-10" />
           </label>
         </div>
-        {!valid && <p className="text-[11px] text-destructive">Начало должно быть раньше конца.</p>}
+        {!valid ? (
+          <p className="text-[11px] text-destructive">Начало должно быть раньше конца.</p>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">«До» можно оставить пустым — будет «с {from}».</p>
+        )}
 
         <div className="flex flex-wrap items-center gap-2">
           <Button className="min-h-11 sm:min-h-0" disabled={!valid} onClick={() => onSave({ from, to })}>

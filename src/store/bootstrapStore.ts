@@ -28,11 +28,19 @@ interface BootstrapState {
    * reported as "ready" using the previous workspace's data.
    */
   resolvedDataWorkspaceId: string | null;
+  /**
+   * Загрузка упала окончательно (профиль не прочитался). Без этого флага
+   * экран загрузки висел ВЕЧНО: profileResolved ставился, но профиль оставался
+   * пустым, и фаза не уходила из «profile», а единственный сигнал — тост —
+   * легко прятался (у Nurba его закрыло уведомление расширения браузера).
+   */
+  bootError: string | null;
 
   setAuthResolved: (value: boolean) => void;
   setProfileResolved: (value: boolean) => void;
   setWorkspaceListResolved: (value: boolean) => void;
   setResolvedDataWorkspaceId: (workspaceId: string | null) => void;
+  setBootError: (message: string | null) => void;
   /** Called on sign-out so the next account boots from a clean slate. */
   resetBootstrap: () => void;
 }
@@ -42,11 +50,13 @@ export const useBootstrapStore = create<BootstrapState>((set) => ({
   profileResolved: false,
   workspaceListResolved: false,
   resolvedDataWorkspaceId: null,
+  bootError: null,
 
   setAuthResolved: (authResolved) => set({ authResolved }),
   setProfileResolved: (profileResolved) => set({ profileResolved }),
   setWorkspaceListResolved: (workspaceListResolved) => set({ workspaceListResolved }),
   setResolvedDataWorkspaceId: (resolvedDataWorkspaceId) => set({ resolvedDataWorkspaceId }),
+  setBootError: (bootError) => set({ bootError }),
   resetBootstrap: () =>
-    set({ profileResolved: false, workspaceListResolved: false, resolvedDataWorkspaceId: null }),
+    set({ profileResolved: false, workspaceListResolved: false, resolvedDataWorkspaceId: null, bootError: null }),
 }));

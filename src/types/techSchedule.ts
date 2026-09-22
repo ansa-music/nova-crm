@@ -21,7 +21,13 @@ export const SCHEDULE_DAY_LABELS: Record<ScheduleDayState, string> = {
 export interface ScheduleHours {
   /** «HH:MM» по Алматы — как в `<input type="time">`. */
   from: string;
+  /** «HH:MM» или пусто — «с 12:45» без конца смены (так пишут в недельной таблице). */
   to: string;
+  /**
+   * Как показать, если одной пары с/до мало: «10–12, 15–19» из вставленной
+   * таблицы. `from`/`to` тогда — начало первого и конец последнего отрезка.
+   */
+  label?: string;
 }
 
 export interface TechSchedule {
@@ -72,11 +78,12 @@ export function scheduleHoursOf(
   dayKey: string
 ): ScheduleHours | null {
   const hours = schedule?.hours?.[dayKey];
-  return hours?.from && hours?.to ? hours : null;
+  return hours?.from ? hours : null;
 }
 
 export function formatScheduleHours(hours: ScheduleHours): string {
-  return `${hours.from}–${hours.to}`;
+  if (hours.label) return hours.label;
+  return hours.to ? `${hours.from}–${hours.to}` : `с ${hours.from}`;
 }
 
 /** Может ли технарь сегодня брать заказы по графику. */

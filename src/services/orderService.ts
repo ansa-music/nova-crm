@@ -142,6 +142,12 @@ export interface OrderCandidate {
   claimedAt: number | null;
   /** «сегодня выходной» / «отпросился» / «уже есть заказ в работе»; null — свободен. */
   blockedReason?: string | null;
+  /**
+   * Сегодня по графику человека НЕТ (выходной или отпросился). Отдельным
+   * флагом, а не по тексту причины: запасной вариант «Рандома» пускает
+   * занятых, но присутствующих, и обязан отличать их от отсутствующих.
+   */
+  absentToday?: boolean;
 }
 
 /**
@@ -160,11 +166,18 @@ export interface OrderCandidate {
  * мёртвую кнопку в день, когда свободных нет вовсе.
  */
 export function orderRandomPool(candidates: OrderCandidate[]): OrderCandidate[] {
-  const withDesk = candidates.filter((c) => c.hasDesk);
+  // Кого сегодня нет, в случайный выбор не попадает НИКОГДА — ни в основной
+  // пул, ни в запасной. Раньше запасной вариант («свободных нет — берём всех
+  // со столом») возвращал и выходных: в воскресенье при трёх технарях, из
+  // которых один выходной, один отпросился и один занят, заказ с вероятностью
+  // 2/3 уходил тому, кого нет.
+  const withDesk = candidates.filter((c) => c.hasDesk && !c.absentToday);
   const free = withDesk.filter((c) => !c.blockedReason);
   const claimedFree = free.filter((c) => c.claimedAt != null);
   if (claimedFree.length > 0) return claimedFree;
   if (free.length > 0) return free;
+  // Свободных нет — остаются только занятые, но вышедшие сегодня: лучше
+  // заказ в очередь живому человеку, чем мёртвая кнопка.
   const claimed = withDesk.filter((c) => c.claimedAt != null);
   return claimed.length > 0 ? claimed : withDesk;
 }

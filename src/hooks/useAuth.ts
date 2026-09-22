@@ -25,6 +25,7 @@ export function useAuthBootstrap() {
     const {
       setAuthResolved,
       setProfileResolved,
+      setBootError,
       resetBootstrap,
     } = useBootstrapStore.getState();
 
@@ -95,6 +96,7 @@ export function useAuthBootstrap() {
         if (user) {
           const profile = await ensureUserProfile(user);
           if (lastAppliedUid !== uid) return;
+          setBootError(null);
           setProfile(profile);
           setProfileResolved(true);
 
@@ -137,6 +139,12 @@ export function useAuthBootstrap() {
         }
       } catch (error) {
         console.error("Auth bootstrap failed:", error);
+        // Профиль не прочитался: фаза так и останется «profile», поэтому
+        // ошибку показывает сам экран загрузки (AppBootScreen) — с кнопками,
+        // а не только тостом, который легко не заметить.
+        if (lastAppliedUid === uid) {
+          setBootError(error instanceof Error ? error.message : String(error));
+        }
         setProfileResolved(true);
         toast.error("Не удалось загрузить профиль", {
           description: error instanceof Error ? error.message : "Попробуйте обновить страницу.",

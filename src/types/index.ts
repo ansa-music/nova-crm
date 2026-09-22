@@ -14,6 +14,7 @@ export * from "@/types/orderRating";
 export * from "@/types/techSchedule";
 export * from "@/types/scheduleGroup";
 export * from "@/types/scheduleRequest";
+export * from "@/types/scheduleTemplate";
 export * from "@/types/techRating";
 export * from "@/types/viewRequest";
 export * from "@/types/ownerAccessRequest";

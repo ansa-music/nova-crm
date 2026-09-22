@@ -4,6 +4,30 @@ import { paths, withErrorReporting } from "@/firebase/firestore";
 import { scheduleRequestId, techScheduleId, type ScheduleRequest } from "@/types";
 
 /** Запросы на отметку за месяц. Читают все участники — список висит только на «Графике». */
+/**
+ * Все запросы «на рассмотрении» — без привязки к месяцу. Это список
+ * руководства: запрос за 30-е, поданный вечером, 1-го числа исчезал из
+ * месячной выборки (страница открывается на новом месяце), и висел
+ * нерассмотренным, пока кто-нибудь случайно не пролистает назад. Подтверждение
+ * пишет отметку в месяц САМОГО запроса (`request.monthKey`), поэтому
+ * показывать тут чужие месяцы безопасно.
+ */
+export function subscribePendingScheduleRequests(
+  workspaceId: string,
+  onData: (requests: ScheduleRequest[]) => void,
+  onError?: (error: FirestoreError) => void
+) {
+  if (!db) {
+    onData([]);
+    return () => {};
+  }
+  return onSnapshot(
+    query(paths.scheduleRequestsAll(workspaceId), where("status", "==", "pending")),
+    (snapshot) => onData(snapshot.docs.map((d) => ({ ...(d.data() as ScheduleRequest), id: d.id }))),
+    withErrorReporting(onError)
+  );
+}
+
 export function subscribeScheduleRequests(
   workspaceId: string,
   monthKey: string,

@@ -3,7 +3,7 @@ import { ymdInTimeZone } from "@/utils/date";
 import { parseLooseNumber } from "@/utils/numberInput";
 import { isDoneStatusLabel, isFreezeStatusLabel } from "@/utils/columnOptions";
 import { findQuickOrderColumns } from "@/utils/quickOrder";
-import type { DeskLoad, OsOrderItem, PageColumn, PageRow, StatusOption, TechLoadKind, Workspace } from "@/types";
+import type { DeskLoad, OsOrderItem, PageColumn, PageRow, StatusOption, TechLoadKind, Workspace, WorkspacePage } from "@/types";
 
 /**
  * Key for orders with an empty status. Not "__none__": Firestore reserves
@@ -414,4 +414,39 @@ export function statusBreakdown(
   return [...merged.values()]
     .sort((a, b) => a.rank - b.rank || b.count - a.count)
     .map((item) => ({ key: item.key, label: item.label, color: item.color, count: item.count, kind: item.kind }));
+}
+
+/**
+ * Кто прямо сейчас «занят» — у кого есть заказ «в работе» в ТЕКУЩЕЙ месячной
+ * вкладке живого стола. Правило то же, что на «Технарях» (там оно применено
+ * внутри большого цикла по участникам): берём только активные столы (`pages`
+ * из useWorkspace — без «Неактуальных»), без дашборд-страниц, и верим
+ * счётчику, только если он посчитан за этот месяц и эту вкладку.
+ *
+ * Без этих проверок «Заказы» расходились с «Технарями»: документ deskLoad
+ * живёт один на стол через все месяцы, поэтому 1-го числа сентябрьские «в
+ * работе» закрывали отклик человеку, у которого в октябре ещё ничего нет; а
+ * стол, убранный в «Неактуальные», не пересчитывается никогда, и его старые
+ * строки навсегда держали технаря «занятым».
+ */
+export function currentBusyUids(input: {
+  pages: WorkspacePage[];
+  loads: DeskLoad[];
+  monthKey: string;
+  statusOptions: StatusOption[];
+  kinds: Record<string, TechLoadKind> | undefined;
+  /** id месячной вкладки стола на этот месяц (currentMonthSubPageId). */
+  currentTabOf: (page: WorkspacePage) => string | null;
+}): Set<string> {
+  const loadByPage = new Map(input.loads.map((load) => [load.pageId, load]));
+  const busy = new Set<string>();
+  for (const page of input.pages) {
+    if (page.isDashboard || !page.responsibleUserId) continue;
+    const load = loadByPage.get(page.id);
+    if (!load) continue;
+    const tab = input.currentTabOf(page);
+    if (!tab || load.monthKey !== input.monthKey || load.subPageId !== tab) continue;
+    if (summarizeDeskLoad(load, input.statusOptions, input.kinds).busy > 0) busy.add(page.responsibleUserId);
+  }
+  return busy;
 }
