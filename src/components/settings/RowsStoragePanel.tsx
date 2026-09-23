@@ -24,6 +24,12 @@ import {
 } from "@/services/rows/rowsMigrationService";
 import { cn } from "@/utils/cn";
 import { setOsManagedDesks } from "@/services/workspaceService";
+import {
+  adoptOrdersToOsDesks,
+  releaseAllOrders,
+  type OsAdoptionProgress,
+  type OsAdoptionReport,
+} from "@/services/rows/osOrderAdoption";
 
 const FIREBASE_PROJECT_ID = "nurba-6e70d";
 
@@ -94,7 +100,7 @@ function ReportLines({ report }: { report: AclSyncReport }) {
  * supabase/migrations/20260923_desk_rows.sql.
  */
 export function RowsStoragePanel() {
-  const { activeWorkspace, allPages } = useWorkspace();
+  const { activeWorkspace, allPages, members } = useWorkspace();
   const permissions = usePermissions();
   const workspaceId = activeWorkspace?.id ?? null;
   const backend = useRowsBackend(workspaceId);
@@ -104,6 +110,9 @@ export function RowsStoragePanel() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<MigrationProgress | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [adoptAt, setAdoptAt] = useState<OsAdoptionProgress | null>(null);
+  const [adoptReport, setAdoptReport] = useState<OsAdoptionReport | null>(null);
+  const [released, setReleased] = useState<number | null>(null);
 
   if (!activeWorkspace || !workspaceId) return null;
   const me = permissions.uid ?? "";
@@ -189,6 +198,76 @@ export function RowsStoragePanel() {
       setLastError(message);
       toast.error("Не удалось переключить");
     } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Разовый перенос: заказы текущего месяца уезжают под управление ОС.
+   * Повтор безопасен — id строки-источника выведен из строки технаря, поэтому
+   * второй запуск обновит те же строки, а не размножит их.
+   */
+  async function runAdoption() {
+    if (!workspaceId) return;
+    const ok = await confirmDialog({
+      title: "Перенести заказы текущего месяца в столы ОС?",
+      description:
+        "У каждого заказа с ником ОС появится строка в столе этого ОС, а строка технаря перейдёт под управление: " +
+        "статус, сумму и клиента в ней будет менять ОС. Заказы без ника ОС и прошлые месяцы не трогаем.",
+      confirmLabel: "Перенести",
+    });
+    if (!ok) return;
+    setBusy(true);
+    setLastError(null);
+    setAdoptReport(null);
+    setReleased(null);
+    try {
+      const report = await adoptOrdersToOsDesks({
+        workspaceId,
+        members,
+        onProgress: setAdoptAt,
+      });
+      setAdoptReport(report);
+      if (report.errors.length) toast.error("Перенос прошёл с ошибками — подробности ниже");
+      else toast.success(`Под управление ОС ушло заказов: ${report.adopted}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setLastError(message);
+      toast.error("Перенос не прошёл");
+    } finally {
+      setAdoptAt(null);
+      setBusy(false);
+    }
+  }
+
+  /** Аварийный выход: ОС недоступен, а заказы надо вести дальше. */
+  async function runRelease() {
+    if (!workspaceId) return;
+    const ok = await confirmDialog({
+      title: "Снять управление со ВСЕХ заказов?",
+      description:
+        "Строки останутся на месте и снова станут обычными строками технарей — они смогут менять статус и сумму сами. " +
+        "Строки в столах ОС не удаляются.",
+      destructive: true,
+      confirmLabel: "Снять управление",
+    });
+    if (!ok) return;
+    setBusy(true);
+    setLastError(null);
+    setAdoptReport(null);
+    try {
+      const result = await releaseAllOrders({ workspaceId, onProgress: setAdoptAt });
+      setReleased(result.released);
+      if (result.errors.length) {
+        setLastError(result.errors.join(" · "));
+        toast.error("Управление снято не везде — подробности ниже");
+      } else toast.success(`Управление снято со строк: ${result.released}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setLastError(message);
+      toast.error("Не удалось снять управление");
+    } finally {
+      setAdoptAt(null);
       setBusy(false);
     }
   }
@@ -366,6 +445,68 @@ export function RowsStoragePanel() {
           <span className="text-sm text-muted-foreground">
             Сейчас: <span className="font-medium text-foreground">{osManaged ? "только ОС" : "как раньше"}</span>
           </span>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Заказы под управление ОС</CardTitle>
+          <CardDescription>
+            Разовый перенос уже заведённых заказов ТЕКУЩЕГО месяца: у каждого заказа с ником ОС появится строка в столе
+            этого ОС, а у технаря она станет строкой-заказом — статус и сумму в ней меняет ОС. Заказы без ника ОС и
+            прошлые месяцы остаются как были. Повторный запуск ничего не размножает.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Button className="gap-1.5" onClick={() => void runAdoption()} disabled={busy || !onSupabase}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
+              Перенести заказы в столы ОС
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-1.5 text-destructive"
+              onClick={() => void runRelease()}
+              disabled={busy || !onSupabase}
+            >
+              <Undo2 className="h-4 w-4" />
+              Снять управление
+            </Button>
+          </div>
+          {!onSupabase && (
+            <p className="text-sm text-muted-foreground">
+              Доступно, когда строки живут в Supabase: замок строки-заказа держат политики Postgres.
+            </p>
+          )}
+          {adoptAt && (
+            <p className="text-sm text-muted-foreground">
+              {adoptAt.done} / {adoptAt.total} · {adoptAt.label}
+            </p>
+          )}
+          {adoptReport && (
+            <ul className="space-y-1 text-sm text-muted-foreground">
+              <li>
+                Под управление ОС: <span className="font-medium text-foreground">{adoptReport.adopted}</span> из столов:{" "}
+                {adoptReport.desks}
+              </li>
+              {adoptReport.alreadyManaged > 0 && <li>Уже были под управлением: {adoptReport.alreadyManaged}</li>}
+              {adoptReport.createdOsDesks > 0 && <li>Заведено столов ОС: {adoptReport.createdOsDesks}</li>}
+              {adoptReport.skippedNoOs > 0 && <li>Без ника ОС — остались у технаря: {adoptReport.skippedNoOs}</li>}
+              {adoptReport.skippedNoAccount > 0 && (
+                <li>Ник ОС без аккаунта — пропущено: {adoptReport.skippedNoAccount}</li>
+              )}
+              {adoptReport.errors.map((e, i) => (
+                <li key={i} className="text-destructive">
+                  {e}
+                </li>
+              ))}
+            </ul>
+          )}
+          {released !== null && (
+            <p className="text-sm text-muted-foreground">
+              Управление снято со строк: <span className="font-medium text-foreground">{released}</span>
+            </p>
+          )}
         </CardContent>
       </Card>
 

@@ -612,6 +612,8 @@ $$;
 drop function if exists public.rows_patch(text, text, text, text, jsonb, bigint, bigint, text, jsonb, boolean, text, boolean, jsonb, integer);
 -- Промежуточная сигнатура (без адреса копии) — если её успели накатить.
 drop function if exists public.rows_patch(text, text, text, text, jsonb, bigint, bigint, text, jsonb, boolean, text, boolean, jsonb, integer, text, text, text, text, text, text, text, bigint, text, boolean);
+-- Сигнатура без «снять управление» — если её успели накатить.
+drop function if exists public.rows_patch(text, text, text, text, jsonb, bigint, bigint, text, jsonb, boolean, text, boolean, jsonb, integer, text, text, text, text, text, text, text, bigint, text, text, text, text, boolean);
 
 -- Правка строки слиянием — как setDoc(..., { merge: true }) в Firestore:
 -- переданные ячейки ложатся поверх, остальные не трогаются. Слияние идёт
@@ -649,6 +651,10 @@ create or replace function public.rows_patch(
   p_mirror_page text default null,
   p_mirror_tab text default null,
   p_mirror_row text default null,
+  -- Снять управление со строки: заказ снова обычная строка технаря
+  -- (аварийный выход — ОС уволился или недоступен). Пускает только Owner:
+  -- опорные поля строки-заказа меняет он один (триггер desk_rows_guard).
+  p_release_order boolean default false,
   -- Снять просьбу об «Успешке» (решили — чип гаснет).
   p_clear_success boolean default false
 ) returns void
@@ -691,18 +697,18 @@ begin
     filled_at = coalesce(p_filled_at, r.filled_at),
     order_id = coalesce(p_order_id, r.order_id),
     highlight = coalesce(p_highlight, r.highlight),
-    os_uid = coalesce(p_os_uid, r.os_uid),
-    tech_uid = coalesce(p_tech_uid, r.tech_uid),
-    status_key = coalesce(p_status_key, r.status_key),
     sync_hash = coalesce(p_sync_hash, r.sync_hash),
-    src_page_id = coalesce(p_src_page, r.src_page_id),
-    src_tab_id = coalesce(p_src_tab, r.src_tab_id),
-    src_row_id = coalesce(p_src_row, r.src_row_id),
     success_requested_at = case when p_clear_success then null else coalesce(p_success_requested_at, r.success_requested_at) end,
     success_requested_by = case when p_clear_success then null else coalesce(p_success_requested_by, r.success_requested_by) end,
     mirror_page_id = coalesce(p_mirror_page, r.mirror_page_id),
     mirror_tab_id = coalesce(p_mirror_tab, r.mirror_tab_id),
-    mirror_row_id = coalesce(p_mirror_row, r.mirror_row_id);
+    mirror_row_id = coalesce(p_mirror_row, r.mirror_row_id),
+    os_uid = case when p_release_order then null else coalesce(p_os_uid, r.os_uid) end,
+    tech_uid = case when p_release_order then null else coalesce(p_tech_uid, r.tech_uid) end,
+    status_key = case when p_release_order then null else coalesce(p_status_key, r.status_key) end,
+    src_page_id = case when p_release_order then null else coalesce(p_src_page, r.src_page_id) end,
+    src_tab_id = case when p_release_order then null else coalesce(p_src_tab, r.src_tab_id) end,
+    src_row_id = case when p_release_order then null else coalesce(p_src_row, r.src_row_id) end;
 end;
 $$;
 
@@ -895,7 +901,7 @@ grant execute on function
   public.rows_edit_all_workspaces(), public.rows_editable_pages(),
   public.rows_can_access_page(text, text), public.rows_can_edit_page(text, text),
   public.rows_patch(text, text, text, text, jsonb, bigint, bigint, text, jsonb, boolean, text, boolean, jsonb, integer,
-    text, text, text, text, text, text, text, bigint, text, text, text, text, boolean),
+    text, text, text, text, text, text, text, bigint, text, text, text, text, boolean, boolean),
   public.rows_append_order(text, text, text),
   public.rows_set_order(text, text, text, text[]),
   public.rows_whoami(text), public.rows_page_access(text, text)

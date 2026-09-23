@@ -845,6 +845,8 @@ export interface RowPatch {
   mirrorRowId?: string;
   /** Снять просьбу об «Успешке» (решили — чип гаснет). */
   clearSuccessRequest?: boolean;
+  /** Снять управление со строки — только Owner (аварийный выход). */
+  releaseOrder?: boolean;
 }
 
 /**
@@ -907,6 +909,7 @@ export async function sbPatchRow(
         p_mirror_page: patch.mirrorPageId ?? null,
         p_mirror_tab: patch.mirrorTabId ?? null,
         p_mirror_row: patch.mirrorRowId ?? null,
+        p_release_order: patch.releaseOrder ?? false,
       });
       if (error) throw toStoreError(error, "Не удалось сохранить строку");
     }

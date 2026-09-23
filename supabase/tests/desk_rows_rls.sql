@@ -380,11 +380,46 @@ select tst.expect('Тимлид НЕ трогает обычные строки 
 select tst.expect('ОС выдаёт заказ через rows_patch',
   tst.try('OS1', $q$select rows_patch('W','P1','','ord2','{"client":"Через функцию","status":"work"}'::jsonb,
     null, null, 'keep', null, true, null, false, null, null,
-    'OS1','T1','status','h1','osdesk_OS1','','o9', null, null, null, null, null, false)$q$), 'ok');
+    'OS1','T1','status','h1','osdesk_OS1','','o9', null, null, null, null, null, false, false)$q$), 'ok');
 select tst.expect('ОС НЕ выдаёт заказ чужому технарю через rows_patch',
   tst.try('OS1', $q$select rows_patch('W','P1','','ord3','{"client":"Мимо"}'::jsonb,
     null, null, 'keep', null, null, null, false, null, null,
-    'OS1','T2','status','h1','osdesk_OS1','','o8', null, null, null, null, null, false)$q$), 'error');
+    'OS1','T2','status','h1','osdesk_OS1','','o8', null, null, null, null, null, false, false)$q$), 'error');
+
+-- ---------------------------------------------------------------------
+-- Перенос старых заказов под управление ОС (osOrderAdoption, разово у Owner).
+-- ---------------------------------------------------------------------
+select tst.expect('Owner заводит строку-источник в столе ОС',
+  tst.try('O', $q$select rows_patch('W','osdesk_OS1','','adopt_r2','{"client":"Боря"}'::jsonb)$q$), 'ok:1');
+select tst.run('O', $q$select rows_patch('W','osdesk_OS1','','adopt_r2','{"client":"Боря"}'::jsonb)$q$);
+select tst.expect('Owner помечает старую строку технаря управляемой',
+  tst.try('O', $q$select rows_patch('W','P1','','r2','{}'::jsonb, null, null, 'keep', null, null, null, false, null, null,
+    'OS1','T1','status','h2','osdesk_OS1','','adopt_r2', null, null, null, null, null, false, false)$q$), 'ok:1');
+select tst.run('O', $q$select rows_patch('W','P1','','r2','{}'::jsonb, null, null, 'keep', null, null, null, false, null, null,
+  'OS1','T1','status','h2','osdesk_OS1','','adopt_r2', null, null, null, null, null, false, false)$q$);
+select tst.expect('после переноса технарь НЕ правит цену своей старой строки',
+  tst.try('T1', $q$update desk_rows set cells = cells || '{"price":"1"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='r2'$q$), 'error');
+select tst.expect('после переноса технарь пишет свои поля',
+  tst.try('T1', $q$update desk_rows set cells = cells || '{"techNote":"взял"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='r2'$q$), 'ok');
+select tst.expect('после переноса ОС ведёт этот заказ',
+  tst.try('OS1', $q$update desk_rows set cells = cells || '{"status":"done"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='r2'$q$), 'ok');
+
+-- «Снять управление» — аварийный выход, и он только у Owner.
+select tst.expect('ОС НЕ снимает управление со своей строки',
+  tst.try('OS1', $q$select rows_patch('W','P1','','r2','{}'::jsonb, null, null, 'keep', null, null, null, false, null, null,
+    null, null, null, null, null, null, null, null, null, null, null, null, true, false)$q$), 'error');
+select tst.expect('технарь НЕ снимает управление со своей строки',
+  tst.try('T1', $q$select rows_patch('W','P1','','r2','{}'::jsonb, null, null, 'keep', null, null, null, false, null, null,
+    null, null, null, null, null, null, null, null, null, null, null, null, true, false)$q$), 'error');
+select tst.expect('Owner снимает управление через rows_patch',
+  tst.try('O', $q$select rows_patch('W','P1','','r2','{}'::jsonb, null, null, 'keep', null, null, null, false, null, null,
+    null, null, null, null, null, null, null, null, null, null, null, null, true, false)$q$), 'ok:1');
+select tst.run('O', $q$select rows_patch('W','P1','','r2','{}'::jsonb, null, null, 'keep', null, null, null, false, null, null,
+  null, null, null, null, null, null, null, null, null, null, null, null, true, false)$q$);
+select tst.expect('снятая строка снова обычная строка технаря',
+  tst.try('T1', $q$update desk_rows set cells = cells || '{"price":"1"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='r2'$q$), 'ok');
+select tst.expect('у снятой строки не осталось замка',
+  tst.try('O', $q$select * from desk_rows where workspace_id='W' and page_id='P1' and id='r2' and os_uid is null and src_row_id is null$q$, true), 'ok:1');
 
 -- Owner: аварийное снятие управления.
 select tst.expect('Owner снимает управление со строки',

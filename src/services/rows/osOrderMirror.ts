@@ -121,6 +121,13 @@ export interface PushOrderInput {
   techUid: string;
   status: string;
   dateMs?: number;
+  /**
+   * Строка-копия уже есть — писать в НЕЁ. У заказов, заведённых до перехода
+   * на «стол ОС — источник» (перенос `osOrderAdoption`), копия — это исходная
+   * строка технаря, и её id из id источника не выводится: без этого
+   * «Обновить у технаря» завело бы рядом вторую строку того же заказа.
+   */
+  mirrorRowId?: string;
 }
 
 /**
@@ -129,7 +136,7 @@ export interface PushOrderInput {
  * строки-источника), поэтому «выдать» и «обновить» — одно и то же действие.
  */
 export async function pushOrderToTech(input: PushOrderInput): Promise<{ rowId: string; syncHash: string }> {
-  const rowId = mirrorRowId(input.source.id);
+  const rowId = input.mirrorRowId || mirrorRowId(input.source.id);
   const cells = buildMirrorCells({
     source: input.source,
     osColumns: input.osColumns,

@@ -77,6 +77,9 @@ export function OsOrderPanel({
         },
         target,
         techUid,
+        // Заказ уже в столе технаря (выдан раньше или перенесён) — правим ту
+        // же строку, а не заводим рядом вторую.
+        mirrorRowId: mirror?.id,
         status: status || findInProgressStatusOption(statusOptions)?.value || "",
       });
       toast.success(mirror ? "Заказ обновлён у технаря" : `Заказ у технаря: ${techName}`);
