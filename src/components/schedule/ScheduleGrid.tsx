@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, CircleSlash, Clock, Sun, UserMinus, X } from "lucide-react";
+import { CalendarDays, Check, CircleSlash, Clock, Sun, UserMinus, X } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import {
   DropdownMenu,
@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/utils/cn";
+import { MONTH_SIZES, type ScheduleDensity } from "@/components/schedule/scheduleDensity";
 import {
   formatScheduleHours,
   SCHEDULE_DAY_LABELS,
@@ -26,7 +27,7 @@ export const SCHEDULE_STATE_STYLE: Record<ScheduleDayState, string> = {
   excused: "border-warning/45 bg-warning/15 text-warning",
 };
 
-const WEEKDAY_LETTERS = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+export const WEEKDAY_LETTERS = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
 
 /**
  * Что выбрали в меню дня: состояние дня, отметка «пришёл в рабочий день» или
@@ -62,13 +63,13 @@ export function daysOfMonth(monthKey: string): string[] {
   return Array.from({ length: count }, (_, i) => String(i + 1));
 }
 
-function weekdayOf(monthKey: string, dayKey: string): number {
+export function weekdayOf(monthKey: string, dayKey: string): number {
   const [year, month] = monthKey.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, Number(dayKey))).getUTCDay();
 }
 
 /** Суббота и воскресенье — только подсветка колонки, выходным днём сами по себе не считаются. */
-function isWeekend(monthKey: string, dayKey: string): boolean {
+export function isWeekend(monthKey: string, dayKey: string): boolean {
   const dow = weekdayOf(monthKey, dayKey);
   return dow === 0 || dow === 6;
 }
@@ -103,6 +104,9 @@ export function ScheduleGrid({
   onToggleDraft,
   onPickDay,
   onRemoveRow,
+  onOpenPerson,
+  density = "normal",
+  minOnShift = 0,
 }: {
   monthKey: string;
   /** Сегодняшний день месяца по Алматы, или null — если смотрим не текущий месяц. */
@@ -111,7 +115,7 @@ export function ScheduleGrid({
   schedules: Map<string, TechSchedule>;
   /** Кто смотрит: своя строка подсвечивается, её ищут первой. */
   meUid?: string;
-  /** Owner или Тимлид: только они вообще что-то меняют. */
+  /** Owner, Тимлид или назначенный Owner редактор графика. */
   canEdit: boolean;
   editing: boolean;
   /** Несохранённые выходные из режима правки: ключ `uid:день`. */
@@ -122,9 +126,16 @@ export function ScheduleGrid({
   onPickDay?: (row: ScheduleRow, dayKey: string, action: ScheduleDayAction) => void;
   /** Есть только у своих людей — участника workspace из графика не убирают. */
   onRemoveRow?: (row: ScheduleRow) => void;
+  /** Клик по имени — весь месяц человека крупно (и правка пачкой у тех, кто правит). */
+  onOpenPerson?: (row: ScheduleRow) => void;
+  /** Масштаб — см. scheduleDensity.ts. */
+  density?: ScheduleDensity;
+  /** Норма на смене из «Настройки графика»: меньше — число дня красное. 0 — без нормы. */
+  minOnShift?: number;
 }) {
   const days = useMemo(() => daysOfMonth(monthKey), [monthKey]);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const size = MONTH_SIZES[density];
 
   // На телефоне в сетку влезает неделя, а нужен всегда сегодняшний день —
   // подкручиваем ТОЛЬКО горизонтальную прокрутку самой сетки. scrollIntoView
@@ -140,50 +151,62 @@ export function ScheduleGrid({
     const cellBox = cell.getBoundingClientRect();
     const box = scroller.getBoundingClientRect();
     scroller.scrollLeft += cellBox.left - box.left - box.width / 2 + cellBox.width / 2;
-  }, [todayKey, monthKey, rows.length]);
+  }, [todayKey, monthKey, rows.length, density]);
 
-  // Крестик «убрать» занимает место, и без поправки колонка с именами в этом
-  // разделе шире остальных — сетки разных секций перестают совпадать по дням.
-  const nameWidth = onRemoveRow
-    ? "max-w-[3.25rem] sm:max-w-[6.25rem]"
-    : "max-w-[4.5rem] sm:max-w-[7.5rem]";
+  const stateOfRow = (row: ScheduleRow, dayKey: string): ScheduleDayState =>
+    draft.get(draftKey(row.uid, dayKey)) ?? scheduleStateOf(schedules.get(row.uid) ?? null, dayKey);
+
+  // «На смене» по дню — то, ради чего руководство и смотрит месяц: в какой
+  // день людей не хватает. С учётом черновика — видно ДО «Сохранить».
+  const onShift = useMemo(
+    () => new Map(days.map((d) => [d, rows.filter((row) => stateOfRow(row, d) === "work").length])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [days, rows, schedules, draft]
+  );
 
   if (rows.length === 0) return null;
 
+  // Крестик «убрать» занимает место, и без поправки колонка с именами в этом
+  // разделе шире остальных — сетки разных секций перестают совпадать по дням.
+  const nameWidth = onRemoveRow ? size.nameMaxRm : size.nameMax;
+
   return (
     <div ref={scrollerRef} className="overflow-x-auto">
-      <table className="border-separate border-spacing-0 text-[11px]">
+      <table className="border-separate border-spacing-0">
         <thead>
           <tr>
-            <th className="sticky left-0 z-10 w-28 min-w-[7rem] bg-card px-2 py-1 text-left font-medium text-muted-foreground sm:w-40 sm:min-w-[10rem]">
+            <th className={cn("sticky left-0 z-10 bg-card px-2 py-1 text-left text-[11px] font-medium text-muted-foreground", size.nameCol)}>
               Кто
             </th>
-            {days.map((d) => (
-              <th
-                key={d}
-                className={cn(
-                  "w-7 px-0 pb-1 text-center font-medium",
-                  d === todayKey
-                    ? "text-primary"
-                    : isWeekend(monthKey, d)
-                      ? "text-foreground/70"
-                      : "text-muted-foreground/60"
-                )}
-              >
-                {/* Сегодня видно сразу: число в кружке акцентного цвета —
-                    тонкой рамки вокруг клетки в сетке на 31 колонку мало. */}
-                <span
+            {days.map((d) => {
+              const weekend = isWeekend(monthKey, d);
+              return (
+                <th
+                  key={d}
                   className={cn(
-                    "mx-auto block w-6 rounded-full font-mono text-[10px] tabular-nums",
-                    d === todayKey && "bg-primary font-semibold text-primary-foreground"
+                    "px-0 pb-1 text-center font-medium",
+                    d === todayKey ? "text-primary" : weekend ? "text-foreground/80" : "text-muted-foreground/70"
                   )}
                 >
-                  {d}
-                </span>
-                <span className="block text-[9px] opacity-70">{WEEKDAY_LETTERS[weekdayOf(monthKey, d)]}</span>
-              </th>
-            ))}
-            <th className="px-2 pb-1 text-center font-medium text-muted-foreground/60" title="Выходных за месяц">
+                  {/* Сегодня видно сразу: число в кружке акцентного цвета —
+                      тонкой рамки вокруг клетки в сетке на 31 колонку мало. */}
+                  <span
+                    className={cn(
+                      "mx-auto block rounded-full font-mono tabular-nums",
+                      size.dayNum,
+                      size.dayNumBox,
+                      d === todayKey && "bg-primary font-semibold text-primary-foreground"
+                    )}
+                  >
+                    {d}
+                  </span>
+                  <span className={cn("block opacity-80", size.dow, weekend && d !== todayKey && "font-semibold")}>
+                    {WEEKDAY_LETTERS[weekdayOf(monthKey, d)]}
+                  </span>
+                </th>
+              );
+            })}
+            <th className="px-2 pb-1 text-center text-[11px] font-medium text-muted-foreground/70" title="Выходных за месяц">
               В
             </th>
           </tr>
@@ -192,40 +215,58 @@ export function ScheduleGrid({
           {rows.map((row) => {
             const schedule = schedules.get(row.uid) ?? null;
             const isMe = Boolean(meUid) && row.uid === meUid;
-            const stateOf = (dayKey: string): ScheduleDayState =>
-              draft.get(draftKey(row.uid, dayKey)) ?? scheduleStateOf(schedule, dayKey);
-            const offCount = days.filter((d) => stateOf(d) === "off").length;
+            const offCount = days.filter((d) => stateOfRow(row, d) === "off").length;
+            const nameInner = (
+              <>
+                <MemberAvatar
+                  id={row.member?.uid ?? row.uid}
+                  name={row.member?.name ?? initialsName(row.label)}
+                  nickname={row.member?.nickname}
+                  photoURL={row.member?.photoURL}
+                  className={cn("shrink-0", size.avatar)}
+                />
+                <span
+                  className={cn("min-w-0 flex-1 truncate", size.name, nameWidth, isMe && "font-semibold text-primary")}
+                  title={row.label}
+                >
+                  {row.label}
+                </span>
+                {isMe && (
+                  <span className="shrink-0 rounded-full bg-primary/15 px-1.5 text-[10px] leading-4 text-primary">вы</span>
+                )}
+                {row.note && (
+                  <span className="hidden shrink-0 rounded-sm bg-muted px-1 text-[10px] text-muted-foreground sm:inline">
+                    {row.note}
+                  </span>
+                )}
+              </>
+            );
             return (
-              <tr key={row.uid} className={cn(isMe && "bg-primary/[0.06]")}>
+              // Наведение подсвечивает всю строку: в сетке на 31 колонку глаз
+              // съезжает на соседнего человека.
+              <tr key={row.uid} className={cn("group", isMe && "bg-primary/[0.06]")}>
                 <td
                   className={cn(
-                    "sticky left-0 z-10 w-28 min-w-[7rem] py-0.5 pr-2 sm:w-40 sm:min-w-[10rem] sm:pr-3",
+                    "sticky left-0 z-10 py-0.5 pr-2 sm:pr-3",
+                    size.nameCol,
                     // Липкая колонка рисует свой фон поверх строки, поэтому
-                    // подсветку «это я» ей задаём отдельно.
-                    isMe ? "bg-[hsl(var(--card))] shadow-[inset_0_0_0_9999px_hsl(var(--primary)/0.06)]" : "bg-card"
+                    // подсветку «это я» и наведения ей задаём отдельно.
+                    isMe ? "bg-[hsl(var(--card))] shadow-[inset_0_0_0_9999px_hsl(var(--primary)/0.06)]" : "bg-card",
+                    "group-hover:shadow-[inset_0_0_0_9999px_hsl(var(--foreground)/0.05)]"
                   )}
                 >
                   <span className="flex min-w-0 items-center gap-1.5">
-                    <MemberAvatar
-                      id={row.member?.uid ?? row.uid}
-                      name={row.member?.name ?? initialsName(row.label)}
-                      nickname={row.member?.nickname}
-                      photoURL={row.member?.photoURL}
-                      className="h-6 w-6 shrink-0"
-                    />
-                    <span
-                      className={cn("min-w-0 flex-1 truncate text-[12px]", nameWidth, isMe && "font-semibold text-primary")}
-                      title={row.label}
-                    >
-                      {row.label}
-                    </span>
-                    {isMe && (
-                      <span className="shrink-0 rounded-full bg-primary/15 px-1.5 text-[9px] leading-4 text-primary">вы</span>
-                    )}
-                    {row.note && (
-                      <span className="hidden shrink-0 rounded-sm bg-muted px-1 text-[9px] text-muted-foreground sm:inline">
-                        {row.note}
-                      </span>
+                    {onOpenPerson ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenPerson(row)}
+                        title={`${row.label} — весь месяц крупно`}
+                        className="flex min-h-9 min-w-0 flex-1 items-center gap-1.5 rounded-md text-left transition-colors hover:bg-primary/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                      >
+                        {nameInner}
+                      </button>
+                    ) : (
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5">{nameInner}</span>
                     )}
                     {canEdit && onRemoveRow && (
                       <button
@@ -241,7 +282,7 @@ export function ScheduleGrid({
                 </td>
                 {days.map((d) => {
                   const key = draftKey(row.uid, d);
-                  const state = stateOf(d);
+                  const state = stateOfRow(row, d);
                   const hoursPending = hoursDraft?.has(key) ?? false;
                   const pending = draft.has(key) || hoursPending;
                   const came = Boolean(schedule?.selfWork?.[d]) && !draft.has(key);
@@ -265,12 +306,14 @@ export function ScheduleGrid({
                       }${hours ? ` · ${formatScheduleHours(hours)}` : ""}`}
                       onClick={editing ? () => onToggleDraft?.(row, d) : undefined}
                       className={cn(
-                        "h-7 w-7 rounded-sm border text-[10px] font-semibold transition-colors",
+                        "rounded-sm border font-semibold transition-colors",
+                        size.cell,
+                        size.cellText,
                         SCHEDULE_STATE_STYLE[state],
                         state === "work" && isWeekend(monthKey, d) && "bg-foreground/[0.07]",
                         hours && "border-primary/50 bg-primary/15 text-primary",
                         d === todayKey && "ring-1 ring-primary",
-                        pending && "ring-1 ring-primary ring-offset-1 ring-offset-card",
+                        pending && "ring-2 ring-primary ring-offset-1 ring-offset-card",
                         canEdit || hours ? "cursor-pointer hover:brightness-125" : "cursor-default"
                       )}
                     >
@@ -286,9 +329,24 @@ export function ScheduleGrid({
                     </button>
                   );
                   return (
-                    <td key={d} data-day={d} className={cn("p-px text-center", d === todayKey && "bg-primary/[0.07]")}>
+                    <td
+                      key={d}
+                      data-day={d}
+                      className={cn(
+                        "p-px text-center group-hover:bg-foreground/[0.04]",
+                        d === todayKey && "bg-primary/[0.07]"
+                      )}
+                    >
                       {canEdit && !editing ? (
-                        <DayMenu row={row} dayKey={d} state={state} came={came} hours={hours} onPick={onPickDay}>
+                        <DayMenu
+                          row={row}
+                          dayKey={d}
+                          state={state}
+                          came={came}
+                          hours={hours}
+                          onPick={onPickDay}
+                          onOpenPerson={onOpenPerson}
+                        >
                           {cell}
                         </DayMenu>
                       ) : !canEdit && hours ? (
@@ -301,13 +359,47 @@ export function ScheduleGrid({
                     </td>
                   );
                 })}
-                <td className="px-2 text-center font-mono text-[11px] tabular-nums text-muted-foreground">
+                <td className="px-2 text-center font-mono text-[12px] tabular-nums text-muted-foreground group-hover:bg-foreground/[0.04]">
                   {offCount || ""}
                 </td>
               </tr>
             );
           })}
         </tbody>
+        <tfoot>
+          <tr>
+            <td
+              className={cn("sticky left-0 z-10 bg-card px-2 pt-1.5 text-[11px] text-muted-foreground", size.nameCol)}
+              title={minOnShift > 0 ? `Норма на смене — ${minOnShift}` : undefined}
+            >
+              На смене{minOnShift > 0 && <span className="ml-1 opacity-70">· норма {minOnShift}</span>}
+            </td>
+            {days.map((d) => {
+              const count = onShift.get(d) ?? 0;
+              const short = minOnShift > 0 && count < minOnShift;
+              return (
+                <td key={d} className={cn("pt-1.5 text-center", d === todayKey && "bg-primary/[0.07]")}>
+                  <span
+                    title={short ? `${d}: на смене ${count}, норма ${minOnShift}` : `${d}: на смене ${count}`}
+                    className={cn(
+                      "mx-auto block rounded-sm font-mono tabular-nums",
+                      size.dayNum,
+                      size.dayNumBox,
+                      short
+                        ? "bg-destructive/15 font-semibold text-destructive"
+                        : d === todayKey
+                          ? "font-semibold text-primary"
+                          : "text-foreground/75"
+                    )}
+                  >
+                    {count}
+                  </span>
+                </td>
+              );
+            })}
+            <td />
+          </tr>
+        </tfoot>
       </table>
     </div>
   );
@@ -317,13 +409,14 @@ export function ScheduleGrid({
  * Меню дня. Именно меню, а не перебор по клику: по графику ходят пальцем с
  * телефона, и одно случайное касание раньше меняло человеку день.
  */
-function DayMenu({
+export function DayMenu({
   row,
   dayKey,
   state,
   came,
   hours,
   onPick,
+  onOpenPerson,
   readOnly = false,
   children,
 }: {
@@ -333,6 +426,8 @@ function DayMenu({
   came: boolean;
   hours: ScheduleHours | null;
   onPick?: (row: ScheduleRow, dayKey: string, action: ScheduleDayAction) => void;
+  /** «Весь месяц человека» — отдельное окно, где удобно править пачкой. */
+  onOpenPerson?: (row: ScheduleRow) => void;
   /** Только посмотреть: подпись дня со сменой, без действий. */
   readOnly?: boolean;
   children: React.ReactNode;
@@ -407,6 +502,13 @@ function DayMenu({
             Убрать часы — весь день
           </DropdownMenuItem>
         )}
+        {onOpenPerson && <DropdownMenuSeparator />}
+        {onOpenPerson && (
+          <DropdownMenuItem onClick={() => onOpenPerson(row)}>
+            <CalendarDays className="h-4 w-4" />
+            Весь месяц · {row.label}
+          </DropdownMenuItem>
+        )}
           </>
         )}
       </DropdownMenuContent>
@@ -438,6 +540,10 @@ export function ScheduleLegend() {
       </span>
       <span className="inline-flex items-center gap-1.5">
         <span className="font-mono">В</span> — выходных за месяц
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="rounded-sm bg-destructive/15 px-1 font-mono font-semibold text-destructive">3</span>
+        На смене меньше нормы
       </span>
     </div>
   );

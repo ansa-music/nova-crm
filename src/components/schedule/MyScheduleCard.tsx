@@ -157,9 +157,9 @@ export function MyScheduleCard({
                   !ready
                     ? "border-border/50 text-muted-foreground"
                     : state === "off"
-                      ? "border-destructive/45 bg-destructive/12"
+                      ? "border-destructive/45 bg-destructive/10"
                       : state === "excused"
-                        ? "border-warning/45 bg-warning/12"
+                        ? "border-warning/45 bg-warning/10"
                         : hours
                           ? "border-primary/45 bg-primary/10"
                           : "border-border/70 bg-card",

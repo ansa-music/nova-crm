@@ -2,6 +2,7 @@ import type { Role } from "@/types/role";
 import type { StatusOption } from "@/types/page";
 import type { TechLoadKind } from "@/types/deskLoad";
 import type { OsPaySettings, PaymentMethod } from "@/types/payment";
+import type { ScheduleSettings } from "@/types/scheduleSettings";
 
 /**
  * An Owner-defined custom option field — the same idea as the built-in
@@ -86,6 +87,11 @@ export interface Workspace {
   techBonuses?: number[];
   /** Зарплатная система ОС на «ABS»: % от апсейла, доплата за топ KPI, пороги. Правит Owner. */
   osPay?: OsPaySettings;
+  /**
+   * «Настройка графика» (Owner): кто ещё правит график, смены команды, норма
+   * на смене, кого не показывать. Тимлиду поле закрыто правилом workspace.
+   */
+  scheduleSettings?: ScheduleSettings;
   /**
    * Идёт перенос строк: пока стоит флаг, строки нигде не правятся — иначе
    * правка, сделанная во время копирования, осталась бы в старом хранилище.

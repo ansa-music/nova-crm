@@ -58,6 +58,16 @@ service cloud.firestore {
       return isOwner(workspaceId) || isTeamLead(workspaceId);
     }
 
+    // График правит руководство и те, кому Owner дал это право в «Настройке
+    // графика» (`scheduleSettings.editors` в документе workspace — поле пишет
+    // только Owner, см. правило workspace). Участником при этом надо быть:
+    // убранный человек из списка права не сохраняет.
+    function isScheduleEditor(workspaceId) {
+      return hasFullAccess(workspaceId)
+        || (isMember(workspaceId)
+          && request.auth.uid in get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('scheduleSettings', {}).get('editors', []));
+    }
+
     // Add-on roles on top of the main `role` (members.extraRoles: 'manager'
     // = Технарь, 'os' = ОС) — Owner + Технарь, Тимлид + Технарь, Тимлид + ОС.
     // Rights add up. People/settings rights still come from `role` alone;
@@ -376,7 +386,7 @@ service cloud.firestore {
       // переноса строк значит показать всем пустые столы. И не касса:
       // способы оплаты с комиссией и премии технарям настраивает только Owner.
       allow update: if isTeamLead(workspaceId)
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['ownerId', 'rowsBackend', 'rowsMigrationAt', 'paymentMethods', 'techBonuses', 'osPay']);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['ownerId', 'rowsBackend', 'rowsMigrationAt', 'paymentMethods', 'techBonuses', 'osPay', 'scheduleSettings']);
       // Deleting the workspace stays Owner-only — no Тимлид branch.
       allow delete: if isOwner(workspaceId);
 
@@ -1150,8 +1160,8 @@ service cloud.firestore {
         // это состояние перебивает выходной, поставленный Тимлидом.
         //
         // У delete нет request.resource (см. CLAUDE.md) — отдельным правилом.
-        allow delete: if hasFullAccess(workspaceId);
-        allow create, update: if hasFullAccess(workspaceId)
+        allow delete: if isScheduleEditor(workspaceId);
+        allow create, update: if isScheduleEditor(workspaceId)
           && request.resource.data.workspaceId == workspaceId
           && scheduleId == request.resource.data.uid + '_' + request.resource.data.monthKey
           && request.resource.data.keys().hasOnly(['workspaceId', 'uid', 'monthKey', 'days', 'selfWork', 'hours', 'updatedAt', 'updatedBy']);
@@ -1178,7 +1188,7 @@ service cloud.firestore {
 
         // Руководство рассматривает; автор может подать заново после отказа,
         // но снова только 'pending' и только за себя.
-        allow update: if (hasFullAccess(workspaceId)
+        allow update: if (isScheduleEditor(workspaceId)
             && request.resource.data.uid == resource.data.uid
             && request.resource.data.keys().hasOnly(['workspaceId', 'uid', 'name', 'monthKey', 'dayKey', 'status', 'createdAt', 'resolvedAt', 'resolvedBy']))
           || (isMember(workspaceId)
@@ -1189,7 +1199,7 @@ service cloud.firestore {
 
         // Свой запрос можно отозвать, пока его не рассмотрели (у delete нет
         // request.resource — смотрим только на resource).
-        allow delete: if hasFullAccess(workspaceId)
+        allow delete: if isScheduleEditor(workspaceId)
           || (isMember(workspaceId) && resource.data.uid == request.auth.uid && resource.data.status == 'pending');
       }
 
@@ -1200,8 +1210,8 @@ service cloud.firestore {
       // -----------------------------------------------------------------
       match /scheduleGroups/{groupId} {
         allow read: if isMember(workspaceId);
-        allow delete: if hasFullAccess(workspaceId);
-        allow create, update: if hasFullAccess(workspaceId)
+        allow delete: if isScheduleEditor(workspaceId);
+        allow create, update: if isScheduleEditor(workspaceId)
           && request.resource.data.workspaceId == workspaceId
           && request.resource.data.keys().hasOnly(['workspaceId', 'name', 'people', 'updatedAt', 'updatedBy']);
       }
@@ -1214,8 +1224,8 @@ service cloud.firestore {
       // -----------------------------------------------------------------
       match /scheduleTemplates/{templateId} {
         allow read: if isMember(workspaceId);
-        allow delete: if hasFullAccess(workspaceId);
-        allow create, update: if hasFullAccess(workspaceId)
+        allow delete: if isScheduleEditor(workspaceId);
+        allow create, update: if isScheduleEditor(workspaceId)
           && templateId == 'week'
           && request.resource.data.workspaceId == workspaceId
           && request.resource.data.keys().hasOnly(['workspaceId', 'people', 'updatedAt', 'updatedBy']);

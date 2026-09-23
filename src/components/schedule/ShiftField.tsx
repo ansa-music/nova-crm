@@ -22,7 +22,8 @@ export function ShiftField({
   onSubmit,
 }: {
   value: ScheduleHours | null;
-  presets: ScheduleHours[];
+  /** `name` — подпись смены команды из «Настройки графика» («Утро»). */
+  presets: Array<ScheduleHours & { name?: string }>;
   onChange: (hours: ScheduleHours | null) => void;
   autoFocus?: boolean;
   /** В панели кисти: поле уже, подсказка короче. */
@@ -80,7 +81,14 @@ export function ShiftField({
                 on ? "border-primary bg-primary/15 text-primary" : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
               )}
             >
-              {label}
+              {hours.name ? (
+                <>
+                  <span className="mr-1 font-sans font-medium text-foreground/90">{hours.name}</span>
+                  {label}
+                </>
+              ) : (
+                label
+              )}
             </button>
           );
         })}

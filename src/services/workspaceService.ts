@@ -5,7 +5,7 @@ import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { addOwnWorkspaceId } from "@/services/authService";
 import { DEFAULT_STATUS_OPTIONS, FREEZE_STATUS_OPTION, isFreezeStatusLabel } from "@/utils/columnOptions";
-import type { CustomFieldDef, OsPaySettings, PaymentMethod, StatusOption, TechLoadKind, Workspace } from "@/types";
+import { sanitizeScheduleSettings, type CustomFieldDef, type OsPaySettings, type PaymentMethod, type ScheduleSettings, type StatusOption, type TechLoadKind, type Workspace } from "@/types";
 
 export interface CreateWorkspaceInput {
   name: string;
@@ -84,6 +84,11 @@ export async function updatePaymentMethods(workspaceId: string, methods: Payment
 /** Система ОС на «ABS»: % от апсейла, доп. оклад топ-1 KPI, пороги. Пишет только Owner. */
 export async function updateOsPay(workspaceId: string, settings: OsPaySettings) {
   await updateWorkspace(workspaceId, { osPay: sanitizeOsPay(settings) });
+}
+
+/** «Настройка графика». Пишет только Owner — Тимлиду поле закрыто правилом workspace. */
+export async function updateScheduleSettings(workspaceId: string, settings: ScheduleSettings) {
+  await updateWorkspace(workspaceId, { scheduleSettings: sanitizeScheduleSettings(settings) });
 }
 
 /** Премии технарям за 1–3 место по «Готово». Пишет только Owner. */

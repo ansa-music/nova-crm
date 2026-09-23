@@ -107,7 +107,15 @@ export function PersonWeekDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="flex max-h-[92vh] max-w-xl flex-col">
+      <DialogContent
+        className="flex max-h-[92vh] max-w-xl flex-col"
+        // Фокус — на само окно, а не на первый элемент: им оказывался список
+        // «Как у …», и первый Esc уходил в него, а окно не закрывалось.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          (event.currentTarget as HTMLElement | null)?.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CalendarRange className="h-4 w-4 shrink-0 text-primary" />

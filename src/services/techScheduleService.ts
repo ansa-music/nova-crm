@@ -183,6 +183,13 @@ export interface ScheduleDraftChange {
   uid: string;
   days?: Record<string, ScheduleDayState>;
   hours?: Record<string, ScheduleHours | null>;
+  /**
+   * Отметка «пришёл в рабочий день» (`selfWork`): true — поставить, false —
+   * снять. Идёт ПОСЛЕ `days`, поэтому перебивает снятие отметки, которое
+   * `days` делает у тронутого дня: так «Отменить» в окне человека
+   * возвращает день целиком, вместе с «пришёл».
+   */
+  came?: Record<string, boolean>;
 }
 
 export async function saveScheduleDraft(input: {
@@ -222,12 +229,17 @@ export function addScheduleChangesToBatch(
       // к нему уже не относится.
       selfWork[dayKey] = deleteField();
     }
+    for (const [dayKey, came] of Object.entries(change.came ?? {})) {
+      selfWork[dayKey] = came ? true : deleteField();
+    }
     for (const [dayKey, value] of Object.entries(change.hours ?? {})) {
       hours[dayKey] = value ? hoursWrite(value) : deleteField();
     }
     // Выходной и «отпросился» снимают часы того же дня (см. setScheduleDay).
+    // Кроме дня, который тем же действием отмечен «пришёл»: он рабочий, и его
+    // часы (возврат через «Отменить») должны остаться.
     for (const [dayKey, state] of Object.entries(change.days ?? {})) {
-      if (state !== "work") hours[dayKey] = deleteField();
+      if (state !== "work" && !change.came?.[dayKey]) hours[dayKey] = deleteField();
     }
     // ПУСТУЮ карту отправлять нельзя. SDK кладёт пустой объект в маску
     // обновления целиком («создать пустую карту»), и при merge:true сервер

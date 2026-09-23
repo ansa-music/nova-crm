@@ -14,6 +14,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Settings2,
   ShieldCheck,
   UserPlus,
   X,
@@ -32,6 +33,11 @@ import { WeekTemplateGrid } from "@/components/schedule/WeekTemplateGrid";
 import { PersonWeekDialog } from "@/components/schedule/PersonWeekDialog";
 import { ShiftField } from "@/components/schedule/ShiftField";
 import { MyScheduleCard } from "@/components/schedule/MyScheduleCard";
+import { PersonMonthDialog } from "@/components/schedule/PersonMonthDialog";
+import { ScheduleDayView, TodayOnShift, type DaySection } from "@/components/schedule/ScheduleDayView";
+import { ScheduleSettingsDialog } from "@/components/schedule/ScheduleSettingsDialog";
+import { useScheduleDensity, type ScheduleDensity } from "@/components/schedule/scheduleDensity";
+import type { ScheduleBulkPlan } from "@/utils/scheduleBulk";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -67,8 +73,10 @@ import {
   newSchedulePersonId,
   normalizeWeekEntry,
   sameScheduleHours,
+  mergeShiftPresets,
   sameWeek,
   scheduleDayKey,
+  scheduleSettingsOf,
   scheduleHoursOf,
   scheduleRequestId,
   scheduleStateOf,
@@ -84,7 +92,15 @@ import {
   type WorkspaceMember,
 } from "@/types";
 
-type ScheduleView = "month" | "week";
+type ScheduleView = "month" | "week" | "day";
+
+const VIEW_LABELS: Record<ScheduleView, string> = { week: "Неделя", month: "Месяц", day: "День" };
+
+const DENSITY_OPTIONS: Array<{ value: ScheduleDensity; label: string; title: string; className: string }> = [
+  { value: "compact", label: "A", title: "Мелко — больше дней на экране", className: "text-[11px]" },
+  { value: "normal", label: "A", title: "Обычно", className: "text-[14px]" },
+  { value: "large", label: "A", title: "Крупно — чтобы не щуриться", className: "text-[18px]" },
+];
 
 type Brush = { kind: "off" | "work" | "hours"; hours: ScheduleHours | null };
 
@@ -124,7 +140,7 @@ function requestDateLabel(request: ScheduleRequest): string {
 export default function SchedulePage() {
   const { profile } = useAuth();
   const permissions = usePermissions();
-  const { activeWorkspaceId, members, pages } = useWorkspace();
+  const { activeWorkspaceId, activeWorkspace, members, pages } = useWorkspace();
   const currentMonth = useCurrentMonthKey();
   const [monthKey, setMonthKey] = useState(currentMonth);
   const [group, setGroup] = useState<ScheduleGroup | null>(null);
@@ -172,9 +188,22 @@ export default function SchedulePage() {
   });
   const [paste, setPaste] = useState<{ text: string } | null>(null);
   const [weekSaving, setWeekSaving] = useState(false);
+  // «День»: какой день месяца открыт (null — сегодня, если месяц текущий, иначе 1-е).
+  const [pickedDay, setPickedDay] = useState<string | null>(null);
+  // «Месяц человека» — окно с его графиком крупно.
+  const [personMonth, setPersonMonth] = useState<ScheduleRow | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [density, setDensity] = useScheduleDensity();
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
   const uid = profile?.uid ?? "";
-  const canEdit = permissions.canRetireDesks && Boolean(activeWorkspaceId);
+  const settings = useMemo(() => scheduleSettingsOf(activeWorkspace), [activeWorkspace]);
+  const isRealOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  // Правит график руководство и те, кого Owner назначил в «Настройке графика»
+  // (правило `isScheduleEditor` смотрит тот же список).
+  const canEdit =
+    (permissions.canRetireDesks || (permissions.isResolved && Boolean(uid) && settings.editors.includes(uid))) &&
+    Boolean(activeWorkspaceId);
   const {
     schedules,
     loaded: schedulesLoaded,
@@ -248,20 +277,29 @@ export default function SchedulePage() {
     return { technicians, os, leads };
   }, [active, deskOwners]);
 
-  const rowsOf = (list: WorkspaceMember[]): ScheduleRow[] =>
-    list.map((m) => ({
-      uid: m.uid,
-      label: personLabel(m),
-      member: m,
-      note: m.role === "owner" ? "Owner" : m.role === "teamlead" ? "Тимлид" : null,
-    }));
+  const hiddenSet = useMemo(() => new Set(settings.hidden), [settings.hidden]);
+  // По алфавиту: человека ищут глазами по имени, а порядок вступления в
+  // workspace никому ничего не говорит.
+  const byLabel = (a: ScheduleRow, b: ScheduleRow) => a.label.localeCompare(b.label, "ru");
+  const allRowsOf = (list: WorkspaceMember[]): ScheduleRow[] =>
+    list
+      .map((m) => ({
+        uid: m.uid,
+        label: personLabel(m),
+        member: m,
+        note: m.role === "owner" ? "Owner" : m.role === "teamlead" ? "Тимлид" : null,
+      }))
+      .sort(byLabel);
+  /** Без тех, кого Owner спрятал в «Настройке графика». */
+  const rowsOf = (list: WorkspaceMember[]): ScheduleRow[] => allRowsOf(list).filter((row) => !hiddenSet.has(row.uid));
 
   const groupName = group?.name?.trim() || DEFAULT_CUSTOM_GROUP_NAME;
   const groupPeople = useMemo(() => group?.people ?? [], [group]);
-  const customRows: ScheduleRow[] = useMemo(
-    () => groupPeople.map((p) => ({ uid: p.id, label: p.name })),
+  const allCustomRows: ScheduleRow[] = useMemo(
+    () => groupPeople.map((p) => ({ uid: p.id, label: p.name })).sort((a, b) => a.label.localeCompare(b.label, "ru")),
     [groupPeople]
   );
+  const customRows = useMemo(() => allCustomRows.filter((row) => !hiddenSet.has(row.uid)), [allCustomRows, hiddenSet]);
 
   const isCurrentMonth = monthKey === currentMonth;
   const todayKey = isCurrentMonth ? scheduleDayKey(ymdInTimeZone(Date.now())) : null;
@@ -684,6 +722,19 @@ export default function SchedulePage() {
     return () => document.removeEventListener("paste", onPaste);
   }, [view, canEdit, paste, templateReady, weekSaving]);
 
+  // «/» — сразу в поиск человека, как в остальных разделах с поиском.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true'], [role='dialog']")) return;
+      event.preventDefault();
+      searchRef.current?.focus();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   async function saveWeek() {
     if (!activeWorkspaceId || !templateReady || weekSaving) return;
     // Неделя = сохранённая СЕЙЧАС + тронутые дни: чужие правки других дней,
@@ -740,9 +791,9 @@ export default function SchedulePage() {
 
   const monthLabel = monthTabNameForKey(monthKey).toLowerCase();
   const sections = [
-    { id: "tech", title: "Технари", icon: HardHat, rows: rowsOf(groups.technicians) },
-    { id: "os", title: "ОС", icon: Headset, rows: rowsOf(groups.os) },
-    { id: "leads", title: "Руководство", icon: ShieldCheck, rows: rowsOf(groups.leads) },
+    { id: "tech", title: "Технари", icon: HardHat, rows: rowsOf(groups.technicians), min: settings.minOnShift.tech },
+    { id: "os", title: "ОС", icon: Headset, rows: rowsOf(groups.os), min: settings.minOnShift.os },
+    { id: "leads", title: "Руководство", icon: ShieldCheck, rows: rowsOf(groups.leads), min: 0 },
   ].filter((s) => s.rows.length > 0);
 
   const showCustom = customRows.length > 0 || canEdit;
@@ -770,17 +821,91 @@ export default function SchedulePage() {
    * Частые смены команды — готовые кнопки у кисти и в окнах: неполные смены
    * у всех одни и те же, набирать их каждый раз заново незачем.
    */
+  // Смены команды из «Настройки графика» — первыми, дальше самые частые.
   const weekPresets = useMemo(
     () =>
-      frequentShifts(
-        patternRows.flatMap((row) => WEEK_DOWS.map((dow) => weekCellsOfId(row.uid)[String(dow)]?.hours ?? null))
+      mergeShiftPresets(
+        settings.presets,
+        frequentShifts(patternRows.flatMap((row) => WEEK_DOWS.map((dow) => weekCellsOfId(row.uid)[String(dow)]?.hours ?? null)))
       ),
-    [patternRows, weekCellsOfId]
+    [patternRows, weekCellsOfId, settings.presets]
   );
   const monthPresets = useMemo(
-    () => frequentShifts([...byUid.values()].flatMap((schedule) => Object.values(schedule.hours ?? {}))),
-    [byUid]
+    () =>
+      mergeShiftPresets(
+        settings.presets,
+        frequentShifts([...byUid.values()].flatMap((schedule) => Object.values(schedule.hours ?? {})))
+      ),
+    [byUid, settings.presets]
   );
+
+  /** Все строки графика с учётом скрытых — для «Не показывать» в настройке. */
+  const settingsPeople = useMemo(() => {
+    const seen = new Set<string>();
+    const out: ScheduleRow[] = [];
+    for (const row of [
+      ...allRowsOf(groups.technicians),
+      ...allRowsOf(groups.os),
+      ...allRowsOf(groups.leads),
+      ...allCustomRows,
+    ]) {
+      if (seen.has(row.uid)) continue;
+      seen.add(row.uid);
+      out.push(row);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, allCustomRows]);
+
+  // «День»: открытый день месяца. Сегодня — если открыт текущий месяц.
+  const monthDayCount = Number(new Date(Date.UTC(Number(monthKey.slice(0, 4)), Number(monthKey.slice(5, 7)), 0)).getUTCDate());
+  const dayKey =
+    pickedDay && Number(pickedDay) <= monthDayCount ? pickedDay : todayKey ?? "1";
+
+  /** Имя — месяц человека крупно (кроме недели у редактора: там окно недели). */
+  function openPersonMonth(row: ScheduleRow) {
+    if (editing) return;
+    setPersonMonth(row);
+  }
+
+  /**
+   * Пакет из окна человека — один batch. Возвращает «Отменить»: окно
+   * показывает её у себя (тост под затемнением окна не нажать), тост — после.
+   */
+  async function applyPersonBulk(row: ScheduleRow, plan: ScheduleBulkPlan): Promise<() => Promise<void>> {
+    if (!activeWorkspaceId || plan.touched.length === 0) return async () => {};
+    const workspaceId = activeWorkspaceId;
+    const writeMonth = monthKey;
+    let undone = false;
+    const undo = async () => {
+      if (undone) return;
+      undone = true;
+      try {
+        await saveScheduleDraft({ workspaceId, monthKey: writeMonth, actorUid: uid, changes: [{ uid: row.uid, ...plan.undo }] });
+        toast.success("Отменено");
+      } catch (error) {
+        undone = false;
+        toast.error(error instanceof Error ? error.message : "Не удалось отменить");
+        // Окно оставит плашку «Отменить» — повторить.
+        throw error;
+      }
+    };
+    try {
+      await saveScheduleDraft({
+        workspaceId,
+        monthKey: writeMonth,
+        actorUid: uid,
+        changes: [{ uid: row.uid, ...plan.change }],
+      });
+      toast.success(`${row.label}: изменено дней — ${plan.touched.length}`, {
+        action: { label: "Отменить", onClick: () => void undo().catch(() => {}) },
+      });
+      return undo;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось изменить график");
+      throw error;
+    }
+  }
 
   function openPerson(row: ScheduleRow) {
     if (!canEdit || !templateReady || weekSaving) return;
@@ -793,7 +918,23 @@ export default function SchedulePage() {
     setWeekEditing(true);
   }
 
+  // Имя в неделе: редактор открывает неделю человека (правка распорядка),
+  // остальные — весь его месяц крупно.
+  const weekNameClick =
+    canEdit ? (templateReady && !weekSaving ? openPerson : undefined) : (row: ScheduleRow) => openPersonMonth(row);
+  const weekNameHint = canEdit ? "неделя человека в одном окне" : "весь месяц крупно";
+
+  // «День» показывает те же разделы и поиск, что и сетки.
+  const daySections: DaySection[] = [
+    ...shownSections.filter((sec) => visible(sec.id)),
+    ...(visible("custom") && shownCustomRows.length > 0
+      ? [{ id: "custom", title: groupName, icon: UserPlus, rows: shownCustomRows, min: 0 }]
+      : []),
+  ];
+
   const gridProps = {
+    density,
+    onOpenPerson: editing ? undefined : openPersonMonth,
     monthKey,
     todayKey,
     schedules: byUid,
@@ -812,7 +953,11 @@ export default function SchedulePage() {
         eyebrow="Студия"
         title="График"
         description={
-          view === "week"
+          view === "day"
+            ? canEdit
+              ? "Кто работает в выбранный день. Тап по человеку — выходной, отпросился, часы или весь его месяц."
+              : "Кто работает в выбранный день, у кого смена с/до и кого нет. Тап по человеку — его месяц."
+            : view === "week"
             ? !canEdit
               ? "Постоянная неделя команды: у кого какие выходные и смены. Разовые выходные и отгулы — во вкладке «Месяц»."
               : weekEditing
@@ -827,7 +972,7 @@ export default function SchedulePage() {
         actions={
           <div className="flex shrink-0 flex-wrap items-center gap-1">
             <div className="mr-1 inline-flex rounded-lg border border-border p-0.5" role="tablist" aria-label="Вид графика">
-              {(["month", "week"] as const).map((v) => (
+              {(["week", "month", "day"] as const).map((v) => (
                 <button
                   key={v}
                   type="button"
@@ -840,12 +985,14 @@ export default function SchedulePage() {
                     view === v ? "bg-primary/15 font-medium text-primary" : "text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  {v === "month" ? "Месяц" : "Неделя"}
+                  {VIEW_LABELS[v]}
                 </button>
               ))}
             </div>
-            {view === "month" && (
-            <>
+            {(view === "month" || view === "day") && (
+            // Стрелки и месяц — одной группой: на телефоне шапка переносится,
+            // и «‹» оставалась на одной строке, а месяц с «›» — на другой.
+            <div className="flex items-center gap-1">
             <Button
               variant="outline"
               size="icon"
@@ -868,11 +1015,19 @@ export default function SchedulePage() {
               <ChevronRight className="h-4 w-4" />
             </Button>
             {!isCurrentMonth && !editing && (
-              <Button variant="ghost" size="sm" className="min-h-11 sm:min-h-0" onClick={() => setMonthKey(currentMonth)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="min-h-11 sm:min-h-0"
+                onClick={() => {
+                  setMonthKey(currentMonth);
+                  setPickedDay(null);
+                }}
+              >
                 Сегодня
               </Button>
             )}
-            </>
+            </div>
             )}
             {/* «Сохранить»/«Отмена» в режиме правки — в липкой панели под шапкой:
                 она видна, как бы далеко ни пролистали список. */}
@@ -900,6 +1055,19 @@ export default function SchedulePage() {
               >
                 <Pencil className="h-3.5 w-3.5" />
                 Редактировать
+              </Button>
+            )}
+            {isRealOwner && activeWorkspaceId && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-11 gap-1.5 sm:min-h-0"
+                disabled={editing || weekEditing}
+                onClick={() => setSettingsOpen(true)}
+                title="Кто ещё правит график, смены команды, норма на смене, кого не показывать"
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+                Настройка графика
               </Button>
             )}
           </div>
@@ -954,6 +1122,20 @@ export default function SchedulePage() {
         )
       )}
 
+      {/* Кто сегодня на смене — одной строкой над любым видом: руководство
+          открывает «График» ровно за этим. Тап — вид «День» на сегодня. */}
+      {view !== "day" && !editing && !weekEditing && isCurrentMonth && scheduleReady && todayKey && (
+        <TodayOnShift
+          sections={sections}
+          schedules={byUid}
+          todayKey={todayKey}
+          onOpen={() => {
+            setPickedDay(null);
+            setView("day");
+          }}
+        />
+      )}
+
       {/* Липкая панель: поиск человека и, в режиме правки, кисть с
           «Сохранить». Раньше кисть и кнопки жили только наверху страницы, и
           чтобы поставить что-то человеку внизу списка, приходилось листать
@@ -964,17 +1146,21 @@ export default function SchedulePage() {
             <div className="relative min-w-0 flex-1 sm:max-w-xs">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
+                ref={searchRef}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Escape") setQuery("");
-                  // Один найденный — Enter открывает его неделю.
-                  if (e.key === "Enter" && view === "week" && foundCount === 1) {
+                  // Один найденный — Enter открывает его: неделю у того, кто
+                  // её правит, иначе весь месяц человека.
+                  if (e.key === "Enter" && foundCount === 1) {
                     const only = shownSections.flatMap((sec) => sec.rows)[0] ?? shownCustomRows[0];
-                    if (only) openPerson(only);
+                    if (!only) return;
+                    if (view === "week" && canEdit) openPerson(only);
+                    else openPersonMonth(only);
                   }
                 }}
-                placeholder="Найти человека"
+                placeholder="Найти человека  /"
                 aria-label="Найти человека в графике"
                 className="h-10 pl-8 pr-8 text-[13px] sm:h-9"
               />
@@ -994,10 +1180,31 @@ export default function SchedulePage() {
                 найдено: <span className="font-medium tabular-nums text-foreground">{foundCount}</span>
               </span>
             )}
-            {view === "week" && canEdit && !weekEditing && !searching && (
+            {!weekEditing && !editing && !searching && (
               <span className="hidden text-[12px] text-muted-foreground md:inline">
-                Клик по имени — вся неделя человека в одном окне
+                {view === "week" && canEdit ? "Клик по имени — неделя человека в одном окне" : "Клик по имени — весь месяц человека крупно"}
               </span>
+            )}
+            {!weekEditing && !editing && (
+              <div className="ml-auto inline-flex items-center rounded-lg border border-border p-0.5" role="group" aria-label="Масштаб графика">
+                {DENSITY_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    title={option.title}
+                    aria-label={option.title}
+                    aria-pressed={density === option.value}
+                    onClick={() => setDensity(option.value)}
+                    className={cn(
+                      "flex h-10 w-10 items-center justify-center rounded-md font-semibold leading-none transition-colors sm:h-8 sm:w-8",
+                      option.className,
+                      density === option.value ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
             )}
             {view === "week" && weekEditing && (
               <div className="ml-auto flex items-center gap-1.5">
@@ -1200,7 +1407,22 @@ export default function SchedulePage() {
               Никого не нашли по «{query.trim()}».
             </p>
           )}
-          {shownSections.map(
+          {view === "day" && (
+            <ScheduleDayView
+              monthKey={monthKey}
+              dayKey={dayKey}
+              todayKey={todayKey}
+              sections={daySections}
+              schedules={byUid}
+              canEdit={canEdit && scheduleReady}
+              density={density}
+              onSelectDay={setPickedDay}
+              onPickDay={(row, day, action) => void pickDay(row, day, action)}
+              onOpenPerson={openPersonMonth}
+            />
+          )}
+          {view !== "day" &&
+            shownSections.map(
             (s) =>
               (editing || visible(s.id)) &&
               s.rows.length > 0 && (
@@ -1215,16 +1437,19 @@ export default function SchedulePage() {
                       editing={weekEditing && !weekSaving}
                       onCellClick={paintCell}
                       onColumnClick={(dow) => paintColumn(s.rows, dow)}
-                      onNameClick={canEdit && templateReady && !weekSaving ? openPerson : undefined}
+                      onNameClick={weekNameClick}
+                      nameClickHint={weekNameHint}
+                      density={density}
+                      minOnShift={s.min}
                     />
                   ) : (
-                    <ScheduleGrid {...gridProps} rows={s.rows} />
+                    <ScheduleGrid {...gridProps} rows={s.rows} minOnShift={s.min} />
                   )}
                 </Section>
               )
           )}
 
-          {showCustom && (editing || visible("custom")) && (!searching || shownCustomRows.length > 0) && (
+          {view !== "day" && showCustom && (editing || visible("custom")) && (!searching || shownCustomRows.length > 0) && (
             <CustomSection
               name={groupName}
               rows={shownCustomRows}
@@ -1242,7 +1467,9 @@ export default function SchedulePage() {
                   editing={weekEditing && !weekSaving}
                   onCellClick={paintCell}
                   onColumnClick={(dow) => paintColumn(shownCustomRows, dow)}
-                  onNameClick={canEdit && templateReady && !weekSaving ? openPerson : undefined}
+                  onNameClick={weekNameClick}
+                  nameClickHint={weekNameHint}
+                  density={density}
                 />
               ) : (
                 <ScheduleGrid {...gridProps} rows={shownCustomRows} onRemoveRow={(row) => void removePerson(row)} />
@@ -1250,7 +1477,7 @@ export default function SchedulePage() {
             </CustomSection>
           )}
 
-          {view === "week" ? (
+          {view === "day" ? null : view === "week" ? (
             <p className="flex items-start gap-1.5 text-[11px] leading-4 text-muted-foreground">
               <CalendarRange className="mt-px h-3.5 w-3.5 shrink-0" />
               <span>
@@ -1263,7 +1490,7 @@ export default function SchedulePage() {
             <ScheduleLegend />
           )}
 
-          {view === "month" && !isCurrentMonth && (
+          {view !== "week" && !isCurrentMonth && (
             <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <CalendarDays className="h-3.5 w-3.5 shrink-0" />
               Открыт не текущий месяц — «сегодня» в сетке не подсвечено.
@@ -1295,6 +1522,32 @@ export default function SchedulePage() {
             .map((row) => ({ row, cells: weekCellsOfId(row.uid) }))}
           onClose={() => setPersonTarget(null)}
           onApply={(cells) => applyPerson(personTarget, cells)}
+        />
+      )}
+
+      {personMonth && (
+        <PersonMonthDialog
+          row={personMonth}
+          monthKey={monthKey}
+          monthLabel={monthLabel}
+          todayKey={todayKey}
+          schedule={byUid.get(personMonth.uid) ?? null}
+          ready={scheduleReady}
+          canEdit={canEdit}
+          presets={monthPresets}
+          onMonth={editing ? undefined : (direction) => goToMonth(direction < 0 ? previousMonthKey(monthKey) : nextMonthKey(monthKey))}
+          onApply={(plan) => applyPersonBulk(personMonth, plan)}
+          onClose={() => setPersonMonth(null)}
+        />
+      )}
+
+      {settingsOpen && activeWorkspaceId && (
+        <ScheduleSettingsDialog
+          workspaceId={activeWorkspaceId}
+          settings={activeWorkspace?.scheduleSettings}
+          members={active}
+          people={settingsPeople}
+          onClose={() => setSettingsOpen(false)}
         />
       )}
 
