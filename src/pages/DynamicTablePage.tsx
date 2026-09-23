@@ -46,6 +46,7 @@ import { useDeskLoadPublisher } from "@/hooks/useDeskLoadPublisher";
 import { useOsFieldKeysPublisher } from "@/hooks/useOsFieldKeysPublisher";
 import { useMyOrderRows } from "@/hooks/useMyOrderRows";
 import { OsOrderPanel } from "@/components/os/OsOrderPanel";
+import { TechOrderPanel } from "@/components/os/TechOrderPanel";
 import { isMonthlyDesk } from "@/services/monthTabService";
 import type { PageIconName, SubPage, WorkspacePage } from "@/types";
 
@@ -811,21 +812,32 @@ export default function DynamicTablePage() {
                 manualRowOrder={(activeSubPage ? activeSubPage.rowOrder : page.rowOrder) === "manual"}
                 rows={rows}
                 canEdit={canEditData}
-                renderRowPanel={
-                  isMyOsDesk
-                    ? (row) => (
-                        <OsOrderPanel
-                          row={row}
-                          pageId={page.id}
-                          subPageId={activeSubPageId}
-                          osUid={permissions.uid}
-                          osNickValue={myOsNickValue}
-                          mirror={myOrders.bySource.get(row.id) ?? null}
-                          onChanged={myOrders.refresh}
-                        />
-                      )
-                    : undefined
-                }
+                renderRowPanel={(row) => {
+                  // Стол ОС — панель выдачи; стол технаря — его поля по заказу,
+                  // который ведёт ОС (обычные строки панели не получают).
+                  if (isMyOsDesk) {
+                    return (
+                      <OsOrderPanel
+                        row={row}
+                        pageId={page.id}
+                        subPageId={activeSubPageId}
+                        osUid={permissions.uid}
+                        osNickValue={myOsNickValue}
+                        mirror={myOrders.bySource.get(row.id) ?? null}
+                        onChanged={myOrders.refresh}
+                      />
+                    );
+                  }
+                  if (!row.osUid || !activeWorkspaceId) return null;
+                  return (
+                    <TechOrderPanel
+                      row={row}
+                      workspaceId={activeWorkspaceId}
+                      me={permissions.uid}
+                      canWrite={page.responsibleUserId === permissions.uid}
+                    />
+                  );
+                }}
                 // Кто смотрит — для замка строк-заказов: их ведёт ОС.
                 viewer={{
                   uid: permissions.uid,
