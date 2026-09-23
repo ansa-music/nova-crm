@@ -1,11 +1,13 @@
 import { ensureOsDesk, findOsDeskOf, OS_DESK_COLUMNS } from "@/services/osDeskService";
-import { fetchPagesFresh } from "@/services/pageService";
+import { fetchPagesFresh, updatePageOsFieldKeys } from "@/services/pageService";
+import { fetchSubPagesFresh } from "@/services/subPageService";
+import { computeOsFieldKeys, sameOsFieldKeys } from "@/utils/osFieldKeys";
 import { sbFetchAllPageRows, sbFetchRows, sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { mirrorSyncHash } from "@/services/rows/osOrderMirror";
 import { isBlankRow } from "@/utils/blankRow";
 import { personLabel } from "@/utils/peopleDesks";
-import type { PageRow, WorkspaceMember, WorkspacePage } from "@/types";
+import type { OsFieldKeys, PageRow, WorkspaceMember, WorkspacePage } from "@/types";
 
 /**
  * Перенос уже заведённых заказов под управление ОС (разово, Owner).
@@ -25,11 +27,18 @@ import type { PageRow, WorkspaceMember, WorkspacePage } from "@/types";
  */
 
 export interface OsAdoptionReport {
+  /** Столов просмотрено (из скольких — `deskTotal`). */
   desks: number;
+  /** Сколько столов подходило под перенос вообще. */
+  deskTotal: number;
+  /** Столов, которым Owner записал карту столбцов вместо них. */
+  publishedKeys: number;
   adopted: number;
   alreadyManaged: number;
   skippedNoOs: number;
   skippedNoAccount: number;
+  /** Ники ОС, за которыми нет живого аккаунта — их закрепляют на «Команде». */
+  unknownOsNicks: string[];
   createdOsDesks: number;
   errors: string[];
 }
@@ -51,6 +60,36 @@ function cellText(row: PageRow, key: string | undefined): string {
   return value === null || value === undefined ? "" : String(value);
 }
 
+/**
+ * Карта столбцов месячной вкладки чужого стола.
+ *
+ * Обычно её публикует сессия САМОГО технаря (`useOsFieldKeysPublisher`), но
+ * ждать, пока полтора десятка человек откроют свои столы, нельзя: без карты
+ * ОС не может ни выдать заказ, ни забрать старый. Owner читает подвкладки
+ * любого стола и пишет документ стола, поэтому карту он считает и
+ * записывает сам — теми же правилами (`computeOsFieldKeys`), что и хозяин
+ * стола, и только когда она отличается от записанной.
+ */
+async function ensureOsFieldKeys(
+  workspaceId: string,
+  page: WorkspacePage,
+  tabId: string
+): Promise<{ keys: OsFieldKeys; published: boolean }> {
+  const current = page.osFieldKeys;
+  if (current && current.tabId === tabId) return { keys: current, published: false };
+
+  const subPages = await fetchSubPagesFresh(workspaceId, page.id);
+  const tab = subPages.find((t) => t.id === tabId);
+  if (!tab) throw new Error("вкладка текущего месяца не нашлась — пусть стол откроют и повторите");
+  const keys = computeOsFieldKeys(tabId, tab.columns ?? [], Date.now());
+  if (!keys.os) {
+    throw new Error("в месячной вкладке нет столбца «Ответственный» — по нему и определяется ОС заказа");
+  }
+  if (sameOsFieldKeys(current, keys)) return { keys: current as OsFieldKeys, published: false };
+  await updatePageOsFieldKeys(workspaceId, page.id, keys);
+  return { keys, published: true };
+}
+
 export async function adoptOrdersToOsDesks(input: {
   workspaceId: string;
   members: readonly WorkspaceMember[];
@@ -59,10 +98,13 @@ export async function adoptOrdersToOsDesks(input: {
   const { workspaceId, members } = input;
   const report: OsAdoptionReport = {
     desks: 0,
+    deskTotal: 0,
+    publishedKeys: 0,
     adopted: 0,
     alreadyManaged: 0,
     skippedNoOs: 0,
     skippedNoAccount: 0,
+    unknownOsNicks: [],
     createdOsDesks: 0,
     errors: [],
   };
@@ -74,6 +116,8 @@ export async function adoptOrdersToOsDesks(input: {
   // заказов у технарей (урок прошлого переноса).
   const pages = await fetchPagesFresh(workspaceId);
   const techDesks = pages.filter((p) => !p.osDesk && !p.inactive && p.autoMonthSubPageId && p.responsibleUserId);
+  report.deskTotal = techDesks.length;
+  const unknownNicks = new Set<string>();
   const osDeskByUid = new Map<string, WorkspacePage>();
   for (const page of pages) if (page.osDesk && page.responsibleUserId) osDeskByUid.set(page.responsibleUserId, page);
 
@@ -82,9 +126,13 @@ export async function adoptOrdersToOsDesks(input: {
     done += 1;
     input.onProgress?.({ done, total: techDesks.length, label: page.name });
     const tabId = page.autoMonthSubPageId as string;
-    const keys = page.osFieldKeys;
-    if (!keys || keys.tabId !== tabId) {
-      report.errors.push(`«${page.name}»: стол не сообщил ключи столбцов — пусть его откроют и повторите`);
+    let keys: OsFieldKeys;
+    try {
+      const ensured = await ensureOsFieldKeys(workspaceId, page, tabId);
+      keys = ensured.keys;
+      if (ensured.published) report.publishedKeys += 1;
+    } catch (error) {
+      report.errors.push(`«${page.name}»: ${error instanceof Error ? error.message : String(error)}`);
       continue;
     }
     report.desks += 1;
@@ -110,7 +158,10 @@ export async function adoptOrdersToOsDesks(input: {
       }
       const osMember = members.find((m) => m.status === "active" && m.osNickValue === osValue && m.uid);
       if (!osMember?.uid) {
+        // Имя ника в отчёт: иначе «пропущено 9» — это девять заказов, про
+        // которые непонятно, что чинить. Чинится закреплением ника на «Команде».
         report.skippedNoAccount += 1;
+        unknownNicks.add(osValue);
         continue;
       }
 
@@ -173,6 +224,7 @@ export async function adoptOrdersToOsDesks(input: {
       }
     }
   }
+  report.unknownOsNicks = [...unknownNicks].sort((a, b) => a.localeCompare(b, "ru"));
   return report;
 }
 

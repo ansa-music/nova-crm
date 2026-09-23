@@ -348,7 +348,10 @@ export async function seedCurrentMonthDesk(page: WorkspacePage): Promise<Workspa
       order: 0,
       createdBy: page.createdBy,
     });
-    await markMonthTab(page.workspaceId, page.id, sub.id, monthKey);
+    // Столбцы — сразу в карту `osFieldKeys` тем же write: новый стол должен
+    // принимать заказы от ОС с первой минуты, не дожидаясь, пока хозяин его
+    // откроет.
+    await markMonthTab(page.workspaceId, page.id, sub.id, monthKey, page.columns);
     return { ...page, defaultSubPageId: sub.id, autoMonthKey: monthKey, autoMonthSubPageId: sub.id, hideMainTab: true };
   } catch (error) {
     console.error(`seedCurrentMonthDesk failed for page ${page.id}; falling back to the main tab:`, error);

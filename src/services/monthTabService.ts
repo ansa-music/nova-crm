@@ -4,8 +4,9 @@ import { paths } from "@/firebase/firestore";
 import { stripUndefined } from "@/services/pageService";
 import { fetchSubPages, monthTabNameForKey } from "@/services/subPageService";
 import { ymdInTimeZone } from "@/utils/date";
+import { computeOsFieldKeys, sameOsFieldKeys } from "@/utils/osFieldKeys";
 import { worksAsTechnician } from "@/utils/peopleDesks";
-import { type SubPage, type WorkspaceMember, type WorkspacePage } from "@/types";
+import { type PageColumn, type SubPage, type WorkspaceMember, type WorkspacePage } from "@/types";
 
 /**
  * Month autopilot. Every Технарь desk works in one tab per calendar month
@@ -172,20 +173,44 @@ async function createMonthTabOnce(page: WorkspacePage, subPages: SubPage[], mont
   });
 }
 
-/** Records the month on the desk and makes its tab the default — one page-doc write. */
-export async function markMonthTab(workspaceId: string, pageId: string, subPageId: string, monthKey: string) {
+/**
+ * Records the month on the desk and makes its tab the default — one page-doc write.
+ *
+ * Столбцы новой вкладки сюда передают НЕ ради удобства: вместе с месяцем в
+ * том же write уезжает карта `osFieldKeys` (куда ОС писать заказ). Без этого
+ * 1-го числа карта указывает на прошлую вкладку, и ОС не может выдать заказ,
+ * пока технарь сам не откроет свой стол (`useOsFieldKeysPublisher`) — ровно
+ * на это напоролся перенос 23.09.2026, когда 15 столов «не сообщили ключи».
+ * Лишней записи это не стоит: поле добавляется в уже идущий merge.
+ */
+export async function markMonthTab(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string,
+  monthKey: string,
+  columns?: PageColumn[]
+) {
   if (!db) return;
-  await setDoc(
-    paths.page(workspaceId, pageId),
-    { defaultSubPageId: subPageId, autoMonthKey: monthKey, autoMonthSubPageId: subPageId, updatedAt: Date.now() },
-    { merge: true }
-  );
+  const patch: Record<string, unknown> = {
+    defaultSubPageId: subPageId,
+    autoMonthKey: monthKey,
+    autoMonthSubPageId: subPageId,
+    updatedAt: Date.now(),
+  };
+  if (columns?.length) patch.osFieldKeys = computeOsFieldKeys(subPageId, columns, Date.now());
+  await setDoc(paths.page(workspaceId, pageId), patch, { merge: true });
 }
 
 /** Finds or creates this month's tab on a desk and makes it the default. Returns the tab id. */
 export async function ensureMonthTab(page: WorkspacePage, monthKey: string, uid: string): Promise<string> {
   const subPages = await fetchSubPages(page.workspaceId, page.id);
   const tab = findMonthTab(subPages, monthKey) ?? (await createMonthTabOnce(page, subPages, monthKey, uid));
-  await markMonthTab(page.workspaceId, page.id, tab.id, monthKey);
+  // Карту столбцов обновляем только когда она реально другая: markMonthTab
+  // зовут и тогда, когда вкладка уже была, а лишняя запись документа стола
+  // рассылается снимком ВСЕМ участникам — это их чтения.
+  const columns = tab.columns ?? page.columns;
+  const fresh = columns?.length ? computeOsFieldKeys(tab.id, columns, Date.now()) : null;
+  const changed = Boolean(fresh && !sameOsFieldKeys(page.osFieldKeys, fresh));
+  await markMonthTab(page.workspaceId, page.id, tab.id, monthKey, changed ? columns : undefined);
   return tab.id;
 }

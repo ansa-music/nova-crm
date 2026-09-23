@@ -3,6 +3,7 @@ import {
   deleteField,
   getDoc,
   getDocs,
+  getDocsFromServer,
   onSnapshot,
   orderBy,
   query,
@@ -326,6 +327,17 @@ export function subscribeToSubPageRows(
 
 export async function fetchSubPages(workspaceId: string, pageId: string): Promise<SubPage[]> {
   const snap = await getDocs(query(paths.subPages(workspaceId, pageId), orderBy("order", "asc")));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as SubPage);
+}
+
+/**
+ * Вкладки стола СВЕЖИМИ с сервера. Нужно там, где по составу столбцов
+ * принимают решение и пишут его в базу (карта `osFieldKeys` у чужого стола):
+ * кэш SDK отдаёт сколько угодно старый снимок, и по нему значения заказа
+ * уехали бы в переименованные или уже удалённые столбцы.
+ */
+export async function fetchSubPagesFresh(workspaceId: string, pageId: string): Promise<SubPage[]> {
+  const snap = await getDocsFromServer(query(paths.subPages(workspaceId, pageId), orderBy("order", "asc")));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as SubPage);
 }
 

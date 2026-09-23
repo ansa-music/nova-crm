@@ -48,7 +48,14 @@ export function useMonthTabAutopilot() {
   useEffect(() => {
     if (!ready || !activeWorkspaceId) return;
     for (const page of pages) {
-      if (page.autoMonthKey === monthKey) continue;
+      // Вкладка месяца на месте — но карта столбцов может отставать: у
+      // столов, размеченных до появления «стола ОС», её нет вовсе, и ОС не
+      // может выдать туда заказ («стол не сообщил ключи столбцов»). Чиним
+      // тем же проходом: один раз на стол, дальше условие уже не сработает.
+      const monthReady = page.autoMonthKey === monthKey;
+      const keysReady =
+        Boolean(page.autoMonthSubPageId) && page.osFieldKeys?.tabId === page.autoMonthSubPageId;
+      if (monthReady && keysReady) continue;
       if (!isOwner && page.responsibleUserId !== uid) continue;
       if (!isMonthlyDesk(page, members)) continue;
       const key = `${activeWorkspaceId}:${page.id}:${monthKey}`;

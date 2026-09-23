@@ -469,7 +469,8 @@ export function RowsStoragePanel() {
           <CardDescription>
             Разовый перенос уже заведённых заказов ТЕКУЩЕГО месяца: у каждого заказа с ником ОС появится строка в столе
             этого ОС, а у технаря она станет строкой-заказом — статус и сумму в ней меняет ОС. Заказы без ника ОС и
-            прошлые месяцы остаются как были. Повторный запуск ничего не размножает.
+            прошлые месяцы остаются как были. Повторный запуск ничего не размножает. Заодно за столы, которые ещё не
+            открывали, записывается карта столбцов — без неё ОС не может выдать туда заказ.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -501,14 +502,26 @@ export function RowsStoragePanel() {
           {adoptReport && (
             <ul className="space-y-1 text-sm text-muted-foreground">
               <li>
-                Под управление ОС: <span className="font-medium text-foreground">{adoptReport.adopted}</span> из столов:{" "}
-                {adoptReport.desks}
+                Под управление ОС: <span className="font-medium text-foreground">{adoptReport.adopted}</span> · столов
+                просмотрено: {adoptReport.desks} из {adoptReport.deskTotal}
               </li>
+              {adoptReport.publishedKeys > 0 && (
+                <li>Записал карту столбцов за столы, которые не открывали: {adoptReport.publishedKeys}</li>
+              )}
               {adoptReport.alreadyManaged > 0 && <li>Уже были под управлением: {adoptReport.alreadyManaged}</li>}
               {adoptReport.createdOsDesks > 0 && <li>Заведено столов ОС: {adoptReport.createdOsDesks}</li>}
               {adoptReport.skippedNoOs > 0 && <li>Без ника ОС — остались у технаря: {adoptReport.skippedNoOs}</li>}
               {adoptReport.skippedNoAccount > 0 && (
-                <li>Ник ОС без аккаунта — пропущено: {adoptReport.skippedNoAccount}</li>
+                <li>
+                  Ник ОС без аккаунта — пропущено: {adoptReport.skippedNoAccount}
+                  {adoptReport.unknownOsNicks.length > 0 && (
+                    <>
+                      {" "}
+                      (<span className="text-foreground">{adoptReport.unknownOsNicks.join(", ")}</span> — закрепите ник
+                      за человеком на «Команде» и повторите)
+                    </>
+                  )}
+                </li>
               )}
               {adoptReport.errors.map((e, i) => (
                 <li key={i} className="text-destructive">
