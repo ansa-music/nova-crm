@@ -194,6 +194,13 @@ export default function DynamicTablePage() {
   const navigate = useNavigate();
   // Откуда пришли — «Технари», «Люди», уведомление кладут сюда `from`.
   const cameFrom = readDeskFrom(location.state);
+  // Все `setSearchParams` стола передают state дальше: без него `from`
+  // затирается, и после клика по месяцу «← Заказы» становится «Назад».
+  // Через ref — чтобы эффекты не перезапускались на каждый новый объект state.
+  const locationStateRef = useRef<unknown>(location.state);
+  useEffect(() => {
+    locationStateRef.current = location.state;
+  }, [location.state]);
   const { activeWorkspace, activeWorkspaceId, allPages, members } =
     useWorkspace();
   const permissions = usePermissions();
@@ -249,6 +256,14 @@ export default function DynamicTablePage() {
   const [tabsReady, setTabsReady] = useState(false);
   const appliedDefaultForPageRef = useRef<string | null>(null);
   const userPickedTabRef = useRef(false);
+  /**
+   * `?tab`, который стол САМ только что записал, и ключ адреса на момент
+   * записи. Навигация роутера идёт в transition, а `setActiveSubPageId` —
+   * срочно: один рендер вкладка уже новая, а адрес ещё старый, и эффект
+   * «смена ?tab» откатывал бы вкладку назад (мигание и лишняя переподписка
+   * строк — в Firestore это лишнее чтение всей вкладки).
+   */
+  const urlTabRef = useRef<{ value: string; key: string } | null>(null);
 
   const storePage = allPages.find((p) => p.id === pageId);
   const [fetchedPage, setFetchedPage] = useState<WorkspacePage | null>(null);
@@ -392,10 +407,21 @@ export default function DynamicTablePage() {
     }
     if (appliedDefaultForPageRef.current === pageId) return;
     if (subPagesLoading) return;
+    const fromUrl = resolveTabRef(tabParam, page, subPages);
+    // `?tab` без `?row` на месячном столе — это F5 или закладка, а не ссылка
+    // на строку: 1 октября F5 на сентябрьской вкладке открыл бы сентябрь, и
+    // новые заказы ушли бы в прошлый месяц. Такую вкладку решает автопилот.
+    const urlTabMonth =
+      fromUrl ? subPages.find((s) => s.id === fromUrl)?.monthKey : undefined;
+    const urlTabStale =
+      tabParam !== null &&
+      !focusRowId &&
+      fromUrl !== undefined &&
+      isMonthlyDesk(page, members) &&
+      (awaitingMonthTab || (Boolean(urlTabMonth) && urlTabMonth !== monthKey));
     // Вкладка из адреса — это выбор человека (ссылка на строку прошлого
     // месяца): она не ждёт автопилот месяца и не перебивается им.
-    const fromUrl = resolveTabRef(tabParam, page, subPages);
-    if (tabParam !== null && fromUrl !== undefined) {
+    if (tabParam !== null && fromUrl !== undefined && !urlTabStale) {
       userPickedTabRef.current = true;
       appliedDefaultForPageRef.current = pageId;
       setActiveSubPageId(fromUrl);
@@ -410,10 +436,26 @@ export default function DynamicTablePage() {
       page,
       subPages,
     );
-    setActiveSubPageId(
-      remembered !== undefined ? remembered : initialSubPageId(page, subPages),
-    );
+    const chosen =
+      remembered !== undefined ? remembered : initialSubPageId(page, subPages);
+    setActiveSubPageId(chosen);
     setTabsReady(true);
+    // Устаревшую вкладку в адресе переписываем актуальной: иначе F5 и
+    // «поделиться» снова вели бы на прошлый месяц. Запись помечаем своей —
+    // эффект «смена ?tab» не должен вернуть старую вкладку, пока адрес не
+    // догнал.
+    if (urlTabStale) {
+      const value = deskTabParam(chosen);
+      urlTabRef.current = { value, key: location.key };
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("tab", value);
+          return next;
+        },
+        { replace: true, state: locationStateRef.current },
+      );
+    }
   }, [
     pageId,
     page,
@@ -423,7 +465,11 @@ export default function DynamicTablePage() {
     awaitingMonthTab,
     monthWaitExpired,
     tabParam,
+    focusRowId,
+    members,
     monthKey,
+    location.key,
+    setSearchParams,
   ]);
 
   function handleSelectTab(subPageId: string | null) {
@@ -433,16 +479,21 @@ export default function DynamicTablePage() {
     setActiveSubPageId(subPageId);
     setTabsReady(true);
     if (pageId) storeDeskTab(pageId, subPageId, monthKey);
+    // Человек выбрал вкладку сам — недоделанный поиск строки по `?row` не
+    // должен перекинуть его обратно, когда ответ базы придёт.
+    rowLookupTargetRef.current = null;
     // Вкладка — в адрес (F5 и «поделиться» возвращают на неё), `?row`
     // остаётся: в истории браузера — без новой записи, чипы месяцев жмут
     // часто.
+    const value = deskTabParam(subPageId);
+    urlTabRef.current = { value, key: location.key };
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
-        next.set("tab", deskTabParam(subPageId));
+        next.set("tab", value);
         return next;
       },
-      { replace: true },
+      { replace: true, state: location.state },
     );
   }
 
@@ -450,6 +501,14 @@ export default function DynamicTablePage() {
   // вкладке, «Назад» браузера) — переключаемся на вкладку из адреса. После
   // своего клика адрес и вкладка совпадают, так что эффект молчит.
   useEffect(() => {
+    const own = urlTabRef.current;
+    if (own) {
+      // Свою запись ждём: пока ключ адреса прежний, роутер её ещё не
+      // применил. Ключ сменился, а `?tab` не наш — адрес поменял кто-то
+      // другой («Назад» браузера), и он главнее.
+      if (tabParam !== own.value && location.key === own.key) return;
+      urlTabRef.current = null;
+    }
     if (!tabsReady || !page || tabParam === null) return;
     if (appliedDefaultForPageRef.current !== pageId) return;
     const target = resolveTabRef(tabParam, page, subPages);
@@ -458,7 +517,15 @@ export default function DynamicTablePage() {
     // «Мой стол» не должен открываться на прошлом месяце из-за уведомления.
     userPickedTabRef.current = true;
     setActiveSubPageId(target);
-  }, [tabParam, tabsReady, page, pageId, subPages, activeSubPageId]);
+  }, [
+    tabParam,
+    location.key,
+    tabsReady,
+    page,
+    pageId,
+    subPages,
+    activeSubPageId,
+  ]);
 
   function goBack() {
     if (cameFrom) {
@@ -483,8 +550,7 @@ export default function DynamicTablePage() {
     } catch {
       /* localStorage can throw in private-browsing edge cases — not worth failing over */
     }
-    if (profile?.uid) recordRecentPage(profile.uid, pageId);
-  }, [pageId, profile?.uid]);
+  }, [pageId]);
 
   const rows = activeSubPageId ? subPageRows : pageRows;
   const rowsLoading =
@@ -504,38 +570,61 @@ export default function DynamicTablePage() {
   const rowsFromServer =
     tabsReady && (activeSubPageId ? subPageRowsSynced : pageRowsSynced);
 
+  // В «недавние» — только стол, который открылся: строки пришли с сервера.
+  // Недоступный стол (экран «Нужно разрешение», отказ политики Supabase —
+  // там строки «с сервера» не бывают) в список не попадает.
+  useEffect(() => {
+    if (!pageId || !profile?.uid || !hasAccess || !rowsFromServer) return;
+    recordRecentPage(profile.uid, pageId);
+  }, [pageId, profile?.uid, hasAccess, rowsFromServer]);
+
   // `?row` без `?tab`: строки нет на открытой вкладке — спрашиваем базу, где
   // она, и дописываем вкладку в адрес (дальше сработает эффект смены `?tab`,
   // а фокус строки в DataTable — уже после загрузки её строк). Один раз на
   // ссылку: повторный поиск той же строки ничего не даст.
+  //
+  // Ответ отменяет только смена ЦЕЛИ (другая строка, другой стол, вкладка
+  // уже в адресе), а не перезапуск эффекта: `rows` и `page` — новые объекты
+  // на каждом снимке, и отмена по cleanup глушила ответ, а повтор запрещала
+  // метка «уже искали» — строка молча не открывалась.
   const rowLookupRef = useRef<string | null>(null);
+  const rowLookupTargetRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!focusRowId || tabParam !== null || !tabsReady || !page || !pageId)
-      return;
-    if (!activeWorkspaceId || !hasAccess || rowsLoading) return;
-    const key = `${pageId}:${focusRowId}`;
-    if (rowLookupRef.current === key) return;
-    rowLookupRef.current = key;
+    const target =
+      focusRowId && pageId && tabParam === null
+        ? `${pageId}:${focusRowId}`
+        : null;
+    rowLookupTargetRef.current = target;
+    if (!target || !focusRowId || !pageId) return;
+    if (!tabsReady || !page || !activeWorkspaceId || !hasAccess) return;
+    // «Строки нет на вкладке» решаем только по снимку с сервера: кэш или
+    // пустота Supabase до подтверждения прав — ещё не ответ, и метку
+    // «уже искали» до него не ставим.
+    if (rowsLoading || !rowsFromServer) return;
+    if (rowLookupRef.current === target) return;
+    rowLookupRef.current = target;
     if (rows.some((r) => r.id === focusRowId)) return;
-    let cancelled = false;
+    const notFound = () => {
+      if (rowLookupTargetRef.current === target)
+        toast.error("Строка не найдена на этом столе");
+    };
     void lookupRowTab(activeWorkspaceId, pageId, focusRowId)
       .then((tab) => {
-        if (cancelled || tab === undefined) return;
+        if (rowLookupTargetRef.current !== target) return;
+        if (tab === undefined) {
+          notFound();
+          return;
+        }
         setSearchParams(
           (prev) => {
             const next = new URLSearchParams(prev);
             next.set("tab", deskTabParam(tab));
             return next;
           },
-          { replace: true },
+          { replace: true, state: locationStateRef.current },
         );
       })
-      .catch(() => {
-        /* строку не нашли — стол остаётся на открытой вкладке */
-      });
-    return () => {
-      cancelled = true;
-    };
+      .catch(notFound);
   }, [
     focusRowId,
     tabParam,
@@ -545,6 +634,7 @@ export default function DynamicTablePage() {
     activeWorkspaceId,
     hasAccess,
     rowsLoading,
+    rowsFromServer,
     rows,
     setSearchParams,
   ]);
@@ -1223,7 +1313,7 @@ export default function DynamicTablePage() {
             {cameFrom?.label ?? "Назад"}
           </span>
         </Button>
-        <h1 className="min-w-0 shrink truncate font-serif text-[22px] font-light leading-none tracking-[-0.01em] max-sm:flex-1 max-sm:basis-0 sm:text-[26px]">
+        <h1 className="min-w-0 shrink truncate font-serif text-[22px] font-light leading-none tracking-[-0.01em] max-sm:hidden sm:text-[26px]">
           {page.name}
         </h1>
         {!canEditData && (

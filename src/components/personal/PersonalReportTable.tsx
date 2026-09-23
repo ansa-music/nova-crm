@@ -146,11 +146,15 @@ export function PersonalReportTable({ workspaceId, pageId, uid, report, rows }: 
                   );
                 })}
                 <td>
+                  {/* Плотная строка отчёта: 44px раздули бы каждую строку таблицы.
+                      На таче — 36, как чип; удаление здесь без подтверждения,
+                      и крупная цель у края ячейки только добавляла бы промахов. */}
                   <Button
                     variant="ghost"
                     size="icon"
+                    data-compact
                     aria-label="Удалить строку"
-                    className="h-7 w-7 text-destructive"
+                    className="h-7 w-7 text-destructive [@media(pointer:coarse)]:h-9 [@media(pointer:coarse)]:w-9"
                     onClick={() => deletePersonalReportRow(workspaceId, pageId, uid, report.id, row.id)}
                   >
                     <Trash2 className="h-3.5 w-3.5" />

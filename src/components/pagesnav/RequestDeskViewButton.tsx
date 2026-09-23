@@ -49,9 +49,15 @@ export function RequestDeskViewButton({
     <Button
       type="button"
       size="sm"
-      variant={pending ? "secondary" : "default"}
+      // «Запрос отправлен» — состояние, а не приглушённая кнопка: secondary
+      // (bg-muted) плюс disabled:opacity-50 на чёрном читались как «сломано».
+      // Акцентная подложка и полная непрозрачность — «ждём ответа».
+      variant={pending ? "ghost" : "default"}
       disabled={pending || busy}
-      className={className ?? "min-h-11 w-full"}
+      className={cn(
+        className ?? "min-h-11 w-full",
+        pending && "bg-primary/12 text-primary disabled:opacity-100"
+      )}
       onClick={async (e) => {
         e.preventDefault();
         e.stopPropagation();

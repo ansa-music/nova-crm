@@ -131,6 +131,9 @@ const CHIP_CLASS =
   "table-chip inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-[12.5px] leading-none transition-colors sm:h-8";
 const CHIP_IDLE = "border-border bg-transparent text-foreground/80 hover:text-foreground";
 const CHIP_ACTIVE = "border-primary/30 bg-primary/12 text-primary";
+// Активная кнопка сегмента видов: тот же тон, что у активного чипа, без рамки
+// (рамку даёт сам сегмент). hover тоже акцентный — ghost иначе гасил бы её в серый.
+const SEGMENT_ACTIVE = "bg-primary/12 text-primary hover:bg-primary/12 hover:text-primary";
 
 export function TableToolbar({
   columns,
@@ -401,21 +404,25 @@ export function TableToolbar({
       )}
 
       {/* Канбану нужен столбец-статус, таблице и карточкам — нет. На телефоне
-          сегмент видов нужен под пальцем, на десктопе он в «⋯». */}
+          сегмент видов нужен под пальцем, на десктопе он в «⋯». Активный вид —
+          акцентной подложкой, а не variant="secondary": тот теперь bg-muted и на
+          чёрном почти не отличим от ghost. */}
       <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border p-0.5 sm:hidden">
         <Button
-          variant={viewMode === "table" ? "secondary" : "ghost"}
+          variant="ghost"
           size="sm"
-          className="h-7 min-w-0 gap-1.5 rounded-sm px-2.5"
+          aria-pressed={viewMode === "table"}
+          className={cn("h-7 min-w-0 gap-1.5 rounded-sm px-2.5", viewMode === "table" && SEGMENT_ACTIVE)}
           onClick={() => onViewModeChange("table")}
           title="Таблица"
         >
           <Table2 className="h-3.5 w-3.5" />
         </Button>
         <Button
-          variant={viewMode === "cards" ? "secondary" : "ghost"}
+          variant="ghost"
           size="sm"
-          className="h-7 min-w-0 gap-1.5 rounded-sm px-2.5"
+          aria-pressed={viewMode === "cards"}
+          className={cn("h-7 min-w-0 gap-1.5 rounded-sm px-2.5", viewMode === "cards" && SEGMENT_ACTIVE)}
           onClick={() => onViewModeChange("cards")}
           title="Карточки"
         >
@@ -423,9 +430,10 @@ export function TableToolbar({
         </Button>
         {hasStatusColumn && (
           <Button
-            variant={viewMode === "kanban" ? "secondary" : "ghost"}
+            variant="ghost"
             size="sm"
-            className="h-7 min-w-0 gap-1.5 rounded-sm px-2.5"
+            aria-pressed={viewMode === "kanban"}
+            className={cn("h-7 min-w-0 gap-1.5 rounded-sm px-2.5", viewMode === "kanban" && SEGMENT_ACTIVE)}
             onClick={() => onViewModeChange("kanban")}
             title="Канбан"
           >

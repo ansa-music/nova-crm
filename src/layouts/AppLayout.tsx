@@ -7,7 +7,9 @@ import { PageShell } from "@/components/layout/PageShell";
 import { Topbar } from "@/components/layout/Topbar";
 import { BottomNav, useKeyboardOpen } from "@/components/layout/BottomNav";
 import { GlobalSearch } from "@/components/layout/GlobalSearch";
+import { MoreSheet } from "@/components/layout/MoreSheet";
 import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog";
+import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialog";
 import { NicknamePrompt } from "@/components/common/NicknamePrompt";
 import { GlobalMessageToaster } from "@/components/common/GlobalMessageToaster";
 import { SimulationBanner } from "@/components/common/RoleSwitcher";
@@ -87,6 +89,10 @@ export function AppLayout() {
   const isPhone = useIsMobile();
   const keyboardOpen = useKeyboardOpen();
   const [createOpen, setCreateOpen] = useState(false);
+  // Лист «Ещё» и его диалоги — здесь, а не в нижней панели: панель прячется
+  // под клавиатурой, и диалог с набранным именем стола пропадал вместе с ней.
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [createPageOpen, setCreatePageOpen] = useState(false);
   const tableFullscreen = useUiStore((s) => s.tableFullscreen);
   const tableImmersive = useUiStore((s) => s.tableImmersive);
   const setTableFullscreen = useUiStore((s) => s.setTableFullscreen);
@@ -97,8 +103,10 @@ export function AppLayout() {
   const isFullscreen = tableFullscreen && isOnTablePage;
   const chromeHidden = isOnTablePage && (tableFullscreen || tableImmersive);
   // Нижняя панель — только телефон, и не поверх полноэкранного стола и не под
-  // экранной клавиатурой (там она лишь отнимала бы у поля ввода 56px).
-  const showBottomNav = isPhone && !chromeHidden && !keyboardOpen;
+  // экранной клавиатурой (там она лишь отнимала бы у поля ввода 56px). Под
+  // клавиатурой панель прячется классом, а не размонтируется.
+  const mountBottomNav = isPhone && !chromeHidden;
+  const showBottomNav = mountBottomNav && !keyboardOpen;
 
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
 
@@ -192,8 +200,22 @@ export function AppLayout() {
         </main>
         {/* В потоке колонки, после <main>: fixed-панель легла бы поверх итогов
             стола и панели массовых действий. */}
-        {showBottomNav && <BottomNav />}
+        {mountBottomNav && (
+          <BottomNav hidden={keyboardOpen} moreOpen={moreOpen} onMore={() => setMoreOpen(true)} />
+        )}
       </div>
+      {isPhone && (
+        <MoreSheet
+          open={moreOpen}
+          onOpenChange={setMoreOpen}
+          onCreatePage={() => setCreatePageOpen(true)}
+          onCreateWorkspace={() => setCreateOpen(true)}
+        />
+      )}
+      {/* Не только на телефоне: поворот в альбомную ориентацию переходит
+          порог isPhone, и открытый диалог не должен от этого закрываться. */}
+      <CreatePageDialog open={createPageOpen} onOpenChange={setCreatePageOpen} />
+      {canCreateWorkspace && <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />}
     </div>
   );
 }

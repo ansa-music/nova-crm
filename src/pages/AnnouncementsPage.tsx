@@ -1,9 +1,16 @@
 import { useMemo, useState } from "react";
-import { Archive, ArchiveRestore, Megaphone, Pencil, Pin, Plus, Search, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Megaphone, MoreHorizontal, Pencil, Pin, Plus, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/sonner";
 import { AnnouncementDialog } from "@/components/announcements/AnnouncementDialog";
@@ -161,7 +168,49 @@ export default function AnnouncementsPage() {
                       </p>
                     </div>
                     {permissions.canManageAnnouncements && (
-                      <div className="flex shrink-0 gap-1">
+                      // Телефон: четыре иконки по 44px (тач-блок) съедали ~180px
+                      // шапки карточки и давили заголовок — там одно «⋯» с теми же
+                      // действиями. Ряд остаётся с md, где места хватает.
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="-my-2 -mr-2 h-11 w-11 shrink-0 text-muted-foreground md:hidden"
+                            aria-label="Действия с объявлением"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="min-w-48">
+                          <DropdownMenuItem className="min-h-11" onSelect={() => handleTogglePin(a)}>
+                            <Pin className="h-4 w-4" /> {a.pinned ? "Открепить" : "Закрепить"}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="min-h-11"
+                            onSelect={() => {
+                              setEditing(a);
+                              setDialogOpen(true);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" /> Редактировать
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="min-h-11" onSelect={() => handleArchive(a)}>
+                            {a.isArchived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+                            {a.isArchived ? "Вернуть из архива" : "В архив"}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="min-h-11 text-destructive focus:text-destructive"
+                            onSelect={() => handleDelete(a)}
+                          >
+                            <Trash2 className="h-4 w-4" /> Удалить
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                    {permissions.canManageAnnouncements && (
+                      <div className="hidden shrink-0 gap-1 md:flex">
                         <Button variant="ghost" size="icon" className="h-7 w-7" title="Закрепить" onClick={() => handleTogglePin(a)}>
                           <Pin className={cn("h-3.5 w-3.5", a.pinned && "fill-secondary text-secondary")} />
                         </Button>

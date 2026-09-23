@@ -62,8 +62,10 @@ export function DateCalendar({ value, onChange, onClear }: DateCalendarProps) {
 
   return (
     <div className="w-64 select-none p-1">
+      {/* Шапка календаря шириной 256px: стрелки по 44 делали её выше строк
+          дней. На таче 36 — как чип, тач-блок выключен data-compact. */}
       <div className="mb-2 flex items-center justify-between">
-        <Button variant="ghost" size="icon" aria-label="Предыдущий месяц" className="h-8 w-8" onClick={() => shiftMonth(-1)}>
+        <Button variant="ghost" size="icon" data-compact aria-label="Предыдущий месяц" className="h-8 w-8 [@media(pointer:coarse)]:h-9 [@media(pointer:coarse)]:w-9" onClick={() => shiftMonth(-1)}>
           <ChevronLeft className="h-3.5 w-3.5" />
         </Button>
         <button
@@ -74,7 +76,7 @@ export function DateCalendar({ value, onChange, onClear }: DateCalendarProps) {
         >
           {MONTH_LABELS[month]} {year}
         </button>
-        <Button variant="ghost" size="icon" aria-label="Следующий месяц" className="h-8 w-8" onClick={() => shiftMonth(1)}>
+        <Button variant="ghost" size="icon" data-compact aria-label="Следующий месяц" className="h-8 w-8 [@media(pointer:coarse)]:h-9 [@media(pointer:coarse)]:w-9" onClick={() => shiftMonth(1)}>
           <ChevronRight className="h-3.5 w-3.5" />
         </Button>
       </div>

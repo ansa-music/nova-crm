@@ -254,12 +254,15 @@ export function GrokPoolRow({
               Доступен
             </Button>
           )}
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" title="Копировать вход (почта, пароль, номер)" onClick={copyLogin}>
+          {/* Кнопки стоят в одной строке с «Доступен» (h-8): тач-блок растил
+              иконки до 44, и строка аккаунта становилась выше соседних. На таче
+              — 36, как чип; data-compact выключает общее правило. */}
+          <Button variant="ghost" size="icon" data-compact className="h-8 w-8 text-muted-foreground [@media(pointer:coarse)]:h-9 [@media(pointer:coarse)]:w-9" title="Копировать вход (почта, пароль, номер)" onClick={copyLogin}>
             <Copy className="h-3.5 w-3.5" />
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" title="Ещё">
+              <Button variant="ghost" size="icon" data-compact className="h-8 w-8 text-muted-foreground [@media(pointer:coarse)]:h-9 [@media(pointer:coarse)]:w-9" title="Ещё">
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>

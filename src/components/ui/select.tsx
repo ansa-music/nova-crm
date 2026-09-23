@@ -15,7 +15,9 @@ export const SelectTrigger = React.forwardRef<
     ref={ref}
     className={cn(
       // Та же плоская рамка, что у Input: фокус — рамка и кольцо 1px акцентом, без свечения.
-      "flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-1 text-sm transition-[border-color,box-shadow] focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+      // 16px на таче — вровень с полями (им шрифт поднимает index.css): сам
+      // триггер — кнопка, iOS его не зумит, но рядом с полем 14px смотрелся бы мельче.
+      "flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-1 text-sm [@media(pointer:coarse)]:text-base transition-[border-color,box-shadow] focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
       className
     )}
     {...props}

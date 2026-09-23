@@ -1,5 +1,5 @@
-import { useCallback } from "react";
-import { useSearchParams } from "react-router";
+import { useCallback, useEffect, useRef } from "react";
+import { useLocation, useSearchParams } from "react-router";
 
 interface UrlStateOptions<T extends string> {
   /**
@@ -31,6 +31,15 @@ export function useUrlState<T extends string>(
 ): [T, (next: T) => void] {
   const { replace = true, values } = options;
   const [searchParams, setSearchParams] = useSearchParams();
+  // `setSearchParams` без `state` затирает `location.state` — а в нём `from`
+  // («← Заказы» у стола): после клика по фильтру кнопка стала бы «Назад».
+  // Через ref, а не в зависимостях: state после каждой навигации — новый
+  // объект, и `setValue` менялся бы на каждый клик.
+  const location = useLocation();
+  const stateRef = useRef<unknown>(location.state);
+  useEffect(() => {
+    stateRef.current = location.state;
+  }, [location.state]);
   const raw = searchParams.get(key);
   const value: T =
     raw === null
@@ -50,7 +59,7 @@ export function useUrlState<T extends string>(
           else params.set(key, next);
           return params;
         },
-        { replace },
+        { replace, state: stateRef.current },
       );
     },
     [key, defaultValue, replace, setSearchParams],

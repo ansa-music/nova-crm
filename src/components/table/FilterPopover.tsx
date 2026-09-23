@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/utils/cn";
 
 export interface FilterValueEntry {
@@ -99,12 +100,14 @@ export function FilterPopover({
       {values.length > 6 && (
         <div className="relative px-2 pt-2">
           <Search className="pointer-events-none absolute left-4 top-1/2 mt-1 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
+          {/* Примитив, а не голый <input> со своей бирюзовой рамкой: рамка,
+              фон и фокус — общие токены полей, 16px на таче — из index.css. */}
+          <Input
             ref={searchRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Найти значение"
-            className="h-8 w-full rounded-md border border-primary/20 bg-white/[0.03] pl-8 pr-2 text-xs outline-none placeholder:text-muted-foreground focus:border-primary"
+            className="h-8 pl-8 pr-2 text-xs"
           />
         </div>
       )}

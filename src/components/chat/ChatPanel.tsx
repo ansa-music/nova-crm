@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Pencil, Reply, Search, Smile, Trash2, X } from "lucide-react";
+import { Check, MoreHorizontal, Pencil, Reply, Search, Smile, Trash2, X } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/sonner";
@@ -316,8 +317,12 @@ export function ChatPanel({
                 </div>
 
                 {!isEditing && !m.deleted && (
-                  <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                    <Button variant="ghost" size="icon" className="h-6 w-6" title="Ответить" onClick={() => setReplyTo(m)}>
+                  // Ряд под мышь: появляется наведением (или фокусом с клавиатуры).
+                  // На таче наведения нет — там ряд не рендерится вовсе, иначе
+                  // невидимые кнопки ловили бы случайные касания; вход — «⋯» ниже.
+                  // data-compact: тач-блок иначе раздул бы 24px-иконки до 44.
+                  <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:hidden">
+                    <Button variant="ghost" size="icon" data-compact className="h-6 w-6" title="Ответить" onClick={() => setReplyTo(m)}>
                       <Reply className="h-3 w-3" />
                     </Button>
                     {isMine && (
@@ -325,6 +330,7 @@ export function ChatPanel({
                         <Button
                           variant="ghost"
                           size="icon"
+                          data-compact
                           className="h-6 w-6"
                           title="Редактировать"
                           onClick={() => {
@@ -337,6 +343,7 @@ export function ChatPanel({
                         <Button
                           variant="ghost"
                           size="icon"
+                          data-compact
                           className="h-6 w-6 text-destructive"
                           title="Удалить"
                           onClick={() => handleDelete(m.id)}
@@ -346,6 +353,46 @@ export function ChatPanel({
                       </>
                     )}
                   </div>
+                )}
+                {!isEditing && !m.deleted && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      {/* Тач-вход в те же действия: 44×44, но -my-2 не даёт
+                          кнопке раздувать короткие строки подряд идущих сообщений. */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="-my-2 -mr-2 hidden h-11 w-11 shrink-0 text-muted-foreground [@media(hover:none)]:inline-flex"
+                        aria-label="Действия с сообщением"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-44">
+                      <DropdownMenuItem className="min-h-11" onSelect={() => setReplyTo(m)}>
+                        <Reply className="h-4 w-4" /> Ответить
+                      </DropdownMenuItem>
+                      {isMine && (
+                        <>
+                          <DropdownMenuItem
+                            className="min-h-11"
+                            onSelect={() => {
+                              setEditingId(m.id);
+                              setEditValue(m.text);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" /> Изменить
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="min-h-11 text-destructive focus:text-destructive"
+                            onSelect={() => void handleDelete(m.id)}
+                          >
+                            <Trash2 className="h-4 w-4" /> Удалить
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
               </div>
             );

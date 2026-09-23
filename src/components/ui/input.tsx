@@ -5,6 +5,8 @@ import { cn } from "@/utils/cn";
  * Поле ввода — нейтральная рамка на фоне страницы, фокус обозначает сама
  * рамка плюс кольцо в 1px акцентом. Свечения (`shadow` бирюзой) нет: поле и так
  * единственное акцентное место в форме, пока в нём курсор.
+ * 16px на таче (против зума iOS) даёт не класс, а правило в index.css — оно
+ * же ловит «голые» <input> поиска, так что поведение у всех полей одно.
  */
 export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
   ({ className, type, ...props }, ref) => (

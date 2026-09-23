@@ -754,13 +754,22 @@
   Тач-нормы примитивов. Только `(pointer: coarse)`, без ширины экрана:
   планшет с мышью получает десктопные размеры, телефон — пальцевые.
   - Иконочная кнопка (`data-size` ставит Button.tsx) — 44×44: сама иконка
-    16px, и без этого по ⋯ и × в шапках промахивались.
+    16px, и без этого по ⋯ и × в шапках промахивались. `min-*` сильнее
+    h-6/h-7 вызова, поэтому плотные места (строка отчёта, шапка календаря,
+    ряд под мышью в чате) ставят `data-compact` и задают тач-размер сами —
+    обычно 36px, как чип: 44 раздували бы строку выше соседних.
   - Чип (`.chip` из ui/chip.tsx и pageChipClass) — 36px: чипы стоят рядом
     строкой, 44 уже ломали бы её на две.
   - Поля — 16px: iOS автоматически зумит страницу при фокусе на поле мельче.
+    Голый `input { }` (0,0,1) проигрывал `text-sm` примитива (0,1,0) и не
+    срабатывал нигде. `:not([…])` поднимает вес выше утилиты и заодно отсекает
+    чекбоксы/радио/ползунки — им шрифт не нужен, а таблица с ними не должна
+    расти. Одно правило на всё: и Input/Textarea, и «голые» поля поиска
+    ведут себя одинаково. `data-touch-font="off"` — выход для поля, которому
+    16px ломает вёрстку (зум iOS там сознательно терпим).
 */
 @media (pointer: coarse) {
-  button[data-size="icon"] {
+  button[data-size="icon"]:not([data-compact]) {
     min-height: 44px;
     min-width: 44px;
   }
@@ -769,9 +778,9 @@
     padding-top: 6px;
     padding-bottom: 6px;
   }
-  input,
-  select,
-  textarea {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([data-touch-font="off"]),
+  select:not([data-touch-font="off"]),
+  textarea:not([data-touch-font="off"]) {
     font-size: 16px;
   }
 }
@@ -857,6 +866,12 @@
 }
 .has-bottom-nav .bulk-action-bar {
   padding-bottom: 0;
+}
+/* Базовый bottom-5 у панели без safe-area (её несёт padding, обнулённый выше),
+   а вариант над итогами прибавлял её прямо в bottom — под нижней панелью
+   навигации это снова давало дыру. Вес (0,3,0) перебивает правило выше. */
+.has-bottom-nav .has-table-totals .bulk-action-bar {
+  bottom: calc(32px + 0.5rem);
 }
 
 /* iOS: Radix scroll-lock must not freeze the sheet or leak clicks through the overlay. */

@@ -49,12 +49,14 @@ interface SheetContentProps
     VariantProps<typeof sheetVariants> {
   /** Скрыть крестик — когда у панели своя кнопка закрытия в шапке. */
   hideClose?: boolean;
+  /** Скрыть ручку нижней шторки — когда панель рисует свою (иначе их две). */
+  hideHandle?: boolean;
 }
 
 export const SheetContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   SheetContentProps
->(({ side = "left", className, children, hideClose = false, ...props }, ref) => (
+>(({ side = "left", className, children, hideClose = false, hideHandle = false, ...props }, ref) => (
   <SheetPortal>
     <SheetOverlay />
     <DialogPrimitive.Content
@@ -65,7 +67,7 @@ export const SheetContent = React.forwardRef<
     >
       {/* Ручка нижней шторки: подсказывает, что панель можно смахнуть, и
           отделяет её от контента под ней — рамки сверху для этого мало. */}
-      {side === "bottom" && (
+      {side === "bottom" && !hideHandle && (
         <div aria-hidden className="mx-auto -mt-1 mb-3 h-1 w-9 shrink-0 rounded-sm bg-foreground/20" />
       )}
       {children}

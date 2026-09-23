@@ -61,6 +61,13 @@ import { downloadWorkspaceBackup } from "@/services/backupService";
 import { setActiveRole } from "@/services/memberService";
 import { signOutUser } from "@/firebase/auth";
 
+/**
+ * Бэкап уже собирается. На модуле, а не в состоянии хука: меню аккаунта живёт
+ * в трёх местах (выпадашка, лист «Ещё», палитра), и второй клик из другого
+ * меню запускал второе полное чтение workspace.
+ */
+let backupInFlight = false;
+
 /** Подпись роли под именем в карточке аккаунта; у ролей без подписи — email. */
 const ROLE_CAPTIONS: Partial<Record<Role, string>> = {
   owner: "Владелец",
@@ -100,6 +107,11 @@ export interface NavModel {
   isOs: boolean;
   /** Тимлид без Технаря: столов не видит, дом — «Пользователи». */
   isTeamlead: boolean;
+  /**
+   * Может выдавать заказы («Новый заказ» в палитре): от Тимлида и выше или
+   * ОС. Остальным «/orders#new» открыл бы диалог, который правила не пропустят.
+   */
+  canIssueOrders: boolean;
   pageMeta: (pathname: string) => PageMeta;
 }
 
@@ -189,6 +201,7 @@ export function useNavModel(opts: { onNavigate?: () => void } = {}): NavModel {
         : "Главная";
   const homeIcon = isOs ? HardHat : isTeamlead ? Users : Home;
   const homeActive = isHomeActive(pathname, { to: homeTo }, myDesk?.id);
+  const canIssueOrders = permissions.isResolved && (hasFullAccess(permissions.role) || permissions.hasRole("os"));
 
   // «Свой стол» для G-S и нижней панели: у Owner без стола — закреплённый или
   // первый стол (так делал GoChordHotkeys), иначе список.
@@ -205,19 +218,22 @@ export function useNavModel(opts: { onNavigate?: () => void } = {}): NavModel {
 
   // Закреплённые впереди недавних; только живые столы (закрытый по ссылке
   // «Неактуальный» в подсказки не лезет), свой стол не дублируем — он дом.
+  // Доступ проверяем здесь же: недавний мог попасть в список до того, как
+  // стол отобрали (или Owner смотрел «как Технарь»), и ярлык вёл бы в отказ.
+  const { canAccessPage } = permissions;
   const deskShortcuts = useMemo<NavChild[]>(() => {
     const out: NavChild[] = [];
     const seen = new Set<string>();
     for (const id of [...pinnedIds, ...recentIds]) {
       if (seen.has(id) || id === myDesk?.id) continue;
       const page = allPages.find((p) => p.id === id && !p.inactive);
-      if (!page) continue;
+      if (!page || !canAccessPage(page)) continue;
       seen.add(id);
       out.push(deskChild(page, onNavigate));
       if (out.length >= DESK_SHORTCUTS_LIMIT) break;
     }
     return out;
-  }, [pinnedIds, recentIds, myDesk?.id, allPages, onNavigate]);
+  }, [pinnedIds, recentIds, myDesk?.id, allPages, onNavigate, canAccessPage]);
 
   const rawSections: NavSection[] = [
     {
@@ -287,8 +303,16 @@ export function useNavModel(opts: { onNavigate?: () => void } = {}): NavModel {
       ],
     },
   ];
+  // Без своего стола дом — чужой адрес («/desks»): отдельная «Главная» на тот
+  // же путь дала бы два активных пункта рядом. Тогда дом — сам тот пункт.
+  const homeDuplicated = rawSections.some((section) =>
+    section.items.some((item) => item.key !== "home" && item.show !== false && pathOnly(item.to) === homeTo)
+  );
   const sections = rawSections
-    .map((section) => ({ ...section, items: section.items.filter((item) => item.show !== false) }))
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => item.show !== false && !(item.key === "home" && homeDuplicated)),
+    }))
     .filter((section) => section.items.length > 0);
   const items = sections.flatMap((s) => s.items);
   const badgeTotal = items.reduce((sum, item) => sum + (item.badge ?? 0), 0);
@@ -297,10 +321,12 @@ export function useNavModel(opts: { onNavigate?: () => void } = {}): NavModel {
     (pathname: string): PageMeta => {
       if (pathname === "/") return { title: homeLabel, eyebrow: "Nova" };
       // Свой стол — «Мой стол», чужой — его имя; стол ОС подписан отдельно.
+      // На телефоне шапка стола прячет свой h1 — имя стола здесь единственное.
+      // Закрытый стол не подписываем: имя чужого стола — тоже его содержимое.
       if (pathname.startsWith("/page/")) {
         const id = pathname.slice("/page/".length).split("/")[0];
         const page = allPages.find((p) => p.id === id);
-        if (page) return { title: page.name, eyebrow: page.osDesk ? "Стол ОС" : "Стол" };
+        if (page && canAccessPage(page)) return { title: page.name, eyebrow: page.osDesk ? "Стол ОС" : "Стол" };
         return { title: "Стол", eyebrow: "Столы" };
       }
       if (pathname.startsWith("/messages/")) {
@@ -310,13 +336,15 @@ export function useNavModel(opts: { onNavigate?: () => void } = {}): NavModel {
       }
       // Пункт меню с самым длинным совпавшим путём — «/grok-limit/apps» под
       // «Грок лимит». Берём из НЕотфильтрованных секций: у ОС «Столы» скрыты,
-      // а заголовок странице всё равно нужен.
+      // а заголовок странице всё равно нужен. При равной длине побеждает не
+      // дом: «/desks» без своего стола — «Столы», а не «Главная».
       let best: { item: NavItem; section: NavSection } | null = null;
       for (const section of rawSections) {
         for (const item of section.items) {
           const to = pathOnly(item.to);
           if (!pathMatches(pathname, to, item.end)) continue;
-          if (!best || to.length > pathOnly(best.item.to).length) best = { item, section };
+          const bestLen = best ? pathOnly(best.item.to).length : -1;
+          if (to.length > bestLen || (to.length === bestLen && best?.item.key === "home")) best = { item, section };
         }
       }
       if (best) {
@@ -330,7 +358,7 @@ export function useNavModel(opts: { onNavigate?: () => void } = {}): NavModel {
     // rawSections пересобираются каждый рендер; их содержимое зависит от
     // этих же значений, так что список честный.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [homeLabel, allPages, members, isOs, isTeamlead, showDeskNav, showUsersNav, showOsDispatchNav]
+    [homeLabel, allPages, members, isOs, isTeamlead, showDeskNav, showUsersNav, showOsDispatchNav, canAccessPage]
   );
 
   return {
@@ -349,11 +377,42 @@ export function useNavModel(opts: { onNavigate?: () => void } = {}): NavModel {
     ordersAlert,
     isOs,
     isTeamlead,
+    canIssueOrders,
     pageMeta,
   };
 }
 
-/** Активен ли «дом» на этом пути: «/», сам `home.to` и свой стол. */
+/** Вторая кнопка нижней панели — одна правда для BottomNav и листа «Ещё». */
+export interface BottomBarSlot {
+  key: string;
+  to: string;
+  label: string;
+  icon: LucideIcon;
+}
+
+/**
+ * «Стол»-кнопка нижней панели: у ОС — личный стол ОС, у остальных — список
+ * столов (свой стол и так стоит домом). Кому «Столы» закрыты (Тимлид без
+ * Технаря) — «Столы ОС», они видны всем. Если дом сам и есть этот адрес
+ * (Owner без своего стола — дом «/desks»), две кнопки на один путь путали бы:
+ * вторая становится «Дашбордом».
+ */
+export function bottomBarSlot(nav: Pick<NavModel, "home" | "items" | "isOs">): BottomBarSlot {
+  if (nav.isOs) return { key: "os-desk", to: "/os-desk", label: "Стол ОС", icon: Table2 };
+  const desks = nav.items.find((i) => i.key === DESKS_ITEM_KEY);
+  const slot: BottomBarSlot = desks
+    ? { key: desks.key, to: desks.to, label: "Столы", icon: LayoutGrid }
+    : { key: "os-desks", to: "/os-desks", label: "Столы ОС", icon: ScanEye };
+  if (pathOnly(slot.to) !== pathOnly(nav.home.to)) return slot;
+  return { key: "dashboard", to: "/dashboard", label: "Дашборд", icon: LayoutDashboard };
+}
+
+/**
+ * Активен ли «дом» на этом пути: «/», сам `home.to` и свой стол. `home.to`
+ * нужен дому ОС («/technicians») и Тимлида («/users»); когда он совпадает с
+ * другим пунктом («/desks»), модель убирает «Главную» из секций, и двух
+ * активных пунктов не бывает.
+ */
 export function isHomeActive(pathname: string, home: Pick<NavHome, "to">, myDeskId?: string | null) {
   return pathname === "/" || pathname === home.to || Boolean(myDeskId && pathname === `/page/${myDeskId}`);
 }
@@ -459,11 +518,26 @@ export function useAccountMenu(opts: { openCreatePage?: () => void; openCreateWo
       label: "Скачать бэкап",
       icon: Download,
       run: async () => {
+        if (backupInFlight) {
+          toast.info("Бэкап уже собирается");
+          return;
+        }
+        // Бэкап читает базу целиком — случайный клик в палитре стоил бы квоты.
+        const ok = await confirmDialog({
+          title: "Скачать бэкап?",
+          description:
+            "Будут прочитаны все столы и строки workspace — это заметный расход квоты базы. Сбор займёт до минуты.",
+          confirmLabel: "Скачать",
+        });
+        if (!ok || backupInFlight) return;
+        backupInFlight = true;
         try {
           await downloadWorkspaceBackup(activeWorkspace.id, activeWorkspace.name);
           toast.success("Бэкап скачан");
         } catch (error) {
           toast.error(error instanceof Error ? error.message : "Не удалось собрать бэкап");
+        } finally {
+          backupInFlight = false;
         }
       },
     });

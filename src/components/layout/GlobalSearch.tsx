@@ -108,7 +108,10 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
       list.push({ id: "act-new-desk", kind: "action", label: "Новый стол", hint: "создать", icon: createPage.icon, run: () => void createPage.run() });
     }
     // «/orders#new» — страница «Заказы» открывает диалог выдачи по хэшу.
-    list.push({ id: "act-new-order", kind: "action", label: "Новый заказ", hint: "Заказы", icon: ClipboardList, href: "/orders#new" });
+    // Кто выдавать не может, получил бы диалог, который не сохранится.
+    if (nav.canIssueOrders) {
+      list.push({ id: "act-new-order", kind: "action", label: "Новый заказ", hint: "Заказы", icon: ClipboardList, href: "/orders#new" });
+    }
     list.push({
       id: "act-theme",
       kind: "action",
@@ -134,7 +137,7 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
       list.push({ id: `act-${a.key}`, kind: "action", label: a.label, icon: a.icon, run: () => void a.run() });
     }
     return list;
-  }, [account, isDark]);
+  }, [account, isDark, nav.canIssueOrders]);
 
   const roleItems: CommandItem[] = useMemo(
     () =>
@@ -328,12 +331,14 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
               ) : (
                 <Search className="h-4 w-4 text-muted-foreground" />
               )}
+              {/* 15px перебивал правило 16px из index.css — на таче iOS снова
+                  зумил страницу при фокусе; под пальцем возвращаем 16px. */}
               <Input
                 autoFocus
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={roleMode ? "Роль…" : "Стол, человек, раздел, действие…"}
-                className="h-10 border-0 bg-transparent px-1 text-[15px] shadow-none focus-visible:ring-0"
+                className="h-10 border-0 bg-transparent px-1 text-[15px] shadow-none focus-visible:ring-0 [@media(pointer:coarse)]:text-base"
                 onKeyDown={(e) => {
                   if (e.code === "ArrowDown") {
                     e.preventDefault();

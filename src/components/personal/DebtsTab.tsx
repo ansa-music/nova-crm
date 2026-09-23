@@ -120,8 +120,9 @@ export function DebtsTab({ workspaceId, pageId, uid }: DebtsTabProps) {
             <Button
               variant="ghost"
               size="icon"
+              data-compact
               aria-label="Удалить долг"
-              className="h-7 w-7 shrink-0 text-muted-foreground"
+              className="h-7 w-7 shrink-0 text-muted-foreground [@media(pointer:coarse)]:h-9 [@media(pointer:coarse)]:w-9"
               onClick={() => handleDelete(d)}
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -156,8 +157,9 @@ export function DebtsTab({ workspaceId, pageId, uid }: DebtsTabProps) {
               <Button
                 variant="ghost"
                 size="icon"
+                data-compact
                 aria-label="Удалить долг"
-                className="h-7 w-7 shrink-0 text-muted-foreground"
+                className="h-7 w-7 shrink-0 text-muted-foreground [@media(pointer:coarse)]:h-9 [@media(pointer:coarse)]:w-9"
                 onClick={() => handleDelete(d)}
               >
                 <Trash2 className="h-3.5 w-3.5" />

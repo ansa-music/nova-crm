@@ -206,7 +206,7 @@ export function RowCardSheet({
             if (!open) setInactiveOpenKey((prev) => (prev === col.key ? null : prev));
           }}
         >
-          <SelectTrigger className={cn("h-9 w-auto min-w-[8rem] max-w-full border-primary/20 bg-white/[0.03]", opts.inline && "h-8")}>
+          <SelectTrigger className={cn("h-9 w-auto min-w-[8rem] max-w-full", opts.inline && "h-8")}>
             <SelectValue placeholder="—">
               {stringValue ? (
                 <StatusBadge value={stringValue} options={col.statusOptions ?? []} showTick={col.type === "status"} />
@@ -258,7 +258,7 @@ export function RowCardSheet({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-primary/20 bg-white/[0.03] px-3 text-sm hover:border-primary/50"
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-sm hover:bg-accent"
             >
               <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
               <span className={cn("tabular", !text && "text-muted-foreground")}>{text || "Выбрать дату"}</span>
