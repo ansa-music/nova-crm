@@ -12,7 +12,7 @@ import {
   updateProfile,
   type User,
 } from "firebase/auth";
-import { auth } from "@/firebase/firebase";
+import { auth, clearFirestoreCache, markFirestoreCacheForWipe } from "@/firebase/firebase";
 
 const GOOGLE_REDIRECT_FLAG = "nova-crm:google-redirect";
 const REDIRECT_FLAG_MAX_AGE_MS = 10 * 60 * 1000;
@@ -228,8 +228,14 @@ export async function signInWithEmail(email: string, password: string) {
 /** Explicit user logout only. Never call this from a Firestore permission error. */
 export async function signOutUser() {
   clearRedirectFlag();
+  // Метка «стереть кэш» — ДО выхода: реакция приложения на выход может
+  // увести страницу раньше, чем мы дойдём до следующих строк.
+  markFirestoreCacheForWipe();
   await signOut(requireAuth());
-  // Начать с чистой страницы: кэш Firestore в памяти (LRU, firebase.ts) и
+  // Кэш Firestore теперь на диске (firebase.ts) — стираем, иначе следующий
+  // человек в этом браузере сначала видел бы снимки вышедшего.
+  await clearFirestoreCache();
+  // Начать с чистой страницы: кэш Firestore и
   // кэши на модулях (столы дашборда, сводки ОС, leaderboard) принадлежат
   // вышедшему. Следующий, кто войдёт в этой же вкладке, иначе сначала получал
   // бы его снимки — заказы, выданные «ему», строки его столов.

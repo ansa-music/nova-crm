@@ -13,7 +13,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths, withErrorReporting } from "@/firebase/firestore";
+import { getDocsResumable, paths, withErrorReporting } from "@/firebase/firestore";
 import { COLOR_PRESETS } from "@/components/common/ColorPicker";
 import { displayNameOf, realNameOf } from "@/utils/displayName";
 import { generateId } from "@/utils/id";
@@ -79,8 +79,14 @@ export function quietActiveMembers(
 }
 
 
+/**
+ * Весь список участников — разово, но через подписку с resume-токеном
+ * (`getDocsResumable`): на входе и при каждом «обновить список» `getDocs`
+ * платил за всех участников заново, а так — только за тех, чей документ
+ * поменялся с прошлого чтения.
+ */
 export async function fetchMembers(workspaceId: string): Promise<WorkspaceMember[]> {
-  const snapshot = await getDocs(paths.members(workspaceId));
+  const snapshot = await getDocsResumable(paths.members(workspaceId));
   return sortMembers(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as WorkspaceMember));
 }
 
@@ -636,7 +642,9 @@ export async function removeMember(workspaceId: string, uid: string) {
  * вернула бы права убранному и сняла бы их с только что одобренного.
  */
 export async function fetchMembersFresh(workspaceId: string): Promise<WorkspaceMember[]> {
-  const snapshot = await withDbTimeout(getDocsFromServer(paths.members(workspaceId)), "Список участников");
+  // Снимок подписки, подтверждённый сервером, — такой же свежий, как
+  // getDocsFromServer, но с resume-токеном платит только за изменившихся.
+  const snapshot = await withDbTimeout(getDocsResumable(paths.members(workspaceId)), "Список участников");
   return snapshot.docs.map((d) => {
     const data = d.data() as Partial<WorkspaceMember>;
     // uid — из поля, а у старых документов без него — из id (приглашения по почте — не участники).

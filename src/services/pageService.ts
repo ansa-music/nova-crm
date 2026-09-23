@@ -14,7 +14,7 @@ import {
   type Query,
 } from "firebase/firestore";
 import { auth, db } from "@/firebase/firebase";
-import { paths, subscribeWithSource, withErrorReporting } from "@/firebase/firestore";
+import { getDocsResumable, paths, subscribeWithSource, withErrorReporting } from "@/firebase/firestore";
 import { generateDeskId, generateId } from "@/utils/id";
 import { hasRowExtras } from "@/utils/rowExtras";
 import { RESERVED_CELL_KEY_ERROR, isReservedCellKey } from "@/utils/reservedCellKeys";
@@ -984,7 +984,8 @@ export async function fetchPagesFresh(workspaceId: string): Promise<WorkspacePag
 /** One-shot row read for dashboards — no live listener. */
 export async function fetchRows(workspaceId: string, pageId: string): Promise<PageRow[]> {
   if (usesSupabaseRows(workspaceId)) return sbFetchRows(workspaceId, pageId, null);
-  const snap = await getDocs(query(paths.rows(workspaceId, pageId), orderBy("order", "asc")));
+  // См. fetchSubPageRows: платим только за изменившиеся строки.
+  const snap = await getDocsResumable(query(paths.rows(workspaceId, pageId), orderBy("order", "asc")));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as PageRow);
 }
 

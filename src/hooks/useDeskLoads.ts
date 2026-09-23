@@ -189,6 +189,35 @@ const lastRefreshAt = new Map<string, number>();
  * его строки (аудит квоты 22.09.2026: ~24 000 чтений в день).
  */
 const verifiedAt = new Map<string, number>();
+/**
+ * `verifiedAt` переживает ПЕРЕЗАГРУЗКУ (localStorage): в памяти он жил до
+ * первого F5 или автообновления после деплоя, и каждая новая вкладка Owner
+ * снова читала все строки всех «тихих» столов — а перезагрузок в день десятки.
+ * Это удобство одного браузера, не данные команды: потерялось — просто
+ * пересчитаем лишний раз.
+ */
+const VERIFIED_KEY = "nova:desk-recount-verified";
+function loadVerified() {
+  if (verifiedAt.size > 0) return;
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(VERIFIED_KEY) ?? "{}") as Record<string, number>;
+    const cutoff = Date.now() - STALE_AFTER_MS;
+    for (const [key, at] of Object.entries(raw)) if (Number(at) > cutoff) verifiedAt.set(key, Number(at));
+  } catch {
+    /* нет хранилища — живём с памятью вкладки */
+  }
+}
+function saveVerified(key: string, at: number) {
+  verifiedAt.set(key, at);
+  try {
+    const cutoff = Date.now() - STALE_AFTER_MS;
+    const out: Record<string, number> = {};
+    for (const [k, v] of verifiedAt) if (v > cutoff) out[k] = v;
+    window.localStorage.setItem(VERIFIED_KEY, JSON.stringify(out));
+  } catch {
+    /* см. loadVerified */
+  }
+}
 
 /**
  * Owner-only background recount: the Owner can read every desk, so desks
@@ -230,6 +259,7 @@ export function useOwnerDeskRecount(loads: DeskLoad[] | null, synced = true) {
   useEffect(() => {
     if (!isOwner || !activeWorkspaceId || !uid || !loadsReady) return;
     const recount = () => {
+      loadVerified();
       const startedAt = Date.now();
       const desks: { page: WorkspacePage; key: string }[] = [];
       for (const p of pagesRef.current) {
@@ -264,7 +294,7 @@ export function useOwnerDeskRecount(loads: DeskLoad[] | null, synced = true) {
                 // Опубликовал он или цифры и так совпали — строки на этот
                 // момент сверены. Ошибка (например, та же квота) сверкой не
                 // считается: повторим не раньше, чем через REFRESH_EVERY_MS.
-                verifiedAt.set(key, checkedAt);
+                saveVerified(key, checkedAt);
               } catch (error) {
                 console.warn(`Не удалось пересчитать стол ${desk.id}:`, error);
               }

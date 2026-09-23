@@ -7,10 +7,15 @@ import {
   browserPopupRedirectResolver,
 } from "firebase/auth";
 import {
+  clearIndexedDbPersistence,
   type Firestore,
+  type FirestoreLocalCache,
   initializeFirestore,
   memoryLocalCache,
   memoryLruGarbageCollector,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  terminate,
 } from "firebase/firestore";
 import { type FirebaseStorage, getStorage } from "firebase/storage";
 import { getAnalytics, isSupported, type Analytics } from "firebase/analytics";
@@ -100,23 +105,74 @@ export function reloadInCompatMode() {
 export const isFirestoreCompatMode = compatModeEnabled();
 
 /**
- * Кэш — в памяти вкладки, но со сборщиком LRU вместо «жадного» по умолчанию.
- * Жадный выбрасывает документы запроса и его resume-токен, как только
- * закрылась последняя подписка на него, поэтому каждый переход «Дашборд» ↔
- * «Технари» ↔ «График» заново оплачивался полным чтением всех выборок экрана.
- * На Spark (50 000 чтений в день) это одна из причин, по которой квота
- * кончилась 22.09.2026. LRU держит их до 40 МБ: повторная подписка в течение
- * ~30 минут продолжается с токена, и сервер присылает (и списывает) только то,
- * что успело измениться.
+ * Кэш Firestore — на ДИСКЕ (IndexedDB), общий для всех вкладок браузера.
  *
- * Именно память, не IndexedDB: после перезагрузки кэш пуст, и вчерашние
- * данные между сессиями не всплывают. Первый снимок повторной подписки может
- * прийти из кэша (`fromCache`) — места, где это важно для записи, уже это
- * проверяют (график, шаблон недели, пустые снимки при загрузке).
+ * Было: кэш в памяти вкладки (LRU). Повторные подписки внутри одной вкладки
+ * он удешевлял, но каждая ПЕРЕЗАГРУЗКА и каждая новая вкладка читали всё
+ * заново: вход технаря — ~100 чтений на 28 человек, Owner на дашборде —
+ * ~190 (замерено на стенде с эмулятором и счётчиком). А перезагрузок в день
+ * сотни: автообновление после каждого деплоя, F5, телефон, который выгружает
+ * фоновую вкладку. 22–23.09.2026 квота Spark (50 000 чтений в сутки) кончалась
+ * два дня подряд — 141 000 и 89 000.
+ *
+ * С кэшем на диске подписка после перезагрузки продолжается с resume-токена:
+ * если с прошлого раза прошло меньше ~30 минут, сервер присылает и списывает
+ * только ИЗМЕНИВШИЕСЯ документы (так тарифицирует Firestore). Менеджер
+ * нескольких вкладок вдобавок держит ОДНО соединение на браузер: две вкладки
+ * с одним и тем же запросом не платят дважды.
+ *
+ * Цена та же, что и у LRU: первый снимок подписки может прийти из кэша
+ * (`fromCache`), теперь и сразу после загрузки. Рисовать по нему можно,
+ * РЕШАТЬ — нельзя; места, которые пишут по результату подписки, это уже
+ * проверяют (см. CLAUDE.md, «Кэш Firestore — на ДИСКЕ»). Выход из аккаунта стирает кэш
+ * (`clearFirestoreCache`), чтобы следующий человек не видел снимков прошлого.
+ *
+ * Выключатель на устройстве: `nova:firestore-memory-cache=1` в localStorage —
+ * вернуться к кэшу в памяти. Нет IndexedDB (приватный режим старого Safari) —
+ * SDK сам откатывается на память.
  */
-const localCache = memoryLocalCache({
-  garbageCollector: memoryLruGarbageCollector({ cacheSizeBytes: 40 * 1024 * 1024 }),
-});
+export const FIRESTORE_MEMORY_CACHE_KEY = "nova:firestore-memory-cache";
+
+function memoryCacheForced(): boolean {
+  try {
+    return typeof window === "undefined" || window.localStorage.getItem(FIRESTORE_MEMORY_CACHE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function createLocalCache(): FirestoreLocalCache {
+  const memory = () =>
+    memoryLocalCache({ garbageCollector: memoryLruGarbageCollector({ cacheSizeBytes: 40 * 1024 * 1024 }) });
+  if (memoryCacheForced() || typeof indexedDB === "undefined") return memory();
+  try {
+    return persistentLocalCache({ tabManager: persistentMultipleTabManager(), cacheSizeBytes: 40 * 1024 * 1024 });
+  } catch {
+    return memory();
+  }
+}
+
+/**
+ * Выход из аккаунта ставит метку, и кэш стирается при СЛЕДУЮЩЕЙ загрузке —
+ * до того, как Firestore откроет базу. Стирать на выходе ненадёжно: вкладка
+ * уходит на «/» раньше, чем terminate + clearIndexedDbPersistence успевают
+ * (проверено на стенде — кэш оставался). `deleteDatabase` здесь выполнится
+ * раньше любого открытия: запросы открытия IndexedDB ждут начатого удаления.
+ */
+export const FIRESTORE_WIPE_KEY = "nova:firestore-wipe";
+
+function wipeCacheIfAsked() {
+  try {
+    if (typeof indexedDB === "undefined" || window.localStorage.getItem(FIRESTORE_WIPE_KEY) !== "1") return;
+    window.localStorage.removeItem(FIRESTORE_WIPE_KEY);
+    indexedDB.deleteDatabase(`firestore/${app.name}/${firebaseConfig.projectId}/main`);
+  } catch {
+    /* нет хранилища — и кэша на диске тоже нет */
+  }
+}
+
+wipeCacheIfAsked();
+const localCache = createLocalCache();
 
 // Две настройки long polling взаимоисключающие: вместе initializeFirestore бросает.
 export const db: Firestore = initializeFirestore(
@@ -127,6 +183,30 @@ export const db: Firestore = initializeFirestore(
 );
 
 export const storage: FirebaseStorage = getStorage(app);
+
+/**
+ * Стереть кэш Firestore этого браузера — при выходе из аккаунта: метка для
+ * следующей загрузки (см. `wipeCacheIfAsked`) и попытка стереть сразу. После
+ * `terminate` база в этой вкладке больше не работает, поэтому вызывать только
+ * прямо перед уходом со страницы.
+ */
+export function markFirestoreCacheForWipe() {
+  try {
+    window.localStorage.setItem(FIRESTORE_WIPE_KEY, "1");
+  } catch {
+    /* без localStorage остаётся попытка стереть сразу */
+  }
+}
+
+export async function clearFirestoreCache() {
+  markFirestoreCacheForWipe();
+  try {
+    await terminate(db);
+    await clearIndexedDbPersistence(db);
+  } catch (error) {
+    console.warn("[firestore] кэш не стёрт при выходе", error);
+  }
+}
 
 export let analytics: Analytics | null = null;
 if (typeof window !== "undefined") {

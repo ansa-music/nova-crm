@@ -1,6 +1,6 @@
-import { getDoc, onSnapshot, query, runTransaction, where, type FirestoreError } from "firebase/firestore";
+import { onSnapshot, query, runTransaction, where, type FirestoreError } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths, withErrorReporting } from "@/firebase/firestore";
+import { getDocResumable, paths, withErrorReporting } from "@/firebase/firestore";
 import { currentMonthSubPageId } from "@/services/monthTabService";
 import { fetchSubPageRows } from "@/services/subPageService";
 import { publishOsOrders } from "@/services/osOrdersService";
@@ -171,7 +171,7 @@ export async function refreshDeskLoadFromRows(
   const responsibleUserId = page.responsibleUserId;
   if (!db || !subPageId || !responsibleUserId) return false;
   const [subSnap, rows] = await Promise.all([
-    getDoc(paths.subPage(page.workspaceId, page.id, subPageId)),
+    getDocResumable(paths.subPage(page.workspaceId, page.id, subPageId)),
     fetchSubPageRows(page.workspaceId, page.id, subPageId),
   ]);
   if (!subSnap.exists()) return false;

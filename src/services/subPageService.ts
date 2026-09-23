@@ -1,7 +1,6 @@
 import {
   deleteDoc,
   deleteField,
-  getDoc,
   getDocFromServer,
   getDocs,
   onSnapshot,
@@ -11,7 +10,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths, subscribeWithSource, withErrorReporting } from "@/firebase/firestore";
+import { getDocsResumable, paths, subscribeWithSource, withErrorReporting } from "@/firebase/firestore";
 import { RESERVED_CELL_KEY_ERROR, isReservedCellKey } from "@/utils/reservedCellKeys";
 import { generateId } from "@/utils/id";
 import { hasRowExtras } from "@/utils/rowExtras";
@@ -346,7 +345,8 @@ export function subscribeToSubPageRows(
 }
 
 export async function fetchSubPages(workspaceId: string, pageId: string): Promise<SubPage[]> {
-  const snap = await getDocs(query(paths.subPages(workspaceId, pageId), orderBy("order", "asc")));
+  // Подписка с resume-токеном вместо getDocs — платим только за изменившиеся вкладки.
+  const snap = await getDocsResumable(query(paths.subPages(workspaceId, pageId), orderBy("order", "asc")));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as SubPage);
 }
 
@@ -376,7 +376,9 @@ export async function fetchSubPageRows(
   subPageId: string
 ): Promise<PageRow[]> {
   if (usesSupabaseRows(workspaceId)) return sbFetchRows(workspaceId, pageId, subPageId);
-  const snap = await getDocs(
+  // Дашборд Owner читает так строки ВСЕХ столов на каждом входе: подписка с
+  // resume-токеном списывает только изменившиеся строки, а не всю вкладку.
+  const snap = await getDocsResumable(
     query(paths.subPageRows(workspaceId, pageId, subPageId), orderBy("order", "asc"))
   );
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as PageRow);

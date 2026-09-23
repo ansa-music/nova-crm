@@ -1,5 +1,4 @@
-import { getDoc } from "firebase/firestore";
-import { paths } from "@/firebase/firestore";
+import { getDocResumable, paths } from "@/firebase/firestore";
 import { createOneShotLoadCache, useCachedBatchLoads, type BatchLoadSpec } from "@/hooks/useCachedBatchLoads";
 import type { SubPagePair } from "@/hooks/useMultiSubPageRows";
 import type { SubPage } from "@/types";
@@ -11,7 +10,8 @@ import type { SubPage } from "@/types";
  * чтений на стол на каждый заход вместо одного.
  */
 async function fetchDefaultSubPage(workspaceId: string, pair: SubPagePair): Promise<SubPage[]> {
-  const snap = await getDoc(paths.subPage(workspaceId, pair.pageId, pair.subPageId));
+  // Подписка с resume-токеном: повторный вход платит, только если вкладку правили.
+  const snap = await getDocResumable(paths.subPage(workspaceId, pair.pageId, pair.subPageId));
   // Вкладки нет (удалили) — как раньше, когда её не находили в списке:
   // progressForPage возьмёт колонки самого стола.
   return snap.exists() ? [{ id: snap.id, ...snap.data() } as unknown as SubPage] : [];

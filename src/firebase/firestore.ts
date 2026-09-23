@@ -8,6 +8,8 @@ import {
   onSnapshot,
   type DocumentData,
   type FirestoreError,
+  type QuerySnapshot,
+  type DocumentSnapshot,
 } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { toast } from "@/components/ui/sonner";
@@ -281,6 +283,91 @@ export function subscribeWithSource<T>(
     },
     withErrorReporting(onError)
   );
+}
+
+/**
+ * Разовое чтение запроса, которое платит только за ИЗМЕНИВШЕЕСЯ.
+ *
+ * `getDocs` всегда идёт на сервер целиком: список участников на 40 человек —
+ * 40 чтений на каждый вход и каждую перезагрузку. Подписка же с кэшем на диске
+ * (firebase.ts) продолжается с resume-токена, и сервер присылает (и списывает)
+ * только документы, изменившиеся с прошлого раза. Поэтому здесь — подписка,
+ * которая ждёт первого снимка С СЕРВЕРА и сразу отписывается. Снимок из кэша
+ * не отдаём: разовое чтение обещает свежие данные.
+ *
+ * Нет связи дольше `timeoutMs` — ошибка `unavailable`, как у `getDocs`.
+ */
+export function getDocsResumable(
+  ref: Query<DocumentData> | CollectionReference<DocumentData>,
+  timeoutMs = 15_000
+): Promise<QuerySnapshot<DocumentData>> {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    let unsubscribe: (() => void) | null = null;
+    const finish = () => {
+      done = true;
+      window.clearTimeout(timer);
+      // Отписка из колбэка самого снимка — только после его возврата.
+      if (unsubscribe) queueMicrotask(unsubscribe);
+    };
+    const timer = window.setTimeout(() => {
+      if (done) return;
+      finish();
+      // Тот же код, что у getDocs без сети, — его разбирает utils/dbError.
+      reject(Object.assign(new Error("Нет ответа базы — проверьте связь"), { name: "FirebaseError", code: "unavailable" }));
+    }, timeoutMs);
+    unsubscribe = onSnapshot(
+      ref,
+      { includeMetadataChanges: true },
+      (snapshot) => {
+        if (done || snapshot.metadata.fromCache) return;
+        finish();
+        resolve(snapshot);
+      },
+      (error) => {
+        if (done) return;
+        finish();
+        reject(error);
+      }
+    );
+    if (done) queueMicrotask(unsubscribe);
+  });
+}
+
+/** То же, что `getDocsResumable`, для одного документа (вместо `getDoc`). */
+export function getDocResumable(
+  ref: DocumentReference<DocumentData>,
+  timeoutMs = 15_000
+): Promise<DocumentSnapshot<DocumentData>> {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    let unsubscribe: (() => void) | null = null;
+    const finish = () => {
+      done = true;
+      window.clearTimeout(timer);
+      if (unsubscribe) queueMicrotask(unsubscribe);
+    };
+    const timer = window.setTimeout(() => {
+      if (done) return;
+      finish();
+      reject(Object.assign(new Error("Нет ответа базы — проверьте связь"), { name: "FirebaseError", code: "unavailable" }));
+    }, timeoutMs);
+    unsubscribe = onSnapshot(
+      ref,
+      { includeMetadataChanges: true },
+      (snapshot) => {
+        if (done || snapshot.metadata.fromCache) return;
+        finish();
+        resolve(snapshot);
+      },
+      (error) => {
+        if (done) return;
+        finish();
+        reject(error);
+      }
+    );
+    if (done) queueMicrotask(unsubscribe);
+  });
 }
 
 export function subscribeToDoc<T>(

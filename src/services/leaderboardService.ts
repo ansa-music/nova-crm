@@ -33,6 +33,39 @@ export async function updateLeaderboardEntry(workspaceId: string, entry: Leaderb
  */
 const lastPublished = new Map<string, { signature: string; at: number }>();
 const MEMORY_TRUST_MS = 90 * 60_000;
+/**
+ * Та же память — в localStorage: на модуле она жила до перезагрузки, и
+ * каждый F5 или автообновление после деплоя у Owner переписывали записи ВСЕХ
+ * столов (замер на стенде: +20 записей на каждую перезагрузку дашборда), а
+ * каждая такая запись ещё и расходилась чтением по всем открытым «Столам».
+ */
+const STORAGE_KEY = "nova:leaderboard-published";
+let restored = false;
+function restoreMemory() {
+  if (restored) return;
+  restored = true;
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, { signature: string; at: number }>;
+    const cutoff = Date.now() - MEMORY_TRUST_MS;
+    for (const [key, value] of Object.entries(raw)) {
+      if (value && typeof value.signature === "string" && Number(value.at) > cutoff && !lastPublished.has(key)) {
+        lastPublished.set(key, { signature: value.signature, at: Number(value.at) });
+      }
+    }
+  } catch {
+    /* нет хранилища — память только этой вкладки */
+  }
+}
+function persistMemory() {
+  try {
+    const cutoff = Date.now() - MEMORY_TRUST_MS;
+    const out: Record<string, { signature: string; at: number }> = {};
+    for (const [key, value] of lastPublished) if (value.at > cutoff) out[key] = value;
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(out));
+  } catch {
+    /* см. restoreMemory */
+  }
+}
 
 function entrySignature(entry: LeaderboardEntryDraft): string {
   // responsibleUserId — сверх чисел: стол передали другому, цифры те же, а
@@ -54,6 +87,7 @@ function entrySignature(entry: LeaderboardEntryDraft): string {
  * пересчёт попробовал её снова.
  */
 export async function publishLeaderboardEntries(workspaceId: string, entries: LeaderboardEntryDraft[]) {
+  restoreMemory();
   await Promise.all(
     entries.map(async (entry) => {
       const key = `${workspaceId}/${entry.pageId}`;
@@ -66,6 +100,7 @@ export async function publishLeaderboardEntries(workspaceId: string, entries: Le
       lastPublished.set(key, mark);
       try {
         await updateLeaderboardEntry(workspaceId, entry);
+        persistMemory();
       } catch {
         if (lastPublished.get(key) !== mark) return;
         if (previous === undefined) lastPublished.delete(key);

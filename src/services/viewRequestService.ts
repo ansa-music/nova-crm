@@ -1,6 +1,6 @@
-import { getDocs, onSnapshot, query, setDoc, where } from "firebase/firestore";
+import { onSnapshot, query, setDoc, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths } from "@/firebase/firestore";
+import { getDocsResumable, paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { normalizeTimestamp } from "@/utils/date";
 import { pingInboxChanged } from "@/utils/inboxEvents";
@@ -21,8 +21,11 @@ function mapRequests(docs: { id: string; data: () => import("firebase/firestore"
 }
 
 export async function fetchMyViewRequests(workspaceId: string, uid: string): Promise<ViewRequest[]> {
-  const fromSnap = await getDocs(query(paths.viewRequests(workspaceId), where("fromUid", "==", uid)));
-  const toSnap = await getDocs(query(paths.viewRequests(workspaceId), where("toUid", "==", uid)));
+  // Опрашивается на нескольких экранах — подписка с resume-токеном дешевле getDocs.
+  const [fromSnap, toSnap] = await Promise.all([
+    getDocsResumable(query(paths.viewRequests(workspaceId), where("fromUid", "==", uid))),
+    getDocsResumable(query(paths.viewRequests(workspaceId), where("toUid", "==", uid))),
+  ]);
   const byId = new Map<string, ViewRequest>();
   for (const row of mapRequests([...fromSnap.docs, ...toSnap.docs])) byId.set(row.id, row);
   return Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
