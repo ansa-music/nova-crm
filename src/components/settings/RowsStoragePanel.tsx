@@ -8,6 +8,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useRowsBackend } from "@/hooks/useRowsBackend";
 import { ROWS_MIGRATION_STALE_MS } from "@/hooks/useRowsBackendBridge";
+import { migrationStartMillis } from "@/services/rows/rowsBackend";
 import { useWorkspaceStore } from "@/store/workspaceStore";
 import { confirmDialog } from "@/utils/appDialog";
 import { fetchDeskObservers } from "@/services/deskObserverService";
@@ -107,7 +108,7 @@ export function RowsStoragePanel() {
 
   if (!activeWorkspace || !workspaceId) return null;
   const me = permissions.uid ?? "";
-  const migrationAt = activeWorkspace.rowsMigrationAt ?? null;
+  const migrationAt = migrationStartMillis(activeWorkspace.rowsMigrationAt);
   const migrationStale = typeof migrationAt === "number" && Date.now() - migrationAt >= ROWS_MIGRATION_STALE_MS;
   const migrationLive = typeof migrationAt === "number" && !migrationStale;
   const onSupabase = backend === "supabase";

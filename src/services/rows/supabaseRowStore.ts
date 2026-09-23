@@ -201,13 +201,132 @@ interface RealtimePayload {
   old: Partial<DeskRowRecord>;
 }
 
+type RowsMap = Map<string, PageRow>;
+type Op = (rows: RowsMap) => void;
+
 /**
- * Живые строки таблицы: полная выборка + изменения через Realtime.
+ * Правка, ещё не подтверждённая тем, что таблица видит с сервера.
  *
- * Выборка делается при КАЖДОМ (пере)подключении канала и при возврате на
- * вкладку: Realtime не хранит пропущенное, а выборка здесь квоты не стоит, —
- * так пропуск события на плохой связи чинится сам. События, пришедшие, пока
- * выборка в пути, копятся и накладываются поверх неё, если они не старше.
+ * С Firestore правка появлялась в таблице сразу (SDK сам показывает свою
+ * запись до ответа сервера), и `DataTable` на это рассчитан — своего
+ * «оптимистичного» слоя у него нет. Здесь то же делаем сами: правка ложится
+ * поверх серверных строк сразу, а уходит, когда сервер её показал — событием
+ * Realtime по каждой затронутой строке или свежей выборкой. Без этого, если
+ * Realtime не подключился, введённое значение откатывалось бы до возврата на
+ * вкладку, и человек вбивал бы его заново.
+ */
+interface Overlay {
+  op: Op;
+  /** Строки, событий по которым ждём; null — всей таблицы (ждём выборку). */
+  remaining: Set<string> | null;
+  /** Когда запись подтвердил сервер; null — ещё в пути. */
+  committedAt: number | null;
+}
+
+/** Подтверждённая правка держится поверх не дольше этого — дальше верим серверу. */
+const OVERLAY_TTL_MS = 5000;
+
+interface LiveTable {
+  workspaceId: string;
+  pageId: string;
+  tabId: string;
+  overlays: Map<number, Overlay>;
+  pending: number;
+  refresh: () => void;
+  /** Запись в этой таблице завершилась (успешно или нет). */
+  settled: () => void;
+  reload: () => void;
+}
+
+const liveTables = new Set<LiveTable>();
+let opSeq = 0;
+
+function tablesFor(workspaceId: string, pageId: string, tab: string | null | undefined): LiveTable[] {
+  return [...liveTables].filter(
+    (t) => t.workspaceId === workspaceId && t.pageId === pageId && (tab === undefined || t.tabId === tabKey(tab))
+  );
+}
+
+/**
+ * Запись с немедленным показом: `op` ложится поверх строк у всех открытых
+ * подписок этой таблицы, `write` уходит в базу. Отказ — правка снимается и
+ * таблица перечитывается (а ошибка идёт дальше, к тому, кто её покажет).
+ */
+async function optimistic<T>(
+  workspaceId: string,
+  pageId: string,
+  tab: string | null | undefined,
+  op: Op,
+  rowIds: string[] | null,
+  write: () => Promise<T>
+): Promise<T> {
+  const id = ++opSeq;
+  const targets = tablesFor(workspaceId, pageId, tab);
+  for (const t of targets) {
+    t.overlays.set(id, { op, remaining: rowIds ? new Set(rowIds) : null, committedAt: null });
+    t.pending += 1;
+    t.refresh();
+  }
+  try {
+    const result = await write();
+    for (const t of targets) {
+      const overlay = t.overlays.get(id);
+      if (overlay) overlay.committedAt = Date.now();
+    }
+    return result;
+  } catch (error) {
+    for (const t of targets) {
+      t.overlays.delete(id);
+      t.refresh();
+      t.reload();
+    }
+    throw error;
+  } finally {
+    for (const t of targets) {
+      t.pending -= 1;
+      t.settled();
+    }
+  }
+}
+
+function applyPatch(row: PageRow, patch: RowPatch, updatedAt: number | null): PageRow {
+  const next: PageRow = { ...row, cells: { ...row.cells, ...(patch.cells ?? {}) } };
+  if (patch.extras !== undefined) {
+    if (patch.extras === null) delete next.extras;
+    else next.extras = patch.extras;
+  }
+  if (patch.highlight !== undefined) {
+    if (patch.highlight) next.highlight = true;
+    else delete next.highlight;
+  }
+  if (patch.filledAt !== undefined) next.filledAt = patch.filledAt;
+  if (patch.orderId !== undefined) next.orderId = patch.orderId;
+  if (patch.attachments !== undefined) next.attachments = patch.attachments;
+  if (patch.height !== undefined) next.height = patch.height;
+  if (updatedAt !== null) next.updatedAt = updatedAt;
+  return next;
+}
+
+/**
+ * Живые строки таблицы: полная выборка + изменения через Realtime + свои
+ * правки поверх (см. Overlay).
+ *
+ * События применяются в порядке ПРИХОДА — так их и отдаёт Postgres, в порядке
+ * фиксации. Сравнивать `updated_at` нельзя: это `Date.now()` разных
+ * устройств, и отстающие часы у одного человека выбрасывали бы его правки у
+ * всех остальных. Событие, пришедшее, пока идёт выборка, не накладывается на
+ * неё (выборка могла оказаться и новее, и старее) — выборка просто
+ * повторяется.
+ *
+ * Удаления слушаются ОТДЕЛЬНО и без фильтра: в Supabase фильтр по столбцу на
+ * DELETE не действует, и отфильтрованная подписка удалений не получает —
+ * удалённая строка возвращалась бы при следующем событии. В событии удаления
+ * только первичный ключ (workspace, стол, вкладка, id) — по нему и сверяем.
+ *
+ * Выборка делается при каждом (пере)подключении канала, при возврате на
+ * вкладку и после своих правок, если канал не подключён. Не прочиталось —
+ * `onError` и повтор через 3 → 6 → … 30 с; строк прошлой таблицы при этом
+ * никто не увидит — `onData` просто не зовётся.
  */
 export function sbSubscribeRows(
   workspaceId: string,
@@ -218,76 +337,142 @@ export function sbSubscribeRows(
 ): () => void {
   const tabId = tabKey(tab);
   let cancelled = false;
-  let rowsById = new Map<string, PageRow>();
+  let loaded = false;
+  let serverRows: RowsMap = new Map();
   let loading = false;
   let reloadQueued = false;
-  let pending: RealtimePayload[] = [];
-
-  const emit = () => {
-    if (cancelled) return;
-    onData([...rowsById.values()].sort((a, b) => a.order - b.order || a.createdAt - b.createdAt), true);
-  };
+  let channelHealthy = false;
+  let retryDelay = 3000;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let reloadTimer: ReturnType<typeof setTimeout> | null = null;
+  let sweepTimer: ReturnType<typeof setTimeout> | null = null;
 
   const inScope = (record: Partial<DeskRowRecord>) =>
     record.workspace_id === workspaceId && record.page_id === pageId && (record.tab_id ?? "") === tabId;
 
-  const apply = (payload: RealtimePayload): boolean => {
+  const table: LiveTable = {
+    workspaceId,
+    pageId,
+    tabId,
+    overlays: new Map(),
+    pending: 0,
+    refresh: () => emit(),
+    settled: () => {
+      scheduleSweep();
+      // Канал не подключён — события не придут, правку подтвердит выборка.
+      if (table.pending === 0 && !channelHealthy) scheduleReload();
+    },
+    reload: () => void load(),
+  };
+
+  function emit() {
+    if (cancelled || !loaded) return;
+    const view: RowsMap = new Map(serverRows);
+    for (const id of [...table.overlays.keys()].sort((a, b) => a - b)) table.overlays.get(id)!.op(view);
+    onData([...view.values()].sort((a, b) => a.order - b.order || a.createdAt - b.createdAt), true);
+  }
+
+  function dropConfirmed(rowId: string) {
+    for (const [id, overlay] of table.overlays) {
+      if (overlay.committedAt === null || !overlay.remaining) continue;
+      overlay.remaining.delete(rowId);
+      if (overlay.remaining.size === 0) table.overlays.delete(id);
+    }
+  }
+
+  function scheduleSweep() {
+    if (sweepTimer) return;
+    sweepTimer = setTimeout(() => {
+      sweepTimer = null;
+      const now = Date.now();
+      let changed = false;
+      for (const [id, overlay] of table.overlays) {
+        if (overlay.committedAt !== null && now - overlay.committedAt >= OVERLAY_TTL_MS) {
+          table.overlays.delete(id);
+          changed = true;
+        }
+      }
+      if (changed) emit();
+      if ([...table.overlays.values()].some((o) => o.committedAt !== null)) scheduleSweep();
+    }, OVERLAY_TTL_MS);
+  }
+
+  function scheduleReload() {
+    if (reloadTimer) clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(() => {
+      reloadTimer = null;
+      if (table.pending === 0) void load();
+    }, 300);
+  }
+
+  function apply(payload: RealtimePayload): boolean {
     if (payload.eventType === "DELETE") {
       const old = payload.old;
-      if (!old.id || (old.page_id !== undefined && !inScope(old))) return false;
-      return rowsById.delete(old.id);
+      if (!old.id || !inScope(old)) return false;
+      dropConfirmed(old.id);
+      return serverRows.delete(old.id);
     }
     const next = payload.new;
     if (!next.id || !inScope(next)) return false;
-    const current = rowsById.get(next.id);
-    const row = recordToRow(next as DeskRowRecord);
-    if (current && current.updatedAt > row.updatedAt) return false;
-    rowsById.set(row.id, row);
+    serverRows.set(next.id, recordToRow(next as DeskRowRecord));
+    dropConfirmed(next.id);
     return true;
-  };
+  }
 
-  const load = async () => {
+  function onEvent(payload: unknown) {
+    if (cancelled) return;
+    if (loading) {
+      reloadQueued = true;
+      return;
+    }
+    if (apply(payload as RealtimePayload)) emit();
+  }
+
+  async function load() {
+    if (cancelled) return;
     if (loading) {
       reloadQueued = true;
       return;
     }
     loading = true;
-    pending = [];
+    reloadQueued = false;
+    // Подтверждённые ДО начала выборки правки выборка уже содержит.
+    const confirmedBefore = [...table.overlays].filter(([, o]) => o.committedAt !== null).map(([id]) => id);
     try {
       const rows = await sbFetchRows(workspaceId, pageId, tab);
       if (cancelled) return;
-      rowsById = new Map(rows.map((row) => [row.id, row]));
-      const buffered = pending;
-      pending = [];
-      buffered.forEach(apply);
+      serverRows = new Map(rows.map((row) => [row.id, row]));
+      for (const id of confirmedBefore) table.overlays.delete(id);
+      loaded = true;
+      retryDelay = 3000;
       emit();
     } catch (error) {
-      if (!cancelled) onError?.(error instanceof RowsStoreError ? error : toStoreError(null, String(error)));
+      if (cancelled) return;
+      onError?.(error instanceof RowsStoreError ? error : toStoreError(null, String(error)));
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void load();
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 30_000);
     } finally {
       loading = false;
-      if (reloadQueued && !cancelled) {
-        reloadQueued = false;
-        void load();
-      }
+      if (reloadQueued && !cancelled) void load();
     }
-  };
+  }
+
+  liveTables.add(table);
 
   const channel: RealtimeChannel = supabaseRows
     .channel(`desk_rows:${workspaceId}:${pageId}:${tabId || "main"}:${Math.random().toString(36).slice(2)}`)
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: DESK_ROWS_TABLE, filter: `page_id=eq.${pageId}` },
-      (payload) => {
-        if (cancelled) return;
-        const event = payload as unknown as RealtimePayload;
-        if (loading) {
-          pending.push(event);
-          return;
-        }
-        if (apply(event)) emit();
-      }
+      onEvent
     )
+    .on("postgres_changes", { event: "DELETE", schema: "public", table: DESK_ROWS_TABLE }, onEvent)
     .subscribe((status) => {
+      channelHealthy = status === "SUBSCRIBED";
       // Первое подключение и каждое переподключение — полная выборка.
       if (status === "SUBSCRIBED") void load();
     });
@@ -303,13 +488,15 @@ export function sbSubscribeRows(
 
   return () => {
     cancelled = true;
+    liveTables.delete(table);
+    for (const timer of [retryTimer, reloadTimer, sweepTimer]) if (timer) clearTimeout(timer);
     document.removeEventListener("visibilitychange", onVisible);
     void supabaseRows.removeChannel(channel);
   };
 }
 
 // ---------------------------------------------------------------------------
-// Запись
+// Запись — каждая сразу видна в открытой таблице (см. optimistic).
 // ---------------------------------------------------------------------------
 
 /** Строка целиком — как setDoc без merge (новая строка, копия, повтор заезда заказа). */
@@ -320,11 +507,24 @@ export async function sbPutRow(workspaceId: string, pageId: string, tab: string 
 const UPSERT_CHUNK = 500;
 
 export async function sbPutRows(workspaceId: string, pageId: string, tab: string | null, rows: PageRow[]): Promise<void> {
-  for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
-    const slice = rows.slice(i, i + UPSERT_CHUNK).map((row) => rowToRecord(workspaceId, pageId, tab, row));
-    const { error } = await supabaseRows.from(DESK_ROWS_TABLE).upsert(slice, { onConflict: DESK_ROWS_CONFLICT });
-    if (error) throw toStoreError(error, "Не удалось сохранить строки");
-  }
+  if (rows.length === 0) return;
+  const pageRowId = tab ?? pageId;
+  await optimistic(
+    workspaceId,
+    pageId,
+    tab,
+    (map) => {
+      for (const row of rows) map.set(row.id, { ...row, pageId: pageRowId });
+    },
+    rows.map((row) => row.id),
+    async () => {
+      for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
+        const slice = rows.slice(i, i + UPSERT_CHUNK).map((row) => rowToRecord(workspaceId, pageId, tab, row));
+        const { error } = await supabaseRows.from(DESK_ROWS_TABLE).upsert(slice, { onConflict: DESK_ROWS_CONFLICT });
+        if (error) throw toStoreError(error, "Не удалось сохранить строки");
+      }
+    }
+  );
 }
 
 export interface RowPatch {
@@ -362,63 +562,131 @@ export async function sbPatchRow(
     patch.filledAt === undefined &&
     patch.orderId === undefined &&
     patch.attachments === undefined;
-  const { error } = await supabaseRows.rpc("rows_patch", {
-    p_workspace: workspaceId,
-    p_page: pageId,
-    p_tab: tabKey(tab),
-    p_id: rowId,
-    p_cells: patch.cells ?? {},
-    p_updated_at: onlyHeight ? null : (patch.updatedAt ?? Date.now()),
-    p_filled_at: patch.filledAt ?? null,
-    p_extras_mode: patch.extras === undefined ? "keep" : patch.extras === null ? "clear" : "set",
-    p_extras: patch.extras ?? null,
-    p_highlight: patch.highlight ?? null,
-    p_order_id: patch.orderId ?? null,
-    p_attachments_set: patch.attachments !== undefined,
-    p_attachments: patch.attachments ?? null,
-    p_height: patch.height ?? null,
-  });
-  if (error) throw toStoreError(error, "Не удалось сохранить строку");
+  const updatedAt = onlyHeight ? null : (patch.updatedAt ?? Date.now());
+  await optimistic(
+    workspaceId,
+    pageId,
+    tab,
+    (map) => {
+      // Строки нет на экране — показывать нечего (база её заведёт, придёт событием).
+      const row = map.get(rowId);
+      if (row) map.set(rowId, applyPatch(row, patch, updatedAt));
+    },
+    [rowId],
+    async () => {
+      const { error } = await supabaseRows.rpc("rows_patch", {
+        p_workspace: workspaceId,
+        p_page: pageId,
+        p_tab: tabKey(tab),
+        p_id: rowId,
+        p_cells: patch.cells ?? {},
+        p_updated_at: updatedAt,
+        p_filled_at: patch.filledAt ?? null,
+        p_extras_mode: patch.extras === undefined ? "keep" : patch.extras === null ? "clear" : "set",
+        p_extras: patch.extras ?? null,
+        p_highlight: patch.highlight ?? null,
+        p_order_id: patch.orderId ?? null,
+        p_attachments_set: patch.attachments !== undefined,
+        p_attachments: patch.attachments ?? null,
+        p_height: patch.height ?? null,
+      });
+      if (error) throw toStoreError(error, "Не удалось сохранить строку");
+    }
+  );
 }
 
 export async function sbDeleteRow(workspaceId: string, pageId: string, tab: string | null, rowId: string): Promise<void> {
-  const { error } = await supabaseRows
-    .from(DESK_ROWS_TABLE)
-    .delete()
-    .eq("workspace_id", workspaceId)
-    .eq("page_id", pageId)
-    .eq("tab_id", tabKey(tab))
-    .eq("id", rowId);
-  if (error) throw toStoreError(error, "Не удалось удалить строку");
+  await optimistic(
+    workspaceId,
+    pageId,
+    tab,
+    (map) => {
+      map.delete(rowId);
+    },
+    [rowId],
+    async () => {
+      const { error } = await supabaseRows
+        .from(DESK_ROWS_TABLE)
+        .delete()
+        .eq("workspace_id", workspaceId)
+        .eq("page_id", pageId)
+        .eq("tab_id", tabKey(tab))
+        .eq("id", rowId);
+      if (error) throw toStoreError(error, "Не удалось удалить строку");
+    }
+  );
 }
 
 /** Все строки вкладки (tab) или всего стола (tab = undefined). */
 export async function sbDeleteRows(workspaceId: string, pageId: string, tab?: string | null): Promise<void> {
-  let query = supabaseRows.from(DESK_ROWS_TABLE).delete().eq("workspace_id", workspaceId).eq("page_id", pageId);
-  if (tab !== undefined) query = query.eq("tab_id", tabKey(tab));
-  const { error } = await query;
-  if (error) throw toStoreError(error, "Не удалось удалить строки");
+  await optimistic(
+    workspaceId,
+    pageId,
+    tab,
+    (map) => map.clear(),
+    null,
+    async () => {
+      let query = supabaseRows.from(DESK_ROWS_TABLE).delete().eq("workspace_id", workspaceId).eq("page_id", pageId);
+      if (tab !== undefined) query = query.eq("tab_id", tabKey(tab));
+      const { error } = await query;
+      if (error) throw toStoreError(error, "Не удалось удалить строки");
+    }
+  );
 }
 
 /** Порядок строк таблицы: база пишет только сдвинувшиеся. */
 export async function sbSetOrder(workspaceId: string, pageId: string, tab: string | null, orderedRowIds: string[]): Promise<void> {
-  const { error } = await supabaseRows.rpc("rows_set_order", {
-    p_workspace: workspaceId,
-    p_page: pageId,
-    p_tab: tabKey(tab),
-    p_ids: orderedRowIds,
-  });
-  if (error) throw toStoreError(error, "Не удалось сохранить порядок строк");
+  await optimistic(
+    workspaceId,
+    pageId,
+    tab,
+    (map) => {
+      orderedRowIds.forEach((id, index) => {
+        const row = map.get(id);
+        if (row && row.order !== index) map.set(id, { ...row, order: index });
+      });
+    },
+    // Событие придёт только по сдвинувшимся строкам — ждём остальное по сроку (OVERLAY_TTL_MS).
+    orderedRowIds,
+    async () => {
+      const { error } = await supabaseRows.rpc("rows_set_order", {
+        p_workspace: workspaceId,
+        p_page: pageId,
+        p_tab: tabKey(tab),
+        p_ids: orderedRowIds,
+      });
+      if (error) throw toStoreError(error, "Не удалось сохранить порядок строк");
+    }
+  );
 }
 
 export async function sbClearHighlights(workspaceId: string, pageId: string, tab: string | null, rowIds: string[]): Promise<void> {
   if (rowIds.length === 0) return;
-  const { error } = await supabaseRows
-    .from(DESK_ROWS_TABLE)
-    .update({ highlight: false, updated_at: Date.now() })
-    .eq("workspace_id", workspaceId)
-    .eq("page_id", pageId)
-    .eq("tab_id", tabKey(tab))
-    .in("id", rowIds);
-  if (error) throw toStoreError(error, "Не удалось снять подсветку");
+  const now = Date.now();
+  await optimistic(
+    workspaceId,
+    pageId,
+    tab,
+    (map) => {
+      for (const id of rowIds) {
+        const row = map.get(id);
+        if (row?.highlight) {
+          const next = { ...row, updatedAt: now };
+          delete next.highlight;
+          map.set(id, next);
+        }
+      }
+    },
+    rowIds,
+    async () => {
+      const { error } = await supabaseRows
+        .from(DESK_ROWS_TABLE)
+        .update({ highlight: false, updated_at: now })
+        .eq("workspace_id", workspaceId)
+        .eq("page_id", pageId)
+        .eq("tab_id", tabKey(tab))
+        .in("id", rowIds);
+      if (error) throw toStoreError(error, "Не удалось снять подсветку");
+    }
+  );
 }

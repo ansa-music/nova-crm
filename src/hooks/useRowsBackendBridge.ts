@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { primeRowsBackendState, setRowsBackendState } from "@/services/rows/rowsBackend";
+import { migrationStartMillis, primeRowsBackendState, setRowsBackendState } from "@/services/rows/rowsBackend";
 
 /**
  * Перенос строк, брошенный на середине (закрыли вкладку, пропала связь),
@@ -17,7 +17,7 @@ export function useRowsBackendBridge() {
   const { activeWorkspace } = useWorkspace();
   const id = activeWorkspace?.id ?? null;
   const backend = activeWorkspace?.rowsBackend;
-  const migrationAt = activeWorkspace?.rowsMigrationAt ?? null;
+  const migrationAt = migrationStartMillis(activeWorkspace?.rowsMigrationAt);
 
   if (id) {
     primeRowsBackendState(

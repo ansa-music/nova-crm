@@ -1,4 +1,11 @@
-import type { RowsBackend } from "@/types/workspace";
+import type { RowsBackend, RowsMigrationStamp } from "@/types/workspace";
+
+/** Начало переноса в мс: серверное время (Timestamp) или старое число. */
+export function migrationStartMillis(value: RowsMigrationStamp | undefined): number | null {
+  if (typeof value === "number") return value;
+  if (value && typeof value === "object" && typeof value.toMillis === "function") return value.toMillis();
+  return null;
+}
 
 /**
  * Где сейчас живут строки таблиц этого workspace — Firestore или Supabase.

@@ -17,6 +17,12 @@ export interface CustomFieldDef {
 }
 
 export type RowsBackend = "firestore" | "supabase";
+/**
+ * Начало переноса строк — СЕРВЕРНОЕ время (serverTimestamp): по нему правила
+ * Firestore держат 15-минутный замок записи, и часы Owner тут не годятся.
+ * Старые значения могли быть числом. Читать — `migrationStartMillis()`.
+ */
+export type RowsMigrationStamp = number | { toMillis(): number } | null;
 
 export interface Workspace {
   id: string;
@@ -63,7 +69,7 @@ export interface Workspace {
    * Идёт перенос строк: пока стоит флаг, строки нигде не правятся — иначе
    * правка, сделанная во время копирования, осталась бы в старом хранилище.
    */
-  rowsMigrationAt?: number | null;
+  rowsMigrationAt?: RowsMigrationStamp;
   /**
    * Ники раздела «Другие» на «Команде» — для тех, кто не технарь и не ОС:
    * Owner, Admin, Тимлид без второй роли, Viewer. Своя модель та же, что у

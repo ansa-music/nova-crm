@@ -1,7 +1,7 @@
 import { writeBatch } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
-import { generateId } from "@/utils/id";
+import { generateDeskId, generateId } from "@/utils/id";
 import { seedCurrentMonthDesk, stripUndefined } from "@/services/pageService";
 import type { PageColumn, PageIconName, WorkspacePage } from "@/types";
 
@@ -39,7 +39,7 @@ export function managerHasReachedPageQuota(
  */
 export async function createManagerOwnedPage(input: CreateManagerPageInput): Promise<WorkspacePage> {
   if (!db) throw new Error("Firebase не настроен");
-  const pageId = generateId("page");
+  const pageId = generateDeskId(input.managerUid);
   const now = Date.now();
   const page: WorkspacePage = {
     id: pageId,

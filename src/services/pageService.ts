@@ -14,7 +14,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, subscribeWithSource, withErrorReporting } from "@/firebase/firestore";
-import { generateId } from "@/utils/id";
+import { generateDeskId, generateId } from "@/utils/id";
 import { hasRowExtras } from "@/utils/rowExtras";
 import { logChange } from "@/services/historyService";
 import type { PageColumn, PageIconName, PageRow, Role, StatusOption, WorkspacePage } from "@/types";
@@ -250,7 +250,7 @@ export interface CreatePageInput {
 
 export async function createPage(input: CreatePageInput): Promise<WorkspacePage> {
   if (!db) throw new Error("Firebase не настроен");
-  const id = generateId("page");
+  const id = generateDeskId(input.createdBy);
   const allowedUsers = Array.from(new Set([...input.allowedUsers, input.createdBy]));
   const page: WorkspacePage = {
     id,
@@ -829,7 +829,7 @@ export async function deletePage(workspaceId: string, pageId: string) {
 
 export async function duplicatePage(workspaceId: string, page: WorkspacePage, newOrder: number) {
   if (!db) throw new Error("Firebase не настроен");
-  const newId = generateId("page");
+  const newId = generateDeskId(page.createdBy);
   const duplicated: WorkspacePage = {
     ...page,
     id: newId,

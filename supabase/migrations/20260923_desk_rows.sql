@@ -292,8 +292,8 @@ create policy rows_page_acl_read on public.rows_page_acl for select to anon, aut
 --  • Тимлид — любую, но стол ОС только под его настоящим id `osdesk_{uid}`
 --    с этим же uid ответственным и создателем (id стола ОС детерминирован,
 --    поэтому чужой стол ОС так не присвоить);
---  • создатель — свой только что созданный стол (Технарь/Admin — обычный,
---    ОС — свой `osdesk_{uid}`), как ветки `create` в firestore.rules.
+--  • создатель — свой только что созданный стол (Технарь/Admin — обычный
+--    с его uid в id, ОС — свой `osdesk_{uid}`), как ветки `create` в firestore.rules.
 -- Уже заведённую запись вставкой не перезаписать — первичный ключ.
 drop policy if exists rows_page_acl_insert on public.rows_page_acl;
 create policy rows_page_acl_insert on public.rows_page_acl for insert to anon, authenticated
@@ -307,7 +307,12 @@ create policy rows_page_acl_insert on public.rows_page_acl for insert to anon, a
       and created_by = public.rows_uid()
       and (
         (os_desk and page_id = 'osdesk_' || public.rows_uid() and public.rows_has_role(workspace_id, 'os'))
-        or (not os_desk and (public.rows_has_role(workspace_id, 'manager') or public.rows_member_role(workspace_id) = 'admin'))))
+        -- Обычный стол — только со СВОИМ uid в id (`page_{uid}_…`, generateDeskId):
+        -- иначе, увидев id нового чужого стола раньше сверки прав, технарь
+        -- объявил бы себя его ответственным.
+        or (not os_desk
+          and starts_with(page_id, 'page_' || public.rows_uid() || '_')
+          and (public.rows_has_role(workspace_id, 'manager') or public.rows_member_role(workspace_id) = 'admin'))))
   );
 
 -- Правка записи: кто вправе — здесь, какие ПОЛЯ — триггер ниже (политика не

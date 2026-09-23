@@ -164,8 +164,17 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('rowsBackend', 'firestore') == 'supabase';
     }
 
+    // Идёт перенос строк (`rowsMigrationAt` — серверное время старта, не
+    // старше 15 минут: брошенный перенос не запирает запись навсегда). Замок
+    // держат ПРАВИЛА, а не только клиент: вкладка на старом коде про флаг не
+    // знает, и её правка в уже скопированной таблице осталась бы в Firestore.
+    function rowsMigrating(workspaceId) {
+      let startedAt = get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('rowsMigrationAt', null);
+      return startedAt is timestamp && request.time < startedAt + duration.value(15, 'm');
+    }
+
     function rowsWritableHere(workspaceId) {
-      return !rowsOnSupabase(workspaceId) || isOwner(workspaceId);
+      return isOwner(workspaceId) || (!rowsOnSupabase(workspaceId) && !rowsMigrating(workspaceId));
     }
 
     // Owner: every page. Тимлид: none, если он не Технарь, — кроме столов ОС.

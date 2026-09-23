@@ -2,6 +2,7 @@ import {
   getCountFromServer,
   getDocsFromServer,
   increment,
+  serverTimestamp,
   updateDoc,
   writeBatch,
 } from "firebase/firestore";
@@ -134,7 +135,8 @@ function tableLabel(table: TableRef) {
 }
 
 async function setMigrationFlag(workspaceId: string, on: boolean) {
-  await updateDoc(paths.workspace(workspaceId), { rowsMigrationAt: on ? Date.now() : null });
+  // Серверное время: по нему правила держат 15-минутный замок (rowsMigrating).
+  await updateDoc(paths.workspace(workspaceId), { rowsMigrationAt: on ? serverTimestamp() : null });
 }
 
 async function assertHealthy(workspaceId: string) {

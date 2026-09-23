@@ -45,6 +45,8 @@ export function useSyncedTableRows(
   const scopeKey =
     workspaceId && pageId && backend ? `${backend}:${workspaceId}/${pageId}/${subPageId ?? ""}` : "";
   const [dataKey, setDataKey] = useState("");
+  /** Права на стол доехали после плашки — переподписаться и перечитать строки. */
+  const [reloadNonce, setReloadNonce] = useState(0);
 
   useEffect(() => {
     if (!workspaceId || !pageId) {
@@ -65,30 +67,65 @@ export function useSyncedTableRows(
     setAccessPending(false);
 
     let cancelled = false;
-    let accessChecked = false;
+    /** Supabase: право читать стол подтверждено — пустота значит «строк нет». */
+    let accessConfirmed = false;
+    let accessChecking = false;
+    let wasPending = false;
+    let accessTimer: number | null = null;
     const key = `${backend}:${workspaceId}/${pageId}/${subPageId ?? ""}`;
+
+    // Пока плашка «права не доехали» — перепроверяем раз в 15 с (Supabase
+    // такие запросы не тарифицирует): запись прав событием строк не приходит,
+    // и без опроса стол открылся бы только после возврата на вкладку.
+    const checkAccess = () => {
+      if (cancelled || accessChecking) return;
+      accessChecking = true;
+      void sbPageAccess(workspaceId, pageId)
+        .then((access) => {
+          if (cancelled) return;
+          if (access.canRead) {
+            accessConfirmed = true;
+            setAccessPending(false);
+            if (wasPending) setReloadNonce((n) => n + 1); // права доехали — перечитать строки
+            else setServerSynced(true); // стол и правда пустой
+            return;
+          }
+          wasPending = true;
+          setAccessPending(true);
+          accessTimer = window.setTimeout(checkAccess, 15_000);
+        })
+        .catch(() => {
+          if (!cancelled) accessTimer = window.setTimeout(checkAccess, 15_000);
+        })
+        .finally(() => {
+          accessChecking = false;
+        });
+    };
+
     const onData = (data: PageRow[], fromServer: boolean) => {
       if (cancelled) return;
       setDataKey(key);
       setRows(data);
-      setServerSynced(fromServer);
       setIsLoading(false);
-      if (backend === "supabase" && data.length > 0) setAccessPending(false);
-      // Пусто в Supabase — проверим один раз: строк нет или прав ещё нет.
-      if (backend === "supabase" && data.length === 0 && !accessChecked) {
-        accessChecked = true;
-        void sbPageAccess(workspaceId, pageId)
-          .then((access) => {
-            if (!cancelled) setAccessPending(!access.canRead);
-          })
-          .catch(() => undefined);
+      if (backend === "supabase" && data.length === 0 && !accessConfirmed) {
+        // Пустая выборка Supabase — это и «строк нет», и отказ политики (RLS
+        // отказ не называет). Пока право читать не подтверждено, это НЕ
+        // «данные с сервера»: иначе стол опубликовал бы нулевые счётчики в
+        // «Технари» и дашборд поверх настоящих («отказ = не подтверждено»).
+        setServerSynced(false);
+        if (accessTimer === null) checkAccess();
+        return;
       }
+      if (backend === "supabase" && data.length > 0) {
+        accessConfirmed = true;
+        setAccessPending(false);
+      }
+      setServerSynced(fromServer);
     };
-    const onError = () => {
-      if (cancelled) return;
-      setDataKey(key);
-      setIsLoading(false);
-    };
+    // Ошибка чтения — таблица остаётся «загружается» (хранилище повторит само),
+    // а НЕ показывает строки прошлой вкладки как строки этой: правка такой
+    // «чужой» строки завела бы её копию здесь.
+    const onError = () => undefined;
 
     const unsubscribe = subPageId
       ? subscribeToSubPageRows(workspaceId, pageId, subPageId, onData, onError)
@@ -96,9 +133,10 @@ export function useSyncedTableRows(
 
     return () => {
       cancelled = true;
+      if (accessTimer !== null) window.clearTimeout(accessTimer);
       unsubscribe();
     };
-  }, [workspaceId, pageId, subPageId, backend]);
+  }, [workspaceId, pageId, subPageId, backend, reloadNonce]);
 
   const current = scopeKey !== "" && dataKey === scopeKey;
   return {

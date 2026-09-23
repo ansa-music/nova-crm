@@ -38,8 +38,9 @@ export function useRowAclSync() {
   // Подпись того, что сверяем: при её смене — сверка.
   const signature = useMemo(() => {
     if (!workspaceId || backend !== "supabase" || !permissions.isResolved || !me) return "";
+    // Admin смотрит все столы: он переназначает ответственного и у чужих.
     const pageSig = allPages
-      .filter((p) => management || p.responsibleUserId === me)
+      .filter((p) => management || realRole === "admin" || p.responsibleUserId === me)
       .map((p) => JSON.stringify(desiredPageRow(p)))
       .sort()
       .join("|");

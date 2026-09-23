@@ -53,11 +53,15 @@ function sameList(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
-/** Участник в копии: только активные (приглашения по почте — не участники). */
+/**
+ * Участник в копии: всё, кроме приглашений по почте. Именно `!== "invited"`,
+ * а не `=== "active"`: у старых документов участника поля `status` нет, а
+ * Firestore (`isMember` — документ есть) и весь клиент считают их участниками.
+ */
 export function desiredMemberRows(members: readonly WorkspaceMember[]): AclMemberRow[] {
   const byUid = new Map<string, AclMemberRow>();
   for (const m of members) {
-    if (!m?.uid || m.status !== "active" || m.uid.includes("@")) continue;
+    if (!m?.uid || m.status === "invited" || m.uid.includes("@")) continue;
     byUid.set(m.uid, {
       uid: m.uid,
       role: m.role,
@@ -150,12 +154,15 @@ export function planMemberSync(
  * Какие записи столов писать. Owner — любые. Тимлид — кроме того, что
  * запретит триггер копии (createdBy/osDesk, ответственный стола ОС) и что не
  * пройдёт политику вставки (стол ОС не под своим `osdesk_{uid}`).
- * Ответственный (не руководство) — только свои столы и только списки доступа.
+ * Ответственный (не руководство) — только свои столы и только списки доступа;
+ * завести запись — только стола со своим uid в id (`generateDeskId`).
+ * Admin вдобавок доводит переназначение ответственного (не стола ОС, без
+ * смены списка правки) — ровно то, что ему даёт firestore.rules.
  */
 export function planPageSync(
   pages: readonly WorkspacePage[],
   current: readonly AclPageRow[],
-  opts: { actor: "owner" | "teamlead" | "responsible"; me: string }
+  opts: { actor: "owner" | "teamlead" | "admin" | "responsible"; me: string }
 ): { upsert: AclPageRow[]; skipped: string[] } {
   const skipped: string[] = [];
   const currentById = new Map(current.map((p) => [p.page_id, p]));
@@ -164,10 +171,26 @@ export function planPageSync(
     const want = desiredPageRow(page);
     const cur = currentById.get(want.page_id);
     if (cur && samePageRow(cur, want)) continue;
-    if (opts.actor === "responsible") {
+    if (
+      opts.actor === "admin" &&
+      cur &&
+      !cur.os_desk &&
+      !want.os_desk &&
+      cur.responsible_uid !== want.responsible_uid &&
+      cur.created_by === want.created_by &&
+      sameList(cur.editable_uids, want.editable_uids)
+    ) {
+      upsert.push(want);
+      continue;
+    }
+    if (opts.actor === "responsible" || opts.actor === "admin") {
       if (want.responsible_uid !== opts.me) continue;
       if (!cur) {
         if (want.created_by !== opts.me) continue; // заведёт руководство
+        const ownId = want.os_desk
+          ? want.page_id === `osdesk_${opts.me}`
+          : want.page_id.startsWith(`page_${opts.me}_`);
+        if (!ownId) continue; // стол со старым id — заведёт руководство
         upsert.push(want);
         continue;
       }
@@ -280,9 +303,16 @@ export interface AclSyncInput {
 export async function syncRowAcl(input: AclSyncInput): Promise<AclSyncReport> {
   const report: AclSyncReport = { membersUpserted: 0, membersRemoved: 0, pagesUpserted: 0, observersChanged: 0, skipped: [], errors: [] };
   const { workspaceId } = input;
-  const actor = input.realRole === "owner" ? "owner" : input.realRole === "teamlead" ? "teamlead" : "responsible";
+  const actor =
+    input.realRole === "owner"
+      ? "owner"
+      : input.realRole === "teamlead"
+        ? "teamlead"
+        : input.realRole === "admin"
+          ? "admin"
+          : "responsible";
 
-  if (actor !== "responsible") {
+  if (actor === "owner" || actor === "teamlead") {
     const currentMembers = await readMembers(workspaceId);
     const plan = planMemberSync(desiredMemberRows(input.members), currentMembers, {
       rosterComplete: input.rosterComplete,
