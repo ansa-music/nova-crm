@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Bell } from "lucide-react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,6 +20,7 @@ import { timeAgo } from "@/utils/date";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/utils/cn";
 import { confirmDialog } from "@/utils/appDialog";
+import { deskFromLocation, deskNavState } from "@/utils/deskLinks";
 import type { Notification } from "@/types";
 
 const PRIORITY_DOT: Record<string, string> = {
@@ -60,6 +61,7 @@ export function NotificationBell({
     isRealOwner
   );
   const navigate = useNavigate();
+  const location = useLocation();
   const [unreadOnly, setUnreadOnly] = useState(false);
   const visible = unreadOnly ? notifications.filter((n) => !n.read) : notifications;
 
@@ -151,7 +153,9 @@ export function NotificationBell({
                             void markNotificationRead(activeWorkspaceId, n.id);
                           }
                           const dest = notificationHref(n);
-                          if (dest) navigate(dest);
+                          // На стол — с «откуда»: «Назад» в его шапке вернёт сюда же.
+                          if (dest)
+                            navigate(dest, dest.startsWith("/page/") ? { state: deskNavState(deskFromLocation(location)) } : undefined);
                         }}
                       >
                         <p className="truncate text-sm font-medium">{n.title}</p>

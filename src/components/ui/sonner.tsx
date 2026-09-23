@@ -1,6 +1,7 @@
 import { Check, X } from "lucide-react";
 import { Toaster as Sonner } from "sonner";
 
+/* Иконка тоста — плоский квадратик в тоне события, без свечения. */
 function HudToastIcon({ kind }: { kind: "success" | "error" }) {
   const ok = kind === "success";
   return (
@@ -10,9 +11,6 @@ function HudToastIcon({ kind }: { kind: "success" | "error" }) {
       style={{
         borderColor: ok ? "hsl(var(--primary) / 0.72)" : "hsl(var(--destructive) / 0.72)",
         background: ok ? "hsl(var(--primary) / 0.12)" : "hsl(var(--destructive) / 0.12)",
-        boxShadow: ok
-          ? "0 0 8px hsl(var(--primary) / 0.38)"
-          : "0 0 8px hsl(var(--destructive) / 0.38)",
         color: ok ? "hsl(var(--primary))" : "hsl(var(--destructive))",
       }}
     >
@@ -34,7 +32,7 @@ export function Toaster() {
       toastOptions={{
         classNames: {
           toast:
-            "group toast group-[.toaster]:bg-card group-[.toaster]:text-card-foreground group-[.toaster]:border-border group-[.toaster]:shadow-popover group-[.toaster]:rounded-xl",
+            "group toast group-[.toaster]:bg-card group-[.toaster]:text-card-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg group-[.toaster]:rounded-xl",
           description: "group-[.toast]:text-muted-foreground",
           actionButton: "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
           cancelButton: "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",

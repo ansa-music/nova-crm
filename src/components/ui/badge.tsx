@@ -2,18 +2,22 @@ import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/utils/cn";
 
+/**
+ * Бейдж — короткая подпись состояния. Плоский: тонированная заливка без
+ * рамки, рамка только у `outline`. `rounded-md` вместо `rounded-full` — пилюли
+ * выпадали из шкалы скруглений 4/6/8/12/16.
+ */
 const badgeVariants = cva(
-  "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+  "inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-0.5 text-xs font-medium transition-colors",
   {
     variants: {
       variant: {
-        default:
-          "border border-primary/40 bg-primary/12 text-primary",
-        secondary: "border-transparent bg-secondary text-secondary-foreground",
-        destructive: "border-transparent bg-destructive text-destructive-foreground",
-        success: "border-transparent bg-success/15 text-success",
-        warning: "border-transparent bg-warning/15 text-warning-foreground",
-        outline: "text-foreground border-border",
+        default: "bg-primary/10 text-primary",
+        secondary: "bg-muted text-foreground",
+        destructive: "bg-destructive/12 text-destructive",
+        success: "bg-success/15 text-success",
+        warning: "bg-warning/15 text-warning",
+        outline: "border-border text-foreground",
       },
     },
     defaultVariants: { variant: "default" },

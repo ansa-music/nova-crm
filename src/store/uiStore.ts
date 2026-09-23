@@ -71,10 +71,11 @@ export const useUiStore = create<UiState>()(
       name: "nova-crm:ui",
       // Старый ключ `sidebarCollapsed` в сохранённом состоянии просто
       // игнорируется: в partialize его нет, при следующей записи он исчезнет.
+      // `tableFullscreen` тоже не сохраняем: после F5 человек попадал в стол
+      // без меню и не понимал, куда оно делось — полный экран живёт сессию.
       partialize: (s) => ({
         theme: s.theme,
         sidebarPinned: s.sidebarPinned,
-        tableFullscreen: s.tableFullscreen,
         deskAlerts: s.deskAlerts,
       }),
     }

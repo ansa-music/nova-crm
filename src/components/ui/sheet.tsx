@@ -17,7 +17,6 @@ export const SheetOverlay = React.forwardRef<
     ref={ref}
     className={cn(
       "fixed inset-0 z-[200] bg-black/60 pointer-events-auto data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-280",
-      "backdrop-blur-none",
       className
     )}
     {...props}
@@ -25,42 +24,57 @@ export const SheetOverlay = React.forwardRef<
 ));
 SheetOverlay.displayName = "SheetOverlay";
 
-const sheetVariants = cva(
-  "fixed gap-4 border-border p-5 shadow-popover pointer-events-auto overscroll-contain",
-  {
-    variants: {
-      side: {
-        left:
-          "left-0 top-0 z-[210] h-[100dvh] max-h-[100dvh] w-[min(18rem,85vw)] max-w-[18rem] overflow-y-auto bg-background border-r data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left data-[state=closed]:duration-240 data-[state=open]:duration-300",
-        right:
-          "right-0 top-0 bottom-0 z-[210] h-auto w-[min(24rem,85vw)] max-w-md border-l bg-card hud-frame data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right data-[state=closed]:duration-240 data-[state=open]:duration-300",
-      },
+/**
+ * Три стороны шторки. `left` — мобильный drawer навигации (фон страницы, чтобы
+ * сливался с сайдбаром). `right` — боковые панели (чат, история, доступ).
+ * `bottom` — телефонная панель «Ещё» и прочие списки действий: не выше 85dvh,
+ * скругление только сверху, нижний отступ учитывает safe-area, вверху — ручка.
+ */
+const sheetVariants = cva("fixed gap-4 border-border pointer-events-auto overscroll-contain", {
+  variants: {
+    side: {
+      left:
+        "left-0 top-0 z-[210] h-[100dvh] max-h-[100dvh] w-[min(18rem,85vw)] max-w-[18rem] overflow-y-auto border-r bg-background p-5 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left data-[state=closed]:duration-240 data-[state=open]:duration-300",
+      right:
+        "right-0 top-0 bottom-0 z-[210] h-auto w-[min(24rem,85vw)] max-w-md border-l bg-popover p-5 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right data-[state=closed]:duration-240 data-[state=open]:duration-300",
+      bottom:
+        "inset-x-0 bottom-0 z-[210] max-h-[85dvh] overflow-y-auto rounded-t-2xl border-t bg-background p-4 pb-[max(env(safe-area-inset-bottom),1rem)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom data-[state=closed]:duration-240 data-[state=open]:duration-300",
     },
-    defaultVariants: { side: "left" },
-  }
-);
+  },
+  defaultVariants: { side: "left" },
+});
 
 interface SheetContentProps
   extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>,
-    VariantProps<typeof sheetVariants> {}
+    VariantProps<typeof sheetVariants> {
+  /** Скрыть крестик — когда у панели своя кнопка закрытия в шапке. */
+  hideClose?: boolean;
+}
 
 export const SheetContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   SheetContentProps
->(({ side = "left", className, children, ...props }, ref) => (
+>(({ side = "left", className, children, hideClose = false, ...props }, ref) => (
   <SheetPortal>
     <SheetOverlay />
     <DialogPrimitive.Content
-        ref={ref}
-        className={cn(sheetVariants({ side }), className)}
-        onCloseAutoFocus={(e) => e.preventDefault()}
-        {...props}
-      >
+      ref={ref}
+      className={cn(sheetVariants({ side }), className)}
+      onCloseAutoFocus={(e) => e.preventDefault()}
+      {...props}
+    >
+      {/* Ручка нижней шторки: подсказывает, что панель можно смахнуть, и
+          отделяет её от контента под ней — рамки сверху для этого мало. */}
+      {side === "bottom" && (
+        <div aria-hidden className="mx-auto -mt-1 mb-3 h-1 w-9 shrink-0 rounded-sm bg-foreground/20" />
+      )}
       {children}
-      <DialogPrimitive.Close className="absolute right-2 top-2 z-20 flex h-11 w-11 items-center justify-center rounded-md opacity-60 transition-opacity hover:opacity-100 sm:right-4 sm:top-4 sm:h-auto sm:w-auto">
-        <X className="h-4 w-4" />
-        <span className="sr-only">Закрыть</span>
-      </DialogPrimitive.Close>
+      {!hideClose && (
+        <DialogPrimitive.Close className="absolute right-2 top-2 z-20 flex h-11 w-11 items-center justify-center rounded-md opacity-60 transition-opacity hover:opacity-100 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring sm:right-4 sm:top-4 sm:h-auto sm:w-auto">
+          <X className="h-4 w-4" />
+          <span className="sr-only">Закрыть</span>
+        </DialogPrimitive.Close>
+      )}
     </DialogPrimitive.Content>
   </SheetPortal>
 ));
@@ -74,6 +88,14 @@ export const SheetTitle = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Title>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
 >(({ className, ...props }, ref) => (
-  <DialogPrimitive.Title ref={ref} className={cn("text-base font-semibold", className)} {...props} />
+  <DialogPrimitive.Title ref={ref} className={cn("text-base font-medium tracking-[-0.02em]", className)} {...props} />
 ));
 SheetTitle.displayName = "SheetTitle";
+
+export const SheetDescription = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Description>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Description ref={ref} className={cn("text-sm text-muted-foreground", className)} {...props} />
+));
+SheetDescription.displayName = "SheetDescription";

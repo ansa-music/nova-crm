@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 import {
   AlertTriangle,
   Archive,
   ArchiveRestore,
+  ArrowLeft,
   BarChart3,
   Eye,
   EyeOff,
@@ -33,6 +39,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AccessDenied } from "@/components/common/AccessDenied";
 import { DataTable } from "@/components/table/DataTable";
 import { TableChromeExit } from "@/components/table/TableChromeExit";
 import { SubPageTabs } from "@/components/table/SubPageTabs";
@@ -97,6 +104,15 @@ import { OsDispatchChoiceDialog } from "@/components/os/OsDispatchChoiceDialog";
 import { OsOrderRequestsPanel } from "@/components/os/OsOrderRequestsPanel";
 import { TechPickerSheet } from "@/components/os/TechPickerSheet";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
+import { usesSupabaseRows } from "@/services/rows/rowsBackend";
+import { DESK_ROWS_TABLE, supabaseRows } from "@/lib/supabaseRows";
+import {
+  MAIN_TAB_PARAM,
+  deskTabParam,
+  readDeskFrom,
+  readStoredDeskTab,
+  storeDeskTab,
+} from "@/utils/deskLinks";
 import { TechOrderPanel } from "@/components/os/TechOrderPanel";
 import { isMonthlyDesk } from "@/services/monthTabService";
 import type { PageRow, PaymentMethod, SubPage, WorkspacePage } from "@/types";
@@ -129,10 +145,55 @@ function initialSubPageId(
   return null;
 }
 
+/**
+ * Вкладка из адреса (`?tab=`) или из памяти браузера → id вкладки.
+ * `null` — «Основная», `undefined` — такой вкладки на столе нет (удалена,
+ * в архиве, скрыта «Основная»): тогда решает обычное умолчание стола.
+ */
+function resolveTabRef(
+  ref: string | null | undefined,
+  page: WorkspacePage,
+  subPages: SubPage[],
+): string | null | undefined {
+  if (ref === null || ref === MAIN_TAB_PARAM)
+    return page.hideMainTab ? undefined : null;
+  if (!ref) return undefined;
+  return visibleSubPages(subPages).some((s) => s.id === ref) ? ref : undefined;
+}
+
+/**
+ * Ссылка на строку без вкладки (`?row` без `?tab`): на какой вкладке лежит
+ * строка. Один крошечный запрос по первичному ключу — только в режиме
+ * Supabase; в Firestore строки разложены по подколлекциям вкладок, и обход
+ * их всех ради одной ссылки не стоит квоты. `undefined` — не нашли.
+ */
+async function lookupRowTab(
+  workspaceId: string,
+  pageId: string,
+  rowId: string,
+): Promise<string | null | undefined> {
+  if (!usesSupabaseRows(workspaceId)) return undefined;
+  const { data, error } = await supabaseRows
+    .from(DESK_ROWS_TABLE)
+    .select("tab_id")
+    .eq("workspace_id", workspaceId)
+    .eq("page_id", pageId)
+    .eq("id", rowId)
+    .limit(1);
+  if (error || !data || data.length === 0) return undefined;
+  const tab = (data[0] as { tab_id?: string | null }).tab_id ?? "";
+  return tab === "" ? null : tab;
+}
+
 export default function DynamicTablePage() {
   const { pageId } = useParams<{ pageId: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const focusRowId = searchParams.get("row");
+  const tabParam = searchParams.get("tab");
+  const location = useLocation();
+  const navigate = useNavigate();
+  // Откуда пришли — «Технари», «Люди», уведомление кладут сюда `from`.
+  const cameFrom = readDeskFrom(location.state);
   const { activeWorkspace, activeWorkspaceId, allPages, members } =
     useWorkspace();
   const permissions = usePermissions();
@@ -157,6 +218,15 @@ export default function DynamicTablePage() {
   const tableFullscreen = useUiStore((s) => s.tableFullscreen);
   const tableImmersive = useUiStore((s) => s.tableImmersive);
   const chromeHidden = tableFullscreen || tableImmersive;
+  // Переход на другой стол по ссылке (уведомление, дашборд, «Технари») не
+  // должен открывать его «без меню»: полный экран — про тот стол, где его
+  // включили. Сбрасываем при монтировании и смене адреса (`ErrorBoundary` в
+  // AppLayout перемонтирует страницу по pathname, но полагаться на это не
+  // стоит — эффект по pageId покрывает оба случая).
+  useEffect(() => {
+    setTableFullscreen(false);
+    setTableImmersive(false);
+  }, [pageId, setTableFullscreen, setTableImmersive]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -322,9 +392,27 @@ export default function DynamicTablePage() {
     }
     if (appliedDefaultForPageRef.current === pageId) return;
     if (subPagesLoading) return;
+    // Вкладка из адреса — это выбор человека (ссылка на строку прошлого
+    // месяца): она не ждёт автопилот месяца и не перебивается им.
+    const fromUrl = resolveTabRef(tabParam, page, subPages);
+    if (tabParam !== null && fromUrl !== undefined) {
+      userPickedTabRef.current = true;
+      appliedDefaultForPageRef.current = pageId;
+      setActiveSubPageId(fromUrl);
+      setTabsReady(true);
+      return;
+    }
     if (awaitingMonthTab && !monthWaitExpired) return;
     appliedDefaultForPageRef.current = pageId;
-    setActiveSubPageId(initialSubPageId(page, subPages));
+    // Память последней вкладки (только этот месяц) — потом умолчание стола.
+    const remembered = resolveTabRef(
+      readStoredDeskTab(pageId, monthKey),
+      page,
+      subPages,
+    );
+    setActiveSubPageId(
+      remembered !== undefined ? remembered : initialSubPageId(page, subPages),
+    );
     setTabsReady(true);
   }, [
     pageId,
@@ -334,6 +422,8 @@ export default function DynamicTablePage() {
     hasAccess,
     awaitingMonthTab,
     monthWaitExpired,
+    tabParam,
+    monthKey,
   ]);
 
   function handleSelectTab(subPageId: string | null) {
@@ -342,6 +432,44 @@ export default function DynamicTablePage() {
       pageId ?? appliedDefaultForPageRef.current;
     setActiveSubPageId(subPageId);
     setTabsReady(true);
+    if (pageId) storeDeskTab(pageId, subPageId, monthKey);
+    // Вкладка — в адрес (F5 и «поделиться» возвращают на неё), `?row`
+    // остаётся: в истории браузера — без новой записи, чипы месяцев жмут
+    // часто.
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("tab", deskTabParam(subPageId));
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  // Адрес сменился уже на открытом столе (уведомление о строке в другой
+  // вкладке, «Назад» браузера) — переключаемся на вкладку из адреса. После
+  // своего клика адрес и вкладка совпадают, так что эффект молчит.
+  useEffect(() => {
+    if (!tabsReady || !page || tabParam === null) return;
+    if (appliedDefaultForPageRef.current !== pageId) return;
+    const target = resolveTabRef(tabParam, page, subPages);
+    if (target === undefined || target === activeSubPageId) return;
+    // В память не пишем: вкладку по ссылке человек не выбирал, и завтра
+    // «Мой стол» не должен открываться на прошлом месяце из-за уведомления.
+    userPickedTabRef.current = true;
+    setActiveSubPageId(target);
+  }, [tabParam, tabsReady, page, pageId, subPages, activeSubPageId]);
+
+  function goBack() {
+    if (cameFrom) {
+      navigate(cameFrom.to);
+      return;
+    }
+    // `idx` в history.state ставит роутер: 0 — эта запись первая в вкладке,
+    // и «назад» ушёл бы с сайта.
+    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+    if (idx > 0) navigate(-1);
+    else navigate(page?.osDesk ? "/os-desks" : "/desks");
   }
 
   // "Продолжить с того места" — remembers the last table page you had open
@@ -375,6 +503,51 @@ export default function DynamicTablePage() {
   const retryRows = activeSubPageId ? retrySubPageRows : retryPageRows;
   const rowsFromServer =
     tabsReady && (activeSubPageId ? subPageRowsSynced : pageRowsSynced);
+
+  // `?row` без `?tab`: строки нет на открытой вкладке — спрашиваем базу, где
+  // она, и дописываем вкладку в адрес (дальше сработает эффект смены `?tab`,
+  // а фокус строки в DataTable — уже после загрузки её строк). Один раз на
+  // ссылку: повторный поиск той же строки ничего не даст.
+  const rowLookupRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusRowId || tabParam !== null || !tabsReady || !page || !pageId)
+      return;
+    if (!activeWorkspaceId || !hasAccess || rowsLoading) return;
+    const key = `${pageId}:${focusRowId}`;
+    if (rowLookupRef.current === key) return;
+    rowLookupRef.current = key;
+    if (rows.some((r) => r.id === focusRowId)) return;
+    let cancelled = false;
+    void lookupRowTab(activeWorkspaceId, pageId, focusRowId)
+      .then((tab) => {
+        if (cancelled || tab === undefined) return;
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.set("tab", deskTabParam(tab));
+            return next;
+          },
+          { replace: true },
+        );
+      })
+      .catch(() => {
+        /* строку не нашли — стол остаётся на открытой вкладке */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    focusRowId,
+    tabParam,
+    tabsReady,
+    page,
+    pageId,
+    activeWorkspaceId,
+    hasAccess,
+    rowsLoading,
+    rows,
+    setSearchParams,
+  ]);
 
   // Карта столбцов месячной вкладки — её читает ОС, когда ведёт заказ в
   // чужом столе (см. WorkspacePage.osFieldKeys).
@@ -511,7 +684,6 @@ export default function DynamicTablePage() {
   // «В работу» прямо в таблице ОС (просьба Nurba 23.09.2026): заказ уходит на
   // «Заказы» сразу с данными строки. Там же метка, если заказ не доехал до
   // технаря или статусы у ОС и технаря разошлись, — с починкой по нажатию.
-  const navigate = useNavigate();
   const sendToExchange = useSendOsRowToExchange();
   const [osActionBusy, setOsActionBusy] = useState<Set<string>>(
     () => new Set(),
@@ -809,14 +981,10 @@ export default function DynamicTablePage() {
   // 2. Resolved, but this account has no member record in the workspace.
   if (!permissions.hasMembership) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <Lock className="h-8 w-8 text-muted-foreground" />
-        <p className="page-title">Вы не участник этого workspace</p>
-        <p className="max-w-sm text-sm text-muted-foreground">
-          Попросите владельца добавить вас — после этого страница откроется без
-          перезагрузки.
-        </p>
-      </div>
+      <AccessDenied
+        title="Вы не участник этого workspace"
+        reason="Попросите владельца добавить вас — после этого стол откроется без перезагрузки."
+      />
     );
   }
 
@@ -825,14 +993,12 @@ export default function DynamicTablePage() {
   //    or a load miss — not "hidden desk". Own desk is found by id above.
   if (!page) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <Lock className="h-8 w-8 text-muted-foreground" />
-        <p className="page-title">Страница недоступна</p>
-        <p className="text-sm text-muted-foreground">
-          Она удалена, либо у вас нет к ней доступа. Обратитесь к Owner
-          workspace или к ответственному за страницу.
-        </p>
-      </div>
+      <AccessDenied
+        title="Стол недоступен"
+        reason="Он удалён, либо у вас нет к нему доступа."
+        hint="Обратитесь к Owner workspace или к ответственному за стол."
+        backTo={cameFrom ?? { to: "/desks", label: "Столы" }}
+      />
     );
   }
 
@@ -871,15 +1037,12 @@ export default function DynamicTablePage() {
 
   if (!hasAccess && permissions.deskBlocked) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-        <Lock className="h-8 w-8 text-primary" />
-        <p className="page-title">Таблицы закрыты</p>
-        <p className="max-w-sm text-sm text-muted-foreground">
-          Тимлид ведёт людей и доступы, а не заказы: таблицы столов открываются,
-          только если у него есть ещё роль «Технарь». Доступы к «{page.name}»
-          настраиваются в «Пользователях».
-        </p>
-      </div>
+      <AccessDenied
+        title="Таблицы закрыты"
+        reason="Тимлид ведёт людей и доступы, а не заказы: таблицы столов открываются, только если у него есть ещё роль «Технарь»."
+        hint={`Доступы к «${page.name}» настраиваются в «Пользователях».`}
+        backTo={cameFrom ?? { to: "/users", label: "Пользователи" }}
+      />
     );
   }
 
@@ -890,18 +1053,18 @@ export default function DynamicTablePage() {
       "";
     const hidden = Boolean(page.hiddenByResponsible);
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-        <Lock className="h-8 w-8 text-primary" />
-        <p className="page-title">
-          {hidden ? "Стол скрыт" : "Нужно разрешение"}
-        </p>
-        <p className="max-w-sm text-sm text-muted-foreground">
-          {hidden
-            ? `«${page.name}» можно смотреть после разрешения ответственного. Данные листа не открываются.`
-            : `Чтобы открыть «${page.name}», запросите просмотр у ответственного. Данные листа не открываются.`}
-        </p>
+      <AccessDenied
+        title={hidden ? "Стол скрыт" : "Нужно разрешение"}
+        reason={
+          hidden
+            ? `«${page.name}» можно смотреть после разрешения ответственного.`
+            : `Чтобы открыть «${page.name}», запросите просмотр у ответственного.`
+        }
+        hint="Данные листа не открываются."
+        backTo={cameFrom ?? { to: "/desks", label: "Столы" }}
+      >
         {toUid && toUid !== permissions.uid ? (
-          <div className="w-full max-w-xs">
+          <div className="mx-auto w-full max-w-xs">
             <RequestDeskViewButton
               page={page}
               mine={latestForPage(page.id)}
@@ -912,7 +1075,7 @@ export default function DynamicTablePage() {
             />
           </div>
         ) : null}
-      </div>
+      </AccessDenied>
     );
   }
 
@@ -1030,7 +1193,7 @@ export default function DynamicTablePage() {
         />
       ) : null}
       {tableImmersive && !tableFullscreen ? (
-        <TableChromeExit label="Назад" />
+        <TableChromeExit label="Свернуть" />
       ) : null}
       {/* Шапка стола в одну строку (макет «C — плотный»): заголовок, сегмент
           месяцев, итоги моно, «+ Заказ» и меню ⋯. Чат, статистика, полный
@@ -1043,7 +1206,24 @@ export default function DynamicTablePage() {
           chromeHidden && "hidden",
         )}
       >
-        <h1 className="min-w-0 shrink truncate font-serif text-[22px] font-light leading-none tracking-[-0.01em] sm:text-[26px]">
+        {/* «Назад» — туда, откуда пришли («Технари», «Люди», уведомление
+            кладут `from` в state), иначе на шаг назад по истории, иначе в
+            «Столы». На телефоне только стрелка: подпись съедала бы заголовок. */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={goBack}
+          aria-label={cameFrom ? `Назад: ${cameFrom.label}` : "Назад"}
+          title={cameFrom ? `Назад: ${cameFrom.label}` : "Назад"}
+          className="-ml-1.5 h-9 min-w-11 shrink-0 gap-1 rounded-lg px-2 text-[12.5px] text-muted-foreground hover:text-foreground sm:h-8 sm:min-w-0"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          <span className="hidden sm:inline">
+            {cameFrom?.label ?? "Назад"}
+          </span>
+        </Button>
+        <h1 className="min-w-0 shrink truncate font-serif text-[22px] font-light leading-none tracking-[-0.01em] max-sm:flex-1 max-sm:basis-0 sm:text-[26px]">
           {page.name}
         </h1>
         {!canEditData && (

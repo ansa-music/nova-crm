@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { Contact, Lock, Search, ShieldCheck, Users } from "lucide-react";
+import { Contact, Lock, Search, Users } from "lucide-react";
+import { AccessDenied } from "@/components/common/AccessDenied";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import { NickListCard } from "@/components/members/NickListCard";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useMembersRefresh } from "@/hooks/useMembersRefresh";
+import { useUrlState } from "@/hooks/useUrlState";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { nickLabelOf, nickOptionsOf, type NickKind } from "@/services/memberService";
 import { cn } from "@/utils/cn";
@@ -49,11 +51,6 @@ const GROUP_TEXT: Record<TeamGroup, { description: string; empty: string }> = {
   },
 };
 
-function readGroup(): TeamGroup {
-  const g = new URLSearchParams(window.location.search).get("g");
-  return g === "os" || g === "other" ? g : "tech";
-}
-
 /**
  * «Команда» — отдельная страница управления людьми по разделам: Технари, ОС
  * и Другие (Owner, Admin, Тимлид без второй роли, Viewer). В каждом разделе
@@ -65,17 +62,10 @@ export default function TeamPage() {
   const { profile } = useAuth();
   const { activeWorkspaceId, activeWorkspace, members } = useWorkspace();
   const permissions = usePermissions();
-  const [group, setGroupState] = useState<TeamGroup>(readGroup);
+  // Раздел — в адресе (`?g=os`): F5 и ссылка коллеге открывают тот же.
+  const [group, setGroup] = useUrlState<TeamGroup>("g", "tech", { values: TEAM_GROUPS });
   const [query, setQuery] = useState("");
   const [nickDialog, setNickDialog] = useState<{ member: WorkspaceMember; kind: NickKind } | null>(null);
-
-  function setGroup(next: TeamGroup) {
-    setGroupState(next);
-    const url = new URL(window.location.href);
-    if (next === "tech") url.searchParams.delete("g");
-    else url.searchParams.set("g", next);
-    window.history.replaceState(window.history.state, "", url);
-  }
 
   // Список участников в браузере не живой: освежаем при входе и при возврате
   // на вкладку (не чаще раза в 5 минут — квота Spark). Занятость ника при
@@ -95,13 +85,7 @@ export default function TeamPage() {
 
   if (!permissions.isResolved) return null;
   if (!permissions.canManageUsers) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
-        <ShieldCheck className="h-8 w-8 text-muted-foreground" />
-        <p className="text-lg font-semibold">Доступ ограничен</p>
-        <p className="text-sm text-muted-foreground">Команду ведут Owner и Тимлид.</p>
-      </div>
-    );
+    return <AccessDenied reason="Команду ведут Owner и Тимлид." backTo={{ to: "/people", label: "Люди" }} />;
   }
   if (!activeWorkspaceId) return null;
 

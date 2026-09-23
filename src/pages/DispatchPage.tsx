@@ -1,5 +1,5 @@
-import { ShieldCheck } from "lucide-react";
 import { Navigate } from "react-router";
+import { AccessDenied } from "@/components/common/AccessDenied";
 import { DailyDispatchPanel } from "@/components/dispatch/DailyDispatchPanel";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -26,13 +26,7 @@ export default function DispatchPage() {
   if (!permissions.isResolved) return null;
 
   if (!canSeeDispatch) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <ShieldCheck className="h-8 w-8 text-muted-foreground" />
-        <p className="text-lg font-semibold">Доступ ограничен</p>
-        <p className="text-sm text-muted-foreground">Выдача доступна только Owner и админам.</p>
-      </div>
-    );
+    return <AccessDenied reason="Выдача доступна только Owner и админам." />;
   }
 
   if (!activeWorkspaceId || !profile) return null;

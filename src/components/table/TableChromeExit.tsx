@@ -1,8 +1,12 @@
 import { Minimize2 } from "lucide-react";
 import { useUiStore } from "@/store/uiStore";
 
-/** Always-visible exit for fullscreen / phone immersive table chrome. */
-export function TableChromeExit({ label }: { label: string }) {
+/**
+ * Always-visible exit for fullscreen / phone immersive table chrome.
+ * Подпись — «Свернуть», а не «Назад»: кнопка возвращает меню, а не уводит
+ * со стола (для этого в шапке стола есть своя «← Назад»).
+ */
+export function TableChromeExit({ label = "Свернуть" }: { label?: string }) {
   const setTableFullscreen = useUiStore((s) => s.setTableFullscreen);
   const setTableImmersive = useUiStore((s) => s.setTableImmersive);
 

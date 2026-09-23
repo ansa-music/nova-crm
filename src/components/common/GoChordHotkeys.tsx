@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { useAuth } from "@/hooks/useAuth";
-import { useWorkspace } from "@/hooks/useWorkspace";
-import { usePermissions } from "@/hooks/usePermissions";
-import { readPinnedPageIds } from "@/hooks/useUserPageNav";
+import { useNavModel } from "@/hooks/useNavModel";
 
 const CHORD_MS = 800;
 
@@ -18,39 +15,22 @@ function isTypingTarget(el: EventTarget | null): boolean {
  * Linear/Gmail-style G-then-letter, using e.code (layout-independent).
  * Bare KeyG (no ctrl/meta/alt) arms a short window; second key navigates.
  * Does not steal Ctrl+K / undo (those use modifiers).
+ * «Дом» (G D) и «свой стол» (G S / G P) — из навигационной модели, той же,
+ * что у меню и нижней панели.
  */
 export function GoChordHotkeys() {
   const navigate = useNavigate();
-  const { profile } = useAuth();
-  const { pages } = useWorkspace();
-  const permissions = usePermissions();
+  const nav = useNavModel();
   const [armed, setArmed] = useState(false);
   const timerRef = useRef<number | null>(null);
-  const pagesRef = useRef(pages);
-  const permissionsRef = useRef(permissions);
-  const uidRef = useRef(profile?.uid);
-
-  pagesRef.current = pages;
-  permissionsRef.current = permissions;
-  uidRef.current = profile?.uid;
+  // Слушатель клавиш живёт дольше рендера — адреса читаем через ref.
+  const targetsRef = useRef({ home: nav.home.to, desk: nav.myDeskTo });
+  targetsRef.current = { home: nav.home.to, desk: nav.myDeskTo };
 
   function disarm() {
     if (timerRef.current) window.clearTimeout(timerRef.current);
     timerRef.current = null;
     setArmed(false);
-  }
-
-  function firstDeskHref(): string | null {
-    const uid = uidRef.current;
-    const perms = permissionsRef.current;
-    const isOwner = perms.hasFullDeskAccess;
-    const own = uid ? pagesRef.current.find((p) => p.responsibleUserId === uid) : undefined;
-    if (own) return `/page/${own.id}`;
-    if (!isOwner) return null;
-    const pinned = uid ? readPinnedPageIds(uid) : [];
-    const pinnedPage = pinned.map((id) => pagesRef.current.find((p) => p.id === id)).find((page) => page !== undefined);
-    const target = pinnedPage ?? pagesRef.current[0];
-    return target ? `/page/${target.id}` : null;
   }
 
   useEffect(() => {
@@ -77,12 +57,11 @@ export function GoChordHotkeys() {
       const code = e.code;
       disarm();
       if (code === "KeyD") {
-        navigate("/");
+        navigate(targetsRef.current.home);
         return;
       }
       if (code === "KeyS" || code === "KeyP") {
-        const href = firstDeskHref();
-        if (href) navigate(href);
+        navigate(targetsRef.current.desk);
         return;
       }
     }
@@ -97,7 +76,7 @@ export function GoChordHotkeys() {
   if (!armed) return null;
 
   return (
-    <div className="pointer-events-none fixed bottom-6 left-1/2 z-[80] -translate-x-1/2 rounded-md border border-border/80 bg-card/90 px-3 py-1.5 font-mono text-[12px] text-muted-foreground shadow-lg ">
+    <div className="pointer-events-none fixed bottom-6 left-1/2 z-[80] -translate-x-1/2 rounded-md border border-border bg-card px-3 py-1.5 font-mono text-[12px] text-muted-foreground">
       G …
     </div>
   );

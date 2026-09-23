@@ -4,6 +4,7 @@ import { StatusBadge } from "@/components/table/StatusBadge";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/cn";
+import { deskNavState, deskRowHref } from "@/utils/deskLinks";
 import { formatCurrency } from "@/utils/format";
 import { formatDate, formatOrderDate, timeAgo } from "@/utils/date";
 import { collectRecentRows, matchesRecentStatusFilter, type RecentRowItem } from "@/utils/recentRows";
@@ -23,6 +24,15 @@ export function RecentRowsPanel({
   const [filter, setFilter] = useState<string | null>(null);
   const items = useMemo(() => collectRecentRows(desks, statusOptions, members), [desks, statusOptions, members]);
   const visible = items.filter((row) => matchesRecentStatusFilter(row, filter));
+  // Строки дашборда берутся с вкладки по умолчанию стола (`progressForPage`),
+  // поэтому ссылка ведёт сразу на неё — иначе строка прошлого месяца на
+  // столе не находилась.
+  function openRow(row: RecentRowItem) {
+    const desk = desks.find((d) => d.page.id === row.pageId);
+    navigate(deskRowHref(row.pageId, desk?.page.defaultSubPageId ?? null, row.id), {
+      state: deskNavState({ to: "/dashboard", label: "Дашборд" }),
+    });
+  }
 
   if (items.length === 0) return null;
 
@@ -61,7 +71,7 @@ export function RecentRowsPanel({
             row={row}
             members={members}
             statusOptions={statusOptions}
-            onOpen={() => navigate(`/page/${row.pageId}?row=${encodeURIComponent(row.id)}`)}
+            onOpen={() => openRow(row)}
           />
         ))}
       </div>
@@ -85,7 +95,7 @@ export function RecentRowsPanel({
                 <tr
                   key={`${row.pageId}:${row.id}`}
                   className="cursor-pointer border-t border-border/70 hover:bg-primary/5"
-                  onClick={() => navigate(`/page/${row.pageId}?row=${encodeURIComponent(row.id)}`)}
+                  onClick={() => openRow(row)}
                 >
                   <td className="px-4 py-2.5">
                     <p className="truncate font-medium">{row.title}</p>

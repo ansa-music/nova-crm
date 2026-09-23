@@ -35,7 +35,7 @@ export const DropdownMenuSubContent = React.forwardRef<
   <DropdownMenuPrimitive.SubContent
     ref={ref}
     className={cn(
-      "glass-float animate-glass-pop z-[320] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[10rem] overflow-y-auto overflow-x-hidden rounded-md p-1 text-popover-foreground",
+      "animate-glass-pop z-[320] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[10rem] overflow-y-auto overflow-x-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg",
       className
     )}
     {...props}
@@ -58,7 +58,7 @@ export const DropdownMenuContent = React.forwardRef<
         // could render taller than the space Radix flipped it into,
         // pushing the bottom entries past the viewport edge with nothing
         // to scroll them back — same class of bug as the dialogs.
-        "glass-float animate-glass-pop z-[320] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[12rem] overflow-y-auto overflow-x-hidden rounded-md p-1.5 text-popover-foreground",
+        "animate-glass-pop z-[320] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[12rem] overflow-y-auto overflow-x-hidden rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-lg",
         className
       )}
       {...props}

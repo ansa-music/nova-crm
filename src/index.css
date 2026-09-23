@@ -33,8 +33,8 @@
     --primary: 189 67% 70%;
     --primary-foreground: 191 70% 8%;
 
-    /* Фиолетовый secondary оставлен ТОЛЬКО для neon-pulse и заглушки обложки
-       стола (desk-cover-placeholder) — из навигации и таблицы убран. */
+    /* Фиолетовый secondary — только у бейджа «Срочный» в объявлениях; из
+       навигации, таблицы, пульсации и заглушки обложки стола убран. */
     --secondary: 256 100% 87%;
     --secondary-foreground: 0 0% 7%;
     --secondary-deep: 256 76% 46%;
@@ -181,21 +181,11 @@
     content: none;
   }
 
+  /* Плоская карточка дашборда: та же поверхность, что у Card. Циановая рамка,
+     blur и свечение при наведении убраны — карточка не кнопка. */
   .desk-cluster {
-    @apply overflow-hidden rounded-md border bg-card;
-    border-color: hsl(var(--primary) / 0.38);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    box-shadow:
-      0 0 0 1px hsl(var(--primary) / 0.12),
-      0 0 16px -12px hsl(var(--primary) / 0.28);
-    transition: box-shadow var(--duration) var(--ease-out), border-color var(--duration) var(--ease-out);
-  }
-  .desk-cluster:hover {
-    border-color: hsl(var(--primary) / 0.62);
-    box-shadow:
-      0 0 0 1px hsl(var(--primary) / 0.22),
-      0 0 18px hsl(var(--primary) / 0.12);
+    @apply overflow-hidden rounded-xl border bg-card;
+    border-color: hsl(var(--border));
   }
 
   .desk-metric {
@@ -288,51 +278,44 @@
 
 
   /*
-    Surface classes live in @layer components, NOT utilities, on purpose.
-    Tailwind emits components BEFORE utilities, so a caller's own border or bg utility
-    a caller reliably wins. When these sat in @layer utilities they sorted
-    after Tailwind's own utilities and silently beat them — the destructive
-    border on Settings' danger card, the priority border on an urgent
-    announcement and the status borders on Grok cards were all being
-    repainted cyan. Same root cause as the .hud-frame position bug.
+    Поверхности живут в @layer components, а НЕ utilities, намеренно:
+    Tailwind выдаёт components раньше utilities, поэтому собственная
+    утилита вызова (border-…, bg-…) надёжно побеждает. В utilities они сортировались
+    после утилит Tailwind и молча их перебивали — красная рамка опасной карточки
+    в «Настройках», рамка срочного объявления и статусные рамки карточек Грока
+    перекрашивались в циан.
+
+    «Стекло» больше не стекло. Все .glass* / .surface-card — АЛИАСЫ одной плоской
+    поверхности (bg-card, border-border, без blur/тени/свечения): классы
+    оставлены, чтобы не переписывать вызовы (SubPageStats, AnnouncementsPage,
+    GlobalSearch, FilterPopover, RowCardSheet, ManageOptionsDialog). Новый код
+    берёт <Card>/<Section> или утилиты напрямую. Раздельные longhand-ы
+    (border-width/-style/-color), а не шорткат `border`: шорткат сбрасывал бы
+    border-color, переданную утилитой рядом.
   */
-.glass {
-    @apply border text-foreground;
-    background: hsl(var(--card) / 0.92);
-    border-color: hsl(var(--primary) / 0.28);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+  .glass,
+  .glass-panel,
+  .glass-pane,
+  .surface-card {
+    border-width: 1px;
+    border-style: solid;
+    border-color: hsl(var(--border));
+    background: hsl(var(--card));
+    color: hsl(var(--foreground));
   }
-
-.glass-panel {
-    @apply border;
-    background: hsl(var(--card) / 0.92);
-    border-color: hsl(var(--primary) / 0.28);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+  /* Раньше — blur 40px и внутреннее свечение; теперь ничего сверх .glass-pane. */
+  .glass-pane-active {
+    box-shadow: none;
   }
-
-.glass-pane {
-    background: rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid hsl(var(--primary) / 0.12);
-  }
-
-.glass-pane-active {
-    backdrop-filter: blur(40px);
-    -webkit-backdrop-filter: blur(40px);
-    box-shadow: inset 0 0 20px hsl(var(--primary) / 0.05);
-  }
-
-.glass-float {
-    background: hsl(var(--popover) / 0.96);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border: 1px solid hsl(var(--primary) / 0.4);
-    box-shadow:
-      0 0 0 1px hsl(var(--primary) / 0.18),
-      0 18px 40px -22px hsl(0 0% 0% / 0.7);
+  /* Всплывающие поверхности (диалоги, поповеры, карточка строки): фон popover
+     и обычная тень вниз, не свечение. То же, что Dialog/Popover задают утилитами. */
+  .glass-float {
+    border-width: 1px;
+    border-style: solid;
+    border-color: hsl(var(--border));
+    background: hsl(var(--popover));
+    color: hsl(var(--popover-foreground));
+    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.35), 0 4px 6px -4px rgb(0 0 0 / 0.35);
   }
 }
 
@@ -340,65 +323,28 @@
   .glow-primary {
     box-shadow: none;
   }
-  
-  
+
+
   .os-sidebar {
     border-radius: var(--os-radius);
     background: hsl(var(--sidebar));
     border: 1px solid hsl(var(--border));
   }
-  /*
-    Glassmorphism 2.0 (spec): surfaces are defined by LIGHT — a barely-there
-    white tint, a real backdrop blur, and a cyan-refracted edge — instead of
-    an opaque fill. Depth comes from blur + luminance, never a drop shadow
-    implying a light source above.
-  */
-  /*
-    NOTE: backdrop-filter creates a containing block for position:fixed
-    descendants. Do not put .glass-pane on an ancestor of an inline
-    (non-portaled) fixed overlay — RowCardSheet is one — or the overlay
-    gets clipped to that ancestor instead of the viewport.
-  */
-  
-  /* Layer 2: modals, dropdowns — deeper blur, faint inner glow. */
-  
-  /* Light emission. Reserved for ACTIVE elements, per spec — not decoration. */
+  /* Свечение активных элементов убрано вместе с неоном; класс — пустой алиас. */
   .glow-active {
-    box-shadow: 0 0 15px hsl(var(--primary) / 0.18);
+    box-shadow: none;
   }
-  /*
-    Diagonal sheen that sweeps a glass surface every 10s. Deliberately not
-    applied to anything that scrolls or repaints per row — it would repaint
-    the whole surface continuously. Off under reduced-motion.
-  */
+  /* Бегущий блик по обложке стола (DeskCoverGrid) убран: анимированный
+     градиент — ровно то, чего в плоской теме нет. Класс оставлен пустым,
+     чтобы не трогать вызов в чужом файле. */
   .reflective-sheen {
     position: relative;
-    overflow: hidden;
   }
   .reflective-sheen::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 50%;
-    height: 100%;
-    background: linear-gradient(
-      to right,
-      rgba(255, 255, 255, 0) 0%,
-      rgba(255, 255, 255, 0.05) 50%,
-      rgba(255, 255, 255, 0) 100%
-    );
-    transform: skewX(-20deg);
-    animation: sheen 10s infinite;
-    pointer-events: none;
-  }
-  @keyframes sheen {
-    0% { left: -100%; }
-    20% { left: 200%; }
-    100% { left: 200%; }
+    content: none;
   }
 
-  
+  /* Короткое появление выпадашек/диалогов — движение, не свечение, поэтому живёт. */
   @keyframes glass-pop {
     0% { opacity: 0; transform: translateY(6px) scale(0.98); }
     100% { opacity: 1; transform: translateY(0) scale(1); }
@@ -406,23 +352,15 @@
   .animate-glass-pop {
     animation: glass-pop 220ms var(--ease-out);
   }
+  /* «Сегодня» на дашборде — обычная плоская карточка; выделять её лучше
+     содержимым (eyebrow, число акцентом), а не рамкой. */
   .today-card {
-    @apply relative overflow-hidden rounded-md border bg-card;
-    border-color: hsl(var(--primary) / 0.42);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    box-shadow:
-      0 0 0 1px hsl(var(--primary) / 0.16),
-      0 0 32px -14px hsl(var(--primary) / 0.5);
+    @apply relative overflow-hidden rounded-xl border bg-card;
+    border-color: hsl(var(--border));
   }
+  /* Карточка больше не «приподнимается»: наведение на не-кнопку ничего не значит. */
   .lift-card {
-    transition: box-shadow var(--duration) var(--ease-out), border-color var(--duration) var(--ease-out);
-  }
-  .lift-card:hover {
-    border-color: hsl(var(--primary) / 0.55);
-    box-shadow:
-      0 0 0 1px hsl(var(--primary) / 0.22),
-      0 0 24px hsl(var(--primary) / 0.2);
+    transition: none;
   }
   .feed-item {
     @apply rounded-sm px-2 py-2;
@@ -432,10 +370,6 @@
   }
   .hairline {
     box-shadow: inset 0 0 0 1px hsl(var(--border) / 0.9);
-  }
-  .surface-card {
-    @apply border bg-card;
-    border-color: hsl(var(--border));
   }
   html {
     scrollbar-width: thin;
@@ -493,9 +427,10 @@
   .scrollbar-thin::-webkit-scrollbar-track {
     background: transparent;
   }
+  /* Скелет — серый, не бирюзовый: заглушка загрузки не должна спорить с акцентом. */
   .skeleton {
     @apply relative overflow-hidden;
-    background: hsl(var(--primary) / 0.08);
+    background: hsl(var(--foreground) / 0.06);
   }
   .skeleton::after {
     content: "";
@@ -503,7 +438,7 @@
     background: linear-gradient(
       90deg,
       transparent,
-      hsl(var(--primary) / 0.22),
+      hsl(var(--foreground) / 0.08),
       transparent
     );
     animation: shimmer 1.8s infinite;
@@ -519,6 +454,8 @@
 }
 
 @layer utilities {
+  /* Бывшая «сетка киберпанка» на полноэкранных заглушках: декоративного
+     ::before давно нет, остался только контекст наложения. */
   .cyber-grid {
     position: relative;
     isolation: isolate;
@@ -547,21 +484,10 @@
     display: none;
   }
 
+  /* Пульсация убрана целиком (и keyframes тоже): класс — пустой алиас. */
   .neon-pulse {
     animation: none;
-  }
-  @keyframes neon-pulse {
-    0%, 100% {
-      box-shadow:
-        0 0 0 1px hsl(var(--primary) / 0.35),
-        0 0 16px hsl(var(--primary) / 0.28);
-    }
-    50% {
-      box-shadow:
-        0 0 0 1px hsl(var(--primary) / 0.7),
-        0 0 28px hsl(var(--primary) / 0.5),
-        0 0 40px hsl(var(--secondary) / 0.22);
-    }
+    box-shadow: none;
   }
 
   .desk-pointer-glow {
@@ -646,7 +572,6 @@
   .neon-pulse,
   .grok-reset-pulse,
   .animate-glass-pop,
-  .reflective-sheen::after,
   .border-glow-critical::before,
   .skeleton::after {
     animation: none !important;
@@ -686,9 +611,6 @@
     animation: none !important;
     box-shadow: none !important;
   }
-  .desk-cluster,
-  .today-card,
-  .glass-float,
   .status-pill {
     box-shadow: none !important;
     filter: none !important;
@@ -696,15 +618,6 @@
   }
   .desk-pointer-glow {
     display: none !important;
-  }
-  .desk-cluster,
-  .glass,
-  .glass-panel,
-  .os-sidebar,
-  .glass-float,
-  .today-card {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
   }
   .nav-link {
     min-height: 44px;
@@ -726,17 +639,11 @@
   }
 }
 
-/* Cover fallback: cyan->purple wash over the near-black ground, so a desk
-   with no photo still reads as part of the holographic palette. */
+/* Заглушка обложки стола без фото: спокойный нейтральный градиент от чуть
+   светлой панели к фону — читается как «пустая обложка», а не как неон. */
 .desk-cover-placeholder,
 .dark .desk-cover-placeholder {
-  background:
-    linear-gradient(
-      165deg,
-      hsl(var(--primary) / 0.22) 0%,
-      hsl(var(--secondary-deep) / 0.28) 55%,
-      hsl(var(--background)) 100%
-    );
+  background: linear-gradient(165deg, hsl(var(--foreground) / 0.08) 0%, hsl(var(--card)) 60%, hsl(var(--background)) 100%);
 }
 
 .status-pill {
@@ -843,6 +750,32 @@
   }
 }
 
+/*
+  Тач-нормы примитивов. Только `(pointer: coarse)`, без ширины экрана:
+  планшет с мышью получает десктопные размеры, телефон — пальцевые.
+  - Иконочная кнопка (`data-size` ставит Button.tsx) — 44×44: сама иконка
+    16px, и без этого по ⋯ и × в шапках промахивались.
+  - Чип (`.chip` из ui/chip.tsx и pageChipClass) — 36px: чипы стоят рядом
+    строкой, 44 уже ломали бы её на две.
+  - Поля — 16px: iOS автоматически зумит страницу при фокусе на поле мельче.
+*/
+@media (pointer: coarse) {
+  button[data-size="icon"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .chip {
+    min-height: 36px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 .wordmark {
   font-family: Fraunces, "Iowan Old Style", Palatino, Georgia, serif;
   font-weight: 600;
@@ -915,6 +848,15 @@
    панели она не доходит — поэтому число повторено здесь; менять оба. */
 .has-table-totals .bulk-action-bar {
   bottom: calc(32px + 0.5rem + env(safe-area-inset-bottom, 0px));
+}
+/* Когда на телефоне показана нижняя панель навигации (класс ставит AppLayout),
+   safe-area считает только она — полосе итогов и панели массовых действий
+   второй раз отступать под «бровь» не нужно, иначе между ними дыра. */
+.has-bottom-nav .table-totals-bar {
+  padding-bottom: 6px;
+}
+.has-bottom-nav .bulk-action-bar {
+  padding-bottom: 0;
 }
 
 /* iOS: Radix scroll-lock must not freeze the sheet or leak clicks through the overlay. */

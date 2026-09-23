@@ -12,6 +12,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { formatOrderDate, timeAgo } from "@/utils/date";
+import { deskHref, deskNavState, deskRowHref } from "@/utils/deskLinks";
 import { displayNameOf } from "@/utils/displayName";
 import { formatCurrency } from "@/utils/format";
 import { isResponsibleForPage } from "@/utils/permissions";
@@ -90,6 +91,13 @@ export function TechnicianQueue({
   }
 
   const count = pendingRequests.length + todayRows.length;
+  const fromDashboard = deskNavState({ to: "/dashboard", label: "Дашборд" });
+  // Строки очереди — с вкладки по умолчанию стола (`progressForPage`): ссылка
+  // ведёт сразу на неё, иначе строка прошлого месяца не находилась.
+  function openRow(row: RecentRowItem) {
+    const desk = desks.find((d) => d.page.id === row.pageId);
+    navigate(deskRowHref(row.pageId, desk?.page.defaultSubPageId ?? null, row.id), { state: fromDashboard });
+  }
   const myDeskPage =
     desks.find((d) => isResponsibleForPage(d.page, uid))?.page ??
     pages.find((pg) => isResponsibleForPage(pg, uid)) ??
@@ -113,7 +121,7 @@ export function TechnicianQueue({
             size="sm"
             variant="outline"
             className="shrink-0"
-            onClick={() => navigate(`/page/${myDeskPage.id}`)}
+            onClick={() => navigate(deskHref(myDeskPage.id), { state: fromDashboard })}
           >
             Открыть стол
           </Button>
@@ -167,7 +175,7 @@ export function TechnicianQueue({
                 key={`${row.pageId}:${row.id}`}
                 row={row}
                 statusOptions={statusOptions}
-                onOpen={() => navigate(`/page/${row.pageId}?row=${encodeURIComponent(row.id)}`)}
+                onOpen={() => openRow(row)}
               />
             ))}
           </div>

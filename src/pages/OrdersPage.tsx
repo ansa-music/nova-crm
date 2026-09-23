@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import type { QueryDocumentSnapshot } from "firebase/firestore";
 import { CalendarClock, Clock3, ExternalLink, Hand, Inbox, Link2, Phone, Plus, Shuffle, Trash2, Undo2, UserCheck, Users, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,8 @@ import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { useUrlState } from "@/hooks/useUrlState";
+import { deskHref, deskNavState, deskRowHref } from "@/utils/deskLinks";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import { useDeskLoads, useTechSchedules } from "@/hooks/useDeskLoads";
 import { currentBusyUids, effectiveTechLoadKinds } from "@/utils/techLoad";
@@ -134,7 +136,8 @@ export default function OrdersPage() {
   const { activeWorkspace, activeWorkspaceId, members, pages } = useWorkspace();
   const monthKey = useCurrentMonthKey();
   const [orders, setOrders] = useState<WorkOrder[] | null>(null);
-  const [tab, setTab] = useState<WorkOrderStatus>("open");
+  // Вкладка — в адресе (`?status=taken`): F5 и ссылка коллеге открывают ту же.
+  const [tab, setTab] = useUrlState<WorkOrderStatus>("status", "open", { values: TABS });
   const [issueOpen, setIssueOpen] = useState(false);
   // Храним ID, а не снимок: диалог «Кому отдать» обязан видеть отклики,
   // пришедшие уже после открытия, иначе «Рандом» считает claims пустыми и
@@ -167,6 +170,15 @@ export default function OrdersPage() {
   const uid = profile?.uid ?? "";
   const myName = myDisplayName(profile, members);
   const canIssue = permissions.isResolved && (hasFullAccess(permissions.role) || permissions.hasRole("os"));
+  // Палитра Ctrl+K и нижняя панель шлют «Новый заказ» на /orders#new: открываем
+  // диалог выдачи и стираем хэш, чтобы F5 не открывал его снова.
+  const location = useLocation();
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (location.hash !== "#new" || !canIssue) return;
+    setIssueOpen(true);
+    navigate({ pathname: location.pathname, search: location.search }, { replace: true });
+  }, [location.hash, location.pathname, location.search, canIssue, navigate]);
   const canClaim = permissions.isResolved && permissions.hasRole("manager");
   const fullAccess = permissions.isResolved && hasFullAccess(permissions.role);
   const myMembership = useMemo(() => members.find((m) => m.uid === uid) ?? null, [members, uid]);
@@ -761,7 +773,16 @@ export default function OrdersPage() {
                       {/* Ссылка только тому, кто стол реально откроет: ОС и чужой
                           технарь упирались в «нет доступа» — выглядело поломкой. */}
                       {order.takenPageId && canOpenTakenDesk(order.takenPageId) && (
-                        <Link to={`/page/${order.takenPageId}`} className="inline-flex items-center gap-1 text-primary hover:underline">
+                        <Link
+                          // Сразу на вкладку и строку заказа, а не на стол в целом.
+                          to={
+                            order.takenRowId
+                              ? deskRowHref(order.takenPageId, order.takenSubPageId, order.takenRowId)
+                              : deskHref(order.takenPageId, order.takenSubPageId)
+                          }
+                          state={deskNavState({ to: "/orders?status=taken", label: "Заказы" })}
+                          className="inline-flex items-center gap-1 text-primary hover:underline"
+                        >
                           открыть стол <ExternalLink className="h-3 w-3" />
                         </Link>
                       )}

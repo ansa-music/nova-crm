@@ -1,6 +1,7 @@
 import { collection, deleteDoc, doc, getDoc, onSnapshot, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { sendNotification } from "@/services/notificationService";
+import { deskRowHref } from "@/utils/deskLinks";
 
 /**
  * Запрос технаря к ОС по заказу, который ведёт ОС (просьба Nurba 23.09.2026:
@@ -85,7 +86,8 @@ export async function submitOrderRequest(workspaceId: string, input: NewOrderReq
       target: "selected",
       selectedUids: [input.osUid],
       pageId: input.srcPageId,
-      href: `/page/${input.srcPageId}`,
+      // Сразу на вкладку и строку-источник у ОС, а не на стол в целом.
+      href: deskRowHref(input.srcPageId, input.srcTabId, input.srcRowId),
       kind: "order-request",
     },
     [input.osUid]
@@ -126,7 +128,8 @@ export async function resolveOrderRequest(
       target: "selected",
       selectedUids: [request.techUid],
       pageId: request.deskPageId,
-      href: `/page/${request.deskPageId}`,
+      // Технарю — сразу на его строку-заказ.
+      href: deskRowHref(request.deskPageId, request.deskTabId, request.rowId),
       kind: "order-request",
     },
     [request.techUid]

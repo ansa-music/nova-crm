@@ -14,6 +14,7 @@ import { osNickLabel } from "@/services/memberService";
 import { fetchOsDeskMonthStats, type OsDeskMonthStats } from "@/services/osDeskStatsService";
 import { cn } from "@/utils/cn";
 import { timeAgo } from "@/utils/date";
+import { deskHref, deskNavState } from "@/utils/deskLinks";
 import { myDisplayName, realNameOf } from "@/utils/displayName";
 import { formatCurrency } from "@/utils/format";
 import type { WorkspaceMember, WorkspacePage } from "@/types";
@@ -213,7 +214,7 @@ export default function OsDesksPage() {
                   <div className="mt-auto">
                     {canOpen ? (
                       <Button asChild variant={mine ? "default" : "outline"} className="min-h-11 w-full gap-1.5 sm:min-h-9">
-                        <Link to={`/page/${page.id}`}>
+                        <Link to={deskHref(page.id)} state={deskNavState({ to: "/os-desks", label: "Столы ОС" })}>
                           {mine ? "Открыть свой стол" : permissions.canEditPageData(page) ? "Открыть" : "Смотреть"}
                           <ArrowRight className="h-4 w-4" />
                         </Link>

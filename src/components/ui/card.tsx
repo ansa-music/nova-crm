@@ -1,22 +1,20 @@
 import * as React from "react";
 import { cn } from "@/utils/cn";
 
+/**
+ * Карточка — плоская поверхность темы «один акцент, плоско»: заливка
+ * `bg-card`, нейтральная рамка `border-border`, без blur, тени и реакции на
+ * наведение. Классы намеренно утилитами, а не `.glass-pane`: `cn()` — это
+ * tailwind-merge, и перебить он умеет только утилиты, которые узнаёт. Кастомный
+ * класс ставил бы шорткаты `border`/`background` и молча побеждал бы
+ * `border-destructive`/`bg-success/5`, которые передают вызовы («Настройки»,
+ * «Статистика»).
+ */
 export const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn(
-        // Glassmorphism 2.0: light-defined surface, not an opaque fill.
-        // Written as UTILITIES, not the .glass-pane class, on purpose: cn()
-        // is tailwind-merge, which can only dedupe utilities it recognises.
-        // As a custom class .glass-pane would set `border`/`background`
-        // shorthands that silently beat any border-*/bg-* a caller passes
-        // (it sorts later in the sheet), so e.g. Settings' destructive-red
-        // danger card would render cyan.
-        "rounded-xl border border-primary/[0.12] bg-white/[0.04] backdrop-blur-[20px] text-card-foreground",
-        "transition-[border-color,box-shadow] duration-200 hover:border-primary/30",
-        className
-      )}
+      className={cn("rounded-xl border border-border bg-card text-card-foreground", className)}
       {...props}
     />
   )

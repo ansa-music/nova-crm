@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { Link } from "react-router";
 import { ArrowRightLeft, Send, Undo2 } from "lucide-react";
+import { AccessDenied } from "@/components/common/AccessDenied";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { describeOsDispatch, useCanSeeOsDispatchLog } from "@/hooks/useOsDispatchLogWatch";
+import { useUrlState } from "@/hooks/useUrlState";
+import { deskNavState, deskRowHref } from "@/utils/deskLinks";
 import {
   markOsDispatchLogSeen,
   osDispatchLogState,
@@ -15,6 +18,7 @@ import { formatDateTimeManual, timeAgo } from "@/utils/date";
 import { formatCurrency } from "@/utils/format";
 
 type Filter = "all" | "today" | OsDispatchKind;
+const FILTERS: readonly Filter[] = ["all", "today", "assign", "move", "unassign"];
 
 const KIND_ICON = { assign: Send, move: ArrowRightLeft, unassign: Undo2 } as const;
 const KIND_TONE: Record<OsDispatchKind, string> = {
@@ -38,7 +42,8 @@ function startOfTodayAlmaty(now: number): number {
 export default function OsDispatchPage() {
   const canSee = useCanSeeOsDispatchLog();
   const log = useSyncExternalStore(subscribeOsDispatchLogState, osDispatchLogState);
-  const [filter, setFilter] = useState<Filter>("all");
+  // Фильтр — в адресе (`?f=today`): F5 и ссылка коллеге открывают тот же.
+  const [filter, setFilter] = useUrlState<Filter>("f", "all", { values: FILTERS });
 
   // Открыл вкладку — всё, что сейчас в списке, просмотрено; пришло новое,
   // пока вкладка открыта, — тоже.
@@ -65,11 +70,7 @@ export default function OsDispatchPage() {
   );
 
   if (!canSee) {
-    return (
-      <div className="mx-auto w-full min-w-0 max-w-3xl p-4 sm:p-8">
-        <PageHeader title="Выдачи ОС" description="Этот раздел — для Тимлида и Owner." />
-      </div>
-    );
+    return <AccessDenied title="Выдачи ОС" reason="Этот раздел — для Тимлида и Owner." backTo={{ to: "/orders", label: "Заказы" }} />;
   }
 
   const chips: Array<{ id: Filter; label: string; count: number }> = [
@@ -138,7 +139,12 @@ function DispatchRow({ entry }: { entry: OsDispatchLogEntry }) {
         </p>
         <p className="mt-0.5 text-xs text-muted-foreground" title={formatDateTimeManual(entry.createdAt)}>
           {timeAgo(entry.createdAt)} ·{" "}
-          <Link to={`/page/${entry.srcPageId}`} className="underline-offset-2 hover:underline">
+          <Link
+            // Вкладки в журнале нет — стол сам найдёт строку по id.
+            to={deskRowHref(entry.srcPageId, undefined, entry.srcRowId)}
+            state={deskNavState({ to: "/os-dispatch", label: "Выдачи ОС" })}
+            className="underline-offset-2 hover:underline"
+          >
             стол ОС
           </Link>
         </p>

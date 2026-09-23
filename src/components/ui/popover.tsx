@@ -16,7 +16,7 @@ export const PopoverContent = React.forwardRef<
       align={align}
       sideOffset={sideOffset}
       className={cn(
-        "glass-float animate-glass-pop z-[340] w-72 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto rounded-md p-4 text-popover-foreground outline-none",
+        "animate-glass-pop z-[340] w-72 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-lg outline-none",
         className
       )}
       collisionPadding={8}

@@ -1,12 +1,17 @@
 import { Navigate } from "react-router";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePeopleDesks } from "@/hooks/usePeopleDesks";
-import { usePermissions } from "@/hooks/usePermissions";
+import { useNavModel } from "@/hooks/useNavModel";
 
-/** `/` is the signed-in user's own desk. ОС (no desk by design) lands on «Технари», Тимлид on «Пользователи». Other deskless members go to covers on /desks — never a second grid on Dashboard. */
+/**
+ * «/» — дом человека, и где он, решает навигационная модель (`useNavModel().home`):
+ * свой стол у технаря, «Технари» у ОС, «Пользователи» у Тимлида, иначе
+ * обложки столов. Раньше та же логика лежала здесь и в Sidebar порознь.
+ * Персональная главная появится следующим этапом — пока простой редирект.
+ */
 export default function HomePage() {
-  const { myDesk, isLoadingWorkspaceData } = usePeopleDesks();
-  const permissions = usePermissions();
+  const { isLoadingWorkspaceData } = usePeopleDesks();
+  const nav = useNavModel();
 
   if (isLoadingWorkspaceData) {
     return (
@@ -17,19 +22,5 @@ export default function HomePage() {
     );
   }
 
-  // Only a pure ОС: an ОС who is also a Технарь has a desk to land on.
-  if (permissions.isResolved && permissions.roles.every((role) => role === "os")) {
-    return <Navigate to="/technicians" replace />;
-  }
-
-  // Тимлид works with people, not desk tables — unless they're a Технарь too.
-  if (permissions.isResolved && permissions.deskBlocked) {
-    return <Navigate to="/users" replace />;
-  }
-
-  if (myDesk) {
-    return <Navigate to={`/page/${myDesk.id}`} replace />;
-  }
-
-  return <Navigate to="/desks" replace />;
+  return <Navigate to={nav.home.to} replace />;
 }

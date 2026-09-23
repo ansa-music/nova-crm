@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Eye, EyeOff, Loader2, Search } from "lucide-react";
-import { EmptyState } from "@/components/common/EmptyState";
+import { AccessDenied } from "@/components/common/AccessDenied";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -56,12 +56,10 @@ export default function DeskObserversPage() {
   }, [members, q, granted, profile?.uid]);
 
   if (!permissions.isResolved) return null;
+  // Не-Owner: нейтральная заглушка без единого слова «наблюдатель» — страница
+  // скрытая (см. CLAUDE.md, «Наблюдатели»).
   if (!isOwner) {
-    return (
-      <div className="mx-auto w-full max-w-xl p-5 sm:p-8">
-        <EmptyState eyebrow="Доступ" title="Страница недоступна" description="Здесь ничего нет." />
-      </div>
-    );
+    return <AccessDenied title="Страница недоступна" reason="Здесь ничего нет." />;
   }
 
   async function toggle(uid: string, label: string, on: boolean) {

@@ -1,10 +1,18 @@
-import { useRef, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { useLocation } from "react-router";
 import { deskEase, gsap, useGSAP } from "@/lib/gsap";
+import { usePageMeta } from "@/hooks/useNavModel";
 
 export function PageShell({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const location = useLocation();
+  const meta = usePageMeta(location.pathname);
+
+  // Вкладка браузера подписана разделом — из той же модели, что шапка
+  // телефона; имя стола подтягивается, когда список столов доехал.
+  useEffect(() => {
+    document.title = `${meta.title} · Nova`;
+  }, [meta.title]);
 
   useGSAP(
     () => {

@@ -8,6 +8,7 @@ import { sendNotification } from "@/services/notificationService";
 import { toggleUserPageAccess } from "@/services/pageService";
 import type { ViewRequest, WorkspacePage } from "@/types";
 import { isOsDeskId } from "@/services/osDeskService";
+import { deskHref } from "@/utils/deskLinks";
 
 function mapRequests(docs: { id: string; data: () => import("firebase/firestore").DocumentData }[]): ViewRequest[] {
   return docs
@@ -103,7 +104,7 @@ export async function requestDeskView(input: {
       fromName: input.fromName,
       target: "selected",
       // Столов ОС в «Столах» нет — ведём на сам стол.
-      href: input.page.osDesk ? `/page/${input.page.id}` : "/desks",
+      href: input.page.osDesk ? deskHref(input.page.id) : "/desks",
       pageId: input.page.id,
       kind: "view-request",
       viewRequestId: id,
@@ -165,7 +166,7 @@ export async function resolveDeskViewRequest(input: {
       target: "selected",
       href:
         input.status === "approved"
-          ? `/page/${input.request.pageId}`
+          ? deskHref(input.request.pageId)
           : isOsDeskId(input.request.pageId)
             ? "/os-desks"
             : "/desks",

@@ -5,6 +5,7 @@ import { Building2, Lock, Plus } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { PageShell } from "@/components/layout/PageShell";
 import { Topbar } from "@/components/layout/Topbar";
+import { BottomNav, useKeyboardOpen } from "@/components/layout/BottomNav";
 import { GlobalSearch } from "@/components/layout/GlobalSearch";
 import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog";
 import { NicknamePrompt } from "@/components/common/NicknamePrompt";
@@ -39,7 +40,7 @@ import { useRowsBackendBridge } from "@/hooks/useRowsBackendBridge";
 import { useRowAclSync } from "@/hooks/useRowAclSync";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
-import { useIsTablet } from "@/hooks/useMediaQuery";
+import { useIsMobile, useIsTablet } from "@/hooks/useMediaQuery";
 import { useUiStore } from "@/store/uiStore";
 import { isWorkspaceAdmin } from "@/utils/adminAccess";
 import { FALLBACK_JOIN_WORKSPACE_ID, getJoinIntent } from "@/utils/joinIntent";
@@ -83,6 +84,8 @@ export function AppLayout() {
   const { profile } = useAuth();
   const permissions = usePermissions();
   const isCompactNav = useIsTablet();
+  const isPhone = useIsMobile();
+  const keyboardOpen = useKeyboardOpen();
   const [createOpen, setCreateOpen] = useState(false);
   const tableFullscreen = useUiStore((s) => s.tableFullscreen);
   const tableImmersive = useUiStore((s) => s.tableImmersive);
@@ -93,6 +96,9 @@ export function AppLayout() {
   const isOnTablePage = location.pathname.startsWith("/page/");
   const isFullscreen = tableFullscreen && isOnTablePage;
   const chromeHidden = isOnTablePage && (tableFullscreen || tableImmersive);
+  // Нижняя панель — только телефон, и не поверх полноэкранного стола и не под
+  // экранной клавиатурой (там она лишь отнимала бы у поля ввода 56px).
+  const showBottomNav = isPhone && !chromeHidden && !keyboardOpen;
 
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
 
@@ -119,7 +125,7 @@ export function AppLayout() {
   // never as a flash while it was still loading.
   if (phase === "no-workspace" || !activeWorkspace) {
     return (
-      <div className="cyber-grid flex h-screen flex-col items-center justify-center gap-5 bg-background px-4 text-center">
+      <div className="cyber-grid flex h-[100dvh] flex-col items-center justify-center gap-5 bg-background px-4 text-center">
         <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-card text-primary">
           {canCreateWorkspace ? <Building2 className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
         </div>
@@ -155,7 +161,10 @@ export function AppLayout() {
   return (
     // Каркас без инсета и рамки: рейка — перегородка экрана, стол начинается
     // встык с ней, на общем фоне. Полноэкранная таблица прячет и рейку.
-    <div className="page-surface flex h-screen overflow-hidden bg-background">
+    // `100dvh`, не `100vh`: на телефоне адресная строка иначе съедала низ
+    // экрана вместе с нижней панелью. Класс `has-bottom-nav` читают итоги
+    // стола и панель массовых действий (CSS у стола), пока панель на экране.
+    <div className={`page-surface flex h-[100dvh] overflow-hidden bg-background ${showBottomNav ? "has-bottom-nav" : ""}`}>
       <NicknamePrompt />
       <GlobalMessageToaster />
       <GlobalSearch hideTrigger />
@@ -181,6 +190,9 @@ export function AppLayout() {
             </ErrorBoundary>
           </PageShell>
         </main>
+        {/* В потоке колонки, после <main>: fixed-панель легла бы поверх итогов
+            стола и панели массовых действий. */}
+        {showBottomNav && <BottomNav />}
       </div>
     </div>
   );

@@ -1111,6 +1111,81 @@ Nova CRM — production SaaS, написанная с помощью Claude. О�
     `summary/actions` в `null` при смене стола/вкладки, `DataTable` шлёт `onSummaryChange(null)`
     при размонтировании — иначе итоги прошлого стола висели во время загрузки.
 
+- **Плоские примитивы — единственный источник вида** (`src/components/ui`, экспорт из
+  `ui/index.ts`, 24.09.2026). Корни: `Card` = `rounded-xl border-border bg-card`; `Button`
+  default `bg-primary hover:bg-primary/90`, outline `border-border hover:bg-accent`, secondary
+  `bg-muted`, ghost `hover:bg-accent` (вариант `glass` удалён; кнопка ставит `data-size`, по нему
+  тач-блок растит иконочные до 44×44); `Input/Select/Textarea` `border-border bg-background`, фокус
+  `border-primary` + `ring-1 ring-primary`; `Dialog/Dropdown/Popover/ContextMenu/Sheet` =
+  `bg-popover border-border shadow-lg`, оверлеи `bg-black/60` без blur; `Badge` `rounded-md`,
+  default `bg-primary/10 text-primary`; `Sheet side="bottom"` (max-h-[85dvh], `rounded-t-2xl`,
+  safe-area, ручка 36×4, `hideClose`). Новые: `Chip` (tone neutral|primary|success|warning|danger,
+  size sm|md, active, count, dot = HSL-триплет; `chipClass()` для своих `<button>`), `MetricCard`
+  (eyebrow моно / value `font-mono tabular text-[1.4rem]` / sub / meter 0..1), `Section`
+  (шапка eyebrow/title/action, `padded=false` для списков), `ListRow` + `ListGroup` (min-h-12,
+  active = `bg-primary/6` + полоска 2px слева; `href` → Link, `onClick` → button), `Alert`
+  (tone error|warning|info|success), `common/LoadingState`, переписанный `EmptyState`
+  (13px, `bordered`, без бирюзовой полоски). Классы `.glass/.glass-panel/.glass-pane/
+  .surface-card/.glass-float/.desk-cluster/.today-card/.lift-card` — плоские алиасы (longhand,
+  чтобы утилиты вызова побеждали), `.neon-pulse/.reflective-sheen/.glow-active` — пустые; новых
+  вызовов им не давать, выражать вид утилитами. Тач-блок: `button[data-size="icon"]` 44×44,
+  `.chip` min-height 36px (44 ломали бы строку чипов), `input/select/textarea` 16px (без
+  автозума iOS). Урок: в CSS-комментарии нельзя писать `*/` внутри текста («border-*/bg-*») —
+  PostCSS падал с «Unexpected '/'», и Vite отдавал `index.css` как 500.
+- **Единая модель навигации** (`config/nav.ts` — типы и статика, `hooks/useNavModel.ts` —
+  живая модель, 24.09.2026): `useNavModel()` → `home {to,label,icon,active,alert}`, `myDeskTo`
+  (ОС — `/os-desk`, свой стол, у Owner без стола — закреплённый/первый, иначе `/desks`),
+  `sections` (гейты по ролям, бейджи, зелёные alert — переехали из Sidebar), `deskShortcuts`
+  (до 5 закреплённых/недавних из `useUserPageNav`, подпункты под «Столы» в широкой панели),
+  `badgeTotal`, `pageMeta(pathname) → {title, eyebrow}` (стол — имя стола, `/messages/:uid` —
+  собеседник; `EXTRA_ROUTE_META` для `/observers`, `/history`). «Где дом» больше нигде не
+  дублируется: `HomePage` делает `Navigate` на `home.to` (для бесстольных — `/desks`, не «/»,
+  чтобы не зациклиться), Sidebar/BottomNav/GoChordHotkeys/палитра берут адреса отсюда.
+  `document.title = «{title} · Nova»` ставит `PageShell`. Меню аккаунта — одним источником
+  `useAccountMenu({openCreatePage, openCreateWorkspace})` (workspace-список, «Обновить сайт у
+  всех» с `confirmDialog`, «Скачать бэкап», «Новый стол», гейт RoleSwitcher + `setSimulatedRole`,
+  темы, «Клавиши», «Выйти») — читают выпадашка Sidebar, лист «Ещё» и палитра.
+- **Палитра Ctrl+K** (`GlobalSearch`): группы «Действия» (Новый стол, Новый заказ →
+  `/orders#new` — «Заказы» открывают диалог выдачи и стирают хэш, тема, Клавиши; у Owner
+  «Смотреть как…», «Обновить сайт у всех», «Скачать бэкап»), «Разделы» — ВСЕ пункты модели с
+  подписью секции, «Недавние столы» (только на пустом запросе, закреплённые первыми), «Столы»
+  (ищутся и по имени ответственного), «Люди». На телефоне — во весь экран. Строка «Поиск и
+  переход… Ctrl K» — в широкой панели Sidebar (в рейке нет).
+- **Телефон ≤767 (`useIsMobile`)**: нижняя панель `BottomNav` стоит В ПОТОКЕ flex-колонки
+  `AppLayout` после `<main>` (не fixed — иначе перекрывала бы итоги стола и `BulkActionBar`):
+  Главная / Столы (ОС — «Стол ОС») / Заказы (зелёная точка) / Ещё (бейдж = сумма
+  непрочитанных). Прячется при `tableFullscreen/tableImmersive` и при открытой клавиатуре
+  (`useKeyboardOpen`: `visualViewport.height < innerHeight·0.75`). Пока панель на экране, на
+  корне класс `has-bottom-nav` (index.css гасит лишний safe-area у полосы итогов и панели
+  выделения); корень `h-[100dvh]`, не `h-screen`. `Topbar` на телефоне без гамбургера: eyebrow +
+  заголовок из `pageMeta`, поиск (44px, шлёт `nova:command-palette`) и колокольчик; планшет
+  768–1023 — drawer как раньше. `MoreSheet` — `Sheet side="bottom"`: ручка, поиск, плитки по
+  секциям модели, ряд аккаунта со сменой workspace, RoleSwitcher у Owner, тема, Клавиши,
+  Выйти. `uiStore.partialize` больше не хранит `tableFullscreen`: после F5 человек попадал в стол
+  без меню.
+- **Вкладка стола в адресе** (`/page/:id?tab=<subPageId|main>&row=<rowId>`,
+  `DynamicTablePage`, `utils/deskLinks.ts`): `?tab` при открытии сильнее всего (валидируется по
+  видимым вкладкам, `main` = «Основная», при `hideMainTab` игнорируется; не ждёт автопилот
+  месяца — `userPickedTabRef`); без `?tab` — память `nova-crm:desk-tab:{pageId}` (JSON
+  `{tab, month}`, действует ТОЛЬКО в месяце записи, иначе перебивала бы автопилот и стол
+  открывался бы на прошлом месяце), потом `initialSubPageId`. Клик по вкладке пишет `?tab`
+  через `setSearchParams(..., {replace:true})` (сохраняя `?row`) и память; смена `?tab` на
+  открытом столе переключает вкладку без записи. `?row` без `?tab`: если строки нет в открытой
+  вкладке, один запрос `desk_rows` по первичному ключу (только Supabase-режим) дописывает
+  `?tab`. Ссылки на стол и строку строить ТОЛЬКО `deskHref`/`deskRowHref`, не `/page/${id}`
+  руками. «← Назад» в шапке стола: `location.state.from = {to,label}` кладут `deskNavState(...)`
+  («Люди», «Столы ОС», «Выдачи ОС», «Заказы», дашборд, колокольчик через
+  `deskFromLocation(location)`); без `from` — `history.state.idx > 0 ? navigate(-1) : /desks`.
+  `TableChromeExit` подписан «Свернуть» — он возвращает меню, а не уводит со стола.
+  `DynamicTablePage` сбрасывает `tableFullscreen/tableImmersive` при смене `pageId`.
+- **`AccessDenied`** (`components/common/AccessDenied.tsx`) — единственный экран «Доступ
+  ограничен» (`reason`, `title?`, `backTo?`, `hint?`, `children` для «Запросить просмотр»);
+  Owner в симуляции роли видит «Вернуть реальную роль». Свои «Доступ ограничен» больше не писать.
+- **Состояние экрана в адресе — `useUrlState(key, default, {values})`** (`hooks/useUrlState.ts`,
+  поверх `useSearchParams`, `replace: true`, умолчание убирает ключ): «Заказы» `?status=`,
+  «Технари» `?f=`, «Выдачи ОС» `?f=`, «Команда» `?g=` (раньше писала адрес через
+  `window.history.replaceState` мимо роутера), «Люди» `?role=`. Новые фильтры/вкладки страниц
+  заводить через этот хук, а не `useState`.
 - **Шапка раздела — только `PageHeader`** (`components/common/PageHeader.tsx`): eyebrow,
   серифный заголовок, описание, действия справа, чипы-фильтры отдельной строкой. До него
   разметку копировали руками, и шесть экранов разъехались по eyebrow, кеглю и отступам.

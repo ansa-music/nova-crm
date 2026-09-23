@@ -10,8 +10,10 @@ import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { usePeopleDesks } from "@/hooks/usePeopleDesks";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useUrlState } from "@/hooks/useUrlState";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { deskHref, deskNavState } from "@/utils/deskLinks";
 import { myDisplayName } from "@/utils/displayName";
 import { canOpenDesk, groupDeskSubtitle, personLabel } from "@/utils/peopleDesks";
 import { getPresenceStatus, PRESENCE_DOT_COLOR } from "@/utils/presence";
@@ -20,6 +22,9 @@ import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { cn } from "@/utils/cn";
 import type { Role, WorkspacePage } from "@/types";
 
+
+/** Значения `?role=`: пусто — без фильтра. */
+const ROLE_PARAMS: readonly (Role | "")[] = ["", "owner", "teamlead", "manager", "os", "admin", "viewer"];
 
 const ROLE_CHIPS: { id: Role; label: string }[] = [
   { id: "owner", label: "Owner" },
@@ -60,7 +65,10 @@ export default function PeoplePage() {
   const { activeWorkspaceId, members } = useWorkspace();
   const { requestView, latestForPage, reload } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const [query, setQuery] = useState("");
-  const [roleFilter, setRoleFilter] = useState<Role | null>(null);
+  // Фильтр роли — в адресе (`?role=os`): F5 не сбрасывает, ссылку можно отдать.
+  const [roleParam, setRoleParam] = useUrlState<Role | "">("role", "", { values: ROLE_PARAMS });
+  const roleFilter: Role | null = roleParam || null;
+  const setRoleFilter = (next: Role | null) => setRoleParam(next ?? "");
 
   // Owner or Тимлид: may open every desk.
   const isOwner = permissions.hasFullDeskAccess;
@@ -214,7 +222,7 @@ export default function PeoplePage() {
                   type="button"
                   onClick={() => {
                     selectPerson(group.key);
-                    navigate(`/page/${openPage.id}`);
+                    navigate(deskHref(openPage.id), { state: deskNavState({ to: "/people", label: "Люди" }) });
                   }}
                   className={cn(rowClass, "transition-colors hover:border-primary/55 hover:bg-primary/[0.06] active:scale-[0.99]")}
                 >

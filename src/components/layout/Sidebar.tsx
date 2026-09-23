@@ -1,40 +1,15 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type FocusEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type FocusEvent, type PointerEvent } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import {
-  CalendarDays,
   ChevronDown,
-  ClipboardList,
-  HardHat,
-  Keyboard,
-  KeyRound,
-  Home,
-  LayoutDashboard,
-  Trophy,
-  LayoutGrid,
-  LogOut,
-  Megaphone,
-  MessageCircle,
-  MessageSquare,
   MoreVertical,
-  PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
-  Settings,
-  Table2,
-  ScanEye,
-  ListChecks,
-  RefreshCw,
+  Search,
   User,
-  Users,
-  UsersRound,
-  Contact,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { memberHasRole, rolesLabel, type Role } from "@/types";
-import { confirmDialog } from "@/utils/appDialog";
-import { toast } from "@/components/ui/sonner";
-import { requestReloadEverywhere } from "@/services/workspaceService";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,22 +23,13 @@ import { RoleSwitcher } from "@/components/common/RoleSwitcher";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialog";
 import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog";
-import { isWorkspaceAdmin } from "@/utils/adminAccess";
 import { useAuth } from "@/hooks/useAuth";
-import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
-import { DISPATCH_ENABLED } from "@/config/features";
-import { hasFullAccess } from "@/utils/permissions";
-import { osDispatchLogState, subscribeOsDispatchLogState } from "@/services/osDispatchLogService";
-import { signOutUser } from "@/firebase/auth";
-import { setActiveRole } from "@/services/memberService";
 import { cn } from "@/utils/cn";
 import { useUiStore } from "@/store/uiStore";
-import { openOrdersState, subscribeOpenOrdersState } from "@/services/openOrdersPulse";
-import { THEME_OPTIONS } from "@/components/layout/ThemeToggle";
-import { usePeopleDesks } from "@/hooks/usePeopleDesks";
-import { useInboxSummary } from "@/hooks/useInboxSummary";
 import { useCanHover } from "@/hooks/useMediaQuery";
+import { useAccountMenu, useNavModel } from "@/hooks/useNavModel";
+import { NAV_SECTIONS_KEY, pathMatches, type NavChild, type NavSection } from "@/config/nav";
 
 /** Сколько ждать мышь на рейке, прежде чем раскрыть панель поверх стола. */
 const PEEK_OPEN_MS = 220;
@@ -101,19 +67,6 @@ function navActiveClass(active: boolean, collapsed?: boolean, alert?: boolean) {
         ? "bg-success/15 text-success hover:bg-success/25"
         : "text-sidebar-foreground hover:bg-foreground/5"
   );
-}
-
-/** Account card caption under the name; roles without one show the email. */
-const ROLE_CAPTIONS: Partial<Record<Role, string>> = {
-  owner: "Владелец",
-  teamlead: "Тимлид",
-  manager: "Технарь",
-  os: "ОС",
-};
-
-function pathMatches(pathname: string, to: string, end?: boolean) {
-  if (end || to === "/") return pathname === to;
-  return pathname === to || pathname.startsWith(`${to}/`);
 }
 
 function AppNavLink({
@@ -179,37 +132,6 @@ function AppNavLink({
   );
 }
 
-/** Пункт меню. `show: false` — пункта у этой роли нет. */
-interface NavItem {
-  key: string;
-  to: string;
-  label: string;
-  icon: LucideIcon;
-  show?: boolean;
-  badge?: number;
-  alert?: boolean;
-  forceActive?: boolean;
-  end?: boolean;
-  onNavigate?: () => void;
-}
-
-/**
- * Секция меню. Раньше пункты шли одним столбиком из 17 строк, и разбираться в
- * них было трудно (жалоба Nurba 23.09.2026). Теперь они собраны по смыслу:
- * работа → столы → люди → связь → остальное. «Ещё» свёрнута по умолчанию —
- * там то, что открывают раз в неделю.
- */
-interface NavSection {
-  key: string;
-  title?: string;
-  items: NavItem[];
-  /** Можно свернуть; состояние помнится в localStorage. */
-  collapsible?: boolean;
-  defaultOpen?: boolean;
-}
-
-const NAV_SECTIONS_KEY = "nova:nav-sections";
-
 function readSectionState(): Record<string, boolean> {
   try {
     const raw = localStorage.getItem(NAV_SECTIONS_KEY);
@@ -217,6 +139,26 @@ function readSectionState(): Record<string, boolean> {
   } catch {
     return {};
   }
+}
+
+/** Подпункт-стол под «Столами»: иконка в цвете обложки + имя, с отступом под текст родителя. */
+function DeskSubLink({ child, pathname }: { child: NavChild; pathname: string }) {
+  const Icon = child.icon;
+  const active = pathMatches(pathname, child.to);
+  return (
+    <NavLink
+      to={child.to}
+      onClick={() => child.onNavigate?.()}
+      data-nav-active={active ? "true" : undefined}
+      className={cn(
+        "flex min-h-10 w-full items-center gap-2.5 rounded-lg py-1 pl-[38px] pr-3 text-left text-[13px] transition-colors duration-200 lg:min-h-8",
+        active ? "nav-link-active" : "text-sidebar-foreground/85 hover:bg-foreground/5"
+      )}
+    >
+      <Icon className="h-[15px] w-[15px] shrink-0" style={{ color: child.color ? `hsl(${child.color})` : undefined }} />
+      <span className="min-w-0 flex-1 truncate">{child.label}</span>
+    </NavLink>
+  );
 }
 
 function NavSections({
@@ -287,17 +229,23 @@ function NavSections({
               ))}
             {open &&
               section.items.map((item) => (
-                <AppNavLink
-                  key={item.key}
-                  to={item.to}
-                  end={item.end}
-                  icon={item.icon}
-                  label={item.label}
-                  forceActive={item.forceActive}
-                  alert={item.alert}
-                  badge={item.badge}
-                  onNavigate={item.onNavigate}
-                />
+                <div key={item.key} className="flex flex-col gap-0.5">
+                  <AppNavLink
+                    to={item.to}
+                    end={item.end}
+                    icon={item.icon}
+                    label={item.label}
+                    forceActive={item.forceActive}
+                    alert={item.alert}
+                    badge={item.badge}
+                    onNavigate={item.onNavigate}
+                  />
+                  {/* Закреплённые/недавние столы — подпунктами под «Столами».
+                      В рейке их нет: пять безымянных иконок там не читаются. */}
+                  {item.children?.map((child) => (
+                    <DeskSubLink key={child.key} child={child} pathname={pathname} />
+                  ))}
+                </div>
               ))}
           </div>
         );
@@ -308,14 +256,7 @@ function NavSections({
 
 export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?: () => void }) {
   const { profile } = useAuth();
-  const { members, activeWorkspaceId, workspaces, activeWorkspace, setActiveWorkspaceId } = useWorkspace();
   const permissions = usePermissions();
-  const { myDesk } = usePeopleDesks();
-  const { privateUnreadTotal, workspaceChatUnread } = useInboxSummary(
-    activeWorkspaceId,
-    profile?.uid ?? null,
-    { includeWorkspaceChat: true }
-  );
   const location = useLocation();
   const navigate = useNavigate();
   const sidebarPinned = useUiStore((s) => s.sidebarPinned);
@@ -412,125 +353,24 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
 
   const [createPageOpen, setCreatePageOpen] = useState(false);
   const [createWsOpen, setCreateWsOpen] = useState(false);
-  const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
-  const theme = useUiStore((s) => s.theme);
-  const setTheme = useUiStore((s) => s.setTheme);
 
-  const myMembership = members.find((m) => m.uid === profile?.uid);
-  const showUsersNav = permissions.canManageUsers;
-  // Real role gates visibility outright — an Owner simulating Технарь via
-  // RoleSwitcher must lose this link, so effectiveRole (permissions.role)
-  // is checked too, same rule DispatchPage itself enforces server-side-ish.
-  const showDispatchNav =
-    DISPATCH_ENABLED &&
-    permissions.isResolved &&
-    (permissions.hasFullDeskAccess || permissions.realRole === "admin") &&
-    (hasFullAccess(permissions.role) || permissions.role === "admin");
-  // ОС has no desk: «Технари» is their home. A Тимлид manages people, not
-  // desk tables: «Пользователи» is theirs. For both, the desk-centric
-  // sections (Дашборд, Столы) are hidden — there is nothing for them there.
-  // With add-on roles rights add up: only a pure ОС loses Грок and desks,
-  // only a Тимлид who isn't also a Технарь loses desks.
-  const isOs = permissions.isResolved && permissions.roles.every((role) => role === "os");
-  const isTeamlead = permissions.isResolved && permissions.deskBlocked;
-  // Наблюдателю (тихое право Owner) «Столы» нужны — иначе чужой стол открыть
-  // неоткуда; `seesAllDesks` здесь и означает это право.
-  const showDeskNav = (!isOs && !isTeamlead) || permissions.seesAllDesks;
-  const showGrokNav = !isOs;
-  const showTechniciansNav = permissions.canSeeTechnicians && !isOs;
-  // «Стол ОС» — личная таблица ОС, пункт только у ОС (и как второй роли).
-  // «Столы ОС» — все столы ОС на просмотр: у ВСЕХ, и у самих ОС тоже (чужие
-  // столы видны каждому участнику).
-  const showOsDeskNav = permissions.isResolved && permissions.hasRole("os");
-  const showOsDesksNav = permissions.isResolved;
-  // «Выдачи ОС» — мониторинг выборочных выдач: от Тимлида и выше.
-  const showOsDispatchNav = permissions.isResolved && hasFullAccess(permissions.role);
-  const osDispatchLog = useSyncExternalStore(subscribeOsDispatchLogState, osDispatchLogState);
-  const osDispatchUnseen = showOsDispatchNav ? osDispatchLog.unseen : 0;
-  /**
-   * Зелёные пункты меню:
-   * — «Заказы», пока на бирже есть хоть один ОТКРЫТЫЙ заказ (живое состояние,
-   *   забрали последний — гаснет само);
-   * — «Мой стол», когда на стол приехал заказ и его ещё не открывали
-   *   (метка снимается при открытии стола, переживает перезагрузку).
-   */
-  const openOrders = useSyncExternalStore(subscribeOpenOrdersState, openOrdersState);
-  const ordersAlert = openOrders.loaded && openOrders.count > 0;
-  const deskAlerts = useUiStore((s) => s.deskAlerts);
-  const deskAlert = Boolean(myDesk && deskAlerts.includes(myDesk.id));
-  const homeTo = isOs ? "/technicians" : isTeamlead ? "/users" : myDesk ? `/page/${myDesk.id}` : "/";
-  const homeLabel = isOs
-    ? "Технари"
-    : isTeamlead
-      ? "Пользователи"
-      : myDesk && memberHasRole(myMembership, "manager")
-        ? "Мой стол"
-        : "Главная";
-  const HomeIcon = isOs ? HardHat : isTeamlead ? Users : Home;
-  const homeActive =
-    location.pathname === "/" ||
-    location.pathname === homeTo ||
-    Boolean(myDesk && location.pathname === `/page/${myDesk.id}`);
+  // Секции, гейты по ролям, бейджи и «где дом» — в модели (`useNavModel`);
+  // здесь только отрисовка. Пункты аккаунта — оттуда же (`useAccountMenu`),
+  // одним списком с листом «Ещё» на телефоне.
+  const nav = useNavModel({ onNavigate });
+  const account = useAccountMenu({
+    openCreatePage: () => setCreatePageOpen(true),
+    openCreateWorkspace: () => setCreateWsOpen(true),
+  });
+  const sections: NavSection[] = nav.sections;
   function goHome() {
-    navigate(homeTo);
+    navigate(nav.home.to);
     onNavigate?.();
   }
-
-  const rawSections: NavSection[] = [
-    {
-      key: "main",
-      items: [
-        { key: "home", to: homeTo, label: homeLabel, icon: HomeIcon, forceActive: homeActive, alert: deskAlert, onNavigate: goHome },
-        { key: "orders", to: "/orders", label: "Заказы", icon: ClipboardList, alert: ordersAlert, onNavigate },
-        { key: "dashboard", to: "/dashboard", label: "Дашборд", icon: LayoutDashboard, onNavigate },
-        { key: "abs", to: "/abs", label: "ABS система", icon: Trophy, onNavigate },
-      ],
-    },
-    {
-      key: "desks",
-      title: "Столы",
-      items: [
-        { key: "desks", to: "/desks", label: "Столы", icon: LayoutGrid, show: showDeskNav, onNavigate },
-        { key: "os-desk", to: "/os-desk", label: "Стол ОС", icon: Table2, show: showOsDeskNav, onNavigate },
-        { key: "os-desks", to: "/os-desks", label: "Столы ОС", icon: ScanEye, show: showOsDesksNav, onNavigate },
-        { key: "os-dispatch", to: "/os-dispatch", label: "Выдачи ОС", icon: ListChecks, show: showOsDispatchNav, badge: osDispatchUnseen, onNavigate },
-        { key: "technicians", to: "/technicians", label: "Технари", icon: HardHat, show: showTechniciansNav, onNavigate },
-      ],
-    },
-    {
-      key: "people",
-      title: "Люди",
-      items: [
-        { key: "people", to: "/people", label: "Люди", icon: UsersRound, onNavigate },
-        { key: "team", to: "/team", label: "Команда", icon: Contact, show: showUsersNav, onNavigate },
-        { key: "users", to: "/users", label: "Пользователи", icon: Users, show: showUsersNav && !isTeamlead, onNavigate },
-        { key: "schedule", to: "/schedule", label: "График", icon: CalendarDays, onNavigate },
-      ],
-    },
-    {
-      key: "talk",
-      title: "Связь",
-      items: [
-        { key: "messages", to: "/messages", label: "Сообщения", icon: MessageCircle, badge: privateUnreadTotal, onNavigate },
-        { key: "chat", to: "/chat", label: "Чат", icon: MessageSquare, badge: workspaceChatUnread, onNavigate },
-        { key: "announcements", to: "/announcements", label: "Объявления", icon: Megaphone, onNavigate },
-      ],
-    },
-    {
-      key: "more",
-      title: "Ещё",
-      collapsible: true,
-      defaultOpen: false,
-      items: [
-        { key: "grok", to: "/grok-limit", label: "Грок лимит", icon: KeyRound, show: showGrokNav, onNavigate },
-        { key: "dispatch", to: "/dispatch", label: "Выдача", icon: PackageCheck, show: showDispatchNav, onNavigate },
-        { key: "settings", to: "/settings", label: "Настройки", icon: Settings, onNavigate },
-      ],
-    },
-  ];
-  const sections = rawSections
-    .map((section) => ({ ...section, items: section.items.filter((item) => item.show !== false) }))
-    .filter((section) => section.items.length > 0);
+  function openPalette() {
+    window.dispatchEvent(new Event("nova:command-palette"));
+    onNavigate?.();
+  }
 
   const PinIcon = pinned ? PanelLeftClose : PanelLeftOpen;
   const pinLabel = pinned ? "Свернуть в рейку" : "Закрепить меню";
@@ -592,6 +432,22 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
           </div>
         )}
 
+        {/* Подсказка ⌘K — в широкой панели, где есть место для подписи; в
+            рейке она была бы ещё одной безымянной иконкой. */}
+        {!collapsed && (
+          <button
+            type="button"
+            onClick={openPalette}
+            className="mb-3 flex h-9 w-full items-center gap-2 rounded-lg border border-sidebar-border bg-background/60 px-2.5 text-[13px] text-muted-foreground transition-colors duration-200 hover:border-border hover:text-foreground"
+          >
+            <Search className="h-3.5 w-3.5 shrink-0" />
+            <span className="flex-1 truncate text-left">Поиск и переход…</span>
+            <kbd className="hidden rounded-sm border border-border px-1.5 py-0.5 font-mono text-[10px] tracking-wide lg:inline">
+              Ctrl K
+            </kbd>
+          </button>
+        )}
+
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-thin">
           <NavSections sections={sections} collapsed={collapsed} pathname={location.pathname} />
           {mobile && permissions.canCreatePages && (
@@ -644,7 +500,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                       photoURL={profile.photoURL}
                       className="h-[34px] w-[34px]"
                     />
-                    {privateUnreadTotal + workspaceChatUnread > 0 && (
+                    {account.unread > 0 && (
                       <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-primary" />
                     )}
                   </span>
@@ -657,66 +513,33 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                 )}
                 {!collapsed && (
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-medium text-foreground">
-                      {profile?.nickname || profile?.name}
-                    </span>
-                    <span className="block truncate text-[11px] text-muted-foreground">
-                      {(myMembership &&
-                        ((myMembership.extraRoles?.length ? rolesLabel(myMembership) : null) ||
-                          ROLE_CAPTIONS[myMembership.role])) ||
-                        profile?.email}
-                    </span>
+                    <span className="block truncate text-[13px] font-medium text-foreground">{account.name}</span>
+                    <span className="block truncate text-[11px] text-muted-foreground">{account.caption}</span>
                   </span>
                 )}
                 {!collapsed && <MoreVertical className="h-4 w-4 shrink-0 text-muted-foreground" />}
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="z-[330] w-56">
-              {workspaces.map((ws) => (
-                <DropdownMenuItem key={ws.id} onClick={() => setActiveWorkspaceId(ws.id)}>
+              {account.workspaces.map((ws) => (
+                <DropdownMenuItem key={ws.id} onClick={ws.select}>
                   {ws.name}
-                  {ws.id === activeWorkspace?.id ? " ·" : ""}
+                  {ws.active ? " ·" : ""}
                 </DropdownMenuItem>
               ))}
-              {canCreateWorkspace && (
-                <DropdownMenuItem onClick={() => setCreateWsOpen(true)}>
-                  <Plus className="h-4 w-4" /> Создать workspace
-                </DropdownMenuItem>
-              )}
-              {/* Только Owner: перезагрузить сайт во всех открытых вкладках команды. */}
-              {permissions.isWorkspaceOwner && activeWorkspaceId && (
-                <DropdownMenuItem
-                  onClick={async () => {
-                    const ok = await confirmDialog({
-                      title: "Обновить сайт у всех?",
-                      description:
-                        "Во всех открытых вкладках команды страница перезагрузится (через 30 секунд, у свёрнутых — сразу; кто печатает — после ввода). Несохранённое в открытых окнах пропадёт.",
-                      confirmLabel: "Обновить у всех",
-                    });
-                    if (!ok) return;
-                    try {
-                      await requestReloadEverywhere(activeWorkspaceId);
-                      toast.success("Сайт обновится у всех", { description: "И у вас — через 30 секунд." });
-                    } catch (error) {
-                      toast.error(error instanceof Error ? error.message : "Не удалось отправить обновление");
-                    }
-                  }}
-                >
-                  <RefreshCw className="h-4 w-4" /> Обновить сайт у всех
-                </DropdownMenuItem>
-              )}
-              {!mobile && permissions.canCreatePages && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setCreatePageOpen(true)}>
-                    <Plus className="h-4 w-4" /> Новый стол
+              {/* У drawer'а «Новый стол» стоит в списке разделов, в меню не
+                  дублируется; бэкап живёт на вкладке настроек и в палитре. */}
+              {account.actions
+                .filter((a) => a.key !== "backup" && !(mobile && a.key === "create-page"))
+                .map((a) => (
+                  <DropdownMenuItem key={a.key} onClick={() => void a.run()}>
+                    <a.icon className="h-4 w-4" /> {a.label}
                   </DropdownMenuItem>
-                </>
-              )}
+                ))}
               {/* «Режим доступа» есть только у Owner — у остальных RoleSwitcher
                   рисует null, и без этого гейта в меню оставались две
                   разделительные линии подряд с пустотой между ними. */}
-              {permissions.allowedSimulatedRoles.length > 0 && (
+              {account.showRoleSwitcher && (
                 <>
                   <DropdownMenuSeparator />
                   <div
@@ -729,38 +552,26 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                 </>
               )}
               <DropdownMenuSeparator />
-              {THEME_OPTIONS.map((opt) => (
-                <DropdownMenuItem key={opt.value} onClick={() => setTheme(opt.value)}>
+              {account.themes.map((opt) => (
+                <DropdownMenuItem key={opt.value} onClick={opt.select}>
                   <opt.icon className="h-4 w-4" />
                   {opt.label}
-                  {theme === opt.value ? " ·" : ""}
+                  {opt.active ? " ·" : ""}
                 </DropdownMenuItem>
               ))}
-              <DropdownMenuItem onClick={() => useUiStore.getState().setShortcutsHelpOpen(true)}>
-                <Keyboard className="h-4 w-4" /> Клавиши
+              <DropdownMenuItem onClick={() => void account.shortcuts.run()}>
+                <account.shortcuts.icon className="h-4 w-4" /> {account.shortcuts.label}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={async () => {
-                  if (activeWorkspaceId && profile) {
-                    try {
-                      await setActiveRole(activeWorkspaceId, profile.uid, null);
-                    } catch {
-                      /* sign out regardless */
-                    }
-                  }
-                  signOutUser();
-                }}
-                className="text-destructive focus:text-destructive"
-              >
-                <LogOut className="h-4 w-4" /> Выйти
+              <DropdownMenuItem onClick={() => void account.signOut.run()} className="text-destructive focus:text-destructive">
+                <account.signOut.icon className="h-4 w-4" /> {account.signOut.label}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
 
         <CreatePageDialog open={createPageOpen} onOpenChange={setCreatePageOpen} />
-        {canCreateWorkspace && <CreateWorkspaceDialog open={createWsOpen} onOpenChange={setCreateWsOpen} />}
+        {account.canCreateWorkspace && <CreateWorkspaceDialog open={createWsOpen} onOpenChange={setCreateWsOpen} />}
       </div>
     </div>
   );

@@ -1,8 +1,10 @@
 import { DeskEditAccessButton } from "@/components/desks/DeskEditAccessButton";
 import { useEffect, useMemo, useState } from "react";
-import { AtSign, CalendarDays, LayoutGrid, ListOrdered, Search, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { AtSign, CalendarDays, LayoutGrid, ListOrdered, Search, SlidersHorizontal } from "lucide-react";
 import { Link } from "react-router";
+import { AccessDenied } from "@/components/common/AccessDenied";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
+import { useUrlState } from "@/hooks/useUrlState";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/common/EmptyState";
 import { MonthlyRatingTop, type MonthlyTopEntry } from "@/components/technicians/MonthlyRatingTop";
@@ -74,6 +76,7 @@ import {
 } from "@/types";
 
 type Filter = "all" | "free" | "busy" | "away" | "nodesk" | "mine";
+const FILTERS: readonly Filter[] = ["all", "free", "busy", "away", "nodesk", "mine"];
 /** ОС only: the technician cards, or their own orders as one list. */
 type View = "techs" | "orders";
 
@@ -134,7 +137,8 @@ export default function TechniciansPage() {
   const { profile } = useAuth();
   const monthKey = useCurrentMonthKey();
   const [osOrderDocs, setOsOrderDocs] = useState<OsOrders[]>([]);
-  const [filter, setFilter] = useState<Filter>("all");
+  // Фильтр — в адресе (`?f=free`): F5 не сбрасывает, ссылку можно отдать.
+  const [filter, setFilter] = useUrlState<Filter>("f", "all", { values: FILTERS });
   const [view, setView] = useState<View>("techs");
   const [orderQuery, setOrderQuery] = useState("");
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
@@ -572,13 +576,7 @@ export default function TechniciansPage() {
   }
 
   if (!canSee) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <ShieldCheck className="h-8 w-8 text-muted-foreground" />
-        <p className="text-lg font-semibold">Доступ ограничен</p>
-        <p className="text-sm text-muted-foreground">Эта страница недоступна в режиме просмотра.</p>
-      </div>
-    );
+    return <AccessDenied reason="Эта страница недоступна в режиме просмотра." backTo={{ to: "/dashboard", label: "Дашборд" }} />;
   }
 
   const filters: { id: Filter; label: string; count: number; active: string }[] = [

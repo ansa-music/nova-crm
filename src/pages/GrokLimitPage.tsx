@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
-import { KeyRound, Plus, Search, ShieldCheck, X } from "lucide-react";
+import { KeyRound, Plus, Search, X } from "lucide-react";
+import { AccessDenied } from "@/components/common/AccessDenied";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -385,13 +386,7 @@ export default function GrokLimitPage() {
 
   // ОС doesn't use Грок лимит (firestore.rules deny the collection to them too).
   if (isOs) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <ShieldCheck className="h-8 w-8 text-muted-foreground" />
-        <p className="text-lg font-semibold">Доступ ограничен</p>
-        <p className="text-sm text-muted-foreground">Грок лимит недоступен для роли ОС.</p>
-      </div>
-    );
+    return <AccessDenied reason="Грок лимит недоступен для роли ОС." backTo={{ to: "/technicians", label: "Технари" }} />;
   }
 
   async function copyText(text: string, label: string) {

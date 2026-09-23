@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useUiStore } from "@/store/uiStore";
 import { useWorkspaceStore } from "@/store/workspaceStore";
 import { firestoreErrorText } from "@/utils/dbError";
-import { Check, ChevronDown, ChevronRight, Clock3, Contact, Copy, Link2, Lock, Mail, Plus, Search, ShieldCheck, Trash2, UserX, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Clock3, Contact, Copy, Link2, Lock, Mail, Plus, Search, Trash2, UserX, X } from "lucide-react";
+import { AccessDenied } from "@/components/common/AccessDenied";
 import { Link, Navigate } from "react-router";
 import { displayNameOf } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
@@ -133,13 +134,7 @@ export default function UsersPage() {
   if (!permissions.isResolved) return null;
 
   if (!permissions.canManageUsers) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <ShieldCheck className="h-8 w-8 text-muted-foreground" />
-        <p className="text-lg font-semibold">Доступ ограничен</p>
-        <p className="text-sm text-muted-foreground">Управление пользователями доступно только Owner и Тимлиду.</p>
-      </div>
-    );
+    return <AccessDenied reason="Управление пользователями доступно только Owner и Тимлиду." backTo={{ to: "/people", label: "Люди" }} />;
   }
 
   if (!activeWorkspaceId) return null;

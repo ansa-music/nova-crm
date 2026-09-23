@@ -18,3 +18,8 @@ export * from "@/components/ui/scroll-area";
 export * from "@/components/ui/skeleton";
 export * from "@/components/ui/sheet";
 export * from "@/components/ui/sonner";
+export * from "@/components/ui/chip";
+export * from "@/components/ui/metric-card";
+export * from "@/components/ui/section";
+export * from "@/components/ui/list-row";
+export * from "@/components/ui/alert";
