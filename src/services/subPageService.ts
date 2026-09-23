@@ -11,6 +11,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, subscribeWithSource, withErrorReporting } from "@/firebase/firestore";
+import { RESERVED_CELL_KEY_ERROR, isReservedCellKey } from "@/utils/reservedCellKeys";
 import { generateId } from "@/utils/id";
 import { hasRowExtras } from "@/utils/rowExtras";
 import { ymdPartsInTimeZone } from "@/utils/date";
@@ -520,6 +521,8 @@ export async function addSubPageColumn(
   input: { key: string; label: string; type: PageColumn["type"]; statusOptions?: StatusOption[]; customFieldId?: string }
 ): Promise<PageColumn> {
   if (!db) throw new Error("Firebase не настроен");
+  // Ключи полей технаря столбцом не занимать — см. reservedCellKeys.ts.
+  if (isReservedCellKey(input.key)) throw new Error(RESERVED_CELL_KEY_ERROR);
   const newColumn: PageColumn = {
     id: generateId("col"),
     key: input.key,

@@ -20,6 +20,7 @@ import { ColumnTypeIcon } from "@/components/table/ColumnTypeIcon";
 import type { addColumn } from "@/services/pageService";
 import type { ColumnType, PageColumn } from "@/types";
 import { promptDialog } from "@/utils/appDialog";
+import { RESERVED_CELL_KEYS } from "@/utils/reservedCellKeys";
 
 interface AddColumnDialogProps {
   open: boolean;
@@ -117,7 +118,9 @@ export function AddColumnDialog({
     }
     setIsSaving(true);
     try {
-      const existingKeys = new Set(existingColumns.map((c) => c.key));
+      // Ключи полей технаря (techLink/techNote) заняты системой — slugify
+      // обойдёт их так же, как занятые ключи соседних столбцов.
+      const existingKeys = new Set([...existingColumns.map((c) => c.key), ...RESERVED_CELL_KEYS]);
       const key = slugify(label, existingKeys);
       // Never seed statusOptions, including for type "status" — that list is
       // workspace-wide now (getColumnOptions never reads a column's own

@@ -66,6 +66,24 @@ export type PageIconName =
   | "Rocket"
   | "Star";
 
+/** Ключи столбцов месячной вкладки по ролям — см. WorkspacePage.osFieldKeys. */
+export interface OsFieldKeys {
+  /** Для какой вкладки посчитана: ключи столбцов у вкладок разные. */
+  tabId: string;
+  client?: string;
+  phone?: string;
+  price?: string;
+  status?: string;
+  os?: string;
+  link?: string;
+  date?: string;
+  deadline?: string;
+  persons?: string;
+  minutes?: string;
+  /** Когда посчитана — чтобы видеть несвежую карту. */
+  at: number;
+}
+
 export interface WorkspacePage {
   id: string;
   workspaceId: string;
@@ -143,6 +161,20 @@ export interface WorkspacePage {
    */
   autoMonthKey?: string;
   autoMonthSubPageId?: string;
+  /**
+   * Карта «роль → ключ столбца» текущей месячной вкладки.
+   *
+   * Нужна ОС: заказ он ведёт у себя, а строка живёт в столе технаря, и
+   * ключи столбцов там у каждой вкладки свои. Подвкладки ЧУЖОГО стола ОС не
+   * прочитает (правило чтения подвкладок — `canAccessPage`), а документ
+   * стола читает любой участник — значит карта обязана лежать здесь.
+   * Подбирать ключи регэкспами на каждой записи нельзя: переименовали
+   * столбец — и зеркало молча начало писать мимо (этим уже ломался ник ОС).
+   *
+   * Пишет сессия владельца стола (`useOsFieldKeysPublisher`) и только при
+   * настоящей смене состава столбцов.
+   */
+  osFieldKeys?: OsFieldKeys;
   /** «Основная» keeps a hand-made row order — see DataTable.manualRowOrder. */
   rowOrder?: "manual";
   /**

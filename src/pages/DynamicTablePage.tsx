@@ -43,6 +43,7 @@ import { cn } from "@/utils/cn";
 import { recordRecentPage } from "@/hooks/useUserPageNav";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import { useDeskLoadPublisher } from "@/hooks/useDeskLoadPublisher";
+import { useOsFieldKeysPublisher } from "@/hooks/useOsFieldKeysPublisher";
 import { isMonthlyDesk } from "@/services/monthTabService";
 import type { PageIconName, SubPage, WorkspacePage } from "@/types";
 
@@ -263,6 +264,10 @@ export default function DynamicTablePage() {
   const rowsReadError = activeSubPageId ? subPageRowsError : pageRowsError;
   const retryRows = activeSubPageId ? retrySubPageRows : retryPageRows;
   const rowsFromServer = tabsReady && (activeSubPageId ? subPageRowsSynced : pageRowsSynced);
+
+  // Карта столбцов месячной вкладки — её читает ОС, когда ведёт заказ в
+  // чужом столе (см. WorkspacePage.osFieldKeys).
+  useOsFieldKeysPublisher({ page: hasAccess ? page : null, subPage: activeSubPage, canEdit: Boolean(page && permissions.canEditPageData(page)) });
 
   useDeskLoadPublisher({
     page: hasAccess ? page : null,

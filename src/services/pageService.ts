@@ -17,8 +17,11 @@ import { auth, db } from "@/firebase/firebase";
 import { paths, subscribeWithSource, withErrorReporting } from "@/firebase/firestore";
 import { generateDeskId, generateId } from "@/utils/id";
 import { hasRowExtras } from "@/utils/rowExtras";
+import { RESERVED_CELL_KEY_ERROR, isReservedCellKey } from "@/utils/reservedCellKeys";
 import { logChange } from "@/services/historyService";
-import type { PageColumn, PageIconName, PageRow, Role, StatusOption, WorkspacePage } from "@/types";
+import type { PageColumn, PageIconName, PageRow, Role, StatusOption, WorkspacePage,
+  OsFieldKeys,
+} from "@/types";
 import { assertRowsWritable, usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { deletePageAcl, putPageAcl, patchPageAcl } from "@/services/rows/rowAclService";
 import {
@@ -482,6 +485,15 @@ export async function updatePageAppearance(
   await setDoc(paths.page(workspaceId, pageId), { ...patch, updatedAt: Date.now() }, { merge: true });
 }
 
+/**
+ * Карта «роль → ключ столбца» месячной вкладки (см. WorkspacePage.osFieldKeys).
+ * Пишет владелец стола; правила это разрешают как обычную правку своего стола.
+ */
+export async function updatePageOsFieldKeys(workspaceId: string, pageId: string, osFieldKeys: OsFieldKeys) {
+  if (!db) return;
+  await setDoc(paths.page(workspaceId, pageId), { osFieldKeys, updatedAt: Date.now() }, { merge: true });
+}
+
 export async function updatePagePermissions(workspaceId: string, pageId: string, allowedUsers: string[]) {
   if (!db) return;
   await setDoc(paths.page(workspaceId, pageId), { allowedUsers, updatedAt: Date.now() }, { merge: true });
@@ -730,6 +742,8 @@ export async function addColumn(
   input: { key: string; label: string; type: PageColumn["type"]; statusOptions?: StatusOption[]; customFieldId?: string }
 ): Promise<PageColumn> {
   if (!db) throw new Error("Firebase не настроен");
+  // Ключи полей технаря столбцом не занимать — см. reservedCellKeys.ts.
+  if (isReservedCellKey(input.key)) throw new Error(RESERVED_CELL_KEY_ERROR);
   const newColumn: PageColumn = {
     id: generateId("col"),
     key: input.key,
