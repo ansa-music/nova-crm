@@ -18,6 +18,7 @@ export function WeekTemplateGrid({
   editing,
   onCellClick,
   onColumnClick,
+  onNameClick,
 }: {
   rows: ScheduleRow[];
   /** Неделя человека: черновик, если он есть, иначе сохранённая. */
@@ -30,16 +31,22 @@ export function WeekTemplateGrid({
   editing: boolean;
   onCellClick?: (row: ScheduleRow, dow: number) => void;
   onColumnClick?: (dow: number) => void;
+  /** Клик по имени — неделя человека одним окном (только у тех, кто правит). */
+  onNameClick?: (row: ScheduleRow) => void;
 }) {
   if (rows.length === 0) return null;
   const onShift = (dow: number) => rows.filter((row) => !cellsOf(row)[String(dow)]?.off).length;
 
   return (
-    <div className="overflow-x-auto">
+    // На компьютере таблица помещается целиком, и строка дней прилипает под
+    // панелью страницы (--schedule-bar-h): без неё, пролистав вниз, уже не
+    // видно, какой столбец — вторник. На телефоне нужна прокрутка вбок, а она
+    // прилипание по вертикали отключает — там дни видны в каждой клетке-подсказке.
+    <div className="overflow-x-auto lg:overflow-visible">
       <table className="w-full min-w-[34rem] border-separate border-spacing-0 text-[12px]">
         <thead>
           <tr>
-            <th className="sticky left-0 z-10 w-28 min-w-[7rem] bg-card px-2 py-1 text-left font-medium text-muted-foreground sm:w-44 sm:min-w-[11rem]">
+            <th className="sticky left-0 z-10 w-28 min-w-[7rem] bg-card px-2 py-1 text-left font-medium text-muted-foreground sm:w-44 sm:min-w-[11rem] lg:top-[var(--schedule-bar-h,0px)] lg:z-[15]">
               Кто
             </th>
             {WEEK_DOWS.map((dow) => {
@@ -47,7 +54,10 @@ export function WeekTemplateGrid({
               const weekend = dow === 0 || dow === 6;
               const today = dow === todayDow;
               return (
-                <th key={dow} className="min-w-[4.25rem] px-0.5 pb-1 text-center font-medium">
+                <th
+                  key={dow}
+                  className="min-w-[4.25rem] bg-card px-0.5 pb-1 text-center font-medium lg:sticky lg:top-[var(--schedule-bar-h,0px)] lg:z-[14]"
+                >
                   {editing && onColumnClick ? (
                     <button
                       type="button"
@@ -73,7 +83,10 @@ export function WeekTemplateGrid({
                 </th>
               );
             })}
-            <th className="px-2 pb-1 text-center font-medium text-muted-foreground/60" title="Выходных в неделю">
+            <th
+              className="bg-card px-2 pb-1 text-center font-medium text-muted-foreground/60 lg:sticky lg:top-[var(--schedule-bar-h,0px)] lg:z-[14]"
+              title="Выходных в неделю"
+            >
               В
             </th>
           </tr>
@@ -91,7 +104,7 @@ export function WeekTemplateGrid({
                     isMe ? "bg-[hsl(var(--card))] shadow-[inset_0_0_0_9999px_hsl(var(--primary)/0.06)]" : "bg-card"
                   )}
                 >
-                  <span className="flex min-w-0 items-center gap-1.5">
+                  <NameCell onClick={onNameClick ? () => onNameClick(row) : undefined} label={row.label}>
                     <MemberAvatar
                       id={row.member?.uid ?? row.uid}
                       name={row.member?.name ?? initialsName(row.label)}
@@ -111,7 +124,7 @@ export function WeekTemplateGrid({
                     {isMe && (
                       <span className="shrink-0 rounded-full bg-primary/15 px-1.5 text-[9px] leading-4 text-primary">вы</span>
                     )}
-                  </span>
+                  </NameCell>
                 </td>
                 {WEEK_DOWS.map((dow) => {
                   const cell = cells[String(dow)] ?? { off: false, hours: null };
@@ -165,5 +178,24 @@ export function WeekTemplateGrid({
         </tfoot>
       </table>
     </div>
+  );
+}
+
+/**
+ * Имя в строке недели. У того, кто правит график, это кнопка «неделя
+ * человека»: ставить одному человеку выходные и смены через кисть значило
+ * искать его строку и попадать в клетки.
+ */
+function NameCell({ onClick, label, children }: { onClick?: () => void; label: string; children: React.ReactNode }) {
+  if (!onClick) return <span className="flex min-w-0 items-center gap-1.5">{children}</span>;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={`Неделя: ${label} — все дни в одном окне`}
+      className="flex min-h-9 w-full min-w-0 items-center gap-1.5 rounded-md text-left transition-colors hover:bg-primary/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+    >
+      {children}
+    </button>
   );
 }

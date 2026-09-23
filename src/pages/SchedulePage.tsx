@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   CalendarRange,
@@ -13,6 +13,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  Search,
   ShieldCheck,
   UserPlus,
   X,
@@ -28,6 +29,8 @@ import {
 } from "@/components/schedule/ScheduleGrid";
 import { WeekPasteDialog, type WeekPasteResult } from "@/components/schedule/WeekPasteDialog";
 import { WeekTemplateGrid } from "@/components/schedule/WeekTemplateGrid";
+import { PersonWeekDialog } from "@/components/schedule/PersonWeekDialog";
+import { ShiftField } from "@/components/schedule/ShiftField";
 import { MyScheduleCard } from "@/components/schedule/MyScheduleCard";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -54,7 +57,7 @@ import {
 } from "@/services/scheduleRequestService";
 import { cn } from "@/utils/cn";
 import { personLabel, worksAsTechnician } from "@/utils/peopleDesks";
-import { applyParsedCell } from "@/utils/weekTemplate";
+import { applyParsedCell, frequentShifts, matchesPersonQuery } from "@/utils/weekTemplate";
 import { formatDate, ymdInTimeZone } from "@/utils/date";
 import {
   cellsOfEntry,
@@ -77,12 +80,13 @@ import {
   type TechSchedule,
   type WeekCell,
   type WeekTemplate,
+  WEEK_DOWS,
   type WorkspaceMember,
 } from "@/types";
 
 type ScheduleView = "month" | "week";
 
-type Brush = { kind: "off" | "work" | "hours"; from: string; to: string };
+type Brush = { kind: "off" | "work" | "hours"; hours: ScheduleHours | null };
 
 const WORK_CELL: WeekCell = { off: false, hours: null };
 
@@ -146,7 +150,26 @@ export default function SchedulePage() {
   // а не снимок всей недели: иначе сохранение молча откатывало бы дни, которые
   // за это время поменял другой руководитель.
   const [weekDraft, setWeekDraft] = useState<Map<string, Record<string, WeekCell>>>(new Map());
-  const [brush, setBrush] = useState<Brush>({ kind: "off", from: "12:00", to: "" });
+  const [brush, setBrush] = useState<Brush>({ kind: "off", hours: null });
+  // Поиск человека: в графике 30–40 строк в нескольких разделах, и ради одной
+  // клетки приходилось листать до самого низа.
+  const [query, setQuery] = useState("");
+  const [personTarget, setPersonTarget] = useState<ScheduleRow | null>(null);
+  // Высота липкой панели — строка дней недели прилипает сразу под ней.
+  // Пишем CSS-переменную прямо в DOM, без setState: ResizeObserver со
+  // setState на каждом изменении уже давал бесконечный цикл в DataTable.
+  const pageRef = useRef<HTMLDivElement | null>(null);
+  const barRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const bar = barRef.current;
+    const page = pageRef.current;
+    if (!bar || !page || typeof ResizeObserver === "undefined") return;
+    const sync = () => page.style.setProperty("--schedule-bar-h", `${Math.round(bar.getBoundingClientRect().height)}px`);
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  });
   const [paste, setPaste] = useState<{ text: string } | null>(null);
   const [weekSaving, setWeekSaving] = useState(false);
 
@@ -530,12 +553,12 @@ export default function SchedulePage() {
   );
   const todayYmd = ymdInTimeZone(Date.now());
   const todayDow = new Date(`${todayYmd}T00:00:00Z`).getUTCDay();
-  const brushHoursValid = brush.kind !== "hours" || (Boolean(brush.from) && (!brush.to || brush.from < brush.to));
+  const brushHoursValid = brush.kind !== "hours" || Boolean(brush.hours);
   const brushCell: WeekCell =
     brush.kind === "off"
       ? { off: true, hours: null }
-      : brush.kind === "hours"
-        ? { off: false, hours: { from: brush.from, to: brush.to } }
+      : brush.kind === "hours" && brush.hours
+        ? { off: false, hours: brush.hours }
         : WORK_CELL;
 
   /**
@@ -637,6 +660,7 @@ export default function SchedulePage() {
     // Вставка задевает людей из всех разделов — показываем все, чтобы
     // изменённые строки нельзя было не увидеть из-за фильтра.
     setSection("all");
+    setQuery("");
     toast.success(`Перенесли неделю ${result.length} чел. — проверьте и нажмите «Сохранить»`);
   }
 
@@ -725,6 +749,13 @@ export default function SchedulePage() {
   const visible = (id: string) => section === "all" || section === id;
   const nothingAtAll = sections.length === 0 && !showCustom;
 
+  const searching = query.trim().length > 0;
+  const matchRow = (row: ScheduleRow) =>
+    matchesPersonQuery(query, [row.label, row.member?.name, row.member?.nickname]);
+  const shownSections = searching ? sections.map((s) => ({ ...s, rows: s.rows.filter(matchRow) })) : sections;
+  const shownCustomRows = searching ? customRows.filter(matchRow) : customRows;
+  const foundCount = shownSections.reduce((sum, s) => sum + s.rows.length, 0) + shownCustomRows.length;
+
   /** Есть ли смотрящий в самом графике (Viewer и Admin без стола туда не попадают). */
   const inSchedule = sections.some((s) => s.rows.some((row) => row.uid === uid));
 
@@ -734,6 +765,33 @@ export default function SchedulePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [groups, customRows]
   );
+
+  /**
+   * Частые смены команды — готовые кнопки у кисти и в окнах: неполные смены
+   * у всех одни и те же, набирать их каждый раз заново незачем.
+   */
+  const weekPresets = useMemo(
+    () =>
+      frequentShifts(
+        patternRows.flatMap((row) => WEEK_DOWS.map((dow) => weekCellsOfId(row.uid)[String(dow)]?.hours ?? null))
+      ),
+    [patternRows, weekCellsOfId]
+  );
+  const monthPresets = useMemo(
+    () => frequentShifts([...byUid.values()].flatMap((schedule) => Object.values(schedule.hours ?? {}))),
+    [byUid]
+  );
+
+  function openPerson(row: ScheduleRow) {
+    if (!canEdit || !templateReady || weekSaving) return;
+    setPersonTarget(row);
+  }
+
+  function applyPerson(row: ScheduleRow, cells: Record<string, WeekCell>) {
+    putWeekCells([{ personId: row.uid, cells }]);
+    setPersonTarget(null);
+    setWeekEditing(true);
+  }
 
   const gridProps = {
     monthKey,
@@ -749,7 +807,7 @@ export default function SchedulePage() {
   };
 
   return (
-    <div className="mx-auto w-full min-w-0 max-w-7xl p-5 sm:p-8 lg:p-10">
+    <div ref={pageRef} className="mx-auto w-full min-w-0 max-w-7xl p-5 sm:p-8 lg:p-10">
       <PageHeader
         eyebrow="Студия"
         title="График"
@@ -758,7 +816,7 @@ export default function SchedulePage() {
             ? !canEdit
               ? "Постоянная неделя команды: у кого какие выходные и смены. Разовые выходные и отгулы — во вкладке «Месяц»."
               : weekEditing
-                ? "Выберите кисть и кликайте по клеткам, клик по дню недели — весь столбец. Можно вставить таблицу из Google Sheets (Ctrl+V). В график уйдёт по «Сохранить»."
+                ? "Клик по имени — вся неделя человека в одном окне; кисть — быстро по клеткам, клик по дню недели — весь столбец. Можно вставить таблицу из Google Sheets (Ctrl+V). В график уйдёт по «Сохранить»."
                 : "Постоянная неделя каждого: выходные и смены по дням недели. Ставится один раз и сама раскладывается в график — на этот и следующий месяц."
             : !canEdit
             ? "Кто работает, у кого выходной и кто отпросился. График ведёт Тимлид."
@@ -816,69 +874,34 @@ export default function SchedulePage() {
             )}
             </>
             )}
-            {canEdit && view === "week" &&
-              (weekEditing ? (
-                <>
-                  <Button
-                    size="sm"
-                    className="min-h-11 gap-1.5 sm:min-h-0"
-                    disabled={weekSaving || !templateReady}
-                    onClick={() => void saveWeek()}
-                  >
-                    {weekSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                    Сохранить
-                    {weekDraft.size > 0 && <span className="tabular-nums opacity-80">{weekDraft.size}</span>}
-                  </Button>
-                  <Button variant="ghost" size="sm" className="min-h-11 sm:min-h-0" disabled={weekSaving} onClick={() => void cancelWeek()}>
-                    Отмена
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="min-h-11 gap-1.5 sm:min-h-0"
-                  disabled={!templateReady}
-                  title={templateReady ? undefined : "Неделя ещё не загрузилась"}
-                  onClick={() => setWeekEditing(true)}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  Изменить неделю
-                </Button>
-              ))}
-            {canEdit && view === "month" &&
-              (editing ? (
-                <>
-                  <Button size="sm" className="min-h-11 gap-1.5 sm:min-h-0" disabled={saving || !scheduleReady} onClick={() => void saveDraft()}>
-                    {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                    Сохранить
-                    {draft.size + hoursDraft.size > 0 && (
-                      <span className="tabular-nums opacity-80">{draft.size + hoursDraft.size}</span>
-                    )}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="min-h-11 sm:min-h-0"
-                    disabled={saving}
-                    onClick={() => void cancelDraft()}
-                  >
-                    Отмена
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="min-h-11 gap-1.5 sm:min-h-0"
-                  disabled={!scheduleReady}
-                  title={scheduleReady ? undefined : "График ещё не загрузился"}
-                  onClick={() => setEditing(true)}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  Редактировать
-                </Button>
-              ))}
+            {/* «Сохранить»/«Отмена» в режиме правки — в липкой панели под шапкой:
+                она видна, как бы далеко ни пролистали список. */}
+            {canEdit && view === "week" && !weekEditing && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-11 gap-1.5 sm:min-h-0"
+                disabled={!templateReady}
+                title={templateReady ? undefined : "Неделя ещё не загрузилась"}
+                onClick={() => setWeekEditing(true)}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Изменить неделю
+              </Button>
+            )}
+            {canEdit && view === "month" && !editing && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-11 gap-1.5 sm:min-h-0"
+                disabled={!scheduleReady}
+                title={scheduleReady ? undefined : "График ещё не загрузился"}
+                onClick={() => setEditing(true)}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Редактировать
+              </Button>
+            )}
           </div>
         }
         filters={
@@ -931,74 +954,141 @@ export default function SchedulePage() {
         )
       )}
 
-      {editing && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-primary/35 bg-primary/[0.07] px-3 py-2.5 text-[12px]">
-          <Pencil className="h-3.5 w-3.5 shrink-0 text-primary" />
-          <p className="min-w-0 flex-1">
-            Отмечаете выходные на {monthLabel}. Изменений:{" "}
-            <span className="font-medium tabular-nums">{draft.size + hoursDraft.size}</span> — они уйдут в график одним
-            сохранением. Месяц пока не листается. Здесь — разовые исключения; постоянные выходные по дням недели
-            ставятся во вкладке «Неделя» и раскладываются на месяцы сами.
-          </p>
-        </div>
-      )}
-
-      {view === "week" && weekEditing && (
-        <div className="mb-4 flex flex-col gap-2 rounded-xl border border-primary/35 bg-primary/[0.07] px-3 py-2.5 text-[12px]">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Paintbrush className="h-3.5 w-3.5 shrink-0 text-primary" />
-            <span className="mr-1 font-medium">Кисть</span>
-            {(
-              [
-                ["off", "Выходной"],
-                ["work", "Рабочий"],
-                ["hours", "Смена с/до"],
-              ] as const
-            ).map(([kind, label]) => (
-              <button
-                key={kind}
-                type="button"
-                onClick={() => setBrush((prev) => ({ ...prev, kind }))}
-                className={pageChipClass(brush.kind === kind)}
-              >
-                {label}
-              </button>
-            ))}
-            {brush.kind === "hours" && (
-              <span className="inline-flex items-center gap-1">
-                <Input
-                  type="time"
-                  aria-label="Смена с"
-                  value={brush.from}
-                  onChange={(e) => setBrush((prev) => ({ ...prev, from: e.target.value }))}
-                  className="h-9 w-[6.5rem]"
-                />
-                <span className="text-muted-foreground">до</span>
-                <Input
-                  type="time"
-                  aria-label="Смена до (можно пусто)"
-                  value={brush.to}
-                  onChange={(e) => setBrush((prev) => ({ ...prev, to: e.target.value }))}
-                  className="h-9 w-[6.5rem]"
-                />
+      {/* Липкая панель: поиск человека и, в режиме правки, кисть с
+          «Сохранить». Раньше кисть и кнопки жили только наверху страницы, и
+          чтобы поставить что-то человеку внизу списка, приходилось листать
+          туда-обратно. */}
+      {!nothingAtAll && (
+        <div ref={barRef} className="sticky top-0 z-20 -mx-2 mb-4 flex flex-col gap-2 rounded-xl border border-border/70 bg-background/95 px-2 py-2 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:mx-0 sm:px-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-0 flex-1 sm:max-w-xs">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setQuery("");
+                  // Один найденный — Enter открывает его неделю.
+                  if (e.key === "Enter" && view === "week" && foundCount === 1) {
+                    const only = shownSections.flatMap((sec) => sec.rows)[0] ?? shownCustomRows[0];
+                    if (only) openPerson(only);
+                  }
+                }}
+                placeholder="Найти человека"
+                aria-label="Найти человека в графике"
+                className="h-10 pl-8 pr-8 text-[13px] sm:h-9"
+              />
+              {searching && (
+                <button
+                  type="button"
+                  aria-label="Очистить поиск"
+                  onClick={() => setQuery("")}
+                  className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            {searching && (
+              <span className="text-[12px] text-muted-foreground">
+                найдено: <span className="font-medium tabular-nums text-foreground">{foundCount}</span>
               </span>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="ml-auto min-h-11 gap-1.5 sm:min-h-0"
-              disabled={weekLocked}
-              onClick={() => setPaste({ text: "" })}
-            >
-              <ClipboardPaste className="h-3.5 w-3.5" />
-              Вставить из таблицы
-            </Button>
+            {view === "week" && canEdit && !weekEditing && !searching && (
+              <span className="hidden text-[12px] text-muted-foreground md:inline">
+                Клик по имени — вся неделя человека в одном окне
+              </span>
+            )}
+            {view === "week" && weekEditing && (
+              <div className="ml-auto flex items-center gap-1.5">
+                <span className="hidden text-[12px] text-muted-foreground sm:inline">
+                  изменено у <span className="font-medium tabular-nums text-foreground">{weekDraft.size}</span> чел.
+                </span>
+                <Button size="sm" className="min-h-10 gap-1.5 sm:min-h-0" disabled={weekSaving || !templateReady} onClick={() => void saveWeek()}>
+                  {weekSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Сохранить
+                </Button>
+                <Button variant="ghost" size="sm" className="min-h-10 sm:min-h-0" disabled={weekSaving} onClick={() => void cancelWeek()}>
+                  Отмена
+                </Button>
+              </div>
+            )}
+            {view === "month" && editing && (
+              <div className="ml-auto flex items-center gap-1.5">
+                <span className="hidden text-[12px] text-muted-foreground sm:inline">
+                  изменений: <span className="font-medium tabular-nums text-foreground">{draft.size + hoursDraft.size}</span>
+                </span>
+                <Button size="sm" className="min-h-10 gap-1.5 sm:min-h-0" disabled={saving || !scheduleReady} onClick={() => void saveDraft()}>
+                  {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Сохранить
+                </Button>
+                <Button variant="ghost" size="sm" className="min-h-10 sm:min-h-0" disabled={saving} onClick={() => void cancelDraft()}>
+                  Отмена
+                </Button>
+              </div>
+            )}
           </div>
-          <p className="text-muted-foreground">
-            {brush.kind === "hours" && !brushHoursValid
-              ? "Начало смены должно быть раньше конца. «До» можно оставить пустым — будет «с 12:00»."
-              : `Клик по клетке — кисть, повторный клик снимает. Клик по дню недели — весь столбец раздела. Изменена неделя у ${weekDraft.size} чел.`}
-          </p>
+
+          {view === "month" && editing && (
+            <p className="flex items-start gap-1.5 text-[12px] text-muted-foreground">
+              <Pencil className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+              Отмечаете выходные на {monthLabel}: клик по дню ставит и снимает выходной. Это разовые исключения;
+              постоянные выходные — во вкладке «Неделя».
+            </p>
+          )}
+
+          {view === "week" && weekEditing && (
+            <div className="flex flex-col gap-1.5 border-t border-border/60 pt-2 text-[12px]">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Paintbrush className="h-3.5 w-3.5 shrink-0 text-primary" />
+                <span className="mr-1 font-medium">Кисть</span>
+                {(
+                  [
+                    ["off", "Выходной"],
+                    ["work", "Рабочий"],
+                    ["hours", "Смена"],
+                  ] as const
+                ).map(([kind, label]) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={() =>
+                      setBrush((prev) => ({
+                        kind,
+                        hours: kind === "hours" ? prev.hours ?? weekPresets[0] ?? null : prev.hours,
+                      }))
+                    }
+                    className={pageChipClass(brush.kind === kind)}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="ml-auto min-h-10 gap-1.5 sm:min-h-0"
+                  disabled={weekLocked}
+                  onClick={() => setPaste({ text: "" })}
+                >
+                  <ClipboardPaste className="h-3.5 w-3.5" />
+                  Вставить из таблицы
+                </Button>
+              </div>
+              {brush.kind === "hours" && (
+                <ShiftField
+                  compact
+                  value={brush.hours}
+                  presets={weekPresets}
+                  onChange={(hours) => setBrush({ kind: "hours", hours })}
+                />
+              )}
+              <p className="text-muted-foreground">
+                {brush.kind === "hours" && !brushHoursValid
+                  ? "Напишите смену — кисть заработает."
+                  : "Клик по клетке — кисть, повторный клик возвращает как было. Клик по дню недели — весь столбец (с учётом поиска). Клик по имени — неделя человека."}
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -1105,9 +1195,15 @@ export default function SchedulePage() {
         />
       ) : (
         <div className="flex flex-col gap-6">
-          {sections.map(
+          {searching && foundCount === 0 && (
+            <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-[13px] text-muted-foreground">
+              Никого не нашли по «{query.trim()}».
+            </p>
+          )}
+          {shownSections.map(
             (s) =>
-              (editing || visible(s.id)) && (
+              (editing || visible(s.id)) &&
+              s.rows.length > 0 && (
                 <Section key={s.id} icon={s.icon} title={s.title} count={s.rows.length}>
                   {view === "week" ? (
                     <WeekTemplateGrid
@@ -1119,6 +1215,7 @@ export default function SchedulePage() {
                       editing={weekEditing && !weekSaving}
                       onCellClick={paintCell}
                       onColumnClick={(dow) => paintColumn(s.rows, dow)}
+                      onNameClick={canEdit && templateReady && !weekSaving ? openPerson : undefined}
                     />
                   ) : (
                     <ScheduleGrid {...gridProps} rows={s.rows} />
@@ -1127,27 +1224,28 @@ export default function SchedulePage() {
               )
           )}
 
-          {showCustom && (editing || visible("custom")) && (
+          {showCustom && (editing || visible("custom")) && (!searching || shownCustomRows.length > 0) && (
             <CustomSection
               name={groupName}
-              rows={customRows}
+              rows={shownCustomRows}
               canEdit={canEdit && !editing && !weekEditing}
               onRename={(next) => void saveGroup(next, groupPeople)}
               onAdd={(name) => void saveGroup(groupName, [...groupPeople, { id: newSchedulePersonId(), name }])}
             >
               {view === "week" ? (
                 <WeekTemplateGrid
-                  rows={customRows}
+                  rows={shownCustomRows}
                   cellsOf={weekCellsOf}
                   isPending={weekPending}
                   meUid={uid}
                   todayDow={todayDow}
                   editing={weekEditing && !weekSaving}
                   onCellClick={paintCell}
-                  onColumnClick={(dow) => paintColumn(customRows, dow)}
+                  onColumnClick={(dow) => paintColumn(shownCustomRows, dow)}
+                  onNameClick={canEdit && templateReady && !weekSaving ? openPerson : undefined}
                 />
               ) : (
-                <ScheduleGrid {...gridProps} rows={customRows} onRemoveRow={(row) => void removePerson(row)} />
+                <ScheduleGrid {...gridProps} rows={shownCustomRows} onRemoveRow={(row) => void removePerson(row)} />
               )}
             </CustomSection>
           )}
@@ -1176,7 +1274,9 @@ export default function SchedulePage() {
 
       {paste && (
         <WeekPasteDialog
+          workspaceId={activeWorkspaceId ?? ""}
           rows={patternRows}
+          currentOf={weekCellsOfId}
           initialText={paste.text}
           onClose={() => setPaste(null)}
           canAddPeople={canEdit}
@@ -1184,8 +1284,23 @@ export default function SchedulePage() {
         />
       )}
 
+      {personTarget && (
+        <PersonWeekDialog
+          row={personTarget}
+          cells={weekCellsOfId(personTarget.uid)}
+          stored={storedCells(personTarget.uid)}
+          presets={weekPresets}
+          others={patternRows
+            .filter((row) => row.uid !== personTarget.uid)
+            .map((row) => ({ row, cells: weekCellsOfId(row.uid) }))}
+          onClose={() => setPersonTarget(null)}
+          onApply={(cells) => applyPerson(personTarget, cells)}
+        />
+      )}
+
       {hoursTarget && (
         <HoursDialog
+          presets={monthPresets}
           target={hoursTarget}
           monthLabel={monthLabel}
           onClose={() => setHoursTarget(null)}
@@ -1202,19 +1317,19 @@ export default function SchedulePage() {
  */
 function HoursDialog({
   target,
+  presets,
   monthLabel,
   onClose,
   onSave,
 }: {
   target: { row: ScheduleRow; dayKey: string; hours: ScheduleHours | null };
+  presets: ScheduleHours[];
   monthLabel: string;
   onClose: () => void;
   onSave: (hours: ScheduleHours | null) => void;
 }) {
-  const [from, setFrom] = useState(target.hours?.from ?? "12:00");
-  const [to, setTo] = useState(target.hours ? target.hours.to : "15:00");
-  // «До» можно оставить пустым — «с 12:45» без конца смены, как в недельной таблице.
-  const valid = Boolean(from) && (!to || from < to);
+  // Смена одним полем текстом («12:30-15», «с 12:45») и частые смены кнопками.
+  const [hours, setHours] = useState<ScheduleHours | null>(target.hours ?? presets[0] ?? null);
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -1229,24 +1344,10 @@ function HoursDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-end gap-2">
-          <label className="flex min-w-0 flex-1 flex-col gap-1 text-[12px] text-muted-foreground">
-            С
-            <Input type="time" value={from} onChange={(e) => setFrom(e.target.value)} className="h-10" />
-          </label>
-          <label className="flex min-w-0 flex-1 flex-col gap-1 text-[12px] text-muted-foreground">
-            До
-            <Input type="time" value={to} onChange={(e) => setTo(e.target.value)} className="h-10" />
-          </label>
-        </div>
-        {!valid ? (
-          <p className="text-[11px] text-destructive">Начало должно быть раньше конца.</p>
-        ) : (
-          <p className="text-[11px] text-muted-foreground">«До» можно оставить пустым — будет «с {from}».</p>
-        )}
+        <ShiftField autoFocus value={hours} presets={presets} onChange={setHours} onSubmit={() => hours && onSave(hours)} />
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button className="min-h-11 sm:min-h-0" disabled={!valid} onClick={() => onSave({ from, to })}>
+          <Button className="min-h-11 sm:min-h-0" disabled={!hours} onClick={() => hours && onSave(hours)}>
             Сохранить
           </Button>
           {target.hours && (

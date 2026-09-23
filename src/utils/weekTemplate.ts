@@ -1,4 +1,5 @@
 import {
+  formatScheduleHours,
   sameScheduleHours,
   type ScheduleDayState,
   type ScheduleHours,
@@ -442,4 +443,116 @@ export function matchPastedNames(names: string[], candidates: NameCandidate[]): 
     }
   }
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Быстрая правка недели: смены текстом, частые смены, поиск, память имён
+// ---------------------------------------------------------------------------
+
+/**
+ * Смена, набранная текстом: «12:30-15», «с 12:45», «10-12, 15-19» — тем же
+ * строгим разбором, что и вставка из таблицы. Два поля `type=time` на смену
+ * — это восемь касаний и колёсико на телефоне; так пишут и в Google Sheets.
+ * Не смена (пусто, «вых», непонятное) — null.
+ */
+export function parseShiftText(text: string): ScheduleHours | null {
+  const parsed = parseWeekCell(text);
+  return parsed.kind === "hours" ? parsed.hours : null;
+}
+
+function hoursKey(hours: ScheduleHours): string {
+  return `${hours.from}|${hours.to || ""}|${hours.label || ""}`;
+}
+
+/**
+ * Смены, которые в команде ставят чаще всего, — готовые кнопки: неполные
+ * смены у всех одни и те же («12:30–15:00», «с 12:45»), и набирать их каждый
+ * раз заново незачем. Сначала самые частые, при равенстве — по началу.
+ */
+export function frequentShifts(list: Array<ScheduleHours | null | undefined>, limit = 6): ScheduleHours[] {
+  const counts = new Map<string, { hours: ScheduleHours; count: number }>();
+  for (const hours of list) {
+    if (!hours?.from) continue;
+    const key = hoursKey(hours);
+    const found = counts.get(key);
+    if (found) found.count += 1;
+    else counts.set(key, { hours: { from: hours.from, to: hours.to || "", ...(hours.label ? { label: hours.label } : {}) }, count: 1 });
+  }
+  return [...counts.values()]
+    .sort((a, b) => b.count - a.count || a.hours.from.localeCompare(b.hours.from) || (a.hours.to || "").localeCompare(b.hours.to || ""))
+    .slice(0, limit)
+    .map((entry) => entry.hours);
+}
+
+/**
+ * Подходит ли человек под поиск: каждое слово запроса — начало какого-то
+ * слова в имени, нике или подписи. «али» находит «Али Ахметов», «ахм» — его
+ * же; «ли» — нет (иначе на «а» подсвечивалась бы вся команда).
+ */
+export function matchesPersonQuery(query: string, names: Array<string | null | undefined>): boolean {
+  const wanted = nameTokens(query);
+  if (wanted.length === 0) return true;
+  const tokens = names.flatMap((name) => (name ? nameTokens(name) : []));
+  return wanted.every((w) => tokens.some((t) => t.startsWith(w)));
+}
+
+/** Ключ имени из таблицы для памяти «это имя — этот человек»: регистр, «ё» и знаки не важны. */
+export function pastedNameKey(name: string): string {
+  return nameTokens(name).join(" ");
+}
+
+/**
+ * Кому отдать строку вставки: сначала то, что человек уже выбирал руками для
+ * этого имени в прошлый раз (таблицу вставляют каждую неделю, и одни и те же
+ * «Дина Р.» / «Адлет (ОС)» не должны требовать выбора снова), потом
+ * автоматическое совпадение. Один человек — одной строке: запомненный выбор
+ * сильнее автоматики, и автоматике достаются только свободные.
+ */
+export function resolvePastedTargets(
+  names: string[],
+  auto: Array<string | null>,
+  remembered: Record<string, string>,
+  candidateIds: ReadonlySet<string>
+): Array<string | null> {
+  const fromMemory = names.map((name) => {
+    const id = remembered[pastedNameKey(name)];
+    return id && candidateIds.has(id) ? id : null;
+  });
+  const seen = new Map<string, number>();
+  fromMemory.forEach((id) => id && seen.set(id, (seen.get(id) ?? 0) + 1));
+  const memoryIds = new Set([...seen].filter(([, n]) => n === 1).map(([id]) => id));
+  return names.map((_, i) => {
+    const mem = fromMemory[i];
+    if (mem && memoryIds.has(mem)) return mem;
+    const guess = auto[i];
+    return guess && !memoryIds.has(guess) ? guess : null;
+  });
+}
+
+function sameWeekCell(a: WeekCell, b: WeekCell): boolean {
+  return a.off === b.off && sameScheduleHours(a.hours, b.hours);
+}
+
+/**
+ * Какие дни вставка поменяет у человека: день недели → было/станет. Пустые и
+ * непонятные клетки день не меняют (`applyParsedCell`), поэтому и здесь их нет.
+ */
+export function pastedWeekChanges(
+  current: Record<string, WeekCell>,
+  parsed: Record<string, ParsedWeekCell>
+): Record<string, { before: WeekCell; after: WeekCell }> {
+  const out: Record<string, { before: WeekCell; after: WeekCell }> = {};
+  for (const [dow, cell] of Object.entries(parsed)) {
+    const before = current[dow] ?? { off: false, hours: null };
+    const after = applyParsedCell(before, cell);
+    if (!sameWeekCell(before, after)) out[dow] = { before, after };
+  }
+  return out;
+}
+
+/** «вых» / «работа» / «12:30–15:00» — клетка недели одной строкой. */
+export function weekCellText(cell: WeekCell | null | undefined): string {
+  if (!cell) return "работа";
+  if (cell.off) return "вых";
+  return cell.hours ? formatScheduleHours(cell.hours) : "работа";
 }
