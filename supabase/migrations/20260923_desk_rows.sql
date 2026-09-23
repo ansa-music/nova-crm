@@ -148,6 +148,12 @@ $$;
 --
 -- «Всё в workspace»: Owner, Тимлид + Технарь и наблюдатель читают любой стол
 -- — в том числе стол, у которого записи о правах ещё нет.
+-- ВНИМАНИЕ: эти функции читают rows_members/rows_workspaces под SECURITY
+-- DEFINER, и политики к владельцу таблиц не применяются — поэтому цепочка
+-- «политика → функция → таблица с политикой» не зацикливается. Не включать
+-- на rows_* `force row level security` и прогонять файл той же ролью, что
+-- создала таблицы, иначе Postgres ответит «infinite recursion detected in
+-- policy» и строк не увидит никто.
 create or replace function public.rows_read_all_workspaces() returns setof text
 language sql stable security definer
 set search_path = public, pg_temp

@@ -162,7 +162,7 @@ export function planMemberSync(
 export function planPageSync(
   pages: readonly WorkspacePage[],
   current: readonly AclPageRow[],
-  opts: { actor: "owner" | "teamlead" | "admin" | "responsible"; me: string }
+  opts: { actor: "owner" | "teamlead" | "admin" | "responsible"; me: string; meHasOsRole?: boolean }
 ): { upsert: AclPageRow[]; skipped: string[] } {
   const skipped: string[] = [];
   const currentById = new Map(current.map((p) => [p.page_id, p]));
@@ -204,6 +204,15 @@ export function planPageSync(
       if (!cur) {
         if (want.os_desk && !(want.page_id === `osdesk_${want.responsible_uid}` && want.created_by === want.responsible_uid)) {
           skipped.push(`стол ${want.page_id}: такой стол ОС заводит только Owner`);
+          continue;
+        }
+        // СВОЙ стол ОС Тимлид в копию не заводит: политика Supabase пускает
+        // туда только того, у кого роль ОС есть сейчас (иначе любой Тимлид
+        // выписал бы себе `osdesk_{свой uid}` и получил правку его строк).
+        // Тимлид + ОС проходит веткой участника; у бывшего ОС запись заведёт
+        // Owner — здесь это ОЖИДАЕМЫЙ пропуск, а не ошибка на каждой сверке.
+        if (want.os_desk && want.responsible_uid === opts.me && !opts.meHasOsRole) {
+          skipped.push(`стол ${want.page_id}: свой стол ОС заводит Owner`);
           continue;
         }
         upsert.push(want);
@@ -373,7 +382,10 @@ export async function syncRowAcl(input: AclSyncInput): Promise<AclSyncReport> {
   }
 
   const currentPages = await readPages(workspaceId);
-  const pagePlan = planPageSync(input.pages, currentPages, { actor, me: input.me });
+  const meHasOsRole = (input.members ?? []).some(
+    (m) => m.uid === input.me && (m.role === "os" || (m.extraRoles ?? []).includes("os"))
+  );
+  const pagePlan = planPageSync(input.pages, currentPages, { actor, me: input.me, meHasOsRole });
   report.skipped.push(...pagePlan.skipped);
   report.pagesUpserted = await upsertRows(
     "rows_page_acl",
