@@ -1,6 +1,8 @@
 import { deleteDoc, getDoc, getDocs, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
+import { usesSupabaseRows } from "@/services/rows/rowsBackend";
+import { setObserverAcl } from "@/services/rows/rowAclService";
 
 /**
  * «Наблюдатель» — человек, которому Owner открыл ЧУЖИЕ столы на ЧТЕНИЕ.
@@ -102,9 +104,24 @@ export async function grantDeskObserver(input: {
     grantedAt: Date.now(),
     grantedBy: input.ownerUid,
   });
+  await mirrorObserver(input.workspaceId, input.uid, true);
 }
 
 export async function revokeDeskObserver(workspaceId: string, uid: string) {
   if (!db) throw new Error("Firebase не настроен");
   await deleteDoc(paths.deskObserver(workspaceId, uid));
+  await mirrorObserver(workspaceId, uid, false);
+}
+
+/**
+ * Строки в Supabase — наблюдатель в копии прав сразу (Owner-only и там).
+ * Отказ не откатывает Firestore: сверка Owner доведёт копию сама.
+ */
+async function mirrorObserver(workspaceId: string, uid: string, on: boolean) {
+  if (!usesSupabaseRows(workspaceId)) return;
+  try {
+    await setObserverAcl(workspaceId, uid, on);
+  } catch (error) {
+    console.warn("[rows-acl] наблюдатель не записан в копию прав — доделает сверка", error);
+  }
 }

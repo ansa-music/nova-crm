@@ -153,6 +153,21 @@ service cloud.firestore {
       return pageData.get('osDesk', false) == true;
     }
 
+    // Строки таблиц переехали в Supabase (`rowsBackend` у workspace, «гибрид»
+    // — supabase/migrations/20260923_desk_rows.sql). Копия в Firestore с этой
+    // минуты — замёрзший архив: запись в неё с вкладки на старом коде молча
+    // потерялась бы для всех, поэтому её отклоняем — громкий отказ лучше
+    // тихой потери. Owner пишет всегда: так идёт обратный перенос из Supabase.
+    // Документ workspace правило строки и так читает (isOwner → isDocOwner),
+    // повторный get того же документа не тарифицируется.
+    function rowsOnSupabase(workspaceId) {
+      return get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('rowsBackend', 'firestore') == 'supabase';
+    }
+
+    function rowsWritableHere(workspaceId) {
+      return !rowsOnSupabase(workspaceId) || isOwner(workspaceId);
+    }
+
     // Owner: every page. Тимлид: none, если он не Технарь, — кроме столов ОС.
     // Responsible person: their own desk even if hidden or missing from
     // allowedUsers. Everyone else: explicit allowedUsers grant.
@@ -212,9 +227,11 @@ service cloud.firestore {
         && request.resource.data.ownerId == request.auth.uid
         && request.auth.token.email == 'nurpro2005@gmail.com';
       allow update: if isOwner(workspaceId);
-      // Тимлид: every workspace setting, never the ownership itself.
+      // Тимлид: every workspace setting, never the ownership itself — и не
+      // хранилище строк (rowsBackend/rowsMigrationAt): переключить его без
+      // переноса строк значит показать всем пустые столы.
       allow update: if isTeamLead(workspaceId)
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['ownerId']);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['ownerId', 'rowsBackend', 'rowsMigrationAt']);
       // Deleting the workspace stays Owner-only — no Тимлид branch.
       allow delete: if isOwner(workspaceId);
 
@@ -514,7 +531,8 @@ service cloud.firestore {
           allow read: if isMember(workspaceId) &&
             canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
           allow create, update, delete: if isMember(workspaceId) &&
-            canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
+            canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
+            rowsWritableHere(workspaceId);
 
           // Row-level comment threads — anyone with VIEW access to the
           // page (even a Viewer) can read and post; editing/deleting a
@@ -552,7 +570,8 @@ service cloud.firestore {
             allow read: if isMember(workspaceId) &&
               canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
             allow create, update, delete: if isMember(workspaceId) &&
-              canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
+              canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
+              rowsWritableHere(workspaceId);
           }
         }
 

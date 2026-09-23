@@ -1,34 +1,52 @@
 import { getDoc, getDocs, setDoc, writeBatch } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
+import { usesSupabaseRows } from "@/services/rows/rowsBackend";
+import { sbFetchAllPageRows, sbFetchRows, sbPutRows } from "@/services/rows/supabaseRowStore";
+import type { PageRow } from "@/types";
+
+type SnapshotRow = { id: string; data: Record<string, unknown> };
+
+function toSnapshotRows(rows: PageRow[]): SnapshotRow[] {
+  return rows.map((row) => ({ id: row.id, data: row as unknown as Record<string, unknown> }));
+}
+
+function fromSnapshotRows(rows: SnapshotRow[]): PageRow[] {
+  return rows.map((r) => ({ ...(r.data as unknown as PageRow), id: r.id }));
+}
 
 /**
  * Reads a page's own doc + all its rows + every subpage (each with its own
  * rows) — everything `pageService.deletePage` is about to permanently
  * remove. Used to make page deletion undo-able: without a full snapshot
  * taken BEFORE the delete, there'd be nothing to restore from.
+ *
+ * Строки берутся из того хранилища, где они сейчас живут (Firestore или
+ * Supabase), и туда же возвращаются.
  */
 export async function snapshotPage(workspaceId: string, pageId: string) {
-  const [pageSnap, rowsSnap, subPagesSnap] = await Promise.all([
+  const onSupabase = usesSupabaseRows(workspaceId);
+  const [pageSnap, rowsSnap, subPagesSnap, rowsByTab] = await Promise.all([
     getDoc(paths.page(workspaceId, pageId)),
-    getDocs(paths.rows(workspaceId, pageId)),
+    onSupabase ? null : getDocs(paths.rows(workspaceId, pageId)),
     getDocs(paths.subPages(workspaceId, pageId)),
+    onSupabase ? sbFetchAllPageRows(workspaceId, pageId) : null,
   ]);
 
   const subPages = await Promise.all(
     subPagesSnap.docs.map(async (subPageDoc) => {
-      const subRowsSnap = await getDocs(paths.subPageRows(workspaceId, pageId, subPageDoc.id));
-      return {
-        id: subPageDoc.id,
-        data: subPageDoc.data(),
-        rows: subRowsSnap.docs.map((r) => ({ id: r.id, data: r.data() })),
-      };
+      const rows: SnapshotRow[] = rowsByTab
+        ? toSnapshotRows(rowsByTab.get(subPageDoc.id) ?? [])
+        : (await getDocs(paths.subPageRows(workspaceId, pageId, subPageDoc.id))).docs.map((r) => ({ id: r.id, data: r.data() }));
+      return { id: subPageDoc.id, data: subPageDoc.data(), rows };
     })
   );
 
   return {
     pageData: pageSnap.exists() ? pageSnap.data() : null,
-    rows: rowsSnap.docs.map((r) => ({ id: r.id, data: r.data() })),
+    rows: rowsByTab
+      ? toSnapshotRows(rowsByTab.get("") ?? [])
+      : (rowsSnap?.docs.map((r) => ({ id: r.id, data: r.data() })) ?? []),
     subPages,
   };
 }
@@ -42,11 +60,14 @@ export async function restorePageSnapshot(workspaceId: string, pageId: string, s
 
   await setDoc(paths.page(workspaceId, pageId), snapshot.pageData);
 
-  const rowWrites = snapshot.rows.map((r) => ({ ref: paths.row(workspaceId, pageId, r.id), data: r.data }));
+  const onSupabase = usesSupabaseRows(workspaceId);
   const subPageWrites = snapshot.subPages.map((sp) => ({ ref: paths.subPage(workspaceId, pageId, sp.id), data: sp.data }));
-  const subRowWrites = snapshot.subPages.flatMap((sp) =>
-    sp.rows.map((r) => ({ ref: paths.subPageRow(workspaceId, pageId, sp.id, r.id), data: r.data }))
-  );
+  const rowWrites = onSupabase ? [] : snapshot.rows.map((r) => ({ ref: paths.row(workspaceId, pageId, r.id), data: r.data }));
+  const subRowWrites = onSupabase
+    ? []
+    : snapshot.subPages.flatMap((sp) =>
+        sp.rows.map((r) => ({ ref: paths.subPageRow(workspaceId, pageId, sp.id, r.id), data: r.data }))
+      );
 
   const all = [...rowWrites, ...subPageWrites, ...subRowWrites];
   for (let i = 0; i < all.length; i += CHUNK_SIZE) {
@@ -54,17 +75,27 @@ export async function restorePageSnapshot(workspaceId: string, pageId: string, s
     all.slice(i, i + CHUNK_SIZE).forEach(({ ref, data }) => batch.set(ref, data));
     await batch.commit();
   }
+
+  if (onSupabase) {
+    await sbPutRows(workspaceId, pageId, null, fromSnapshotRows(snapshot.rows));
+    for (const sp of snapshot.subPages) await sbPutRows(workspaceId, pageId, sp.id, fromSnapshotRows(sp.rows));
+  }
 }
 
 /** Same idea as snapshotPage, scoped to a single subpage (and its rows). */
 export async function snapshotSubPage(workspaceId: string, pageId: string, subPageId: string) {
-  const [subPageSnap, rowsSnap] = await Promise.all([
+  const onSupabase = usesSupabaseRows(workspaceId);
+  const [subPageSnap, rows] = await Promise.all([
     getDoc(paths.subPage(workspaceId, pageId, subPageId)),
-    getDocs(paths.subPageRows(workspaceId, pageId, subPageId)),
+    onSupabase
+      ? sbFetchRows(workspaceId, pageId, subPageId).then(toSnapshotRows)
+      : getDocs(paths.subPageRows(workspaceId, pageId, subPageId)).then((snap) =>
+          snap.docs.map((r) => ({ id: r.id, data: r.data() }) as SnapshotRow)
+        ),
   ]);
   return {
     subPageData: subPageSnap.exists() ? subPageSnap.data() : null,
-    rows: rowsSnap.docs.map((r) => ({ id: r.id, data: r.data() })),
+    rows,
   };
 }
 
@@ -78,6 +109,10 @@ export async function restoreSubPageSnapshot(
 ) {
   if (!snapshot.subPageData) return;
   await setDoc(paths.subPage(workspaceId, pageId, subPageId), snapshot.subPageData);
+  if (usesSupabaseRows(workspaceId)) {
+    await sbPutRows(workspaceId, pageId, subPageId, fromSnapshotRows(snapshot.rows));
+    return;
+  }
   const CHUNK_SIZE = 450;
   for (let i = 0; i < snapshot.rows.length; i += CHUNK_SIZE) {
     const batch = writeBatch(db);

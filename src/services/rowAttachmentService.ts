@@ -3,7 +3,8 @@ import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { ROW_FILES_BUCKET, supabase } from "@/lib/supabase";
 import type { RowAttachment } from "@/types";
-import { mirrorPatchAttachments } from "@/services/rowRecordsService";
+import { assertRowsWritable, usesSupabaseRows } from "@/services/rows/rowsBackend";
+import { sbPatchRow } from "@/services/rows/supabaseRowStore";
 
 export const MAX_ROW_FILE_BYTES = 10 * 1024 * 1024;
 
@@ -61,8 +62,12 @@ function rowRef(target: RowAttachmentTarget) {
 /** Merge-update ONLY the attachments field. Never writes cells. */
 export async function setRowAttachments(target: RowAttachmentTarget, attachments: RowAttachment[]) {
   if (!db) throw new Error("Firebase не настроен");
+  assertRowsWritable(target.workspaceId);
+  if (usesSupabaseRows(target.workspaceId)) {
+    await sbPatchRow(target.workspaceId, target.pageId, target.subPageId ?? null, target.rowId, { attachments });
+    return;
+  }
   await setDoc(rowRef(target), { attachments }, { merge: true });
-  mirrorPatchAttachments(target.rowId, attachments);
 }
 
 export async function uploadRowFiles(

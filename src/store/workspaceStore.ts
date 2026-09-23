@@ -12,6 +12,13 @@ interface WorkspaceState {
   isLoadingWorkspaces: boolean;
   isLoadingWorkspaceData: boolean;
   membersLoadState: MembersLoadState;
+  /**
+   * Для какого workspace ПОЛНЫЙ список участников прочитан с сервера (разовое
+   * чтение ростера или его обновление). `membersLoadState: "ready"` этого не
+   * значит — он ставится и по одному своему документу участника. Нужен тем,
+   * кто по списку решает «этого человека больше нет» (сверка прав строк).
+   */
+  rosterWorkspaceId: string | null;
   setWorkspaces: (workspaces: Workspace[]) => void;
   setActiveWorkspaceId: (id: string | null) => void;
   setMembers: (members: WorkspaceMember[]) => void;
@@ -19,6 +26,7 @@ interface WorkspaceState {
   setLoadingWorkspaces: (loading: boolean) => void;
   setLoadingWorkspaceData: (loading: boolean) => void;
   setMembersLoadState: (state: MembersLoadState) => void;
+  setRosterWorkspaceId: (id: string | null) => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>()(
@@ -31,6 +39,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       isLoadingWorkspaces: true,
       isLoadingWorkspaceData: true,
       membersLoadState: "loading",
+      rosterWorkspaceId: null,
       setWorkspaces: (workspaces) => set({ workspaces }),
       setActiveWorkspaceId: (activeWorkspaceId) => set({ activeWorkspaceId }),
       setMembers: (members) => set({ members }),
@@ -38,6 +47,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setLoadingWorkspaces: (isLoadingWorkspaces) => set({ isLoadingWorkspaces }),
       setLoadingWorkspaceData: (isLoadingWorkspaceData) => set({ isLoadingWorkspaceData }),
       setMembersLoadState: (membersLoadState) => set({ membersLoadState }),
+      setRosterWorkspaceId: (rosterWorkspaceId) => set({ rosterWorkspaceId }),
     }),
     {
       name: "nova-crm:workspace",

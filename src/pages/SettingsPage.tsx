@@ -6,6 +6,7 @@ import {
   Building2,
   Check,
   Columns3,
+  Database,
   Download,
   EyeOff,
   Filter,
@@ -28,6 +29,7 @@ import {
   Users,
 } from "lucide-react";
 import { AvatarUpload } from "@/components/common/AvatarUpload";
+import { RowsStoragePanel } from "@/components/settings/RowsStoragePanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -151,6 +153,7 @@ const SETTINGS_NAV = [
   { value: "fields", label: "Поля", icon: Layers, owner: true },
   { value: "appearance", label: "Оформление", icon: Palette, owner: true },
   { value: "backup", label: "Бэкап", icon: Download, owner: true },
+  { value: "rows", label: "Строки таблиц", icon: Database, owner: true },
   { value: "members", label: "Роли и доступ", icon: Users },
 ] as const;
 
@@ -401,7 +404,9 @@ export default function SettingsPage() {
           {SETTINGS_NAV.filter(
             (item) =>
               (!("owner" in item) || permissions.canManageWorkspace) &&
-              (item.value !== "backup" || permissions.canExportWorkspace)
+              (item.value !== "backup" || permissions.canExportWorkspace) &&
+              // Хранилище строк переключает только Owner по настоящей роли.
+              (item.value !== "rows" || permissions.realRole === "owner")
           ).map((item) => (
             <TabsTrigger
               key={item.value}
@@ -827,6 +832,12 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
         </TabsContent>
+        )}
+
+        {permissions.realRole === "owner" && (
+          <TabsContent value="rows" className="mt-0 flex flex-col gap-4">
+            <RowsStoragePanel />
+          </TabsContent>
         )}
 
         <TabsContent value="members" className="mt-0">

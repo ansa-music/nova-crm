@@ -18,14 +18,19 @@ import { generateId } from "@/utils/id";
 import { hasRowExtras } from "@/utils/rowExtras";
 import { logChange } from "@/services/historyService";
 import type { PageColumn, PageIconName, PageRow, Role, StatusOption, WorkspacePage } from "@/types";
+import { assertRowsWritable, usesSupabaseRows } from "@/services/rows/rowsBackend";
+import { deletePageAcl } from "@/services/rows/rowAclService";
 import {
-  mirrorDeleteRow,
-  mirrorDeleteRowsForPage,
-  mirrorPatchRowCells,
-  mirrorPatchRowCellsBulk,
-  mirrorReorderRows,
-  mirrorUpsertRow,
-} from "@/services/rowRecordsService";
+  sbClearHighlights,
+  sbDeleteRow,
+  sbDeleteRows,
+  sbFetchRows,
+  sbPatchRow,
+  sbPutRow,
+  sbPutRows,
+  sbSetOrder,
+  sbSubscribeRows,
+} from "@/services/rows/supabaseRowStore";
 
 // ---------------------------------------------------------------------------
 // Убирает поля со значением undefined перед записью в Firestore
@@ -780,8 +785,10 @@ export async function reorderPages(workspaceId: string, orderedIds: string[]) {
 export async function deletePage(workspaceId: string, pageId: string) {
   if (!db) return;
   const database = db;
+  assertRowsWritable(workspaceId);
+  const onSupabase = usesSupabaseRows(workspaceId);
   const [rowsSnapshot, historySnapshot] = await Promise.all([
-    getDocs(paths.rows(workspaceId, pageId)),
+    onSupabase ? null : getDocs(paths.rows(workspaceId, pageId)),
     getDocs(query(paths.history(workspaceId), where("pageId", "==", pageId))),
   ]);
 
@@ -796,7 +803,7 @@ export async function deletePage(workspaceId: string, pageId: string) {
     /* still delete the page */
   }
   const refsToDelete = [
-    ...rowsSnapshot.docs.map((d) => d.ref),
+    ...(rowsSnapshot?.docs.map((d) => d.ref) ?? []),
     ...historySnapshot.docs.map((d) => d.ref),
     paths.page(workspaceId, pageId),
     ...(claimUid ? [paths.managerPageClaim(workspaceId, claimUid)] : []),
@@ -807,8 +814,17 @@ export async function deletePage(workspaceId: string, pageId: string) {
     refsToDelete.slice(i, i + CHUNK_SIZE).forEach((ref) => batch.delete(ref));
     await batch.commit();
   }
-  // User deleted the page: drop matching row_records copies only.
-  mirrorDeleteRowsForPage(pageId);
+  // Строки в Supabase (все вкладки разом) и запись о правах стола — ПОСЛЕ
+  // удаления самого стола: сбой здесь оставит лишь невидимые строки без стола,
+  // а не живой стол без строк. Возврат через Ctrl+Z кладёт их обратно из снимка.
+  if (onSupabase) {
+    try {
+      await sbDeleteRows(workspaceId, pageId);
+      await deletePageAcl(workspaceId, pageId);
+    } catch (error) {
+      console.warn("[rows] строки удалённого стола остались в Supabase", error);
+    }
+  }
 }
 
 export async function duplicatePage(workspaceId: string, page: WorkspacePage, newOrder: number) {
@@ -822,20 +838,28 @@ export async function duplicatePage(workspaceId: string, page: WorkspacePage, ne
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
+  assertRowsWritable(workspaceId);
   const batch = writeBatch(db);
   batch.set(paths.page(workspaceId, newId), duplicated);
+  if (usesSupabaseRows(workspaceId)) {
+    // Сначала стол (без него у копии нет прав в Supabase), потом строки.
+    await batch.commit();
+    const source = await sbFetchRows(workspaceId, page.id, null);
+    await sbPutRows(
+      workspaceId,
+      newId,
+      null,
+      source.map((row) => ({ ...row, id: generateId("row"), pageId: newId }))
+    );
+    return duplicated;
+  }
   const rowsSnapshot = await getDocs(paths.rows(workspaceId, page.id));
-  const newRows: PageRow[] = [];
   rowsSnapshot.docs.forEach((d) => {
     const rowId = generateId("row");
     const row = { ...(d.data() as PageRow), id: rowId, pageId: newId };
     batch.set(paths.row(workspaceId, newId, rowId), row);
-    newRows.push(row);
   });
   await batch.commit();
-  // Mirror after the batch commits, same as every other row-creating write —
-  // best-effort, never blocks/throws (see mirrorUpsertRow).
-  newRows.forEach((row) => mirrorUpsertRow(workspaceId, newId, null, row));
   return duplicated;
 }
 
@@ -847,14 +871,17 @@ export async function duplicatePage(workspaceId: string, page: WorkspacePage, ne
 export function subscribeToRows(
   workspaceId: string,
   pageId: string,
-  onData: (rows: PageRow[], fromServer: boolean) => void
+  onData: (rows: PageRow[], fromServer: boolean) => void,
+  onError?: (error: unknown) => void
 ) {
+  if (usesSupabaseRows(workspaceId)) return sbSubscribeRows(workspaceId, pageId, null, onData, onError);
   const q = query(paths.rows(workspaceId, pageId), orderBy("order", "asc"));
-  return subscribeWithSource<PageRow>(q, onData);
+  return subscribeWithSource<PageRow>(q, onData, onError);
 }
 
 /** One-shot row read for dashboards — no live listener. */
 export async function fetchRows(workspaceId: string, pageId: string): Promise<PageRow[]> {
+  if (usesSupabaseRows(workspaceId)) return sbFetchRows(workspaceId, pageId, null);
   const snap = await getDocs(query(paths.rows(workspaceId, pageId), orderBy("order", "asc")));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as PageRow);
 }
@@ -882,8 +909,9 @@ export async function addRow(
   if (hasRowExtras(extras)) row.extras = extras;
   if (highlight) row.highlight = true;
   if (orderId) row.orderId = orderId;
-  await setDoc(paths.row(workspaceId, pageId, id), row);
-  mirrorUpsertRow(workspaceId, pageId, null, row);
+  assertRowsWritable(workspaceId);
+  if (usesSupabaseRows(workspaceId)) await sbPutRow(workspaceId, pageId, null, row);
+  else await setDoc(paths.row(workspaceId, pageId, id), row);
   return row;
 }
 
@@ -905,12 +933,19 @@ interface UpdateCellContext {
 
 export async function updateRowCell(ctx: UpdateCellContext) {
   if (!db) return;
-  await setDoc(
-    paths.row(ctx.workspaceId, ctx.pageId, ctx.rowId),
-    { cells: { [ctx.field]: ctx.newValue }, updatedAt: Date.now(), ...(ctx.filledAt ? { filledAt: ctx.filledAt } : {}) },
-    { merge: true }
-  );
-  mirrorPatchRowCells(ctx.rowId, ctx.field, ctx.newValue);
+  assertRowsWritable(ctx.workspaceId);
+  if (usesSupabaseRows(ctx.workspaceId)) {
+    await sbPatchRow(ctx.workspaceId, ctx.pageId, null, ctx.rowId, {
+      cells: { [ctx.field]: ctx.newValue },
+      ...(ctx.filledAt ? { filledAt: ctx.filledAt } : {}),
+    });
+  } else {
+    await setDoc(
+      paths.row(ctx.workspaceId, ctx.pageId, ctx.rowId),
+      { cells: { [ctx.field]: ctx.newValue }, updatedAt: Date.now(), ...(ctx.filledAt ? { filledAt: ctx.filledAt } : {}) },
+      { merge: true }
+    );
+  }
   if (ctx.oldValue !== ctx.newValue) {
     await logChange({
       workspaceId: ctx.workspaceId,
@@ -992,6 +1027,16 @@ export async function updateRowCellsBulk(
   filledAt?: number
 ) {
   if (!db) return;
+  assertRowsWritable(workspaceId);
+  if (usesSupabaseRows(workspaceId)) {
+    await sbPatchRow(workspaceId, pageId, null, rowId, {
+      cells: patch,
+      ...(extras === undefined ? {} : { extras }),
+      ...(highlight ? { highlight: true } : {}),
+      ...(filledAt ? { filledAt } : {}),
+    });
+    return;
+  }
   await setDoc(
     paths.row(workspaceId, pageId, rowId),
     {
@@ -1003,7 +1048,6 @@ export async function updateRowCellsBulk(
     },
     { merge: true }
   );
-  mirrorPatchRowCellsBulk(rowId, patch);
 }
 
 /**
@@ -1020,6 +1064,11 @@ export async function markRowOrder(
   orderId: string
 ) {
   if (!db) return;
+  assertRowsWritable(workspaceId);
+  if (usesSupabaseRows(workspaceId)) {
+    await sbPatchRow(workspaceId, pageId, subPageId, rowId, { orderId });
+    return;
+  }
   const ref = subPageId ? paths.subPageRow(workspaceId, pageId, subPageId, rowId) : paths.row(workspaceId, pageId, rowId);
   await setDoc(ref, { orderId, updatedAt: Date.now() }, { merge: true });
 }
@@ -1031,6 +1080,11 @@ export async function clearRowHighlights(
   rowIds: string[]
 ) {
   if (!db || rowIds.length === 0) return;
+  assertRowsWritable(workspaceId);
+  if (usesSupabaseRows(workspaceId)) {
+    await sbClearHighlights(workspaceId, pageId, subPageId, rowIds);
+    return;
+  }
   const batch = writeBatch(db);
   for (const rowId of rowIds) {
     const ref = subPageId ? paths.subPageRow(workspaceId, pageId, subPageId, rowId) : paths.row(workspaceId, pageId, rowId);
@@ -1046,13 +1100,19 @@ export async function updateRowHeight(
   height: number
 ) {
   if (!db) return;
+  assertRowsWritable(workspaceId);
+  if (usesSupabaseRows(workspaceId)) {
+    await sbPatchRow(workspaceId, pageId, null, rowId, { height });
+    return;
+  }
   await setDoc(paths.row(workspaceId, pageId, rowId), { height }, { merge: true });
 }
 
 export async function deleteRow(workspaceId: string, pageId: string, rowId: string) {
   if (!db) return;
-  await deleteDoc(paths.row(workspaceId, pageId, rowId));
-  mirrorDeleteRow(rowId);
+  assertRowsWritable(workspaceId);
+  if (usesSupabaseRows(workspaceId)) await sbDeleteRow(workspaceId, pageId, null, rowId);
+  else await deleteDoc(paths.row(workspaceId, pageId, rowId));
 }
 
 export async function duplicateRow(workspaceId: string, pageId: string, row: PageRow, order: number) {
@@ -1065,8 +1125,9 @@ export async function duplicateRow(workspaceId: string, pageId: string, row: Pag
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
-  await setDoc(paths.row(workspaceId, pageId, id), copy);
-  mirrorUpsertRow(workspaceId, pageId, null, copy);
+  assertRowsWritable(workspaceId);
+  if (usesSupabaseRows(workspaceId)) await sbPutRow(workspaceId, pageId, null, copy);
+  else await setDoc(paths.row(workspaceId, pageId, id), copy);
   return copy;
 }
 
@@ -1092,9 +1153,8 @@ export function rowsToRenumber(
 
 /**
  * `currentOrders` — сохранённый сейчас `order` каждой строки (id → order):
- * строки, уже стоящие на своём номере, не пишутся. Зеркало в Supabase всё
- * равно получает весь порядок: оно не тратит квоту Firestore, а полная
- * перенумерация там чинит заодно и отставшую копию.
+ * строки, уже стоящие на своём номере, не пишутся. В Supabase то же решает
+ * сама база (`rows_set_order` пишет только сдвинувшиеся).
  */
 export async function reorderRows(
   workspaceId: string,
@@ -1103,6 +1163,11 @@ export async function reorderRows(
   currentOrders?: ReadonlyMap<string, number>
 ) {
   if (!db) return;
+  assertRowsWritable(workspaceId);
+  if (usesSupabaseRows(workspaceId)) {
+    await sbSetOrder(workspaceId, pageId, null, orderedRowIds);
+    return;
+  }
   const changed = rowsToRenumber(orderedRowIds, currentOrders);
   for (let start = 0; start < changed.length; start += ROW_REORDER_CHUNK) {
     const batch = writeBatch(db);
@@ -1111,5 +1176,4 @@ export async function reorderRows(
     });
     await batch.commit();
   }
-  mirrorReorderRows(orderedRowIds);
 }

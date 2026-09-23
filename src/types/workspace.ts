@@ -16,6 +16,8 @@ export interface CustomFieldDef {
   options: StatusOption[];
 }
 
+export type RowsBackend = "firestore" | "supabase";
+
 export interface Workspace {
   id: string;
   name: string;
@@ -50,6 +52,18 @@ export interface Workspace {
    * разные.
    */
   reloadEpoch?: number;
+  /**
+   * Где живут строки таблиц столов: `"supabase"` — Postgres (`desk_rows`,
+   * без суточной квоты), иначе Firestore. Переключает только Owner в
+   * «Настройки → Строки таблиц» — вместе с переносом строк туда или обратно
+   * (`rowsMigrationService`). Нет поля = Firestore.
+   */
+  rowsBackend?: RowsBackend;
+  /**
+   * Идёт перенос строк: пока стоит флаг, строки нигде не правятся — иначе
+   * правка, сделанная во время копирования, осталась бы в старом хранилище.
+   */
+  rowsMigrationAt?: number | null;
   /**
    * Ники раздела «Другие» на «Команде» — для тех, кто не технарь и не ОС:
    * Owner, Admin, Тимлид без второй роли, Viewer. Своя модель та же, что у

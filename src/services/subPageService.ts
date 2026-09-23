@@ -16,14 +16,17 @@ import { hasRowExtras } from "@/utils/rowExtras";
 import { ymdPartsInTimeZone } from "@/utils/date";
 import { ROW_REORDER_CHUNK, rowsToRenumber, stripUndefined } from "@/services/pageService";
 import type { PageColumn, PageIconName, PageRow, StatusOption, SubPage } from "@/types";
+import { assertRowsWritable, usesSupabaseRows } from "@/services/rows/rowsBackend";
 import {
-  mirrorDeleteRow,
-  mirrorDeleteRowsForSubPage,
-  mirrorPatchRowCells,
-  mirrorPatchRowCellsBulk,
-  mirrorReorderRows,
-  mirrorUpsertRow,
-} from "@/services/rowRecordsService";
+  sbDeleteRow,
+  sbDeleteRows,
+  sbFetchRows,
+  sbPatchRow,
+  sbPutRow,
+  sbPutRows,
+  sbSetOrder,
+  sbSubscribeRows,
+} from "@/services/rows/supabaseRowStore";
 
 // ---------------------------------------------------------------------------
 // Subpages themselves (the tabs)
@@ -169,12 +172,23 @@ export async function archiveSubPage(workspaceId: string, pageId: string, subPag
 /** Permanently removes the subpage and (best-effort) all of its rows. */
 export async function deleteSubPage(workspaceId: string, pageId: string, subPageId: string) {
   if (!db) return;
+  assertRowsWritable(workspaceId);
+  if (usesSupabaseRows(workspaceId)) {
+    // Сначала вкладка, потом её строки — см. deletePage: сбой оставит
+    // невидимые строки без вкладки, а не пустую живую вкладку.
+    const batch = writeBatch(db);
+    batch.delete(paths.subPage(workspaceId, pageId, subPageId));
+    await batch.commit();
+    await sbDeleteRows(workspaceId, pageId, subPageId).catch((error) =>
+      console.warn("[rows] строки удалённой вкладки остались в Supabase", error)
+    );
+    return;
+  }
   const rowsSnap = await getDocs(paths.subPageRows(workspaceId, pageId, subPageId));
   const batch = writeBatch(db);
   rowsSnap.docs.forEach((d) => batch.delete(d.ref));
   batch.delete(paths.subPage(workspaceId, pageId, subPageId));
   await batch.commit();
-  mirrorDeleteRowsForSubPage(pageId, subPageId);
 }
 
 export async function reorderSubPages(workspaceId: string, pageId: string, orderedIds: string[]) {
@@ -211,26 +225,27 @@ export async function duplicateSubPage(
     createdBy,
   });
   if (includeData) {
+    assertRowsWritable(workspaceId);
+    const copyRow = (data: PageRow, i: number): PageRow => ({
+      ...data,
+      id: generateId("row"),
+      pageId: copy.id,
+      order: i,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    if (usesSupabaseRows(workspaceId)) {
+      const sourceRows = await sbFetchRows(workspaceId, pageId, source.id);
+      await sbPutRows(workspaceId, pageId, copy.id, sourceRows.map(copyRow));
+      return copy;
+    }
     const rowsSnap = await getDocs(paths.subPageRows(workspaceId, pageId, source.id));
     const batch = writeBatch(db);
-    const newRows: PageRow[] = [];
     rowsSnap.docs.forEach((d, i) => {
-      const data = d.data() as PageRow;
-      const newRowId = generateId("row");
-      const row: PageRow = {
-        ...data,
-        id: newRowId,
-        pageId: copy.id,
-        order: i,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      batch.set(paths.subPageRow(workspaceId, pageId, copy.id, newRowId), row);
-      newRows.push(row);
+      const row = copyRow(d.data() as PageRow, i);
+      batch.set(paths.subPageRow(workspaceId, pageId, copy.id, row.id), row);
     });
     await batch.commit();
-    // Mirror after the batch commits, same as every other row-creating write.
-    newRows.forEach((row) => mirrorUpsertRow(workspaceId, pageId, copy.id, row));
   }
   return copy;
 }
@@ -300,10 +315,12 @@ export function subscribeToSubPageRows(
   workspaceId: string,
   pageId: string,
   subPageId: string,
-  onData: (rows: PageRow[], fromServer: boolean) => void
+  onData: (rows: PageRow[], fromServer: boolean) => void,
+  onError?: (error: unknown) => void
 ) {
+  if (usesSupabaseRows(workspaceId)) return sbSubscribeRows(workspaceId, pageId, subPageId, onData, onError);
   const q = query(paths.subPageRows(workspaceId, pageId, subPageId), orderBy("order", "asc"));
-  return subscribeWithSource<PageRow>(q, onData);
+  return subscribeWithSource<PageRow>(q, onData, onError);
 }
 
 export async function fetchSubPages(workspaceId: string, pageId: string): Promise<SubPage[]> {
@@ -316,6 +333,7 @@ export async function fetchSubPageRows(
   pageId: string,
   subPageId: string
 ): Promise<PageRow[]> {
+  if (usesSupabaseRows(workspaceId)) return sbFetchRows(workspaceId, pageId, subPageId);
   const snap = await getDocs(
     query(paths.subPageRows(workspaceId, pageId, subPageId), orderBy("order", "asc"))
   );
@@ -342,8 +360,9 @@ export async function addSubPageRow(
   if (hasRowExtras(extras)) row.extras = extras;
   if (highlight) row.highlight = true;
   if (orderId) row.orderId = orderId;
-  await setDoc(paths.subPageRow(workspaceId, pageId, subPageId, id), row);
-  mirrorUpsertRow(workspaceId, pageId, subPageId, row);
+  assertRowsWritable(workspaceId);
+  if (usesSupabaseRows(workspaceId)) await sbPutRow(workspaceId, pageId, subPageId, row);
+  else await setDoc(paths.subPageRow(workspaceId, pageId, subPageId, id), row);
   return row;
 }
 
@@ -358,12 +377,19 @@ export async function updateSubPageRowCell(
   filledAt?: number
 ) {
   if (!db) return;
+  assertRowsWritable(workspaceId);
+  if (usesSupabaseRows(workspaceId)) {
+    await sbPatchRow(workspaceId, pageId, subPageId, rowId, {
+      cells: { [field]: newValue },
+      ...(filledAt ? { filledAt } : {}),
+    });
+    return;
+  }
   await setDoc(
     paths.subPageRow(workspaceId, pageId, subPageId, rowId),
     { cells: { [field]: newValue }, updatedAt: Date.now(), ...(filledAt ? { filledAt } : {}) },
     { merge: true }
   );
-  mirrorPatchRowCells(rowId, field, newValue);
 }
 
 /** `extras`: undefined leaves them alone, null removes them. */
@@ -380,6 +406,16 @@ export async function updateSubPageRowCellsBulk(
   filledAt?: number
 ) {
   if (!db) return;
+  assertRowsWritable(workspaceId);
+  if (usesSupabaseRows(workspaceId)) {
+    await sbPatchRow(workspaceId, pageId, subPageId, rowId, {
+      cells: patch,
+      ...(extras === undefined ? {} : { extras }),
+      ...(highlight ? { highlight: true } : {}),
+      ...(filledAt ? { filledAt } : {}),
+    });
+    return;
+  }
   await setDoc(
     paths.subPageRow(workspaceId, pageId, subPageId, rowId),
     {
@@ -391,7 +427,6 @@ export async function updateSubPageRowCellsBulk(
     },
     { merge: true }
   );
-  mirrorPatchRowCellsBulk(rowId, patch);
 }
 
 export async function updateSubPageRowHeight(
@@ -402,13 +437,19 @@ export async function updateSubPageRowHeight(
   height: number
 ) {
   if (!db) return;
+  assertRowsWritable(workspaceId);
+  if (usesSupabaseRows(workspaceId)) {
+    await sbPatchRow(workspaceId, pageId, subPageId, rowId, { height });
+    return;
+  }
   await setDoc(paths.subPageRow(workspaceId, pageId, subPageId, rowId), { height }, { merge: true });
 }
 
 export async function deleteSubPageRow(workspaceId: string, pageId: string, subPageId: string, rowId: string) {
   if (!db) return;
-  await deleteDoc(paths.subPageRow(workspaceId, pageId, subPageId, rowId));
-  mirrorDeleteRow(rowId);
+  assertRowsWritable(workspaceId);
+  if (usesSupabaseRows(workspaceId)) await sbDeleteRow(workspaceId, pageId, subPageId, rowId);
+  else await deleteDoc(paths.subPageRow(workspaceId, pageId, subPageId, rowId));
 }
 
 export async function duplicateSubPageRow(
@@ -427,8 +468,9 @@ export async function duplicateSubPageRow(
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
-  await setDoc(paths.subPageRow(workspaceId, pageId, subPageId, id), copy);
-  mirrorUpsertRow(workspaceId, pageId, subPageId, copy);
+  assertRowsWritable(workspaceId);
+  if (usesSupabaseRows(workspaceId)) await sbPutRow(workspaceId, pageId, subPageId, copy);
+  else await setDoc(paths.subPageRow(workspaceId, pageId, subPageId, id), copy);
   return copy;
 }
 
@@ -441,6 +483,11 @@ export async function reorderSubPageRows(
   currentOrders?: ReadonlyMap<string, number>
 ) {
   if (!db) return;
+  assertRowsWritable(workspaceId);
+  if (usesSupabaseRows(workspaceId)) {
+    await sbSetOrder(workspaceId, pageId, subPageId, orderedRowIds);
+    return;
+  }
   const changed = rowsToRenumber(orderedRowIds, currentOrders);
   for (let start = 0; start < changed.length; start += ROW_REORDER_CHUNK) {
     const batch = writeBatch(db);
@@ -449,7 +496,6 @@ export async function reorderSubPageRows(
     });
     await batch.commit();
   }
-  mirrorReorderRows(orderedRowIds);
 }
 
 /**

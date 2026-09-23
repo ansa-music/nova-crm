@@ -19,6 +19,8 @@ import { displayNameOf, realNameOf } from "@/utils/displayName";
 import { generateId } from "@/utils/id";
 import { withDbTimeout } from "@/utils/dbError";
 import { addOwnWorkspaceId } from "@/services/authService";
+import { usesSupabaseRows } from "@/services/rows/rowsBackend";
+import { removeMemberAcl, setObserverAcl } from "@/services/rows/rowAclService";
 import { EXTRA_ROLES, type Role, type StatusOption, type Workspace, type WorkspaceMember } from "@/types";
 
 function sortMembers(members: WorkspaceMember[]) {
@@ -620,6 +622,22 @@ export async function toggleHiddenPage(workspaceId: string, uid: string, pageId:
 export async function removeMember(workspaceId: string, uid: string) {
   if (!db) return;
   await deleteDoc(paths.member(workspaceId, uid));
+  await dropFromRowsAcl(workspaceId, uid, false);
+}
+
+/**
+ * Строки в Supabase: убранный человек теряет к ним доступ СРАЗУ, а не при
+ * следующей сверке прав. Firestore уже записан — отказ здесь не откатывает
+ * удаление, его доделает сверка (`useRowAclSync`) у Owner/Тимлида.
+ */
+async function dropFromRowsAcl(workspaceId: string, uid: string, observerToo: boolean) {
+  if (!uid || !usesSupabaseRows(workspaceId)) return;
+  try {
+    await removeMemberAcl(workspaceId, uid);
+    if (observerToo) await setObserverAcl(workspaceId, uid, false);
+  } catch (error) {
+    console.warn("[rows-acl] участник не убран из копии прав — доделает сверка", error);
+  }
 }
 
 /**
@@ -677,6 +695,7 @@ export async function deleteMemberCompletely(input: {
   for (const ref of requestDocs.values()) batch.delete(ref);
   if (uid) batch.delete(paths.deskObserver(workspaceId, uid));
   await withDbTimeout(batch.commit(), "Удаление пользователя");
+  await dropFromRowsAcl(workspaceId, uid, true);
 
   return {
     removed: {

@@ -1,5 +1,7 @@
 import { getDoc, getDocs } from "firebase/firestore";
 import { paths } from "@/firebase/firestore";
+import { usesSupabaseRows } from "@/services/rows/rowsBackend";
+import { sbFetchAllPageRows } from "@/services/rows/supabaseRowStore";
 
 /**
  * Reads the whole workspace tree once (not a live subscription) and returns
@@ -16,27 +18,31 @@ export async function buildWorkspaceBackup(workspaceId: string) {
     getDocs(paths.pages(workspaceId)),
   ]);
 
+  const onSupabase = usesSupabaseRows(workspaceId);
   const pages = await Promise.all(
     pagesSnap.docs.map(async (pageDoc) => {
       const pageId = pageDoc.id;
-      const [rowsSnap, subPagesSnap] = await Promise.all([
-        getDocs(paths.rows(workspaceId, pageId)),
+      // Строки — из того хранилища, где они сейчас живут; вкладки — всегда Firestore.
+      const [rowsByTab, subPagesSnap] = await Promise.all([
+        onSupabase ? sbFetchAllPageRows(workspaceId, pageId) : null,
         getDocs(paths.subPages(workspaceId, pageId)),
       ]);
+      const tableRows = async (subPageId: string | null) => {
+        if (rowsByTab) return rowsByTab.get(subPageId ?? "") ?? [];
+        const snap = await getDocs(subPageId ? paths.subPageRows(workspaceId, pageId, subPageId) : paths.rows(workspaceId, pageId));
+        return snap.docs.map((r) => ({ ...r.data(), id: r.id }));
+      };
       const subPages = await Promise.all(
-        subPagesSnap.docs.map(async (subPageDoc) => {
-          const subPageRowsSnap = await getDocs(paths.subPageRows(workspaceId, pageId, subPageDoc.id));
-          return {
-            ...subPageDoc.data(),
-            id: subPageDoc.id,
-            rows: subPageRowsSnap.docs.map((r) => ({ ...r.data(), id: r.id })),
-          };
-        })
+        subPagesSnap.docs.map(async (subPageDoc) => ({
+          ...subPageDoc.data(),
+          id: subPageDoc.id,
+          rows: await tableRows(subPageDoc.id),
+        }))
       );
       return {
         ...pageDoc.data(),
         id: pageId,
-        rows: rowsSnap.docs.map((r) => ({ ...r.data(), id: r.id })),
+        rows: await tableRows(null),
         subPages,
       };
     })

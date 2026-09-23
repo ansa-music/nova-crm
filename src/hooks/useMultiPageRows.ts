@@ -1,12 +1,15 @@
 import { createOneShotLoadCache, useCachedBatchLoads, type BatchLoadSpec } from "@/hooks/useCachedBatchLoads";
 import { fetchRows } from "@/services/pageService";
+import { rowsBackendVersion } from "@/services/rows/rowsBackend";
 import type { PageRow } from "@/types";
 
 const NO_ROWS: PageRow[] = [];
 
 const spec: BatchLoadSpec<string, PageRow[]> = {
   keyOf: (pageId) => pageId,
-  cacheKeyOf: (pageId) => pageId,
+  // Версия хранилища строк в ключе кэша: после переноса в Supabase (или
+  // обратно) прочитанное из старого хранилища не показывается ещё 15 минут.
+  cacheKeyOf: (pageId) => `${rowsBackendVersion()}:${pageId}`,
   load: fetchRows,
   empty: NO_ROWS,
   cache: createOneShotLoadCache<PageRow[]>(),

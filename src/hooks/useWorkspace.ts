@@ -149,6 +149,7 @@ export function useActiveWorkspaceDataBootstrap() {
 
     setLoadingWorkspaceData(true);
     setMembersLoadState("loading");
+    useWorkspaceStore.getState().setRosterWorkspaceId(null);
     // Clear immediately so the phase drops back to "workspace-data" the moment
     // a switch starts, instead of briefly reporting ready with stale members.
     setResolvedDataWorkspaceId(null);
@@ -203,6 +204,7 @@ export function useActiveWorkspaceDataBootstrap() {
         if (generation !== generationRef.current) return;
         membersCache.roster = list;
         publishMembers();
+        useWorkspaceStore.getState().setRosterWorkspaceId(activeWorkspaceId);
         // The roster read is independent proof of membership: its Firestore
         // rule requires isMember(workspaceId), so a successful list that
         // contains this uid means the account IS a member — regardless of
@@ -363,4 +365,7 @@ export async function refreshWorkspaceMembers(workspaceId: string) {
     membersCache.ownMember ??
     findOwnMembership(useWorkspaceStore.getState().members, uid, email);
   useWorkspaceStore.getState().setMembers(mergeOwnMember(list, own));
+  if (useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
+    useWorkspaceStore.getState().setRosterWorkspaceId(workspaceId);
+  }
 }

@@ -33,6 +33,8 @@ import { useNotificationAlerts } from "@/hooks/useNotificationAlerts";
 import { useAppUpdateCheck } from "@/hooks/useAppUpdateCheck";
 import { useDeskObserverLoad } from "@/hooks/useDeskObserverLoad";
 import { useOpenOrdersWatch } from "@/hooks/useOpenOrdersWatch";
+import { useRowsBackendBridge } from "@/hooks/useRowsBackendBridge";
+import { useRowAclSync } from "@/hooks/useRowAclSync";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useIsTablet } from "@/hooks/useMediaQuery";
@@ -50,6 +52,11 @@ export function AppLayout() {
   // Hooks always run before any early return, so the subscriptions keep making
   // progress while a boot screen is on-screen.
   useActiveWorkspaceDataBootstrap();
+  // Где живут строки таблиц (Firestore / Supabase) — ПЕРВЫМ: следующие хуки
+  // (заезд заказа, месячные вкладки) пишут строки.
+  useRowsBackendBridge();
+  // Копия прав в Supabase — пока строки живут там (Owner/Тимлид; ответственный — свой стол).
+  useRowAclSync();
   usePresenceHeartbeat();
   useOpenApprovedDesk();
   useMonthTabAutopilot();

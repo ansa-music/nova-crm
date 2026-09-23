@@ -2,6 +2,8 @@ import { getDocs, query, where, type CollectionReference } from "firebase/firest
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { fetchSubPages } from "@/services/subPageService";
+import { usesSupabaseRows } from "@/services/rows/rowsBackend";
+import { sbFetchRowsSince } from "@/services/rows/supabaseRowStore";
 import { isBlankRow } from "@/utils/blankRow";
 import { almatyMidnightMillis, almatyNoonMillis, ymdPartsInTimeZone } from "@/utils/date";
 import { parseLooseNumber } from "@/utils/numberInput";
@@ -73,26 +75,36 @@ export async function fetchOsDeskMonthStats(
 
   // Два запроса: строки, заведённые в этом месяце, и строки-слоты, которые
   // заполнили в этом месяце (слот мог быть заведён раньше — PageRow.filledAt).
-  const monthRows = async (ref: CollectionReference) => {
-    const [created, filled] = await Promise.all([
-      getDocs(query(ref, where("createdAt", ">=", monthStart))),
-      getDocs(query(ref, where("filledAt", ">=", monthStart))),
-    ]);
+  const onSupabase = usesSupabaseRows(workspaceId);
+  const monthRows = async (tab: string | null, ref: CollectionReference) => {
+    const [created, filled] = onSupabase
+      ? await Promise.all([
+          sbFetchRowsSince(workspaceId, page.id, tab, "created_at", monthStart),
+          sbFetchRowsSince(workspaceId, page.id, tab, "filled_at", monthStart),
+        ])
+      : await Promise.all([
+          getDocs(query(ref, where("createdAt", ">=", monthStart))).then((snap) =>
+            snap.docs.map((d) => ({ id: d.id, ...d.data() }) as PageRow)
+          ),
+          getDocs(query(ref, where("filledAt", ">=", monthStart))).then((snap) =>
+            snap.docs.map((d) => ({ id: d.id, ...d.data() }) as PageRow)
+          ),
+        ]);
     const byId = new Map<string, PageRow>();
-    for (const d of [...created.docs, ...filled.docs]) byId.set(d.id, { id: d.id, ...d.data() } as PageRow);
+    for (const row of [...created, ...filled]) byId.set(row.id, row);
     return [...byId.values()];
   };
 
   const tables: Array<{ columns: PageColumn[]; rows: PageRow[] }> = [];
   if (!page.hideMainTab) {
-    tables.push({ columns: page.columns ?? [], rows: await monthRows(paths.rows(workspaceId, page.id)) });
+    tables.push({ columns: page.columns ?? [], rows: await monthRows(null, paths.rows(workspaceId, page.id)) });
   }
   // Личные вкладки (Personal Space) в общую сводку не идут: это не заказы.
   const subPages = (await fetchSubPages(workspaceId, page.id)).filter((s) => !s.personalOwnerUid);
   const subTables = await Promise.all(
     subPages.map(async (s) => ({
       columns: s.columns ?? [],
-      rows: await monthRows(paths.subPageRows(workspaceId, page.id, s.id)),
+      rows: await monthRows(s.id, paths.subPageRows(workspaceId, page.id, s.id)),
     }))
   );
   tables.push(...subTables);
