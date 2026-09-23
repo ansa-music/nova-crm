@@ -208,6 +208,13 @@ const LOCK_REFRESH_MS = 4 * 60 * 1000;
  * хранилище, и переключение похоронило бы эти правки.
  */
 const LOCK_MAX_GAP_MS = 12 * 60 * 1000;
+/**
+ * Предел на весь перенос. Продление замка держит правку закрытой у ВСЕХ, и
+ * зависший запрос (сеть отвалилась на половине стола) иначе запирал бы людей
+ * бесконечно — раньше их спасало то, что замок протухал сам через 15 минут.
+ * По истечении срока замок снимаем, а переключение хранилища запрещаем.
+ */
+const MIGRATION_MAX_MS = 20 * 60 * 1000;
 
 /**
  * Держит замок переноса живым, пока копируем, и умеет сказать, не было ли
@@ -215,8 +222,19 @@ const LOCK_MAX_GAP_MS = 12 * 60 * 1000;
  * в Supabase (`migrating_until` там тоже на 15 минут).
  */
 function startMigrationLockKeeper(workspaceId: string, supabaseState: { live: boolean; migrating: boolean } | null) {
-  let lastOkAt = Date.now();
+  const startedAt = Date.now();
+  let lastOkAt = startedAt;
+  let expired = false;
+  let timer = 0;
   const tick = async () => {
+    // Перенос висит дольше разумного — отпускаем людей: пусть лучше правят
+    // в прежнем хранилище, чем сидят с запретом, пока не закроют вкладку.
+    if (Date.now() - startedAt >= MIGRATION_MAX_MS) {
+      expired = true;
+      window.clearInterval(timer);
+      await setMigrationFlag(workspaceId, false).catch(() => undefined);
+      return;
+    }
     try {
       await setMigrationFlag(workspaceId, true);
       if (supabaseState) await setSupabaseState(workspaceId, supabaseState.live, supabaseState.migrating);
@@ -226,10 +244,15 @@ function startMigrationLockKeeper(workspaceId: string, supabaseState: { live: bo
       // поймает assertFresh перед самым переключением.
     }
   };
-  const timer = window.setInterval(() => void tick(), LOCK_REFRESH_MS);
+  timer = window.setInterval(() => void tick(), LOCK_REFRESH_MS);
   return {
     stop: () => window.clearInterval(timer),
     assertFresh() {
+      if (expired) {
+        throw new Error(
+          "Перенос идёт дольше 20 минут — похоже, он завис. Правку строк всем вернули, хранилище НЕ переключено, данные на месте. Повторите перенос."
+        );
+      }
       if (Date.now() - lastOkAt <= LOCK_MAX_GAP_MS) return;
       throw new Error(
         "Перенос затянулся, и запрет на правку мог отпустить чужие вкладки — хранилище НЕ переключено, данные на месте. Повторите перенос."

@@ -24,14 +24,31 @@ interface BackendState {
 
 const states = new Map<string, BackendState>();
 const listeners = new Set<() => void>();
+/** Общий счётчик — снапшот для useSyncExternalStore (он один на модуль). */
 let version = 0;
+/**
+ * Счётчик НА WORKSPACE — для ключей кэша. По общему счётчику 15-минутный кэш
+ * дашборда выбрасывался на чужих событиях: зашли в другой workspace, протух
+ * брошенный флаг переноса — и строки всех столов читались заново.
+ */
+const versions = new Map<string, number>();
+
+function bumpVersion(workspaceId: string) {
+  version += 1;
+  versions.set(workspaceId, (versions.get(workspaceId) ?? 0) + 1);
+}
+
+/** Версия хранилища строк ЭТОГО workspace — для ключа кэша. */
+export function rowsBackendVersionOf(workspaceId: string): number {
+  return versions.get(workspaceId) ?? 0;
+}
 
 export function setRowsBackendState(workspaceId: string, backend: RowsBackend | undefined, migrating: boolean) {
   const next: BackendState = { backend: backend === "supabase" ? "supabase" : "firestore", migrating };
   const prev = states.get(workspaceId);
   if (prev && prev.backend === next.backend && prev.migrating === next.migrating) return;
   states.set(workspaceId, next);
-  version += 1;
+  bumpVersion(workspaceId);
   listeners.forEach((fn) => fn());
 }
 
@@ -45,7 +62,7 @@ export function setRowsBackendState(workspaceId: string, backend: RowsBackend | 
 export function primeRowsBackendState(workspaceId: string, backend: RowsBackend | undefined, migrating: boolean) {
   if (states.has(workspaceId)) return;
   states.set(workspaceId, { backend: backend === "supabase" ? "supabase" : "firestore", migrating });
-  version += 1;
+  bumpVersion(workspaceId);
 }
 
 export function rowsBackendKnown(workspaceId: string): boolean {

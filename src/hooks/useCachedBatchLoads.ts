@@ -71,6 +71,18 @@ export interface BatchLoadSpec<I, T> {
   empty: T;
   cache: OneShotLoadCache<T>;
   batch: number;
+  /**
+   * Версия ключа кэша ДЛЯ ЭТОГО workspace — строки могли переехать между
+   * Firestore и Supabase, и прочитанное из прежнего хранилища показывать
+   * нельзя. Вынесено сюда, а не в `cacheKeyOf`: тому workspaceId не передают,
+   * и общий счётчик версий сбрасывал бы кэш чужих пространств.
+   */
+  versionOf?: (workspaceId: string) => string | number;
+}
+
+function cacheKey<I, T>(workspaceId: string, item: I, spec: BatchLoadSpec<I, T>): string {
+  const version = spec.versionOf ? `${spec.versionOf(workspaceId)}:` : "";
+  return `${workspaceId}/${version}${spec.cacheKeyOf(item)}`;
 }
 
 /** Ключ прочитан с сервера в этот заход (см. BatchLoadState.fresh). */
@@ -100,7 +112,7 @@ function fromCache<I, T>(
     const now = Date.now();
     for (const item of items) {
       if (bypass?.(item)) continue;
-      const hit = spec.cache.peek(`${workspaceId}/${spec.cacheKeyOf(item)}`, now);
+      const hit = spec.cache.peek(cacheKey(workspaceId, item, spec), now);
       if (hit !== undefined) data[spec.keyOf(item)] = hit;
     }
   }
@@ -125,7 +137,8 @@ export function useCachedBatchLoads<I, T>(
   bypass?: (item: I) => boolean
 ): BatchLoadState<T> {
   const [state, setState] = useState<BatchLoadState<T>>(() => fromCache(workspaceId, items, spec, bypass));
-  const key = items.map(spec.cacheKeyOf).join(",");
+  const version = workspaceId && spec.versionOf ? spec.versionOf(workspaceId) : "";
+  const key = `${version}|${items.map((item) => spec.cacheKeyOf(item)).join(",")}`;
   const bypassKey = bypass ? items.filter(bypass).map(spec.cacheKeyOf).join(",") : "";
 
   useEffect(() => {
@@ -144,7 +157,7 @@ export function useCachedBatchLoads<I, T>(
         slice.map(async (item) => {
           const k = spec.keyOf(item);
           try {
-            const value = await spec.cache.load(`${workspaceId}/${spec.cacheKeyOf(item)}`, () =>
+            const value = await spec.cache.load(cacheKey(workspaceId as string, item, spec), () =>
               spec.load(workspaceId as string, item)
             );
             if (!cancelled)

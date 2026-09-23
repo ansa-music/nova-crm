@@ -1,6 +1,6 @@
 import { createOneShotLoadCache, useCachedBatchLoads, type BatchLoadSpec } from "@/hooks/useCachedBatchLoads";
 import { fetchSubPageRows } from "@/services/subPageService";
-import { rowsBackendVersion } from "@/services/rows/rowsBackend";
+import { rowsBackendVersionOf } from "@/services/rows/rowsBackend";
 import type { PageRow } from "@/types";
 
 export interface SubPagePair {
@@ -23,8 +23,9 @@ const NO_ROWS: PageRow[] = [];
 
 const spec: BatchLoadSpec<SubPagePair, PageRow[]> = {
   keyOf: (p) => subPageRowsKey(p.pageId, p.subPageId),
+  cacheKeyOf: (p) => subPageRowsKey(p.pageId, p.subPageId),
   // Версия хранилища строк — см. useMultiPageRows.
-  cacheKeyOf: (p) => `${rowsBackendVersion()}:${subPageRowsKey(p.pageId, p.subPageId)}`,
+  versionOf: rowsBackendVersionOf,
   load: (workspaceId, p) => fetchSubPageRows(workspaceId, p.pageId, p.subPageId),
   empty: NO_ROWS,
   cache: createOneShotLoadCache<PageRow[]>(),

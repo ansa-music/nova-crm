@@ -52,6 +52,12 @@ export function useSyncedTableRows(
    */
   const [accessPending, setAccessPending] = useState(false);
   /**
+   * Права на стол в копии ЕСТЬ, а этого человека в них нет — доступ закрыли
+   * (или ещё не открыли). Это другое состояние, чем «права не доехали»:
+   * ждать бесполезно, надо просить доступ.
+   */
+  const [accessDenied, setAccessDenied] = useState(false);
+  /**
    * Чьи строки сейчас в состоянии. Сброс флагов идёт в эффекте, то есть на
    * рендер ПОЗЖЕ смены вкладки, и в этот один рендер хук отдавал строки
    * прошлой вкладки как «загружены и с сервера» — публикация счётчиков успевала
@@ -97,6 +103,7 @@ export function useSyncedTableRows(
     setIsLoading(true);
     setServerSynced(false);
     setAccessPending(false);
+    setAccessDenied(false);
     setReadError(null);
 
     let cancelled = false;
@@ -105,6 +112,8 @@ export function useSyncedTableRows(
     let accessConfirmed = confirmedKey.current === key;
     let accessChecking = false;
     let accessTimer: number | null = null;
+    /** Подряд не ответившие проверки доступа — со второй говорим человеку. */
+    let accessFailures = 0;
 
     // Пока плашка «права не доехали» — перепроверяем раз в 15 с (Supabase
     // такие запросы не тарифицирует): запись прав событием строк не приходит,
@@ -126,18 +135,31 @@ export function useSyncedTableRows(
       void sbPageAccess(workspaceId, pageId)
         .then((access) => {
           if (cancelled) return;
+          accessFailures = 0;
           if (access.canRead) {
             accessConfirmed = true;
             confirmedKey.current = key;
             setAccessPending(false);
+            setAccessDenied(false);
             setReloadNonce((n) => n + 1); // перечитать уже с подтверждёнными правами
             return;
           }
-          setAccessPending(true);
+          // Запись о правах стола есть, а человека в ней нет — это отказ, а
+          // не «не доехало»: ждать нечего, нужно просить доступ.
+          setAccessDenied(access.hasAcl);
+          setAccessPending(!access.hasAcl);
           scheduleAccessCheck();
         })
-        .catch(() => {
-          if (!cancelled) scheduleAccessCheck();
+        .catch((error) => {
+          if (cancelled) return;
+          accessFailures += 1;
+          // Первый промах молчим (бывает кочка в сети), со второго — говорим:
+          // иначе стол стоит пустым и непонятно, ждать или звать на помощь.
+          if (accessFailures >= 2) {
+            setErrorKey(key);
+            setReadError(readErrorText(error));
+          }
+          scheduleAccessCheck();
         })
         .finally(() => {
           accessChecking = false;
@@ -199,6 +221,7 @@ export function useSyncedTableRows(
     isLoading: Boolean(workspaceId && pageId) && (isLoading || !current),
     serverSynced: serverSynced && current,
     accessPending: accessPending && current,
+    accessDenied: accessDenied && current,
     readError: scopeKey !== "" && errorKey === scopeKey ? readError : null,
     /** «Повторить» — переподписка сразу, не дожидаясь очередного повтора хранилища. */
     retry: () => {

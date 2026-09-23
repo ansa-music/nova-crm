@@ -182,6 +182,7 @@ export default function DynamicTablePage() {
     isLoading: pageRowsLoading,
     serverSynced: pageRowsSynced,
     accessPending: pageRowsAccessPending,
+    accessDenied: pageRowsAccessDenied,
     readError: pageRowsError,
     retry: retryPageRows,
   } = usePageRows(
@@ -193,6 +194,7 @@ export default function DynamicTablePage() {
     isLoading: subPageRowsLoading,
     serverSynced: subPageRowsSynced,
     accessPending: subPageRowsAccessPending,
+    accessDenied: subPageRowsAccessDenied,
     readError: subPageRowsError,
     retry: retrySubPageRows,
   } = useSubPageRows(
@@ -254,6 +256,8 @@ export default function DynamicTablePage() {
   const rowsLoading = !tabsReady || (activeSubPageId ? subPageRowsLoading : pageRowsLoading);
   // Строки в Supabase, а права на стол туда ещё не доехали — см. useSyncedTableRows.
   const rowsAccessPending = activeSubPageId ? subPageRowsAccessPending : pageRowsAccessPending;
+  // Права на стол есть, а этого человека в них нет — доступ закрыли.
+  const rowsAccessDenied = activeSubPageId ? subPageRowsAccessDenied : pageRowsAccessDenied;
   // Строки не прочитались (нет прав, нет связи, кончилась квота) — таблица
   // остаётся скелетом, и без этой полосы человек не знает, что случилось.
   const rowsReadError = activeSubPageId ? subPageRowsError : pageRowsError;
@@ -703,7 +707,19 @@ export default function DynamicTablePage() {
         </div>
       )}
 
-      {rowsReadError && !rowsAccessPending && (
+      {rowsAccessDenied && !rowsLoading && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-destructive/30 bg-destructive/[0.07] px-4 py-2 text-sm">
+          <Lock className="h-4 w-4 shrink-0 text-destructive" />
+          <span className="min-w-0 flex-1">
+            <span className="font-medium">Строки этого стола вам закрыты.</span>{" "}
+            <span className="text-muted-foreground">
+              Доступ к строкам снят или ещё не выдан — попросите ответственного за стол или Owner открыть его.
+            </span>
+          </span>
+        </div>
+      )}
+
+      {rowsReadError && !rowsAccessPending && !rowsAccessDenied && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-destructive/30 bg-destructive/[0.07] px-4 py-2 text-sm">
           <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
           <span className="min-w-0 flex-1">
