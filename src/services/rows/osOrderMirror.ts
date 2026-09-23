@@ -139,6 +139,13 @@ export interface PushOrderInput {
    * «Обновить у технаря» завело бы рядом вторую строку того же заказа.
    */
   mirrorRowId?: string;
+  /**
+   * Вкладка, в которой копия УЖЕ лежит. Нужна на переломе месяца: стол тот
+   * же, а месячная вкладка новая, и без этого заказ, выданный в сентябре,
+   * завёлся бы ВТОРОЙ строкой в октябре. Заказ остаётся там, где его выдали;
+   * в новую вкладку уезжают только новые заказы.
+   */
+  mirrorTabId?: string | null;
 }
 
 /**
@@ -148,6 +155,7 @@ export interface PushOrderInput {
  */
 export async function pushOrderToTech(input: PushOrderInput): Promise<{ rowId: string; syncHash: string }> {
   const rowId = input.mirrorRowId || mirrorRowId(input.source.id);
+  const tabId = input.mirrorTabId ?? input.target.tabId;
   const cells = buildMirrorCells({
     source: input.source,
     osColumns: input.osColumns,
@@ -158,7 +166,7 @@ export async function pushOrderToTech(input: PushOrderInput): Promise<{ rowId: s
   });
   const extras = input.source.extras;
   const syncHash = mirrorSyncHash(cells, extras);
-  await sbPatchRow(input.workspaceId, input.target.page.id, input.target.tabId, rowId, {
+  await sbPatchRow(input.workspaceId, input.target.page.id, tabId, rowId, {
     cells,
     extras: extras ?? undefined,
     // Подсветка — чтобы технарь не пропустил новый заказ, как и с биржи.
@@ -176,7 +184,7 @@ export async function pushOrderToTech(input: PushOrderInput): Promise<{ rowId: s
     cells: {},
     syncHash,
     mirrorPageId: input.target.page.id,
-    mirrorTabId: input.target.tabId,
+    mirrorTabId: tabId,
     mirrorRowId: rowId,
   });
   return { rowId, syncHash };

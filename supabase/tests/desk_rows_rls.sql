@@ -479,6 +479,16 @@ select tst.expect('ОС ведёт свой стол ОС при включён�
 select tst.expect('ОС удаляет строку своего стола при включённом флаге',
   tst.try('OS1', $q$delete from desk_rows where workspace_id='W' and page_id='osdesk_OS1' and tab_id='' and id='o1'$q$), 'ok:1');
 
+-- Смена технаря: ОС убирает свой заказ из стола прежнего.
+select tst.run('OS1', $q$insert into desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at, os_uid, tech_uid, status_key)
+  values ('W','P1','','moveme','{"client":"Переезд","status":"work"}',32,1000,1000,'OS1','T1','status')$q$);
+select tst.expect('ОС убирает свой заказ из стола технаря',
+  tst.try('OS1', $q$delete from desk_rows where workspace_id='W' and page_id='P1' and tab_id='' and id='moveme'$q$), 'ok:1');
+select tst.expect('чужой ОС этот заказ не убирает',
+  tst.try('OS2', $q$delete from desk_rows where workspace_id='W' and page_id='P1' and tab_id='' and id='moveme'$q$), 'ok:0');
+select tst.expect('технарь свой заказ не убирает и при включённом флаге',
+  tst.try('T1', $q$delete from desk_rows where workspace_id='W' and page_id='P1' and tab_id='' and id='moveme'$q$), 'deny');
+
 -- Выключили — всё как раньше.
 select tst.run('O', $q$select rows_set_os_managed('W', false)$q$);
 select tst.expect('после выключения технарь снова ставит статус',
