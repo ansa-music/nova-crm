@@ -1,5 +1,6 @@
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { DESK_ROWS_CONFLICT, DESK_ROWS_TABLE, supabaseRows } from "@/lib/supabaseRows";
+import { toast } from "@/components/ui/sonner";
 import type { PageRow, RowAttachment } from "@/types";
 
 /**
@@ -100,6 +101,9 @@ export function rowToRecord(workspaceId: string, pageId: string, tab: string | n
 // ---------------------------------------------------------------------------
 
 /** PostgREST отдаёт не больше 1000 строк за запрос — длинный стол читается страницами. */
+/** Сколько ждём переподключения канала, прежде чем сказать человеку. */
+const LIVE_WARN_AFTER_MS = 15_000;
+
 const PAGE_SIZE = 1000;
 
 type PagedResult = PromiseLike<{
@@ -377,7 +381,7 @@ async function optimistic<T>(
     t.refresh();
   }
   try {
-    const result = await sequenced(laneKey(workspaceId, pageId, tab), rowIds, write);
+    const result = await sequenced(laneKey(workspaceId, pageId, tab), rowIds, () => writeWithRetry(write));
     for (const t of targets) {
       const overlay = t.overlays.get(id);
       if (overlay) overlay.committedAt = Date.now();
@@ -396,6 +400,34 @@ async function optimistic<T>(
       t.settled();
     }
   }
+}
+
+/**
+ * Повтор записи при обрыве связи — 1 → 3 → 7 с, и только на «нет сети».
+ *
+ * Firestore-SDK держал очередь офлайн-записей: пропала связь на минуту —
+ * правка уходила сама, человек ничего не замечал. У Supabase такой очереди
+ * нет, `fetch` падает сразу, и каждая кочка в метро оборачивалась бы «не
+ * удалось сохранить». Повторять безопасно: все записи идемпотентны (upsert,
+ * `rows_patch`, удаление по ключу, `rows_set_order`), а порядок не ломается —
+ * повтор идёт ВНУТРИ очереди своей строки (`sequenced`). Отказ прав, квоты
+ * или данных не повторяем: он не пройдёт и на третий раз.
+ */
+const WRITE_RETRY_DELAYS = [1000, 3000, 7000];
+
+async function writeWithRetry<T>(write: () => Promise<T>): Promise<T> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= WRITE_RETRY_DELAYS.length; attempt += 1) {
+    try {
+      return await write();
+    } catch (error) {
+      lastError = error;
+      const code = (error as { code?: string } | null)?.code;
+      if (code !== "unavailable" || attempt === WRITE_RETRY_DELAYS.length) throw error;
+      await new Promise((resolve) => setTimeout(resolve, WRITE_RETRY_DELAYS[attempt]));
+    }
+  }
+  throw lastError;
 }
 
 function applyPatch(row: PageRow, patch: RowPatch, updatedAt: number | null): PageRow {
@@ -461,6 +493,9 @@ export function sbSubscribeRows(
   let loading = false;
   let reloadQueued = false;
   let channelHealthy = false;
+  /** Предупредили ли уже, что живой канал не поднялся (один раз на подписку). */
+  let liveWarned = false;
+  let liveWarnTimer: ReturnType<typeof setTimeout> | null = null;
   let retryDelay = 3000;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let reloadTimer: ReturnType<typeof setTimeout> | null = null;
@@ -514,7 +549,9 @@ export function sbSubscribeRows(
   }
 
   function scheduleSweep() {
-    if (sweepTimer) return;
+    // Ушли со стола — таймер ставить некому снимать: запись, начатая до ухода,
+    // в своём `finally` зовёт эту функцию уже после очистки подписки.
+    if (cancelled || sweepTimer) return;
     sweepTimer = setTimeout(() => {
       sweepTimer = null;
       const now = Date.now();
@@ -537,6 +574,7 @@ export function sbSubscribeRows(
   }
 
   function scheduleReload() {
+    if (cancelled) return;
     if (reloadTimer) clearTimeout(reloadTimer);
     reloadTimer = setTimeout(() => {
       reloadTimer = null;
@@ -642,7 +680,28 @@ export function sbSubscribeRows(
     .subscribe((status) => {
       channelHealthy = status === "SUBSCRIBED";
       // Первое подключение и каждое переподключение — полная выборка.
-      if (status === "SUBSCRIBED") void load();
+      if (status === "SUBSCRIBED") {
+        if (liveWarnTimer) {
+          clearTimeout(liveWarnTimer);
+          liveWarnTimer = null;
+        }
+        void load();
+        return;
+      }
+      // Канал не поднялся. Молчать нельзя: свои правки видно (после них
+      // таблица перечитывается), а ЧУЖИЕ не появятся вовсе, и человек будет
+      // думать, что коллега ничего не сделал. Ждём 15 с — phoenix сам
+      // переподключается, и без выдержки предупреждение мигало бы постоянно.
+      if (cancelled || liveWarned || liveWarnTimer) return;
+      liveWarnTimer = setTimeout(() => {
+        liveWarnTimer = null;
+        if (cancelled || channelHealthy) return;
+        liveWarned = true;
+        toast.error("Живое обновление строк не работает", {
+          description: "Свои правки сохраняются, а чужие появятся только после обновления страницы.",
+          duration: 8000,
+        });
+      }, LIVE_WARN_AFTER_MS);
     });
 
   // Выборка сразу, не дожидаясь канала: Realtime может и не подключиться
@@ -657,7 +716,7 @@ export function sbSubscribeRows(
   return () => {
     cancelled = true;
     liveTables.delete(table);
-    for (const timer of [retryTimer, reloadTimer, sweepTimer, emitTimer]) if (timer) clearTimeout(timer);
+    for (const timer of [retryTimer, reloadTimer, sweepTimer, emitTimer, liveWarnTimer]) if (timer) clearTimeout(timer);
     document.removeEventListener("visibilitychange", onVisible);
     void supabaseRows.removeChannel(channel);
   };
