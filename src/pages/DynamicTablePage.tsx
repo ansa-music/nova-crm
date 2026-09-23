@@ -35,7 +35,8 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { ensureDiskColumn, ensurePriceColumn, fetchPageIfAccessible, setPageTechnicianDesk, togglePageVisibility } from "@/services/pageService";
-import { ensureOsDeskMonth, ensureOsDeskStatusColumn, isOsDeskId } from "@/services/osDeskService";
+import { ensureOsDeskMonth, ensureOsDeskStatusColumn, isOsDeskId, OS_DESK_COLUMNS } from "@/services/osDeskService";
+import { firestoreErrorText } from "@/utils/dbError";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { canOpenDesk, isRestrictedDeskRole, worksAsTechnician } from "@/utils/peopleDesks";
 import { useUiStore } from "@/store/uiStore";
@@ -48,10 +49,15 @@ import { useMyOrderRows } from "@/hooks/useMyOrderRows";
 import { useOsDeskDispatch } from "@/hooks/useOsDeskDispatch";
 import { OsOrderPanel } from "@/components/os/OsOrderPanel";
 import { OsDispatchChoiceDialog } from "@/components/os/OsDispatchChoiceDialog";
+import { TechPickerSheet } from "@/components/os/TechPickerSheet";
+import { sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { TechOrderPanel } from "@/components/os/TechOrderPanel";
 import { isMonthlyDesk } from "@/services/monthTabService";
 import type { PageIconName, SubPage, WorkspacePage } from "@/types";
 
+
+/** Столбец «Технарь» стола ОС — выбирается полноэкранным списком. */
+const OS_TECH_PICKER_KEYS = [OS_DESK_COLUMNS.find((c) => c.type === "technician")?.key ?? "technician"];
 
 function visibleSubPages(subPages: SubPage[]) {
   return subPages.filter((s) => !s.isArchived).sort((a, b) => a.order - b.order);
@@ -285,12 +291,30 @@ export default function DynamicTablePage() {
     activeWorkspace?.osManagedDesks &&
       page &&
       !page.osDesk &&
+      // Owner разрешил технарю править этот стол самому.
+      !page.techEditable &&
       !(permissions.isWorkspaceOwner || permissions.realRole === "owner")
   );
   const myOrders = useMyOrderRows(activeWorkspaceId, permissions.uid, isMyOsDesk);
 
   // Стол ОС выдаёт заказы сам: заполнил строку, выбрал технаря — заказ у
   // него. Тот же проход везёт статус в обе стороны (см. хук).
+  /** Строка стола ОС, которой выбирают технаря (полноэкранный список). */
+  const [techPickRowId, setTechPickRowId] = useState<string | null>(null);
+  const techPickRow = techPickRowId ? (rows.find((r) => r.id === techPickRowId) ?? null) : null;
+  const [techPickBusy, setTechPickBusy] = useState(false);
+  async function setRowTechnician(nick: string) {
+    if (!activeWorkspaceId || !page || !techPickRow) return;
+    setTechPickBusy(true);
+    try {
+      await sbPatchRow(activeWorkspaceId, page.id, activeSubPageId, techPickRow.id, { cells: { [OS_TECH_PICKER_KEYS[0]]: nick } });
+      setTechPickRowId(null);
+    } catch (error) {
+      toast.error(firestoreErrorText(error, "Не удалось выбрать технаря"));
+    } finally {
+      setTechPickBusy(false);
+    }
+  }
   const osDispatch = useOsDeskDispatch({
     workspaceId: activeWorkspaceId,
     enabled: isMyOsDesk && hasAccess,
@@ -540,6 +564,19 @@ export default function DynamicTablePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      {isMyOsDesk ? (
+        <TechPickerSheet
+          open={Boolean(techPickRow)}
+          title={`Технарь для «${String(techPickRow?.cells.client ?? "").trim() || "заказа"}»`}
+          description="Заказ уедет в стол выбранного технаря (если он не на утверждении). Смена технаря заберёт заказ у прежнего."
+          selectedNick={techPickRow ? String(techPickRow.cells[OS_TECH_PICKER_KEYS[0]] ?? "") : null}
+          busy={techPickBusy}
+          allowClear
+          onPick={(tech) => void setRowTechnician(tech.nick)}
+          onClear={() => void setRowTechnician("")}
+          onClose={() => setTechPickRowId(null)}
+        />
+      ) : null}
       {isMyOsDesk && page && osDispatch.choiceRow ? (
         <OsDispatchChoiceDialog
           key={osDispatch.choiceRow.id}
@@ -864,6 +901,8 @@ export default function DynamicTablePage() {
                 // Заказы заводит только ОС: у технаря в его столе нет
                 // «Добавить строку» и «Быстрый заказ» (Owner не ограничиваем).
                 ordersFromOsOnly={ordersFromOsOnly}
+                cellPickerKeys={isMyOsDesk ? OS_TECH_PICKER_KEYS : undefined}
+                onOpenCellPicker={isMyOsDesk ? (row) => setTechPickRowId(row.id) : undefined}
                 renderRowPanel={(row) => {
                   // Стол ОС — панель выдачи; стол технаря — его поля по заказу,
                   // который ведёт ОС (обычные строки панели не получают).
@@ -878,6 +917,7 @@ export default function DynamicTablePage() {
                         mirror={myOrders.bySource.get(row.id) ?? null}
                         onChanged={myOrders.refresh}
                         onChoose={() => osDispatch.openChoice(row.id)}
+                        onPickTech={() => setTechPickRowId(row.id)}
                       />
                     );
                   }

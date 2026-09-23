@@ -1,3 +1,4 @@
+import { DeskEditAccessButton } from "@/components/desks/DeskEditAccessButton";
 import { useEffect, useMemo, useState } from "react";
 import { AtSign, CalendarDays, LayoutGrid, ListOrdered, Search, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { Link } from "react-router";
@@ -603,6 +604,8 @@ export default function TechniciansPage() {
         description={`Кто сейчас свободен и сколько заказов за ${monthTabNameForKey(monthKey).toLowerCase()}.`}
         actions={
           <>
+        {/* Owner: кто правит столы технарей — все, никто или выборочно. */}
+        {(permissions.isWorkspaceOwner || permissions.realRole === "owner") && <DeskEditAccessButton />}
         {isOsViewer && myOsValue && (
           <div className="flex shrink-0 rounded-lg border border-border p-0.5" role="tablist" aria-label="Вид">
             <button

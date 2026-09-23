@@ -291,6 +291,12 @@ interface DataTableProps {
    * «Добавить строку» и «Быстрый заказ» технарю не показываем.
    */
   ordersFromOsOnly?: boolean;
+  /**
+   * Столбцы (ключи), чьи ячейки открывают внешний выбор вместо выпадашки, —
+   * «Технарь» на столе ОС: полноэкранный список с поиском и занятостью.
+   */
+  cellPickerKeys?: readonly string[];
+  onOpenCellPicker?: (row: PageRow, colKey: string) => void;
   canEditStructure: boolean;
   userId: string;
   userName: string;
@@ -317,7 +323,17 @@ function normalizeContact(raw: string, type: "phone" | "email" | string): string
   return v.toLowerCase();
 }
 
-export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false }: DataTableProps) {
+export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, cellPickerKeys, onOpenCellPicker }: DataTableProps) {
+  // Внешний выбор ячейки: колбэк стабилен (через ref), иначе каждый рендер
+  // стола перерисовывал бы все строки — TableRow сравнивает пропсы.
+  const cellPickerRef = useRef(onOpenCellPicker);
+  cellPickerRef.current = onOpenCellPicker;
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const openCellPicker = useCallback((rowId: string, colKey: string) => {
+    const row = rowsRef.current.find((r) => r.id === rowId);
+    if (row) cellPickerRef.current?.(row, colKey);
+  }, []);
   // Режим «заказы ведёт ОС» — один объект на всю таблицу, чтобы правило
   // замка считалось в одном месте (см. utils/managedRow.ts).
   const lockCtx = useMemo(() => ({ osManaged: ordersFromOsOnly }), [ordersFromOsOnly]);
@@ -3514,6 +3530,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         editValue={editingCell?.rowId === row.id ? editValue : ""}
         canEdit={canEdit}
         cellLock={cellLockFor}
+        pickerKeys={cellPickerKeys}
+        onOpenCellPicker={onOpenCellPicker ? openCellPicker : undefined}
         canReorder={canReorderRows}
         isRowFullySelected={isRowFullySelected(row.id)}
         isChecked={selectedRowIds.has(row.id)}

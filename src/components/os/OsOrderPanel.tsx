@@ -36,6 +36,7 @@ export function OsOrderPanel({
   mirror,
   onChanged,
   onChoose,
+  onPickTech,
 }: {
   row: PageRow;
   pageId: string;
@@ -47,6 +48,8 @@ export function OsOrderPanel({
   onChanged: () => void;
   /** «Отдать заказ…» — тот же вопрос «общий или выборочно», что после «В работе». */
   onChoose?: () => void;
+  /** Выбрать / сменить технаря — полноэкранный список. */
+  onPickTech?: () => void;
 }) {
   const { activeWorkspaceId, activeWorkspace, pages, members } = useWorkspace();
   const [busy, setBusy] = useState(false);
@@ -153,6 +156,11 @@ export function OsOrderPanel({
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-muted-foreground">Технарь:</span>
         <span className="font-medium">{techName || "не выбран"}</span>
+        {onPickTech && !onExchange ? (
+          <button type="button" onClick={onPickTech} className="text-xs text-primary underline-offset-2 hover:underline">
+            {techNick ? "сменить" : "выбрать"}
+          </button>
+        ) : null}
       </div>
 
       {osStatusColumn ? (

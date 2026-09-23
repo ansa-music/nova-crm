@@ -1,17 +1,15 @@
-import { useMemo, useState } from "react";
-import { Loader2, Search, Store, UserCheck } from "lucide-react";
+import { useState } from "react";
+import { Loader2, Store, UserCheck } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { TechPickerSheet } from "@/components/os/TechPickerSheet";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { osNickLabel } from "@/services/memberService";
 import { OS_DESK_COLUMNS } from "@/services/osDeskService";
 import { sendOsRowToExchange } from "@/services/rows/osExchange";
-import { techTargetProblem } from "@/services/rows/osOrderMirror";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
-import { cn } from "@/utils/cn";
 import {
   DEFAULT_STATUS_OPTIONS,
   ensureApprovalStatus,
@@ -21,7 +19,7 @@ import {
 } from "@/utils/columnOptions";
 import { firestoreErrorText } from "@/utils/dbError";
 import { myDisplayName } from "@/utils/displayName";
-import { personLabel, worksAsTechnician } from "@/utils/peopleDesks";
+import { worksAsTechnician } from "@/utils/peopleDesks";
 import type { PageRow } from "@/types";
 
 const TECH_KEY = OS_DESK_COLUMNS.find((c) => c.type === "technician")?.key ?? "technician";
@@ -48,26 +46,11 @@ export function OsDispatchChoiceDialog({
   onClose: () => void;
 }) {
   const { profile } = useAuth();
-  const { activeWorkspaceId, activeWorkspace, members, pages } = useWorkspace();
-  const [mode, setMode] = useState<"pick" | "tech">("pick");
-  const [query, setQuery] = useState("");
+  const { activeWorkspaceId, activeWorkspace, members } = useWorkspace();
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const statusOptions = ensureApprovalStatus(ensureDoneStatus(activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS));
   const client = String(row.cells.client ?? "").trim() || "Заказ";
-
-  const techs = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return members
-      .filter((m) => m.status === "active" && m.uid && m.techNickValue && worksAsTechnician(m))
-      .map((m) => ({
-        uid: m.uid,
-        nick: m.techNickValue as string,
-        name: personLabel(m) || m.techNick || (m.techNickValue as string),
-        problem: techTargetProblem(pages, m.uid),
-      }))
-      .filter((t) => !q || t.name.toLowerCase().includes(q) || t.nick.toLowerCase().includes(q))
-      .sort((a, b) => Number(Boolean(a.problem)) - Number(Boolean(b.problem)) || a.name.localeCompare(b.name, "ru"));
-  }, [members, pages, query]);
 
   /** Статус «Утверждение» снимается: заказ отдают — значит, он в работе. */
   function statusPatch(): Record<string, string> {
@@ -122,19 +105,25 @@ export function OsDispatchChoiceDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+    <>
+    <TechPickerSheet
+      open={pickerOpen}
+      title={`Кому отдать «${client}»?`}
+      description="Заказ уедет в стол выбранного технаря. Тимлид и Owner увидят выдачу во «Выдачах ОС»."
+      busy={busy}
+      onPick={(tech) => void giveToTech(tech.nick, tech.name)}
+      onClose={() => setPickerOpen(false)}
+    />
+    <Dialog open={!pickerOpen} onOpenChange={(open) => !open && !busy && onClose()}>
       <DialogContent className="flex max-h-[90vh] max-w-lg flex-col">
         <DialogHeader>
           <DialogTitle>Как отдать заказ «{client}»?</DialogTitle>
           <DialogDescription>
-            {mode === "pick"
-              ? "Заказ в работе. Отдайте его всем на «Заказы» или сразу выбранному технарю."
-              : "Выберите технаря — заказ уедет в его стол. Тимлид и Owner увидят выдачу во «Выдачах ОС»."}
+            Заказ в работе. Отдайте его всем на «Заказы» или сразу выбранному технарю.
           </DialogDescription>
         </DialogHeader>
 
-        {mode === "pick" ? (
-          <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-2">
             <button
               type="button"
               disabled={busy}
@@ -150,7 +139,7 @@ export function OsDispatchChoiceDialog({
             <button
               type="button"
               disabled={busy}
-              onClick={() => setMode("tech")}
+              onClick={() => setPickerOpen(true)}
               className="flex min-h-24 flex-col items-start gap-1.5 rounded-xl border border-border p-3 text-left transition-colors hover:border-primary/60 hover:bg-primary/5 disabled:opacity-60"
             >
               <span className="flex items-center gap-2 text-sm font-medium">
@@ -159,48 +148,16 @@ export function OsDispatchChoiceDialog({
               </span>
               <span className="text-xs text-muted-foreground">Сразу одному технарю — выберете его на следующем шаге.</span>
             </button>
-          </div>
-        ) : (
-          <div className="flex min-h-0 flex-1 flex-col gap-2">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Имя или ник" className="h-10 pl-8" />
-            </div>
-            <ul className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
-              {techs.length === 0 && <li className="py-6 text-center text-sm text-muted-foreground">Никого не нашёл.</li>}
-              {techs.map((t) => (
-                <li key={t.uid}>
-                  <button
-                    type="button"
-                    disabled={busy || Boolean(t.problem)}
-                    onClick={() => void giveToTech(t.nick, t.name)}
-                    className={cn(
-                      "flex min-h-11 w-full flex-col items-start rounded-lg px-2 py-1.5 text-left transition-colors",
-                      t.problem ? "cursor-not-allowed opacity-60" : "hover:bg-accent"
-                    )}
-                  >
-                    <span className="text-sm font-medium">{t.name}</span>
-                    {t.problem ? <span className="text-xs text-warning">{t.problem}</span> : null}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        </div>
 
         <div className="flex flex-wrap justify-between gap-2 border-t border-border/60 pt-3">
-          {mode === "tech" ? (
-            <Button variant="ghost" disabled={busy} onClick={() => setMode("pick")}>
-              Назад
-            </Button>
-          ) : (
-            <span />
-          )}
+          <span />
           <Button variant="ghost" disabled={busy} onClick={onClose}>
             Позже
           </Button>
         </div>
       </DialogContent>
     </Dialog>
+    </>
   );
 }

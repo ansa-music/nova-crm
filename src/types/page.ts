@@ -138,6 +138,12 @@ export interface WorkspacePage {
    * вкладки, ни в квоту Технаря. Создаётся с фиксированным id
    * `osdesk_{uid}` — один на человека, второй просто не создастся.
    */
+  /**
+   * Исключение из «заказы ведёт ОС» (workspace.osManagedDesks): технарь этого
+   * стола правит свои строки сам. Пишет только Owner (правило pages); в
+   * Supabase то же держит таблица rows_os_exempt (services/rows/osExempt.ts).
+   */
+  techEditable?: boolean;
   osDesk?: boolean;
   /** Reserved for a future public/private page toggle. Not yet enforced anywhere — always treat as "public" until wired up. */
   visibility?: "public" | "private";

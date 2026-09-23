@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
+import { reconcileSupabaseOsExempt } from "@/services/rows/osExempt";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useRowsBackend } from "@/hooks/useRowsBackend";
@@ -72,6 +73,9 @@ export function useRowAclSync() {
           if (await reconcileSupabaseOsManaged(wsId, ctx.osManaged).catch(() => false)) {
             console.warn("[rows] флаг «заказы ведёт ОС» в Supabase догнал Firestore");
           }
+          // Столы, где технарь правит сам (page.techEditable), — та же сверка.
+          const exemptFixed = await reconcileSupabaseOsExempt(wsId, ctx.allPages).catch(() => null);
+          if (exemptFixed) console.warn(`[rows] исключения «правит сам» в Supabase догнали Firestore: ${exemptFixed}`);
         }
       }
       const report = await syncRowAcl({

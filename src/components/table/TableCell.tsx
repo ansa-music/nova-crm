@@ -61,6 +61,11 @@ interface TableCellProps {
   onFindDuplicates?: () => void;
   /** Muted hint shown in an empty text-like cell (a blank row's first column). */
   placeholder?: string;
+  /**
+   * Списочная ячейка открывает НЕ выпадашку, а внешний выбор (технарь на
+   * столе ОС — полноэкранный список с поиском и занятостью).
+   */
+  onOpenPicker?: () => void;
 }
 
 /** Digits-only tel: href; keeps a leading + for international numbers. */
@@ -107,6 +112,7 @@ export function TableCell({
   isDuplicate,
   onFindDuplicates,
   placeholder,
+  onOpenPicker,
 }: TableCellProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const tdRef = useRef<HTMLTableCellElement>(null);
@@ -147,6 +153,10 @@ export function TableCell({
     if (!td) return;
     if (column.type === "date") {
       setDatePickerOpen(true);
+      return;
+    }
+    if (isOptionColumn(column.type) && onOpenPicker) {
+      onOpenPicker();
       return;
     }
     if (isOptionColumn(column.type)) {
@@ -328,7 +338,18 @@ export function TableCell({
       onDoubleClick={onStartEdit}
       data-col={column.key}
     >
-      {isOptionColumn(column.type) ? (
+      {isOptionColumn(column.type) && onOpenPicker ? (
+        <button
+          type="button"
+          disabled={!canEdit}
+          onClick={() => {
+            if (canEdit) onOpenPicker();
+          }}
+          className="table-status-trigger flex h-full min-h-11 w-full min-w-0 max-w-full items-center overflow-hidden px-2 text-left disabled:cursor-default sm:min-h-[32px]"
+        >
+          {stringValue ? renderDisplay() : <span className="text-xs text-muted-foreground/70">{canEdit ? "Выбрать…" : "—"}</span>}
+        </button>
+      ) : isOptionColumn(column.type) ? (
         <Select
           value={stringValue || undefined}
           onValueChange={(v) => onStatusChange(v === "__clear__" ? "" : v)}

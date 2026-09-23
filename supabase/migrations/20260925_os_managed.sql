@@ -14,6 +14,68 @@
 alter table public.rows_workspaces
   add column if not exists os_managed boolean not null default false;
 
+-- ----------------------------------------------------------------------
+-- Столы-исключения (просьба Nurba 23.09.2026: «выборочно давать технарю
+-- правку своего стола»). Пока заказы ведёт ОС, технарь в столе из этого
+-- списка правит свои строки сам, как без флага. Строки-заказы ОС (os_uid)
+-- это не открывает — их держит desk_rows_guard. Пишет только Owner
+-- (rows_set_desk_os_exempt), читают политики через SECURITY DEFINER.
+-- ----------------------------------------------------------------------
+create table if not exists public.rows_os_exempt (
+  workspace_id text not null references public.rows_workspaces (workspace_id) on delete cascade,
+  page_id text not null,
+  created_at bigint not null default 0,
+  primary key (workspace_id, page_id)
+);
+alter table public.rows_os_exempt enable row level security;
+revoke all on public.rows_os_exempt from anon, authenticated;
+grant select on public.rows_os_exempt to anon, authenticated;
+drop policy if exists rows_os_exempt_owner_read on public.rows_os_exempt;
+create policy rows_os_exempt_owner_read on public.rows_os_exempt for select to anon, authenticated
+  using (public.rows_is_owner(workspace_id));
+
+-- Набор столов-исключений тех workspace, где спрашивающий — участник.
+-- Функция без аргументов-столбцов: политика сверяет строку с НАБОРОМ, и
+-- Postgres считает его один раз на запрос (урок про can_access на строку).
+create or replace function public.rows_os_exempt_pages() returns table (workspace_id text, page_id text)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select x.workspace_id, x.page_id
+  from public.rows_os_exempt x
+  where x.workspace_id in (select m.workspace_id from public.rows_members m where m.uid = public.rows_uid())
+$$;
+
+create or replace function public.rows_is_os_exempt(p_workspace text, p_page text) returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (select 1 from public.rows_os_exempt x where x.workspace_id = p_workspace and x.page_id = p_page)
+$$;
+
+create or replace function public.rows_set_desk_os_exempt(p_workspace text, p_page text, p_on boolean) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if not coalesce(public.rows_is_owner(p_workspace), false) then
+    raise exception 'rows_set_desk_os_exempt: только Owner' using errcode = '42501';
+  end if;
+  if p_on then
+    insert into public.rows_os_exempt (workspace_id, page_id, created_at)
+    values (p_workspace, p_page, (extract(epoch from now()) * 1000)::bigint)
+    on conflict (workspace_id, page_id) do nothing;
+  else
+    delete from public.rows_os_exempt where workspace_id = p_workspace and page_id = p_page;
+  end if;
+end;
+$$;
+
 -- Флаг workspace. SECURITY DEFINER: на rows_workspaces нет политики записи,
 -- а чтение под RLS в триггере считалось бы от лица правящего.
 create or replace function public.rows_is_os_managed(p_workspace text) returns boolean
@@ -92,6 +154,11 @@ begin
     return new;
   end if;
 
+  -- Стол-исключение: Owner разрешил этому технарю править свой стол сам.
+  if public.rows_is_os_exempt(new.workspace_id, new.page_id) then
+    return new;
+  end if;
+
   -- Заезд заказа с биржи занимает ПУСТОЙ слот и пишет в него весь набор
   -- ячеек из сессии технаря (takeOrderToDesk). Заполнение пустой строки
   -- остаётся разрешённым: это новый заказ, а не правка чужого.
@@ -148,6 +215,8 @@ create policy desk_rows_delete_os_managed on public.desk_rows
       select 1 from public.rows_page_acl a
       where a.workspace_id = desk_rows.workspace_id and a.page_id = desk_rows.page_id and a.os_desk
     )
+    -- Стол-исключение: технарь правит свой стол сам — и строки удаляет тоже.
+    or (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_os_exempt_pages() e)
     -- Пустой слот убрать можно: заказа в нём нет.
     or not exists (
       select 1 from jsonb_each_text(coalesce(cells, '{}'::jsonb)) e
@@ -157,5 +226,8 @@ create policy desk_rows_delete_os_managed on public.desk_rows
 
 grant execute on function
   public.rows_is_os_managed(text),
-  public.rows_set_os_managed(text, boolean)
+  public.rows_set_os_managed(text, boolean),
+  public.rows_os_exempt_pages(),
+  public.rows_is_os_exempt(text, text),
+  public.rows_set_desk_os_exempt(text, text, boolean)
   to anon, authenticated;

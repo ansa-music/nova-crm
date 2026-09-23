@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Hand, Loader2, Shuffle } from "lucide-react";
+import { Hand, Loader2, Maximize2, Shuffle } from "lucide-react";
+import { TechPickerSheet } from "@/components/os/TechPickerSheet";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
@@ -20,6 +21,7 @@ interface AssignOrderDialogProps {
 /** «Кому отдать»: откликнувшиеся сверху, остальные технари ниже; без стола — не выбрать. */
 export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, onRandom }: AssignOrderDialogProps) {
   const [busy, setBusy] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const claimed = candidates.filter((c) => c.claimedAt != null).sort((a, b) => (a.claimedAt ?? 0) - (b.claimedAt ?? 0));
   const others = candidates.filter((c) => c.claimedAt == null);
   // Тот же пул, что и у сервиса, — иначе кнопка «Рандом» на карточке
@@ -80,8 +82,29 @@ export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, o
     );
   }
 
+  const byUid = new Map(candidates.map((c) => [c.uid, c]));
   return (
-    <Dialog open={Boolean(order)} onOpenChange={onOpenChange}>
+    <>
+    <TechPickerSheet
+      open={pickerOpen && Boolean(order)}
+      title={order ? `Кому отдать «${order.client}»?` : "Кому отдать"}
+      description="Свободные и без заказов — сверху; метка «откликнулся» — у тех, кто уже отозвался на заказ."
+      busy={busy !== null}
+      requireNick={false}
+      onlyUids={new Set(byUid.keys())}
+      problemOf={(uid) => {
+        const c = byUid.get(uid);
+        if (!c) return "Не может взять этот заказ";
+        return c.hasDesk ? null : "Нет своего стола";
+      }}
+      markOf={(uid) => (byUid.get(uid)?.claimedAt != null ? "откликнулся" : null)}
+      onPick={(tech) => {
+        const c = byUid.get(tech.uid);
+        if (c) void run(c.uid, () => onAssign(c)).then(() => setPickerOpen(false));
+      }}
+      onClose={() => setPickerOpen(false)}
+    />
+    <Dialog open={Boolean(order) && !pickerOpen} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Кому отдать заказ</DialogTitle>
@@ -107,6 +130,12 @@ export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, o
               ? `Рандом из технарей на смене (${randomPool.length})`
               : "Рандом: сегодня выдать некому"}
         </Button>
+        {candidates.length > 6 ? (
+          <Button variant="outline" className="w-full gap-2" disabled={busy !== null} onClick={() => setPickerOpen(true)}>
+            <Maximize2 className="h-4 w-4" />
+            Все технари на весь экран · поиск и сортировка
+          </Button>
+        ) : null}
         <div className="flex max-h-[55vh] flex-col gap-3 overflow-y-auto">
           {claimed.length > 0 && (
             <div className="flex flex-col gap-1.5">
@@ -126,5 +155,6 @@ export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, o
         </div>
       </DialogContent>
     </Dialog>
+    </>
   );
 }

@@ -35,6 +35,9 @@ interface TableRowProps {
    * открывается, человек выбирает — и ловит тост «нельзя» уже после выбора.
    */
   cellLock?: (row: PageRow, colKey: string) => string | null;
+  /** Столбцы, чьи ячейки открывают внешний выбор вместо выпадашки. */
+  pickerKeys?: readonly string[];
+  onOpenCellPicker?: (rowId: string, colKey: string) => void;
   canReorder: boolean;
   isRowFullySelected: boolean;
   isChecked: boolean;
@@ -103,6 +106,8 @@ function TableRowInner({
   editValue,
   canEdit,
   cellLock,
+  pickerKeys,
+  onOpenCellPicker,
   canReorder,
   isRowFullySelected,
   isChecked,
@@ -343,6 +348,9 @@ function TableRowInner({
             editValue={editValue}
             canEdit={canEdit && !cellLock?.(row, column.key)}
             lockedReason={cellLock?.(row, column.key) ?? null}
+            onOpenPicker={
+              onOpenCellPicker && pickerKeys?.includes(column.key) ? () => onOpenCellPicker(row.id, column.key) : undefined
+            }
             onMouseDown={(e) => onCellMouseDown(row.id, column.key, e)}
             onClick={() => onCellClick(row.id, column.key)}
             onMouseEnter={() => onCellMouseEnter(row.id, column.key)}
@@ -407,6 +415,8 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     prev.rowHeight !== next.rowHeight ||
     prev.canEdit !== next.canEdit ||
     prev.cellLock !== next.cellLock ||
+    prev.pickerKeys !== next.pickerKeys ||
+    prev.onOpenCellPicker !== next.onOpenCellPicker ||
     prev.canReorder !== next.canReorder ||
     prev.isRowFullySelected !== next.isRowFullySelected ||
     prev.isChecked !== next.isChecked ||

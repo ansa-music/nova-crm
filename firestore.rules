@@ -204,6 +204,9 @@ service cloud.firestore {
     function osStatusWriteOk(workspaceId, pageData) {
       return !osManagedHere(workspaceId)
         || pageData.get('osDesk', false) == true
+        // Стол-исключение: Owner разрешил технарю править свой стол сам
+        // (page.techEditable — пишет только Owner, см. правило pages).
+        || pageData.get('techEditable', false) == true
         || isOwner(workspaceId)
         || isTeamLead(workspaceId)
         || osStatusKeyOf(pageData) == ''
@@ -624,7 +627,9 @@ service cloud.firestore {
           // osDesk снять нельзя: иначе ОС одним merge превращал бы свой
           // личный стол в обычный — и тот всплывал бы в «Столах», на
           // дашборде и в «Технарях», где ему делать нечего.
-          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['responsibleUserId', 'createdBy', 'workspaceId', 'inactive', 'inactiveAt', 'inactiveBy', 'osDesk']);
+          // techEditable — исключение из «заказы ведёт ОС»: выдаёт только
+          // Owner, иначе технарь сам снял бы с себя замок.
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['responsibleUserId', 'createdBy', 'workspaceId', 'inactive', 'inactiveAt', 'inactiveBy', 'osDesk', 'techEditable']);
 
         // Admin (not Owner, who already has full rights above) may assign
         // or reassign who's responsible for this page. setPageResponsible()
