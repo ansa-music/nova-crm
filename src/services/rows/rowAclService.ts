@@ -289,12 +289,15 @@ export interface AclSyncInput {
   me: string;
   /** НАСТОЯЩАЯ роль (не симуляция): решает, что эта сессия вправе сверять. */
   realRole: Role;
-  members: readonly WorkspaceMember[];
-  /** Полный ли список участников — прочитан ли ростер с сервера. */
-  rosterComplete: boolean;
+  /**
+   * Участники — ТОЛЬКО свежий список с сервера (`fetchMembersFresh`), не
+   * ростер из памяти вкладки: по старому сверка вернула бы права убранному и
+   * сняла бы их с только что одобренного. null — участников не сверять.
+   */
+  members: readonly WorkspaceMember[] | null;
   /** Все столы, включая неактуальные и столы ОС. */
   pages: readonly WorkspacePage[];
-  /** Наблюдатели (uid) — только у Owner; null — не сверять. */
+  /** Наблюдатели (uid) — только у Owner и только свежие с сервера; null — не сверять. */
   observers: readonly string[] | null;
   /** Кнопка «Синхронизировать»: снять предохранитель на массовое удаление. */
   force?: boolean;
@@ -312,10 +315,10 @@ export async function syncRowAcl(input: AclSyncInput): Promise<AclSyncReport> {
           ? "admin"
           : "responsible";
 
-  if (actor === "owner" || actor === "teamlead") {
+  if ((actor === "owner" || actor === "teamlead") && input.members) {
     const currentMembers = await readMembers(workspaceId);
     const plan = planMemberSync(desiredMemberRows(input.members), currentMembers, {
-      rosterComplete: input.rosterComplete,
+      rosterComplete: true,
       actor,
       me: input.me,
       ownerId: input.ownerId,
@@ -401,6 +404,38 @@ export async function setObserverAcl(workspaceId: string, uid: string, on: boole
     ? await supabaseRows.from("rows_desk_observers").upsert([{ workspace_id: workspaceId, uid }], { onConflict: "workspace_id,uid" })
     : await supabaseRows.from("rows_desk_observers").delete().eq("workspace_id", workspaceId).eq("uid", uid);
   if (error) throw new Error(`копия наблюдателей не записалась: ${describe(error)}`);
+}
+
+/**
+ * Один участник — в копию прав сразу (роль сменили, заявку одобрили): без
+ * этого новый технарь до ближайшей сверки руководства не открыл бы свой стол.
+ * `member` null — участника больше нет, запись удаляется.
+ */
+export async function putMemberAcl(workspaceId: string, uid: string, member: WorkspaceMember | null): Promise<void> {
+  const row = member ? desiredMemberRows([member])[0] : undefined;
+  if (!row) {
+    await removeMemberAcl(workspaceId, uid);
+    return;
+  }
+  const { error } = await supabaseRows
+    .from("rows_members")
+    .upsert([{ workspace_id: workspaceId, ...row, updated_at: Date.now() }], { onConflict: "workspace_id,uid" });
+  if (error) throw new Error(`участник не записан в копию прав: ${describe(error)}`);
+}
+
+/**
+ * Стол только что создан — запись о его правах сразу, в том же действии:
+ * иначе создатель первые секунды видел бы плашку «права не доехали», а
+ * набранные строки отклонялись бы. Создатель вправе завести запись своего
+ * стола (id с его uid, `generateDeskId`), Owner — любого.
+ */
+export async function putPageAcl(workspaceId: string, page: WorkspacePage): Promise<void> {
+  const { error } = await supabaseRows
+    .from("rows_page_acl")
+    .upsert([{ workspace_id: workspaceId, ...desiredPageRow(page), updated_at: Date.now() }], {
+      onConflict: "workspace_id,page_id",
+    });
+  if (error) throw new Error(`запись о правах стола не создана: ${describe(error)}`);
 }
 
 /** Участник убран из workspace — сразу из копии: доступ к строкам должен уйти в ту же минуту. */

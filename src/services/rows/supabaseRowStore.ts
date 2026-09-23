@@ -102,25 +102,68 @@ export function rowToRecord(workspaceId: string, pageId: string, tab: string | n
 /** PostgREST отдаёт не больше 1000 строк за запрос — длинный стол читается страницами. */
 const PAGE_SIZE = 1000;
 
-async function fetchPaged(
-  build: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message?: string; code?: string } | null }>
-): Promise<DeskRowRecord[]> {
+type PagedResult = PromiseLike<{
+  data: unknown[] | null;
+  error: { message?: string; code?: string } | null;
+  count?: number | null;
+}>;
+
+/**
+ * Все строки запроса страницами. Первый запрос спрашивает и общее число
+ * (`count: exact`), и чтение идёт, пока не набрано столько: потолок строк на
+ * запрос задаёт настройка проекта Supabase (`max_rows`), и если её поставят
+ * меньше 1000, «пришло меньше страницы» перестанет значить «это всё» — стол
+ * молча обрезался бы. Без числа (старый PostgREST) — по короткой странице.
+ */
+async function fetchPaged(build: (from: number, to: number, withCount: boolean) => PagedResult): Promise<DeskRowRecord[]> {
   const out: DeskRowRecord[] = [];
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await build(from, from + PAGE_SIZE - 1);
+  let total: number | null = null;
+  for (let from = 0; ; ) {
+    const { data, error, count } = await build(from, from + PAGE_SIZE - 1, from === 0);
     if (error) throw toStoreError(error, "Не удалось прочитать строки");
+    if (from === 0 && typeof count === "number") total = count;
     const chunk = (data ?? []) as DeskRowRecord[];
     out.push(...chunk);
-    if (chunk.length < PAGE_SIZE) return out;
+    from += chunk.length;
+    if (chunk.length === 0) return out;
+    if (total !== null ? out.length >= total : chunk.length < PAGE_SIZE) return out;
+  }
+}
+
+function selectRows(withCount: boolean) {
+  return supabaseRows.from(DESK_ROWS_TABLE).select("*", withCount ? { count: "exact" } : undefined);
+}
+
+interface FetchOptions {
+  /**
+   * Пустая выборка — сверить права (по умолчанию да). Политика отдаёт пустоту
+   * и когда строк нет, и когда стол читать нельзя; Firestore во втором случае
+   * бросал `permission-denied`, и код, что читает строки (бэкап, копия
+   * вкладки, сводка «Столов ОС»), на этот отказ и рассчитан — пустой список
+   * он принял бы за пустой стол.
+   */
+  assertAccess?: boolean;
+}
+
+async function assertReadable(workspaceId: string, pageId: string) {
+  const access = await sbPageAccess(workspaceId, pageId);
+  if (!access.canRead) {
+    throw new RowsStoreError(
+      access.hasAcl ? "Нет доступа к строкам этого стола" : "Права на этот стол ещё не доехали до базы строк",
+      access.hasAcl ? "permission-denied" : "unavailable"
+    );
   }
 }
 
 /** Строки одной таблицы по порядку — как `fetchRows`/`fetchSubPageRows`. */
-export async function sbFetchRows(workspaceId: string, pageId: string, tab: string | null): Promise<PageRow[]> {
-  const records = await fetchPaged((from, to) =>
-    supabaseRows
-      .from(DESK_ROWS_TABLE)
-      .select("*")
+export async function sbFetchRows(
+  workspaceId: string,
+  pageId: string,
+  tab: string | null,
+  options: FetchOptions = {}
+): Promise<PageRow[]> {
+  const records = await fetchPaged((from, to, withCount) =>
+    selectRows(withCount)
       .eq("workspace_id", workspaceId)
       .eq("page_id", pageId)
       .eq("tab_id", tabKey(tab))
@@ -129,6 +172,7 @@ export async function sbFetchRows(workspaceId: string, pageId: string, tab: stri
       .order("id", { ascending: true })
       .range(from, to)
   );
+  if (records.length === 0 && options.assertAccess !== false) await assertReadable(workspaceId, pageId);
   return records.map(recordToRow);
 }
 
@@ -138,12 +182,11 @@ export async function sbFetchRowsSince(
   pageId: string,
   tab: string | null,
   field: "created_at" | "filled_at",
-  since: number
+  since: number,
+  options: FetchOptions = {}
 ): Promise<PageRow[]> {
-  const records = await fetchPaged((from, to) =>
-    supabaseRows
-      .from(DESK_ROWS_TABLE)
-      .select("*")
+  const records = await fetchPaged((from, to, withCount) =>
+    selectRows(withCount)
       .eq("workspace_id", workspaceId)
       .eq("page_id", pageId)
       .eq("tab_id", tabKey(tab))
@@ -151,15 +194,18 @@ export async function sbFetchRowsSince(
       .order("id", { ascending: true })
       .range(from, to)
   );
+  if (records.length === 0 && options.assertAccess !== false) await assertReadable(workspaceId, pageId);
   return records.map(recordToRow);
 }
 
 /** Все строки стола, по таблицам: '' — «Основная», иначе id вкладки. */
-export async function sbFetchAllPageRows(workspaceId: string, pageId: string): Promise<Map<string, PageRow[]>> {
-  const records = await fetchPaged((from, to) =>
-    supabaseRows
-      .from(DESK_ROWS_TABLE)
-      .select("*")
+export async function sbFetchAllPageRows(
+  workspaceId: string,
+  pageId: string,
+  options: FetchOptions = {}
+): Promise<Map<string, PageRow[]>> {
+  const records = await fetchPaged((from, to, withCount) =>
+    selectRows(withCount)
       .eq("workspace_id", workspaceId)
       .eq("page_id", pageId)
       .order("tab_id", { ascending: true })
@@ -167,6 +213,7 @@ export async function sbFetchAllPageRows(workspaceId: string, pageId: string): P
       .order("id", { ascending: true })
       .range(from, to)
   );
+  if (records.length === 0 && options.assertAccess !== false) await assertReadable(workspaceId, pageId);
   const byTab = new Map<string, PageRow[]>();
   for (const record of records) {
     const list = byTab.get(record.tab_id) ?? [];
@@ -225,6 +272,8 @@ interface Overlay {
 
 /** Подтверждённая правка держится поверх не дольше этого — дальше верим серверу. */
 const OVERLAY_TTL_MS = 5000;
+/** События Realtime приходят пачками (вставка 200 строк = 200 событий) — перерисовка одна на кадр. */
+const EMIT_COALESCE_MS = 16;
 
 interface LiveTable {
   workspaceId: string;
@@ -247,10 +296,70 @@ function tablesFor(workspaceId: string, pageId: string, tab: string | null | und
   );
 }
 
+// ---------------------------------------------------------------------------
+// Порядок записей
+// ---------------------------------------------------------------------------
+
+/**
+ * Записи одной строки уходят в базу СТРОГО по очереди. Firestore SDK сам
+ * держит порядок записей; здесь каждая запись — отдельный HTTP-запрос, и два
+ * быстрых ввода в одну ячейку могли дойти до базы наоборот: в ячейке
+ * оставалось старое значение, а на экране — новое. Разные строки пишутся
+ * параллельно (заполнение 100 строк не должно идти 100 запросов подряд), а
+ * запись всей таблицы (удаление, порядок) ждёт все записи строк до неё и
+ * задерживает все после.
+ */
+interface WriteLane {
+  rows: Map<string, Promise<void>>;
+  table: Promise<void> | null;
+}
+
+const lanes = new Map<string, WriteLane>();
+
+function laneKey(workspaceId: string, pageId: string, tab: string | null | undefined): string {
+  return `${workspaceId}|${pageId}|${tab === undefined ? "*" : tabKey(tab)}`;
+}
+
+function sequenced<T>(key: string, rowIds: string[] | null, write: () => Promise<T>): Promise<T> {
+  const lane = lanes.get(key) ?? { rows: new Map(), table: null };
+  lanes.set(key, lane);
+  const before: Promise<void>[] = [];
+  if (lane.table) before.push(lane.table);
+  if (rowIds) {
+    for (const id of rowIds) {
+      const prev = lane.rows.get(id);
+      if (prev) before.push(prev);
+    }
+  } else {
+    before.push(...lane.rows.values());
+  }
+  const run = Promise.all(before).then(write);
+  const done: Promise<void> = run.then(
+    () => undefined,
+    () => undefined
+  );
+  if (rowIds) {
+    for (const id of rowIds) lane.rows.set(id, done);
+  } else {
+    lane.table = done;
+    lane.rows.clear();
+  }
+  void done.then(() => {
+    if (rowIds) {
+      for (const id of rowIds) if (lane.rows.get(id) === done) lane.rows.delete(id);
+    } else if (lane.table === done) {
+      lane.table = null;
+    }
+    if (!lane.table && lane.rows.size === 0 && lanes.get(key) === lane) lanes.delete(key);
+  });
+  return run;
+}
+
 /**
  * Запись с немедленным показом: `op` ложится поверх строк у всех открытых
- * подписок этой таблицы, `write` уходит в базу. Отказ — правка снимается и
- * таблица перечитывается (а ошибка идёт дальше, к тому, кто её покажет).
+ * подписок этой таблицы сразу, `write` уходит в базу в очередь своей строки
+ * (см. sequenced). Отказ — правка снимается и таблица перечитывается (а
+ * ошибка идёт дальше, к тому, кто её покажет).
  */
 async function optimistic<T>(
   workspaceId: string,
@@ -268,7 +377,7 @@ async function optimistic<T>(
     t.refresh();
   }
   try {
-    const result = await write();
+    const result = await sequenced(laneKey(workspaceId, pageId, tab), rowIds, write);
     for (const t of targets) {
       const overlay = t.overlays.get(id);
       if (overlay) overlay.committedAt = Date.now();
@@ -307,6 +416,9 @@ function applyPatch(row: PageRow, patch: RowPatch, updatedAt: number | null): Pa
   return next;
 }
 
+/** Поля записи, без которых строку не собрать (у события вставки они есть всегда). */
+const REQUIRED_KEYS: (keyof DeskRowRecord)[] = ["cells", "sort_order", "created_at", "updated_at"];
+
 /**
  * Живые строки таблицы: полная выборка + изменения через Realtime + свои
  * правки поверх (см. Overlay).
@@ -317,6 +429,12 @@ function applyPatch(row: PageRow, patch: RowPatch, updatedAt: number | null): Pa
  * всех остальных. Событие, пришедшее, пока идёт выборка, не накладывается на
  * неё (выборка могла оказаться и новее, и старее) — выборка просто
  * повторяется.
+ *
+ * Событие правки НАКЛАДЫВАЕТСЯ на сохранённую запись строки, а не заменяет
+ * её: большое jsonb-значение (ячейки длинной строки, вложения), которое
+ * правка не тронула, Postgres хранит отдельно (TOAST) и в событие НЕ кладёт —
+ * замена стёрла бы у строки все ячейки до следующей выборки. Нет сохранённой
+ * записи и в событии не хватает полей — выборка.
  *
  * Удаления слушаются ОТДЕЛЬНО и без фильтра: в Supabase фильтр по столбцу на
  * DELETE не действует, и отфильтрованная подписка удалений не получает —
@@ -338,6 +456,7 @@ export function sbSubscribeRows(
   const tabId = tabKey(tab);
   let cancelled = false;
   let loaded = false;
+  let serverRecords = new Map<string, DeskRowRecord>();
   let serverRows: RowsMap = new Map();
   let loading = false;
   let reloadQueued = false;
@@ -346,6 +465,7 @@ export function sbSubscribeRows(
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let reloadTimer: ReturnType<typeof setTimeout> | null = null;
   let sweepTimer: ReturnType<typeof setTimeout> | null = null;
+  let emitTimer: ReturnType<typeof setTimeout> | null = null;
 
   const inScope = (record: Partial<DeskRowRecord>) =>
     record.workspace_id === workspaceId && record.page_id === pageId && (record.tab_id ?? "") === tabId;
@@ -356,6 +476,7 @@ export function sbSubscribeRows(
     tabId,
     overlays: new Map(),
     pending: 0,
+    // Своя правка — сразу, без отложенной перерисовки: ввод должен остаться на экране.
     refresh: () => emit(),
     settled: () => {
       scheduleSweep();
@@ -366,10 +487,22 @@ export function sbSubscribeRows(
   };
 
   function emit() {
+    if (emitTimer) {
+      clearTimeout(emitTimer);
+      emitTimer = null;
+    }
     if (cancelled || !loaded) return;
     const view: RowsMap = new Map(serverRows);
     for (const id of [...table.overlays.keys()].sort((a, b) => a - b)) table.overlays.get(id)!.op(view);
     onData([...view.values()].sort((a, b) => a.order - b.order || a.createdAt - b.createdAt), true);
+  }
+
+  function emitSoon() {
+    if (emitTimer) return;
+    emitTimer = setTimeout(() => {
+      emitTimer = null;
+      emit();
+    }, EMIT_COALESCE_MS);
   }
 
   function dropConfirmed(rowId: string) {
@@ -386,13 +519,19 @@ export function sbSubscribeRows(
       sweepTimer = null;
       const now = Date.now();
       let changed = false;
+      let unconfirmed = false;
       for (const [id, overlay] of table.overlays) {
         if (overlay.committedAt !== null && now - overlay.committedAt >= OVERLAY_TTL_MS) {
           table.overlays.delete(id);
           changed = true;
+          // Сервер так и не показал правку (события потерялись или их не
+          // бывает — порядок несдвинутых строк): сверяемся выборкой, а не
+          // откатываем экран к тому, что было до правки.
+          if (overlay.remaining === null || overlay.remaining.size > 0) unconfirmed = true;
         }
       }
-      if (changed) emit();
+      if (unconfirmed) void load();
+      else if (changed) emit();
       if ([...table.overlays.values()].some((o) => o.committedAt !== null)) scheduleSweep();
     }, OVERLAY_TTL_MS);
   }
@@ -405,27 +544,40 @@ export function sbSubscribeRows(
     }, 300);
   }
 
-  function apply(payload: RealtimePayload): boolean {
+  /** true — изменились строки; "reload" — события не хватает, нужна выборка. */
+  function apply(payload: RealtimePayload): boolean | "reload" {
     if (payload.eventType === "DELETE") {
       const old = payload.old;
-      if (!old.id || !inScope(old)) return false;
+      if (!old.id) return false;
       dropConfirmed(old.id);
+      serverRecords.delete(old.id);
       return serverRows.delete(old.id);
     }
     const next = payload.new;
-    if (!next.id || !inScope(next)) return false;
-    serverRows.set(next.id, recordToRow(next as DeskRowRecord));
+    if (!next.id) return false;
+    const defined = Object.fromEntries(Object.entries(next).filter(([, v]) => v !== undefined)) as Partial<DeskRowRecord>;
+    const merged = { ...(serverRecords.get(next.id) ?? {}), ...defined } as DeskRowRecord;
+    if (REQUIRED_KEYS.some((key) => merged[key] === undefined)) return "reload";
+    serverRecords.set(next.id, merged);
+    serverRows.set(next.id, recordToRow(merged));
     dropConfirmed(next.id);
     return true;
   }
 
-  function onEvent(payload: unknown) {
+  function onEvent(raw: unknown) {
     if (cancelled) return;
+    const payload = raw as RealtimePayload;
+    // Слушатель удалений без фильтра получает удаления ЧУЖИХ таблиц — они не
+    // должны ни менять эту, ни заставлять её перечитываться.
+    const record = payload.eventType === "DELETE" ? payload.old : payload.new;
+    if (!record || !inScope(record)) return;
     if (loading) {
       reloadQueued = true;
       return;
     }
-    if (apply(payload as RealtimePayload)) emit();
+    const result = apply(payload);
+    if (result === "reload") void load();
+    else if (result) emitSoon();
   }
 
   async function load() {
@@ -439,9 +591,12 @@ export function sbSubscribeRows(
     // Подтверждённые ДО начала выборки правки выборка уже содержит.
     const confirmedBefore = [...table.overlays].filter(([, o]) => o.committedAt !== null).map(([id]) => id);
     try {
-      const rows = await sbFetchRows(workspaceId, pageId, tab);
+      // Пустой стол без прав здесь не ошибка: «права ещё не доехали» различает
+      // сама страница (usePageRows → sbPageAccess), не дёргая проверку на каждом повторе.
+      const records = await fetchTableRecords();
       if (cancelled) return;
-      serverRows = new Map(rows.map((row) => [row.id, row]));
+      serverRecords = new Map(records.map((record) => [record.id, record]));
+      serverRows = new Map(records.map((record) => [record.id, recordToRow(record)]));
       for (const id of confirmedBefore) table.overlays.delete(id);
       loaded = true;
       retryDelay = 3000;
@@ -459,6 +614,19 @@ export function sbSubscribeRows(
       loading = false;
       if (reloadQueued && !cancelled) void load();
     }
+  }
+
+  function fetchTableRecords(): Promise<DeskRowRecord[]> {
+    return fetchPaged((from, to, withCount) =>
+      selectRows(withCount)
+        .eq("workspace_id", workspaceId)
+        .eq("page_id", pageId)
+        .eq("tab_id", tabId)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
   }
 
   liveTables.add(table);
@@ -489,7 +657,7 @@ export function sbSubscribeRows(
   return () => {
     cancelled = true;
     liveTables.delete(table);
-    for (const timer of [retryTimer, reloadTimer, sweepTimer]) if (timer) clearTimeout(timer);
+    for (const timer of [retryTimer, reloadTimer, sweepTimer, emitTimer]) if (timer) clearTimeout(timer);
     document.removeEventListener("visibilitychange", onVisible);
     void supabaseRows.removeChannel(channel);
   };

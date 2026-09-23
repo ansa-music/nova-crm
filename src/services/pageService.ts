@@ -12,14 +12,14 @@ import {
   type FirestoreError,
   type Query,
 } from "firebase/firestore";
-import { db } from "@/firebase/firebase";
+import { auth, db } from "@/firebase/firebase";
 import { paths, subscribeWithSource, withErrorReporting } from "@/firebase/firestore";
 import { generateDeskId, generateId } from "@/utils/id";
 import { hasRowExtras } from "@/utils/rowExtras";
 import { logChange } from "@/services/historyService";
 import type { PageColumn, PageIconName, PageRow, Role, StatusOption, WorkspacePage } from "@/types";
 import { assertRowsWritable, usesSupabaseRows } from "@/services/rows/rowsBackend";
-import { deletePageAcl } from "@/services/rows/rowAclService";
+import { deletePageAcl, putPageAcl } from "@/services/rows/rowAclService";
 import {
   sbClearHighlights,
   sbDeleteRow,
@@ -274,7 +274,23 @@ export async function createPage(input: CreatePageInput): Promise<WorkspacePage>
     createdBy: input.createdBy,
   };
   await setDoc(paths.page(input.workspaceId, id), stripUndefined(page));
+  await ensureNewDeskAcl(input.workspaceId, page);
   return seedCurrentMonthDesk(page);
+}
+
+/**
+ * Строки в Supabase: запись о правах нового стола — СРАЗУ, в том же действии,
+ * а не при сверке через полторы секунды. Иначе создатель попадал на свой стол
+ * с плашкой «права не доехали», а набранные в первые секунды строки
+ * отклонялись. Отказ не отменяет создание стола — запись доведёт сверка.
+ */
+export async function ensureNewDeskAcl(workspaceId: string, page: WorkspacePage) {
+  if (!usesSupabaseRows(workspaceId)) return;
+  try {
+    await putPageAcl(workspaceId, page);
+  } catch (error) {
+    console.warn("[rows-acl] права нового стола не записаны — доведёт сверка", error);
+  }
 }
 
 /**
@@ -829,10 +845,15 @@ export async function deletePage(workspaceId: string, pageId: string) {
 
 export async function duplicatePage(workspaceId: string, page: WorkspacePage, newOrder: number) {
   if (!db) throw new Error("Firebase не настроен");
-  const newId = generateDeskId(page.createdBy);
+  // Копию создаёт тот, кто копирует: и id (`generateDeskId` — «стол мой» для
+  // копии прав в Supabase), и createdBy. С createdBy оригинала удаление копии
+  // сняло бы у технаря-автора его квоту стола (deletePage чистит claim по createdBy).
+  const createdBy = auth?.currentUser?.uid || page.createdBy;
+  const newId = generateDeskId(createdBy);
   const duplicated: WorkspacePage = {
     ...page,
     id: newId,
+    createdBy,
     name: `${page.name} (копия)`,
     order: newOrder,
     createdAt: Date.now(),
@@ -842,8 +863,9 @@ export async function duplicatePage(workspaceId: string, page: WorkspacePage, ne
   const batch = writeBatch(db);
   batch.set(paths.page(workspaceId, newId), duplicated);
   if (usesSupabaseRows(workspaceId)) {
-    // Сначала стол (без него у копии нет прав в Supabase), потом строки.
+    // Сначала стол и его права в Supabase, потом строки.
     await batch.commit();
+    await ensureNewDeskAcl(workspaceId, duplicated);
     const source = await sbFetchRows(workspaceId, page.id, null);
     await sbPutRows(
       workspaceId,

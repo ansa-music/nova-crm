@@ -20,7 +20,7 @@ import { generateId } from "@/utils/id";
 import { withDbTimeout } from "@/utils/dbError";
 import { addOwnWorkspaceId } from "@/services/authService";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
-import { removeMemberAcl, setObserverAcl } from "@/services/rows/rowAclService";
+import { putMemberAcl, removeMemberAcl, setObserverAcl } from "@/services/rows/rowAclService";
 import { EXTRA_ROLES, type Role, type StatusOption, type Workspace, type WorkspaceMember } from "@/types";
 
 function sortMembers(members: WorkspaceMember[]) {
@@ -301,10 +301,12 @@ export async function changeMemberRole(workspaceId: string, uid: string, role: R
         createdAt: Date.now(),
       });
       await batch.commit();
+      await pushMemberToRowsAcl(workspaceId, uid);
       return;
     }
   }
   await setDoc(paths.member(workspaceId, uid), { role, ...extrasPatch }, { merge: true });
+  await pushMemberToRowsAcl(workspaceId, uid);
 }
 
 /**
@@ -325,10 +327,12 @@ export async function setMemberExtraRoles(workspaceId: string, uid: string, main
       batch.set(paths.member(workspaceId, uid), patch, { merge: true });
       batch.set(paths.managerPageClaim(workspaceId, uid), { uid, pageId: own[0].id, createdAt: Date.now() });
       await batch.commit();
+      await pushMemberToRowsAcl(workspaceId, uid);
       return;
     }
   }
   await setDoc(paths.member(workspaceId, uid), patch, { merge: true });
+  await pushMemberToRowsAcl(workspaceId, uid);
 }
 
 export const OS_NICK_MAX_LENGTH = 32;
@@ -623,6 +627,37 @@ export async function removeMember(workspaceId: string, uid: string) {
   if (!db) return;
   await deleteDoc(paths.member(workspaceId, uid));
   await dropFromRowsAcl(workspaceId, uid, false);
+}
+
+/**
+ * Весь список участников — С СЕРВЕРА, мимо кэша. Для тех, кто по списку
+ * решает «этого человека больше нет» (сверка прав строк в Supabase): ростер,
+ * прочитанный при загрузке вкладки, через час уже врёт — сверка по нему
+ * вернула бы права убранному и сняла бы их с только что одобренного.
+ */
+export async function fetchMembersFresh(workspaceId: string): Promise<WorkspaceMember[]> {
+  const snapshot = await withDbTimeout(getDocsFromServer(paths.members(workspaceId)), "Список участников");
+  return snapshot.docs.map((d) => {
+    const data = d.data() as Partial<WorkspaceMember>;
+    // uid — из поля, а у старых документов без него — из id (приглашения по почте — не участники).
+    return { ...data, id: d.id, uid: data.uid || (d.id.includes("@") ? "" : d.id) } as unknown as WorkspaceMember;
+  });
+}
+
+/**
+ * Строки в Supabase: участник в копии прав — сразу после того, как его роль
+ * поменялась в Firestore (одно чтение своего же документа с сервера, чтобы
+ * записать ровно то, что легло). Отказ не откатывает Firestore — доделает
+ * сверка руководства.
+ */
+export async function pushMemberToRowsAcl(workspaceId: string, uid: string) {
+  if (!uid || !usesSupabaseRows(workspaceId)) return;
+  try {
+    const snap = await getDocFromServer(paths.member(workspaceId, uid));
+    await putMemberAcl(workspaceId, uid, snap.exists() ? ({ ...snap.data(), uid } as unknown as WorkspaceMember) : null);
+  } catch (error) {
+    console.warn("[rows-acl] участник не записан в копию прав — доделает сверка", error);
+  }
 }
 
 /**

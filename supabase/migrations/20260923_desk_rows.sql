@@ -47,6 +47,14 @@ create table if not exists public.rows_workspaces (
   workspace_id text primary key,
   owner_id text not null
 );
+-- Состояние хранилища (меняет только Owner через rows_set_state):
+--  live — строки этого workspace живут ЗДЕСЬ, их правят все по своим правам;
+--         пока false (до переноса и после отката) — запись строк закрыта всем,
+--         поздняя правка со старой вкладки отказывает громко, а не теряется;
+--  migrating_until — идёт перенос: Owner копирует строки и пишет их даже в
+--         неживое хранилище; срок — чтобы брошенный перенос не держал дверь.
+alter table public.rows_workspaces add column if not exists live boolean not null default false;
+alter table public.rows_workspaces add column if not exists migrating_until timestamptz;
 
 create table if not exists public.rows_members (
   workspace_id text not null references public.rows_workspaces (workspace_id) on delete cascade,
@@ -203,6 +211,17 @@ as $$
       ))
 $$;
 
+-- Куда вообще можно писать строки: живое хранилище — всем (дальше решают
+-- права стола), неживое — только Owner и только во время переноса.
+create or replace function public.rows_writable_workspaces() returns setof text
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select w.workspace_id from public.rows_workspaces w
+  where w.live
+     or (w.migrating_until > now() and public.rows_is_owner(w.workspace_id))
+$$;
+
 -- Точечные проверки — для RPC и экрана настройки. Те же наборы.
 create or replace function public.rows_can_access_page(ws text, pg text) returns boolean
 language sql stable security definer
@@ -216,8 +235,9 @@ create or replace function public.rows_can_edit_page(ws text, pg text) returns b
 language sql stable security definer
 set search_path = public, pg_temp
 as $$
-  select ws in (select public.rows_edit_all_workspaces())
-    or (ws, pg) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e)
+  select ws in (select public.rows_writable_workspaces()) and (
+    ws in (select public.rows_edit_all_workspaces())
+    or (ws, pg) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e))
 $$;
 
 -- ---------------------------------------------------------------------
@@ -442,26 +462,30 @@ create policy desk_rows_read on public.desk_rows for select to anon, authenticat
 drop policy if exists desk_rows_insert on public.desk_rows;
 create policy desk_rows_insert on public.desk_rows for insert to anon, authenticated
   with check (
-    workspace_id in (select public.rows_edit_all_workspaces())
-    or (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e)
+    workspace_id in (select public.rows_writable_workspaces())
+    and (workspace_id in (select public.rows_edit_all_workspaces())
+      or (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e))
   );
 
 drop policy if exists desk_rows_update on public.desk_rows;
 create policy desk_rows_update on public.desk_rows for update to anon, authenticated
   using (
-    workspace_id in (select public.rows_edit_all_workspaces())
-    or (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e)
+    workspace_id in (select public.rows_writable_workspaces())
+    and (workspace_id in (select public.rows_edit_all_workspaces())
+      or (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e))
   )
   with check (
-    workspace_id in (select public.rows_edit_all_workspaces())
-    or (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e)
+    workspace_id in (select public.rows_writable_workspaces())
+    and (workspace_id in (select public.rows_edit_all_workspaces())
+      or (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e))
   );
 
 drop policy if exists desk_rows_delete on public.desk_rows;
 create policy desk_rows_delete on public.desk_rows for delete to anon, authenticated
   using (
-    workspace_id in (select public.rows_edit_all_workspaces())
-    or (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e)
+    workspace_id in (select public.rows_writable_workspaces())
+    and (workspace_id in (select public.rows_edit_all_workspaces())
+      or (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e))
   );
 
 -- ---------------------------------------------------------------------
@@ -553,6 +577,25 @@ as $$
   select count(*)::integer from changed
 $$;
 
+-- Состояние хранилища — только Owner (перенос туда и обратно).
+create or replace function public.rows_set_state(p_workspace text, p_live boolean, p_migrating boolean) returns void
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if not public.rows_is_owner(p_workspace) then
+    raise exception 'rows_set_state: только Owner' using errcode = '42501';
+  end if;
+  update public.rows_workspaces
+     set live = p_live,
+         migrating_until = case when p_migrating then now() + interval '15 minutes' end
+   where workspace_id = p_workspace;
+  if not found then
+    raise exception 'rows_set_state: workspace не заведён' using errcode = 'P0002';
+  end if;
+end;
+$$;
+
 -- Что Supabase знает про меня: проверка настройки на экране «Строки таблиц».
 create or replace function public.rows_whoami(p_workspace text) returns jsonb
 language sql stable
@@ -562,7 +605,8 @@ as $$
     'uid', public.rows_uid(),
     'role', public.rows_member_role(p_workspace),
     'isOwner', public.rows_is_owner(p_workspace),
-    'workspaceSeeded', exists (select 1 from public.rows_workspaces w where w.workspace_id = p_workspace)
+    'workspaceSeeded', exists (select 1 from public.rows_workspaces w where w.workspace_id = p_workspace),
+    'live', coalesce((select w.live from public.rows_workspaces w where w.workspace_id = p_workspace), false)
   )
 $$;
 
@@ -593,7 +637,8 @@ grant execute on function
   public.rows_uid(), public.rows_member_role(text), public.rows_has_extra(text, text),
   public.rows_is_member(text), public.rows_is_owner(text), public.rows_is_teamlead(text),
   public.rows_has_role(text, text),
-  public.rows_read_all_workspaces(), public.rows_readable_pages(),
+  public.rows_read_all_workspaces(), public.rows_readable_pages(), public.rows_writable_workspaces(),
+  public.rows_set_state(text, boolean, boolean),
   public.rows_edit_all_workspaces(), public.rows_editable_pages(),
   public.rows_can_access_page(text, text), public.rows_can_edit_page(text, text),
   public.rows_patch(text, text, text, text, jsonb, bigint, bigint, text, jsonb, boolean, text, boolean, jsonb, integer),

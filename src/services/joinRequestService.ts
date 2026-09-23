@@ -6,6 +6,7 @@ import {
   assertSameNick,
   NICK_KIND_META,
   nickOptionsOf,
+  pushMemberToRowsAcl,
   NICK_MAX_LENGTH,
   resolveNickOption,
   type NickKind,
@@ -146,7 +147,7 @@ export async function approveJoinRequest(input: {
   const expectedValue = kind && input.nick
     ? await assertNickFree({ workspaceId, kind, target: input.nick, selfUid: request.uid })
     : null;
-  return withDbTimeout(runTransaction(db, async (tx) => {
+  const result = await withDbTimeout(runTransaction(db, async (tx) => {
     const workspaceSnap = await tx.get(workspaceRef);
     const memberSnap = await tx.get(memberRef);
     const stubSnap = request.email ? await tx.get(stubRef) : null;
@@ -200,6 +201,10 @@ export async function approveJoinRequest(input: {
     );
     return { nickLabel };
   }), "Одобрение заявки");
+  // Строки в Supabase: новичок попадает в копию прав сразу — иначе свой
+  // стол он открыл бы только после сверки у руководства.
+  await pushMemberToRowsAcl(workspaceId, request.uid);
+  return result;
 }
 
 /** Отклонить: участник не создаётся, человек может подать заявку снова. */

@@ -157,7 +157,7 @@ service cloud.firestore {
     // — supabase/migrations/20260923_desk_rows.sql). Копия в Firestore с этой
     // минуты — замёрзший архив: запись в неё с вкладки на старом коде молча
     // потерялась бы для всех, поэтому её отклоняем — громкий отказ лучше
-    // тихой потери. Owner пишет всегда: так идёт обратный перенос из Supabase.
+    // тихой потери. Owner — только во время переноса (откат, см. ниже).
     // Документ workspace правило строки и так читает (isOwner → isDocOwner),
     // повторный get того же документа не тарифицируется.
     function rowsOnSupabase(workspaceId) {
@@ -173,8 +173,13 @@ service cloud.firestore {
       return startedAt is timestamp && request.time < startedAt + duration.value(15, 'm');
     }
 
+    // Owner пишет строки в Firestore мимо замков ТОЛЬКО во время переноса —
+    // так идёт откат из Supabase. Вне переноса и его поздняя правка в
+    // замёрзший архив отказывает громко: запись в Firestore, когда строки живут
+    // в Supabase, никто бы не увидел.
     function rowsWritableHere(workspaceId) {
-      return isOwner(workspaceId) || (!rowsOnSupabase(workspaceId) && !rowsMigrating(workspaceId));
+      return (!rowsOnSupabase(workspaceId) && !rowsMigrating(workspaceId))
+        || (isOwner(workspaceId) && rowsMigrating(workspaceId));
     }
 
     // Owner: every page. Тимлид: none, если он не Технарь, — кроме столов ОС.

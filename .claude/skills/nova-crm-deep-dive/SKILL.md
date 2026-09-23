@@ -37,15 +37,30 @@ its rows in exactly ONE store, chosen by `workspace.rowsBackend` (`"supabase"` �
   `backupService`, `pageSnapshotService`, `osDeskStatsService`) branches on
   `usesSupabaseRows(workspaceId)` into `services/rows/supabaseRowStore.ts`. A NEW row
   read/write path must branch the same way — a Firestore-only write in Supabase mode is rejected
-  by firestore.rules (`rowsWritableHere`) for everyone but the Owner.
+  by firestore.rules (`rowsWritableHere`) for everyone — the Owner too, unless a rollback is
+  running (`rowsMigrationAt` fresh). Supabase has the mirror lock: `rows_workspaces.live` /
+  `migrating_until` (`rows_set_state`, Owner only) — `desk_rows` accepts writes only in
+  `rows_writable_workspaces()`.
 - Every row write calls `assertRowsWritable(workspaceId)` first (blocked while a migration runs).
 - Supabase row writes are merge semantics done INSIDE Postgres (`rows_patch` RPC: `cells ||
   patch`, extras keep/set/clear, highlight, filledAt, orderId, attachments, height). Don't
   reintroduce read-modify-write in the browser.
 - Row identity in Postgres is `(workspace_id, page_id, tab_id, id)`; `tab_id = ''` is «Основная».
   `recordToRow` sets `pageId` to the tab id for tab rows, like Firestore docs did.
-- Reads page through PostgREST's 1000-row cap (`fetchPaged`). Live rows: fetch + Realtime
-  `postgres_changes` on `page_id`, full refetch on every (re)subscribe and on tab focus.
+- Reads page through PostgREST's row cap (`fetchPaged`: first page asks `count: exact`, loop
+  until that many). An EMPTY one-shot read (`sbFetchRows`/`sbFetchRowsSince`/`sbFetchAllPageRows`)
+  is checked with `rows_page_access` and throws `permission-denied`/`unavailable` when the desk
+  isn't readable — callers expect Firestore's loud denial, not an empty table
+  (`{ assertAccess: false }` opts out).
+- Live rows (`sbSubscribeRows`): fetch + Realtime `postgres_changes` on `page_id` (+ an
+  unfiltered DELETE listener; out-of-scope events are dropped before anything else), full
+  refetch on every (re)subscribe and on tab focus. UPDATE payloads are MERGED onto the stored raw
+  record (`serverRecords`) — TOASTed jsonb (big `cells`, `attachments`) is omitted from update
+  events; unknown row + missing fields → refetch. Realtime-driven renders are coalesced (16 ms);
+  own optimistic edits render synchronously.
+- Writes to one row are serialized (`sequenced`, lane = ws|page|tab, per row id; table-wide ops
+  wait for and block everything in the lane) — separate HTTP requests could otherwise land out
+  of order. A committed overlay not confirmed by an event within 5 s triggers a refetch.
 - Access in Postgres = a COPY of Firestore ACL (`rows_members`, `rows_page_acl`,
   `rows_desk_observers`, `rows_workspaces`) kept in sync by `useRowAclSync` /
   `services/rows/rowAclService.ts`; RLS lives in `supabase/migrations/20260923_desk_rows.sql`
@@ -131,8 +146,9 @@ leaderboard, command palette, backup/export, change history. Added since (~90+ c
 - Personal Space (`personalZones/{uid}/reports`) is a fully isolated subsystem with its own
   hardcoded statuses — never conflate with the general Статус/Ответственный/custom-field system.
 - Rows live in ONE store at a time (`workspace.rowsBackend`). After a move to Supabase the
-  Firestore rows are a frozen archive (writable by the Owner only, for the move back) — not a
-  live backup; the JSON backup (`backupService`) reads whichever store is current.
+  Firestore rows are a frozen archive (writable by the Owner only while a move back runs) — not a
+  live backup; migration moves only rows visible to the app (`orderBy("order")` — docs without
+  `order` are skipped both ways) and converts Timestamp dates to ms (`firestoreDocToRow`); the JSON backup (`backupService`) reads whichever store is current.
 
 ## Discussed but NOT built
 

@@ -80,7 +80,7 @@ $$;
 -- ---------------------------------------------------------------------
 -- Данные (от суперпользователя — как «SQL-редактор» у Nurba).
 -- ---------------------------------------------------------------------
-insert into public.rows_workspaces values ('W', 'O');
+insert into public.rows_workspaces (workspace_id, owner_id, live) values ('W', 'O', true);
 insert into public.rows_members (workspace_id, uid, role, extra_roles) values
   ('W', 'O', 'owner', '{}'),
   ('W', 'TL', 'teamlead', '{}'),
@@ -241,6 +241,28 @@ select tst.expect('наблюдатель видит только свою за�
 select tst.expect('чужой НЕ видит список наблюдателей', tst.try('T1', $q$select * from rows_desk_observers$q$, true), 'ok:0');
 select tst.expect('Owner НЕ переписывает владельца workspace с клиента', tst.try('O', $q$update rows_workspaces set owner_id = 'T1'$q$), 'deny');
 select tst.expect('никто НЕ заводит чужой workspace с клиента', tst.try('X', $q$insert into rows_workspaces values ('W2','X')$q$), 'error');
+
+
+-- ---------------------------------------------------------------------
+-- Замок хранилища: неживое (до переноса / после отката) — запись закрыта.
+-- ---------------------------------------------------------------------
+update public.rows_workspaces set live = false where workspace_id = 'W';
+select tst.expect('неживое хранилище: ответственный НЕ пишет', tst.try('T1', $q$select rows_patch('W','P1','','r1','{"x":"1"}'::jsonb)$q$), 'error');
+select tst.expect('неживое хранилище: НЕ удаляет', tst.try('T1', $q$delete from desk_rows where page_id = 'P1'$q$), 'ok:0');
+select tst.expect('неживое хранилище: Owner без переноса тоже НЕ пишет', tst.try('O', $q$select rows_patch('W','P1','','r1','{"x":"1"}'::jsonb)$q$), 'error');
+select tst.expect('rows_page_access: в неживом правки нет', tst.try('T1', $q$select 1 where not (rows_page_access('W','P1')->>'canEdit')::boolean$q$, true), 'ok:1');
+select tst.expect('неживое хранилище: читать можно', tst.try('T1', $q$select * from desk_rows where page_id = 'P1'$q$, true), 'ok');
+select tst.expect('rows_set_state — не Owner отказ', tst.try('TL', $q$select rows_set_state('W', true, false)$q$), 'error');
+select tst.expect('rows_set_state — технарь отказ', tst.try('T1', $q$select rows_set_state('W', true, false)$q$), 'error');
+select tst.run('O', $q$select rows_set_state('W', false, true)$q$);
+select tst.expect('идёт перенос: Owner пишет в неживое', tst.try('O', $q$select rows_patch('W','P1','','r1','{"x":"2"}'::jsonb)$q$), 'ok');
+select tst.expect('идёт перенос: технарь НЕ пишет', tst.try('T1', $q$select rows_patch('W','P1','','r1','{"x":"2"}'::jsonb)$q$), 'error');
+update public.rows_workspaces set migrating_until = now() - interval '1 minute' where workspace_id = 'W';
+select tst.expect('брошенный перенос (срок вышел): Owner НЕ пишет', tst.try('O', $q$select rows_patch('W','P1','','r1','{"x":"3"}'::jsonb)$q$), 'error');
+select tst.run('O', $q$select rows_set_state('W', true, false)$q$);
+select tst.expect('снова живое: ответственный пишет', tst.try('T1', $q$select rows_patch('W','P1','','r1','{"x":"4"}'::jsonb)$q$), 'ok');
+select tst.expect('whoami показывает live', tst.try('O', $q$select 1 where (rows_whoami('W')->>'live')::boolean$q$, true), 'ok:1');
+select tst.expect('rows_page_access: в живом правка есть', tst.try('T1', $q$select 1 where (rows_page_access('W','P1')->>'canEdit')::boolean$q$, true), 'ok:1');
 
 -- Старое зеркало закрыто.
 select tst.expect('анонимный ключ НЕ читает row_records', tst.try('__anon_key__', $q$select * from row_records$q$, true), 'error');

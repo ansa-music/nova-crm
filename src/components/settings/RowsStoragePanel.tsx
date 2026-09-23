@@ -9,9 +9,9 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useRowsBackend } from "@/hooks/useRowsBackend";
 import { ROWS_MIGRATION_STALE_MS } from "@/hooks/useRowsBackendBridge";
 import { migrationStartMillis } from "@/services/rows/rowsBackend";
-import { useWorkspaceStore } from "@/store/workspaceStore";
 import { confirmDialog } from "@/utils/appDialog";
-import { fetchDeskObservers } from "@/services/deskObserverService";
+import { fetchDeskObserverUidsFresh } from "@/services/deskObserverService";
+import { fetchMembersFresh } from "@/services/memberService";
 import { lastAclSync, noteAclSync, subscribeAclSync, syncRowAcl, type AclSyncReport } from "@/services/rows/rowAclService";
 import {
   checkRowsHealth,
@@ -93,12 +93,10 @@ function ReportLines({ report }: { report: AclSyncReport }) {
  * supabase/migrations/20260923_desk_rows.sql.
  */
 export function RowsStoragePanel() {
-  const { activeWorkspace, members, allPages } = useWorkspace();
+  const { activeWorkspace, allPages } = useWorkspace();
   const permissions = usePermissions();
   const workspaceId = activeWorkspace?.id ?? null;
   const backend = useRowsBackend(workspaceId);
-  const rosterWorkspaceId = useWorkspaceStore((s) => s.rosterWorkspaceId);
-  const rosterComplete = Boolean(workspaceId && rosterWorkspaceId === workspaceId);
   const aclStatus = useSyncExternalStore(subscribeAclSync, lastAclSync, lastAclSync);
   const [health, setHealth] = useState<RowsHealth | null>(null);
   const [checking, setChecking] = useState(false);
@@ -138,14 +136,16 @@ export function RowsStoragePanel() {
     setBusy(true);
     setLastError(null);
     try {
-      const observers = (await fetchDeskObservers(workspaceId)).map((o) => o.uid);
+      const [members, observers] = await Promise.all([
+        fetchMembersFresh(workspaceId),
+        fetchDeskObserverUidsFresh(workspaceId),
+      ]);
       const report = await syncRowAcl({
         workspaceId,
         ownerId: activeWorkspace.ownerId,
         me,
         realRole: permissions.realRole,
         members,
-        rosterComplete,
         pages: allPages,
         observers,
         force: true,
@@ -186,8 +186,6 @@ export function RowsStoragePanel() {
             workspaceId,
             ownerId: activeWorkspace.ownerId,
             me,
-            members,
-            rosterComplete,
             pages: allPages,
             onProgress: setProgress,
           })
@@ -352,9 +350,6 @@ export function RowsStoragePanel() {
           </div>
           {!health?.ok && (
             <p className="text-xs text-muted-foreground">Кнопки переноса станут доступны после успешной «Проверить».</p>
-          )}
-          {!rosterComplete && (
-            <p className="text-xs text-warning">Список участников ещё не прочитан целиком — перенос прав участников подождёт.</p>
           )}
           {progress && busy && (
             <div className="space-y-1">

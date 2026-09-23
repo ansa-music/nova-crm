@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { subscribeToRows } from "@/services/pageService";
 import { subscribeToSubPageRows } from "@/services/subPageService";
 import { sbPageAccess } from "@/services/rows/supabaseRowStore";
@@ -47,6 +47,14 @@ export function useSyncedTableRows(
   const [dataKey, setDataKey] = useState("");
   /** Права на стол доехали после плашки — переподписаться и перечитать строки. */
   const [reloadNonce, setReloadNonce] = useState(0);
+  /**
+   * Таблица, право читать которую уже подтверждено. Пустая выборка и проверка
+   * прав — два запроса, и права могли доехать МЕЖДУ ними: выборка отдала
+   * пустоту по старым правам, проверка — «читать можно». Поэтому после
+   * подтверждения таблица перечитывается ещё раз, и только эта, вторая
+   * пустота значит «стол пустой». Ключ — чтобы перечитать один раз, а не по кругу.
+   */
+  const confirmedKey = useRef("");
 
   useEffect(() => {
     if (!workspaceId || !pageId) {
@@ -68,11 +76,10 @@ export function useSyncedTableRows(
 
     let cancelled = false;
     /** Supabase: право читать стол подтверждено — пустота значит «строк нет». */
-    let accessConfirmed = false;
-    let accessChecking = false;
-    let wasPending = false;
-    let accessTimer: number | null = null;
     const key = `${backend}:${workspaceId}/${pageId}/${subPageId ?? ""}`;
+    let accessConfirmed = confirmedKey.current === key;
+    let accessChecking = false;
+    let accessTimer: number | null = null;
 
     // Пока плашка «права не доехали» — перепроверяем раз в 15 с (Supabase
     // такие запросы не тарифицирует): запись прав событием строк не приходит,
@@ -85,12 +92,11 @@ export function useSyncedTableRows(
           if (cancelled) return;
           if (access.canRead) {
             accessConfirmed = true;
+            confirmedKey.current = key;
             setAccessPending(false);
-            if (wasPending) setReloadNonce((n) => n + 1); // права доехали — перечитать строки
-            else setServerSynced(true); // стол и правда пустой
+            setReloadNonce((n) => n + 1); // перечитать уже с подтверждёнными правами
             return;
           }
-          wasPending = true;
           setAccessPending(true);
           accessTimer = window.setTimeout(checkAccess, 15_000);
         })
@@ -118,6 +124,7 @@ export function useSyncedTableRows(
       }
       if (backend === "supabase" && data.length > 0) {
         accessConfirmed = true;
+        confirmedKey.current = key;
         setAccessPending(false);
       }
       setServerSynced(fromServer);

@@ -1,4 +1,4 @@
-import { deleteDoc, getDoc, getDocs, setDoc } from "firebase/firestore";
+import { deleteDoc, getDoc, getDocs, getDocsFromServer, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
@@ -80,6 +80,13 @@ export async function loadDeskObserver(workspaceId: string | null, uid: string |
     // наблюдателем не является, но и `loaded` не ставим — повторим позже.
     publish({ key: "", observer: false, loaded: false });
   }
+}
+
+/** Наблюдатели — С СЕРВЕРА, мимо кэша: для сверки прав строк в Supabase (см. fetchMembersFresh). */
+export async function fetchDeskObserverUidsFresh(workspaceId: string): Promise<string[]> {
+  if (!db) throw new Error("Firebase не настроен");
+  const snap = await getDocsFromServer(paths.deskObservers(workspaceId));
+  return snap.docs.map((d) => d.id);
 }
 
 /** Список наблюдателей — читает только Owner. */

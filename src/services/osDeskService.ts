@@ -2,7 +2,7 @@ import { getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
-import { stripUndefined } from "@/services/pageService";
+import { ensureNewDeskAcl, stripUndefined } from "@/services/pageService";
 import type { PageColumn, WorkspacePage } from "@/types";
 
 /**
@@ -94,5 +94,6 @@ export async function ensureOsDesk({ workspaceId, uid, name }: EnsureOsDeskInput
     createdBy: uid,
   };
   await setDoc(ref, stripUndefined(page));
+  await ensureNewDeskAcl(workspaceId, page);
   return page;
 }

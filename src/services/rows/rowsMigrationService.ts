@@ -1,7 +1,10 @@
 import {
   getCountFromServer,
+  getDocFromServer,
   getDocsFromServer,
   increment,
+  orderBy,
+  query,
   serverTimestamp,
   updateDoc,
   writeBatch,
@@ -10,10 +13,13 @@ import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { DESK_ROWS_TABLE, supabaseRows } from "@/lib/supabaseRows";
 import { stripUndefined } from "@/services/pageService";
-import { fetchDeskObservers } from "@/services/deskObserverService";
+import { fetchDeskObserverUidsFresh } from "@/services/deskObserverService";
+import { fetchMembersFresh } from "@/services/memberService";
 import { syncRowAcl, type AclSyncReport } from "@/services/rows/rowAclService";
+import { migrationStartMillis } from "@/services/rows/rowsBackend";
 import { sbDeleteRows, sbFetchRows, sbPutRows } from "@/services/rows/supabaseRowStore";
-import type { PageRow, WorkspaceMember, WorkspacePage } from "@/types";
+import type { PageRow, WorkspacePage } from "@/types";
+import type { RowsMigrationStamp } from "@/types/workspace";
 
 /**
  * Перенос строк таблиц между Firestore и Supabase — туда и обратно.
@@ -55,7 +61,7 @@ export async function checkRowsHealth(workspaceId: string): Promise<RowsHealth> 
   if (error) {
     return { ok: false, uid: null, role: null, isOwner: false, seeded: false, problem: supabaseProblem(error) };
   }
-  const who = (data ?? {}) as { uid?: string | null; role?: string | null; isOwner?: boolean; workspaceSeeded?: boolean };
+  const who = (data ?? {}) as { uid?: string | null; role?: string | null; isOwner?: boolean; workspaceSeeded?: boolean; live?: boolean };
   const base = {
     uid: who.uid ?? null,
     role: who.role ?? null,
@@ -67,6 +73,10 @@ export async function checkRowsHealth(workspaceId: string): Promise<RowsHealth> 
   }
   if (!base.seeded) {
     return { ok: false, ...base, problem: "Workspace ещё не заведён в Supabase (шаг 3): выполните строку SQL ниже." };
+  }
+  if (typeof who.live !== "boolean") {
+    // SQL накатан до появления замка хранилища (rows_set_state) — перенос упал бы на полпути.
+    return { ok: false, ...base, problem: "В Supabase старая версия SQL (шаг 2): выполните файл миграции ещё раз — он повторяемый." };
   }
   if (!base.isOwner) {
     return { ok: false, ...base, problem: "В Supabase владельцем workspace записан другой аккаунт — проверьте строку шага 3." };
@@ -119,6 +129,42 @@ function firestoreRowsRef(workspaceId: string, table: TableRef) {
     : paths.rows(workspaceId, table.page.id);
 }
 
+/**
+ * Строки, которые приложение ВИДИТ: подписка Firestore идёт с
+ * `orderBy("order")`, а такой запрос молча пропускает документы без поля
+ * `order`. Переносим и сверяем ровно их — иначе невидимые годами обрывки
+ * всплыли бы в таблицах после переноса.
+ */
+function visibleRowsQuery(workspaceId: string, table: TableRef) {
+  return query(firestoreRowsRef(workspaceId, table), orderBy("order", "asc"));
+}
+
+/** Время в мс из того, что лежит в старом документе: число, Timestamp или ничего. */
+function millisOf(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value && typeof (value as { toMillis?: unknown }).toMillis === "function") {
+    return (value as { toMillis: () => number }).toMillis();
+  }
+  return null;
+}
+
+/**
+ * Документ строки Firestore → строка для Supabase. Даты старых строк бывают
+ * Timestamp (serverTimestamp) или отсутствуют: `rowToRecord` поставил бы им
+ * «сейчас», и месячные сводки посчитали бы старые заказы сегодняшними.
+ */
+export function firestoreDocToRow(id: string, data: Record<string, unknown>): PageRow | null {
+  const order = data.order;
+  if (typeof order !== "number" || !Number.isFinite(order)) return null;
+  const updatedAt = millisOf(data.updatedAt);
+  const createdAt = millisOf(data.createdAt) ?? updatedAt ?? 0;
+  const row = { ...(data as unknown as PageRow), id, order, createdAt, updatedAt: updatedAt ?? createdAt };
+  const filledAt = millisOf(data.filledAt);
+  if (filledAt === null) delete row.filledAt;
+  else row.filledAt = filledAt;
+  return row;
+}
+
 async function supabaseCount(workspaceId: string, table: TableRef): Promise<number> {
   const { count, error } = await supabaseRows
     .from(DESK_ROWS_TABLE)
@@ -139,6 +185,46 @@ async function setMigrationFlag(workspaceId: string, on: boolean) {
   await updateDoc(paths.workspace(workspaceId), { rowsMigrationAt: on ? serverTimestamp() : null });
 }
 
+/**
+ * Состояние хранилища строк в Supabase (`rows_set_state`, только Owner):
+ * `live` — строки правят все по своим правам; неживое — запись закрыта всем,
+ * а во время переноса (`migrating`, 15 минут) — открыта только Owner для
+ * копирования. Так поздняя правка со старой вкладки в «чужое» хранилище
+ * отказывает громко, а не теряется молча — зеркало замка в firestore.rules.
+ */
+async function setSupabaseState(workspaceId: string, live: boolean, migrating: boolean) {
+  const { error } = await supabaseRows.rpc("rows_set_state", { p_workspace: workspaceId, p_live: live, p_migrating: migrating });
+  if (error) throw new Error(`Supabase не переключил состояние хранилища: ${error.message}`);
+}
+
+/** Столько живёт замок переноса — как `rowsMigrating()` в firestore.rules. */
+const MIGRATION_LOCK_MS = 15 * 60 * 1000;
+
+/**
+ * Держит замок Supabase равным Firestore: строки там (`rowsBackend:
+ * "supabase"`) и перенос не идёт — хранилище обязано быть живым. Нужна, если
+ * workspace перенесли ДО появления замка: повторный накат SQL добавил
+ * `live = false`, и запись строк встала бы у всех. Зовёт сессия Owner.
+ *
+ * Решает по документу workspace С СЕРВЕРА, прочитанному ПОСЛЕ ответа
+ * Supabase: откат сначала пишет флаг переноса и только потом запирает
+ * Supabase, поэтому «неживое» без флага в свежем документе — точно не откат.
+ */
+export async function reconcileSupabaseLive(workspaceId: string): Promise<boolean> {
+  if (!db) return false;
+  const { data, error } = await supabaseRows.rpc("rows_whoami", { p_workspace: workspaceId });
+  if (error) return false;
+  const who = (data ?? {}) as { isOwner?: boolean; workspaceSeeded?: boolean; live?: boolean };
+  if (!who.isOwner || !who.workspaceSeeded || who.live !== false) return false;
+  const snap = await getDocFromServer(paths.workspace(workspaceId));
+  const ws = snap.data() as { rowsBackend?: string; rowsMigrationAt?: RowsMigrationStamp } | undefined;
+  if (ws?.rowsBackend !== "supabase") return false;
+  const started = migrationStartMillis(ws.rowsMigrationAt);
+  if (typeof started === "number" && Date.now() - started < MIGRATION_LOCK_MS) return false;
+  await setSupabaseState(workspaceId, true, false);
+  return true;
+}
+
 async function assertHealthy(workspaceId: string) {
   const health = await checkRowsHealth(workspaceId);
   if (!health.ok) throw new Error(health.problem ?? "Supabase не готов");
@@ -148,8 +234,6 @@ export interface MigrateInput {
   workspaceId: string;
   ownerId: string;
   me: string;
-  members: readonly WorkspaceMember[];
-  rosterComplete: boolean;
   /** Все столы — активные, неактуальные и столы ОС. */
   pages: readonly WorkspacePage[];
   onProgress?: (progress: MigrationProgress) => void;
@@ -169,15 +253,20 @@ export async function migrateRowsToSupabase(input: MigrateInput): Promise<Migrat
   await assertHealthy(workspaceId);
   await setMigrationFlag(workspaceId, true);
   try {
+    // Пока копируем — хранилище неживое, писать в него может только Owner.
+    await setSupabaseState(workspaceId, false, true);
     progress({ phase: "acl", done: 0, total: 1, label: "Переношу права доступа" });
-    const observers = (await fetchDeskObservers(workspaceId)).map((o) => o.uid);
+    // Участники и наблюдатели — свежим чтением с сервера, не из памяти вкладки.
+    const [members, observers] = await Promise.all([
+      fetchMembersFresh(workspaceId),
+      fetchDeskObserverUidsFresh(workspaceId),
+    ]);
     const acl = await syncRowAcl({
       workspaceId,
       ownerId: input.ownerId,
       me: input.me,
       realRole: "owner",
-      members: input.members,
-      rosterComplete: input.rosterComplete,
+      members,
       pages: input.pages,
       observers,
       force: true,
@@ -190,8 +279,10 @@ export async function migrateRowsToSupabase(input: MigrateInput): Promise<Migrat
     for (let i = 0; i < tables.length; i += 1) {
       const table = tables[i];
       progress({ phase: "copy", done: i, total: tables.length, label: `Копирую «${tableLabel(table)}»` });
-      const snap = await getDocsFromServer(firestoreRowsRef(workspaceId, table));
-      const list = snap.docs.map((d) => ({ ...(d.data() as PageRow), id: d.id }));
+      const snap = await getDocsFromServer(visibleRowsQuery(workspaceId, table));
+      const list = snap.docs
+        .map((d) => firestoreDocToRow(d.id, d.data()))
+        .filter((row): row is PageRow => row !== null);
       // Supabase приводим РОВНО к Firestore: остатки прошлой попытки убираем.
       await sbDeleteRows(workspaceId, table.page.id, table.tabId);
       await sbPutRows(workspaceId, table.page.id, table.tabId, list);
@@ -211,6 +302,7 @@ export async function migrateRowsToSupabase(input: MigrateInput): Promise<Migrat
     }
 
     progress({ phase: "switch", done: 0, total: 1, label: "Переключаю хранилище" });
+    await setSupabaseState(workspaceId, true, false);
     // reloadEpoch — перезагрузить все открытые вкладки: старый код на них
     // писал бы строки в Firestore (правила такую запись теперь отклоняют).
     await updateDoc(paths.workspace(workspaceId), {
@@ -221,6 +313,8 @@ export async function migrateRowsToSupabase(input: MigrateInput): Promise<Migrat
     progress({ phase: "done", done: 1, total: 1, label: "Готово" });
     return { tables: tables.length, rows, acl };
   } catch (error) {
+    // Строки остаются в Firestore — Supabase снова закрыт для записи.
+    await setSupabaseState(workspaceId, false, false).catch(() => undefined);
     await setMigrationFlag(workspaceId, false).catch(() => undefined);
     throw error;
   }
@@ -232,7 +326,7 @@ export async function migrateRowsToSupabase(input: MigrateInput): Promise<Migrat
  * удаляются и из Firestore — иначе они воскресли бы. Правила пускают это
  * только Owner (`rowsWritableHere`).
  */
-export async function migrateRowsToFirestore(input: Omit<MigrateInput, "members" | "rosterComplete" | "me" | "ownerId">): Promise<MigrationReport> {
+export async function migrateRowsToFirestore(input: Omit<MigrateInput, "me" | "ownerId">): Promise<MigrationReport> {
   if (!db) throw new Error("Firebase не настроен");
   const database = db;
   const { workspaceId } = input;
@@ -242,6 +336,9 @@ export async function migrateRowsToFirestore(input: Omit<MigrateInput, "members"
   await assertHealthy(workspaceId);
   await setMigrationFlag(workspaceId, true);
   try {
+    // Supabase замерзает ДО копирования: поздняя правка сессии, которая ещё не
+    // узнала о переносе, отказывает громко, а не пропадает в брошенном хранилище.
+    await setSupabaseState(workspaceId, false, false);
     const tables = await listTables(workspaceId, input.pages);
     const expected = new Map<TableRef, number>();
     let rows = 0;
@@ -251,7 +348,9 @@ export async function migrateRowsToFirestore(input: Omit<MigrateInput, "members"
       progress({ phase: "copy", done: i, total: tables.length, label: `Возвращаю «${tableLabel(table)}»` });
       const list = await sbFetchRows(workspaceId, table.page.id, table.tabId);
       const keep = new Set(list.map((row) => row.id));
-      const existing = await getDocsFromServer(firestoreRowsRef(workspaceId, table));
+      // Удаляем только ВИДИМЫЕ строки, которых нет в Supabase: документы без
+      // `order` приложение не показывало и туда не переносило — их не трогаем.
+      const existing = await getDocsFromServer(visibleRowsQuery(workspaceId, table));
       type Op = { kind: "set"; ref: ReturnType<typeof paths.row>; data: PageRow } | { kind: "delete"; ref: ReturnType<typeof paths.row> };
       const ops: Op[] = [
         ...list.map(
@@ -281,7 +380,7 @@ export async function migrateRowsToFirestore(input: Omit<MigrateInput, "members"
     let i = 0;
     for (const [table, want] of expected) {
       progress({ phase: "verify", done: i++, total: expected.size, label: `Сверяю «${tableLabel(table)}»` });
-      const got = (await getCountFromServer(firestoreRowsRef(workspaceId, table))).data().count;
+      const got = (await getCountFromServer(visibleRowsQuery(workspaceId, table))).data().count;
       if (got !== want) mismatches.push(`«${tableLabel(table)}»: в Supabase ${want}, в Firestore ${got}`);
     }
     if (mismatches.length) {
@@ -297,6 +396,8 @@ export async function migrateRowsToFirestore(input: Omit<MigrateInput, "members"
     progress({ phase: "done", done: 1, total: 1, label: "Готово" });
     return { tables: tables.length, rows, acl: null };
   } catch (error) {
+    // Откат не удался — строки по-прежнему живут в Supabase: открыть его обратно.
+    await setSupabaseState(workspaceId, true, false).catch(() => undefined);
     await setMigrationFlag(workspaceId, false).catch(() => undefined);
     throw error;
   }
