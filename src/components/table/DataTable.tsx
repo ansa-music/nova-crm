@@ -65,6 +65,7 @@ import { DATE_PRESET_LABELS, isInDatePreset, type DatePreset } from "@/utils/dat
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/components/ui/sonner";
 import { isRowsMigratingError } from "@/utils/dbError";
+import { cellLockReason, rowDeleteLockReason, type RowViewer } from "@/utils/managedRow";
 import {
   addRow as addRowServiceBase,
   deleteRow as deleteRowServiceBase,
@@ -278,6 +279,11 @@ interface DataTableProps {
   page: WorkspacePage;
   rows: PageRow[];
   canEdit: boolean;
+  /**
+   * Кто смотрит — для замка строк-заказов (их ведёт ОС, см. managedRow.ts).
+   * Не передан — замка нет (стол ОС, личная зона и прочие таблицы).
+   */
+  viewer?: RowViewer;
   canEditStructure: boolean;
   userId: string;
   userName: string;
@@ -304,7 +310,7 @@ function normalizeContact(raw: string, type: "phone" | "email" | string): string
   return v.toLowerCase();
 }
 
-export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false }: DataTableProps) {
+export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer }: DataTableProps) {
   const columns = useMemo(
     () =>
       page.columns
@@ -1045,6 +1051,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       if (editingCellRef.current?.rowId === rowId && editingCellRef.current?.colKey === colKey) return;
       const row = rows.find((r) => r.id === rowId);
       if (!row) return;
+      // Строку-заказ ведёт ОС: не даём даже начать ввод — `useCellCommit` при
+      // отказе базы введённое НЕ откатывает, и человек решил бы, что
+      // сохранилось, а потом пропало.
+      const lockedCell = viewer ? cellLockReason(row, colKey, viewer) : null;
+      if (lockedCell) {
+        toast.error(lockedCell);
+        return;
+      }
       setEditingCell({ rowId, colKey });
       setEditValue(initialValue !== undefined ? initialValue : String(row.cells[colKey] ?? ""));
     },
@@ -1073,7 +1087,21 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     return dateIsEmpty ? dateCol.key : null;
   }
 
+  /**
+   * Замок строки-заказа: её ведёт ОС. Возвращает причину или null.
+   * Без `viewer` (стол ОС, личная зона) замка нет.
+   */
+  function lockOf(rowId: string, colKey: string): string | null {
+    if (!viewer) return null;
+    return cellLockReason(rows.find((r) => r.id === rowId), colKey, viewer);
+  }
+
   async function persistCellEdit(rowId: string, colKey: string, oldValue: string, newValue: string) {
+    const locked = lockOf(rowId, colKey);
+    if (locked) {
+      toast.error(locked);
+      return;
+    }
     const col = columns.find((c) => c.key === colKey);
     if (col?.type === "url") {
       newValue = newValue.trim();
@@ -1165,6 +1193,17 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   async function persistCellEdits(edits: CellEdit[]) {
     const byRow = new Map<string, CellEdit[]>();
     let badUrl = false;
+    // Строки-заказы правит ОС: чужие ячейки в пачке просто не пишем и
+    // говорим об этом ОДИН раз, а не по тосту на ячейку.
+    let lockedReason: string | null = null;
+    const allowed = edits.filter((e) => {
+      const reason = lockOf(e.rowId, e.colKey);
+      if (reason) lockedReason = lockedReason ?? reason;
+      return !reason;
+    });
+    if (lockedReason) toast.error(lockedReason);
+    edits = allowed;
+    if (edits.length === 0) return;
     for (const e of edits) {
       let newValue = e.newValue;
       if (columns.find((c) => c.key === e.colKey)?.type === "url") {
@@ -2778,6 +2817,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (!rowId) return;
     const row = rows.find((r) => r.id === rowId);
     if (!row) return;
+    const lockedRow = viewer ? rowDeleteLockReason(row, viewer) : null;
+    if (lockedRow) {
+      toast.error(lockedRow);
+      return;
+    }
     // Recreating a deleted row always gets a brand-new id from Firestore —
     // this holder tracks whichever id is currently "live" so repeated
     // undo/redo toggles keep targeting the right doc instead of a stale one.
@@ -2950,6 +2994,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   async function handleDeleteSelected() {
     const n = selectedRowIds.size;
     if (n === 0) return;
+    if (viewer) {
+      const locked = [...selectedRowIds]
+        .map((id) => rowDeleteLockReason(rows.find((r) => r.id === id), viewer))
+        .find(Boolean);
+      if (locked) {
+        toast.error(locked);
+        return;
+      }
+    }
     const ok = await confirmDialog({
       title: `Удалить ${n} ${n === 1 ? "строку" : n < 5 ? "строки" : "строк"}?`,
       description: "Сразу после удаления действие можно отменить через Ctrl+Z.",

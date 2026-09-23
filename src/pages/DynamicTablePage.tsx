@@ -802,6 +802,12 @@ export default function DynamicTablePage() {
                 manualRowOrder={(activeSubPage ? activeSubPage.rowOrder : page.rowOrder) === "manual"}
                 rows={rows}
                 canEdit={canEditData}
+                // Кто смотрит — для замка строк-заказов: их ведёт ОС.
+                viewer={{
+                  uid: permissions.uid,
+                  isOwner: permissions.isWorkspaceOwner || permissions.realRole === "owner",
+                  isTeamLead: permissions.hasRole("teamlead"),
+                }}
                 canEditStructure={permissions.canManagePage(page)}
                 userId={profile?.uid ?? ""}
                 userName={myDisplayName(profile, members)}

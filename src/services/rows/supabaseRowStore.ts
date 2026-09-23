@@ -29,6 +29,19 @@ interface DeskRowRecord {
   filled_at: number | null;
   order_id: string | null;
   highlight: boolean;
+  // Строка-заказ: её ведёт ОС (см. PageRow.osUid).
+  os_uid: string | null;
+  tech_uid: string | null;
+  status_key: string | null;
+  src_page_id: string | null;
+  src_tab_id: string | null;
+  src_row_id: string | null;
+  mirror_page_id: string | null;
+  mirror_tab_id: string | null;
+  mirror_row_id: string | null;
+  sync_hash: string | null;
+  success_requested_at: number | null;
+  success_requested_by: string | null;
 }
 
 /**
@@ -74,6 +87,18 @@ export function recordToRow(record: DeskRowRecord): PageRow {
   if (record.extras) row.extras = record.extras;
   if (record.order_id) row.orderId = record.order_id;
   if (record.highlight) row.highlight = true;
+  if (record.os_uid) row.osUid = record.os_uid;
+  if (record.tech_uid) row.techUid = record.tech_uid;
+  if (record.status_key) row.statusKey = record.status_key;
+  if (record.src_page_id) row.srcPageId = record.src_page_id;
+  if (record.src_tab_id != null) row.srcTabId = record.src_tab_id;
+  if (record.src_row_id) row.srcRowId = record.src_row_id;
+  if (record.mirror_page_id) row.mirrorPageId = record.mirror_page_id;
+  if (record.mirror_tab_id != null) row.mirrorTabId = record.mirror_tab_id;
+  if (record.mirror_row_id) row.mirrorRowId = record.mirror_row_id;
+  if (record.sync_hash) row.syncHash = record.sync_hash;
+  if (record.success_requested_at != null) row.successRequestedAt = Number(record.success_requested_at);
+  if (record.success_requested_by) row.successRequestedBy = record.success_requested_by;
   return row;
 }
 
@@ -93,6 +118,18 @@ export function rowToRecord(workspaceId: string, pageId: string, tab: string | n
     filled_at: typeof row.filledAt === "number" ? row.filledAt : null,
     order_id: row.orderId ?? null,
     highlight: Boolean(row.highlight),
+    os_uid: row.osUid ?? null,
+    tech_uid: row.techUid ?? null,
+    status_key: row.statusKey ?? null,
+    src_page_id: row.srcPageId ?? null,
+    src_tab_id: row.srcTabId ?? null,
+    src_row_id: row.srcRowId ?? null,
+    mirror_page_id: row.mirrorPageId ?? null,
+    mirror_tab_id: row.mirrorTabId ?? null,
+    mirror_row_id: row.mirrorRowId ?? null,
+    sync_hash: row.syncHash ?? null,
+    success_requested_at: row.successRequestedAt ?? null,
+    success_requested_by: row.successRequestedBy ?? null,
   };
 }
 
