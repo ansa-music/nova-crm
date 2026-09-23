@@ -35,7 +35,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { ensureDiskColumn, ensurePriceColumn, fetchPageIfAccessible, setPageTechnicianDesk, togglePageVisibility } from "@/services/pageService";
-import { isOsDeskId } from "@/services/osDeskService";
+import { ensureOsDeskStatusColumn, isOsDeskId } from "@/services/osDeskService";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { canOpenDesk, isRestrictedDeskRole, worksAsTechnician } from "@/utils/peopleDesks";
 import { useUiStore } from "@/store/uiStore";
@@ -45,6 +45,7 @@ import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import { useDeskLoadPublisher } from "@/hooks/useDeskLoadPublisher";
 import { useOsFieldKeysPublisher } from "@/hooks/useOsFieldKeysPublisher";
 import { useMyOrderRows } from "@/hooks/useMyOrderRows";
+import { useOsDeskDispatch } from "@/hooks/useOsDeskDispatch";
 import { OsOrderPanel } from "@/components/os/OsOrderPanel";
 import { TechOrderPanel } from "@/components/os/TechOrderPanel";
 import { isMonthlyDesk } from "@/services/monthTabService";
@@ -277,7 +278,28 @@ export default function DynamicTablePage() {
   const myOsNickValue = members.find((m) => m.uid === permissions.uid)?.osNickValue ?? "";
   // Стол ОС: заказы этого ОС в столах технарей — один запрос на весь стол.
   const isMyOsDesk = Boolean(page?.osDesk && page.responsibleUserId === permissions.uid);
+  // «Заказы заводит только ОС»: в столе ТЕХНАРЯ пропадают «Строка» и
+  // «Быстрый заказ», а ячейки закрыты замком (Owner не ограничиваем).
+  const ordersFromOsOnly = Boolean(
+    activeWorkspace?.osManagedDesks &&
+      page &&
+      !page.osDesk &&
+      !(permissions.isWorkspaceOwner || permissions.realRole === "owner")
+  );
   const myOrders = useMyOrderRows(activeWorkspaceId, permissions.uid, isMyOsDesk);
+
+  // Стол ОС выдаёт заказы сам: заполнил строку, выбрал технаря — заказ у
+  // него. Тот же проход везёт статус в обе стороны (см. хук).
+  useOsDeskDispatch({
+    workspaceId: activeWorkspaceId,
+    enabled: isMyOsDesk && hasAccess,
+    pageId: page?.id ?? "",
+    subPageId: activeSubPageId,
+    rows,
+    orders: myOrders,
+    osUid: permissions.uid,
+    osNickValue: myOsNickValue,
+  });
 
   useDeskLoadPublisher({
     page: hasAccess ? page : null,
@@ -297,6 +319,16 @@ export default function DynamicTablePage() {
   useEffect(() => {
     if (!page || !hasAccess || !permissions.canManagePage(page)) return;
     if (standardColumnMigrationRan.current.has(page.id)) return;
+    // Стол ОС: у заведённых до того, как статус переехал сюда, столбца
+    // «Статус» нет — дописываем его один раз (см. osDeskService).
+    if (page.osDesk) {
+      if (page.columns.some((c) => c.type === "status")) return;
+      standardColumnMigrationRan.current.add(page.id);
+      void ensureOsDeskStatusColumn(page.workspaceId, page.id, page.columns).catch((err) =>
+        console.error("Не удалось добавить столбец «Статус» столу ОС:", err)
+      );
+      return;
+    }
     const needsPrice = !page.columns.some((c) => c.type === "currency");
     const needsDisk = !page.columns.some((c) => c.type === "url");
     if (!needsPrice && !needsDisk) return;
@@ -814,11 +846,7 @@ export default function DynamicTablePage() {
                 canEdit={canEditData}
                 // Заказы заводит только ОС: у технаря в его столе нет
                 // «Добавить строку» и «Быстрый заказ» (Owner не ограничиваем).
-                ordersFromOsOnly={Boolean(
-                  activeWorkspace?.osManagedDesks &&
-                    !page.osDesk &&
-                    !(permissions.isWorkspaceOwner || permissions.realRole === "owner")
-                )}
+                ordersFromOsOnly={ordersFromOsOnly}
                 renderRowPanel={(row) => {
                   // Стол ОС — панель выдачи; стол технаря — его поля по заказу,
                   // который ведёт ОС (обычные строки панели не получают).
@@ -835,11 +863,16 @@ export default function DynamicTablePage() {
                       />
                     );
                   }
-                  if (!row.osUid || !activeWorkspaceId) return null;
+                  // Панель технаря — и у перенесённых заказов, и у остальных
+                  // строк, когда заказы ведёт ОС: просьба об «Успешке» нужна
+                  // именно там, где статус закрыт.
+                  if (!activeWorkspaceId || (!row.osUid && !ordersFromOsOnly)) return null;
                   return (
                     <TechOrderPanel
                       row={row}
                       workspaceId={activeWorkspaceId}
+                      pageId={page.id}
+                      subPageId={activeSubPageId}
                       me={permissions.uid}
                       canWrite={page.responsibleUserId === permissions.uid}
                     />

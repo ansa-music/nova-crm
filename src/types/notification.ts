@@ -21,6 +21,7 @@ export interface Notification {
     | "owner-request-result"
     | "grok-access-request"
     | "grok-access-result"
+    | "success-request"
     | null;
   viewRequestId?: string | null;
   /** id заявки на права Owner (совпадает с uid заявителя) — для кнопок в колокольчике. */

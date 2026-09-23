@@ -29,6 +29,12 @@ interface TableRowProps {
   editingCell: CellAddress | null;
   editValue: string;
   canEdit: boolean;
+  /**
+   * Замок ячейки: причина, по которой её нельзя править (заказ ведёт ОС).
+   * Нужен именно здесь, а не только при записи: иначе выпадашка статуса
+   * открывается, человек выбирает — и ловит тост «нельзя» уже после выбора.
+   */
+  cellLock?: (row: PageRow, colKey: string) => string | null;
   canReorder: boolean;
   isRowFullySelected: boolean;
   isChecked: boolean;
@@ -96,6 +102,7 @@ function TableRowInner({
   editingCell,
   editValue,
   canEdit,
+  cellLock,
   canReorder,
   isRowFullySelected,
   isChecked,
@@ -334,7 +341,8 @@ function TableRowInner({
             isInRange={isInRange || isActive}
             isEditing={isEditing}
             editValue={editValue}
-            canEdit={canEdit}
+            canEdit={canEdit && !cellLock?.(row, column.key)}
+            lockedReason={cellLock?.(row, column.key) ?? null}
             onMouseDown={(e) => onCellMouseDown(row.id, column.key, e)}
             onClick={() => onCellClick(row.id, column.key)}
             onMouseEnter={() => onCellMouseEnter(row.id, column.key)}
@@ -398,6 +406,7 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     prev.columns !== next.columns ||
     prev.rowHeight !== next.rowHeight ||
     prev.canEdit !== next.canEdit ||
+    prev.cellLock !== next.cellLock ||
     prev.canReorder !== next.canReorder ||
     prev.isRowFullySelected !== next.isRowFullySelected ||
     prev.isChecked !== next.isChecked ||

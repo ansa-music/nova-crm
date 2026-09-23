@@ -42,6 +42,12 @@ interface RowCardSheetProps {
   row: PageRow | null;
   /** Enables inline editing of every field. */
   canEdit?: boolean;
+  /**
+   * Замок ячейки — тот же, что в таблице (заказ ведёт ОС). Закрытое поле
+   * показываем как есть, без редактора: иначе человек выбирает статус и
+   * ловит отказ уже после выбора.
+   */
+  cellLock?: (row: PageRow, colKey: string) => string | null;
   onCellChange?: (rowId: string, colKey: string, value: string) => void;
   onPrev?: () => void;
   onNext?: () => void;
@@ -69,6 +75,7 @@ export function RowCardSheet({
   columns,
   row,
   canEdit = false,
+  cellLock,
   onCellChange,
   onPrev,
   onNext,
@@ -140,7 +147,9 @@ export function RowCardSheet({
   }, [open, onOpenChange, editingKey, dateOpenKey, hasPrev, hasNext, onPrev, onNext]);
 
   const record = row;
-  const editable = canEdit && Boolean(onCellChange);
+  const editableRow = canEdit && Boolean(onCellChange);
+  /** Правится ли КОНКРЕТНОЕ поле (замок стоит на ячейке, а не на строке). */
+  const canEditCell = (col: PageColumn) => editableRow && !(record && cellLock?.(record, col.key));
 
   const titleCol = columns.find(isTitleColumn) ?? columns[0];
   const rawTitle = record && titleCol ? record.cells[titleCol.key] : null;
@@ -170,7 +179,7 @@ export function RowCardSheet({
   }
 
   function beginEdit(col: PageColumn) {
-    if (!editable || !record) return;
+    if (!canEditCell(col) || !record) return;
     setDraft(String(record.cells[col.key] ?? ""));
     setEditingKey(col.key);
   }
@@ -181,7 +190,7 @@ export function RowCardSheet({
     const stringValue = raw === null || raw === undefined ? "" : String(raw);
 
     if (isOptionColumn(col.type)) {
-      if (!editable) {
+      if (!canEditCell(col)) {
         return stringValue ? (
           <StatusBadge value={stringValue} options={col.statusOptions ?? []} showTick={col.type === "status"} className="w-fit" />
         ) : (
@@ -243,7 +252,7 @@ export function RowCardSheet({
 
     if (col.type === "date") {
       const text = stringValue ? formatDate(Number(stringValue), "d MMMM yyyy") : "";
-      if (!editable) return <span className="text-sm tabular">{text || "—"}</span>;
+      if (!canEditCell(col)) return <span className="text-sm tabular">{text || "—"}</span>;
       return (
         <Popover open={dateOpenKey === col.key} onOpenChange={(o) => setDateOpenKey(o ? col.key : null)}>
           <PopoverTrigger asChild>
@@ -328,7 +337,7 @@ export function RowCardSheet({
       return <span className="whitespace-pre-wrap break-words text-sm">{stringValue || "—"}</span>;
     })();
 
-    if (!editable) return display;
+    if (!canEditCell(col)) return display;
     return (
       <button
         type="button"
@@ -379,9 +388,9 @@ export function RowCardSheet({
                       <div className="mt-1">{renderValue(titleCol)}</div>
                     ) : (
                       <h2
-                        className={cn("hero break-words text-[1.4rem] sm:text-[1.55rem]", editable && "cursor-text rounded-md hover:bg-primary/8")}
+                        className={cn("hero break-words text-[1.4rem] sm:text-[1.55rem]", titleCol && canEditCell(titleCol) && "cursor-text rounded-md hover:bg-primary/8")}
                         onClick={() => titleCol && beginEdit(titleCol)}
-                        title={editable ? "Нажмите, чтобы изменить" : undefined}
+                        title={titleCol && canEditCell(titleCol) ? "Нажмите, чтобы изменить" : undefined}
                       >
                         {title}
                       </h2>
@@ -425,7 +434,7 @@ export function RowCardSheet({
               </div>
               <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-4 scrollbar-thin sm:px-6">
                 {extraPanel ? <div className="mb-4">{extraPanel}</div> : null}
-                {onOpenClientCard && (clientCardSummary?.(record) || editable) ? (
+                {onOpenClientCard && (clientCardSummary?.(record) || editableRow) ? (
                   <button
                     type="button"
                     onClick={() => onOpenClientCard(record.id)}
@@ -438,7 +447,7 @@ export function RowCardSheet({
                         {clientCardSummary?.(record) ?? "Пусто — добавить персов, минуты, пожелания"}
                       </span>
                     </span>
-                    <span className="text-xs text-primary">{editable ? "Открыть" : "Смотреть"}</span>
+                    <span className="text-xs text-primary">{editableRow ? "Открыть" : "Смотреть"}</span>
                   </button>
                 ) : null}
                 {rest.length > 0 && (
@@ -459,7 +468,7 @@ export function RowCardSheet({
                   {record.updatedAt && record.updatedAt !== record.createdAt ? ` · изменено ${formatDate(record.updatedAt)}` : ""}
                 </p>
               </div>
-              {editable && (onMarkDone || onDuplicate || onDelete) && (
+              {editableRow && (onMarkDone || onDuplicate || onDelete) && (
                 <div className="flex flex-wrap items-center gap-2 border-t border-white/10 px-5 py-3 sm:px-6">
                   {onMarkDone && statusCol && !isDone && (
                     <Button variant="outline" size="sm" className="h-8 gap-1.5 text-success hover:text-success" onClick={() => onMarkDone(record.id)}>

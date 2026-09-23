@@ -182,6 +182,36 @@ service cloud.firestore {
         || (isOwner(workspaceId) && rowsMigrating(workspaceId));
     }
 
+    // «Заказы ведёт ОС» (workspace.osManagedDesks). Документ workspace это
+    // правило и так читает (rowsOnSupabase/isDocOwner), так что проверка не
+    // стоит ни одного лишнего оплачиваемого чтения.
+    function osManagedHere(workspaceId) {
+      return get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('osManagedDesks', false) == true;
+    }
+
+    // Ключ столбца статуса берём из ДЕНОРМАЛИЗОВАННОГО page.osFieldKeys: в
+    // языке правил нет перебора page.columns (на этом уже обжигались —
+    // columnStatusOptionsPreserved «компилировался» и падал в рантайме).
+    function osStatusKeyOf(pageData) {
+      return pageData.get('osFieldKeys', {}).get('status', '');
+    }
+
+    // Статус в столе технаря ставит ОС, а технарь просит «Успешку».
+    // Заказ, заезжающий с биржи, занимает ПУСТОЙ слот и ставит статус «В
+    // работе» из сессии технаря — поэтому запрет касается только смены УЖЕ
+    // стоящего статуса. То же правило в Supabase держит триггер
+    // desk_rows_os_managed.
+    function osStatusWriteOk(workspaceId, pageData) {
+      return !osManagedHere(workspaceId)
+        || pageData.get('osDesk', false) == true
+        || isOwner(workspaceId)
+        || isTeamLead(workspaceId)
+        || osStatusKeyOf(pageData) == ''
+        || resource.data.get('cells', {}).get(osStatusKeyOf(pageData), '') == ''
+        || request.resource.data.get('cells', {}).get(osStatusKeyOf(pageData), '')
+           == resource.data.get('cells', {}).get(osStatusKeyOf(pageData), '');
+    }
+
     // -------------------------------------------------------------------
     // Строка-заказ: её ведёт ОС (CLAUDE.md «Стол ОС — источник заказов»).
     // Настоящий замок держат политики Supabase `desk_rows` — заказы живут
@@ -605,6 +635,7 @@ service cloud.firestore {
           allow update: if isMember(workspaceId) &&
             canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
             rowsWritableHere(workspaceId) &&
+            osStatusWriteOk(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
             (!isManagedRow() || managedRowUpdateOk(workspaceId));
           allow delete: if isMember(workspaceId) &&
             canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
@@ -651,6 +682,7 @@ service cloud.firestore {
             allow update: if isMember(workspaceId) &&
               canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
               rowsWritableHere(workspaceId) &&
+              osStatusWriteOk(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
               (!isManagedRow() || managedRowUpdateOk(workspaceId));
             allow delete: if isMember(workspaceId) &&
               canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&

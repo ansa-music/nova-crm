@@ -1014,6 +1014,48 @@ interface UpdateCellContext {
   filledAt?: number;
 }
 
+/**
+ * Поля строки-заказа, которые пишет ТЕХНАРЬ: свои две ячейки и просьба об
+ * «Успешке». Ходит в то хранилище, где строки живут сейчас: панель технаря
+ * раньше звала Supabase напрямую и в режиме Firestore (откат) молча падала.
+ *
+ * `subPageId` — вкладка строки (null — «Основная»).
+ */
+export async function patchTechOrderRow(input: {
+  workspaceId: string;
+  pageId: string;
+  subPageId: string | null;
+  rowId: string;
+  cells?: Record<string, string>;
+  successRequestedAt?: number;
+  successRequestedBy?: string;
+}) {
+  if (!db) return;
+  assertRowsWritable(input.workspaceId);
+  const { workspaceId, pageId, subPageId, rowId, cells, successRequestedAt, successRequestedBy } = input;
+  if (usesSupabaseRows(workspaceId)) {
+    await sbPatchRow(workspaceId, pageId, subPageId, rowId, {
+      cells: cells ?? {},
+      ...(successRequestedAt ? { successRequestedAt } : {}),
+      ...(successRequestedBy ? { successRequestedBy } : {}),
+    });
+    return;
+  }
+  const ref = subPageId
+    ? paths.subPageRow(workspaceId, pageId, subPageId, rowId)
+    : paths.row(workspaceId, pageId, rowId);
+  await setDoc(
+    ref,
+    {
+      ...(cells ? { cells } : {}),
+      ...(successRequestedAt ? { successRequestedAt } : {}),
+      ...(successRequestedBy ? { successRequestedBy } : {}),
+      updatedAt: Date.now(),
+    },
+    { merge: true }
+  );
+}
+
 export async function updateRowCell(ctx: UpdateCellContext) {
   if (!db) return;
   assertRowsWritable(ctx.workspaceId);

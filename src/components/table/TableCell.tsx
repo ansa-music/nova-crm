@@ -21,6 +21,8 @@ interface TableCellProps {
   isEditing: boolean;
   editValue: string;
   canEdit: boolean;
+  /** Почему ячейка закрыта (заказ ведёт ОС) — подсказка при наведении. */
+  lockedReason?: string | null;
   onMouseDown: (e: React.MouseEvent) => void;
   onClick?: () => void;
   onMouseEnter: () => void;
@@ -80,6 +82,7 @@ export function TableCell({
   isEditing,
   editValue,
   canEdit,
+  lockedReason,
   onMouseDown,
   onClick,
   onMouseEnter,
@@ -312,6 +315,7 @@ export function TableCell({
         height: "100%",
         left: stickyLeft,
       }}
+      title={lockedReason ?? undefined}
       onMouseDown={onMouseDown}
       onClick={onClick}
       onMouseEnter={onMouseEnter}

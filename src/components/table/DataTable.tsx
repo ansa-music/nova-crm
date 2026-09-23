@@ -318,6 +318,15 @@ function normalizeContact(raw: string, type: "phone" | "email" | string): string
 }
 
 export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false }: DataTableProps) {
+  // Режим «заказы ведёт ОС» — один объект на всю таблицу, чтобы правило
+  // замка считалось в одном месте (см. utils/managedRow.ts).
+  const lockCtx = useMemo(() => ({ osManaged: ordersFromOsOnly }), [ordersFromOsOnly]);
+  // Тот же замок, но для самой ячейки: ссылка стабильна, иначе строки
+  // перерисовывались бы на каждый рендер таблицы (memo в TableRow).
+  const cellLockFor = useCallback(
+    (row: PageRow, colKey: string) => (viewer ? cellLockReason(row, colKey, viewer, lockCtx) : null),
+    [viewer, lockCtx]
+  );
   const columns = useMemo(
     () =>
       page.columns
@@ -1061,7 +1070,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       // Строку-заказ ведёт ОС: не даём даже начать ввод — `useCellCommit` при
       // отказе базы введённое НЕ откатывает, и человек решил бы, что
       // сохранилось, а потом пропало.
-      const lockedCell = viewer ? cellLockReason(row, colKey, viewer) : null;
+      const lockedCell = viewer ? cellLockReason(row, colKey, viewer, lockCtx) : null;
       if (lockedCell) {
         toast.error(lockedCell);
         return;
@@ -1096,11 +1105,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   /**
    * Замок строки-заказа: её ведёт ОС. Возвращает причину или null.
-   * Без `viewer` (стол ОС, личная зона) замка нет.
+   * Без `viewer` (личная зона) замка нет.
    */
   function lockOf(rowId: string, colKey: string): string | null {
     if (!viewer) return null;
-    return cellLockReason(rows.find((r) => r.id === rowId), colKey, viewer);
+    return cellLockReason(rows.find((r) => r.id === rowId), colKey, viewer, lockCtx);
   }
 
   async function persistCellEdit(rowId: string, colKey: string, oldValue: string, newValue: string) {
@@ -2824,7 +2833,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (!rowId) return;
     const row = rows.find((r) => r.id === rowId);
     if (!row) return;
-    const lockedRow = viewer ? rowDeleteLockReason(row, viewer) : null;
+    const lockedRow = viewer ? rowDeleteLockReason(row, viewer, lockCtx) : null;
     if (lockedRow) {
       toast.error(lockedRow);
       return;
@@ -3003,7 +3012,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (n === 0) return;
     if (viewer) {
       const locked = [...selectedRowIds]
-        .map((id) => rowDeleteLockReason(rows.find((r) => r.id === id), viewer))
+        .map((id) => rowDeleteLockReason(rows.find((r) => r.id === id), viewer, lockCtx))
         .find(Boolean);
       if (locked) {
         toast.error(locked);
@@ -3504,6 +3513,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         editingCell={editingCell}
         editValue={editingCell?.rowId === row.id ? editValue : ""}
         canEdit={canEdit}
+        cellLock={cellLockFor}
         canReorder={canReorderRows}
         isRowFullySelected={isRowFullySelected(row.id)}
         isChecked={selectedRowIds.has(row.id)}
@@ -4203,15 +4213,27 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         columns={displayColumns}
         row={rows.find((r) => r.id === expandedRowId) ?? null}
         canEdit={canEdit}
+        // Карточка — тот же замок, что и таблица: иначе статус в ней
+        // открывался бы, и отказ прилетал уже после выбора.
+        cellLock={(row, colKey) => cellLockFor(row, colKey)}
         onCellChange={handleStatusChange}
         onPrev={() => openRowAt(expandedRowIndex - 1)}
         onNext={() => openRowAt(expandedRowIndex + 1)}
         hasPrev={expandedRowIndex > 0}
         hasNext={expandedRowIndex >= 0 && expandedRowIndex < processedRowIds.length - 1}
         position={expandedRowIndex >= 0 ? { index: expandedRowIndex + 1, total: processedRowIds.length } : null}
-        onMarkDone={kanbanStatusColumn ? markRowDone : undefined}
+        onMarkDone={
+          kanbanStatusColumn &&
+          !(viewer && cellLockFor(rows.find((r) => r.id === expandedRowId) ?? ({} as PageRow), kanbanStatusColumn.key))
+            ? markRowDone
+            : undefined
+        }
         onDuplicate={(id) => void handleDuplicateRowById(id)}
-        onDelete={(id) => void handleDeleteRowById(id)}
+        onDelete={
+          viewer && rowDeleteLockReason(rows.find((r) => r.id === expandedRowId), viewer, lockCtx)
+            ? undefined
+            : (id) => void handleDeleteRowById(id)
+        }
         clientCardSummary={(row) => rowExtrasSummary(row.extras)}
         extraPanel={(() => {
           const r = rows.find((x) => x.id === expandedRowId);

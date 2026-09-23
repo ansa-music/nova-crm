@@ -27,12 +27,32 @@ export function isManagedRow(row: Pick<PageRow, "osUid"> | null | undefined): bo
   return Boolean(row?.osUid);
 }
 
+/**
+ * Стол работает в режиме «заказы ведёт ОС» (`workspace.osManagedDesks`).
+ * Приходит только для столов ТЕХНАРЕЙ: свой стол ОС ведёт сам, а Owner не
+ * ограничен вовсе.
+ */
+export interface OsManagedContext {
+  osManaged?: boolean;
+}
+
 /** Почему ячейку нельзя править. null — можно. */
 export function cellLockReason(
   row: Pick<PageRow, "osUid" | "statusKey"> | null | undefined,
   colKey: string,
-  viewer: RowViewer
+  viewer: RowViewer,
+  ctx?: OsManagedContext
 ): string | null {
+  // «Заказы ведёт ОС»: в столе технаря ему остаются ровно свои два поля — и
+  // в перенесённых заказах, и в старых строках, которые перенести не вышло.
+  // Человеку обещали правило целиком, а не «в части строк»; в базе его держат
+  // триггеры desk_rows_guard и desk_rows_os_managed.
+  if (ctx?.osManaged && !viewer.isOwner && !viewer.isTeamLead && row?.osUid !== viewer.uid) {
+    if (!TECH_EDITABLE_CELL_KEYS.includes(colKey)) {
+      return "Заказы ведёт ОС — статус и сумму меняет он. В карточке строки можно попросить «Успешку»";
+    }
+    return null;
+  }
   if (!row?.osUid) return null;
   if (viewer.isOwner) return null;
   if (row.osUid === viewer.uid) return null;
@@ -43,8 +63,21 @@ export function cellLockReason(
 }
 
 /** Почему строку нельзя удалить. null — можно. */
-export function rowDeleteLockReason(row: Pick<PageRow, "osUid"> | null | undefined, viewer: RowViewer): string | null {
-  if (!row?.osUid) return null;
-  if (viewer.isOwner || row.osUid === viewer.uid) return null;
-  return "Заказ убирает ОС, который его завёл";
+export function rowDeleteLockReason(
+  row: Pick<PageRow, "osUid" | "cells"> | null | undefined,
+  viewer: RowViewer,
+  ctx?: OsManagedContext
+): string | null {
+  if (row?.osUid) {
+    if (viewer.isOwner || row.osUid === viewer.uid) return null;
+    return "Заказ убирает ОС, который его завёл";
+  }
+  // Удаление — обход замка в два шага: убрать строку и завести заново с
+  // нужным статусом. Поэтому под «заказы ведёт ОС» технарь удаляет только
+  // пустые слоты (то же правило — в политике desk_rows_delete_os_managed).
+  if (ctx?.osManaged && !viewer.isOwner && !viewer.isTeamLead) {
+    const filled = Object.values(row?.cells ?? {}).some((v) => String(v ?? "").trim() !== "");
+    if (filled) return "Заказы ведёт ОС — строку убирает он";
+  }
+  return null;
 }

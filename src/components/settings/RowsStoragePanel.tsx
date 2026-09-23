@@ -26,6 +26,7 @@ import { lastAclSync, noteAclSync, subscribeAclSync, syncRowAcl, type AclSyncRep
 import {
   checkRowsHealth,
   clearRowsMigrationFlag,
+  setSupabaseOsManaged,
   migrateRowsToFirestore,
   migrateRowsToSupabase,
   seedSql,
@@ -201,6 +202,10 @@ export function RowsStoragePanel() {
     if (!workspaceId) return;
     setBusy(true);
     try {
+      // СНАЧАЛА база: правило держит триггер Supabase, а флаг в Firestore
+      // только прячет кнопки. Не переключилась база — не переключаем и
+      // интерфейс, иначе человек увидит «включено» при открытом замке.
+      if (onSupabase) await setSupabaseOsManaged(workspaceId, !osManaged);
       await setOsManagedDesks(workspaceId, !osManaged);
       toast.success(osManaged ? "Технари снова заводят строки сами" : "Заказы теперь заводит только ОС");
     } catch (error) {

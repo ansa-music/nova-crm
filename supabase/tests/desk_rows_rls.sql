@@ -440,6 +440,53 @@ select tst.expect('после снятия технарь правит стро�
   tst.try('T1', $q$update desk_rows set cells = cells || '{"status":"work"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'ok');
 
 -- ---------------------------------------------------------------------
+-- «Заказы ведёт ОС» (rows_workspaces.os_managed): статус в столе технаря
+-- не правит никто, кроме ОС и руководства — даже в строках, которые ещё
+-- не перенесли под управление.
+-- ---------------------------------------------------------------------
+select tst.expect('технарь НЕ включает «заказы ведёт ОС»',
+  tst.try('T1', $q$select rows_set_os_managed('W', true)$q$), 'error');
+select tst.expect('Тимлид НЕ включает «заказы ведёт ОС»',
+  tst.try('TL', $q$select rows_set_os_managed('W', true)$q$), 'error');
+select tst.expect('Owner включает «заказы ведёт ОС»',
+  tst.try('O', $q$select rows_set_os_managed('W', true)$q$), 'ok');
+select tst.run('O', $q$select rows_set_os_managed('W', true)$q$);
+
+-- Обычная (неуправляемая) строка стола технаря.
+select tst.run('T1', $q$insert into desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at)
+  values ('W','P1','','free1','{"client":"Старый","status":"work","price":"100"}',30,1000,1000)$q$);
+select tst.run('T1', $q$insert into desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at)
+  values ('W','P1','','slot1','{"client":"","status":""}',31,1000,1000)$q$);
+
+select tst.expect('технарь НЕ ставит статус в своей же строке',
+  tst.try('T1', $q$update desk_rows set cells = cells || '{"status":"success"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='free1'$q$), 'error');
+select tst.expect('технарь НЕ правит цену в своей же строке',
+  tst.try('T1', $q$update desk_rows set cells = cells || '{"price":"999"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='free1'$q$), 'error');
+select tst.expect('технарь пишет свои поля и при включённом флаге',
+  tst.try('T1', $q$update desk_rows set cells = cells || '{"techNote":"сделал"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='free1'$q$), 'ok');
+select tst.expect('заезд заказа с биржи занимает пустой слот',
+  tst.try('T1', $q$update desk_rows set cells = cells || '{"client":"С биржи","status":"work"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='slot1'$q$), 'ok');
+select tst.expect('технарь НЕ удаляет заказ, чтобы завести его заново',
+  tst.try('T1', $q$delete from desk_rows where workspace_id='W' and page_id='P1' and tab_id='' and id='free1'$q$), 'deny');
+select tst.expect('пустой слот технарь убрать может',
+  tst.try('T1', $q$delete from desk_rows where workspace_id='W' and page_id='P1' and tab_id='' and id='slot1'$q$), 'ok:1');
+select tst.expect('порядок строк технарь двигает как раньше',
+  tst.try('T1', $q$select * from rows_set_order('W','P1','',array['free1','r1'])$q$), 'ok:1');
+select tst.expect('Owner правит статус при включённом флаге',
+  tst.try('O', $q$update desk_rows set cells = cells || '{"status":"success"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='free1'$q$), 'ok');
+select tst.expect('ОС ведёт свой стол ОС при включённом флаге',
+  tst.try('OS1', $q$select rows_patch('W','osdesk_OS1','','o1','{"status":"work"}'::jsonb)$q$), 'ok:1');
+select tst.expect('ОС удаляет строку своего стола при включённом флаге',
+  tst.try('OS1', $q$delete from desk_rows where workspace_id='W' and page_id='osdesk_OS1' and tab_id='' and id='o1'$q$), 'ok:1');
+
+-- Выключили — всё как раньше.
+select tst.run('O', $q$select rows_set_os_managed('W', false)$q$);
+select tst.expect('после выключения технарь снова ставит статус',
+  tst.try('T1', $q$update desk_rows set cells = cells || '{"status":"done"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='free1'$q$), 'ok');
+select tst.expect('после выключения технарь снова удаляет свою строку',
+  tst.try('T1', $q$delete from desk_rows where workspace_id='W' and page_id='P1' and tab_id='' and id='free1'$q$), 'ok:1');
+
+-- ---------------------------------------------------------------------
 select case when ok then '  OK  ' else 'FAIL  ' end || label || case when ok then '' else '  → ' || got end
 from tst.results order by n;
 select format('ПРОВЕРОК: %s, ПРОВАЛЕНО: %s', count(*), count(*) filter (where not ok)) from tst.results;

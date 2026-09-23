@@ -82,7 +82,12 @@ export interface MirrorInput {
   osNickValue: string;
   /** Статус заказа: его ведёт ОС. */
   status: string;
-  /** Дата получения заказа технарём. */
+  /**
+   * Дата получения заказа технарём. Ноль — столбец-дату не трогаем: подпись
+   * (`mirrorSyncHash`) обязана быть ОДИНАКОВОЙ при повторном расчёте, а
+   * `Date.now()` в ней означал бы «строка всё время меняется» и бесконечную
+   * пересылку заказа.
+   */
   dateMs: number;
 }
 
@@ -104,7 +109,7 @@ export function buildMirrorCells(input: MirrorInput): Record<string, string | nu
   put(keys.os, input.osNickValue);
   put(keys.link, String(source.cells[osColumns.link] ?? ""));
   put(keys.status, input.status);
-  if (keys.date) cells[keys.date] = String(input.dateMs);
+  if (keys.date && input.dateMs > 0) cells[keys.date] = String(input.dateMs);
   return cells;
 }
 

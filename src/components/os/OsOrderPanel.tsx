@@ -48,8 +48,13 @@ export function OsOrderPanel({
   const techUid = techUidByNick(members, techNick);
   const problem = techTargetProblem(pages, techUid);
   const target = techUid ? findTechTarget(pages, techUid) : null;
-  const statusKey = mirror?.statusKey ?? target?.keys.status ?? null;
-  const status = mirror && statusKey ? String(mirror.cells[statusKey] ?? "") : "";
+  // Статус живёт в столбце стола ОС (его синхронизирует useOsDeskDispatch):
+  // так он виден прямо в таблице, а не только в карточке.
+  const osStatusColumn = OS_DESK_COLUMNS.find((c) => c.type === "status");
+  const mirrorStatusKey = mirror?.statusKey ?? target?.keys.status ?? null;
+  const status =
+    (osStatusColumn ? String(row.cells[osStatusColumn.key] ?? "") : "") ||
+    (mirror && mirrorStatusKey ? String(mirror.cells[mirrorStatusKey] ?? "") : "");
 
   const techName = techUid ? personLabel(members.find((m) => m.uid === techUid)) : techNick;
 
@@ -77,6 +82,9 @@ export function OsOrderPanel({
         },
         target,
         techUid,
+        // Та же дата, что считает автопроход: иначе подписи разъедутся и
+        // заказ отправится второй раз без причины.
+        dateMs: row.createdAt || 0,
         // Заказ уже в столе технаря (выдан раньше или перенесён) — правим ту
         // же строку, а не заводим рядом вторую.
         mirrorRowId: mirror?.id,
@@ -91,15 +99,25 @@ export function OsOrderPanel({
     }
   }
 
+  /**
+   * Статус пишем в СВОЮ строку, а к технарю его увезёт useOsDeskDispatch.
+   * Один писатель вместо двух: иначе правка из карточки и правка из столбца
+   * разъезжались бы, и «кто прав» решал бы порядок сохранения.
+   */
   async function handleStatus(value: string) {
-    if (!activeWorkspaceId || !mirror || !statusKey) return;
+    if (!activeWorkspaceId || !osStatusColumn) return;
     setBusy(true);
     try {
-      await sbPatchRow(activeWorkspaceId, mirror.deskPageId ?? "", mirror.tabId ?? "", mirror.id, {
-        cells: { [statusKey]: value },
-        // Решили по просьбе технаря — чип «просит успешку» гаснет.
-        clearSuccessRequest: true,
+      await sbPatchRow(activeWorkspaceId, pageId, subPageId, row.id, {
+        cells: { [osStatusColumn.key]: value },
       });
+      if (mirror) {
+        // Решили по просьбе технаря — чип «просит успешку» гаснет сразу.
+        await sbPatchRow(activeWorkspaceId, mirror.deskPageId ?? "", mirror.tabId ?? "", mirror.id, {
+          cells: {},
+          clearSuccessRequest: true,
+        }).catch(() => undefined);
+      }
       onChanged();
     } catch (error) {
       toast.error(firestoreErrorText(error, "Не удалось поменять статус"));
@@ -124,7 +142,7 @@ export function OsOrderPanel({
         <span className="font-medium">{techName || "не выбран"}</span>
       </div>
 
-      {mirror && statusKey ? (
+      {osStatusColumn ? (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-muted-foreground">Статус:</span>
           <Select value={status} onValueChange={(v) => void handleStatus(v)} disabled={busy}>
@@ -139,17 +157,19 @@ export function OsOrderPanel({
               ))}
             </SelectContent>
           </Select>
-          {mirror.successRequestedAt ? (
+          {mirror?.successRequestedAt ? (
             <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
               технарь просит «Успешку»
             </span>
           ) : null}
         </div>
-      ) : (
+      ) : null}
+      {problem ? <p className="text-xs text-warning">{problem}</p> : null}
+      {!mirror && !problem ? (
         <p className="text-xs text-muted-foreground">
-          {problem ?? "Заказ ещё не выдан — статус появится после выдачи."}
+          Заполните имя и выберите технаря — заказ уедет к нему сам.
         </p>
-      )}
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         <Button size="sm" className="min-h-9" onClick={() => void handlePush()} disabled={busy || Boolean(problem)}>

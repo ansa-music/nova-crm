@@ -3,10 +3,15 @@ import { Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
-import { sbPatchRow } from "@/services/rows/supabaseRowStore";
+import { useAuth } from "@/hooks/useAuth";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { sendNotification } from "@/services/notificationService";
+import { patchTechOrderRow } from "@/services/pageService";
 import { firestoreErrorText } from "@/utils/dbError";
+import { myDisplayName } from "@/utils/displayName";
+import { pickRowCardColumns } from "@/utils/rowCardColumns";
 import { TECH_LINK_KEY, TECH_NOTE_KEY } from "@/utils/reservedCellKeys";
-import type { PageRow } from "@/types";
+import { memberHasRole, type PageColumn, type PageRow } from "@/types";
 
 /**
  * Заказ глазами технаря: что он может, а что ведёт ОС.
@@ -23,15 +28,22 @@ import type { PageRow } from "@/types";
 export function TechOrderPanel({
   row,
   workspaceId,
+  pageId,
+  subPageId,
   me,
   canWrite,
 }: {
   row: PageRow;
   workspaceId: string;
+  /** Стол и вкладка, где строка открыта: в режиме Firestore их нет в строке. */
+  pageId: string;
+  subPageId: string | null;
   me: string;
   /** Ответственный за этот стол (иначе поля только на просмотр). */
   canWrite: boolean;
 }) {
+  const { members, allPages } = useWorkspace();
+  const { profile } = useAuth();
   const [link, setLink] = useState(String(row.cells[TECH_LINK_KEY] ?? ""));
   const [note, setNote] = useState(String(row.cells[TECH_NOTE_KEY] ?? ""));
   const [busy, setBusy] = useState(false);
@@ -41,7 +53,13 @@ export function TechOrderPanel({
     if (!canWrite) return;
     setBusy(true);
     try {
-      await sbPatchRow(workspaceId, row.deskPageId ?? "", row.tabId ?? "", row.id, { cells: patch });
+      await patchTechOrderRow({
+        workspaceId,
+        pageId: row.deskPageId || pageId,
+        subPageId: row.tabId || subPageId,
+        rowId: row.id,
+        cells: patch,
+      });
     } catch (error) {
       toast.error(firestoreErrorText(error, "Не удалось сохранить"));
     } finally {
@@ -49,22 +67,61 @@ export function TechOrderPanel({
     }
   }
 
+  /**
+   * Просьба «поставьте „Успешку“» — единственное, что технарь делает со
+   * статусом. Помимо отметки на строке уходит УВЕДОМЛЕНИЕ: раньше чип видел
+   * только ОС, открывший карточку именно этой строки на своём столе, а тост
+   * обещал «увидит ОС, Тимлид и Owner» — и это была неправда.
+   */
   async function askSuccess() {
     setBusy(true);
     try {
-      await sbPatchRow(workspaceId, row.deskPageId ?? "", row.tabId ?? "", row.id, {
-        cells: {},
+      await patchTechOrderRow({
+        workspaceId,
+        pageId: row.deskPageId || pageId,
+        subPageId: row.tabId || subPageId,
+        rowId: row.id,
         successRequestedAt: Date.now(),
         successRequestedBy: me,
       });
+      const leadership = members
+        .filter((m) => m.status === "active" && m.uid && (memberHasRole(m, "owner") || memberHasRole(m, "teamlead")))
+        .map((m) => m.uid as string);
+      // ОС этого заказа — по uid из строки, а не по нику: ник мог переехать.
+      const targets = [...new Set([row.osUid, ...leadership].filter(Boolean) as string[])];
+      const deskPage = allPages.find((p) => p.id === (row.deskPageId || pageId));
+      const client = clientName(deskPage?.columns);
+      await sendNotification(
+        {
+          workspaceId,
+          title: "Просят поставить «Успешку»",
+          body: `${myDisplayName(profile, members)}${client ? ` · ${client}` : ""}${deskPage ? ` · ${deskPage.name}` : ""}`,
+          priority: "important",
+          fromUid: me,
+          fromName: myDisplayName(profile, members),
+          target: "selected",
+          selectedUids: targets,
+          pageId: row.deskPageId || pageId || null,
+          href: row.deskPageId || pageId ? `/page/${row.deskPageId || pageId}` : null,
+          kind: "success-request",
+        },
+        targets
+      ).catch(() => undefined);
       toast.success("Попросили поставить «Успешку»", {
-        description: "Увидит ОС этого заказа, Тимлид и Owner.",
+        description: targets.length ? "Уведомление ушло ОС этого заказа и руководству." : "Увидит ОС в карточке заказа.",
       });
     } catch (error) {
       toast.error(firestoreErrorText(error, "Не удалось отправить просьбу"));
     } finally {
       setBusy(false);
     }
+  }
+
+  /** Имя клиента из строки — чтобы в уведомлении было видно, о каком заказе речь. */
+  function clientName(columns: PageColumn[] | undefined): string {
+    if (!columns?.length) return "";
+    const picked = pickRowCardColumns(columns);
+    return picked.title ? String(row.cells[picked.title.key] ?? "").trim() : "";
   }
 
   return (

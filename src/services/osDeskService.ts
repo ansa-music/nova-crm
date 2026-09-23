@@ -2,7 +2,7 @@ import { getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
-import { ensureNewDeskAcl, stripUndefined } from "@/services/pageService";
+import { ensureNewDeskAcl, stripUndefined, updatePageColumns } from "@/services/pageService";
 import type { PageColumn, WorkspacePage } from "@/types";
 
 /**
@@ -25,6 +25,10 @@ export const OS_DESK_COLUMNS: Array<Pick<PageColumn, "key" | "label" | "type" | 
   { key: "phone", label: "Номер", type: "phone", width: 150 },
   { key: "price", label: "Цена", type: "currency", width: 130 },
   { key: "upsell", label: "Апсейл", type: "currency", width: 130 },
+  // Статус заказа ведёт ОС и ведёт его ОТСЮДА: правка уезжает в строку
+  // технаря (useOsStatusSync). Сам заказ по-прежнему считается по строке
+  // технаря — «Технари», дашборд и оценки читают её, а не этот столбец.
+  { key: "status", label: "Статус", type: "status", width: 150 },
   { key: "note", label: "Примечание", type: "text", width: 240 },
   // Ник ТЕХНАРЯ, а не «Ответственный»: столбцы «Ответственный» везде читаются
   // как ник ОС (osColumnsOf), и технарь оттуда попал бы в счётчики ОС.
@@ -43,6 +47,36 @@ export function osDeskId(uid: string): string {
 
 export function isOsDeskId(pageId: string): boolean {
   return pageId.startsWith("osdesk_");
+}
+
+/**
+ * Столбец «Статус» столам ОС, заведённым до того, как статус стал жить здесь.
+ * Ставится перед «Примечанием» — там же, где он стоит у новых столов.
+ * Ячейки не трогаются: у старых строк статус просто пустой, и первая же
+ * правка отправит его технарю.
+ */
+export async function ensureOsDeskStatusColumn(
+  workspaceId: string,
+  pageId: string,
+  existingColumns: PageColumn[]
+): Promise<PageColumn[]> {
+  if (existingColumns.some((c) => c.type === "status")) return existingColumns;
+  const noteIndex = existingColumns.findIndex((c) => c.key === "note");
+  const statusColumn: PageColumn = {
+    id: generateId("col"),
+    key: "status",
+    label: "Статус",
+    type: "status",
+    width: 150,
+    order: 0,
+  };
+  const merged =
+    noteIndex === -1
+      ? [...existingColumns, statusColumn]
+      : [...existingColumns.slice(0, noteIndex), statusColumn, ...existingColumns.slice(noteIndex)];
+  const columns = merged.map((c, i) => ({ ...c, order: i }));
+  await updatePageColumns(workspaceId, pageId, columns);
+  return columns;
 }
 
 export function findOsDeskOf(pages: WorkspacePage[], uid: string | null | undefined): WorkspacePage | null {

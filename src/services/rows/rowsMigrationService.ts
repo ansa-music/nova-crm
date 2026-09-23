@@ -197,6 +197,32 @@ async function setSupabaseState(workspaceId: string, live: boolean, migrating: b
   if (error) throw new Error(`Supabase не переключил состояние хранилища: ${error.message}`);
 }
 
+/**
+ * «Заказы ведёт ОС» в Supabase (`rows_set_os_managed`, только Owner).
+ *
+ * Тот же флаг, что `workspace.osManagedDesks` в Firestore, но правило держит
+ * именно он: в Firestore флаг только прячет кнопки, а замок на правку статуса
+ * стоит триггером `desk_rows_os_managed`. Поэтому переключаем СНАЧАЛА базу:
+ * не переключилась — в интерфейсе ничего не меняем, иначе человек увидел бы
+ * «включено», а технарь продолжал бы ставить себе «Успешку».
+ */
+export async function setSupabaseOsManaged(workspaceId: string, on: boolean): Promise<void> {
+  const { error } = await supabaseRows.rpc("rows_set_os_managed", { p_workspace: workspaceId, p_on: on });
+  if (!error) return;
+  // Функции ещё нет — SQL не накатан (деплой без секрета Supabase).
+  if (error.code === "42883" || /rows_set_os_managed/i.test(error.message ?? "")) {
+    throw new Error("В Supabase ещё нет этой функции — накатите SQL («Скопировать SQL» выше) и повторите");
+  }
+  throw new Error(`Supabase не переключил «заказы ведёт ОС»: ${error.message}`);
+}
+
+/** Флаг «заказы ведёт ОС» из Supabase; null — функции ещё нет (старый SQL). */
+export async function fetchSupabaseOsManaged(workspaceId: string): Promise<boolean | null> {
+  const { data, error } = await supabaseRows.rpc("rows_is_os_managed", { p_workspace: workspaceId });
+  if (error) return null;
+  return typeof data === "boolean" ? data : null;
+}
+
 /** Столько живёт замок переноса — как `rowsMigrating()` в firestore.rules. */
 const MIGRATION_LOCK_MS = 15 * 60 * 1000;
 /** Как часто продлеваем замок, пока идёт копирование. */
@@ -283,6 +309,20 @@ export async function reconcileSupabaseLive(workspaceId: string): Promise<boolea
   const started = migrationStartMillis(ws.rowsMigrationAt);
   if (typeof started === "number" && Date.now() - started < MIGRATION_LOCK_MS) return false;
   await setSupabaseState(workspaceId, true, false);
+  return true;
+}
+
+/**
+ * Флаг «заказы ведёт ОС» в Supabase догоняет Firestore.
+ *
+ * Их два (документ workspace и `rows_workspaces.os_managed`), и разъехаться
+ * они могут штатно: Owner включил переключатель до того, как накатили SQL.
+ * Сессия Owner сверяет их при загрузке — молчащий замок хуже отсутствующего.
+ */
+export async function reconcileSupabaseOsManaged(workspaceId: string, wanted: boolean): Promise<boolean> {
+  const current = await fetchSupabaseOsManaged(workspaceId);
+  if (current === null || current === wanted) return false;
+  await setSupabaseOsManaged(workspaceId, wanted);
   return true;
 }
 
