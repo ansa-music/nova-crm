@@ -1,13 +1,25 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { updateDoc } from "firebase/firestore";
+import { db } from "@/firebase/firebase";
+import { paths } from "@/firebase/firestore";
 import { toast } from "@/components/ui/sonner";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { OS_DESK_COLUMNS } from "@/services/osDeskService";
-import { findTechTarget, pushOrderToTech, techTargetProblem, techUidByNick } from "@/services/rows/osOrderMirror";
+import { findTechTarget, OS_MIRROR_COLUMNS, pushOrderToTech, techTargetProblem, techUidByNick } from "@/services/rows/osOrderMirror";
 import { sbDeleteRow } from "@/services/rows/supabaseRowStore";
 import { findDuplicateMirrors, mirrorAddressOf, planOsDispatch } from "@/utils/osDispatchPlan";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
-import { DEFAULT_STATUS_OPTIONS, findInProgressStatusOption } from "@/utils/columnOptions";
+import {
+  approvalStatusValue,
+  DEFAULT_STATUS_OPTIONS,
+  ensureApprovalStatus,
+  ensureDoneStatus,
+  findInProgressStatusOption,
+  isApprovalStatusValue,
+} from "@/utils/columnOptions";
+import { logOsDispatch } from "@/services/osDispatchLogService";
+import { isExchangeHandoffRow } from "@/services/rows/osExchange";
 import { firestoreErrorText } from "@/utils/dbError";
 import { personLabel } from "@/utils/peopleDesks";
 import type { PageRow } from "@/types";
@@ -35,6 +47,14 @@ import type { PageRow } from "@/types";
  * Пишем не на каждое нажатие клавиши: пауза после последней правки строки
  * (DEBOUNCE_MS), и строка, по которой запись уже идёт, второй раз в этот
  * такт не берётся.
+ *
+ * УТВЕРЖДЕНИЕ (просьба Nurba 23.09.2026): новый заказ получает статус
+ * «Утверждение» и технарю НЕ уходит, даже если технарь уже выбран. Когда ОС
+ * ставит «В работе» (любой статус, кроме утверждения), стол спрашивает, как
+ * отдать заказ: «Общий» — на биржу «Заказы», всем технарям, или
+ * «Выборочно» — выбранному технарю (`choiceRow`, диалог рисует стол).
+ * Выдачу выбранному технарю (и смену, и снятие) проход пишет в журнал
+ * «Выдачи ОС» — его смотрят Тимлид и Owner.
  */
 const DEBOUNCE_MS = 700;
 
@@ -60,14 +80,7 @@ export interface OsDeskDispatchInput {
   osNickValue: string;
 }
 
-const OS_COLUMNS = {
-  client: "client",
-  phone: "phone",
-  price: "price",
-  upsell: "upsell",
-  note: "note",
-  link: "link",
-} as const;
+const OS_COLUMNS = OS_MIRROR_COLUMNS;
 
 function cellText(row: PageRow, key: string | undefined): string {
   if (!key) return "";
@@ -79,8 +92,18 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
   const { pages, members, activeWorkspace } = useWorkspace();
   const latest = useRef(input);
   latest.current = input;
-  const ctx = useRef({ pages, members, statusOptions: activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS });
-  ctx.current = { pages, members, statusOptions: activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS };
+  const statusOptions = ensureApprovalStatus(ensureDoneStatus(activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS));
+  const ctx = useRef({ pages, members, statusOptions });
+  ctx.current = { pages, members, statusOptions };
+  /**
+   * Какой статус был у строки в прошлый проход — по переходу «Утверждение →
+   * В работе» стол спрашивает, как отдать заказ. Первый проход только
+   * запоминает: открыть стол — не повод для вопроса.
+   */
+  const seenStatus = useRef(new Map<string, string>());
+  const seenScope = useRef("");
+  /** Строка, по которой стол спрашивает «общий или выборочно». */
+  const [choiceRowId, setChoiceRowId] = useState<string | null>(null);
   /** Строки, по которым прямо сейчас идёт запись. */
   const busy = useRef(new Set<string>());
   /** О чём уже сказали человеку — чтобы не повторять тост на каждый такт. */
@@ -113,6 +136,15 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
       const techColumn = OS_DESK_COLUMNS.find((c) => c.type === "technician");
       const statusColumn = OS_DESK_COLUMNS.find((c) => c.type === "status");
       let changed = false;
+      const scope = `${cur.workspaceId}|${cur.pageId}|${cur.subPageId ?? ""}`;
+      const firstLook = seenScope.current !== scope;
+      if (firstLook) {
+        seenScope.current = scope;
+        seenStatus.current = new Map();
+      }
+      const nameOf = (uid: string | null | undefined, fallback = "") =>
+        (uid ? personLabel(allMembers.find((m) => m.uid === uid)) : "") || fallback;
+      const osName = nameOf(cur.osUid, "ОС");
 
       // Сначала убираем лишние копии одного заказа: иначе они посчитаются у
       // технаря дважды, а проход ниже будет чинить не ту строку.
@@ -142,6 +174,52 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
         const techNick = techColumn ? cellText(row, techColumn.key) : "";
         const mirror = cur.orders.bySource.get(row.id) ?? null;
         const at = mirrorAddressOf(row, mirror);
+        const statusNow = statusColumn ? cellText(row, statusColumn.key) : "";
+        const onApproval = isApprovalStatusValue(statusNow, statusOptions);
+        const prevStatus = seenStatus.current.get(row.id);
+        seenStatus.current.set(row.id, statusNow);
+
+        // Новый заказ (имя есть, статуса нет, никому не отдан) — «Утверждение».
+        if (statusColumn && !statusNow && client && !at && !techNick && !row.orderId) {
+          busy.current.add(row.id);
+          try {
+            await sbPatchRow(cur.workspaceId, cur.pageId, cur.subPageId, row.id, {
+              cells: { [statusColumn.key]: approvalStatusValue(statusOptions) },
+            });
+            changed = true;
+          } catch {
+            // Не вышло — попробуем в следующий проход; выдачу это не держит.
+          } finally {
+            busy.current.delete(row.id);
+          }
+          continue;
+        }
+
+        // «Утверждение → В работе» у заказа, который ещё никому не отдан, —
+        // спросить, как отдать. На первом взгляде на стол не спрашиваем.
+        if (
+          !firstLook &&
+          prevStatus !== undefined &&
+          isApprovalStatusValue(prevStatus, statusOptions) &&
+          !onApproval &&
+          !techNick &&
+          !at &&
+          !row.orderId &&
+          client
+        ) {
+          setChoiceRowId(row.id);
+        }
+
+        // На утверждении заказ технарю не уходит, даже если технарь выбран.
+        if (!at && onApproval) {
+          if (techNick && client && !told.current.has(`${row.id}:approval`)) {
+            told.current.add(`${row.id}:approval`);
+            toast.info(`${client}: заказ на утверждении`, {
+              description: "Технарю он уйдёт, когда вы поставите «В работе».",
+            });
+          }
+          continue;
+        }
         if (!techNick && !at) continue;
 
         // Ник стёрли — заказ забирают у технаря. Стол ему для этого не нужен.
@@ -151,6 +229,20 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
             await sbDeleteRow(cur.workspaceId, at.pageId, at.tabId, at.rowId);
             changed = true;
             toast.success("Заказ убран у технаря", { description: client || undefined });
+            const prevUid = allPages.find((p) => p.id === at.pageId)?.responsibleUserId ?? null;
+            void logOsDispatch(cur.workspaceId, {
+              kind: "unassign",
+              osUid: cur.osUid,
+              osName,
+              techUid: null,
+              techName: "",
+              prevTechName: nameOf(prevUid, "технарь"),
+              client,
+              phone: cellText(row, OS_COLUMNS.phone),
+              amount: orderAmount(row),
+              srcPageId: cur.pageId,
+              srcRowId: row.id,
+            }).catch(() => undefined);
           } catch (error) {
             const text = firestoreErrorText(error, "Не удалось убрать заказ у технаря");
             if (!told.current.has(`${row.id}:${text}`)) {
@@ -199,7 +291,7 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
             await sbDeleteRow(cur.workspaceId, plan.removeAt.pageId, plan.removeAt.tabId, plan.removeAt.rowId);
           }
           if (plan.action === "push" || plan.action === "move") {
-            await pushOrderToTech({
+            const pushed = await pushOrderToTech({
               workspaceId: cur.workspaceId,
               osUid: cur.osUid,
               osNickValue: cur.osNickValue,
@@ -222,6 +314,40 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
             if (!plan.hadMirror || plan.action === "move") {
               const name = personLabel(allMembers.find((m) => m.uid === techUid)) || techNick;
               toast.success(`Заказ у технаря: ${name}`, { description: client || undefined });
+              const viaExchange = isExchangeHandoffRow(row.id);
+              // Выдача выбранному технарю — в журнал руководству. Заказ,
+              // пришедший с биржи, туда не пишем: его видно на «Заказах».
+              if (!viaExchange) {
+                const prevUid = plan.removeAt
+                  ? (allPages.find((p) => p.id === plan.removeAt?.pageId)?.responsibleUserId ?? null)
+                  : null;
+                void logOsDispatch(cur.workspaceId, {
+                  kind: plan.action === "move" ? "move" : "assign",
+                  osUid: cur.osUid,
+                  osName,
+                  techUid,
+                  techName: name,
+                  prevTechName: prevUid ? nameOf(prevUid, "технарь") : null,
+                  client,
+                  phone: cellText(row, OS_COLUMNS.phone),
+                  amount: orderAmount(row),
+                  srcPageId: cur.pageId,
+                  srcRowId: row.id,
+                }).catch(() => undefined);
+              }
+              // Заказ висел на бирже, а ОС отдал его сам — закрываем его там,
+              // иначе технари продолжали бы откликаться на уже отданный заказ.
+              if (row.orderId && !viaExchange && db) {
+                const now = Date.now();
+                void updateDoc(paths.order(cur.workspaceId, row.orderId), {
+                  status: "taken",
+                  takenAt: now,
+                  takenPageId: target.page.id,
+                  takenSubPageId: plan.mirrorTabId ?? target.tabId,
+                  takenRowId: pushed.rowId,
+                  updatedAt: now,
+                }).catch(() => undefined);
+              }
             }
           } else if (plan.action === "pull" && statusColumn) {
             // Статус поменяли у технаря — показываем его у ОС вместе с новой
@@ -247,4 +373,22 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, signature]);
+
+  const choiceRow = choiceRowId ? (rows.find((r) => r.id === choiceRowId) ?? null) : null;
+  return {
+    /** Заказ, по которому стол спрашивает «общий или выборочно». */
+    choiceRow,
+    openChoice: (rowId: string) => setChoiceRowId(rowId),
+    closeChoice: () => setChoiceRowId(null),
+  };
+}
+
+/** Цена + апсейл — как сумма у технаря. */
+function orderAmount(row: PageRow): number | null {
+  const n = (v: unknown) => {
+    const parsed = Number(String(v ?? "").replace(/\s/g, "").replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const total = n(row.cells[OS_COLUMNS.price]) + n(row.cells[OS_COLUMNS.upsell]);
+  return total > 0 ? total : null;
 }

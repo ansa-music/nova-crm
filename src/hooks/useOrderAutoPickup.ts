@@ -89,6 +89,10 @@ export function useOrderAutoPickup() {
         for (const docSnap of snap.docs) {
           const order = { id: docSnap.id, ...docSnap.data() } as WorkOrder;
           if (order.status !== "assigned") continue;
+          // Заказ со стола ОС заводит в стол сам ОС — строкой-заказом с его
+          // меткой (useOsExchangeHandoff); обычная строка от технаря была бы
+          // вторым, «ничьим» экземпляром того же заказа.
+          if (order.osSource) continue;
           if (handledRef.current.has(order.id)) continue;
           handledRef.current.add(order.id);
           const latest = latestRef.current;

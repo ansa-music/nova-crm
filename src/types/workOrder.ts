@@ -38,6 +38,12 @@ export interface WorkOrderClaim {
  * Сам заказ ничего в столах не пишет и не читает: строка создаётся сессией
  * технаря по его же правам на свой стол, а здесь остаётся только ссылка на неё.
  */
+export interface WorkOrderOsSource {
+  pageId: string;
+  tabId: string | null;
+  rowId: string;
+}
+
 export interface WorkOrder {
   id: string;
   workspaceId: string;
@@ -74,6 +80,13 @@ export interface WorkOrder {
   cancelledAt: number | null;
   /** Кто может откликнуться. Нет поля — «free»: так было всегда. */
   claimScope?: WorkOrderClaimScope;
+  /**
+   * Заказ выставлен со СТОЛА ОС («Общий»): его строка-источник. Такой заказ
+   * технарь сам в стол не забирает — строку-заказ с замком заводит сессия ОС,
+   * когда заказ выдан (useOsExchangeHandoff), иначе у технаря появилась бы
+   * обычная строка, которую он правит сам, мимо «заказ ведёт ОС».
+   */
+  osSource?: WorkOrderOsSource | null;
   createdAt: number;
   updatedAt: number;
 }

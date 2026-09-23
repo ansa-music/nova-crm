@@ -47,6 +47,7 @@ import { useOsFieldKeysPublisher } from "@/hooks/useOsFieldKeysPublisher";
 import { useMyOrderRows } from "@/hooks/useMyOrderRows";
 import { useOsDeskDispatch } from "@/hooks/useOsDeskDispatch";
 import { OsOrderPanel } from "@/components/os/OsOrderPanel";
+import { OsDispatchChoiceDialog } from "@/components/os/OsDispatchChoiceDialog";
 import { TechOrderPanel } from "@/components/os/TechOrderPanel";
 import { isMonthlyDesk } from "@/services/monthTabService";
 import type { PageIconName, SubPage, WorkspacePage } from "@/types";
@@ -290,7 +291,7 @@ export default function DynamicTablePage() {
 
   // Стол ОС выдаёт заказы сам: заполнил строку, выбрал технаря — заказ у
   // него. Тот же проход везёт статус в обе стороны (см. хук).
-  useOsDeskDispatch({
+  const osDispatch = useOsDeskDispatch({
     workspaceId: activeWorkspaceId,
     enabled: isMyOsDesk && hasAccess,
     pageId: page?.id ?? "",
@@ -539,6 +540,15 @@ export default function DynamicTablePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      {isMyOsDesk && page && osDispatch.choiceRow ? (
+        <OsDispatchChoiceDialog
+          key={osDispatch.choiceRow.id}
+          row={osDispatch.choiceRow}
+          pageId={page.id}
+          subPageId={activeSubPageId}
+          onClose={osDispatch.closeChoice}
+        />
+      ) : null}
       {tableImmersive && !tableFullscreen ? <TableChromeExit label="Назад" /> : null}
       <div className={cn("page-header", chromeHidden && "hidden")}>
         <span
@@ -867,6 +877,7 @@ export default function DynamicTablePage() {
                         osNickValue={myOsNickValue}
                         mirror={myOrders.bySource.get(row.id) ?? null}
                         onChanged={myOrders.refresh}
+                        onChoose={() => osDispatch.openChoice(row.id)}
                       />
                     );
                   }

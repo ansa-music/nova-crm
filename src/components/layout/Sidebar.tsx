@@ -21,6 +21,7 @@ import {
   Settings,
   Table2,
   ScanEye,
+  ListChecks,
   RefreshCw,
   User,
   Users,
@@ -51,6 +52,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { DISPATCH_ENABLED } from "@/config/features";
 import { hasFullAccess } from "@/utils/permissions";
+import { osDispatchLogState, subscribeOsDispatchLogState } from "@/services/osDispatchLogService";
 import { signOutUser } from "@/firebase/auth";
 import { setActiveRole } from "@/services/memberService";
 import { cn } from "@/utils/cn";
@@ -217,6 +219,10 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   // столы видны каждому участнику).
   const showOsDeskNav = permissions.isResolved && permissions.hasRole("os");
   const showOsDesksNav = permissions.isResolved;
+  // «Выдачи ОС» — мониторинг выборочных выдач: от Тимлида и выше.
+  const showOsDispatchNav = permissions.isResolved && hasFullAccess(permissions.role);
+  const osDispatchLog = useSyncExternalStore(subscribeOsDispatchLogState, osDispatchLogState);
+  const osDispatchUnseen = showOsDispatchNav ? osDispatchLog.unseen : 0;
   /**
    * Зелёные пункты меню:
    * — «Заказы», пока на бирже есть хоть один ОТКРЫТЫЙ заказ (живое состояние,
@@ -335,6 +341,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                       Столы ОС
                     </AppNavLink>
                   )}
+                  {showOsDispatchNav && (
+                    <AppNavLink collapsed title="Выдачи ОС" to="/os-dispatch" icon={ListChecks} onNavigate={onNavigate} badge={osDispatchUnseen}>
+                      Выдачи ОС
+                    </AppNavLink>
+                  )}
                   <AppNavLink collapsed title="Настройки" to="/settings" icon={Settings} onNavigate={onNavigate}>
                     Настройки
                   </AppNavLink>
@@ -405,6 +416,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                       Столы ОС
                     </AppNavLink>
                   )}
+                  {showOsDispatchNav && (
+                    <AppNavLink to="/os-dispatch" icon={ListChecks} onNavigate={onNavigate} badge={osDispatchUnseen}>
+                      Выдачи ОС
+                    </AppNavLink>
+                  )}
                   <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
                     Настройки
                   </AppNavLink>
@@ -473,6 +489,11 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
               {showOsDesksNav && (
                 <AppNavLink to="/os-desks" icon={ScanEye} onNavigate={onNavigate}>
                   Столы ОС
+                </AppNavLink>
+              )}
+              {showOsDispatchNav && (
+                <AppNavLink to="/os-dispatch" icon={ListChecks} onNavigate={onNavigate} badge={osDispatchUnseen}>
+                  Выдачи ОС
                 </AppNavLink>
               )}
               <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>

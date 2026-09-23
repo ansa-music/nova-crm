@@ -33,6 +33,7 @@ import { WORK_ORDER_URGENCY_LABELS } from "@/types";
 import type {
   PageColumn,
   WorkOrder,
+  WorkOrderOsSource,
   WorkOrderClaim,
   WorkOrderClaimScope,
   WorkOrderStatus,
@@ -156,6 +157,8 @@ export interface CreateOrderInput {
   createdByName: string;
   /** Кого позвать: uid всех активных технарей. */
   technicianUids: string[];
+  /** Заказ со стола ОС — см. WorkOrder.osSource. */
+  osSource?: WorkOrderOsSource | null;
 }
 
 export function orderSummary(order: Pick<WorkOrder, "client" | "minutes" | "persons">): string {
@@ -213,6 +216,7 @@ export async function createOrder(input: CreateOrderInput): Promise<WorkOrder> {
     createdAt: now,
     updatedAt: now,
   };
+  if (input.osSource) order.osSource = input.osSource;
   await setDoc(paths.order(input.workspaceId, order.id), order);
   await sendNotification(
     {
@@ -531,6 +535,8 @@ export async function takeOrderToDesk(input: {
   }
   const fresh = freshSnap.exists() ? mapOrder(freshSnap.data(), freshSnap.id) : null;
   if (!fresh || fresh.status !== "assigned" || fresh.assignedUid !== me.uid) throw new OrderNotAssignedError();
+  // Заказ со стола ОС заводит в стол сам ОС (строкой-заказом с его меткой).
+  if (fresh.osSource) throw new Error("Этот заказ приедет в стол от ОС — забирать его не нужно");
   const order = fresh;
   const subPageId = isMonthlyDesk(page, input.members)
     ? (currentMonthSubPageId(page, input.monthKey) ?? (await ensureMonthTab(page, input.monthKey, me.uid)))

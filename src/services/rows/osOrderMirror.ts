@@ -16,6 +16,16 @@ import type { OsFieldKeys, PageRow, WorkspaceMember, WorkspacePage } from "@/typ
  * стола ОС не прочитает, а документ стола читают все участники.
  */
 
+/** Ключи столбцов стола ОС, которые уезжают технарю (см. osDeskService). */
+export const OS_MIRROR_COLUMNS = {
+  client: "client",
+  phone: "phone",
+  price: "price",
+  upsell: "upsell",
+  note: "note",
+  link: "link",
+} as const;
+
 /** Id строки-копии выводится из строки-источника: повтор пишет в ту же строку. */
 export function mirrorRowId(srcRowId: string): string {
   return `os_${srcRowId.replace(/[^A-Za-z0-9_-]/g, "")}`;

@@ -32,6 +32,42 @@ export const DEFAULT_STATUS_OPTIONS: StatusOption[] = [
  * Owner-only, enforced both here (nothing else to read) and in
  * firestore.rules (columnStatusOptionsPreserved).
  */
+/**
+ * «Утверждение» — первый статус заказа на СТОЛЕ ОС (просьба Nurba 23.09.2026):
+ * заказ заведён, но ещё не согласован и технарю не уходит. Когда ОС ставит
+ * «В работе», стол спрашивает, как отдать заказ — на биржу всем или
+ * выбранному технарю (см. useOsDeskDispatch).
+ *
+ * Статусы у workspace общие и ведёт их Owner, а ОС в документ workspace
+ * писать не вправе, — поэтому вариант подставляется при чтении, как
+ * «Готово» ниже, а не хранится. Если Owner завёл свой «Утверждение», берётся
+ * его вариант (узнаём по названию).
+ */
+export const APPROVAL_STATUS_OPTION: StatusOption = { value: "approval", label: "Утверждение", color: "271 81% 56%" };
+
+export function isApprovalOption(option: Pick<StatusOption, "value" | "label">): boolean {
+  return option.value === APPROVAL_STATUS_OPTION.value || /утвержд/i.test(option.label);
+}
+
+/** Значение статуса — «на утверждении» (или статуса ещё нет вовсе). */
+export function isApprovalStatusValue(value: unknown, options: readonly StatusOption[]): boolean {
+  const v = value === null || value === undefined ? "" : String(value).trim();
+  if (!v) return true;
+  if (v === APPROVAL_STATUS_OPTION.value) return true;
+  const option = options.find((o) => o.value === v);
+  return option ? isApprovalOption(option) : false;
+}
+
+/** Значение варианта «Утверждение» в этом workspace. */
+export function approvalStatusValue(options: readonly StatusOption[]): string {
+  return options.find(isApprovalOption)?.value ?? APPROVAL_STATUS_OPTION.value;
+}
+
+export function ensureApprovalStatus(options: StatusOption[]): StatusOption[] {
+  if (options.some(isApprovalOption)) return options;
+  return [APPROVAL_STATUS_OPTION, ...options];
+}
+
 export function ensureDoneStatus(options: StatusOption[]): StatusOption[] {
   if (options.some((o) => isDoneStatusLabel(o.label) || o.value === "done")) return options;
   const done = DEFAULT_STATUS_OPTIONS.find((o) => o.value === "done");
@@ -75,7 +111,7 @@ export function getColumnOptions(column: PageColumn, workspace: Workspace | null
   // Ники технарей — ОТДЕЛЬНЫЙ список, не «Ответственный»: см. комментарий к
   // ColumnType. Ведётся на «Команде», здесь только читается.
   if (column.type === "technician") return workspace?.techNickOptions ?? [];
-  if (column.type === "status") return ensureDoneStatus(workspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS);
+  if (column.type === "status") return ensureApprovalStatus(ensureDoneStatus(workspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS));
   if (column.type === "custom") {
     return workspace?.customFields?.find((f) => f.id === column.customFieldId)?.options ?? [];
   }

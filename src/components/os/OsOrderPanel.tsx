@@ -8,7 +8,13 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { OS_DESK_COLUMNS } from "@/services/osDeskService";
 import { pushOrderToTech, findTechTarget, techTargetProblem, techUidByNick } from "@/services/rows/osOrderMirror";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
-import { DEFAULT_STATUS_OPTIONS, findInProgressStatusOption } from "@/utils/columnOptions";
+import {
+  DEFAULT_STATUS_OPTIONS,
+  ensureApprovalStatus,
+  ensureDoneStatus,
+  findInProgressStatusOption,
+  isApprovalStatusValue,
+} from "@/utils/columnOptions";
 import { firestoreErrorText } from "@/utils/dbError";
 import { personLabel } from "@/utils/peopleDesks";
 import type { PageRow } from "@/types";
@@ -29,6 +35,7 @@ export function OsOrderPanel({
   osNickValue,
   mirror,
   onChanged,
+  onChoose,
 }: {
   row: PageRow;
   pageId: string;
@@ -38,10 +45,12 @@ export function OsOrderPanel({
   /** Строка этого заказа в столе технаря, если он уже выдан. */
   mirror: PageRow | null;
   onChanged: () => void;
+  /** «Отдать заказ…» — тот же вопрос «общий или выборочно», что после «В работе». */
+  onChoose?: () => void;
 }) {
   const { activeWorkspaceId, activeWorkspace, pages, members } = useWorkspace();
   const [busy, setBusy] = useState(false);
-  const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
+  const statusOptions = ensureApprovalStatus(ensureDoneStatus(activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS));
 
   const techColumn = OS_DESK_COLUMNS.find((c) => c.type === "technician");
   const techNick = techColumn ? String(row.cells[techColumn.key] ?? "") : "";
@@ -57,6 +66,10 @@ export function OsOrderPanel({
     (mirror && mirrorStatusKey ? String(mirror.cells[mirrorStatusKey] ?? "") : "");
 
   const techName = techUid ? personLabel(members.find((m) => m.uid === techUid)) : techNick;
+  // На утверждении заказ технарю не уходит — ни сам, ни кнопкой.
+  const onApproval = !mirror && isApprovalStatusValue(status, statusOptions);
+  // Заказ выставлен на «Заказы» и ждёт, кому его отдадут.
+  const onExchange = !mirror && !techNick && Boolean(row.orderId);
 
   async function handlePush() {
     if (!activeWorkspaceId || !target || !techUid) {
@@ -164,18 +177,32 @@ export function OsOrderPanel({
           ) : null}
         </div>
       ) : null}
-      {problem ? <p className="text-xs text-warning">{problem}</p> : null}
-      {!mirror && !problem ? (
+      {problem && techNick ? <p className="text-xs text-warning">{problem}</p> : null}
+      {onApproval ? (
         <p className="text-xs text-muted-foreground">
-          Заполните имя и выберите технаря — заказ уедет к нему сам.
+          На утверждении — технарю заказ не уйдёт. Поставьте «В работе», и стол спросит, кому отдать: всем на «Заказы» или
+          выбранному технарю.
         </p>
+      ) : onExchange ? (
+        <p className="text-xs text-muted-foreground">
+          Заказ на «Заказах» — отдайте его там, когда технари откликнутся, и он приедет к технарю сам.
+        </p>
+      ) : !mirror && !problem && techNick ? (
+        <p className="text-xs text-muted-foreground">Заказ уедет к технарю сам через секунду.</p>
       ) : null}
 
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" className="min-h-9" onClick={() => void handlePush()} disabled={busy || Boolean(problem)}>
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : mirror ? <RefreshCw className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />}
-          {mirror ? "Обновить у технаря" : "Выдать в работу"}
-        </Button>
+        {mirror || (techNick && !onApproval) ? (
+          <Button size="sm" className="min-h-9" onClick={() => void handlePush()} disabled={busy || Boolean(problem)}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : mirror ? <RefreshCw className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />}
+            {mirror ? "Обновить у технаря" : "Выдать в работу"}
+          </Button>
+        ) : onChoose && !onExchange ? (
+          <Button size="sm" className="min-h-9" onClick={onChoose} disabled={busy}>
+            <ArrowUpRight className="h-4 w-4" />
+            Отдать заказ…
+          </Button>
+        ) : null}
       </div>
     </div>
   );

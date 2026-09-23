@@ -1231,6 +1231,22 @@ service cloud.firestore {
             .hasOnly(['status', 'takenAt', 'takenPageId', 'takenSubPageId', 'takenRowId', 'updatedAt']);
       }
 
+      // «Выдачи ОС» — журнал выборочных выдач со стола ОС (просьба Nurba
+      // 23.09.2026): читают ТОЛЬКО Owner и Тимлид («от Тимлида и выше»),
+      // пишет сам ОС и только за себя, набор ключей — ровно тот, что пишет
+      // logOsDispatch. Правка записи не предусмотрена; убрать может Owner.
+      match /osDispatchLog/{entryId} {
+        allow read: if hasFullAccess(workspaceId);
+        allow create: if canIssueOrders(workspaceId)
+          && request.resource.data.osUid == request.auth.uid
+          && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.kind in ['assign', 'move', 'unassign']
+          && request.resource.data.createdAt is number
+          && request.resource.data.keys().hasOnly(['workspaceId', 'kind', 'osUid', 'osName', 'techUid', 'techName',
+            'prevTechName', 'client', 'phone', 'amount', 'srcPageId', 'srcRowId', 'createdAt']);
+        allow delete: if isOwner(workspaceId);
+      }
+
       // Daily dispatch board (Выдача) — standalone sidebar section, not tied
       // to any one desk. Owner/admin manage the whole board. The one
       // exception: the technician a pending entry is assigned to (a real

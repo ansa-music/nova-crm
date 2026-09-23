@@ -810,7 +810,15 @@ export default function OrdersPage() {
                         кнопка просто не успевает попасться на глаза. Она нужна
                         для случая, когда автозапись не прошла: нет своего стола
                         или запись упала — тогда видно, что делать. */}
-                    {order.status === "assigned" && isAssignee && (
+                    {/* Заказ со стола ОС технарь сам не забирает: строку-заказ
+                        с замком заводит ОС (useOsExchangeHandoff). */}
+                    {order.status === "assigned" && order.osSource && (
+                      <span className="text-xs text-muted-foreground">
+                        {isAssignee ? "Приедет в ваш стол от ОС" : "Уедет к технарю от ОС"}
+                        {order.createdByName ? ` (${order.createdByName})` : ""}, как только тот будет в сети
+                      </span>
+                    )}
+                    {order.status === "assigned" && isAssignee && !order.osSource && (
                       <Button size="sm" className="h-8 gap-1.5" disabled={busy || !myDesk} title={myDesk ? undefined : "У вас нет своего стола — заказ некуда положить"} onClick={() => void handleTake(order)}>
                         <Inbox className="h-3.5 w-3.5" /> {myDesk ? "Забрать в стол" : "Нет своего стола"}
                       </Button>

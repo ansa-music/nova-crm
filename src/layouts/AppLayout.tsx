@@ -29,6 +29,8 @@ import { useOpenApprovedDesk } from "@/hooks/useOpenApprovedDesk";
 import { useMonthTabAutopilot } from "@/hooks/useMonthTabAutopilot";
 import { useWeekTemplateAutopilot } from "@/hooks/useWeekTemplateAutopilot";
 import { useOrderAutoPickup } from "@/hooks/useOrderAutoPickup";
+import { useOsExchangeHandoff } from "@/hooks/useOsExchangeHandoff";
+import { useOsDispatchLogWatch } from "@/hooks/useOsDispatchLogWatch";
 import { useNotificationAlerts } from "@/hooks/useNotificationAlerts";
 import { useAppUpdateCheck } from "@/hooks/useAppUpdateCheck";
 import { useDeskObserverLoad } from "@/hooks/useDeskObserverLoad";
@@ -62,6 +64,10 @@ export function AppLayout() {
   useMonthTabAutopilot();
   useWeekTemplateAutopilot();
   useOrderAutoPickup();
+  // «Общий» заказ со стола ОС, выданный на бирже, — заводит технарю ОС.
+  useOsExchangeHandoff();
+  // «Выдачи ОС» — журнал для Тимлида и Owner (счётчик в меню и тост).
+  useOsDispatchLogWatch();
   // Звук и всплывашка браузера на новое уведомление. Здесь, а не в
   // колокольчике: в полноэкранной таблице колокольчика на экране нет.
   useNotificationAlerts();
