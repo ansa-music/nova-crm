@@ -31,6 +31,7 @@ const TechniciansPage = lazy(() => import("@/pages/TechniciansPage"));
 const OrdersPage = lazy(() => import("@/pages/OrdersPage"));
 const OsDeskPage = lazy(() => import("@/pages/OsDeskPage"));
 const OsDesksPage = lazy(() => import("@/pages/OsDesksPage"));
+const AbsPage = lazy(() => import("@/pages/AbsPage"));
 const OsDispatchPage = lazy(() => import("@/pages/OsDispatchPage"));
 // Скрытая страница Owner: в меню и поиске её нет, только прямой адрес.
 const DeskObserversPage = lazy(() => import("@/pages/DeskObserversPage"));
@@ -114,6 +115,7 @@ function AppShell() {
           >
             <Route index element={<HomePage />} />
             <Route path="dashboard" element={<DashboardPage />} />
+            <Route path="abs" element={<AbsPage />} />
             <Route path="desks" element={<DesksPage />} />
             <Route path="people" element={<PeoplePage />} />
             <Route path="technicians" element={<TechniciansPage />} />

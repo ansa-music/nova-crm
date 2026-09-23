@@ -11,6 +11,7 @@ import {
   KeyRound,
   Home,
   LayoutDashboard,
+  Trophy,
   LayoutGrid,
   LogOut,
   Megaphone,
@@ -390,6 +391,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
         { key: "home", to: homeTo, label: homeLabel, icon: HomeIcon, forceActive: homeActive, alert: deskAlert, onNavigate: goHome },
         { key: "orders", to: "/orders", label: "Заказы", icon: ClipboardList, alert: ordersAlert, onNavigate },
         { key: "dashboard", to: "/dashboard", label: "Дашборд", icon: LayoutDashboard, onNavigate },
+        { key: "abs", to: "/abs", label: "ABS система", icon: Trophy, onNavigate },
       ],
     },
     {

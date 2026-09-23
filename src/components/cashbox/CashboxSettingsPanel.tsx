@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { PaymentMethodsEditor } from "@/components/cashbox/PaymentMethodsEditor";
+import { OsPaySettingsCard } from "@/components/cashbox/OsPaySettingsCard";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { updateTechBonuses } from "@/services/workspaceService";
 import { firestoreErrorText } from "@/utils/dbError";
@@ -104,6 +105,8 @@ export function CashboxSettingsPanel() {
           </div>
         </CardContent>
       </Card>
+
+      <OsPaySettingsCard />
     </>
   );
 }

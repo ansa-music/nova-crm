@@ -359,7 +359,7 @@ service cloud.firestore {
       // переноса строк значит показать всем пустые столы. И не касса:
       // способы оплаты с комиссией и премии технарям настраивает только Owner.
       allow update: if isTeamLead(workspaceId)
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['ownerId', 'rowsBackend', 'rowsMigrationAt', 'paymentMethods', 'techBonuses']);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['ownerId', 'rowsBackend', 'rowsMigrationAt', 'paymentMethods', 'techBonuses', 'osPay']);
       // Deleting the workspace stays Owner-only — no Тимлид branch.
       allow delete: if isOwner(workspaceId);
 

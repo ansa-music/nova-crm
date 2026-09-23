@@ -1,7 +1,7 @@
 import type { Role } from "@/types/role";
 import type { StatusOption } from "@/types/page";
 import type { TechLoadKind } from "@/types/deskLoad";
-import type { PaymentMethod } from "@/types/payment";
+import type { OsPaySettings, PaymentMethod } from "@/types/payment";
 
 /**
  * An Owner-defined custom option field — the same idea as the built-in
@@ -84,6 +84,8 @@ export interface Workspace {
    * Нет поля — 100 000 / 50 000 / 50 000 (просьба Nurba). Правит Owner.
    */
   techBonuses?: number[];
+  /** Зарплатная система ОС на «ABS»: % от апсейла, доплата за топ KPI, пороги. Правит Owner. */
+  osPay?: OsPaySettings;
   /**
    * Идёт перенос строк: пока стоит флаг, строки нигде не правятся — иначе
    * правка, сделанная во время копирования, осталась бы в старом хранилище.

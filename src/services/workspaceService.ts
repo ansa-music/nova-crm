@@ -1,11 +1,11 @@
 import { deleteDoc, deleteField, DocumentData, increment, onSnapshot, runTransaction, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
-import { sanitizePaymentMethods } from "@/utils/payment";
+import { sanitizeOsPay, sanitizePaymentMethods } from "@/utils/payment";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { addOwnWorkspaceId } from "@/services/authService";
 import { DEFAULT_STATUS_OPTIONS, FREEZE_STATUS_OPTION, isFreezeStatusLabel } from "@/utils/columnOptions";
-import type { CustomFieldDef, PaymentMethod, StatusOption, TechLoadKind, Workspace } from "@/types";
+import type { CustomFieldDef, OsPaySettings, PaymentMethod, StatusOption, TechLoadKind, Workspace } from "@/types";
 
 export interface CreateWorkspaceInput {
   name: string;
@@ -79,6 +79,11 @@ export async function setOsManagedDesks(workspaceId: string, on: boolean) {
  */
 export async function updatePaymentMethods(workspaceId: string, methods: PaymentMethod[]) {
   await updateWorkspace(workspaceId, { paymentMethods: sanitizePaymentMethods(methods) });
+}
+
+/** Система ОС на «ABS»: % от апсейла, доп. оклад топ-1 KPI, пороги. Пишет только Owner. */
+export async function updateOsPay(workspaceId: string, settings: OsPaySettings) {
+  await updateWorkspace(workspaceId, { osPay: sanitizeOsPay(settings) });
 }
 
 /** Премии технарям за 1–3 место по «Готово». Пишет только Owner. */

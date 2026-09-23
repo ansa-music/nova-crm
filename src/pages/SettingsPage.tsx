@@ -37,7 +37,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "@/components/ui/sonner";
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { ManageOptionsDialog } from "@/components/table/ManageOptionsDialog";
@@ -161,6 +161,8 @@ const SETTINGS_NAV = [
 ] as const;
 
 export default function SettingsPage() {
+  // «/settings?tab=cashbox» — прямая ссылка на вкладку (кнопка «Настроить» на «ABS»).
+  const [settingsParams] = useSearchParams();
   const { profile } = useAuth();
   const permissions = usePermissions();
   const { activeWorkspace, members } = useWorkspace();
@@ -393,7 +395,7 @@ export default function SettingsPage() {
       />
 
       <Tabs
-        defaultValue="features"
+        defaultValue={settingsParams.get("tab") ?? "features"}
         // Список заявок читается разово (без onSnapshot), поэтому обновляем его
         // на каждом входе на вкладку — иначе заявка, поданная при открытой
         // странице, появилась бы только после перезагрузки.

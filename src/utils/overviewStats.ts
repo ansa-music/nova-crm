@@ -2,9 +2,11 @@ import { isDoneStatusLabel } from "@/utils/columnOptions";
 import { worksAsTechnician } from "@/utils/peopleDesks";
 import {
   addTechLoad,
+  autoTechLoadKind,
   EMPTY_TECH_LOAD,
   NO_STATUS_KEY,
   summarizeDeskLoad,
+  techLoadKindForOption,
   type TechLoadSummary,
 } from "@/utils/techLoad";
 import {
@@ -33,6 +35,8 @@ export interface OverviewTechnician {
   grandTotal: number;
   /** «Готово» money — statuses whose label reads as done, like the table's «Готово» total. */
   doneTotal: number;
+  /** «Ждём оплату» money — statuses of kind `payment` («ABS»: касса, которая ещё не пришла). */
+  paymentTotal: number;
   busy: boolean;
   ratingAvg: number | null;
   ratingCount: number;
@@ -102,6 +106,21 @@ function findOption(raw: string, statusOptions: StatusOption[]) {
 }
 
 /** «Готово» money out of per-status sums, judged by the status label the way the table's totals bar does. */
+/** Сумма заказов в статусах вида «Ждём оплату» (`payment` по карте Owner или по названию). */
+export function paymentSumFromStatusSums(
+  statusSums: Record<string, number> | undefined,
+  statusOptions: StatusOption[],
+  kinds: Record<string, TechLoadKind> | undefined
+): number {
+  let sum = 0;
+  for (const [raw, value] of Object.entries(statusSums ?? {})) {
+    const option = statusOptions.find((o) => o.value === raw || o.label === raw);
+    const kind = option ? techLoadKindForOption(option, kinds) : autoTechLoadKind(raw, raw);
+    if (kind === "payment") sum += value;
+  }
+  return sum;
+}
+
 export function doneSumFromStatusSums(statusSums: Record<string, number> | undefined, statusOptions: StatusOption[]): number {
   let done = 0;
   for (const [raw, sum] of Object.entries(statusSums ?? {})) {
@@ -144,6 +163,7 @@ export function buildOverview(input: {
     let summary = EMPTY_TECH_LOAD;
     let grandTotal = 0;
     let doneTotal = 0;
+    let paymentTotal = 0;
     let counted = false;
     let techUpdatedAt = 0;
     for (const desk of desks) {
@@ -154,6 +174,7 @@ export function buildOverview(input: {
       summary = addTechLoad(summary, summarizeDeskLoad(load, statusOptions, kinds));
       grandTotal += load.grandTotal ?? 0;
       doneTotal += doneSumFromStatusSums(load.statusSums, statusOptions);
+      paymentTotal += paymentSumFromStatusSums(load.statusSums, statusOptions, kinds);
       addRecord(statusCounts, load.statusCounts);
       addRecord(statusSums, load.statusSums);
       addRecord(dayCounts, load.dayCounts);
@@ -170,6 +191,7 @@ export function buildOverview(input: {
       summary,
       grandTotal,
       doneTotal,
+      paymentTotal,
       busy: summary.busy > 0,
       ratingAvg: mine.length ? mine.reduce((n, r) => n + r.stars, 0) / mine.length : null,
       ratingCount: mine.length,

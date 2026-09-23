@@ -23,3 +23,25 @@ export interface PaymentMethod {
    */
   inactive?: boolean;
 }
+
+/** Порог KPI ОС: добил долю заказов в «Готово» не ниже `minPct` — фиксированный оклад. */
+export interface OsKpiTier {
+  id: string;
+  minPct: number;
+  amount: number;
+}
+
+/**
+ * Зарплатная система ОС в «ABS» (просьба Nurba 23.09.2026) — правит только
+ * Owner в «Настройки → Касса». Всё за текущий месяц по Алматы.
+ */
+export interface OsPaySettings {
+  /** Процент ОС от каждого апсейла ПОСЛЕ комиссии способа оплаты (по умолчанию 8). */
+  upsellPct: number;
+  /** Доп. оклад ОС с лучшим KPI («Готово» / все заказы). 0 — нет. */
+  kpiTopBonus: number;
+  /** Меньше заказов за месяц — в KPI-топ и пороги не попадает (1 заказ = 100 % не считается). */
+  kpiMinOrders: number;
+  /** Пороги KPI с фиксированным окладом; берётся самый высокий из добитых. */
+  kpiTiers: OsKpiTier[];
+}

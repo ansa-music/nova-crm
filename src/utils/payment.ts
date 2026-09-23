@@ -1,5 +1,5 @@
 import { parseLooseNumber } from "@/utils/numberInput";
-import type { PageRow, PaymentMethod, Workspace } from "@/types";
+import type { OsKpiTier, OsPaySettings, PageRow, PaymentMethod, Workspace } from "@/types";
 
 /**
  * Касса ОС: способы оплаты, комиссия и «Итого» строки стола ОС.
@@ -116,4 +116,37 @@ export function sanitizePaymentMethods(list: readonly PaymentMethod[]): PaymentM
     out.push(item);
   }
   return out;
+}
+
+/** Система ОС по умолчанию: 8 % от апсейла (просьба Nurba); доплаты задаёт Owner. */
+export const DEFAULT_OS_PAY: OsPaySettings = { upsellPct: 8, kpiTopBonus: 0, kpiMinOrders: 5, kpiTiers: [] };
+
+const clampNum = (n: unknown, min: number, max: number, fallback: number) => {
+  const v = typeof n === "number" && Number.isFinite(n) ? n : fallback;
+  return Math.min(max, Math.max(min, v));
+};
+
+export function sanitizeOsPay(input: Partial<OsPaySettings> | null | undefined): OsPaySettings {
+  const tiers: OsKpiTier[] = [];
+  const seen = new Set<string>();
+  for (const t of input?.kpiTiers ?? []) {
+    const minPct = round2(clampNum(t.minPct, 0, 100, 0));
+    const amount = Math.round(clampNum(t.amount, 0, 1e10, 0));
+    if (!(amount > 0)) continue;
+    let id = t.id || `tier_${minPct}`;
+    while (seen.has(id)) id = `${id}_2`;
+    seen.add(id);
+    tiers.push({ id, minPct, amount });
+  }
+  tiers.sort((a, b) => a.minPct - b.minPct);
+  return {
+    upsellPct: round2(clampNum(input?.upsellPct, 0, 100, DEFAULT_OS_PAY.upsellPct)),
+    kpiTopBonus: Math.round(clampNum(input?.kpiTopBonus, 0, 1e10, 0)),
+    kpiMinOrders: Math.round(clampNum(input?.kpiMinOrders, 0, 100000, DEFAULT_OS_PAY.kpiMinOrders)),
+    kpiTiers: tiers,
+  };
+}
+
+export function osPayOf(workspace: Pick<Workspace, "osPay"> | null | undefined): OsPaySettings {
+  return sanitizeOsPay(workspace?.osPay ?? DEFAULT_OS_PAY);
 }
