@@ -20,7 +20,7 @@ import { hasRowExtras } from "@/utils/rowExtras";
 import { logChange } from "@/services/historyService";
 import type { PageColumn, PageIconName, PageRow, Role, StatusOption, WorkspacePage } from "@/types";
 import { assertRowsWritable, usesSupabaseRows } from "@/services/rows/rowsBackend";
-import { deletePageAcl, putPageAcl } from "@/services/rows/rowAclService";
+import { deletePageAcl, putPageAcl, patchPageAcl } from "@/services/rows/rowAclService";
 import {
   sbClearHighlights,
   sbDeleteRow,
@@ -285,6 +285,24 @@ export async function createPage(input: CreatePageInput): Promise<WorkspacePage>
  * с плашкой «права не доехали», а набранные в первые секунды строки
  * отклонялись. Отказ не отменяет создание стола — запись доведёт сверка.
  */
+/**
+ * Доступ к столу поменяли — довести копию прав в Supabase сразу, не дожидаясь
+ * фоновой сверки. Отказ не отменяет запись в Firestore (источник истины там):
+ * копию догонит сверка, а рвать действие из-за неё нельзя.
+ */
+async function mirrorPageAcl(
+  workspaceId: string,
+  pageId: string,
+  patch: { allowed_uids?: string[]; editable_uids?: string[]; responsible_uid?: string | null }
+) {
+  if (!usesSupabaseRows(workspaceId)) return;
+  try {
+    await patchPageAcl(workspaceId, pageId, patch);
+  } catch (error) {
+    console.warn("[rows-acl] доступ к столу не доведён в копию — доделает сверка", error);
+  }
+}
+
 export async function ensureNewDeskAcl(workspaceId: string, page: WorkspacePage) {
   if (!usesSupabaseRows(workspaceId)) return;
   try {
@@ -467,6 +485,7 @@ export async function updatePageAppearance(
 export async function updatePagePermissions(workspaceId: string, pageId: string, allowedUsers: string[]) {
   if (!db) return;
   await setDoc(paths.page(workspaceId, pageId), { allowedUsers, updatedAt: Date.now() }, { merge: true });
+  await mirrorPageAcl(workspaceId, pageId, { allowed_uids: allowedUsers });
 }
 
 /**
@@ -482,12 +501,17 @@ export async function updatePageAccess(
 ) {
   if (!db) return;
   await setDoc(paths.page(workspaceId, pageId), { ...patch, updatedAt: Date.now() }, { merge: true });
+  await mirrorPageAcl(workspaceId, pageId, {
+    allowed_uids: patch.allowedUsers,
+    editable_uids: patch.editableUsers,
+  });
 }
 
 /** Owner/responsible: grant or revoke EDIT rights for someone who already has view access. */
 export async function updatePageEditableUsers(workspaceId: string, pageId: string, editableUsers: string[]) {
   if (!db) return;
   await setDoc(paths.page(workspaceId, pageId), { editableUsers, updatedAt: Date.now() }, { merge: true });
+  await mirrorPageAcl(workspaceId, pageId, { editable_uids: editableUsers });
 }
 
 /** Owner-only: assign (or clear) who's responsible for this page. */
@@ -506,6 +530,7 @@ export async function setPageResponsible(
     { responsibleUserId, hiddenByResponsible: false, allowedUsers, updatedAt: Date.now() },
     { merge: true }
   );
+  await mirrorPageAcl(workspaceId, pageId, { responsible_uid: responsibleUserId, allowed_uids: allowedUsers });
 }
 
 /** Only the assigned responsible person may call this — hides/shows the page for everyone else in allowedUsers. */
@@ -535,6 +560,7 @@ export async function togglePageVisibility(
     { allowedUsers, hiddenByResponsible: !show, updatedAt: Date.now() },
     { merge: true }
   );
+  await mirrorPageAcl(workspaceId, pageId, { allowed_uids: allowedUsers });
 }
 
 /**
@@ -552,15 +578,21 @@ export async function setAllDesksVisibility(
 ): Promise<number> {
   if (!db) throw new Error("Firebase не настроен");
   const now = Date.now();
+  const mirrored: Array<{ pageId: string; allowedUsers: string[] }> = [];
   for (let i = 0; i < desks.length; i += 400) {
     const batch = writeBatch(db);
     for (const page of desks.slice(i, i + 400)) {
       const keep = [page.responsibleUserId].filter((id): id is string => Boolean(id));
       const allowedUsers = open ? Array.from(new Set([...allActiveMemberUids, ...keep])) : keep;
       batch.set(paths.page(workspaceId, page.id), { allowedUsers, hiddenByResponsible: !open, updatedAt: now }, { merge: true });
+      mirrored.push({ pageId: page.id, allowedUsers });
     }
     await batch.commit();
   }
+  // Копия прав — после записи в Firestore и по одному столу: закрыли доступ
+  // всем разом, значит и в Supabase он должен закрыться сразу, а не после
+  // фоновой сверки.
+  for (const item of mirrored) await mirrorPageAcl(workspaceId, item.pageId, { allowed_uids: item.allowedUsers });
   return desks.length;
 }
 

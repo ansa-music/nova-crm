@@ -466,6 +466,32 @@ export async function putPageAcl(workspaceId: string, page: WorkspacePage): Prom
   if (error) throw new Error(`запись о правах стола не создана: ${describe(error)}`);
 }
 
+/**
+ * Доступ к столу поменяли — сразу в копию прав, тем же действием.
+ *
+ * Иначе снятый доступ доживал до фоновой сверки (полторы секунды и только в
+ * сессии Owner/Тимлида): закрыли вкладку раньше — и человек, которому доступ
+ * сняли, продолжал читать и править строки в Supabase. Правка, а не upsert:
+ * `created_by`/`os_desk` у вызывающих на руках нет, а upsert затёр бы их.
+ * Записи нет — `update` просто ничего не меняет, заведёт её сверка.
+ */
+export async function patchPageAcl(
+  workspaceId: string,
+  pageId: string,
+  patch: { allowed_uids?: string[]; editable_uids?: string[]; responsible_uid?: string | null }
+): Promise<void> {
+  const next: Record<string, unknown> = { updated_at: Date.now() };
+  if (patch.allowed_uids) next.allowed_uids = sortedUnique(patch.allowed_uids);
+  if (patch.editable_uids) next.editable_uids = sortedUnique(patch.editable_uids);
+  if (patch.responsible_uid !== undefined) next.responsible_uid = patch.responsible_uid;
+  const { error } = await supabaseRows
+    .from("rows_page_acl")
+    .update(next)
+    .eq("workspace_id", workspaceId)
+    .eq("page_id", pageId);
+  if (error) throw new Error(`права стола не доведены в копию: ${describe(error)}`);
+}
+
 /** Участник убран из workspace — сразу из копии: доступ к строкам должен уйти в ту же минуту. */
 export async function removeMemberAcl(workspaceId: string, uid: string): Promise<void> {
   const { error } = await supabaseRows.from("rows_members").delete().eq("workspace_id", workspaceId).eq("uid", uid);
