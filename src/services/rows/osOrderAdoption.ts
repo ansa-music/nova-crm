@@ -1,6 +1,7 @@
 import { ensureOsDesk, findOsDeskOf, OS_DESK_COLUMNS } from "@/services/osDeskService";
 import { fetchPagesFresh, updatePageOsFieldKeys } from "@/services/pageService";
-import { fetchSubPagesFresh } from "@/services/subPageService";
+import { fetchSubPageFresh } from "@/services/subPageService";
+import { currentMonthKey, currentMonthSubPageId, isMonthlyDesk } from "@/services/monthTabService";
 import { computeOsFieldKeys, sameOsFieldKeys } from "@/utils/osFieldKeys";
 import { sbFetchAllPageRows, sbFetchRows, sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
@@ -76,16 +77,20 @@ async function ensureOsFieldKeys(
   tabId: string
 ): Promise<{ keys: OsFieldKeys; published: boolean }> {
   const current = page.osFieldKeys;
-  if (current && current.tabId === tabId) return { keys: current, published: false };
+  // Записанная карта годится, только если она от ЭТОЙ вкладки И в ней есть
+  // столбец ОС: по нему и определяется владелец заказа. Карта без него
+  // попадает в базу штатно (стол без «Ответственного», вкладка, размеченная
+  // по столбцам «Основной»), и раньше такой стол молча отчитывался «все
+  // заказы без ника ОС» — Owner шёл искать ники, которых не теряли.
+  if (current && current.tabId === tabId && current.os) return { keys: current, published: false };
 
-  const subPages = await fetchSubPagesFresh(workspaceId, page.id);
-  const tab = subPages.find((t) => t.id === tabId);
+  const tab = await fetchSubPageFresh(workspaceId, page.id, tabId);
   if (!tab) throw new Error("вкладка текущего месяца не нашлась — пусть стол откроют и повторите");
   const keys = computeOsFieldKeys(tabId, tab.columns ?? [], Date.now());
   if (!keys.os) {
-    throw new Error("в месячной вкладке нет столбца «Ответственный» — по нему и определяется ОС заказа");
+    throw new Error("в этой вкладке нет столбца «Ответственный» — заказы стола НЕ проверялись");
   }
-  if (sameOsFieldKeys(current, keys)) return { keys: current as OsFieldKeys, published: false };
+  if (sameOsFieldKeys(current, keys)) return { keys, published: false };
   await updatePageOsFieldKeys(workspaceId, page.id, keys);
   return { keys, published: true };
 }
@@ -115,7 +120,21 @@ export async function adoptOrdersToOsDesks(input: {
   // Список столов — СВЕЖИЙ с сервера: неполный список молча оставил бы часть
   // заказов у технарей (урок прошлого переноса).
   const pages = await fetchPagesFresh(workspaceId);
-  const techDesks = pages.filter((p) => !p.osDesk && !p.inactive && p.autoMonthSubPageId && p.responsibleUserId);
+  // Вкладка ТЕКУЩЕГО месяца — только та, что `currentMonthSubPageId` считает
+  // текущей (сверка с autoMonthKey). Голый autoMonthSubPageId у отставшего
+  // стола указывает на прошлый месяц: Owner записал бы ему карту от старой
+  // вкладки, и заказы уехали бы в её ключи.
+  const monthKey = currentMonthKey();
+  // Круг столов — тот же, что у автопилота месячных вкладок (`isMonthlyDesk`):
+  // стол Admin или дашборд месячных вкладок не имеют вовсе, и жаловаться на
+  // них в отчёте — шум, за которым не видно настоящих отставших столов.
+  const candidates = pages.filter((p) => !p.osDesk && !p.inactive && p.responsibleUserId && isMonthlyDesk(p, [...members]));
+  const techDesks = candidates.filter((p) => currentMonthSubPageId(p, monthKey));
+  for (const stale of candidates.filter((p) => !currentMonthSubPageId(p, monthKey))) {
+    report.errors.push(
+      `«${stale.name}»: вкладка этого месяца ещё не заведена — заказы стола НЕ проверялись, пусть его откроют`
+    );
+  }
   report.deskTotal = techDesks.length;
   const unknownNicks = new Set<string>();
   const osDeskByUid = new Map<string, WorkspacePage>();
@@ -125,7 +144,7 @@ export async function adoptOrdersToOsDesks(input: {
   for (const page of techDesks) {
     done += 1;
     input.onProgress?.({ done, total: techDesks.length, label: page.name });
-    const tabId = page.autoMonthSubPageId as string;
+    const tabId = currentMonthSubPageId(page, monthKey) as string;
     let keys: OsFieldKeys;
     try {
       const ensured = await ensureOsFieldKeys(workspaceId, page, tabId);

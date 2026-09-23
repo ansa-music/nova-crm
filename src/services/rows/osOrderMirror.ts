@@ -37,7 +37,10 @@ export function findTechTarget(pages: readonly WorkspacePage[], techUid: string)
   if (!page) return null;
   const tabId = page.autoMonthSubPageId;
   const keys = page.osFieldKeys;
-  if (!tabId || !keys || keys.tabId !== tabId) return null;
+  // Без ключа `os` заказ уехал бы БЕЗ ника ОС: он бы не попал ни в счётчики
+  // этого ОС, ни в его оценки, а через 30 дней тихо пропало бы право
+  // оценивать технаря. Лучше честный отказ.
+  if (!tabId || !keys || keys.tabId !== tabId || !keys.os) return null;
   return { page, tabId, keys };
 }
 
@@ -49,6 +52,9 @@ export function techTargetProblem(pages: readonly WorkspacePage[], techUid: stri
   if (!page.autoMonthSubPageId) return "У технаря ещё нет вкладки текущего месяца — пусть откроет свой стол";
   if (!page.osFieldKeys || page.osFieldKeys.tabId !== page.autoMonthSubPageId) {
     return "Стол технаря ещё не сообщил, куда писать — пусть откроет свой стол и обновит страницу";
+  }
+  if (!page.osFieldKeys.os) {
+    return "В таблице технаря нет столбца «Ответственный» — без него заказ уедет без вашего ника";
   }
   return null;
 }

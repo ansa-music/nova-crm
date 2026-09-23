@@ -20,7 +20,7 @@ import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { formatOrderDate, normalizeTimestamp } from "@/utils/date";
 import { formatCurrency } from "@/utils/format";
-import { buildQuickOrderRow } from "@/utils/quickOrder";
+import { buildQuickOrderRow, mergeColumnPicks } from "@/utils/quickOrder";
 import { sendNotification } from "@/services/notificationService";
 import { addRow, fetchRows, markRowOrder, updateRowCellsBulk } from "@/services/pageService";
 import { addSubPageRow, fetchSubPageRows, fetchSubPages, updateSubPageRowCellsBulk } from "@/services/subPageService";
@@ -456,12 +456,6 @@ export async function deleteOrder(workspaceId: string, orderId: string) {
  * первый подходящий из полного набора (включая скрытые). Порядок в массиве
  * решает, потому что findQuickOrderColumns берёт первое совпадение.
  */
-function mergeColumnPicks(visible: PageColumn[], all: PageColumn[]): PageColumn[] {
-  if (visible.length === 0) return all;
-  const seen = new Set(visible.map((c) => c.key));
-  return [...visible, ...all.filter((c) => !seen.has(c.key))];
-}
-
 /** Строка стола, рождённая заказом: id выводится из заказа, поэтому запись идемпотентна. */
 export function orderRowId(orderId: string): string {
   return `row_${orderId.replace(/[^A-Za-z0-9_-]/g, "")}`;

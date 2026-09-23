@@ -2,8 +2,8 @@ import {
   deleteDoc,
   deleteField,
   getDoc,
+  getDocFromServer,
   getDocs,
-  getDocsFromServer,
   onSnapshot,
   orderBy,
   query,
@@ -331,14 +331,23 @@ export async function fetchSubPages(workspaceId: string, pageId: string): Promis
 }
 
 /**
- * Вкладки стола СВЕЖИМИ с сервера. Нужно там, где по составу столбцов
+ * ОДНА вкладка СВЕЖЕЙ с сервера. Нужно там, где по составу столбцов
  * принимают решение и пишут его в базу (карта `osFieldKeys` у чужого стола):
  * кэш SDK отдаёт сколько угодно старый снимок, и по нему значения заказа
  * уехали бы в переименованные или уже удалённые столбцы.
+ *
+ * Именно один документ, а не вся коллекция: id вкладки известен заранее, а
+ * квота Firestore считается по документам — у стола с годом истории это
+ * десяток чтений против одного, и `orderBy("order")` молча выбросил бы
+ * вкладку без этого поля.
  */
-export async function fetchSubPagesFresh(workspaceId: string, pageId: string): Promise<SubPage[]> {
-  const snap = await getDocsFromServer(query(paths.subPages(workspaceId, pageId), orderBy("order", "asc")));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as SubPage);
+export async function fetchSubPageFresh(
+  workspaceId: string,
+  pageId: string,
+  subPageId: string
+): Promise<SubPage | null> {
+  const snap = await getDocFromServer(paths.subPage(workspaceId, pageId, subPageId));
+  return snap.exists() ? ({ id: snap.id, ...snap.data() } as unknown as SubPage) : null;
 }
 
 export async function fetchSubPageRows(

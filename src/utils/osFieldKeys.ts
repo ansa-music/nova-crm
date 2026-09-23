@@ -1,4 +1,4 @@
-import { findQuickOrderColumns } from "@/utils/quickOrder";
+import { findQuickOrderColumns, mergeColumnPicks } from "@/utils/quickOrder";
 import type { OsFieldKeys, PageColumn } from "@/types";
 
 /**
@@ -15,9 +15,14 @@ import type { OsFieldKeys, PageColumn } from "@/types";
  * ошибались в `takeOrderToDesk`).
  */
 export function computeOsFieldKeys(tabId: string, columns: PageColumn[], now: number): OsFieldKeys {
-  const visible = columns.filter((c) => !c.hidden);
-  const picked = findQuickOrderColumns(visible.length ? visible : columns);
-  const status = (visible.length ? visible : columns).find((c) => c.type === "status");
+  // Ровно как у заезда заказа с биржи (`mergeColumnPicks`): сначала видимые,
+  // следом скрытые. Фильтр «только видимые» тут уже стоял и врал комментарию
+  // выше: стол со СПРЯТАННЫМ «Ответственным» отдавал карту без ключа `os`,
+  // и заказ уезжал технарю без ника ОС — а `osColumnsOf` скрытый столбец
+  // читает, то есть в счётчиках ОС этот заказ и не появлялся.
+  const forPick = mergeColumnPicks(columns.filter((c) => !c.hidden), columns);
+  const picked = findQuickOrderColumns(forPick);
+  const status = forPick.find((c) => c.type === "status");
   const map: OsFieldKeys = { tabId, at: now };
   if (picked.client) map.client = picked.client.key;
   if (picked.number) map.phone = picked.number.key;

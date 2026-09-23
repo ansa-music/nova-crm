@@ -25,6 +25,17 @@ function firstMatch(columns: PageColumn[], re: RegExp): PageColumn | undefined {
   return columns.find((c) => re.test(normLabel(c.label)));
 }
 
+/**
+ * Видимые столбцы впереди, скрытые следом: подбор идёт по видимым, но
+ * скрытый столбец не съедает значение — слот, который видимые не заняли,
+ * достаётся скрытому. Иначе спрятанная «Цена» теряла бы сумму заказа.
+ */
+export function mergeColumnPicks(visible: PageColumn[], all: PageColumn[]): PageColumn[] {
+  if (visible.length === 0) return all;
+  const seen = new Set(visible.map((c) => c.key));
+  return [...visible, ...all.filter((c) => !seen.has(c.key))];
+}
+
 export function findQuickOrderColumns(visible: PageColumn[]) {
   const client = firstMatch(visible, /клиент|назван|имя/) ?? visible.find((c) => c.type === "text");
   const number = firstMatch(visible, /номер|тел|phone/);
