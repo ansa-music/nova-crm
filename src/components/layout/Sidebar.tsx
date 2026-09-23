@@ -2,6 +2,7 @@ import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import {
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -171,6 +172,136 @@ function AppNavLink({
   );
 }
 
+/** Пункт меню. `show: false` — пункта у этой роли нет. */
+interface NavItem {
+  key: string;
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  show?: boolean;
+  badge?: number;
+  alert?: boolean;
+  forceActive?: boolean;
+  end?: boolean;
+  onNavigate?: () => void;
+}
+
+/**
+ * Секция меню. Раньше пункты шли одним столбиком из 17 строк, и разбираться в
+ * них было трудно (жалоба Nurba 23.09.2026). Теперь они собраны по смыслу:
+ * работа → столы → люди → связь → остальное. «Ещё» свёрнута по умолчанию —
+ * там то, что открывают раз в неделю.
+ */
+interface NavSection {
+  key: string;
+  title?: string;
+  items: NavItem[];
+  /** Можно свернуть; состояние помнится в localStorage. */
+  collapsible?: boolean;
+  defaultOpen?: boolean;
+}
+
+const NAV_SECTIONS_KEY = "nova:nav-sections";
+
+function readSectionState(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(NAV_SECTIONS_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function NavSections({
+  sections,
+  collapsed,
+  pathname,
+}: {
+  sections: NavSection[];
+  collapsed: boolean;
+  pathname: string;
+}) {
+  const [openState, setOpenState] = useState<Record<string, boolean>>(readSectionState);
+  function toggle(key: string, fallback: boolean) {
+    setOpenState((prev) => {
+      const next = { ...prev, [key]: !(prev[key] ?? fallback) };
+      try {
+        localStorage.setItem(NAV_SECTIONS_KEY, JSON.stringify(next));
+      } catch {
+        /* приватное окно — просто не запомним */
+      }
+      return next;
+    });
+  }
+
+  return (
+    <nav className={cn("relative mb-4 flex shrink-0 flex-col", collapsed ? "gap-1" : "gap-2")} aria-label="Разделы">
+      {sections.map((section, index) => {
+        const hasActive = section.items.some((i) => i.forceActive ?? pathMatches(pathname, i.to, i.end));
+        // Секцию с активным пунктом не прячем: человек должен видеть, где он.
+        const open = !section.collapsible || hasActive || (openState[section.key] ?? section.defaultOpen ?? true);
+        if (collapsed) {
+          // В рейке заголовков нет — секции разделяет тонкая черта.
+          return (
+            <div key={section.key} className="flex flex-col items-center gap-0.5">
+              {index > 0 && <span className="my-1 h-px w-6 rounded-full bg-primary/20" aria-hidden />}
+              {section.items.map((item) => (
+                <AppNavLink
+                  key={item.key}
+                  collapsed
+                  title={item.label}
+                  to={item.to}
+                  end={item.end}
+                  icon={item.icon}
+                  forceActive={item.forceActive}
+                  alert={item.alert}
+                  badge={item.badge}
+                  onNavigate={item.onNavigate}
+                >
+                  {item.label}
+                </AppNavLink>
+              ))}
+            </div>
+          );
+        }
+        return (
+          <div key={section.key} className="flex flex-col gap-0.5">
+            {section.title &&
+              (section.collapsible ? (
+                <button
+                  type="button"
+                  onClick={() => toggle(section.key, section.defaultOpen ?? true)}
+                  className="eyebrow flex min-h-8 items-center justify-between px-3 text-muted-foreground/80 hover:text-foreground"
+                  aria-expanded={open}
+                >
+                  {section.title}
+                  <ChevronDown className={cn("h-3 w-3 transition-transform", !open && "-rotate-90")} />
+                </button>
+              ) : (
+                <div className="eyebrow flex min-h-8 items-center px-3 text-muted-foreground/80">{section.title}</div>
+              ))}
+            {open &&
+              section.items.map((item) => (
+                <AppNavLink
+                  key={item.key}
+                  to={item.to}
+                  end={item.end}
+                  icon={item.icon}
+                  forceActive={item.forceActive}
+                  alert={item.alert}
+                  badge={item.badge}
+                  onNavigate={item.onNavigate}
+                >
+                  {item.label}
+                </AppNavLink>
+              ))}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
 export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?: () => void }) {
   const { profile } = useAuth();
   const { members, activeWorkspaceId, workspaces, activeWorkspace, setActiveWorkspaceId } = useWorkspace();
@@ -252,6 +383,61 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
     onNavigate?.();
   }
 
+  const rawSections: NavSection[] = [
+    {
+      key: "main",
+      items: [
+        { key: "home", to: homeTo, label: homeLabel, icon: HomeIcon, forceActive: homeActive, alert: deskAlert, onNavigate: goHome },
+        { key: "orders", to: "/orders", label: "Заказы", icon: ClipboardList, alert: ordersAlert, onNavigate },
+        { key: "dashboard", to: "/dashboard", label: "Дашборд", icon: LayoutDashboard, onNavigate },
+      ],
+    },
+    {
+      key: "desks",
+      title: "Столы",
+      items: [
+        { key: "desks", to: "/desks", label: "Столы", icon: LayoutGrid, show: showDeskNav, onNavigate },
+        { key: "os-desk", to: "/os-desk", label: "Стол ОС", icon: Table2, show: showOsDeskNav, onNavigate },
+        { key: "os-desks", to: "/os-desks", label: "Столы ОС", icon: ScanEye, show: showOsDesksNav, onNavigate },
+        { key: "os-dispatch", to: "/os-dispatch", label: "Выдачи ОС", icon: ListChecks, show: showOsDispatchNav, badge: osDispatchUnseen, onNavigate },
+        { key: "technicians", to: "/technicians", label: "Технари", icon: HardHat, show: showTechniciansNav, onNavigate },
+      ],
+    },
+    {
+      key: "people",
+      title: "Люди",
+      items: [
+        { key: "people", to: "/people", label: "Люди", icon: UsersRound, onNavigate },
+        { key: "team", to: "/team", label: "Команда", icon: Contact, show: showUsersNav, onNavigate },
+        { key: "users", to: "/users", label: "Пользователи", icon: Users, show: showUsersNav && !isTeamlead, onNavigate },
+        { key: "schedule", to: "/schedule", label: "График", icon: CalendarDays, onNavigate },
+      ],
+    },
+    {
+      key: "talk",
+      title: "Связь",
+      items: [
+        { key: "messages", to: "/messages", label: "Сообщения", icon: MessageCircle, badge: privateUnreadTotal, onNavigate },
+        { key: "chat", to: "/chat", label: "Чат", icon: MessageSquare, badge: workspaceChatUnread, onNavigate },
+        { key: "announcements", to: "/announcements", label: "Объявления", icon: Megaphone, onNavigate },
+      ],
+    },
+    {
+      key: "more",
+      title: "Ещё",
+      collapsible: true,
+      defaultOpen: false,
+      items: [
+        { key: "grok", to: "/grok-limit", label: "Грок лимит", icon: KeyRound, show: showGrokNav, onNavigate },
+        { key: "dispatch", to: "/dispatch", label: "Выдача", icon: PackageCheck, show: showDispatchNav, onNavigate },
+        { key: "settings", to: "/settings", label: "Настройки", icon: Settings, onNavigate },
+      ],
+    },
+  ];
+  const sections = rawSections
+    .map((section) => ({ ...section, items: section.items.filter((item) => item.show !== false) }))
+    .filter((section) => section.items.length > 0);
+
   return (
     <div
       className={cn(
@@ -297,243 +483,16 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-thin">
-          {!mobile && (
-            <nav className="relative mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
-              {collapsed ? (
-                <>
-                  <AppNavLink collapsed title={homeLabel} to={homeTo} icon={HomeIcon} forceActive={homeActive} alert={deskAlert} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
-                    {homeLabel}
-                  </AppNavLink>
-                  <AppNavLink collapsed title="Дашборд" to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
-                    Дашборд
-                  </AppNavLink>
-                  {showDeskNav && (
-                    <AppNavLink collapsed title="Столы" to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
-                      Столы
-                    </AppNavLink>
-                  )}
-                  <AppNavLink collapsed title="Люди" to="/people" icon={UsersRound} onNavigate={onNavigate}>
-                    Люди
-                  </AppNavLink>
-                  {showUsersNav && (
-                    <AppNavLink collapsed title="Команда" to="/team" icon={Contact} onNavigate={onNavigate}>
-                      Команда
-                    </AppNavLink>
-                  )}
-                  {showTechniciansNav && (
-                    <AppNavLink collapsed title="Технари" to="/technicians" icon={HardHat} onNavigate={onNavigate}>
-                      Технари
-                    </AppNavLink>
-                  )}
-                  <AppNavLink collapsed title="График" to="/schedule" icon={CalendarDays} onNavigate={onNavigate}>
-                    График
-                  </AppNavLink>
-                  <AppNavLink collapsed title="Заказы" to="/orders" icon={ClipboardList} alert={ordersAlert} onNavigate={onNavigate}>
-                    Заказы
-                  </AppNavLink>
-                  {showOsDeskNav && (
-                    <AppNavLink collapsed title="Стол ОС" to="/os-desk" icon={Table2} onNavigate={onNavigate}>
-                      Стол ОС
-                    </AppNavLink>
-                  )}
-                  {showOsDesksNav && (
-                    <AppNavLink collapsed title="Столы ОС" to="/os-desks" icon={ScanEye} onNavigate={onNavigate}>
-                      Столы ОС
-                    </AppNavLink>
-                  )}
-                  {showOsDispatchNav && (
-                    <AppNavLink collapsed title="Выдачи ОС" to="/os-dispatch" icon={ListChecks} onNavigate={onNavigate} badge={osDispatchUnseen}>
-                      Выдачи ОС
-                    </AppNavLink>
-                  )}
-                  <AppNavLink collapsed title="Настройки" to="/settings" icon={Settings} onNavigate={onNavigate}>
-                    Настройки
-                  </AppNavLink>
-                  <AppNavLink collapsed title="Объявления" to="/announcements" icon={Megaphone} onNavigate={onNavigate}>
-                    Объявления
-                  </AppNavLink>
-                  <AppNavLink collapsed title="Сообщения" to="/messages" icon={MessageCircle} onNavigate={onNavigate} badge={privateUnreadTotal}>
-                    Сообщения
-                  </AppNavLink>
-                  <AppNavLink collapsed title="Чат" to="/chat" icon={MessageSquare} onNavigate={onNavigate} badge={workspaceChatUnread}>
-                    Чат
-                  </AppNavLink>
-                  {showGrokNav && (
-                    <AppNavLink collapsed title="Грок лимит" to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
-                      Грок лимит
-                    </AppNavLink>
-                  )}
-                  {showDispatchNav && (
-                    <AppNavLink collapsed title="Выдача" to="/dispatch" icon={PackageCheck} onNavigate={onNavigate}>
-                      Выдача
-                    </AppNavLink>
-                  )}
-                  {showUsersNav && !isTeamlead && (
-                    <AppNavLink collapsed title="Пользователи" to="/users" icon={Users} onNavigate={onNavigate}>
-                      Пользователи
-                    </AppNavLink>
-                  )}
-                </>
-              ) : (
-                <>
-                  <AppNavLink to={homeTo} icon={HomeIcon} forceActive={homeActive} alert={deskAlert} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
-                    {homeLabel}
-                  </AppNavLink>
-                  <AppNavLink to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
-                    Дашборд
-                  </AppNavLink>
-                  {showDeskNav && (
-                    <AppNavLink to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
-                      Столы
-                    </AppNavLink>
-                  )}
-                  <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
-                    Люди
-                  </AppNavLink>
-                  {showUsersNav && (
-                    <AppNavLink to="/team" icon={Contact} onNavigate={onNavigate}>
-                      Команда
-                    </AppNavLink>
-                  )}
-                  {showTechniciansNav && (
-                    <AppNavLink to="/technicians" icon={HardHat} onNavigate={onNavigate}>
-                      Технари
-                    </AppNavLink>
-                  )}
-                  <AppNavLink to="/schedule" icon={CalendarDays} onNavigate={onNavigate}>
-                    График
-                  </AppNavLink>
-                  <AppNavLink to="/orders" icon={ClipboardList} alert={ordersAlert} onNavigate={onNavigate}>
-                    Заказы
-                  </AppNavLink>
-                  {showOsDeskNav && (
-                    <AppNavLink to="/os-desk" icon={Table2} onNavigate={onNavigate}>
-                      Стол ОС
-                    </AppNavLink>
-                  )}
-                  {showOsDesksNav && (
-                    <AppNavLink to="/os-desks" icon={ScanEye} onNavigate={onNavigate}>
-                      Столы ОС
-                    </AppNavLink>
-                  )}
-                  {showOsDispatchNav && (
-                    <AppNavLink to="/os-dispatch" icon={ListChecks} onNavigate={onNavigate} badge={osDispatchUnseen}>
-                      Выдачи ОС
-                    </AppNavLink>
-                  )}
-                  <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
-                    Настройки
-                  </AppNavLink>
-                  <AppNavLink to="/announcements" icon={Megaphone} onNavigate={onNavigate}>
-                    Объявления
-                  </AppNavLink>
-                  <AppNavLink to="/messages" icon={MessageCircle} onNavigate={onNavigate} badge={privateUnreadTotal}>
-                    Сообщения
-                  </AppNavLink>
-                  <AppNavLink to="/chat" icon={MessageSquare} onNavigate={onNavigate} badge={workspaceChatUnread}>
-                    Чат
-                  </AppNavLink>
-                  {showGrokNav && (
-                    <AppNavLink to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
-                      Грок лимит
-                    </AppNavLink>
-                  )}
-                  {showDispatchNav && (
-                    <AppNavLink to="/dispatch" icon={PackageCheck} onNavigate={onNavigate}>
-                      Выдача
-                    </AppNavLink>
-                  )}
-                  {showUsersNav && !isTeamlead && (
-                    <AppNavLink to="/users" icon={Users} onNavigate={onNavigate}>
-                      Пользователи
-                    </AppNavLink>
-                  )}
-                </>
-              )}
-            </nav>
-          )}
-          {mobile && (
-            <nav className="relative mb-4 flex shrink-0 flex-col gap-0.5" aria-label="Разделы">
-              <AppNavLink to={homeTo} icon={HomeIcon} forceActive={homeActive} alert={deskAlert} onNavigate={() => { navigate(homeTo); onNavigate?.(); }}>
-                {homeLabel}
-              </AppNavLink>
-              <AppNavLink to="/dashboard" icon={LayoutDashboard} onNavigate={onNavigate}>
-                Дашборд
-              </AppNavLink>
-              {showDeskNav && (
-                <AppNavLink to="/desks" icon={LayoutGrid} onNavigate={onNavigate}>
-                  Столы
-                </AppNavLink>
-              )}
-              <AppNavLink to="/people" icon={UsersRound} onNavigate={onNavigate}>
-                Люди
-              </AppNavLink>
-              {showUsersNav && (
-                <AppNavLink to="/team" icon={Contact} onNavigate={onNavigate}>
-                  Команда
-                </AppNavLink>
-              )}
-              {showTechniciansNav && (
-                <AppNavLink to="/technicians" icon={HardHat} onNavigate={onNavigate}>
-                  Технари
-                </AppNavLink>
-              )}
-              <AppNavLink to="/orders" icon={ClipboardList} alert={ordersAlert} onNavigate={onNavigate}>
-                Заказы
-              </AppNavLink>
-              {showOsDeskNav && (
-                <AppNavLink to="/os-desk" icon={Table2} onNavigate={onNavigate}>
-                  Стол ОС
-                </AppNavLink>
-              )}
-              {showOsDesksNav && (
-                <AppNavLink to="/os-desks" icon={ScanEye} onNavigate={onNavigate}>
-                  Столы ОС
-                </AppNavLink>
-              )}
-              {showOsDispatchNav && (
-                <AppNavLink to="/os-dispatch" icon={ListChecks} onNavigate={onNavigate} badge={osDispatchUnseen}>
-                  Выдачи ОС
-                </AppNavLink>
-              )}
-              <AppNavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
-                Настройки
-              </AppNavLink>
-              <AppNavLink to="/announcements" icon={Megaphone} onNavigate={onNavigate}>
-                Объявления
-              </AppNavLink>
-              <AppNavLink to="/messages" icon={MessageCircle} onNavigate={onNavigate} badge={privateUnreadTotal}>
-                Сообщения
-              </AppNavLink>
-              <AppNavLink to="/chat" icon={MessageSquare} onNavigate={onNavigate} badge={workspaceChatUnread}>
-                Чат
-              </AppNavLink>
-              {showGrokNav && (
-                <AppNavLink to="/grok-limit" icon={KeyRound} onNavigate={onNavigate}>
-                  Грок лимит
-                </AppNavLink>
-              )}
-              {showDispatchNav && (
-                <AppNavLink to="/dispatch" icon={PackageCheck} onNavigate={onNavigate}>
-                  Выдача
-                </AppNavLink>
-              )}
-              {showUsersNav && !isTeamlead && (
-                <AppNavLink to="/users" icon={Users} onNavigate={onNavigate}>
-                  Пользователи
-                </AppNavLink>
-              )}
-              {permissions.canCreatePages && (
-                <button
-                  type="button"
-                  onClick={() => setCreatePageOpen(true)}
-                  className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[14px] font-medium text-sidebar-foreground hover:bg-sidebar-accent/80"
-                >
-                  <Plus className="h-4 w-4 shrink-0" />
-                  Новый стол
-                </button>
-              )}
-            </nav>
+          <NavSections sections={sections} collapsed={collapsed} pathname={location.pathname} />
+          {mobile && permissions.canCreatePages && (
+            <button
+              type="button"
+              onClick={() => setCreatePageOpen(true)}
+              className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[14px] font-medium text-sidebar-foreground hover:bg-sidebar-accent/80"
+            >
+              <Plus className="h-4 w-4 shrink-0" />
+              Новый стол
+            </button>
           )}
         </div>
 
@@ -617,43 +576,12 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                   <RefreshCw className="h-4 w-4" /> Обновить сайт у всех
                 </DropdownMenuItem>
               )}
-              {!mobile && (
+              {!mobile && permissions.canCreatePages && (
                 <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <NavLink to="/settings" onClick={() => onNavigate?.()}>
-                  <Settings className="h-4 w-4" /> Настройки
-                </NavLink>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <NavLink to="/announcements" onClick={() => onNavigate?.()}>
-                  <Megaphone className="h-4 w-4" /> Объявления
-                </NavLink>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <NavLink to="/chat" onClick={() => onNavigate?.()}>
-                  <MessageSquare className="h-4 w-4" /> Чат Workspace
-                  {workspaceChatUnread > 0 ? ` · ${workspaceChatUnread > 9 ? "9+" : workspaceChatUnread}` : ""}
-                </NavLink>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <NavLink to="/messages" onClick={() => onNavigate?.()}>
-                  <MessageCircle className="h-4 w-4" /> Сообщения
-                  {privateUnreadTotal > 0 ? ` · ${privateUnreadTotal > 9 ? "9+" : privateUnreadTotal}` : ""}
-                </NavLink>
-              </DropdownMenuItem>
-              {showUsersNav && (
-                <DropdownMenuItem asChild>
-                  <NavLink to="/users" onClick={() => onNavigate?.()}>
-                    <Users className="h-4 w-4" /> Пользователи
-                  </NavLink>
-                </DropdownMenuItem>
-              )}
-              {permissions.canCreatePages && (
-                <DropdownMenuItem onClick={() => setCreatePageOpen(true)}>
-                  <Plus className="h-4 w-4" /> Новый стол
-                </DropdownMenuItem>
-              )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setCreatePageOpen(true)}>
+                    <Plus className="h-4 w-4" /> Новый стол
+                  </DropdownMenuItem>
                 </>
               )}
               {/* «Режим доступа» есть только у Owner — у остальных RoleSwitcher
