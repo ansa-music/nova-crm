@@ -10,6 +10,8 @@ export interface OsDeskKeys {
   link: string;
   status: string;
   technician: string;
+  /** «Итого» — касса строки (utils/payment.ts). */
+  total: string;
 }
 
 /** Ключи нового стола ОС — от `OS_DESK_COLUMNS`. */
@@ -22,6 +24,7 @@ export const OS_DESK_KEYS: OsDeskKeys = {
   link: "link",
   status: "status",
   technician: "technician",
+  total: "total",
 };
 
 /**
@@ -47,5 +50,6 @@ export function resolveOsDeskKeys(columns: readonly PageColumn[] | null | undefi
     // Статус и технарь — по ТИПУ раньше ключа: «Статус» стол держит ровно один.
     status: byType("status") ?? OS_DESK_KEYS.status,
     technician: byType("technician") ?? OS_DESK_KEYS.technician,
+    total: byKey("total") ?? byLabel(/^итог/i) ?? OS_DESK_KEYS.total,
   };
 }

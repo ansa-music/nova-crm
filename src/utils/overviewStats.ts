@@ -281,6 +281,50 @@ export function monthlySeries(input: {
   });
 }
 
+/**
+ * Премия за место в рейтинге «Готово» (index — с нуля). Только первым трём и
+ * только тем, у кого «Готово» больше нуля: пустой месяц премию не приносит.
+ * Суммы — `workspace.techBonuses` (правит Owner в «Настройки → Касса»).
+ */
+export function bonusForPlace(bonuses: readonly number[], index: number, doneTotal: number): number {
+  if (index < 0 || index > 2 || !(doneTotal > 0)) return 0;
+  return bonuses[index] ?? 0;
+}
+
+export interface MonthDoneEntry {
+  uid: string;
+  doneTotal: number;
+  orders: number;
+}
+
+/**
+ * Рейтинг «Готово» за ПРОШЛЫЙ месяц — по архиву `deskLoadHistory` (его пишет
+ * `publishDeskLoad` при первой публикации нового месяца). Столы сводятся к
+ * людям по ответственному; берётся последняя архивная запись каждого стола.
+ */
+export function monthDoneRanking(input: {
+  history: DeskLoadArchive[];
+  monthKey: string;
+  statusOptions: StatusOption[];
+  /** Кого считать (технари рейтинга) — чужие столы не в счёт. */
+  uids: Set<string>;
+}): MonthDoneEntry[] {
+  const latest = new Map<string, DeskLoadArchive>();
+  for (const doc of input.history) {
+    if (doc.monthKey !== input.monthKey || !input.uids.has(doc.responsibleUserId)) continue;
+    const prev = latest.get(doc.pageId);
+    if (!prev || (doc.archivedAt ?? 0) > (prev.archivedAt ?? 0)) latest.set(doc.pageId, doc);
+  }
+  const byUid = new Map<string, MonthDoneEntry>();
+  for (const doc of latest.values()) {
+    const entry = byUid.get(doc.responsibleUserId) ?? { uid: doc.responsibleUserId, doneTotal: 0, orders: 0 };
+    entry.doneTotal += doneSumFromStatusSums(doc.statusSums, input.statusOptions);
+    entry.orders += doc.total ?? 0;
+    byUid.set(doc.responsibleUserId, entry);
+  }
+  return [...byUid.values()].sort((a, b) => b.doneTotal - a.doneTotal || b.orders - a.orders);
+}
+
 /** Place in a ranking (1-based) of `uid`, or null when not ranked. */
 export function placeOf<T extends { member: WorkspaceMember }>(ranked: T[], uid: string): number | null {
   const index = ranked.findIndex((t) => t.member.uid === uid);

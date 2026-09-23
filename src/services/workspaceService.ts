@@ -1,10 +1,11 @@
 import { deleteDoc, deleteField, DocumentData, increment, onSnapshot, runTransaction, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { sanitizePaymentMethods } from "@/utils/payment";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { addOwnWorkspaceId } from "@/services/authService";
 import { DEFAULT_STATUS_OPTIONS, FREEZE_STATUS_OPTION, isFreezeStatusLabel } from "@/utils/columnOptions";
-import type { CustomFieldDef, StatusOption, TechLoadKind, Workspace } from "@/types";
+import type { CustomFieldDef, PaymentMethod, StatusOption, TechLoadKind, Workspace } from "@/types";
 
 export interface CreateWorkspaceInput {
   name: string;
@@ -70,6 +71,20 @@ export async function requestReloadEverywhere(workspaceId: string) {
  */
 export async function setOsManagedDesks(workspaceId: string, on: boolean) {
   await updateWorkspace(workspaceId, { osManagedDesks: on });
+}
+
+/**
+ * Касса ОС: способы оплаты с комиссией («Настройки → Касса»). Пишет только
+ * Owner — Тимлиду поле закрыто правилом workspace.
+ */
+export async function updatePaymentMethods(workspaceId: string, methods: PaymentMethod[]) {
+  await updateWorkspace(workspaceId, { paymentMethods: sanitizePaymentMethods(methods) });
+}
+
+/** Премии технарям за 1–3 место по «Готово». Пишет только Owner. */
+export async function updateTechBonuses(workspaceId: string, bonuses: number[]) {
+  const clean = bonuses.slice(0, 3).map((n) => (Number.isFinite(n) && n > 0 ? Math.round(n) : 0));
+  await updateWorkspace(workspaceId, { techBonuses: clean });
 }
 
 export async function updateResponsibleOptions(workspaceId: string, options: StatusOption[]) {

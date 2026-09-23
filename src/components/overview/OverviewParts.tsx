@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { ChevronDown, Crown, Star, Table2 } from "lucide-react";
+import { ChevronDown, Crown, Gift, Star, Table2 } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { StarRating } from "@/components/technicians/StarRating";
 import { cn } from "@/utils/cn";
@@ -9,7 +9,8 @@ import { formatCurrency, formatNumber } from "@/utils/format";
 import { personLabel } from "@/utils/peopleDesks";
 import { NO_STATUS_KEY } from "@/utils/techLoad";
 import type { OverviewDay, OverviewMonth, OverviewOsShare, OverviewTechnician } from "@/utils/overviewStats";
-import type { StatusOption } from "@/types";
+import type { StatusOption, WorkspaceMember } from "@/types";
+import { bonusForPlace } from "@/utils/overviewStats";
 
 const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -239,12 +240,47 @@ export function LeadersRow({
 
 const LEADERBOARD_PREVIEW = 8;
 
-export function DoneLeaderboard({ ranked, myUid }: { ranked: OverviewTechnician[]; myUid: string }) {
+/** «+100 000 ₸» — премия за место (зелёная: это деньги человеку, а не касса). */
+export function BonusChip({ amount, className }: { amount: number; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-success/40 bg-success/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-success tabular-nums",
+        className
+      )}
+      title={`Премия к зарплате: ${formatCurrency(amount)}`}
+    >
+      <Gift className="h-3 w-3 shrink-0" />+{formatMoneyCompact(amount)}
+    </span>
+  );
+}
+
+export function DoneLeaderboard({
+  ranked,
+  myUid,
+  bonuses = [],
+}: {
+  ranked: OverviewTechnician[];
+  myUid: string;
+  /** Премии за 1–3 место (workspace.techBonuses). */
+  bonuses?: readonly number[];
+}) {
   const [open, setOpen] = useState(false);
   const leader = ranked[0]?.doneTotal ?? 0;
   const shown = open ? ranked : ranked.slice(0, LEADERBOARD_PREVIEW);
+  const anyBonus = bonuses.some((b) => b > 0);
   return (
-    <Panel eyebrow="Рейтинг" title="По сумме «Готово»">
+    <Panel
+      eyebrow="Рейтинг · касса технарей"
+      title="По сумме «Готово»"
+      action={
+        anyBonus ? (
+          <span className="text-[11px] text-muted-foreground" title="Премии получают первые три места по итогам месяца">
+            топ-3 — премия
+          </span>
+        ) : undefined
+      }
+    >
       {ranked.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">Пока нет технарей со столами.</p>
       ) : (
@@ -263,9 +299,14 @@ export function DoneLeaderboard({ ranked, myUid }: { ranked: OverviewTechnician[
                     me={tech.member.uid === myUid}
                     sub={`${formatNumber(tech.summary.total)} ${ordersWord(tech.summary.total)}${share !== null ? ` · ${share}% от общей суммы` : ""}`}
                   />
-                  <p className="shrink-0 text-right text-sm font-semibold tabular-nums" title={formatCurrency(tech.doneTotal)}>
-                    {formatMoneyCompact(tech.doneTotal)}
-                  </p>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <p className="text-right text-sm font-semibold tabular-nums" title={formatCurrency(tech.doneTotal)}>
+                      {formatMoneyCompact(tech.doneTotal)}
+                    </p>
+                    {bonusForPlace(bonuses, i, tech.doneTotal) > 0 ? (
+                      <BonusChip amount={bonusForPlace(bonuses, i, tech.doneTotal)} />
+                    ) : null}
+                  </div>
                 </div>
                 <div className="ml-[34px] mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted/60" aria-hidden>
                   <div
@@ -758,3 +799,55 @@ export function OsBars({ os, myOsValue }: { os: OverviewOsShare[]; myOsValue: st
   );
 }
 
+
+export interface BonusTopEntry {
+  member: WorkspaceMember;
+  doneTotal: number;
+  bonus: number;
+}
+
+/**
+ * Итог премий за прошлый месяц: кто занял 1–3 место по «Готово» и сколько
+ * ему к зарплате. Считается по архиву месяца, поэтому 1-го числа не пропадает,
+ * как и итог оценок рядом.
+ */
+export function BonusTop({ monthLabel, entries }: { monthLabel: string; entries: BonusTopEntry[] }) {
+  if (entries.length === 0) return null;
+  const total = entries.reduce((sum, e) => sum + e.bonus, 0);
+  return (
+    <section className="rounded-2xl border border-success/30 bg-success/[0.06] p-4">
+      <header className="mb-2.5 flex flex-wrap items-baseline justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-sm font-medium">
+          <Gift className="h-4 w-4 text-success" />
+          Премии за {monthLabel}
+        </p>
+        <span className="text-xs text-muted-foreground">
+          всего <span className="font-semibold text-foreground tabular-nums">{formatCurrency(total)}</span>
+        </span>
+      </header>
+      <ol className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))]">
+        {entries.map((entry, index) => (
+          <li key={entry.member.uid} className="flex min-w-0 items-center gap-2 rounded-xl border border-border/60 bg-card/60 px-2.5 py-2">
+            <PlaceBadge place={index + 1} />
+            <MemberAvatar
+              id={entry.member.uid}
+              name={entry.member.name}
+              nickname={entry.member.nickname}
+              photoURL={entry.member.photoURL}
+              className="h-7 w-7 shrink-0"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{personLabel(entry.member)}</p>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                <span className="whitespace-nowrap text-[11px] text-muted-foreground tabular-nums" title={formatCurrency(entry.doneTotal)}>
+                  «Готово» {formatMoneyCompact(entry.doneTotal)}
+                </span>
+                <BonusChip amount={entry.bonus} />
+              </div>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}

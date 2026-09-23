@@ -308,6 +308,18 @@ interface DataTableProps {
     get: (row: PageRow) => CellActionView | null;
     run: (row: PageRow) => void;
   };
+  /**
+   * Добавка слева внутри ячеек `keys` (стол ОС: способ оплаты у «Цены» и
+   * «Апсейла»). `version` меняется, когда меняется то, что рисует `render`
+   * помимо самой строки (список способов) — иначе строки не перерисуются.
+   */
+  cellAddon?: {
+    keys: readonly string[];
+    render: (row: PageRow, colKey: string) => React.ReactNode;
+    version: string;
+  };
+  /** Ячейки только для чтения: ключ столбца → почему (стол ОС: «Итого» считает сам). */
+  lockedKeys?: Readonly<Record<string, string>>;
   canEditStructure: boolean;
   userId: string;
   userName: string;
@@ -334,7 +346,7 @@ function normalizeContact(raw: string, type: "phone" | "email" | string): string
   return v.toLowerCase();
 }
 
-export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, cellPickerKeys, onOpenCellPicker, cellAction }: DataTableProps) {
+export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, cellPickerKeys, onOpenCellPicker, cellAction, cellAddon, lockedKeys }: DataTableProps) {
   // Внешний выбор ячейки: колбэк стабилен (через ref), иначе каждый рендер
   // стола перерисовывал бы все строки — TableRow сравнивает пропсы.
   const cellPickerRef = useRef(onOpenCellPicker);
@@ -347,6 +359,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }, []);
   const cellActionRef = useRef(cellAction);
   cellActionRef.current = cellAction;
+  const cellAddonRef = useRef(cellAddon);
+  cellAddonRef.current = cellAddon;
+  const renderCellAddon = useCallback((row: PageRow, colKey: string) => cellAddonRef.current?.render(row, colKey) ?? null, []);
   const runCellAction = useCallback((rowId: string) => {
     const row = rowsRef.current.find((r) => r.id === rowId);
     if (row) cellActionRef.current?.run(row);
@@ -357,8 +372,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // Тот же замок, но для самой ячейки: ссылка стабильна, иначе строки
   // перерисовывались бы на каждый рендер таблицы (memo в TableRow).
   const cellLockFor = useCallback(
-    (row: PageRow, colKey: string) => (viewer ? cellLockReason(row, colKey, viewer, lockCtx) : null),
-    [viewer, lockCtx]
+    (row: PageRow, colKey: string) =>
+      lockedKeys?.[colKey] ?? (viewer ? cellLockReason(row, colKey, viewer, lockCtx) : null),
+    [viewer, lockCtx, lockedKeys]
   );
   const columns = useMemo(
     () =>
@@ -3549,6 +3565,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         cellLock={cellLockFor}
         pickerKeys={cellPickerKeys}
         onOpenCellPicker={onOpenCellPicker ? openCellPicker : undefined}
+        cellAddonKeys={cellAddon?.keys}
+        cellAddonVersion={cellAddon?.version}
+        renderCellAddon={cellAddon ? renderCellAddon : undefined}
         cellActionKey={cellAction?.colKey ?? null}
         cellAction={cellAction ? cellAction.get(row) : null}
         onCellAction={cellAction ? runCellAction : undefined}

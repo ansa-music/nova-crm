@@ -37,6 +37,8 @@ interface TableCellProps {
   isLastSticky?: boolean;
   isExpanded?: boolean;
   trailing?: ReactNode;
+  /** Добавка слева от значения (способ оплаты у денежной ячейки стола ОС). */
+  leading?: ReactNode;
   /** «Визитка клиента» button in the client column; summary is null while the card is empty. */
   clientCard?: {
     summary: string | null;
@@ -102,6 +104,7 @@ export function TableCell({
   isLastSticky,
   isExpanded,
   trailing,
+  leading,
   clientCard,
   coarsePointer,
   searchQuery = "",
@@ -531,6 +534,7 @@ export function TableCell({
             if (stringValue.length > 36) setExpanded((v) => !v);
           }}
         >
+          {leading && !showFull ? <span className="mr-auto flex min-w-0 shrink items-center pr-1.5">{leading}</span> : null}
           {showFull ? (
             <span className="whitespace-pre-wrap break-words text-sm">
               <HighlightText text={stringValue} query={searchQuery} />

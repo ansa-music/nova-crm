@@ -93,9 +93,10 @@ export default function OsDesksPage() {
       acc.month += s.stats.monthCount;
       acc.price += s.stats.priceSum;
       acc.upsell += s.stats.upsellSum;
+      acc.net += s.stats.netSum ?? 0;
       return acc;
     },
-    { today: 0, month: 0, price: 0, upsell: 0 }
+    { today: 0, month: 0, price: 0, upsell: 0, net: 0 }
   );
   const monthName = MONTH_NAME.format(new Date());
 
@@ -139,11 +140,12 @@ export default function OsDesksPage() {
       ) : (
         <>
           {openable.length > 1 && (
-            <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
               <Tile label="Сегодня" value={String(totals.today)} hint="заказов у всех" />
               <Tile label={`За ${monthName}`} value={String(totals.month)} hint="заказов у всех" />
               <Tile label="Цена" value={formatCurrency(totals.price)} hint="за месяц" />
               <Tile label="Апсейл" value={formatCurrency(totals.upsell)} hint="за месяц" />
+              <Tile label="Касса" value={formatCurrency(totals.net)} hint="за вычетом комиссий" />
             </div>
           )}
           <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))]">
@@ -187,6 +189,9 @@ export default function OsDesksPage() {
                           <Stat label={`За ${monthName}`} value={String(s.stats.monthCount)} />
                           <Stat label="Цена" value={formatCurrency(s.stats.priceSum)} />
                           <Stat label="Апсейл" value={formatCurrency(s.stats.upsellSum)} />
+                          <div className="col-span-2">
+                            <Stat label="Касса (за вычетом комиссий)" value={formatCurrency(s.stats.netSum ?? 0)} />
+                          </div>
                         </div>
                         <p className="text-[11px] text-muted-foreground">
                           {s.stats.lastActivityAt ? `Последняя запись ${timeAgo(s.stats.lastActivityAt)}` : "В этом месяце записей нет"}

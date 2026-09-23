@@ -1,4 +1,5 @@
 import { getDocs, query, where, type CollectionReference } from "firebase/firestore";
+import { osRowTotal } from "@/utils/payment";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { fetchSubPages } from "@/services/subPageService";
@@ -24,6 +25,8 @@ export interface OsDeskMonthStats {
   monthCount: number;
   priceSum: number;
   upsellSum: number;
+  /** Касса: цена и апсейл за вычетом комиссии способов оплаты (utils/payment). */
+  netSum: number;
   /** Последняя запись или правка строки этого месяца. */
   lastActivityAt: number | null;
 }
@@ -109,7 +112,7 @@ export async function fetchOsDeskMonthStats(
   );
   tables.push(...subTables);
 
-  const stats: OsDeskMonthStats = { todayCount: 0, monthCount: 0, priceSum: 0, upsellSum: 0, lastActivityAt: null };
+  const stats: OsDeskMonthStats = { todayCount: 0, monthCount: 0, priceSum: 0, upsellSum: 0, netSum: 0, lastActivityAt: null };
   for (const table of tables) {
     const priceKey = moneyColumnKey(table.columns, "price");
     const upsellKey = moneyColumnKey(table.columns, "upsell");
@@ -124,6 +127,9 @@ export async function fetchOsDeskMonthStats(
       if (orderAt >= todayStart) stats.todayCount += 1;
       if (priceKey) stats.priceSum += cellNumber(row.cells?.[priceKey]);
       if (upsellKey) stats.upsellSum += cellNumber(row.cells?.[upsellKey]);
+      // Считаем по самой строке, а не по ячейке «Итого»: её дописывает стол,
+      // пока открыт, и у свежей строки она может ещё не стоять.
+      stats.netSum += (priceKey || upsellKey ? osRowTotal(row, { price: priceKey ?? "", upsell: upsellKey ?? "" }) : null) ?? 0;
       const touched = Math.max(row.updatedAt ?? 0, row.createdAt ?? 0);
       if (touched && (stats.lastActivityAt == null || touched > stats.lastActivityAt)) stats.lastActivityAt = touched;
     }

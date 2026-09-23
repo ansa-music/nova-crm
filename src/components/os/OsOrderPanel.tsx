@@ -17,7 +17,17 @@ import {
 } from "@/utils/columnOptions";
 import { firestoreErrorText } from "@/utils/dbError";
 import { personLabel } from "@/utils/peopleDesks";
-import type { PageRow } from "@/types";
+import type { PageRow, PaymentMethod } from "@/types";
+import { PaymentChip } from "@/components/cashbox/PaymentChip";
+import { osRowFees, osRowTotal } from "@/utils/payment";
+import { formatCurrency } from "@/utils/format";
+import { parseLooseNumber } from "@/utils/numberInput";
+
+/** Сумма из ячейки как число (для показа рядом со способом оплаты). */
+function cellAmount(value: unknown): number {
+  if (typeof value === "number") return value;
+  return parseLooseNumber(String(value ?? "")) ?? 0;
+}
 
 /**
  * Заказ в карточке строки стола ОС: кому выдан, какой статус и кнопка выдачи.
@@ -38,6 +48,7 @@ export function OsOrderPanel({
   onChoose,
   onPickTech,
   keys = OS_DESK_KEYS,
+  payment,
 }: {
   row: PageRow;
   pageId: string;
@@ -53,6 +64,13 @@ export function OsOrderPanel({
   onPickTech?: () => void;
   /** Ключи ячеек открытой таблицы стола ОС. */
   keys?: OsDeskKeys;
+  /** Касса: способы оплаты у цены и апсейла (на телефоне — только отсюда). */
+  payment?: {
+    methods: readonly PaymentMethod[];
+    canConfigure: boolean;
+    onPick: (colKey: string, method: PaymentMethod | null) => void;
+    onConfigure: () => void;
+  };
 }) {
   const { activeWorkspaceId, activeWorkspace, pages, members } = useWorkspace();
   const [busy, setBusy] = useState(false);
@@ -157,6 +175,41 @@ export function OsOrderPanel({
           </button>
         ) : null}
       </div>
+
+      {payment ? (
+        <div className="flex flex-col gap-1.5 rounded-lg border border-border/70 p-2">
+          {[
+            { key: keys.price, label: "Цена" },
+            { key: keys.upsell, label: "Апсейл" },
+          ].map((f) => (
+            <div key={f.key} className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="w-16 text-muted-foreground">{f.label}</span>
+              <span className="tabular-nums">{String(row.cells[f.key] ?? "").trim() ? formatCurrency(cellAmount(row.cells[f.key])) : "—"}</span>
+              <PaymentChip
+                row={row}
+                colKey={f.key}
+                methods={payment.methods}
+                canEdit
+                canConfigure={payment.canConfigure}
+                onPick={(m) => payment.onPick(f.key, m)}
+                onConfigure={payment.onConfigure}
+              />
+            </div>
+          ))}
+          {(() => {
+            const total = osRowTotal(row, keys);
+            const fees = osRowFees(row, keys);
+            return (
+              <p className="flex flex-wrap items-baseline gap-x-2 border-t border-border/60 pt-1.5 text-sm">
+                <span className="w-16 text-muted-foreground">Итого</span>
+                <span className="font-semibold tabular-nums">{total !== null ? formatCurrency(total) : "—"}</span>
+                {fees > 0 ? <span className="text-xs text-muted-foreground">комиссия −{formatCurrency(fees)}</span> : null}
+                <span className="basis-full text-[11px] text-muted-foreground">Эта сумма уходит технарю как цена заказа.</span>
+              </p>
+            );
+          })()}
+        </div>
+      ) : null}
 
       {osStatusColumn ? (
         <div className="flex flex-wrap items-center gap-2">

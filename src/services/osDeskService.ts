@@ -25,8 +25,12 @@ import type { PageColumn, WorkspacePage } from "@/types";
 export const OS_DESK_COLUMNS: Array<Pick<PageColumn, "key" | "label" | "type" | "width">> = [
   { key: "client", label: "Имя", type: "text", width: 200 },
   { key: "phone", label: "Номер", type: "phone", width: 150 },
-  { key: "price", label: "Цена", type: "currency", width: 130 },
-  { key: "upsell", label: "Апсейл", type: "currency", width: 130 },
+  { key: "price", label: "Цена", type: "currency", width: 180 },
+  { key: "upsell", label: "Апсейл", type: "currency", width: 180 },
+  // Касса: цена и апсейл за вычетом комиссии их способов оплаты (utils/payment).
+  // Столбец только для чтения — его пишет стол ОС сам (useOsTotalsKeeper), и
+  // именно эта сумма уезжает технарю как цена заказа.
+  { key: "total", label: "Итого", type: "currency", width: 140 },
   // Статус заказа ведёт ОС и ведёт его ОТСЮДА: правка уезжает в строку
   // технаря (useOsStatusSync). Сам заказ по-прежнему считается по строке
   // технаря — «Технари», дашборд и оценки читают её, а не этот столбец.
@@ -54,33 +58,45 @@ export function isOsDeskId(pageId: string): boolean {
 }
 
 /**
- * Столбец «Статус» столам ОС, заведённым до того, как статус стал жить здесь.
- * Ставится перед «Примечанием» — там же, где он стоит у новых столов.
- * Ячейки не трогаются: у старых строк статус просто пустой, и первая же
- * правка отправит его технарю.
+ * Столбцы, которых нет у столов ОС, заведённых раньше: «Статус» (ставится
+ * перед «Примечанием») и «Итого» (сразу после «Апсейла»). Ячейки не
+ * трогаются — у старых строк статус пустой, а «Итого» досчитает сам стол.
+ * Возвращает null, если добавлять нечего (писать документ не нужно).
  */
-export async function ensureOsDeskStatusColumn(
-  workspaceId: string,
-  pageId: string,
-  existingColumns: PageColumn[]
-): Promise<PageColumn[]> {
-  if (existingColumns.some((c) => c.type === "status")) return existingColumns;
-  const noteIndex = existingColumns.findIndex((c) => c.key === "note");
-  const statusColumn: PageColumn = {
-    id: generateId("col"),
-    key: "status",
-    label: "Статус",
-    type: "status",
-    width: 150,
-    order: 0,
-  };
-  const merged =
-    noteIndex === -1
-      ? [...existingColumns, statusColumn]
-      : [...existingColumns.slice(0, noteIndex), statusColumn, ...existingColumns.slice(noteIndex)];
-  const columns = merged.map((c, i) => ({ ...c, order: i }));
-  await updatePageColumns(workspaceId, pageId, columns);
-  return columns;
+export function missingOsDeskColumns(existingColumns: PageColumn[]): PageColumn[] | null {
+  let cols = existingColumns;
+  let changed = false;
+  if (!cols.some((c) => c.type === "status")) {
+    const noteIndex = cols.findIndex((c) => c.key === "note");
+    const status: PageColumn = { id: generateId("col"), key: "status", label: "Статус", type: "status", width: 150, order: 0 };
+    cols = noteIndex === -1 ? [...cols, status] : [...cols.slice(0, noteIndex), status, ...cols.slice(noteIndex)];
+    changed = true;
+  }
+  if (!cols.some((c) => c.key === "total" || /^итог/i.test((c.label ?? "").trim()))) {
+    const after = cols.findIndex((c) => c.key === "upsell");
+    const total: PageColumn = { id: generateId("col"), key: "total", label: "Итого", type: "currency", width: 140, order: 0 };
+    cols = after === -1 ? [...cols, total] : [...cols.slice(0, after + 1), total, ...cols.slice(after + 1)];
+    changed = true;
+  }
+  // «Цена» и «Апсейл» шире: в ячейке теперь ещё и способ оплаты («Lavatop
+  // −8 %»), и в прежние 130 px он не помещался. Только нетронутую ширину —
+  // растянутый руками столбец не трогаем.
+  cols = cols.map((c) => {
+    if ((c.key === "price" || c.key === "upsell") && c.width === 130) {
+      changed = true;
+      return { ...c, width: 180 };
+    }
+    return c;
+  });
+  return changed ? cols.map((c, i) => ({ ...c, order: i })) : null;
+}
+
+/** Дописать недостающие столбцы главной вкладке стола ОС. */
+export async function ensureOsDeskColumns(workspaceId: string, pageId: string, existingColumns: PageColumn[]): Promise<PageColumn[]> {
+  const next = missingOsDeskColumns(existingColumns);
+  if (!next) return existingColumns;
+  await updatePageColumns(workspaceId, pageId, next);
+  return next;
 }
 
 export function findOsDeskOf(pages: WorkspacePage[], uid: string | null | undefined): WorkspacePage | null {

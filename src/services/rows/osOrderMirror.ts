@@ -1,5 +1,5 @@
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
-import { parseLooseNumber } from "@/utils/numberInput";
+import { osRowTotal } from "@/utils/payment";
 import type { OsFieldKeys, PageRow, WorkspaceMember, WorkspacePage } from "@/types";
 
 /**
@@ -100,12 +100,6 @@ export function techUidByNick(members: readonly WorkspaceMember[], nickValue: st
   return found?.uid ?? null;
 }
 
-function num(value: unknown): number {
-  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-  const parsed = parseLooseNumber(String(value ?? ""));
-  return parsed ?? 0;
-}
-
 export interface MirrorInput {
   /** Строка стола ОС — источник. */
   source: PageRow;
@@ -127,8 +121,9 @@ export interface MirrorInput {
 
 /**
  * Ячейки строки технаря. Цена и апсейл складываются в ОДНУ сумму (так просил
- * Nurba: 50 000 + 50 000 = 100 000): у технаря один денежный столбец, по нему
- * считаются его загрузка, дашборд и рейтинг.
+ * Nurba: 50 000 + 50 000 = 100 000), и с 23.09.2026 — ЗА ВЫЧЕТОМ комиссии
+ * способа оплаты («Итого» стола ОС): у технаря один денежный столбец, по нему
+ * считаются его касса, загрузка, дашборд, рейтинг и премии.
  */
 export function buildMirrorCells(input: MirrorInput): Record<string, string | number | null> {
   const { source, osColumns, keys } = input;
@@ -138,7 +133,9 @@ export function buildMirrorCells(input: MirrorInput): Record<string, string | nu
   };
   put(keys.client, String(source.cells[osColumns.client] ?? ""));
   put(keys.phone, String(source.cells[osColumns.phone] ?? ""));
-  const total = num(source.cells[osColumns.price]) + num(source.cells[osColumns.upsell]);
+  // Касса: цена и апсейл за вычетом комиссии их способов оплаты — «Итого»
+  // стола ОС (utils/payment). Без способов это ровно цена + апсейл, как было.
+  const total = osRowTotal(source, osColumns) ?? 0;
   if (keys.price && total > 0) cells[keys.price] = String(total);
   put(keys.os, input.osNickValue);
   put(keys.link, String(source.cells[osColumns.link] ?? ""));

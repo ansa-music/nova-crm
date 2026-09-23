@@ -22,6 +22,7 @@ import { logOsDispatch } from "@/services/osDispatchLogService";
 import { isExchangeHandoffRow } from "@/services/rows/osExchange";
 import { firestoreErrorText } from "@/utils/dbError";
 import { personLabel } from "@/utils/peopleDesks";
+import { osRowTotal } from "@/utils/payment";
 import type { PageColumn, PageRow } from "@/types";
 
 /**
@@ -491,12 +492,8 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
   };
 }
 
-/** Цена + апсейл — как сумма у технаря. */
+/** Касса заказа — как сумма у технаря: цена и апсейл за вычетом комиссии. */
 function orderAmount(row: PageRow, OS_COLUMNS: { price: string; upsell: string }): number | null {
-  const n = (v: unknown) => {
-    const parsed = Number(String(v ?? "").replace(/\s/g, "").replace(",", "."));
-    return Number.isFinite(parsed) ? parsed : 0;
-  };
-  const total = n(row.cells[OS_COLUMNS.price]) + n(row.cells[OS_COLUMNS.upsell]);
-  return total > 0 ? total : null;
+  const total = osRowTotal(row, OS_COLUMNS);
+  return total && total > 0 ? total : null;
 }

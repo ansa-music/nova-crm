@@ -12,7 +12,7 @@ import {
 import { sbDeleteRow, sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { OS_DESK_KEYS, resolveOsDeskKeys, type OsDeskKeys } from "@/services/osDeskService";
 import { findInProgressStatusOption, isApprovalStatusValue } from "@/utils/columnOptions";
-import { parseLooseNumber } from "@/utils/numberInput";
+import { osRowTotal } from "@/utils/payment";
 import type { PageRow, StatusOption, WorkOrder, WorkspaceMember, WorkspacePage } from "@/types";
 
 /**
@@ -43,10 +43,6 @@ function cell(row: PageRow, key: string): string {
   return v === null || v === undefined ? "" : String(v).trim();
 }
 
-function num(value: string): number {
-  return parseLooseNumber(value) ?? 0;
-}
-
 export interface SendToExchangeInput {
   workspaceId: string;
   pageId: string;
@@ -65,7 +61,8 @@ export interface SendToExchangeInput {
 export async function sendOsRowToExchange(input: SendToExchangeInput): Promise<WorkOrder> {
   const { row } = input;
   const k = input.keys ?? OS_DESK_KEYS;
-  const total = num(cell(row, k.price)) + num(cell(row, k.upsell));
+  // Касса: за вычетом комиссии способов оплаты — та же сумма, что уедет технарю.
+  const total = osRowTotal(row, k) ?? 0;
   const order = await createOrder({
     workspaceId: input.workspaceId,
     client: cell(row, k.client),

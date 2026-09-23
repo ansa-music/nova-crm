@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PersonalDeskSection } from "@/components/dashboard/PersonalDeskSection";
 import {
+  BonusChip,
+  BonusTop,
   DailyChart,
   DoneLeaderboard,
   formatMoneyCompact,
@@ -36,7 +38,9 @@ import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { greetingByHour, greetingGlowShadow, hourInTimeZone, timeAgo, ymdPartsInTimeZone } from "@/utils/date";
 import { formatCurrency, formatNumber } from "@/utils/format";
 import {
+  bonusForPlace,
   buildOverview,
+  monthDoneRanking,
   monthlySeries,
   placeOf,
   rankByDone,
@@ -46,6 +50,7 @@ import {
 import { PageHeader } from "@/components/common/PageHeader";
 import { effectiveTechLoadKinds, techLoadKindForOption } from "@/utils/techLoad";
 import { ratingMonthKey, type StatusOption } from "@/types";
+import { techBonusesOf } from "@/utils/payment";
 
 const NO_OPTIONS: StatusOption[] = [];
 const MONTHS_SHOWN = 6;
@@ -152,6 +157,19 @@ export default function DashboardPage() {
   );
 
   const byDone = useMemo(() => rankByDone(overview.technicians), [overview]);
+  // Премии технарям за места по «Готово» (Owner задаёт в «Настройки → Касса»).
+  const bonuses = useMemo(() => techBonusesOf(activeWorkspace), [activeWorkspace]);
+  // Итог прошлого месяца — по его архиву: первого числа премии не пропадают.
+  const previousBonuses = useMemo(() => {
+    const uids = new Set(overview.technicians.map((t) => t.member.uid));
+    return monthDoneRanking({ history, monthKey: prevMonthKey, statusOptions, uids })
+      .slice(0, 3)
+      .flatMap((entry, index) => {
+        const member = members.find((m) => m.uid === entry.uid);
+        const bonus = bonusForPlace(bonuses, index, entry.doneTotal);
+        return member && bonus > 0 ? [{ member, doneTotal: entry.doneTotal, bonus }] : [];
+      });
+  }, [overview, history, prevMonthKey, statusOptions, members, bonuses]);
   const byRating = useMemo(() => rankByRating(overview.technicians), [overview]);
   const unrated = useMemo(
     () => overview.technicians.filter((t) => t.desks.length > 0 && t.ratingCount === 0),
@@ -183,6 +201,7 @@ export default function DashboardPage() {
   const myOsNick = myOsValue ? osNickLabel(myMember, responsibleOptions) : null;
   const myOsOrders = myOsValue ? overview.os.find((o) => o.osValue === myOsValue)?.count ?? 0 : 0;
   const myDonePlace = placeOf(byDone, uid);
+  const myBonus = myDonePlace ? bonusForPlace(bonuses, myDonePlace - 1, byDone[myDonePlace - 1]?.doneTotal ?? 0) : 0;
   const myRatingPlace = placeOf(byRating, uid);
   const monthName = monthTabNameForKey(monthKey);
   const monthGenitive = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", timeZone: "UTC" })
@@ -248,6 +267,12 @@ export default function DashboardPage() {
             <span>
               <span className="font-semibold">#{myDonePlace}</span>
               <span className="text-muted-foreground"> из {byDone.length} по «Готово»</span>
+              {myBonus > 0 ? (
+                <span className="ml-1.5 inline-flex items-center gap-1 align-middle">
+                  <span className="text-muted-foreground">— идёте на премию</span>
+                  <BonusChip amount={myBonus} />
+                </span>
+              ) : null}
             </span>
           )}
           {myRatingPlace && (
@@ -319,6 +344,8 @@ export default function DashboardPage() {
             />
           </div>
 
+          <BonusTop monthLabel={monthTabNameForKey(prevMonthKey).toLowerCase()} entries={previousBonuses} />
+
           <MonthlyRatingTop
             monthLabel={monthTabNameForKey(prevMonthKey).toLowerCase()}
             overall={previousTop.overall}
@@ -328,7 +355,7 @@ export default function DashboardPage() {
           <LeadersRow byDone={byDone[0] ?? null} byRating={byRating[0] ?? null} byOrders={byOrders} myUid={uid} />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <DoneLeaderboard ranked={byDone} myUid={uid} />
+            <DoneLeaderboard ranked={byDone} myUid={uid} bonuses={bonuses} />
             <RatingLeaderboard ranked={byRating} unrated={unrated} myUid={uid} />
           </div>
 

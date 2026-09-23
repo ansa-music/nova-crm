@@ -98,6 +98,10 @@ interface TableRowProps {
   cellActionKey?: string | null;
   cellAction?: CellActionView | null;
   onCellAction?: (rowId: string) => void;
+  /** Добавка слева внутри ячеек этих столбцов — см. DataTable.cellAddon. */
+  cellAddonKeys?: readonly string[];
+  cellAddonVersion?: string;
+  renderCellAddon?: (row: PageRow, colKey: string) => React.ReactNode;
 }
 
 function TableRowInner({
@@ -159,6 +163,8 @@ function TableRowInner({
   cellActionKey,
   cellAction,
   onCellAction,
+  cellAddonKeys,
+  renderCellAddon,
 }: TableRowProps) {
   const allowRowDrag = canReorder && !coarsePointer;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -384,6 +390,9 @@ function TableRowInner({
                 : null
             }
             coarsePointer={coarsePointer}
+            leading={
+              renderCellAddon && !blank && cellAddonKeys?.includes(column.key) ? renderCellAddon(row, column.key) : undefined
+            }
             trailing={
               cellAction && onCellAction && column.key === cellActionKey && !blank ? (
                 <CellActionButton view={cellAction} coarsePointer={coarsePointer} onRun={() => onCellAction(row.id)} />
@@ -448,6 +457,9 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     (prev.duplicateColKeys?.join(",") ?? "") !== (next.duplicateColKeys?.join(",") ?? "") ||
     prev.anyChecked !== next.anyChecked ||
     prev.cellActionKey !== next.cellActionKey ||
+    prev.cellAddonKeys !== next.cellAddonKeys ||
+    prev.cellAddonVersion !== next.cellAddonVersion ||
+    prev.renderCellAddon !== next.renderCellAddon ||
     prev.onCellAction !== next.onCellAction ||
     !sameCellAction(prev.cellAction, next.cellAction) ||
     prev.row.extras?.persons !== next.row.extras?.persons ||

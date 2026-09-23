@@ -1,6 +1,7 @@
 import type { Role } from "@/types/role";
 import type { StatusOption } from "@/types/page";
 import type { TechLoadKind } from "@/types/deskLoad";
+import type { PaymentMethod } from "@/types/payment";
 
 /**
  * An Owner-defined custom option field — the same idea as the built-in
@@ -72,6 +73,17 @@ export interface Workspace {
    * Включает Owner в «Настройки → Строки таблиц».
    */
   osManagedDesks?: boolean;
+  /**
+   * Способы оплаты заказов ОС с комиссией — «Настройки → Касса», правит
+   * только Owner (правило: Тимлиду поле закрыто). Нет поля — способы по
+   * умолчанию (`DEFAULT_PAYMENT_METHODS` в utils/payment.ts).
+   */
+  paymentMethods?: PaymentMethod[];
+  /**
+   * Премии технарям за места по сумме «Готово» за месяц: [1-е, 2-е, 3-е].
+   * Нет поля — 100 000 / 50 000 / 50 000 (просьба Nurba). Правит Owner.
+   */
+  techBonuses?: number[];
   /**
    * Идёт перенос строк: пока стоит флаг, строки нигде не правятся — иначе
    * правка, сделанная во время копирования, осталась бы в старом хранилище.

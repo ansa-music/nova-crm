@@ -34,8 +34,8 @@ import { useSubPages, useSubPageRows } from "@/hooks/useSubPageData";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
 import { useViewRequests } from "@/hooks/useViewRequests";
-import { ensureDiskColumn, ensurePriceColumn, fetchPageIfAccessible, setPageTechnicianDesk, togglePageVisibility } from "@/services/pageService";
-import { ensureOsDeskMonth, ensureOsDeskStatusColumn, isOsDeskId, resolveOsDeskKeys } from "@/services/osDeskService";
+import { ensureDiskColumn, ensurePriceColumn, fetchPageIfAccessible, setPageTechnicianDesk, togglePageVisibility, updateRowCellsBulk } from "@/services/pageService";
+import { ensureOsDeskColumns, ensureOsDeskMonth, isOsDeskId, missingOsDeskColumns, resolveOsDeskKeys } from "@/services/osDeskService";
 import { useSendOsRowToExchange } from "@/hooks/useSendOsRowToExchange";
 import type { CellActionView } from "@/components/table/CellActionButton";
 import {
@@ -63,7 +63,12 @@ import { TechPickerSheet } from "@/components/os/TechPickerSheet";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { TechOrderPanel } from "@/components/os/TechOrderPanel";
 import { isMonthlyDesk } from "@/services/monthTabService";
-import type { PageIconName, PageRow, SubPage, WorkspacePage } from "@/types";
+import type { PageIconName, PageRow, PaymentMethod, SubPage, WorkspacePage } from "@/types";
+import { PaymentChip } from "@/components/cashbox/PaymentChip";
+import { PaymentMethodsDialog } from "@/components/cashbox/PaymentMethodsDialog";
+import { useOsTotalsKeeper } from "@/hooks/useOsTotalsKeeper";
+import { osRowTotal, paymentMethodsOf, paymentPatch } from "@/utils/payment";
+import { updateSubPageColumns, updateSubPageRowCellsBulk } from "@/services/subPageService";
 
 
 function visibleSubPages(subPages: SubPage[]) {
@@ -308,6 +313,18 @@ export default function DynamicTablePage() {
   const osTableColumns = activeSubPage ? activeSubPage.columns : page?.columns;
   const osKeys = useMemo(() => resolveOsDeskKeys(osTableColumns), [osTableColumns]);
   const osTechPickerKeys = useMemo(() => [osKeys.technician], [osKeys.technician]);
+  // Касса ОС: способ оплаты у «Цены» и «Апсейла», «Итого» только для чтения.
+  const isOsDeskPage = Boolean(page?.osDesk);
+  const osPayKeys = useMemo(() => [osKeys.price, osKeys.upsell], [osKeys.price, osKeys.upsell]);
+  const osLockedKeys = useMemo(
+    () =>
+      isOsDeskPage
+        ? { [osKeys.total]: "«Итого» считает стол сам: цена и апсейл за вычетом комиссии способа оплаты" }
+        : undefined,
+    [isOsDeskPage, osKeys.total]
+  );
+  const paymentMethods = useMemo(() => paymentMethodsOf(activeWorkspace), [activeWorkspace]);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
 
   // Стол ОС выдаёт заказы сам: заполнил строку, выбрал технаря — заказ у
   // него. Тот же проход везёт статус в обе стороны (см. хук).
@@ -337,6 +354,19 @@ export default function DynamicTablePage() {
     orders: myOrders,
     osUid: permissions.uid,
     osNickValue: myOsNickValue,
+    rowsFromServer,
+  });
+
+  // «Итого» стола ОС догоняет цену, апсейл и способы оплаты — кто бы их ни
+  // поменял. Пишет сессия того, кто вправе править стол (сам ОС или Owner).
+  useOsTotalsKeeper({
+    workspaceId: activeWorkspaceId,
+    pageId: page?.id ?? "",
+    subPageId: activeSubPageId,
+    rows,
+    columns: osTableColumns,
+    keys: osKeys,
+    enabled: Boolean(isOsDeskPage && hasAccess && page && permissions.canEditPageData(page)),
     rowsFromServer,
   });
 
@@ -403,6 +433,23 @@ export default function DynamicTablePage() {
       title: "Отдать в работу: заказ уйдёт на «Заказы» со всеми данными строки, технари получат уведомление",
     };
   }
+  /** Выбор способа оплаты у цены или апсейла: id, снимок комиссии и новое «Итого» — одной записью. */
+  async function pickPayment(row: PageRow, colKey: string, method: PaymentMethod | null) {
+    if (!activeWorkspaceId || !page) return;
+    const patch: Record<string, string | number | null> = paymentPatch(colKey, method);
+    if (osTableColumns?.some((c) => c.key === osKeys.total)) {
+      const total = osRowTotal({ cells: { ...row.cells, ...patch } }, osKeys);
+      patch[osKeys.total] = total === null ? null : String(total);
+    }
+    try {
+      if (activeSubPageId) await updateSubPageRowCellsBulk(activeWorkspaceId, page.id, activeSubPageId, row.id, patch);
+      else await updateRowCellsBulk(activeWorkspaceId, page.id, row.id, patch);
+    } catch (error) {
+      toast.error(firestoreErrorText(error, "Не удалось сохранить способ оплаты"));
+    }
+  }
+  const isRealOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+
   async function runOsCellAction(row: PageRow) {
     const view = osCellView(row);
     if (!view || !activeWorkspaceId || !page) return;
@@ -459,6 +506,20 @@ export default function DynamicTablePage() {
     responsibleOptions: activeWorkspace?.responsibleOptions,
   });
 
+  // Вкладка месяца стола ОС (октябрь и дальше) — те же недостающие столбцы:
+  // вкладку могли завести до «Итого», а столбцы у вкладки свои.
+  const osTabColumnsRan = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!page?.osDesk || !activeSubPage || !hasAccess || !permissions.canManagePage(page)) return;
+    if (osTabColumnsRan.current.has(activeSubPage.id)) return;
+    const next = missingOsDeskColumns(activeSubPage.columns ?? []);
+    osTabColumnsRan.current.add(activeSubPage.id);
+    if (!next || !activeSubPage.columns?.length) return;
+    void updateSubPageColumns(page.workspaceId, page.id, activeSubPage.id, next).catch((err) =>
+      console.error("Не удалось дописать столбцы вкладке стола ОС:", err)
+    );
+  }, [page, activeSubPage, hasAccess, permissions]);
+
   // Retrofit: pages created before "Цена" / "Диск" became standard columns
   // don't have them. If an Owner/Admin opens such a page, silently add
   // once. Chained so both writes see the latest column list. Never wipes cells.
@@ -473,9 +534,8 @@ export default function DynamicTablePage() {
       standardColumnMigrationRan.current.add(page.id);
       void (async () => {
         try {
-          if (!page.columns.some((c) => c.type === "status")) {
-            await ensureOsDeskStatusColumn(page.workspaceId, page.id, page.columns);
-          }
+          // «Статус» и «Итого» (касса) — у столов, заведённых раньше них.
+          await ensureOsDeskColumns(page.workspaceId, page.id, page.columns);
           await ensureOsDeskMonth(page, permissions.uid);
         } catch (err) {
           console.error("Не удалось подготовить стол ОС:", err);
@@ -699,6 +759,7 @@ export default function DynamicTablePage() {
           onClose={() => setTechPickRowId(null)}
         />
       ) : null}
+      {isOsDeskPage ? <PaymentMethodsDialog open={paymentDialogOpen} onClose={() => setPaymentDialogOpen(false)} /> : null}
       {isMyOsDesk && page && osDispatch.choiceRow ? (
         <OsDispatchChoiceDialog
           key={osDispatch.choiceRow.id}
@@ -1030,6 +1091,27 @@ export default function DynamicTablePage() {
                 // «Добавить строку» и «Быстрый заказ» (Owner не ограничиваем).
                 ordersFromOsOnly={ordersFromOsOnly}
                 cellPickerKeys={isMyOsDesk ? osTechPickerKeys : undefined}
+                lockedKeys={osLockedKeys}
+                cellAddon={
+                  isOsDeskPage
+                    ? {
+                        keys: osPayKeys,
+                        version: `${paymentMethods.map((m) => `${m.id}:${m.label}:${m.commissionPct}:${m.color ?? ""}:${m.inactive ? 1 : 0}`).join("|")}#${canEditData ? 1 : 0}`,
+                        render: (row, colKey) => (
+                          <PaymentChip
+                            row={row}
+                            colKey={colKey}
+                            methods={paymentMethods}
+                            canEdit={canEditData}
+                            canConfigure={isRealOwner}
+                            compact
+                            onPick={(method) => void pickPayment(row, colKey, method)}
+                            onConfigure={() => setPaymentDialogOpen(true)}
+                          />
+                        ),
+                      }
+                    : undefined
+                }
                 cellAction={
                   isMyOsDesk
                     ? { colKey: osKeys.technician, get: osCellView, run: (row) => void runOsCellAction(row) }
@@ -1052,6 +1134,12 @@ export default function DynamicTablePage() {
                         onChoose={() => osDispatch.openChoice(row.id)}
                         onPickTech={() => setTechPickRowId(row.id)}
                         keys={osKeys}
+                        payment={{
+                          methods: paymentMethods,
+                          canConfigure: isRealOwner,
+                          onPick: (colKey, method) => void pickPayment(row, colKey, method),
+                          onConfigure: () => setPaymentDialogOpen(true),
+                        }}
                       />
                     );
                   }
