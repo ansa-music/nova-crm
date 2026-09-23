@@ -11,3 +11,5 @@ dist
 # a large regenerable build artifact (graph.json/graph.html run ~5-6MB).
 graphify-out/
 src/firebase/firestoreChannel.ts
+supabase/config.toml
+supabase/functions/

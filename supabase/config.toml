@@ -1,7 +1,0 @@
-project_id = "xoqivqqcmunavuwpsmsd"
-
-# Резервный канал к Firestore (supabase/functions/fs-relay). SDK Firestore не
-# шлёт JWT Supabase, поэтому проверку JWT на шлюзе выключаем — иначе каждый
-# запрос канала получал бы 401.
-[functions.fs-relay]
-verify_jwt = false
