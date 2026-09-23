@@ -28,22 +28,42 @@ export function useMyOrderRows(workspaceId: string | null, osUid: string | null,
       return;
     }
     let cancelled = false;
-    setLoading(true);
-    void sbFetchMyOrderRows(workspaceId, osUid)
-      .then((list) => {
-        if (cancelled) return;
-        setRows(list);
-        setError(null);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setError(e instanceof Error ? e.message : "Не удалось прочитать свои заказы");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    let retry: number | null = null;
+    let attempt = 0;
+    const load = () => {
+      setLoading(true);
+      void sbFetchMyOrderRows(workspaceId, osUid)
+        .then((list) => {
+          if (cancelled) return;
+          attempt = 0;
+          setRows(list);
+          setError(null);
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          setError(e instanceof Error ? e.message : "Не удалось прочитать свои заказы");
+          // Отказ (плохая сеть, истёк токен, SQL ещё не накатан) — не навсегда:
+          // без повтора проход стола ОС молча стоял бы до перезагрузки.
+          attempt += 1;
+          retry = window.setTimeout(load, Math.min(30_000, 3_000 * 2 ** (attempt - 1)));
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    };
+    load();
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && retry !== null) {
+        window.clearTimeout(retry);
+        retry = null;
+        load();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
+      if (retry !== null) window.clearTimeout(retry);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [active, workspaceId, osUid, nonce]);
 

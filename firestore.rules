@@ -209,10 +209,14 @@ service cloud.firestore {
         || pageData.get('techEditable', false) == true
         || isOwner(workspaceId)
         || isTeamLead(workspaceId)
-        || osStatusKeyOf(pageData) == ''
-        || resource.data.get('cells', {}).get(osStatusKeyOf(pageData), '') == ''
-        || request.resource.data.get('cells', {}).get(osStatusKeyOf(pageData), '')
-           == resource.data.get('cells', {}).get(osStatusKeyOf(pageData), '');
+        // Пустой слот заполняется (заезд заказа с биржи из сессии технаря).
+        // Только совсем пустой: слот с ключами-пустышками технарь в режиме
+        // отката заполнить не сможет — заказ заберёт кнопка «Забрать в стол».
+        || resource.data.get('cells', {}).size() == 0
+        // Заполненная строка: технарю остаются только свои два ключа — так же,
+        // как в Postgres (desk_rows_os_managed), а не «всё, кроме статуса».
+        || (rowKeysOnly(['cells', 'updatedAt', 'successRequestedAt', 'successRequestedBy', 'highlight', 'height'])
+          && rowCellsOnly(['techLink', 'techNote']));
     }
 
     // -------------------------------------------------------------------
@@ -263,6 +267,19 @@ service cloud.firestore {
     function managedRowDeleteOk(workspaceId) {
       return !isManagedRow() || isOwner(workspaceId)
         || resource.data.get('osUid', '') == request.auth.uid;
+    }
+
+    // Под «заказы ведёт ОС» технарь удаляет только пустой слот: иначе замок
+    // обходится в два шага — удалить строку и завести заново с нужным
+    // статусом (в Postgres то же держит RESTRICTIVE-политика удаления).
+    function osDeleteOk(workspaceId, pageData) {
+      return !osManagedHere(workspaceId)
+        || pageData.get('osDesk', false) == true
+        || pageData.get('techEditable', false) == true
+        || isOwner(workspaceId)
+        || isTeamLead(workspaceId)
+        || resource.data.get('osUid', '') == request.auth.uid
+        || resource.data.get('cells', {}).size() == 0;
     }
 
     // Удаление заказа на «Заказах» убирает и его строку в столе технаря
@@ -670,7 +687,8 @@ service cloud.firestore {
             (!isManagedRow() || managedRowUpdateOk(workspaceId));
           allow delete: if (isMember(workspaceId) &&
             canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
-            rowsWritableHere(workspaceId) && managedRowDeleteOk(workspaceId))
+            rowsWritableHere(workspaceId) && managedRowDeleteOk(workspaceId) &&
+            osDeleteOk(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data))
             || orderRowDeleteOk(workspaceId, pageId, null, rowId);
 
           // Row-level comment threads — anyone with VIEW access to the
@@ -718,7 +736,8 @@ service cloud.firestore {
               (!isManagedRow() || managedRowUpdateOk(workspaceId));
             allow delete: if (isMember(workspaceId) &&
               canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
-              rowsWritableHere(workspaceId) && managedRowDeleteOk(workspaceId))
+              rowsWritableHere(workspaceId) && managedRowDeleteOk(workspaceId) &&
+              osDeleteOk(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data))
               || orderRowDeleteOk(workspaceId, pageId, subPageId, rowId);
           }
         }

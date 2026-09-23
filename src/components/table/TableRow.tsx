@@ -432,6 +432,10 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     // оставалась подсвеченной до перезагрузки, хотя чип «снять» уже пропал.
     Boolean(prev.row.highlight) !== Boolean(next.row.highlight) ||
     prev.row.orderId !== next.row.orderId ||
+    // Замок строки-заказа и просьба об «Успешке» — тоже повод перерисовать.
+    prev.row.osUid !== next.row.osUid ||
+    prev.row.statusKey !== next.row.statusKey ||
+    prev.row.successRequestedAt !== next.row.successRequestedAt ||
     prev.row.extras !== next.row.extras ||
     prev.columns !== next.columns ||
     prev.rowHeight !== next.rowHeight ||

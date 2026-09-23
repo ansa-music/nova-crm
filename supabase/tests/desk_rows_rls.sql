@@ -453,9 +453,11 @@ select tst.expect('Owner включает «заказы ведёт ОС»',
 select tst.run('O', $q$select rows_set_os_managed('W', true)$q$);
 
 -- Обычная (неуправляемая) строка стола технаря.
-select tst.run('T1', $q$insert into desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at)
+-- Фикстуры — от Owner: под флагом технарь строку с данными уже не заводит
+-- (это и проверяется ниже), а старый заказ в столе должен быть.
+select tst.run('O', $q$insert into desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at)
   values ('W','P1','','free1','{"client":"Старый","status":"work","price":"100"}',30,1000,1000)$q$);
-select tst.run('T1', $q$insert into desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at)
+select tst.run('O', $q$insert into desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at)
   values ('W','P1','','slot1','{"client":"","status":""}',31,1000,1000)$q$);
 
 select tst.expect('технарь НЕ ставит статус в своей же строке',
@@ -488,6 +490,46 @@ select tst.expect('чужой ОС этот заказ не убирает',
   tst.try('OS2', $q$delete from desk_rows where workspace_id='W' and page_id='P1' and tab_id='' and id='moveme'$q$), 'ok:0');
 select tst.expect('технарь свой заказ не убирает и при включённом флаге',
   tst.try('T1', $q$delete from desk_rows where workspace_id='W' and page_id='P1' and tab_id='' and id='moveme'$q$), 'deny');
+
+-- Посторонний (не участник) НЕ трогает флаги workspace: раньше NULL из
+-- rows_is_owner() проходил `if not NULL`.
+select tst.expect('посторонний НЕ запирает хранилище',
+  tst.try('X', $q$select rows_set_state('W', false, false)$q$), 'error');
+select tst.expect('посторонний НЕ включает «заказы ведёт ОС»',
+  tst.try('X', $q$select rows_set_os_managed('W', false)$q$), 'error');
+-- Вставка под флагом: пустой слот и заказ с биржи — да, строка с данными — нет,
+-- строка с чужой меткой ОС — нет.
+select tst.expect('технарь заводит пустой слот при включённом флаге',
+  tst.try('T1', $q$insert into desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at)
+    values ('W','P1','','slot2','{"client":""}',40,1000,1000)$q$), 'ok');
+select tst.expect('заказ с биржи вставляется с данными (order_id)',
+  tst.try('T1', $q$insert into desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at, order_id)
+    values ('W','P1','','ex1','{"client":"С биржи","status":"work"}',41,1000,1000,'order-1')$q$), 'ok');
+select tst.expect('технарь НЕ заводит строку сразу с «Успешкой»',
+  tst.try('T1', $q$insert into desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at)
+    values ('W','P1','','hack1','{"client":"X","status":"success","price":"100000"}',42,1000,1000)$q$), 'error');
+select tst.expect('технарь НЕ помечает свою строку чужим os_uid',
+  tst.try('T1', $q$insert into desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at, os_uid, tech_uid, status_key)
+    values ('W','P1','','hack2','{}',43,1000,1000,'OS1','T1','status')$q$), 'error');
+-- rows_patch правит существующую строку по политике ПРАВКИ, а не вставки:
+-- Тимлид ставит «Успешку» в строке-заказе.
+select tst.run('OS1', $q$insert into desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at, os_uid, tech_uid, status_key)
+  values ('W','P1','','ordtl','{"client":"Для Тимлида","status":"work"}',44,1000,1000,'OS1','T1','status')$q$);
+select tst.expect('Тимлид ставит «Успешку» через rows_patch',
+  tst.try('TL', $q$select rows_patch('W','P1','','ordtl','{"status":"success"}'::jsonb)$q$), 'ok:1');
+select tst.expect('ОС гасит просьбу об «Успешке» в своей копии через rows_patch',
+  tst.try('OS1', $q$select rows_patch('W','P1','','ordtl','{}'::jsonb, null, null, 'keep', null, null, null, false, null, null,
+    null, null, null, null, null, null, null, null, null, null, null, null, false, false, true)$q$), 'ok:1');
+-- Снять адрес копии со строки-источника.
+select tst.run('OS1', $q$select rows_patch('W','osdesk_OS1','','src9','{"client":"Источник"}'::jsonb, null, null, 'keep', null, null, null, false, null, null,
+  null, null, null, 'h', null, null, null, null, null, 'P1', '', 'ordtl', false, false, false)$q$);
+select tst.expect('ОС снимает адрес копии со своей строки',
+  tst.try('OS1', $q$select rows_patch('W','osdesk_OS1','','src9','{}'::jsonb, null, null, 'keep', null, null, null, false, null, null,
+    null, null, null, null, null, null, null, null, null, null, null, null, false, true, false)$q$), 'ok:1');
+select tst.run('OS1', $q$select rows_patch('W','osdesk_OS1','','src9','{}'::jsonb, null, null, 'keep', null, null, null, false, null, null,
+  null, null, null, null, null, null, null, null, null, null, null, null, false, true, false)$q$);
+select tst.expect('адрес копии снят',
+  tst.try('OS1', $q$select * from desk_rows where workspace_id='W' and page_id='osdesk_OS1' and id='src9' and mirror_row_id is null$q$, true), 'ok:1');
 
 -- Выключили — всё как раньше.
 select tst.run('O', $q$select rows_set_os_managed('W', false)$q$);

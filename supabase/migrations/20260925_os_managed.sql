@@ -97,7 +97,7 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if not public.rows_is_owner(p_workspace) then
+  if not coalesce(public.rows_is_owner(p_workspace), false) then
     raise exception 'rows_set_os_managed: только Owner' using errcode = '42501';
   end if;
   update public.rows_workspaces set os_managed = p_on where workspace_id = p_workspace;
@@ -124,6 +124,33 @@ declare
   me text := public.rows_uid();
   changed text[];
 begin
+  -- Вставка. Технарь под «заказы ведёт ОС» заводит в своём столе только
+  -- ПУСТУЮ строку (слот) или заказ с биржи (order_id) — иначе одним запросом
+  -- из консоли он заводил бы строку сразу с «Успешкой» и суммой.
+  if tg_op = 'INSERT' then
+    if me is null
+       or new.os_uid is not null
+       or new.order_id is not null
+       or not public.rows_is_os_managed(new.workspace_id)
+       or new.workspace_id in (select public.rows_edit_all_workspaces())
+       or public.rows_is_teamlead(new.workspace_id)
+       or exists (
+         select 1 from public.rows_page_acl a
+         where a.workspace_id = new.workspace_id and a.page_id = new.page_id and a.os_desk
+       )
+       or (new.workspace_id, new.page_id) in (select e.workspace_id, e.page_id from public.rows_os_exempt_pages() e) then
+      return new;
+    end if;
+    if exists (
+      select 1 from jsonb_each_text(coalesce(new.cells, '{}'::jsonb)) e
+      where coalesce(e.value, '') <> '' and e.key not in ('techLink', 'techNote')
+    ) then
+      raise exception 'desk_rows: заказы ведёт ОС — новую строку с данными заводит он'
+        using errcode = '42501';
+    end if;
+    return new;
+  end if;
+
   -- Ячейки не тронуты — порядок строк, высота, подсветка, метка заказа.
   -- Проверка стоит ПЕРВОЙ: массовые операции идут построчно, и любой lookup
   -- до неё стоил бы запроса на каждую строку таблицы.
@@ -191,7 +218,7 @@ $$;
 
 drop trigger if exists desk_rows_os_managed on public.desk_rows;
 create trigger desk_rows_os_managed
-  before update on public.desk_rows
+  before insert or update on public.desk_rows
   for each row execute function public.desk_rows_os_managed_guard();
 
 -- ----------------------------------------------------------------------

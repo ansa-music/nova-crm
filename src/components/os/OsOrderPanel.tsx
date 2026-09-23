@@ -16,6 +16,8 @@ import {
   isApprovalStatusValue,
 } from "@/utils/columnOptions";
 import { firestoreErrorText } from "@/utils/dbError";
+import { mirrorAddressOf } from "@/utils/osDispatchPlan";
+import { OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
 import { personLabel } from "@/utils/peopleDesks";
 import type { PageRow, PaymentMethod } from "@/types";
 import { PaymentChip } from "@/components/cashbox/PaymentChip";
@@ -100,6 +102,8 @@ export function OsOrderPanel({
       return;
     }
     setBusy(true);
+    const at = mirrorAddressOf(row, mirror);
+    const pushStatus = status || findInProgressStatusOption(statusOptions)?.value || "";
     try {
       await pushOrderToTech({
         workspaceId: activeWorkspaceId,
@@ -115,9 +119,14 @@ export function OsOrderPanel({
         // заказ отправится второй раз без причины.
         dateMs: row.createdAt || 0,
         // Заказ уже в столе технаря (выдан раньше или перенесён) — правим ту
-        // же строку, а не заводим рядом вторую.
-        mirrorRowId: mirror?.id,
-        status: status || findInProgressStatusOption(statusOptions)?.value || "",
+        // же строку в ТОЙ ЖЕ вкладке, а не заводим рядом вторую (на переломе
+        // месяца вкладка копии — не текущая).
+        mirrorRowId: at?.rowId,
+        mirrorTabId: at?.tabId,
+        status: pushStatus,
+        // Ручная выдача — это и перевыдача после удаления копии: метку
+        // «копию удалили» снимаем, синхронизированный статус запоминаем.
+        sourceCells: { [OS_STATUS_SENT_KEY]: pushStatus, [OS_LOST_FOR_KEY]: "" },
       });
       toast.success(mirror ? "Заказ обновлён у технаря" : `Заказ у технаря: ${techName}`);
       onChanged();

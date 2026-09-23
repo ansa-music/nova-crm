@@ -119,9 +119,12 @@ create or replace function public.rows_is_owner(ws text) returns boolean
 language sql stable security definer
 set search_path = public, pg_temp
 as $$
+  -- coalesce обязателен: у НЕ-участника rows_member_role() = NULL, и без него
+  -- всё выражение было NULL — а `if not NULL` в plpgsql не срабатывает, то
+  -- есть посторонний проходил проверку «только Owner» (урок 23.09.2026).
   select public.rows_uid() is not null and (
     exists (select 1 from public.rows_workspaces w where w.workspace_id = ws and w.owner_id = public.rows_uid())
-    or public.rows_member_role(ws) = 'owner'
+    or coalesce(public.rows_member_role(ws) = 'owner', false)
   )
 $$;
 
@@ -616,6 +619,8 @@ drop function if exists public.rows_patch(text, text, text, text, jsonb, bigint,
 drop function if exists public.rows_patch(text, text, text, text, jsonb, bigint, bigint, text, jsonb, boolean, text, boolean, jsonb, integer, text, text, text, text, text, text, text, bigint, text, boolean);
 -- Сигнатура без «снять управление» — если её успели накатить.
 drop function if exists public.rows_patch(text, text, text, text, jsonb, bigint, bigint, text, jsonb, boolean, text, boolean, jsonb, integer, text, text, text, text, text, text, text, bigint, text, text, text, text, boolean);
+-- Сигнатура без «снять адрес копии» (p_clear_mirror) — если её успели накатить.
+drop function if exists public.rows_patch(text, text, text, text, jsonb, bigint, bigint, text, jsonb, boolean, text, boolean, jsonb, integer, text, text, text, text, text, text, text, bigint, text, text, text, text, boolean, boolean);
 
 -- Правка строки слиянием — как setDoc(..., { merge: true }) в Firestore:
 -- переданные ячейки ложатся поверх, остальные не трогаются. Слияние идёт
@@ -657,6 +662,9 @@ create or replace function public.rows_patch(
   -- (аварийный выход — ОС уволился или недоступен). Пускает только Owner:
   -- опорные поля строки-заказа меняет он один (триггер desk_rows_guard).
   p_release_order boolean default false,
+  -- Снять адрес копии со строки-источника: копию убрали (снятие технаря,
+  -- потеря копии). Без этого проход стола ОС видел старый адрес вечно.
+  p_clear_mirror boolean default false,
   -- Снять просьбу об «Успешке» (решили — чип гаснет).
   p_clear_success boolean default false
 ) returns void
@@ -670,23 +678,12 @@ begin
   if p_extras_mode not in ('keep', 'set', 'clear') then
     raise exception 'rows_patch: неизвестный p_extras_mode %', p_extras_mode;
   end if;
-  insert into public.desk_rows as r (
-    workspace_id, page_id, tab_id, id, cells, extras, attachments, sort_order, height,
-    created_at, updated_at, filled_at, order_id, highlight,
-    os_uid, tech_uid, status_key, sync_hash, src_page_id, src_tab_id, src_row_id,
-    success_requested_at, success_requested_by, mirror_page_id, mirror_tab_id, mirror_row_id
-  ) values (
-    p_workspace, p_page, tab, p_id,
-    coalesce(p_cells, '{}'::jsonb),
-    case when p_extras_mode = 'set' then p_extras end,
-    case when p_attachments_set then p_attachments end,
-    public.rows_append_order(p_workspace, p_page, tab),
-    p_height,
-    now_ms, now_ms, p_filled_at, p_order_id, coalesce(p_highlight, false),
-    p_os_uid, p_tech_uid, p_status_key, p_sync_hash, p_src_page, p_src_tab, p_src_row,
-    p_success_requested_at, p_success_requested_by, p_mirror_page, p_mirror_tab, p_mirror_row
-  )
-  on conflict (workspace_id, page_id, tab_id, id) do update set
+  -- Сначала ПРАВКА существующей строки, и только если её нет — вставка.
+  -- Раньше это был один INSERT … ON CONFLICT DO UPDATE, а Postgres на нём
+  -- проверяет политику ВСТАВКИ даже для строки, которая уже есть: Тимлид не
+  -- мог поставить «Успешку» в строке-заказе (в стол технаря он не вставляет),
+  -- а ОС не мог погасить просьбу об «Успешке» в своей копии.
+  update public.desk_rows as r set
     cells = r.cells || coalesce(p_cells, '{}'::jsonb),
     extras = case p_extras_mode when 'set' then p_extras when 'clear' then null else r.extras end,
     attachments = case when p_attachments_set then p_attachments else r.attachments end,
@@ -702,15 +699,42 @@ begin
     sync_hash = coalesce(p_sync_hash, r.sync_hash),
     success_requested_at = case when p_clear_success then null else coalesce(p_success_requested_at, r.success_requested_at) end,
     success_requested_by = case when p_clear_success then null else coalesce(p_success_requested_by, r.success_requested_by) end,
-    mirror_page_id = coalesce(p_mirror_page, r.mirror_page_id),
-    mirror_tab_id = coalesce(p_mirror_tab, r.mirror_tab_id),
-    mirror_row_id = coalesce(p_mirror_row, r.mirror_row_id),
     os_uid = case when p_release_order then null else coalesce(p_os_uid, r.os_uid) end,
     tech_uid = case when p_release_order then null else coalesce(p_tech_uid, r.tech_uid) end,
     status_key = case when p_release_order then null else coalesce(p_status_key, r.status_key) end,
     src_page_id = case when p_release_order then null else coalesce(p_src_page, r.src_page_id) end,
     src_tab_id = case when p_release_order then null else coalesce(p_src_tab, r.src_tab_id) end,
-    src_row_id = case when p_release_order then null else coalesce(p_src_row, r.src_row_id) end;
+    src_row_id = case when p_release_order then null else coalesce(p_src_row, r.src_row_id) end,
+    mirror_page_id = case when p_clear_mirror then null else coalesce(p_mirror_page, r.mirror_page_id) end,
+    mirror_tab_id = case when p_clear_mirror then null else coalesce(p_mirror_tab, r.mirror_tab_id) end,
+    mirror_row_id = case when p_clear_mirror then null else coalesce(p_mirror_row, r.mirror_row_id) end
+  where r.workspace_id = p_workspace and r.page_id = p_page and r.tab_id = tab and r.id = p_id;
+  if found then
+    return;
+  end if;
+
+  begin
+    insert into public.desk_rows (
+      workspace_id, page_id, tab_id, id, cells, extras, attachments, sort_order, height,
+      created_at, updated_at, filled_at, order_id, highlight,
+      os_uid, tech_uid, status_key, sync_hash, src_page_id, src_tab_id, src_row_id,
+      success_requested_at, success_requested_by, mirror_page_id, mirror_tab_id, mirror_row_id
+    ) values (
+      p_workspace, p_page, tab, p_id,
+      coalesce(p_cells, '{}'::jsonb),
+      case when p_extras_mode = 'set' then p_extras end,
+      case when p_attachments_set then p_attachments end,
+      public.rows_append_order(p_workspace, p_page, tab),
+      p_height,
+      now_ms, now_ms, p_filled_at, p_order_id, coalesce(p_highlight, false),
+      p_os_uid, p_tech_uid, p_status_key, p_sync_hash, p_src_page, p_src_tab, p_src_row,
+      p_success_requested_at, p_success_requested_by, p_mirror_page, p_mirror_tab, p_mirror_row
+    );
+  exception when unique_violation then
+    -- Строка есть, но политика чтения её не показала — это отказ в правах,
+    -- а не «дубль»: UPDATE нашёл бы её, будь право.
+    raise exception 'desk_rows: нет права править эту строку' using errcode = '42501';
+  end;
 end;
 $$;
 
@@ -743,7 +767,7 @@ language plpgsql security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if not public.rows_is_owner(p_workspace) then
+  if not coalesce(public.rows_is_owner(p_workspace), false) then
     raise exception 'rows_set_state: только Owner' using errcode = '42501';
   end if;
   update public.rows_workspaces
@@ -800,10 +824,26 @@ set search_path = public, pg_temp
 as $$
 declare
   me text := public.rows_uid();
-  is_owner boolean := old.workspace_id in (select public.rows_edit_all_workspaces());
+  is_owner boolean := new.workspace_id in (select public.rows_edit_all_workspaces());
   changed text[];
   allowed text[] := array['techLink', 'techNote'];
 begin
+  -- Вставка: строку-заказ (с os_uid) заводит только её ОС или Owner. Иначе
+  -- технарь пометил бы свою строку чужим os_uid и правил бы статус вечно —
+  -- политика вставки в свой стол его пускает, а замок смотрит на os_uid.
+  if tg_op = 'INSERT' then
+    -- Без токена (SQL-редактор, миграции, сервисный ключ) человека нет —
+    -- ограничивать некого; RLS для таких сессий решает сама.
+    if me is null then
+      return new;
+    end if;
+    if new.os_uid is not null and not is_owner
+       and (new.os_uid <> me or not public.rows_has_role(new.workspace_id, 'os')) then
+      raise exception 'desk_rows: строку-заказ заводит её ОС' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+
   -- Не строка-заказ и ею не становится — обычная правка, решает политика.
   if old.os_uid is null and new.os_uid is null then
     return new;
@@ -882,7 +922,7 @@ end;
 $$;
 
 drop trigger if exists desk_rows_guard on public.desk_rows;
-create trigger desk_rows_guard before update on public.desk_rows
+create trigger desk_rows_guard before insert or update on public.desk_rows
   for each row execute function public.desk_rows_guard();
 
 -- ---------------------------------------------------------------------
@@ -903,7 +943,7 @@ grant execute on function
   public.rows_edit_all_workspaces(), public.rows_editable_pages(),
   public.rows_can_access_page(text, text), public.rows_can_edit_page(text, text),
   public.rows_patch(text, text, text, text, jsonb, bigint, bigint, text, jsonb, boolean, text, boolean, jsonb, integer,
-    text, text, text, text, text, text, text, bigint, text, text, text, text, boolean, boolean),
+    text, text, text, text, text, text, text, bigint, text, text, text, text, boolean, boolean, boolean),
   public.rows_append_order(text, text, text),
   public.rows_set_order(text, text, text, text[]),
   public.rows_whoami(text), public.rows_page_access(text, text)

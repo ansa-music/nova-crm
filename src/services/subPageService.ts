@@ -16,7 +16,7 @@ import { RESERVED_CELL_KEY_ERROR, isReservedCellKey } from "@/utils/reservedCell
 import { generateId } from "@/utils/id";
 import { hasRowExtras } from "@/utils/rowExtras";
 import { ymdPartsInTimeZone } from "@/utils/date";
-import { ROW_REORDER_CHUNK, rowsToRenumber, stripUndefined } from "@/services/pageService";
+import { ROW_REORDER_CHUNK, rowsToRenumber, stripUndefined, rowCopyOf } from "@/services/pageService";
 import type { PageColumn, PageIconName, PageRow, StatusOption, SubPage } from "@/types";
 import { assertRowsWritable, usesSupabaseRows } from "@/services/rows/rowsBackend";
 import {
@@ -176,6 +176,16 @@ export async function deleteSubPage(workspaceId: string, pageId: string, subPage
   if (!db) return;
   assertRowsWritable(workspaceId);
   if (usesSupabaseRows(workspaceId)) {
+    // Строки-заказы ОС технарь удалить не вправе (политика desk_rows_delete),
+    // и вкладка без них уехала бы, оставив их без вкладки: у ОС «в работе у
+    // технаря», у технаря их нет. Отказываем ДО удаления вкладки.
+    const rows = await sbFetchRows(workspaceId, pageId, subPageId);
+    const managed = rows.filter((r) => r.osUid).length;
+    if (managed > 0) {
+      throw new Error(
+        `Во вкладке ${managed === 1 ? "есть заказ" : `есть заказы (${managed})`} от ОС — сначала пусть ОС их заберёт или переведёт`
+      );
+    }
     // Сначала вкладка, потом её строки — см. deletePage: сбой оставит
     // невидимые строки без вкладки, а не пустую живую вкладку.
     const batch = writeBatch(db);
@@ -483,13 +493,7 @@ export async function duplicateSubPageRow(
 ) {
   if (!db) return;
   const id = generateId("row");
-  const copy: PageRow = {
-    ...row,
-    id,
-    order,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
+  const copy = rowCopyOf(row, id, order);
   assertRowsWritable(workspaceId);
   if (usesSupabaseRows(workspaceId)) await sbPutRow(workspaceId, pageId, subPageId, copy);
   else await setDoc(paths.subPageRow(workspaceId, pageId, subPageId, id), copy);

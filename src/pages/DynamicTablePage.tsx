@@ -297,6 +297,15 @@ export default function DynamicTablePage() {
   const myOsNickValue = members.find((m) => m.uid === permissions.uid)?.osNickValue ?? "";
   // Стол ОС: заказы этого ОС в столах технарей — один запрос на весь стол.
   const isMyOsDesk = Boolean(page?.osDesk && page.responsibleUserId === permissions.uid);
+  // Кто смотрит — для замка строк-заказов. Один объект на смену прав, а не
+  // новый на каждый рендер: от него зависит `cellLockFor`, а от неё — memo
+  // каждой строки таблицы.
+  const viewerIsOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  const viewerIsTeamLead = permissions.hasRole("teamlead");
+  const viewer = useMemo(
+    () => ({ uid: permissions.uid, isOwner: viewerIsOwner, isTeamLead: viewerIsTeamLead }),
+    [permissions.uid, viewerIsOwner, viewerIsTeamLead]
+  );
   // «Заказы заводит только ОС»: в столе ТЕХНАРЯ пропадают «Строка» и
   // «Быстрый заказ», а ячейки закрыты замком (Owner не ограничиваем).
   const ordersFromOsOnly = Boolean(
@@ -1159,11 +1168,7 @@ export default function DynamicTablePage() {
                   );
                 }}
                 // Кто смотрит — для замка строк-заказов: их ведёт ОС.
-                viewer={{
-                  uid: permissions.uid,
-                  isOwner: permissions.isWorkspaceOwner || permissions.realRole === "owner",
-                  isTeamLead: permissions.hasRole("teamlead"),
-                }}
+                viewer={viewer}
                 canEditStructure={permissions.canManagePage(page)}
                 userId={profile?.uid ?? ""}
                 userName={myDisplayName(profile, members)}

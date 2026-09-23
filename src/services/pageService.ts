@@ -1259,16 +1259,30 @@ export async function deleteRow(workspaceId: string, pageId: string, rowId: stri
   else await deleteDoc(paths.row(workspaceId, pageId, rowId));
 }
 
+/**
+ * Копия строки — только её содержимое. Метки заказа ОС (`osUid`, адрес
+ * источника, подпись, просьба об «Успешке», `orderId`) не копируются: иначе
+ * вторая строка-заказ считалась бы дважды, а технарь не мог бы ни поправить
+ * её, ни удалить.
+ */
+export function rowCopyOf(row: PageRow, id: string, order: number): PageRow {
+  const now = Date.now();
+  return {
+    id,
+    pageId: row.pageId,
+    order,
+    cells: { ...row.cells },
+    ...(row.extras ? { extras: row.extras } : {}),
+    ...(row.height ? { height: row.height } : {}),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 export async function duplicateRow(workspaceId: string, pageId: string, row: PageRow, order: number) {
   if (!db) return;
   const id = generateId("row");
-  const copy: PageRow = {
-    ...row,
-    id,
-    order,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
+  const copy = rowCopyOf(row, id, order);
   assertRowsWritable(workspaceId);
   if (usesSupabaseRows(workspaceId)) await sbPutRow(workspaceId, pageId, null, copy);
   else await setDoc(paths.row(workspaceId, pageId, id), copy);

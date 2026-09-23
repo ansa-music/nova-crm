@@ -7,7 +7,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { resolveOsDeskKeys, type OsDeskKeys } from "@/services/osDeskService";
 import { findTechTarget, pushOrderToTech, techTargetProblem, techUidByNick } from "@/services/rows/osOrderMirror";
 import { sbDeleteRow } from "@/services/rows/supabaseRowStore";
-import { findDuplicateMirrors, mirrorAddressOf, planOsDispatch } from "@/utils/osDispatchPlan";
+import { findDuplicateMirrors, mirrorAddressOf, mirrorForRow, planOsDispatch } from "@/utils/osDispatchPlan";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import {
@@ -21,6 +21,7 @@ import {
 import { logOsDispatch } from "@/services/osDispatchLogService";
 import { isExchangeHandoffRow } from "@/services/rows/osExchange";
 import { firestoreErrorText } from "@/utils/dbError";
+import { OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
 import { personLabel } from "@/utils/peopleDesks";
 import { osRowTotal } from "@/utils/payment";
 import type { PageColumn, PageRow } from "@/types";
@@ -149,6 +150,18 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
       `#${JSON.stringify(keys)}`
     : "";
 
+  // Столы технарей и ники участников — тоже в подпись: технарь открыл свой
+  // стол, карта столбцов доехала, а проход без этого не просыпался, пока ОС
+  // сам что-нибудь не поправит.
+  const targetsSignature = active
+    ? pages
+        .filter((p) => !p.osDesk)
+        .map((p) => `${p.id}:${p.autoMonthSubPageId ?? ""}:${p.osFieldKeys?.tabId ?? ""}:${p.osFieldKeys?.os ?? ""}:${p.inactive ? 1 : 0}`)
+        .join("|") +
+      "#" +
+      members.map((m) => `${m.uid}:${m.techNickValue ?? ""}:${m.status}`).join("|")
+    : "";
+
   useEffect(() => {
     if (!active) return;
     const timer = window.setTimeout(() => void sweep(), DEBOUNCE_MS);
@@ -185,15 +198,20 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
           return uid ? (findTechTarget(allPages, uid, row?.mirrorPageId)?.page.id ?? "") : "";
         },
       });
+      let removedDups = 0;
+      const dupSources = new Set<string>();
       for (const dup of extra) {
         try {
           await sbDeleteRow(cur.workspaceId, dup.pageId, dup.tabId, dup.rowId);
           changed = true;
+          removedDups += 1;
+          const src = cur.orders.rows.find((o) => o.id === dup.rowId && o.deskPageId === dup.pageId)?.srcRowId;
+          if (src) dupSources.add(src);
         } catch {
           // Не вышло — попробуем в следующий проход.
         }
       }
-      if (extra.length) toast.success(`Убрал лишние копии заказов: ${extra.length}`);
+      if (removedDups) toast.success(`Убрал лишние копии заказов: ${removedDups}`);
 
       // Строку удалили со стола ОС — заказ уходит и из стола технаря (жалоба
       // Nurba 23.09.2026: «удаляешь заказ — у технаря он остаётся»). Сирота —
@@ -242,9 +260,12 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
 
       for (const row of cur.rows) {
         if (busy.current.has(row.id)) continue;
+        // Только что убрали лишние копии этой строки — план по устаревшему
+        // списку выбрал бы удалённую; дождёмся перечитывания.
+        if (dupSources.has(row.id)) continue;
         const client = cellText(row, OS_COLUMNS.client);
         const techNick = techColumn ? cellText(row, techColumn.key) : "";
-        const mirror = cur.orders.bySource.get(row.id) ?? null;
+        const mirror = mirrorForRow(row, cur.orders.rows);
         const at = mirrorAddressOf(row, mirror);
         const statusNow = statusColumn ? cellText(row, statusColumn.key) : "";
         const onApproval = isApprovalStatusValue(statusNow, statusOptions);
@@ -295,11 +316,21 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
         if (!techNick && !at) continue;
 
         // Ник стёрли — заказ забирают у технаря. Стол ему для этого не нужен.
+        // Адрес копии со строки снимаем тут же: иначе следующий проход снова
+        // «удалял» бы уже удалённое и сыпал тостами.
         if (!techNick && at) {
           busy.current.add(row.id);
           try {
-            await sbDeleteRow(cur.workspaceId, at.pageId, at.tabId, at.rowId);
+            if (mirror) await sbDeleteRow(cur.workspaceId, at.pageId, at.tabId, at.rowId);
+            await sbPatchRow(cur.workspaceId, cur.pageId, cur.subPageId, row.id, {
+              cells: { [OS_STATUS_SENT_KEY]: "", [OS_LOST_FOR_KEY]: "" },
+              clearMirror: true,
+            });
             changed = true;
+            if (!mirror) {
+              busy.current.delete(row.id);
+              continue;
+            }
             toast.success("Заказ убран у технаря", { description: client || undefined });
             const prevUid = allPages.find((p) => p.id === at.pageId)?.responsibleUserId ?? null;
             void logOsDispatch(cur.workspaceId, {
@@ -384,8 +415,34 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
           client,
           fallbackStatus: findInProgressStatusOption(statusOptions)?.value ?? "",
           targetPageId: target.page.id,
+          ordersLoaded: true,
         });
         if (plan.action === "none" || plan.action === "wait") continue;
+
+        // Копию удалили у технаря (Owner, вкладка) — снимаем адрес и НЕ
+        // выдаём заново: удаление — решение. Перевыдать можно кнопкой в
+        // карточке или сменой технаря.
+        if (plan.action === "lost") {
+          busy.current.add(row.id);
+          try {
+            await sbPatchRow(cur.workspaceId, cur.pageId, cur.subPageId, row.id, {
+              cells: plan.sourceCells,
+              clearMirror: true,
+            });
+            changed = true;
+            const reason = "Копию заказа удалили у технаря — выдать заново можно из карточки";
+            setProblem(row.id, reason);
+            if (!told.current.has(`${row.id}:lost`)) {
+              told.current.add(`${row.id}:lost`);
+              toast.info(`${client || "Заказ"}: ${reason}`);
+            }
+          } catch {
+            // Не вышло — попробуем в следующий проход.
+          } finally {
+            busy.current.delete(row.id);
+          }
+          continue;
+        }
 
         busy.current.add(row.id);
         try {
@@ -406,7 +463,9 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
               target,
               techUid,
               status: plan.status,
-              dateMs: row.createdAt || 0,
+              withStatus: plan.withStatus,
+              sourceCells: plan.sourceCells,
+              dateMs: Math.max(row.createdAt || 0, row.filledAt || 0) || 0,
               // При переезде id копии выводим заново: у прежнего технаря
               // строка могла быть его собственной (перенесённый заказ).
               mirrorRowId: plan.action === "move" ? undefined : plan.mirrorRowId,
@@ -453,15 +512,15 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
                 }).catch(() => undefined);
               }
             }
-          } else if (plan.action === "pull" && statusColumn) {
-            // Статус поменяли у технаря — показываем его у ОС вместе с новой
-            // подписью, иначе следующий проход счёл бы это правкой ОС и
-            // отправил бы значение обратно.
+          } else if (plan.action === "pull") {
+            // Статус поменяли у технаря — показываем его у ОС и запоминаем как
+            // синхронизированный (osStatusSent), иначе следующий проход счёл
+            // бы это правкой ОС и отправил бы значение обратно.
             await sbPatchRow(cur.workspaceId, cur.pageId, cur.subPageId, row.id, {
-              cells: { [statusColumn.key]: plan.status },
+              cells: plan.sourceCells,
               syncHash: plan.hash,
             });
-            changed = true;
+            // Копию не трогали — перечитывать список заказов незачем.
           }
         } catch (error) {
           const text = firestoreErrorText(error, "Не удалось отдать заказ технарю");
@@ -477,7 +536,7 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
       if (changed) cur.orders.refresh();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, signature]);
+  }, [active, signature, targetsSignature]);
 
   const choiceRow = choiceRowId ? (rows.find((r) => r.id === choiceRowId) ?? null) : null;
   return {

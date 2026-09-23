@@ -5,7 +5,8 @@ import { currentMonthKey, currentMonthSubPageId, isMonthlyDesk } from "@/service
 import { computeOsFieldKeys, sameOsFieldKeys } from "@/utils/osFieldKeys";
 import { sbFetchAllPageRows, sbFetchRows, sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
-import { mirrorSyncHash } from "@/services/rows/osOrderMirror";
+import { buildMirrorCells, mirrorSyncHash } from "@/services/rows/osOrderMirror";
+import { OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
 import { isBlankRow } from "@/utils/blankRow";
 import { personLabel } from "@/utils/peopleDesks";
 import type { OsFieldKeys, PageRow, WorkspaceMember, WorkspacePage } from "@/types";
@@ -145,6 +146,14 @@ export async function adoptOrdersToOsDesks(input: {
     done += 1;
     input.onProgress?.({ done, total: techDesks.length, label: page.name });
     const tabId = currentMonthSubPageId(page, monthKey) as string;
+    // Без ника технаря на «Команде» переносить нельзя: в столбце «Технарь» у
+    // ОС было бы пусто, и первый же проход стола ОС УДАЛИЛ бы строку технаря
+    // как «заказ, у которого стёрли технаря».
+    const techNickOfDesk = members.find((m) => m.uid === page.responsibleUserId)?.techNickValue ?? "";
+    if (!techNickOfDesk) {
+      report.errors.push(`«${page.name}»: у технаря нет ника — закрепите ник на «Команде» и повторите`);
+      continue;
+    }
     let keys: OsFieldKeys;
     try {
       const ensured = await ensureOsFieldKeys(workspaceId, page, tabId);
@@ -197,8 +206,16 @@ export async function adoptOrdersToOsDesks(input: {
         }
       }
 
-      const techNick = members.find((m) => m.uid === page.responsibleUserId)?.techNickValue ?? "";
+      const techNick = techNickOfDesk;
       const srcId = sourceRowIdFor(row.id);
+      // Источник — во вкладку ТЕКУЩЕГО месяца стола ОС (если она уже есть),
+      // иначе в главную: ОС открывает стол на текущем месяце и заказ должен
+      // быть перед глазами.
+      const osTab = currentMonthSubPageId(osDesk, monthKey) ?? null;
+      // Дата заказа у технаря — как считает сводка стола ОС: max(createdAt,
+      // filledAt). Она станет created_at источника, чтобы «Столы ОС» и
+      // сортировка не датировали перенесённое днём переноса.
+      const orderAt = Math.max(row.createdAt || 0, row.filledAt || 0) || Date.now();
       const srcCells: Record<string, string> = {};
       const put = (key: string, value: string) => {
         if (value) srcCells[key] = value;
@@ -213,12 +230,35 @@ export async function adoptOrdersToOsDesks(input: {
       const techColumn = OS_DESK_COLUMNS.find((c) => c.type === "technician");
       if (techColumn && techNick) srcCells[techColumn.key] = techNick;
 
-      const syncHash = mirrorSyncHash(row.cells, row.extras);
+      // Подпись — ТА ЖЕ, что считает проход стола ОС (только поля, без
+      // статуса и даты): иначе первый же проход счёл бы перенесённый заказ
+      // правкой ОС и переслал бы его технарю ещё раз.
+      const srcRowForHash = { id: srcId, cells: srcCells, extras: row.extras, order: 0, createdAt: orderAt, updatedAt: orderAt } as PageRow;
+      const syncHash = mirrorSyncHash(
+        buildMirrorCells({
+          source: srcRowForHash,
+          osColumns: { client: "client", phone: "phone", price: "price", upsell: "upsell", note: "note", link: "link" },
+          keys,
+          osNickValue: osMember.osNickValue ?? "",
+          status: "",
+          withStatus: false,
+          dateMs: 0,
+        }),
+        row.extras
+      );
+      const techStatus = cellText(row, keys.status);
+      // Статус технаря — сразу и в столбец ОС, и как «синхронизированный»:
+      // проходу тогда нечего ни тянуть, ни слать.
+      if (techStatus) {
+        srcCells.status = techStatus;
+        srcCells[OS_STATUS_SENT_KEY] = techStatus;
+      }
       try {
         // 1. Строка-источник в столе ОС (адрес копии — на неё).
-        await sbPatchRow(workspaceId, osDesk.id, null, srcId, {
+        await sbPatchRow(workspaceId, osDesk.id, osTab, srcId, {
           cells: srcCells,
           extras: row.extras ?? undefined,
+          updatedAt: orderAt,
           syncHash,
           mirrorPageId: page.id,
           mirrorTabId: tabId,
@@ -234,7 +274,7 @@ export async function adoptOrdersToOsDesks(input: {
           statusKey: keys.status,
           syncHash,
           srcPageId: osDesk.id,
-          srcTabId: "",
+          srcTabId: osTab ?? "",
           srcRowId: srcId,
         });
         report.adopted += 1;

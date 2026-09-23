@@ -18,8 +18,15 @@
  */
 export const TECH_LINK_KEY = "techLink";
 export const TECH_NOTE_KEY = "techNote";
+/**
+ * Служебные ячейки строки-ИСТОЧНИКА на столе ОС (см. utils/osDispatchPlan.ts):
+ * последний синхронизированный с технарём статус и ник технаря, у которого
+ * копию удалили (чтобы проход не воскрешал её сам). Столбцами не рисуются.
+ */
+export const OS_STATUS_SENT_KEY = "osStatusSent";
+export const OS_LOST_FOR_KEY = "osLostFor";
 
-export const RESERVED_CELL_KEYS: readonly string[] = [TECH_LINK_KEY, TECH_NOTE_KEY];
+export const RESERVED_CELL_KEYS: readonly string[] = [TECH_LINK_KEY, TECH_NOTE_KEY, OS_STATUS_SENT_KEY, OS_LOST_FOR_KEY];
 
 const RESERVED_LOWER = new Set(RESERVED_CELL_KEYS.map((k) => k.toLowerCase()));
 

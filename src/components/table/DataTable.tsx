@@ -3751,7 +3751,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           canEdit={canEdit}
           onOpenRow={setExpandedRowId}
           onAddOrder={
-            canEdit
+            canEdit && !ordersFromOsOnly
               ? () => {
                   setQuickOrderStatus(null);
                   setQuickOrderOpen(true);
@@ -3768,7 +3768,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           onStatusChange={handleStatusChange}
           onOpenRow={setExpandedRowId}
           onAddOrder={
-            canEdit
+            canEdit && !ordersFromOsOnly
               ? (statusValue) => {
                   setQuickOrderStatus(statusValue);
                   setQuickOrderOpen(true);

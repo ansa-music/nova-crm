@@ -543,6 +543,38 @@ function applyPatch(row: PageRow, patch: RowPatch, updatedAt: number | null): Pa
   if (patch.orderId !== undefined) next.orderId = patch.orderId;
   if (patch.attachments !== undefined) next.attachments = patch.attachments;
   if (patch.height !== undefined) next.height = patch.height;
+  // Поля строки-заказа тоже ложатся поверх сразу: проход стола ОС решает по
+  // `syncHash`/адресу копии, и со старыми значениями до события Realtime он
+  // отправлял бы заказ повторно (цикл «правка → снимок → правка»).
+  if (patch.syncHash !== undefined) next.syncHash = patch.syncHash;
+  if (patch.osUid !== undefined) next.osUid = patch.osUid;
+  if (patch.techUid !== undefined) next.techUid = patch.techUid;
+  if (patch.statusKey !== undefined) next.statusKey = patch.statusKey;
+  if (patch.srcPageId !== undefined) next.srcPageId = patch.srcPageId;
+  if (patch.srcTabId !== undefined) next.srcTabId = patch.srcTabId;
+  if (patch.srcRowId !== undefined) next.srcRowId = patch.srcRowId;
+  if (patch.successRequestedAt !== undefined) next.successRequestedAt = patch.successRequestedAt;
+  if (patch.successRequestedBy !== undefined) next.successRequestedBy = patch.successRequestedBy;
+  if (patch.clearSuccessRequest) {
+    delete next.successRequestedAt;
+    delete next.successRequestedBy;
+  }
+  if (patch.mirrorPageId !== undefined) next.mirrorPageId = patch.mirrorPageId;
+  if (patch.mirrorTabId !== undefined) next.mirrorTabId = patch.mirrorTabId;
+  if (patch.mirrorRowId !== undefined) next.mirrorRowId = patch.mirrorRowId;
+  if (patch.clearMirror) {
+    delete next.mirrorPageId;
+    delete next.mirrorTabId;
+    delete next.mirrorRowId;
+  }
+  if (patch.releaseOrder) {
+    delete next.osUid;
+    delete next.techUid;
+    delete next.statusKey;
+    delete next.srcPageId;
+    delete next.srcTabId;
+    delete next.srcRowId;
+  }
   if (updatedAt !== null) next.updatedAt = updatedAt;
   return next;
 }
@@ -932,6 +964,8 @@ export interface RowPatch {
   clearSuccessRequest?: boolean;
   /** Снять управление со строки — только Owner (аварийный выход). */
   releaseOrder?: boolean;
+  /** Снять адрес копии со строки-источника (копию убрали или потеряли). */
+  clearMirror?: boolean;
 }
 
 /**
@@ -995,6 +1029,7 @@ export async function sbPatchRow(
         p_mirror_tab: patch.mirrorTabId ?? null,
         p_mirror_row: patch.mirrorRowId ?? null,
         p_release_order: patch.releaseOrder ?? false,
+        p_clear_mirror: patch.clearMirror ?? false,
       });
       if (error) throw toStoreError(error, "Не удалось сохранить строку");
     }

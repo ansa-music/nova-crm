@@ -1,4 +1,5 @@
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
+import { currentMonthKey, currentMonthSubPageId } from "@/services/monthTabService";
 import { osRowTotal } from "@/utils/payment";
 import type { OsFieldKeys, PageRow, WorkspaceMember, WorkspacePage } from "@/types";
 
@@ -39,7 +40,12 @@ export interface TechTarget {
 
 /** Почему стол не годится для заказа ОС. null — годится. */
 function deskProblem(page: WorkspacePage): string | null {
-  if (!page.autoMonthSubPageId) return "У технаря ещё нет вкладки текущего месяца — пусть откроет свой стол";
+  // Именно ТЕКУЩЕГО месяца: 1-го числа `autoMonthSubPageId` ещё показывает на
+  // прошлую вкладку, и заказ уезжал бы в сентябрь, где его «Технари» и
+  // дашборд уже не считают. Автопилот переведёт стол при первом заходе.
+  if (!currentMonthSubPageId(page, currentMonthKey())) {
+    return "У технаря ещё нет вкладки текущего месяца — пусть откроет свой стол";
+  }
   if (!page.osFieldKeys || page.osFieldKeys.tabId !== page.autoMonthSubPageId) {
     return "Стол технаря ещё не сообщил, куда писать — пусть откроет свой стол и обновит страницу";
   }
@@ -111,6 +117,11 @@ export interface MirrorInput {
   /** Статус заказа: его ведёт ОС. */
   status: string;
   /**
+   * Класть ли статус в ячейки. false — правка полей без статуса: его могли
+   * поменять у технаря (Тимлид поставил «Успешку»), и затирать нельзя.
+   */
+  withStatus?: boolean;
+  /**
    * Дата получения заказа технарём. Ноль — столбец-дату не трогаем: подпись
    * (`mirrorSyncHash`) обязана быть ОДИНАКОВОЙ при повторном расчёте, а
    * `Date.now()` в ней означал бы «строка всё время меняется» и бесконечную
@@ -128,18 +139,20 @@ export interface MirrorInput {
 export function buildMirrorCells(input: MirrorInput): Record<string, string | number | null> {
   const { source, osColumns, keys } = input;
   const cells: Record<string, string | number | null> = {};
-  const put = (key: string | undefined, value: string | number | null) => {
-    if (key && value !== null && value !== "") cells[key] = value;
+  // Пустое значение пишется ТОЖЕ: слияние ячеек в базе (`cells || patch`)
+  // иначе оставило бы технарю стёртые у ОС цену, имя или ссылку.
+  const set = (key: string | undefined, value: string) => {
+    if (key) cells[key] = value;
   };
-  put(keys.client, String(source.cells[osColumns.client] ?? ""));
-  put(keys.phone, String(source.cells[osColumns.phone] ?? ""));
+  set(keys.client, String(source.cells[osColumns.client] ?? "").trim());
+  set(keys.phone, String(source.cells[osColumns.phone] ?? "").trim());
   // Касса: цена и апсейл за вычетом комиссии их способов оплаты — «Итого»
   // стола ОС (utils/payment). Без способов это ровно цена + апсейл, как было.
   const total = osRowTotal(source, osColumns) ?? 0;
-  if (keys.price && total > 0) cells[keys.price] = String(total);
-  put(keys.os, input.osNickValue);
-  put(keys.link, String(source.cells[osColumns.link] ?? ""));
-  put(keys.status, input.status);
+  set(keys.price, total > 0 ? String(total) : "");
+  if (input.osNickValue) set(keys.os, input.osNickValue);
+  set(keys.link, String(source.cells[osColumns.link] ?? "").trim());
+  if (input.withStatus !== false && input.status) set(keys.status, input.status);
   if (keys.date && input.dateMs > 0) cells[keys.date] = String(input.dateMs);
   return cells;
 }
@@ -177,6 +190,10 @@ export interface PushOrderInput {
    * в новую вкладку уезжают только новые заказы.
    */
   mirrorTabId?: string | null;
+  /** Слать ли статус (см. MirrorInput.withStatus). По умолчанию — да. */
+  withStatus?: boolean;
+  /** Служебные ячейки для строки-источника (osStatusSent, osLostFor, статус). */
+  sourceCells?: Record<string, string>;
 }
 
 /**
@@ -187,21 +204,40 @@ export interface PushOrderInput {
 export async function pushOrderToTech(input: PushOrderInput): Promise<{ rowId: string; syncHash: string }> {
   const rowId = input.mirrorRowId || mirrorRowId(input.source.id);
   const tabId = input.mirrorTabId ?? input.target.tabId;
+  // Копия уже есть — это правка. Дату получения и подсветку «новый заказ»
+  // ставим только при заведении: иначе каждая правка ОС переписывала бы
+  // технарю дату заказа датой строки ОС и снова красила строку в «новую».
+  const creating = !input.mirrorRowId;
+  const withStatus = input.withStatus !== false;
   const cells = buildMirrorCells({
     source: input.source,
     osColumns: input.osColumns,
     keys: input.target.keys,
     osNickValue: input.osNickValue,
     status: input.status,
-    dateMs: input.dateMs ?? Date.now(),
+    withStatus,
+    dateMs: creating ? (input.dateMs ?? Date.now()) : 0,
   });
   const extras = input.source.extras;
-  const syncHash = mirrorSyncHash(cells, extras);
+  // Подпись — только по полям, без статуса и даты (utils/osDispatchPlan.ts).
+  const syncHash = mirrorSyncHash(
+    buildMirrorCells({
+      source: input.source,
+      osColumns: input.osColumns,
+      keys: input.target.keys,
+      osNickValue: input.osNickValue,
+      status: "",
+      withStatus: false,
+      dateMs: 0,
+    }),
+    extras
+  );
   await sbPatchRow(input.workspaceId, input.target.page.id, tabId, rowId, {
     cells,
     extras: extras ?? undefined,
-    // Подсветка — чтобы технарь не пропустил новый заказ, как и с биржи.
-    highlight: true,
+    ...(creating ? { highlight: true } : {}),
+    // Статус решили — просьба технаря об «Успешке» снята.
+    ...(withStatus && input.status ? { clearSuccessRequest: true } : {}),
     osUid: input.osUid,
     techUid: input.techUid,
     statusKey: input.target.keys.status,
@@ -210,9 +246,10 @@ export async function pushOrderToTech(input: PushOrderInput): Promise<{ rowId: s
     srcTabId: input.srcTabId ?? "",
     srcRowId: input.source.id,
   });
-  // На строке-источнике — адрес копии: по нему ОС потом её обновляет.
+  // На строке-источнике — адрес копии (по нему ОС потом её обновляет) и
+  // служебные ячейки: последний синхронизированный статус и прочее.
   await sbPatchRow(input.workspaceId, input.srcPageId, input.srcTabId, input.source.id, {
-    cells: {},
+    cells: input.sourceCells ?? {},
     syncHash,
     mirrorPageId: input.target.page.id,
     mirrorTabId: tabId,

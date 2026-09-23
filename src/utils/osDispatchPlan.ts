@@ -1,5 +1,6 @@
 import { buildMirrorCells, mirrorSyncHash } from "@/services/rows/osOrderMirror";
 import type { MirrorInput } from "@/services/rows/osOrderMirror";
+import { OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
 import type { OsFieldKeys, PageRow } from "@/types";
 
 /**
@@ -8,23 +9,41 @@ import type { OsFieldKeys, PageRow } from "@/types";
  * Чистая функция: весь спор «кто главный — стол ОС или стол технаря»
  * решается здесь, и его можно проверить без базы.
  *
- * - `push` — заказ уезжает технарю: его ещё нет у него, либо ОС что-то
- *   поменял у себя (подпись `syncHash` разошлась с посчитанной сейчас);
- * - `move` — ОС сменил технаря: заказ убирается из стола прежнего и
- *   заводится в столе нового (иначе он висел бы у обоих);
- * - `unassign` — технаря стёрли: заказ уходит со стола совсем;
- * - `pull` — статус поменяли в строке технаря (Тимлид поставил «Успешку»,
- *   Owner закрыл заказ), и его надо показать у ОС;
+ * ПОЛЯ и СТАТУС живут раздельно — главный урок ревью 23.09.2026:
+ * - поля заказа (клиент, номер, сумма, ссылка, ник ОС, визитка) — их источник
+ *   стол ОС; подпись `syncHash` считается ТОЛЬКО по ним. Разошлась — ОС
+ *   что-то поменял, поля уезжают технарю. Статус в подпись не входит, и
+ *   правка телефона больше не увозит технарю устаревший статус;
+ * - статус может поменять любая сторона: ОС у себя, Тимлид/Owner в строке
+ *   технаря. Кто менял последним, видно по `osStatusSent` — служебной ячейке
+ *   на строке-источнике, куда пишется последний СИНХРОНИЗИРОВАННЫЙ статус.
+ *   `mine !== sent` — менял ОС, его статус едет технарю; `theirs !== sent` —
+ *   меняли у технаря, статус едет к ОС. Обе стороны разошлись — прав ОС:
+ *   он смотрит на экран прямо сейчас.
+ *
+ * Действия:
+ * - `push` — поля (и, если менял ОС, статус) уезжают технарю; копии ещё нет —
+ *   заводится;
+ * - `move` — ОС сменил технаря: копия убирается у прежнего и заводится у нового;
+ * - `unassign` — технаря стёрли: копия уходит со стола;
+ * - `lost` — список заказов прочитан, а копии по записанному адресу нет
+ *   (Owner удалил её в столе технаря, вкладку удалили). Адрес снимаем,
+ *   заказ заново НЕ выдаём: удаление — решение, а не сбой; выдать снова
+ *   можно кнопкой или сменой технаря;
+ * - `pull` — статус поменяли у технаря, показываем его у ОС;
  * - `none` — всё сходится;
- * - `wait` — это ещё не заказ (нет технаря или имени клиента).
+ * - `wait` — это ещё не заказ (нет технаря или имени клиента), либо копию
+ *   удалили и ОС её пока не перевыдал.
  */
-export type OsDispatchAction = "push" | "move" | "unassign" | "pull" | "none" | "wait";
+export type OsDispatchAction = "push" | "move" | "unassign" | "lost" | "pull" | "none" | "wait";
 
 export interface OsDispatchPlan {
   action: OsDispatchAction;
-  /** Статус, который поедет технарю (для `push`) или к ОС (для `pull`). */
+  /** Статус, который поедет технарю (для `push`/`move`) или к ОС (для `pull`). */
   status: string;
-  /** Подпись зеркалируемых полей после действия. */
+  /** Отправлять ли статус технарю (для `push`): только если его менял ОС. */
+  withStatus: boolean;
+  /** Подпись полей после действия. */
   hash: string;
   /** Был ли заказ уже выдан — для тоста «Заказ у технаря». */
   hadMirror: boolean;
@@ -36,8 +55,10 @@ export interface OsDispatchPlan {
   mirrorRowId?: string;
   /** Вкладка, где копия лежит сейчас (на переломе месяца она не текущая). */
   mirrorTabId?: string | null;
-  /** Откуда убрать копию: смена технаря и снятие заказа. */
+  /** Откуда убрать копию: смена технаря, снятие заказа, потерянная копия. */
   removeAt?: { pageId: string; tabId: string | null; rowId: string };
+  /** Что дописать в ячейки строки-источника после действия (служебные ключи, статус). */
+  sourceCells: Record<string, string>;
 }
 
 /** Где лежит копия заказа. */
@@ -64,10 +85,30 @@ export function mirrorAddressOf(row: PageRow, mirror: PageRow | null): MirrorAdd
   return null;
 }
 
+/**
+ * Копия ЭТОЙ строки среди всех заказов ОС: сначала та, на которую показывает
+ * адрес на строке, иначе самая свежая с таким `srcRowId`. Раньше карта
+ * «источник → копия» держала случайную из копий, и уборка дублей с планом
+ * прохода смотрели на разные строки.
+ */
+export function mirrorForRow(row: PageRow, orders: readonly PageRow[]): PageRow | null {
+  const copies = orders.filter((o) => o.srcRowId === row.id);
+  if (copies.length === 0) return null;
+  return (
+    copies.find((c) => c.id === row.mirrorRowId && c.deskPageId === row.mirrorPageId) ??
+    [...copies].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]
+  );
+}
+
 export interface OsDispatchInput {
   row: PageRow;
   /** Строка этого заказа в столе технаря, если он уже выдан. */
   mirror: PageRow | null;
+  /**
+   * Список заказов ОС прочитан целиком. Только тогда «копии в списке нет»
+   * значит «её удалили», а не «ещё не загрузилась».
+   */
+  ordersLoaded: boolean;
   keys: OsFieldKeys;
   osColumns: MirrorInput["osColumns"];
   osNickValue: string;
@@ -86,81 +127,133 @@ export interface OsDispatchInput {
   targetPageId: string;
 }
 
+function cellOf(row: PageRow, key: string | null | undefined): string {
+  if (!key) return "";
+  const v = row.cells[key];
+  return v === null || v === undefined ? "" : String(v).trim();
+}
+
 export function planOsDispatch(input: OsDispatchInput): OsDispatchPlan {
   const { row, mirror, osStatusKey } = input;
-  const mine = osStatusKey ? String(row.cells[osStatusKey] ?? "").trim() : "";
-  const theirs = mirror?.statusKey ? String(mirror.cells[mirror.statusKey] ?? "").trim() : "";
+  const mine = cellOf(row, osStatusKey);
+  const theirs = mirror?.statusKey ? cellOf(mirror, mirror.statusKey) : "";
+  const sent = cellOf(row, OS_STATUS_SENT_KEY);
+  const lostFor = cellOf(row, OS_LOST_FOR_KEY);
   const at = mirrorAddressOf(row, mirror);
   const hadMirror = Boolean(at);
+  const keep = (action: OsDispatchAction, extra: Partial<OsDispatchPlan> = {}): OsDispatchPlan => ({
+    action,
+    status: mine,
+    withStatus: false,
+    hash: row.syncHash ?? "",
+    hadMirror,
+    sourceCells: {},
+    ...extra,
+  });
 
   // Технаря стёрли — заказ уходит с его стола: держать у человека работу,
   // которую у него забрали, нельзя.
   if (!input.techNick) {
-    if (at) return { action: "unassign", status: mine, hash: row.syncHash ?? "", hadMirror, removeAt: at };
-    return { action: "wait", status: mine, hash: row.syncHash ?? "", hadMirror };
+    if (at) return keep("unassign", { removeAt: at, sourceCells: { [OS_STATUS_SENT_KEY]: "" } });
+    return keep("wait");
   }
   // Ещё не заказ: без имени клиента отправлять нечего.
-  if (!input.client && !at) {
-    return { action: "wait", status: mine, hash: row.syncHash ?? "", hadMirror };
-  }
+  if (!input.client && !at) return keep("wait");
 
-  /**
-   * Подпись считается ТОЛЬКО по своим полям — статус у технаря в неё не
-   * входит. Иначе «Успешка», поставленная Тимлидом, меняла бы подпись, проход
-   * счёл бы это правкой ОС и отправил бы технарю обратно его же старый
-   * статус, затерев решение руководства.
-   */
-  const hashOf = (status: string, cellsOverride?: Record<string, string>) =>
-    mirrorSyncHash(
-      buildMirrorCells({
-        source: cellsOverride ? ({ ...row, cells: { ...row.cells, ...cellsOverride } } as PageRow) : row,
-        osColumns: input.osColumns,
-        keys: input.keys,
-        osNickValue: input.osNickValue,
-        status,
-        // Дата получения заказа — она же в подписи, поэтому берётся ТОЛЬКО из
-        // строки: `Date.now()` менял бы подпись каждый проход, и заказ уезжал
-        // бы технарю бесконечно.
-        dateMs: row.createdAt || 0,
-      }),
-      row.extras
-    );
+  /** Подпись ТОЛЬКО по полям — без статуса и без даты (см. шапку файла). */
+  const fieldsHash = mirrorSyncHash(
+    buildMirrorCells({
+      source: row,
+      osColumns: input.osColumns,
+      keys: input.keys,
+      osNickValue: input.osNickValue,
+      status: "",
+      withStatus: false,
+      dateMs: 0,
+    }),
+    row.extras
+  );
 
-  // 1. Заказа у технаря ещё нет — выдаём. Пустой статус у ОС означает
-  //    «в работе»: заказ в столе технаря без статуса не считается нигде.
+  // 1. Копии нет вовсе — выдаём. Пустой статус у ОС означает «в работе»:
+  //    заказ в столе технаря без статуса не считается нигде.
   if (!at) {
+    // Копию удалили у ЭТОГО технаря, и ОС её не перевыдавал — не воскрешаем.
+    if (lostFor && lostFor === input.techNick) return keep("wait");
     const status = mine || input.fallbackStatus;
-    return { action: "push", status, hash: hashOf(status), hadMirror };
+    return keep("push", {
+      status,
+      withStatus: true,
+      hash: fieldsHash,
+      sourceCells: {
+        [OS_STATUS_SENT_KEY]: status,
+        [OS_LOST_FOR_KEY]: "",
+        ...(osStatusKey && !mine ? { [osStatusKey]: status } : {}),
+      },
+    });
   }
 
-  // 2. Сменили технаря: заказ лежит не в том столе. Статус переезжает вместе
+  // 2. Адрес на строке есть, а в прочитанном списке копии нет — её удалили
+  //    (Owner в столе технаря, удалили вкладку). Не «пустой статус у
+  //    технаря», а «копии нет»: адрес снимаем, статус ОС не трогаем.
+  if (!mirror) {
+    if (!input.ordersLoaded) return keep("wait");
+    return keep("lost", {
+      removeAt: at,
+      sourceCells: { [OS_LOST_FOR_KEY]: input.techNick, [OS_STATUS_SENT_KEY]: "" },
+    });
+  }
+
+  // 3. Сменили технаря: копия лежит не в том столе. Статус переезжает вместе
   //    с заказом — работа-то та же.
   if (input.targetPageId && at.pageId && at.pageId !== input.targetPageId) {
     const status = mine || theirs || input.fallbackStatus;
-    return { action: "move", status, hash: hashOf(status), hadMirror, removeAt: at };
+    return keep("move", {
+      status,
+      withStatus: true,
+      hash: fieldsHash,
+      removeAt: at,
+      sourceCells: {
+        [OS_STATUS_SENT_KEY]: status,
+        [OS_LOST_FOR_KEY]: "",
+        ...(osStatusKey && !mine ? { [osStatusKey]: status } : {}),
+      },
+    });
   }
 
-  // 3. У себя статуса нет, а у технаря есть — показываем настоящий. Сюда же
-  //    попадают перенесённые заказы (`osOrderAdoption`): у их строки-источника
-  //    столбец статуса пустой, а заказ давно в работе.
-  if (!mine && theirs && osStatusKey) {
-    return { action: "pull", status: theirs, hash: hashOf(theirs, { [osStatusKey]: theirs }), hadMirror };
+  const fieldsChanged = fieldsHash !== (row.syncHash ?? "");
+  const osChangedStatus = Boolean(mine) && mine !== sent;
+  const techChangedStatus = Boolean(theirs) && theirs !== sent;
+
+  // 4. ОС поменял статус (и, может быть, поля) — едет технарю. Прав ОС: он
+  //    смотрит на экран прямо сейчас.
+  if (osChangedStatus) {
+    return keep("push", {
+      status: mine,
+      withStatus: true,
+      hash: fieldsHash,
+      mirrorRowId: at.rowId,
+      mirrorTabId: at.tabId,
+      sourceCells: { [OS_STATUS_SENT_KEY]: mine },
+    });
   }
 
-  // 4. ОС что-то поменял у себя — уезжает технарю.
-  const status = mine || input.fallbackStatus;
-  const hash = hashOf(status);
-  if (hash !== (row.syncHash ?? "")) {
-    return { action: "push", status, hash, hadMirror, mirrorRowId: at.rowId, mirrorTabId: at.tabId };
+  // 5. ОС поменял только поля — едут технарю БЕЗ статуса: его могли
+  //    поменять у технаря, и затирать решение руководства нельзя.
+  if (fieldsChanged) {
+    return keep("push", { status: mine, withStatus: false, hash: fieldsHash, mirrorRowId: at.rowId, mirrorTabId: at.tabId });
   }
 
-  // 5. Статус поменяли в строке технаря (Тимлид поставил «Успешку», Owner
-  //    закрыл заказ) — показываем его у ОС.
-  if (theirs !== mine && osStatusKey) {
-    return { action: "pull", status: theirs, hash: hashOf(theirs, { [osStatusKey]: theirs }), hadMirror };
+  // 6. Статус поменяли у технаря (Тимлид поставил «Успешку», Owner закрыл
+  //    заказ) или его у ОС ещё нет (перенесённый заказ) — показываем у ОС.
+  if (techChangedStatus && osStatusKey) {
+    return keep("pull", {
+      status: theirs,
+      hash: fieldsHash,
+      sourceCells: { [osStatusKey]: theirs, [OS_STATUS_SENT_KEY]: theirs },
+    });
   }
 
-  return { action: "none", status: mine, hash, hadMirror };
+  return keep("none", { hash: fieldsHash });
 }
 
 /**
@@ -171,9 +264,9 @@ export function planOsDispatch(input: OsDispatchInput): OsDispatchPlan {
  * заведённые до этого, надо убрать: у технаря один заказ считается дважды —
  * и в загрузке, и в деньгах.
  *
- * Правило выбора «настоящей»: та, на которую показывает сама строка-источник;
- * если такой нет — та, что лежит в нынешнем столе технаря; если и таких
- * несколько — самая свежая. Остальные идут на удаление.
+ * Правило выбора «настоящей» — то же, что у `mirrorForRow`: та, на которую
+ * показывает сама строка-источник; если такой нет — та, что лежит в
+ * нынешнем столе технаря; если и таких несколько — самая свежая.
  */
 export function findDuplicateMirrors(input: {
   /** Строки стола ОС. */
