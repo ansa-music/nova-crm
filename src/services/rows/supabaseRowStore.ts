@@ -142,6 +142,30 @@ export function rowToRecord(workspaceId: string, pageId: string, tab: string | n
 /** PostgREST отдаёт не больше 1000 строк за запрос — длинный стол читается страницами. */
 /** Сколько ждём переподключения канала, прежде чем сказать человеку. */
 const LIVE_WARN_AFTER_MS = 15_000;
+/**
+ * Страховка живых строк: пока канал Realtime не подключён, стол раз в столько
+ * спрашивает отметку своей таблицы (`rows_table_stamp`: число строк + хеш) и
+ * перечитывает строки, только если она сменилась. Отметка — десятки байт, а
+ * полная выборка на каждый тик съела бы месячный трафик Supabase.
+ */
+const STAMP_POLL_MS = 15_000;
+
+/**
+ * Отметка таблицы или null, если в базе ещё нет функции (SQL не накатан):
+ * тогда страховки просто нет, а стол работает как раньше.
+ */
+async function fetchTableStamp(workspaceId: string, pageId: string, tabId: string): Promise<string | null> {
+  const { data, error } = await supabaseRows.rpc("rows_table_stamp", {
+    p_workspace: workspaceId,
+    p_page: pageId,
+    p_tab: tabId,
+  });
+  if (error) {
+    if (error.code === "PGRST202" || error.code === "42883") return null;
+    throw toStoreError(error, "Не удалось сверить таблицу");
+  }
+  return typeof data === "string" ? data : null;
+}
 
 const PAGE_SIZE = 1000;
 
@@ -560,6 +584,11 @@ export function sbSubscribeRows(
   let reloadTimer: ReturnType<typeof setTimeout> | null = null;
   let sweepTimer: ReturnType<typeof setTimeout> | null = null;
   let emitTimer: ReturnType<typeof setTimeout> | null = null;
+  let stampTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Отметка таблицы на момент последней выборки (см. STAMP_POLL_MS). */
+  let lastStamp: string | null = null;
+  /** В базе нет `rows_table_stamp` — страховку не зовём. */
+  let stampMissing = false;
 
   const inScope = (record: Partial<DeskRowRecord>) =>
     record.workspace_id === workspaceId && record.page_id === pageId && (record.tab_id ?? "") === tabId;
@@ -687,6 +716,12 @@ export function sbSubscribeRows(
     reloadQueued = false;
     // Подтверждённые ДО начала выборки правки выборка уже содержит.
     const confirmedBefore = [...table.overlays].filter(([, o]) => o.committedAt !== null).map(([id]) => id);
+    // Отметку берём ДО выборки: правка между ними попадёт в строки, а отметка
+    // окажется старой — следующий тик лишний раз перечитает, но не пропустит.
+    // Наоборот (после выборки) правка между ними потерялась бы до следующей.
+    // При живом канале отметка не нужна (события приходят сами) — лишний запрос не делаем.
+    const stampBefore =
+      stampMissing || channelHealthy ? null : await fetchTableStamp(workspaceId, pageId, tabId).catch(() => null);
     try {
       // Пустой стол без прав здесь не ошибка: «права ещё не доехали» различает
       // сама страница (usePageRows → sbPageAccess), не дёргая проверку на каждом повторе.
@@ -694,6 +729,7 @@ export function sbSubscribeRows(
       if (cancelled) return;
       serverRecords = new Map(records.map((record) => [record.id, record]));
       serverRows = new Map(records.map((record) => [record.id, recordToRow(record)]));
+      lastStamp = stampBefore;
       for (const id of confirmedBefore) table.overlays.delete(id);
       loaded = true;
       retryDelay = 3000;
@@ -724,6 +760,36 @@ export function sbSubscribeRows(
         .order("id", { ascending: true })
         .range(from, to)
     );
+  }
+
+  /**
+   * Тик страховки: только пока канал НЕ подключён, вкладка на виду, таблица
+   * загружена и своих записей в пути нет (иначе отметка менялась бы от своих
+   * же правок). При живом канале события и так приходят — лишние запросы ни к чему.
+   */
+  function scheduleStampCheck() {
+    if (cancelled || stampMissing) return;
+    if (stampTimer) clearTimeout(stampTimer);
+    stampTimer = setTimeout(() => {
+      stampTimer = null;
+      void checkStamp().finally(scheduleStampCheck);
+    }, STAMP_POLL_MS);
+  }
+
+  async function checkStamp() {
+    if (cancelled || channelHealthy || !loaded || loading || table.pending > 0) return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    try {
+      const stamp = await fetchTableStamp(workspaceId, pageId, tabId);
+      if (cancelled) return;
+      if (stamp === null) {
+        stampMissing = true;
+        return;
+      }
+      if (stamp !== lastStamp) void load();
+    } catch {
+      // Нет связи — следующий тик попробует снова; выборка своё сообщит сама.
+    }
   }
 
   liveTables.add(table);
@@ -757,7 +823,9 @@ export function sbSubscribeRows(
         if (cancelled || channelHealthy) return;
         liveWarned = true;
         toast.error("Живое обновление строк не работает", {
-          description: "Свои правки сохраняются, а чужие появятся только после обновления страницы.",
+          description: stampMissing
+            ? "Свои правки сохраняются, а чужие появятся только после обновления страницы."
+            : "Свои правки сохраняются, а чужие будут подтягиваться раз в 15 секунд.",
           duration: 8000,
         });
       }, LIVE_WARN_AFTER_MS);
@@ -766,6 +834,7 @@ export function sbSubscribeRows(
   // Выборка сразу, не дожидаясь канала: Realtime может и не подключиться
   // (сеть, расширения), а таблица должна открыться всё равно.
   void load();
+  scheduleStampCheck();
 
   const onVisible = () => {
     if (document.visibilityState === "visible") void load();
@@ -775,7 +844,7 @@ export function sbSubscribeRows(
   return () => {
     cancelled = true;
     liveTables.delete(table);
-    for (const timer of [retryTimer, reloadTimer, sweepTimer, emitTimer, liveWarnTimer]) if (timer) clearTimeout(timer);
+    for (const timer of [retryTimer, reloadTimer, sweepTimer, emitTimer, liveWarnTimer, stampTimer]) if (timer) clearTimeout(timer);
     document.removeEventListener("visibilitychange", onVisible);
     void supabaseRows.removeChannel(channel);
   };

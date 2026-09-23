@@ -36,5 +36,17 @@ jobs:
           VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
         run: npm run build
 
+      # SQL строк таблиц (supabase/migrations/*.sql) — в Supabase САМ, до
+      # выкладки сайта: новому коду нужны его функции и политики. Накатываются
+      # только изменившиеся файлы, каждый одной транзакцией; ошибка останавливает
+      # деплой (сайт не уйдёт вперёд базы). Нет секрета — шаг пропускается.
+      # Секрет — ОДИН из: SUPABASE_ACCESS_TOKEN (личный токен Supabase) или
+      # SUPABASE_DB_URL (строка «Session pooler» из Supabase → Connect).
+      - name: Apply Supabase SQL
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: node scripts/supabase-sql.mjs apply --if-configured
+
       - name: Deploy to Firebase Hosting
         run: npx firebase-tools deploy --only hosting,firestore:rules,firestore:indexes --project nurba-6e70d --token "${{ secrets.FIREBASE_TOKEN }}"
