@@ -182,6 +182,56 @@ service cloud.firestore {
         || (isOwner(workspaceId) && rowsMigrating(workspaceId));
     }
 
+    // -------------------------------------------------------------------
+    // Строка-заказ: её ведёт ОС (CLAUDE.md «Стол ОС — источник заказов»).
+    // Настоящий замок держат политики Supabase `desk_rows` — заказы живут
+    // там. Здесь СТРАХОВКА на случай, если строки вернут в Firestore:
+    // метка `osUid` на документе остаётся, и без этой ветки технарь снова
+    // правил бы статус и сумму своего заказа обычной записью.
+    // Полноценно ВЕСТИ заказы из Firestore всё равно нельзя (ОС не пишет в
+    // чужой стол — canEditPage его не пускает), и это осознанно: режим
+    // Firestore здесь только для отката.
+    // -------------------------------------------------------------------
+    function isManagedRow() {
+      return resource != null && resource.data.get('osUid', '') != '';
+    }
+
+    function rowKeysOnly(allowed) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowed);
+    }
+
+    function rowCellsOnly(keys) {
+      return request.resource.data.get('cells', {}).diff(resource.data.get('cells', {}))
+        .affectedKeys().hasOnly(keys);
+    }
+
+    // Owner — всё; ОС этого заказа — всё; Тимлид — РОВНО ячейку статуса
+    // («Успешка» по просьбе); технарь — только свои поля и свою просьбу.
+    function managedRowUpdateOk(workspaceId) {
+      return isOwner(workspaceId)
+        || resource.data.get('osUid', '') == request.auth.uid
+        || (isTeamLead(workspaceId)
+          && rowKeysOnly(['cells', 'updatedAt'])
+          && rowCellsOnly([resource.data.get('statusKey', '')]))
+        || (rowKeysOnly(['cells', 'updatedAt', 'successRequestedAt', 'successRequestedBy'])
+          && rowCellsOnly(['techLink', 'techNote'])
+          && request.resource.data.get('successRequestedBy', request.auth.uid) == request.auth.uid);
+    }
+
+    // Завести строку с чужой меткой нельзя: иначе технарь пометил бы свою
+    // строку чужим `osUid` и спрятал её от собственного стола.
+    function managedRowCreateOk(workspaceId) {
+      return request.resource.data.get('osUid', '') == ''
+        || isOwner(workspaceId)
+        || request.resource.data.get('osUid', '') == request.auth.uid;
+    }
+
+    // Строку-заказ убирает тот, кто её ведёт.
+    function managedRowDeleteOk(workspaceId) {
+      return !isManagedRow() || isOwner(workspaceId)
+        || resource.data.get('osUid', '') == request.auth.uid;
+    }
+
     // Owner: every page. Тимлид: none, если он не Технарь, — кроме столов ОС.
     // Responsible person: their own desk even if hidden or missing from
     // allowedUsers. Everyone else: explicit allowedUsers grant.
@@ -544,9 +594,16 @@ service cloud.firestore {
         match /rows/{rowId} {
           allow read: if isMember(workspaceId) &&
             canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
-          allow create, update, delete: if isMember(workspaceId) &&
+          allow create: if isMember(workspaceId) &&
             canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
-            rowsWritableHere(workspaceId);
+            rowsWritableHere(workspaceId) && managedRowCreateOk(workspaceId);
+          allow update: if isMember(workspaceId) &&
+            canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
+            rowsWritableHere(workspaceId) &&
+            (!isManagedRow() || managedRowUpdateOk(workspaceId));
+          allow delete: if isMember(workspaceId) &&
+            canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
+            rowsWritableHere(workspaceId) && managedRowDeleteOk(workspaceId);
 
           // Row-level comment threads — anyone with VIEW access to the
           // page (even a Viewer) can read and post; editing/deleting a
@@ -583,9 +640,16 @@ service cloud.firestore {
           match /rows/{rowId} {
             allow read: if isMember(workspaceId) &&
               canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
-            allow create, update, delete: if isMember(workspaceId) &&
+            allow create: if isMember(workspaceId) &&
               canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
-              rowsWritableHere(workspaceId);
+              rowsWritableHere(workspaceId) && managedRowCreateOk(workspaceId);
+            allow update: if isMember(workspaceId) &&
+              canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
+              rowsWritableHere(workspaceId) &&
+              (!isManagedRow() || managedRowUpdateOk(workspaceId));
+            allow delete: if isMember(workspaceId) &&
+              canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
+              rowsWritableHere(workspaceId) && managedRowDeleteOk(workspaceId);
           }
         }
 
