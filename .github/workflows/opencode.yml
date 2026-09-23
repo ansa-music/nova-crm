@@ -8,11 +8,16 @@ on:
 
 jobs:
   opencode:
+    # Только владелец репозитория. Репозиторий публичный: без этой проверки
+    # любой человек с GitHub-аккаунтом мог написать «/oc …» в issue и
+    # запустить агента с правом записи в код — а пуш в main = деплой сайта.
     if: |
-      contains(github.event.comment.body, ' /oc') ||
-      startsWith(github.event.comment.body, '/oc') ||
-      contains(github.event.comment.body, ' /opencode') ||
-      startsWith(github.event.comment.body, '/opencode')
+      github.event.comment.author_association == 'OWNER' && (
+        contains(github.event.comment.body, ' /oc') ||
+        startsWith(github.event.comment.body, '/oc') ||
+        contains(github.event.comment.body, ' /opencode') ||
+        startsWith(github.event.comment.body, '/opencode')
+      )
     runs-on: ubuntu-latest
     permissions:
       id-token: write
