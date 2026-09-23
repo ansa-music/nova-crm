@@ -109,8 +109,19 @@ export function useSyncedTableRows(
     // Пока плашка «права не доехали» — перепроверяем раз в 15 с (Supabase
     // такие запросы не тарифицирует): запись прав событием строк не приходит,
     // и без опроса стол открылся бы только после возврата на вкладку.
+    // В СВЁРНУТОЙ вкладке не опрашиваем вовсе: смотреть там некому, а стол
+    // держат открытым сутками — это был бы запрос каждые 15 секунд впустую.
+    // Вернулись на вкладку — проверяем сразу.
+    const scheduleAccessCheck = () => {
+      if (cancelled || accessTimer !== null) return;
+      accessTimer = window.setTimeout(() => {
+        accessTimer = null;
+        checkAccess();
+      }, 15_000);
+    };
     const checkAccess = () => {
       if (cancelled || accessChecking) return;
+      if (document.visibilityState === "hidden") return; // вернутся — проверим
       accessChecking = true;
       void sbPageAccess(workspaceId, pageId)
         .then((access) => {
@@ -123,10 +134,10 @@ export function useSyncedTableRows(
             return;
           }
           setAccessPending(true);
-          accessTimer = window.setTimeout(checkAccess, 15_000);
+          scheduleAccessCheck();
         })
         .catch(() => {
-          if (!cancelled) accessTimer = window.setTimeout(checkAccess, 15_000);
+          if (!cancelled) scheduleAccessCheck();
         })
         .finally(() => {
           accessChecking = false;
@@ -165,12 +176,18 @@ export function useSyncedTableRows(
       setReadError(readErrorText(error));
     };
 
+    const onVisible = () => {
+      if (document.visibilityState === "visible") checkAccess();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
     const unsubscribe = subPageId
       ? subscribeToSubPageRows(workspaceId, pageId, subPageId, onData, onError)
       : subscribeToRows(workspaceId, pageId, onData, onError);
 
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
       if (accessTimer !== null) window.clearTimeout(accessTimer);
       unsubscribe();
     };

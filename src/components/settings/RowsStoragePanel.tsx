@@ -162,6 +162,19 @@ export function RowsStoragePanel() {
     }
   }
 
+  /** Снять зависший флаг переноса — с ответом: молчащая кнопка выглядит сломанной. */
+  async function handleClearFlag() {
+    if (!workspaceId) return;
+    try {
+      await clearRowsMigrationFlag(workspaceId);
+      toast.success("Флаг переноса снят — правка строк снова разрешена");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setLastError(message);
+      toast.error("Не удалось снять флаг переноса");
+    }
+  }
+
   async function runMigrate(direction: "supabase" | "firestore") {
     if (!workspaceId || !activeWorkspace) return;
     const toSupabase = direction === "supabase";
@@ -172,6 +185,8 @@ export function RowsStoragePanel() {
           "На время переноса — обычно минута-две — правка строк у всех приостановится, потом все открытые вкладки перезагрузятся. " +
           "Каждая строка Firestore будет прочитана один раз: делайте это, когда дневная квота не на исходе. Старая копия в Firestore останется как архив."
         : "Строки из Supabase будут записаны обратно в Firestore — каждая строка это одна запись Firestore, следите за дневной квотой (20 000). " +
+          "Строки, которых в Supabase нет, из Firestore будут УДАЛЕНЫ: после переноса Firestore станет точной копией Supabase. " +
+          "Если не уверены — сначала «Настройки → Бэкап → Скачать бэкап workspace». " +
           "Правка строк на это время приостановится, потом все вкладки перезагрузятся.",
       confirmLabel: toSupabase ? "Перенести" : "Вернуть",
       destructive: !toSupabase,
@@ -244,7 +259,7 @@ export function RowsStoragePanel() {
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-warning">
               <TriangleAlert className="h-4 w-4" />
               <span className="flex-1">Перенос был начат и не закончился (вкладку закрыли?). Хранилище не переключалось.</span>
-              <Button size="sm" variant="outline" onClick={() => void clearRowsMigrationFlag(workspaceId)}>
+              <Button size="sm" variant="outline" onClick={() => void handleClearFlag()}>
                 Снять флаг
               </Button>
             </div>

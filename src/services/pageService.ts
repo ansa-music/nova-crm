@@ -3,6 +3,7 @@ import {
   deleteField,
   getDoc,
   getDocs,
+  getDocsFromServer,
   onSnapshot,
   orderBy,
   query,
@@ -899,6 +900,17 @@ export function subscribeToRows(
   if (usesSupabaseRows(workspaceId)) return sbSubscribeRows(workspaceId, pageId, null, onData, onError);
   const q = query(paths.rows(workspaceId, pageId), orderBy("order", "asc"));
   return subscribeWithSource<PageRow>(q, onData, onError);
+}
+
+/**
+ * Все столы СВЕЖИМ чтением с сервера (мимо кэша) — для переноса строк:
+ * список из памяти вкладки бывает неполным (подписка ещё не отдала снимок,
+ * часть чтений отказала), а неполный список в переносе означает, что часть
+ * столов молча останется пустой в новом хранилище.
+ */
+export async function fetchPagesFresh(workspaceId: string): Promise<WorkspacePage[]> {
+  const snap = await getDocsFromServer(paths.pages(workspaceId));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as WorkspacePage);
 }
 
 /** One-shot row read for dashboards — no live listener. */

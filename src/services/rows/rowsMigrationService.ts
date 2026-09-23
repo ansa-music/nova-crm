@@ -12,12 +12,12 @@ import {
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { DESK_ROWS_TABLE, supabaseRows } from "@/lib/supabaseRows";
-import { stripUndefined } from "@/services/pageService";
+import { fetchPagesFresh, stripUndefined } from "@/services/pageService";
 import { fetchDeskObserverUidsFresh } from "@/services/deskObserverService";
 import { fetchMembersFresh } from "@/services/memberService";
 import { syncRowAcl, type AclSyncReport } from "@/services/rows/rowAclService";
 import { migrationStartMillis } from "@/services/rows/rowsBackend";
-import { sbDeleteRows, sbFetchRows, sbPutRows } from "@/services/rows/supabaseRowStore";
+import { sbDeleteRows, sbFetchRows, sbPageAccess, sbPutRows } from "@/services/rows/supabaseRowStore";
 import type { PageRow, WorkspacePage } from "@/types";
 import type { RowsMigrationStamp } from "@/types/workspace";
 
@@ -307,13 +307,17 @@ export async function migrateRowsToSupabase(input: MigrateInput): Promise<Migrat
       me: input.me,
       realRole: "owner",
       members,
-      pages: input.pages,
+      pages: await fetchPagesFresh(workspaceId),
       observers,
       force: true,
     });
     if (acl.errors.length) throw new Error(`Права доступа не перенеслись: ${acl.errors.slice(0, 3).join("; ")}`);
 
-    const tables = await listTables(workspaceId, input.pages);
+    // Столы — СВЕЖИМ списком с сервера, а не тем, что лежит в памяти вкладки:
+    // неполный список молча стал бы эталоном, и не попавшие в него столы
+    // открылись бы у всех пустыми (копия в Firestore к тому моменту замёрзла).
+    const pages = await fetchPagesFresh(workspaceId);
+    const tables = await listTables(workspaceId, pages);
     const expected = new Map<TableRef, number>();
     let rows = 0;
     for (let i = 0; i < tables.length; i += 1) {
@@ -386,7 +390,7 @@ export async function migrateRowsToFirestore(input: Omit<MigrateInput, "me" | "o
     // Замок Supabase здесь уже не «перенос», а «закрыто», продлевать нечего —
     // держим только запрет правки строк в Firestore.
     lock = startMigrationLockKeeper(workspaceId, null);
-    const tables = await listTables(workspaceId, input.pages);
+    const tables = await listTables(workspaceId, await fetchPagesFresh(workspaceId));
     const expected = new Map<TableRef, number>();
     let rows = 0;
     const CHUNK = 450;
@@ -394,10 +398,32 @@ export async function migrateRowsToFirestore(input: Omit<MigrateInput, "me" | "o
       const table = tables[i];
       progress({ phase: "copy", done: i, total: tables.length, label: `Возвращаю «${tableLabel(table)}»` });
       const list = await sbFetchRows(workspaceId, table.page.id, table.tabId);
+      // Прочитали ВСЁ, что есть в Supabase? Выборка идёт страницами, а
+      // «максимум строк на запрос» в настройках Supabase можно поставить
+      // меньше нашей страницы — тогда длинный стол прочитался бы наполовину,
+      // остальное удалилось бы из Firestore как «лишнее», а сверка сошлась бы
+      // сама с собой. Сверяем с честным счётчиком ДО единого удаления.
+      const total = await supabaseCount(workspaceId, table);
+      if (list.length !== total) {
+        throw new Error(
+          `«${tableLabel(table)}»: Supabase отдал ${list.length} строк из ${total} — перенос остановлен, в Firestore ничего не изменено.`
+        );
+      }
       const keep = new Set(list.map((row) => row.id));
       // Удаляем только ВИДИМЫЕ строки, которых нет в Supabase: документы без
       // `order` приложение не показывало и туда не переносило — их не трогаем.
       const existing = await getDocsFromServer(visibleRowsQuery(workspaceId, table));
+      // Пустой ответ Supabase — это и «строк нет», и «их скрыла политика»
+      // (RLS отказа не называет). Стереть из-за этого живую копию Firestore
+      // нельзя: сверка потом подтвердила бы ноль нолём.
+      if (list.length === 0 && existing.size > 0) {
+        const access = await sbPageAccess(workspaceId, table.page.id).catch(() => null);
+        throw new Error(
+          access?.canRead
+            ? `«${tableLabel(table)}»: в Supabase ноль строк, а в Firestore ${existing.size} — перенос остановлен, ничего не удалено.`
+            : `«${tableLabel(table)}»: Supabase не отдал строки этого стола (права в копии не доехали) — перенос остановлен, ничего не удалено.`
+        );
+      }
       type Op = { kind: "set"; ref: ReturnType<typeof paths.row>; data: PageRow } | { kind: "delete"; ref: ReturnType<typeof paths.row> };
       const ops: Op[] = [
         ...list.map(
