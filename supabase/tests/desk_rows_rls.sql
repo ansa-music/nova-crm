@@ -119,7 +119,11 @@ select tst.expect('чужой технарь НЕ читает скрытый с
 select tst.expect('Тимлид без Технаря НЕ читает стол технаря', tst.try('TL', $q$select * from desk_rows where page_id = 'P1'$q$, true), 'ok:0');
 select tst.expect('Тимлид читает стол ОС', tst.try('TL', $q$select * from desk_rows where page_id = 'osdesk_OS1'$q$, true), 'ok:1');
 select tst.expect('Тимлид + Технарь читает чужой стол', tst.try('TLT', $q$select * from desk_rows where page_id = 'P2'$q$, true), 'ok:1');
-select tst.expect('Тимлид + ОС НЕ читает стол технаря', tst.try('TLO', $q$select * from desk_rows where page_id = 'P1'$q$, true), 'ok:0');
+-- ОС (любой ролью) видит ВСЕ столы на чтение по умолчанию — и Тимлид + ОС тоже.
+select tst.expect('Тимлид + ОС читает стол технаря (роль ОС открывает все столы)', tst.try('TLO', $q$select * from desk_rows where page_id = 'P1'$q$, true), 'ok:3');
+select tst.expect('ОС читает стол технаря без разрешения', tst.try('OS2', $q$select * from desk_rows where page_id = 'P1'$q$, true), 'ok:3');
+select tst.expect('ОС НЕ правит строку стола технаря', tst.try('OS2', $q$select rows_patch('W','P1','','r1','{"price":"1"}'::jsonb)$q$), 'error');
+select tst.expect('Тимлид + ОС НЕ правит стол технаря', tst.try('TLO', $q$select rows_patch('W','P1','','r1','{"price":"1"}'::jsonb)$q$), 'error');
 select tst.expect('Тимлид + ОС читает чужой стол ОС', tst.try('TLO', $q$select * from desk_rows where page_id = 'osdesk_OS1'$q$, true), 'ok:1');
 select tst.expect('наблюдатель читает чужой стол', tst.try('OBS', $q$select * from desk_rows where page_id = 'P2'$q$, true), 'ok:1');
 -- Столы ОС видны ВСЕМ участникам на чтение (просьба Nurba 23.09.2026), но не посторонним.
@@ -366,10 +370,12 @@ select tst.expect('ОС меняет статус и цену своей стр�
   tst.try('OS1', $q$update desk_rows set cells = cells || '{"status":"done","price":"5000"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'ok');
 select tst.expect('ОС видит свою строку в чужом столе',
   tst.try('OS1', $q$select * from desk_rows where workspace_id='W' and page_id='P1' and id='ord1'$q$, true), 'ok:1');
-select tst.expect('ОС НЕ видит остальные строки чужого стола',
-  tst.try('OS1', $q$select * from desk_rows where workspace_id='W' and page_id='P1' and id='r1'$q$, true), 'ok:0');
-select tst.expect('чужой ОС не видит эту строку',
-  tst.try('OS2', $q$select * from desk_rows where workspace_id='W' and page_id='P1' and id='ord1'$q$, true), 'ok:0');
+select tst.expect('ОС видит и остальные строки стола технаря (только чтение)',
+  tst.try('OS1', $q$select * from desk_rows where workspace_id='W' and page_id='P1' and id='r1'$q$, true), 'ok:1');
+select tst.expect('ОС НЕ правит чужую строку в столе технаря',
+  tst.try('OS1', $q$update desk_rows set cells = cells || '{"client":"x"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='r1'$q$), 'deny');
+select tst.expect('чужой ОС видит эту строку (только чтение)',
+  tst.try('OS2', $q$select * from desk_rows where workspace_id='W' and page_id='P1' and id='ord1'$q$, true), 'ok:1');
 select tst.expect('чужой ОС не правит эту строку',
   tst.try('OS2', $q$update desk_rows set cells = cells || '{"status":"work"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'deny');
 

@@ -191,8 +191,10 @@ export function usePermissions() {
         // роли, и Тимлиду без Технаря оно тоже должно работать.
         if (isDeskObserver) return true;
         if (page.osDesk) return true;
-        if (deskBlocked) return false;
+        // «Видит все столы по роли» — ДО deskBlocked, как в firestore.rules:
+        // права складываются, и Тимлиду + ОС столы открыты.
         if (seesAllDesks(roles)) return true;
+        if (deskBlocked) return false;
         if (isResponsibleForPage(page, uid)) return true;
         return roles.some((role) => canAccessPage(page, role, uid, activeWorkspace?.ownerId));
       },

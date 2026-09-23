@@ -169,6 +169,8 @@ as $$
       or exists (select 1 from public.rows_workspaces w where w.workspace_id = m.workspace_id and w.owner_id = m.uid)
       -- Тимлид + Технарь: чужие столы на чтение.
       or (m.role = 'teamlead' and 'manager' = any (m.extra_roles))
+      -- ОС (основной или второй ролью): все столы на чтение по умолчанию.
+      or m.role = 'os' or 'os' = any (m.extra_roles)
       -- Наблюдатель — ДО isDeskBlocked: право выдано человеку, а не роли.
       or exists (select 1 from public.rows_desk_observers o where o.workspace_id = m.workspace_id and o.uid = m.uid)
     )

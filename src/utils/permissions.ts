@@ -55,7 +55,9 @@ export function isDeskBlockedFor(roles: Role[]): boolean {
  * внесли в `editableUsers`.
  */
 export function seesAllDesks(roles: Role[]): boolean {
-  return roles.includes("teamlead") && roles.includes("manager");
+  // Тимлид + Технарь и ОС (любой ролью): чужие столы на ЧТЕНИЕ без запроса.
+  // У ОС заказы живут в столах технарей (просьба Nurba 23.09.2026).
+  return (roles.includes("teamlead") && roles.includes("manager")) || roles.includes("os");
 }
 
 export function canManageWorkspace(role: Role): boolean {
