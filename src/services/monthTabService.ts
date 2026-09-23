@@ -2,7 +2,7 @@ import { runTransaction, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { stripUndefined } from "@/services/pageService";
-import { fetchSubPages, monthTabNameForKey } from "@/services/subPageService";
+import { archiveSubPage, fetchSubPages, monthTabNameForKey } from "@/services/subPageService";
 import { ymdInTimeZone } from "@/utils/date";
 import { computeOsFieldKeys, sameOsFieldKeys } from "@/utils/osFieldKeys";
 import { worksAsTechnician } from "@/utils/peopleDesks";
@@ -199,6 +199,32 @@ export async function markMonthTab(
   };
   if (columns?.length) patch.osFieldKeys = computeOsFieldKeys(subPageId, columns, Date.now());
   await setDoc(paths.page(workspaceId, pageId), patch, { merge: true });
+}
+
+/**
+ * Вкладка ПРОИЗВОЛЬНОГО месяца — для сегмента «следующий» в шапке стола.
+ * Находит существующую или заводит новую, но НЕ зовёт markMonthTab: тот пишет
+ * `autoMonthKey`/`defaultSubPageId`, и будущий месяц в них сломал бы
+ * awaitingMonthTab (стол ждал бы автопилота вечно) и useDeskLoadPublisher
+ * (счётчики уезжали бы за октябрь). Текущий месяц по-прежнему ведёт
+ * ensureMonthTab.
+ */
+export async function ensureMonthTabForKey(
+  page: WorkspacePage,
+  monthKey: string,
+  uid: string
+): Promise<{ tab: SubPage; restored: boolean }> {
+  const subPages = await fetchSubPages(page.workspaceId, page.id);
+  const found = findMonthTab(subPages, monthKey);
+  // findMonthTab по id находит и архивную вкладку — id month-YYYY-MM
+  // детерминирован, и заводить вторую нельзя. Сегмент такую вкладку прячет,
+  // так что нажатие «следующий» означает «верни её»: снимаем архив, а не
+  // отдаём архивную как живую (иначе стол открылся бы на скрытой вкладке).
+  if (found?.isArchived) {
+    await archiveSubPage(page.workspaceId, page.id, found.id, false);
+    return { tab: { ...found, isArchived: false }, restored: true };
+  }
+  return { tab: found ?? (await createMonthTabOnce(page, subPages, monthKey, uid)), restored: false };
 }
 
 /** Finds or creates this month's tab on a desk and makes it the default. Returns the tab id. */

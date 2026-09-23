@@ -112,8 +112,9 @@ import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
 import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useUiStore } from "@/store/uiStore";
 import { updateResponsibleOptions, updateCustomFieldOptions, updateStatusOptions } from "@/services/workspaceService";
-import { formatCurrency, formatCurrencyCell, formatNumber, downloadCsv } from "@/utils";
+import { formatCount, formatCurrency, formatCurrencyCell, formatNumber, downloadCsv } from "@/utils";
 import { formatOrderDate } from "@/utils/date";
 import { isSummableColumn, sumNumericCells } from "@/utils/tableAggregates";
 import { isBlankRow, isFilledCellValue } from "@/utils/blankRow";
@@ -126,7 +127,10 @@ import {
   DEFAULT_STATUS_OPTIONS,
   NOT_DONE_STATUS_FILTER,
   findDoneStatusOption,
+  findInProgressStatusOption,
+  isWaitingStatusLabel,
 } from "@/utils/columnOptions";
+import type { DeskSummary, DeskTableActions } from "@/types/deskSummary";
 import { isHttpUrl, parseHttpUrl } from "@/utils/httpUrl";
 import { parseClipboardMatrix } from "@/utils/clipboardMatrix";
 import {
@@ -152,9 +156,11 @@ import type {
   TableViewMode,
 } from "@/types";
 
+// Плотность по макету «C — плотный»: 34px в компактном режиме, это и есть
+// строка стола по умолчанию. На таче высота всё равно поднимается до 52.
 const DENSITY_ROW_HEIGHT: Record<"compact" | "default" | "comfortable", number> = {
-  compact: 36,
-  default: 42,
+  compact: 34,
+  default: 40,
   comfortable: 48,
 };
 
@@ -197,6 +203,48 @@ function isEmptyGroupLabel(label: string): boolean {
 
 function sortStorageKey(viewKey: string) {
   return `nova-crm:table-sort:${viewKey}`;
+}
+
+function groupStorageKey(viewKey: string) {
+  return `nova-crm:table-group:${viewKey}`;
+}
+
+/**
+ * Группировка по умолчанию — столбец-статус: стол по макету читается блоками
+ * «В работе / Ждём оплату / Готово» с суммами в заголовках. Нет статуса —
+ * без группировки.
+ */
+function defaultGroupByKey(columns: PageColumn[]): string | null {
+  return columns.find((c) => c.type === "status" && !c.hidden)?.key ?? null;
+}
+
+/**
+ * Запомненная группировка вкладки (по образцу readPersistedSortState).
+ * Пустая строка в хранилище — человек ЯВНО выключил группы; нет записи —
+ * умолчание по статусу. Ключ пропавшего столбца тоже сводится к умолчанию,
+ * иначе все строки легли бы в одну безымянную группу.
+ */
+function readPersistedGroupBy(viewKey: string, columns: PageColumn[]): string | null {
+  const fallback = defaultGroupByKey(columns);
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(groupStorageKey(viewKey));
+    if (raw === null) return fallback;
+    if (raw === "") return null;
+    // Скрытый столбец группировать нельзя: его варианты не резолвятся в
+    // подписи, и группы читались бы сырыми `in_progress`/`done`.
+    return columns.some((c) => c.key === raw && !c.hidden) ? raw : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writePersistedGroupBy(viewKey: string, key: string | null) {
+  try {
+    window.localStorage.setItem(groupStorageKey(viewKey), key ?? "");
+  } catch {
+    // Приватный режим / запрет на хранилище — группировка просто не запомнится.
+  }
 }
 
 function readPersistedSortState(viewKey: string): SortState {
@@ -293,6 +341,16 @@ interface DataTableProps {
    */
   ordersFromOsOnly?: boolean;
   /**
+   * Сводка по видимым строкам для шапки стола («Общий · Готово · В работе ·
+   * Ждём»). Зовётся только когда числа изменились, не на каждый рендер.
+   */
+  onSummaryChange?: (summary: DeskSummary | null) => void;
+  /**
+   * Действия, которые шапка стола рисует сама («+ Заказ», «Строка»). Зовётся
+   * при смене флагов can*, при размонтировании — с null.
+   */
+  onActionsChange?: (actions: DeskTableActions | null) => void;
+  /**
    * Столбцы (ключи), чьи ячейки открывают внешний выбор вместо выпадашки, —
    * «Технарь» на столе ОС: полноэкранный список с поиском и занятостью.
    */
@@ -346,7 +404,7 @@ function normalizeContact(raw: string, type: "phone" | "email" | string): string
   return v.toLowerCase();
 }
 
-export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, cellPickerKeys, onOpenCellPicker, cellAction, cellAddon, lockedKeys }: DataTableProps) {
+export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, onSummaryChange, onActionsChange, cellPickerKeys, onOpenCellPicker, cellAction, cellAddon, lockedKeys }: DataTableProps) {
   // Внешний выбор ячейки: колбэк стабилен (через ref), иначе каждый рендер
   // стола перерисовывал бы все строки — TableRow сравнивает пропсы.
   const cellPickerRef = useRef(onOpenCellPicker);
@@ -384,6 +442,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         .map(({ column }) => column),
     [page.columns]
   );
+  // Для эффекта сброса при смене вкладки: ему нужны столбцы, но перечитывать
+  // фильтры при каждой правке столбца нельзя.
+  const columnsRef = useRef(columns);
+  columnsRef.current = columns;
   const tableViewKey = subPageId ?? page.id;
 
   // Branch every row/column mutation between the page's own table and a
@@ -498,16 +560,16 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     fillPreviewRef.current = next;
     setFillPreviewState(next);
   };
-  const [groupByKey, setGroupByKey] = useState<string | null>(null);
+  const [groupByKey, setGroupByKey] = useState<string | null>(() => readPersistedGroupBy(tableViewKey, columns));
   const [savedViews, setSavedViews] = useState<SavedTableView[]>(() => loadSavedTableViews(tableViewKey));
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [density, setDensity] = useState<"compact" | "default" | "comfortable">(() => {
     // Persisted across visits/reloads (per-browser) — was previously reset
     // to "default" every time you opened a table, even if you'd just set
     // it to "compact" a moment ago.
-    if (typeof window === "undefined") return "default";
+    if (typeof window === "undefined") return "compact";
     const saved = window.localStorage.getItem("nova-crm:table-density");
-    return saved === "compact" || saved === "default" || saved === "comfortable" ? saved : "default";
+    return saved === "compact" || saved === "default" || saved === "comfortable" ? saved : "compact";
   });
 
   function handleDensityChange(next: "compact" | "default" | "comfortable") {
@@ -692,7 +754,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setFilters({});
     setSearchQuery("");
     setStatusFilter(null);
-    setGroupByKey(null);
+    setGroupByKey(readPersistedGroupBy(tableViewKey, columnsRef.current));
+    setCollapsedGroups(new Set());
     setSavedViews(loadSavedTableViews(tableViewKey));
     setColumnAggregates(loadColumnAggregates(tableViewKey));
     setSelectedRowIds(new Set());
@@ -709,9 +772,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
   }, []);
-  const rowHeight = coarsePointer
-    ? Math.max(52, DENSITY_ROW_HEIGHT[density])
-    : Math.max(48, DENSITY_ROW_HEIGHT[density]);
+  // Мышью — ровно плотность (34/40/48), пола в 48 больше нет: он и делал
+  // «компактно» неотличимым от «обычно». Тач-ветку не трогаем.
+  const rowHeight = coarsePointer ? Math.max(52, DENSITY_ROW_HEIGHT[density]) : DENSITY_ROW_HEIGHT[density];
   const gutterWidth = coarsePointer ? 48 : 56;
 
   const [gridFocused, setGridFocused] = useState(false);
@@ -919,7 +982,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         setEditingCell(addr);
         setEditValue("");
       }
-      const idx = paginatedRowsRef.current.findIndex((r) => r.id === rowId);
+      const idx = visibleRowsRef.current.findIndex((r) => r.id === rowId);
       if (idx >= 0) {
         pendingScrollRowIdRef.current = null;
         revealCell(rowId, firstCol.key, idx);
@@ -960,12 +1023,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // ---- Grouping ----
   const groups = useMemo(() => {
     if (!groupByKey) return null;
-    const col = displayColumns.find((c) => c.key === groupByKey);
+    // Столбец ищем по ВСЕМ столбцам, а варианты резолвим сами: пока эффект
+    // ниже не сбросил группировку по скрытому столбцу, один рендер шёл бы с
+    // сырыми `in_progress`/`done` без цветов.
+    const col = columns.find((c) => c.key === groupByKey);
+    const options = col && isOptionColumn(col.type) ? getColumnOptions(col, activeWorkspace) : NO_OPTIONS;
     const map = new Map<string, PageRow[]>();
     processedRows.forEach((row) => {
       const raw = String(row.cells[groupByKey] ?? "");
-      const label =
-        col && isOptionColumn(col.type) ? col.statusOptions?.find((o) => o.value === raw)?.label ?? raw : raw;
+      const label = col && isOptionColumn(col.type) ? options.find((o) => o.value === raw)?.label ?? raw : raw;
       // Was `label || "__empty__"` — that sentinel string is truthy, so
       // GroupHeaderRow's own `label || "Без значения"` fallback never
       // triggered and the raw internal placeholder leaked into the UI as a
@@ -976,25 +1042,48 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       map.get(key)!.push(row);
     });
     const entries = Array.from(map.entries());
-    entries.sort((a, b) => {
-      const aEmpty = isEmptyGroupLabel(a[0]);
-      const bEmpty = isEmptyGroupLabel(b[0]);
-      if (aEmpty === bEmpty) return 0;
-      return aEmpty ? 1 : -1;
+    // Порядок групп — порядок вариантов столбца («В работе» выше «Готово»,
+    // как их расставил Owner), а не порядок первого появления в строках.
+    // Неизвестные подписи — после известных, пустая — последней.
+    const optionIndex = new Map<string, number>();
+    options.forEach((o, i) => {
+      if (!optionIndex.has(o.label)) optionIndex.set(o.label, i);
     });
-    return { col, entries };
-  }, [groupByKey, processedRows, displayColumns]);
+    const rank = (label: string) => {
+      if (isEmptyGroupLabel(label)) return Number.POSITIVE_INFINITY;
+      return optionIndex.get(label) ?? Number.MAX_SAFE_INTEGER;
+    };
+    entries.sort((a, b) => {
+      const ra = rank(a[0]);
+      const rb = rank(b[0]);
+      if (ra === rb) return 0;
+      return ra < rb ? -1 : 1;
+    });
+    return { col, options, entries };
+  }, [groupByKey, processedRows, columns, activeWorkspace]);
 
-  // ---- Pagination (disabled while grouped) ----
-  const paginatedRows = useMemo(() => {
-    if (groups || !Number.isFinite(pageSize)) return processedRows;
+  // ---- Видимые строки в порядке отрисовки ----
+  // ОДИН массив для всего, что ходит по строкам индексом: клавиатура,
+  // диапазон, Ctrl+C, ручка заливки, PageUp/PageDown, Tab, «выделить все на
+  // странице». С группами тело рисуется по группам (свёрнутые пропущены), и
+  // порядок processedRows с экраном не совпадает — стрелка «вниз» уходила в
+  // строку из другой группы, а заливка красила не те строки. Без групп это
+  // страница пагинации, как раньше.
+  const visibleRows = useMemo(() => {
+    if (groups) {
+      return groups.entries.flatMap(([label, groupRows]) => (collapsedGroups.has(label) ? [] : groupRows));
+    }
+    if (!Number.isFinite(pageSize)) return processedRows;
     const start = pageIndex * pageSize;
     return processedRows.slice(start, start + pageSize);
-  }, [processedRows, pageIndex, pageSize, groups]);
+  }, [processedRows, pageIndex, pageSize, groups, collapsedGroups]);
 
-  const rowIds = useMemo(() => paginatedRows.map((r) => r.id), [paginatedRows]);
-  const paginatedRowsRef = useRef(paginatedRows);
-  paginatedRowsRef.current = paginatedRows;
+  const rowIds = useMemo(() => visibleRows.map((r) => r.id), [visibleRows]);
+  // id → сквозной индекс: заголовки групп рисуют строки со своего смещения,
+  // а не с нуля, иначе номера и зебра расходились бы с rowIds.
+  const visibleIndexById = useMemo(() => new Map(rowIds.map((id, i) => [id, i])), [rowIds]);
+  const visibleRowsRef = useRef(visibleRows);
+  visibleRowsRef.current = visibleRows;
   // Row-card prev/next/"N of total" must walk the full filtered+sorted view,
   // not just the current pagination page — `rowIds` above is intentionally
   // page-scoped for the grid itself, but the card's own row lookup already
@@ -1003,11 +1092,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const processedRowIds = useMemo(() => processedRows.map((r) => r.id), [processedRows]);
 
   // ---- Virtualized rendering (flat, non-grouped view only) ----
-  const shouldVirtualize = !groups && paginatedRows.length > 80;
+  const shouldVirtualize = !groups && visibleRows.length > 80;
   const rowVirtualizer = useVirtualizer({
-    count: paginatedRows.length,
+    count: visibleRows.length,
     getScrollElement: () => containerRef.current,
-    estimateSize: (index) => paginatedRows[index]?.height ?? rowHeight,
+    estimateSize: (index) => visibleRows[index]?.height ?? rowHeight,
     overscan: 10,
     enabled: shouldVirtualize,
   });
@@ -1015,7 +1104,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   useEffect(() => {
     const id = pendingScrollRowIdRef.current;
     if (!id) return;
-    const idx = paginatedRows.findIndex((r) => r.id === id);
+    const idx = visibleRows.findIndex((r) => r.id === id);
     if (idx < 0) return;
     pendingScrollRowIdRef.current = null;
     rowVirtualizer.scrollToIndex(idx, { align: "end" });
@@ -1024,7 +1113,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         ?.querySelector(`tr[data-row-id="${id}"]`)
         ?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
     });
-  }, [paginatedRows, rowVirtualizer]);
+  }, [visibleRows, rowVirtualizer]);
 
   useEffect(() => {
     if (!focusRowId) return;
@@ -2519,6 +2608,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   function handleApplyTableView(view: SavedTableView) {
     setStatusFilter(view.statusFilter);
     setGroupByKey(view.groupByKey);
+    setCollapsedGroups(new Set());
+    writePersistedGroupBy(tableViewKey, view.groupByKey);
     setSortState(view.sortState);
     localStorage.setItem(sortStorageKey(tableViewKey), JSON.stringify(view.sortState));
     setFilters(
@@ -2562,12 +2653,35 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setPageIndex(0);
   }
 
+  // Группировка по статусу — умолчание стола, а не фильтр: иначе «Сбросить»
+  // висел бы всегда. Активной считается только группировка НЕ по умолчанию
+  // (другой столбец или выключенные группы).
+  const defaultGroupKey = useMemo(() => defaultGroupByKey(columns), [columns]);
+  const isCustomGrouping = groupByKey !== defaultGroupKey;
+
+  // Столбец группировки скрыли или удалили — возвращаемся к умолчанию, а не
+  // группируем по невидимому. Память вкладки не трогаем: вернут столбец —
+  // вернётся и запомненный выбор (readPersistedGroupBy его проверит сам).
+  useEffect(() => {
+    if (!groupByKey) return;
+    const col = columns.find((c) => c.key === groupByKey);
+    if (col && !col.hidden) return;
+    setGroupByKey(defaultGroupKey);
+    setCollapsedGroups(new Set());
+  }, [groupByKey, columns, defaultGroupKey]);
+
+  function changeGroupBy(key: string | null) {
+    setGroupByKey(key);
+    setCollapsedGroups(new Set());
+    writePersistedGroupBy(tableViewKey, key);
+  }
+
   const hasActiveFilters =
     Boolean(searchQuery.trim()) ||
     Boolean(statusFilter) ||
     Boolean(dateFilter) ||
     mineOnly ||
-    Boolean(groupByKey) ||
+    isCustomGrouping ||
     Boolean(sortState.colKey) ||
     Object.values(filters).some((set) => set.size > 0);
 
@@ -2576,7 +2690,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setStatusFilter(null);
     setDateFilter(null);
     setMineOnly(false);
-    setGroupByKey(null);
+    // К умолчанию (статус), а не к «без групп» — и забываем запомненный выбор.
+    setGroupByKey(defaultGroupKey);
+    setCollapsedGroups(new Set());
+    try {
+      localStorage.removeItem(groupStorageKey(tableViewKey));
+    } catch {
+      // без хранилища — просто сброс в памяти
+    }
     setFilters({});
     setSortState({ colKey: null, direction: null });
     localStorage.removeItem(sortStorageKey(tableViewKey));
@@ -2724,6 +2845,41 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       toast.error(error instanceof Error ? error.message : "Не удалось снять подсветку");
     }
   }
+
+  // ---- Действия для шапки стола (DeskTableActions) ----
+  // Обработчики живут в ref: наружу уходят стабильные обёртки, и шапка
+  // получает новый объект только когда меняются флаги can*.
+  const deskActionsRef = useRef({ addRow: () => {}, quickOrder: () => {} });
+  deskActionsRef.current = {
+    addRow: () => void handleAddRow(),
+    quickOrder: () => {
+      setQuickOrderStatus(null);
+      setQuickOrderOpen(true);
+    },
+  };
+  const onActionsChangeRef = useRef(onActionsChange);
+  onActionsChangeRef.current = onActionsChange;
+  const hasActionsListener = Boolean(onActionsChange);
+  const canAddRowAction = canEdit && !ordersFromOsOnly;
+  const canQuickOrderAction = canEdit && !ordersFromOsOnly;
+  // На весь экран / иммерсивно шапка стола скрыта вместе с её «+ Заказ» —
+  // тогда кнопку рисует тулбар, иначе быстрый заказ было бы неоткуда открыть.
+  const chromeHidden = useUiStore((s) => s.tableFullscreen || s.tableImmersive);
+  useEffect(() => {
+    if (!hasActionsListener) return;
+    onActionsChangeRef.current?.({
+      addRow: () => deskActionsRef.current.addRow(),
+      quickOrder: () => deskActionsRef.current.quickOrder(),
+      canAddRow: canAddRowAction,
+      canQuickOrder: canQuickOrderAction,
+    });
+  }, [hasActionsListener, canAddRowAction, canQuickOrderAction]);
+  useEffect(
+    () => () => {
+      onActionsChangeRef.current?.(null);
+    },
+    []
+  );
 
   async function handleQuickOrder(input: QuickOrderInput) {
     const { cells, extras } = buildQuickOrderRow(columns, displayColumns, input);
@@ -2924,7 +3080,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   function toggleSelectAllVisible() {
-    const ids = paginatedRows.map((r) => r.id);
+    const ids = visibleRows.map((r) => r.id);
     setSelectedRowIds((prev) => {
       const allOn = ids.length > 0 && ids.every((id) => prev.has(id));
       return allOn ? new Set() : new Set(ids);
@@ -3358,10 +3514,76 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const bounds = getSelectionBounds();
     if (!bounds) return null;
     if (bounds.rowEnd === bounds.rowStart && bounds.colEnd === bounds.colStart) return null;
-    const selRows = paginatedRows.slice(bounds.rowStart, bounds.rowEnd + 1);
+    const selRows = visibleRows.slice(bounds.rowStart, bounds.rowEnd + 1);
     const selCols = displayColumns.slice(bounds.colStart, bounds.colEnd + 1);
     return summarizeSelection(selRows, selCols);
-  }, [getSelectionBounds, paginatedRows, displayColumns]);
+  }, [getSelectionBounds, visibleRows, displayColumns]);
+
+  // ---- Сводка для шапки стола (DeskSummary) ----
+  // По видимым строкам (после фильтров и поиска) и по ВСЕМ денежным столбцам,
+  // как нижняя полоса. «В работе» — по варианту статуса, «Готово»/«Ждём» — по
+  // названию: списки статусов у каждого workspace свои.
+  const summaryNumbers = useMemo(() => {
+    const currencyCols = columns.filter((c) => c.type === "currency");
+    const statusCol = footerStatusColumn;
+    const options = statusCol ? getColumnOptions(statusCol, activeWorkspace) : NO_OPTIONS;
+    const inProgressValue = statusCol ? findInProgressStatusOption(options)?.value ?? null : null;
+    let total = 0;
+    let done = 0;
+    let inProgress = 0;
+    let waiting = 0;
+    for (const row of processedRows) {
+      let rowSum = 0;
+      for (const c of currencyCols) rowSum += sumNumericCells([row], c.key);
+      if (rowSum === 0) continue;
+      total += rowSum;
+      if (!statusCol) continue;
+      const raw = String(row.cells[statusCol.key] ?? "");
+      const label = options.find((o) => o.value === raw)?.label ?? raw;
+      if (isDoneStatusLabel(label)) done += rowSum;
+      else if (inProgressValue !== null && raw === inProgressValue) inProgress += rowSum;
+      else if (isWaitingStatusLabel(label)) waiting += rowSum;
+    }
+    return {
+      rowCount: filledProcessedRows.length,
+      groupCount: groups ? groups.entries.length : 0,
+      total,
+      done,
+      inProgress,
+      waiting,
+      hasCurrency: currencyCols.length > 0,
+      hasStatus: Boolean(statusCol),
+    };
+  }, [columns, footerStatusColumn, activeWorkspace, processedRows, filledProcessedRows.length, groups]);
+  // Объект собирается заново только когда изменилось хоть одно число —
+  // иначе шапка стола перерисовывалась бы на каждый рендер таблицы.
+  const deskSummary = useMemo<DeskSummary>(
+    () => ({ ...summaryNumbers }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      summaryNumbers.rowCount,
+      summaryNumbers.groupCount,
+      summaryNumbers.total,
+      summaryNumbers.done,
+      summaryNumbers.inProgress,
+      summaryNumbers.waiting,
+      summaryNumbers.hasCurrency,
+      summaryNumbers.hasStatus,
+    ]
+  );
+  const onSummaryChangeRef = useRef(onSummaryChange);
+  onSummaryChangeRef.current = onSummaryChange;
+  useEffect(() => {
+    onSummaryChangeRef.current?.(deskSummary);
+  }, [deskSummary]);
+  // Ушли со стола — шапка не должна показывать итоги прошлой таблицы, пока
+  // грузится следующая (для actions такой сброс есть, для сводки не было).
+  useEffect(
+    () => () => {
+      onSummaryChangeRef.current?.(null);
+    },
+    []
+  );
 
   // Money total per group for grouped views (shown on the group header).
   const groupCurrencyCol = columns.find((c) => c.type === "currency" && !c.hidden) ?? null;
@@ -3449,13 +3671,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       onRemove: () => clearColumnFilter(colKey),
     });
   }
-  if (groupByKey) {
-    const col = columns.find((c) => c.key === groupByKey);
+  if (isCustomGrouping) {
+    const col = groupByKey ? columns.find((c) => c.key === groupByKey) : undefined;
     activeFilterChips.push({
       id: "group",
       kind: "group",
-      label: `Группы: ${col?.label ?? groupByKey}`,
-      onRemove: () => setGroupByKey(null),
+      label: groupByKey ? `Группы: ${col?.label ?? groupByKey}` : "Без группировки",
+      onRemove: () => changeGroupBy(defaultGroupKey),
     });
   }
   if (sortState.colKey && sortState.direction) {
@@ -3599,14 +3821,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         extrasHintKey={extrasHintKey}
         onOpenClientCard={setClientCardRowId}
         anyChecked={selectedRowIds.size > 0}
-        statusTint={
-          (() => {
-            const statusCol = displayColumns.find((c) => c.type === "status");
-            if (!statusCol) return undefined;
-            const raw = String(displayRow.cells[statusCol.key] ?? "");
-            return statusCol.statusOptions?.find((o) => o.value === raw)?.color;
-          })()
-        }
+        zebra={index % 2 === 1}
         onMarkDone={() => markRowDone(row.id)}
         onInsertRowAbove={(id) => void insertRowRelative(id, "above")}
         onInsertRowBelow={(id) => void insertRowRelative(id, "below")}
@@ -3631,6 +3846,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const update = () => {
       const left = el.scrollLeft > 8;
       const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 8;
+      // Ширина окна прокрутки для липких заголовков групп (.table-group-toggle):
+      // сумма группы должна стоять у видимого правого края, а не у края таблицы.
+      el.style.setProperty("--table-view-w", `${el.clientWidth}px`);
       // Only a real change may set state. A fresh object on every
       // ResizeObserver callback re-rendered the table, which resized it,
       // which fired the observer again — "Maximum update depth exceeded"
@@ -3645,7 +3863,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       el.removeEventListener("scroll", update);
       ro.disconnect();
     };
-  }, [displayColumns, paginatedRows.length, viewMode]);
+  }, [displayColumns, visibleRows.length, viewMode]);
 
   const pinnedOrder = displayColumns.filter((c) => stickyKeys.includes(c.key));
 
@@ -3671,17 +3889,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         }}
         focusSearchToken={focusSearchToken}
         groupByKey={groupByKey}
-        onGroupByChange={(key) => {
-          setGroupByKey(key);
-          setCollapsedGroups(new Set());
-        }}
+        onGroupByChange={changeGroupBy}
         onCollapseAllGroups={() => setCollapsedGroups(new Set(groups?.entries.map(([label]) => label) ?? []))}
         onExpandAllGroups={() => setCollapsedGroups(new Set())}
         density={density}
         onDensityChange={handleDensityChange}
         onAddRow={handleAddRow}
         canAddRows={!ordersFromOsOnly}
-        onQuickOrder={canEdit && !ordersFromOsOnly ? () => { setQuickOrderStatus(null); setQuickOrderOpen(true); } : undefined}
+        onQuickOrder={canQuickOrderAction ? () => deskActionsRef.current.quickOrder() : undefined}
+        quickOrderButton={chromeHidden}
         highlightCount={highlightedRowIds.length}
         onClearHighlights={canEdit && highlightedRowIds.length > 0 ? handleClearHighlights : undefined}
         onExportCsv={handleExportCsv}
@@ -3698,8 +3914,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onShowColumn={(key) => void handleToggleHiddenColumn(key)}
         onShowAllColumns={handleShowAllColumns}
         onAutoSizeAll={canEditColumns ? handleAutoSizeAll : undefined}
-        selectedCount={selectedRowIds.size}
-        onDeleteSelected={handleDeleteSelected}
         hasStatusColumn={Boolean(kanbanStatusColumn)}
         statusOptions={kanbanStatusColumn?.statusOptions}
         statusFilter={statusFilter}
@@ -3803,9 +4017,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                   className="table-sticky-col sticky left-0 top-0 z-40 border-b border-r border-border/50 bg-background"
                   style={{ width: gutterWidth, minWidth: gutterWidth }}
                 >
-                  <div className="flex h-11 items-center justify-center sm:h-9">
+                  <div className="flex h-11 items-center justify-center sm:h-8">
                     <Checkbox
-                      checked={paginatedRows.length > 0 && paginatedRows.every((r) => selectedRowIds.has(r.id))}
+                      checked={visibleRows.length > 0 && visibleRows.every((r) => selectedRowIds.has(r.id))}
                       onClick={(e) => {
                         e.preventDefault();
                         toggleSelectAllVisible();
@@ -3828,10 +4042,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       onResizeStart={canEditColumns ? handleColumnResizeStart : undefined}
                       onAutoSize={canEditColumns ? handleAutoSizeColumn : undefined}
                       isGrouped={groupByKey === column.key}
-                      onGroupBy={(key) => {
-                        setGroupByKey(key);
-                        setCollapsedGroups(new Set());
-                      }}
+                      onGroupBy={changeGroupBy}
                       onRenameCommit={canEditColumns ? handleRenameColumnInline : undefined}
                       onInsertColumnAfter={canEditColumns ? handleInsertColumnAfter : undefined}
                       hint={footerAggregates[column.key]?.title}
@@ -3877,7 +4088,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                       type="button"
                       onClick={() => setAddColumnOpen(true)}
                       title="Добавить столбец"
-                      className="flex h-11 w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:h-9 sm:w-9"
+                      className="flex h-11 w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:h-8 sm:w-8"
                     >
                       <Plus className="h-4 w-4" />
                     </button>
@@ -3892,6 +4103,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                     groups.entries.map(([label, groupRows]) => {
                       const collapsed = collapsedGroups.has(label);
                       const sums = groupSums(groupRows);
+                      // Сквозной индекс по visibleRows: номер строки и зебра
+                      // обязаны совпадать с rowIds, по которым ходит клавиатура
+                      // и заливка. Свёрнутые группы в visibleRows не входят.
+                      const firstIndex = collapsed ? -1 : visibleIndexById.get(groupRows[0]?.id ?? "") ?? -1;
                       return (
                         <Fragment key={label}>
                           <GroupHeaderRow
@@ -3899,7 +4114,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                             count={groupRows.length}
                             colSpan={displayColumns.length + (canEditStructure ? 1 : 0)}
                             collapsed={collapsed}
-                            color={groups.col?.statusOptions?.find((o) => o.label === label)?.color}
+                            color={groups.options.find((o) => o.label === label)?.color}
                             sumText={sums.sumText}
                             doneText={sums.doneText}
                             onToggle={() =>
@@ -3911,7 +4126,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                               })
                             }
                           />
-                          {!collapsed && groupRows.map((row, i) => renderRow(row, i))}
+                          {!collapsed && firstIndex >= 0 && groupRows.map((row, i) => renderRow(row, firstIndex + i))}
                         </Fragment>
                       );
                     })
@@ -3922,8 +4137,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                           <td colSpan={displayColumns.length + 1 + (canEditStructure ? 1 : 0)} style={{ height: paddingTop }} />
                         </tr>
                       )}
-                      {(shouldVirtualize ? virtualItems.map((virtualRow) => virtualRow.index) : paginatedRows.map((_, i) => i)).map((index) => {
-                        const row = paginatedRows[index];
+                      {(shouldVirtualize ? virtualItems.map((virtualRow) => virtualRow.index) : visibleRows.map((_, i) => i)).map((index) => {
+                        const row = visibleRows[index];
                         if (!row) return null;
                         return renderRow(row, index);
                       })}
@@ -4151,41 +4366,58 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         />
       )}
 
+      {/* Нижняя полоса по макету: слева моно «16 строк · 3 группы», точечный
+          лидер, справа «Общий 1 859 450 KZT». «Готово» переехало в шапку
+          стола (DeskSummary) — здесь оно остаётся только до lg, где шапка
+          итоги прячет; плюс суммы и «Выделено». */}
       {(grandTotals || (selectionStats && selectionStats.count > 0)) && (
         <div className="table-totals-bar z-20">
-          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
-            {grandTotals && (
-              <>
-                {grandTotals.parts.map((part) => (
-                  <p key={part.key} className="flex min-w-0 items-baseline gap-2">
-                    <span className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      {grandTotals.parts.length === 1 ? "Общий" : part.label}
+          <div className="flex min-w-0 items-baseline gap-x-3">
+            <span className="shrink-0 whitespace-nowrap" title="Строк показано с учётом фильтров">
+              {formatCount(filledProcessedRows.length, ["строка", "строки", "строк"])}
+              {groups ? ` · ${formatCount(groups.entries.length, ["группа", "группы", "групп"])}` : ""}
+            </span>
+            <span className="mx-3 min-w-4 flex-1 self-center border-b border-dotted border-muted-foreground/30" aria-hidden />
+            <div className="flex min-w-0 flex-wrap items-baseline justify-end gap-x-5 gap-y-1">
+              {grandTotals?.parts.map((part) => (
+                <p key={part.key} className="flex min-w-0 items-baseline gap-2 whitespace-nowrap">
+                  <span className="truncate">{grandTotals.parts.length === 1 ? "Общий" : part.label}</span>
+                  <span className="table-totals-sum text-foreground">{formatNumber(part.sum)} KZT</span>
+                </p>
+              ))}
+              {/* Уже lg шапка стола показывает «Готово · В работе · Ждём» сама
+                  (hidden lg:flex), а на телефоне и планшете этих чисел нет
+                  нигде — дублируем их здесь компактно, из той же сводки. */}
+              {grandTotals && deskSummary.hasStatus && (
+                <span className="flex items-baseline gap-x-4 whitespace-nowrap lg:hidden">
+                  <span className="flex items-baseline gap-1.5">
+                    Готово <span className="table-totals-sum text-success">{formatNumber(deskSummary.done)}</span>
+                  </span>
+                  {deskSummary.inProgress > 0 && (
+                    <span className="flex items-baseline gap-1.5">
+                      В работе <span className="table-totals-sum text-primary">{formatNumber(deskSummary.inProgress)}</span>
                     </span>
-                    <span className="table-totals-sum text-foreground">{formatCurrency(part.sum)}</span>
-                  </p>
-                ))}
-                {grandTotals.hasStatus && (
-                  <p className="flex min-w-0 items-baseline gap-2">
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-success">Готово</span>
-                    <span className="table-totals-sum text-success">{formatCurrency(grandTotals.parts[0].done)}</span>
-                  </p>
-                )}
-              </>
-            )}
-            {/* Сумма выделенного жила в строке «Итого» и уехала бы вместе с
-                ней. Внизу ей и место: это единственное число на экране,
-                которое отвечает на «сколько вот в этих ячейках», и ниже
-                оно не дублирует ни «Общий», ни «Готово». */}
-            {selectionStats && selectionStats.count > 0 && (
-              <p
-                className="flex min-w-0 items-baseline gap-2"
-                title={`Выделено ${selectionStats.cells} яч. · среднее ${formatNumber(Math.round(selectionStats.avg * 100) / 100)}`}
-              >
-                <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">Выделено</span>
-                <span className="table-totals-sum text-primary">{formatNumber(selectionStats.sum)}</span>
-                <span className="text-[11px] text-muted-foreground">· {selectionStats.count} знач.</span>
-              </p>
-            )}
+                  )}
+                  {deskSummary.waiting > 0 && (
+                    <span className="flex items-baseline gap-1.5">
+                      Ждём <span className="table-totals-sum text-warning">{formatNumber(deskSummary.waiting)}</span>
+                    </span>
+                  )}
+                </span>
+              )}
+              {/* Сумма выделенного: единственное число на экране, которое
+                  отвечает на «сколько вот в этих ячейках». */}
+              {selectionStats && selectionStats.count > 0 && (
+                <p
+                  className="flex min-w-0 items-baseline gap-2 whitespace-nowrap"
+                  title={`Выделено ${selectionStats.cells} яч. · среднее ${formatNumber(Math.round(selectionStats.avg * 100) / 100)}`}
+                >
+                  <span className="text-primary">Выделено</span>
+                  <span className="table-totals-sum text-primary">{formatNumber(selectionStats.sum)}</span>
+                  <span>· {selectionStats.count} знач.</span>
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}

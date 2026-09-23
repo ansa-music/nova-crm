@@ -14,7 +14,9 @@ export function Topbar({ title }: { title?: string }) {
   if (!isCompactNav) return null;
 
   return (
-    <header className={`sticky top-0 flex h-12 shrink-0 items-center gap-1.5 border-b border-primary/15 bg-transparent px-3 backdrop-blur-xl ${mobileNavOpen ? "z-[220]" : "z-30"}`}>
+    // Плоская шапка: без стекла — свой фон, чтобы контент под липкой шапкой
+    // не просвечивал.
+    <header className={`sticky top-0 flex h-12 shrink-0 items-center gap-1.5 border-b border-border bg-background px-3 ${mobileNavOpen ? "z-[220]" : "z-30"}`}>
       <Button
         type="button"
         variant="ghost"
@@ -34,11 +36,13 @@ export function Topbar({ title }: { title?: string }) {
         <SheetContent
           side="left"
           aria-describedby={undefined}
-          className="h-[100dvh] max-h-[100dvh] w-[min(20rem,88vw)] max-w-[20rem] overflow-hidden bg-background p-0 border-r border-primary/25 backdrop-blur-none"
+          className="h-[100dvh] max-h-[100dvh] w-[min(20rem,88vw)] max-w-[20rem] overflow-hidden bg-background p-0 border-r border-border backdrop-blur-none"
         >
           {/* Radix requires a title on every dialog surface for screen readers;
               the drawer shows the NOVA wordmark instead, so this stays sr-only. */}
           <SheetTitle className="sr-only">Навигация</SheetTitle>
+          {/* `mobile` — drawer никогда не сворачивается в рейку: закрепление
+              (`sidebarPinned`) касается только десктопного меню. */}
           <Sidebar mobile onNavigate={() => setMobileNavOpen(false)} />
         </SheetContent>
       </Sheet>

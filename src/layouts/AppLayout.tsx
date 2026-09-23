@@ -153,7 +153,9 @@ export function AppLayout() {
   }
 
   return (
-    <div className={`page-surface flex h-screen overflow-hidden bg-background ${isFullscreen ? "" : "p-3"}`}>
+    // Каркас без инсета и рамки: рейка — перегородка экрана, стол начинается
+    // встык с ней, на общем фоне. Полноэкранная таблица прячет и рейку.
+    <div className="page-surface flex h-screen overflow-hidden bg-background">
       <NicknamePrompt />
       <GlobalMessageToaster />
       <GlobalSearch hideTrigger />
@@ -165,11 +167,14 @@ export function AppLayout() {
       <NotifyHelpHost />
       <AccentColorSync />
       {!isCompactNav && !isFullscreen && <Sidebar />}
-      <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${isFullscreen ? "" : "rounded-2xl border border-primary/[0.12] bg-white/[0.04]"}`}>
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {!isFullscreen && <Topbar />}
         {!isFullscreen && <SimulationBanner />}
         {isFullscreen && <TableChromeExit label="Свернуть" />}
-        <main className={`flex min-h-0 flex-1 flex-col ${isOnTablePage ? "overflow-hidden" : "overflow-y-auto"} scrollbar-thin`}>
+        {/* overflow-x задан явно: один `overflow-y-auto` даёт и горизонтальный
+            скролл, и широкие страницы ездили бы вместе с рейкой; вбок
+            прокручиваются только их собственные контейнеры. */}
+        <main className={`flex min-h-0 flex-1 flex-col ${isOnTablePage ? "overflow-hidden" : "overflow-x-hidden overflow-y-auto"} scrollbar-thin`}>
           <PageShell>
             <ErrorBoundary compact key={location.pathname}>
               <Outlet />

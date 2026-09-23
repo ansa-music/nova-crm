@@ -5,7 +5,19 @@ export type ThemeMode = "light" | "dark" | "system";
 
 interface UiState {
   theme: ThemeMode;
-  sidebarCollapsed: boolean;
+  /**
+   * Левое меню по умолчанию — рейка 64px, которая раскрывается по наведению;
+   * `true` — человек закрепил широкое меню (248px) и оно стоит в потоке.
+   * `null` — человек ещё не выбирал, и умолчание решает Sidebar по устройству:
+   * мышь → рейка, тач-планшет ≥1024 (iPad landscape) → закреплено, потому что
+   * раскрытие по наведению там не работает и рейка была бы пятнадцатью
+   * иконками без подписей. Хранить решение здесь нельзя — мышь к планшету
+   * подключают и отключают, а persist пережил бы это.
+   * Поле названо заново, а не как старое `sidebarCollapsed`: то персистилось
+   * в localStorage со значением `false` у всех, и смена дефолта на «свёрнуто»
+   * ни у кого не сработала бы — сохранённое перебивает дефолт.
+   */
+  sidebarPinned: boolean | null;
   shortcutsHelpOpen: boolean;
   tableFullscreen: boolean;
   tableImmersive: boolean;
@@ -20,8 +32,12 @@ interface UiState {
    */
   deskAlerts: string[];
   setTheme: (theme: ThemeMode) => void;
-  toggleSidebar: () => void;
-  setSidebarCollapsed: (collapsed: boolean) => void;
+  /**
+   * Явный выбор человека (кнопка «Закрепить / Свернуть»). Переключателя
+   * «наоборот» тут нет намеренно: при `null` магазин не знает, что сейчас
+   * показано — эффективное значение считает Sidebar и передаёт его сюда.
+   */
+  setSidebarPinned: (pinned: boolean) => void;
   setShortcutsHelpOpen: (open: boolean) => void;
   setTableFullscreen: (fullscreen: boolean) => void;
   setTableImmersive: (immersive: boolean) => void;
@@ -34,15 +50,14 @@ export const useUiStore = create<UiState>()(
   persist(
     (set) => ({
       theme: "dark",
-      sidebarCollapsed: false,
+      sidebarPinned: null,
       shortcutsHelpOpen: false,
       tableFullscreen: false,
       tableImmersive: false,
       selectedPersonKey: null,
       deskAlerts: [],
       setTheme: (theme) => set({ theme }),
-      toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
-      setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+      setSidebarPinned: (sidebarPinned) => set({ sidebarPinned }),
       setShortcutsHelpOpen: (shortcutsHelpOpen) => set({ shortcutsHelpOpen }),
       setTableFullscreen: (tableFullscreen) => set({ tableFullscreen }),
       setTableImmersive: (tableImmersive) => set({ tableImmersive }),
@@ -54,9 +69,11 @@ export const useUiStore = create<UiState>()(
     }),
     {
       name: "nova-crm:ui",
+      // Старый ключ `sidebarCollapsed` в сохранённом состоянии просто
+      // игнорируется: в partialize его нет, при следующей записи он исчезнет.
       partialize: (s) => ({
         theme: s.theme,
-        sidebarCollapsed: s.sidebarCollapsed,
+        sidebarPinned: s.sidebarPinned,
         tableFullscreen: s.tableFullscreen,
         deskAlerts: s.deskAlerts,
       }),

@@ -1,8 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
-import { AlertTriangle, Archive, ArchiveRestore, BarChart3, Eye, EyeOff, HardHat, History, Lock, Maximize2, MessageSquare, MoreHorizontal, Settings2, User, Users } from "lucide-react";
+import {
+  AlertTriangle,
+  Archive,
+  ArchiveRestore,
+  BarChart3,
+  Eye,
+  EyeOff,
+  HardHat,
+  History,
+  Lock,
+  Maximize2,
+  MessageSquare,
+  MoreHorizontal,
+  Plus,
+  Settings2,
+  User,
+  Users,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -17,7 +38,6 @@ import { TableChromeExit } from "@/components/table/TableChromeExit";
 import { SubPageTabs } from "@/components/table/SubPageTabs";
 import { SubPageStats } from "@/components/table/SubPageStats";
 import { DeskAccessDialog } from "@/components/pagesnav/DeskAccessDialog";
-import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { DeskStudioSheet } from "@/components/pagesnav/DeskStudioSheet";
 import { HistoryPanel } from "@/components/history/HistoryPanel";
 import { PageChatPanel } from "@/components/chat/PageChatPanel";
@@ -27,15 +47,27 @@ import { DISPATCH_ENABLED } from "@/config/features";
 import { toast } from "@/components/ui/sonner";
 import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
 import { restoreDesk, retireDesk } from "@/components/desks/deskRetireActions";
-import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePageRows } from "@/hooks/usePageRows";
 import { useSubPages, useSubPageRows } from "@/hooks/useSubPageData";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
 import { useViewRequests } from "@/hooks/useViewRequests";
-import { ensureDiskColumn, ensurePriceColumn, fetchPageIfAccessible, setPageTechnicianDesk, togglePageVisibility, updateRowCellsBulk } from "@/services/pageService";
-import { ensureOsDeskColumns, ensureOsDeskMonth, isOsDeskId, missingOsDeskColumns, resolveOsDeskKeys } from "@/services/osDeskService";
+import {
+  ensureDiskColumn,
+  ensurePriceColumn,
+  fetchPageIfAccessible,
+  setPageTechnicianDesk,
+  togglePageVisibility,
+  updateRowCellsBulk,
+} from "@/services/pageService";
+import {
+  ensureOsDeskColumns,
+  ensureOsDeskMonth,
+  isOsDeskId,
+  missingOsDeskColumns,
+  resolveOsDeskKeys,
+} from "@/services/osDeskService";
 import { useSendOsRowToExchange } from "@/hooks/useSendOsRowToExchange";
 import type { CellActionView } from "@/components/table/CellActionButton";
 import {
@@ -47,7 +79,11 @@ import {
 } from "@/utils/columnOptions";
 import { firestoreErrorText } from "@/utils/dbError";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
-import { canOpenDesk, isRestrictedDeskRole, worksAsTechnician } from "@/utils/peopleDesks";
+import {
+  canOpenDesk,
+  isRestrictedDeskRole,
+  worksAsTechnician,
+} from "@/utils/peopleDesks";
 import { useUiStore } from "@/store/uiStore";
 import { cn } from "@/utils/cn";
 import { recordRecentPage } from "@/hooks/useUserPageNav";
@@ -63,20 +99,29 @@ import { TechPickerSheet } from "@/components/os/TechPickerSheet";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { TechOrderPanel } from "@/components/os/TechOrderPanel";
 import { isMonthlyDesk } from "@/services/monthTabService";
-import type { PageIconName, PageRow, PaymentMethod, SubPage, WorkspacePage } from "@/types";
+import type { PageRow, PaymentMethod, SubPage, WorkspacePage } from "@/types";
+import type { DeskSummary, DeskTableActions } from "@/types/deskSummary";
+import { formatNumber } from "@/utils/format";
 import { PaymentChip } from "@/components/cashbox/PaymentChip";
 import { PaymentMethodsDialog } from "@/components/cashbox/PaymentMethodsDialog";
 import { useOsTotalsKeeper } from "@/hooks/useOsTotalsKeeper";
 import { osRowTotal, paymentMethodsOf, paymentPatch } from "@/utils/payment";
-import { updateSubPageColumns, updateSubPageRowCellsBulk } from "@/services/subPageService";
-
+import {
+  updateSubPageColumns,
+  updateSubPageRowCellsBulk,
+} from "@/services/subPageService";
 
 function visibleSubPages(subPages: SubPage[]) {
-  return subPages.filter((s) => !s.isArchived).sort((a, b) => a.order - b.order);
+  return subPages
+    .filter((s) => !s.isArchived)
+    .sort((a, b) => a.order - b.order);
 }
 
 /** First tab on a desk visit. Hidden Основная is never the fallback. */
-function initialSubPageId(page: WorkspacePage, subPages: SubPage[]): string | null {
+function initialSubPageId(
+  page: WorkspacePage,
+  subPages: SubPage[],
+): string | null {
   const visible = visibleSubPages(subPages);
   const def = page.defaultSubPageId ?? null;
   if (def && visible.some((s) => s.id === def)) return def;
@@ -88,10 +133,18 @@ export default function DynamicTablePage() {
   const { pageId } = useParams<{ pageId: string }>();
   const [searchParams] = useSearchParams();
   const focusRowId = searchParams.get("row");
-  const { activeWorkspace, activeWorkspaceId, allPages, members } = useWorkspace();
+  const { activeWorkspace, activeWorkspaceId, allPages, members } =
+    useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
-  const { requests, resolveRequest, requestView, latestForPage, reload: reloadViewRequests, isLoading: viewRequestsLoading } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
+  const {
+    requests,
+    resolveRequest,
+    requestView,
+    latestForPage,
+    reload: reloadViewRequests,
+    isLoading: viewRequestsLoading,
+  } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const clearDeskAlert = useUiStore((s) => s.clearDeskAlert);
   // Стол открыли — зелёная метка «сюда приехал заказ» в меню гаснет.
   // Именно здесь, а не на клике по пункту меню: стол открывают и с обложки,
@@ -110,7 +163,19 @@ export default function DynamicTablePage() {
   const [deskStudioOpen, setDeskStudioOpen] = useState(false);
   const [personalSpaceOpen, setPersonalSpaceOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+  // Сводка и действия стола — их считает DataTable (у него отфильтрованные
+  // строки и статусы), шапка только рисует. См. types/deskSummary.ts.
+  const [summary, setSummary] = useState<DeskSummary | null>(null);
+  const [actions, setActions] = useState<DeskTableActions | null>(null);
   const [activeSubPageId, setActiveSubPageId] = useState<string | null>(null);
+  // Пока грузится другой стол или вкладка, DataTable ещё не смонтирован и
+  // ничего не отдал — без сброса в шапке висели бы итоги и «+ Заказ» прошлого
+  // стола. Сброс только по смене адреса, а не на каждый ререндер: иначе
+  // кнопка мигала бы при каждом пересчёте сводки.
+  useEffect(() => {
+    setSummary(null);
+    setActions(null);
+  }, [pageId, activeSubPageId]);
   const [tabsReady, setTabsReady] = useState(false);
   const appliedDefaultForPageRef = useRef<string | null>(null);
   const userPickedTabRef = useRef(false);
@@ -140,7 +205,8 @@ export default function DynamicTablePage() {
       activeWorkspaceId,
       pageId,
       permissions.uid,
-      permissions.seesAllDesks || (permissions.seesOsDesks && isOsDeskId(pageId))
+      permissions.seesAllDesks ||
+        (permissions.seesOsDesks && isOsDeskId(pageId)),
     )
       .then((docPage) => {
         if (!cancelled && docPage) setFetchedPage(docPage);
@@ -160,7 +226,9 @@ export default function DynamicTablePage() {
     storePage,
   ]);
 
-  const isOwnDesk = Boolean(page && permissions.uid && page.responsibleUserId === permissions.uid);
+  const isOwnDesk = Boolean(
+    page && permissions.uid && page.responsibleUserId === permissions.uid,
+  );
   // Owner or Тимлид: every desk opens for them.
   const hasFullDeskAccess = permissions.hasFullDeskAccess;
   const personalOpen = page
@@ -176,7 +244,10 @@ export default function DynamicTablePage() {
   // Owner / responsible / allowedUsers — the same three cases canAccessPage
   // authorizes in firestore.rules, so the screen and the server agree.
   const hasAccess = permissions.isResolved && Boolean(page && personalOpen);
-  const { subPages, isLoading: subPagesLoading } = useSubPages(activeWorkspaceId, hasAccess && page ? page.id : null);
+  const { subPages, isLoading: subPagesLoading } = useSubPages(
+    activeWorkspaceId,
+    hasAccess && page ? page.id : null,
+  );
   // First visit of a new month: the month autopilot (AppLayout) is about to
   // create/adopt this month's tab and make it default. Hold the initial tab
   // choice until the page doc says it's done, so the desk opens on the new
@@ -185,10 +256,10 @@ export default function DynamicTablePage() {
   const monthKey = useCurrentMonthKey();
   const awaitingMonthTab = Boolean(
     page &&
-      hasAccess &&
-      page.autoMonthKey !== monthKey &&
-      (hasFullDeskAccess || isOwnDesk) &&
-      isMonthlyDesk(page, members)
+    hasAccess &&
+    page.autoMonthKey !== monthKey &&
+    (hasFullDeskAccess || isOwnDesk) &&
+    isMonthlyDesk(page, members),
   );
   const [monthWaitExpired, setMonthWaitExpired] = useState(false);
   useEffect(() => {
@@ -198,9 +269,14 @@ export default function DynamicTablePage() {
     return () => window.clearTimeout(timer);
   }, [awaitingMonthTab, pageId]);
   const activeSubPage = subPages.find((s) => s.id === activeSubPageId) ?? null;
-  const tabScopeReady = tabsReady && appliedDefaultForPageRef.current === pageId;
-  const listenMainRows = Boolean(hasAccess && page && tabScopeReady && !activeSubPageId);
-  const listenSubRows = Boolean(hasAccess && page && tabScopeReady && activeSubPageId);
+  const tabScopeReady =
+    tabsReady && appliedDefaultForPageRef.current === pageId;
+  const listenMainRows = Boolean(
+    hasAccess && page && tabScopeReady && !activeSubPageId,
+  );
+  const listenSubRows = Boolean(
+    hasAccess && page && tabScopeReady && activeSubPageId,
+  );
   const {
     rows: pageRows,
     isLoading: pageRowsLoading,
@@ -209,10 +285,7 @@ export default function DynamicTablePage() {
     accessDenied: pageRowsAccessDenied,
     readError: pageRowsError,
     retry: retryPageRows,
-  } = usePageRows(
-    activeWorkspaceId,
-    listenMainRows && page ? page.id : null
-  );
+  } = usePageRows(activeWorkspaceId, listenMainRows && page ? page.id : null);
   const {
     rows: subPageRows,
     isLoading: subPageRowsLoading,
@@ -224,7 +297,7 @@ export default function DynamicTablePage() {
   } = useSubPageRows(
     activeWorkspaceId,
     listenSubRows && page ? page.id : null,
-    listenSubRows ? activeSubPageId : null
+    listenSubRows ? activeSubPageId : null,
   );
 
   // Apply the default tab once per desk visit. `page` is a new object on
@@ -253,11 +326,20 @@ export default function DynamicTablePage() {
     appliedDefaultForPageRef.current = pageId;
     setActiveSubPageId(initialSubPageId(page, subPages));
     setTabsReady(true);
-  }, [pageId, page, subPages, subPagesLoading, hasAccess, awaitingMonthTab, monthWaitExpired]);
+  }, [
+    pageId,
+    page,
+    subPages,
+    subPagesLoading,
+    hasAccess,
+    awaitingMonthTab,
+    monthWaitExpired,
+  ]);
 
   function handleSelectTab(subPageId: string | null) {
     userPickedTabRef.current = true;
-    appliedDefaultForPageRef.current = pageId ?? appliedDefaultForPageRef.current;
+    appliedDefaultForPageRef.current =
+      pageId ?? appliedDefaultForPageRef.current;
     setActiveSubPageId(subPageId);
     setTabsReady(true);
   }
@@ -277,75 +359,120 @@ export default function DynamicTablePage() {
   }, [pageId, profile?.uid]);
 
   const rows = activeSubPageId ? subPageRows : pageRows;
-  const rowsLoading = !tabsReady || (activeSubPageId ? subPageRowsLoading : pageRowsLoading);
+  const rowsLoading =
+    !tabsReady || (activeSubPageId ? subPageRowsLoading : pageRowsLoading);
   // Строки в Supabase, а права на стол туда ещё не доехали — см. useSyncedTableRows.
-  const rowsAccessPending = activeSubPageId ? subPageRowsAccessPending : pageRowsAccessPending;
+  const rowsAccessPending = activeSubPageId
+    ? subPageRowsAccessPending
+    : pageRowsAccessPending;
   // Права на стол есть, а этого человека в них нет — доступ закрыли.
-  const rowsAccessDenied = activeSubPageId ? subPageRowsAccessDenied : pageRowsAccessDenied;
+  const rowsAccessDenied = activeSubPageId
+    ? subPageRowsAccessDenied
+    : pageRowsAccessDenied;
   // Строки не прочитались (нет прав, нет связи, кончилась квота) — таблица
   // остаётся скелетом, и без этой полосы человек не знает, что случилось.
   const rowsReadError = activeSubPageId ? subPageRowsError : pageRowsError;
   const retryRows = activeSubPageId ? retrySubPageRows : retryPageRows;
-  const rowsFromServer = tabsReady && (activeSubPageId ? subPageRowsSynced : pageRowsSynced);
+  const rowsFromServer =
+    tabsReady && (activeSubPageId ? subPageRowsSynced : pageRowsSynced);
 
   // Карта столбцов месячной вкладки — её читает ОС, когда ведёт заказ в
   // чужом столе (см. WorkspacePage.osFieldKeys).
-  useOsFieldKeysPublisher({ page: hasAccess ? page : null, subPage: activeSubPage, canEdit: Boolean(page && permissions.canEditPageData(page)) });
+  useOsFieldKeysPublisher({
+    page: hasAccess ? page : null,
+    subPage: activeSubPage,
+    canEdit: Boolean(page && permissions.canEditPageData(page)),
+  });
 
   // Ник ОС — он уходит в столбец «Ответственный» стола технаря: по нему
   // считаются заказы ОС, его оценки и право оценивать.
-  const myOsNickValue = members.find((m) => m.uid === permissions.uid)?.osNickValue ?? "";
+  const myOsNickValue =
+    members.find((m) => m.uid === permissions.uid)?.osNickValue ?? "";
   // Стол ОС: заказы этого ОС в столах технарей — один запрос на весь стол.
-  const isMyOsDesk = Boolean(page?.osDesk && page.responsibleUserId === permissions.uid);
+  const isMyOsDesk = Boolean(
+    page?.osDesk && page.responsibleUserId === permissions.uid,
+  );
   // Кто смотрит — для замка строк-заказов. Один объект на смену прав, а не
   // новый на каждый рендер: от него зависит `cellLockFor`, а от неё — memo
   // каждой строки таблицы.
-  const viewerIsOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  const viewerIsOwner =
+    permissions.isWorkspaceOwner || permissions.realRole === "owner";
   const viewerIsTeamLead = permissions.hasRole("teamlead");
   const viewer = useMemo(
-    () => ({ uid: permissions.uid, isOwner: viewerIsOwner, isTeamLead: viewerIsTeamLead }),
-    [permissions.uid, viewerIsOwner, viewerIsTeamLead]
+    () => ({
+      uid: permissions.uid,
+      isOwner: viewerIsOwner,
+      isTeamLead: viewerIsTeamLead,
+    }),
+    [permissions.uid, viewerIsOwner, viewerIsTeamLead],
   );
   // «Заказы заводит только ОС»: в столе ТЕХНАРЯ пропадают «Строка» и
   // «Быстрый заказ», а ячейки закрыты замком (Owner не ограничиваем).
   const ordersFromOsOnly = Boolean(
     activeWorkspace?.osManagedDesks &&
-      page &&
-      !page.osDesk &&
-      // Owner разрешил технарю править этот стол самому.
-      !page.techEditable &&
-      !(permissions.isWorkspaceOwner || permissions.realRole === "owner")
+    page &&
+    !page.osDesk &&
+    // Owner разрешил технарю править этот стол самому.
+    !page.techEditable &&
+    !(permissions.isWorkspaceOwner || permissions.realRole === "owner"),
   );
-  const myOrders = useMyOrderRows(activeWorkspaceId, permissions.uid, isMyOsDesk);
+  const myOrders = useMyOrderRows(
+    activeWorkspaceId,
+    permissions.uid,
+    isMyOsDesk,
+  );
   // Ключи ячеек открытой таблицы стола ОС: столбец мог завести сам ОС, и
   // фиксированные `status`/`technician` тогда смотрели бы мимо.
   const osTableColumns = activeSubPage ? activeSubPage.columns : page?.columns;
-  const osKeys = useMemo(() => resolveOsDeskKeys(osTableColumns), [osTableColumns]);
-  const osTechPickerKeys = useMemo(() => [osKeys.technician], [osKeys.technician]);
+  const osKeys = useMemo(
+    () => resolveOsDeskKeys(osTableColumns),
+    [osTableColumns],
+  );
+  const osTechPickerKeys = useMemo(
+    () => [osKeys.technician],
+    [osKeys.technician],
+  );
   // Касса ОС: способ оплаты у «Цены» и «Апсейла», «Итого» только для чтения.
   const isOsDeskPage = Boolean(page?.osDesk);
-  const osPayKeys = useMemo(() => [osKeys.price, osKeys.upsell], [osKeys.price, osKeys.upsell]);
+  const osPayKeys = useMemo(
+    () => [osKeys.price, osKeys.upsell],
+    [osKeys.price, osKeys.upsell],
+  );
   const osLockedKeys = useMemo(
     () =>
       isOsDeskPage
-        ? { [osKeys.total]: "«Итого» считает стол сам: цена и апсейл за вычетом комиссии способа оплаты" }
+        ? {
+            [osKeys.total]:
+              "«Итого» считает стол сам: цена и апсейл за вычетом комиссии способа оплаты",
+          }
         : undefined,
-    [isOsDeskPage, osKeys.total]
+    [isOsDeskPage, osKeys.total],
   );
-  const paymentMethods = useMemo(() => paymentMethodsOf(activeWorkspace), [activeWorkspace]);
+  const paymentMethods = useMemo(
+    () => paymentMethodsOf(activeWorkspace),
+    [activeWorkspace],
+  );
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
 
   // Стол ОС выдаёт заказы сам: заполнил строку, выбрал технаря — заказ у
   // него. Тот же проход везёт статус в обе стороны (см. хук).
   /** Строка стола ОС, которой выбирают технаря (полноэкранный список). */
   const [techPickRowId, setTechPickRowId] = useState<string | null>(null);
-  const techPickRow = techPickRowId ? (rows.find((r) => r.id === techPickRowId) ?? null) : null;
+  const techPickRow = techPickRowId
+    ? (rows.find((r) => r.id === techPickRowId) ?? null)
+    : null;
   const [techPickBusy, setTechPickBusy] = useState(false);
   async function setRowTechnician(nick: string) {
     if (!activeWorkspaceId || !page || !techPickRow) return;
     setTechPickBusy(true);
     try {
-      await sbPatchRow(activeWorkspaceId, page.id, activeSubPageId, techPickRow.id, { cells: { [osKeys.technician]: nick } });
+      await sbPatchRow(
+        activeWorkspaceId,
+        page.id,
+        activeSubPageId,
+        techPickRow.id,
+        { cells: { [osKeys.technician]: nick } },
+      );
       setTechPickRowId(null);
     } catch (error) {
       toast.error(firestoreErrorText(error, "Не удалось выбрать технаря"));
@@ -375,7 +502,9 @@ export default function DynamicTablePage() {
     rows,
     columns: osTableColumns,
     keys: osKeys,
-    enabled: Boolean(isOsDeskPage && hasAccess && page && permissions.canEditPageData(page)),
+    enabled: Boolean(
+      isOsDeskPage && hasAccess && page && permissions.canEditPageData(page),
+    ),
     rowsFromServer,
   });
 
@@ -384,8 +513,12 @@ export default function DynamicTablePage() {
   // технаря или статусы у ОС и технаря разошлись, — с починкой по нажатию.
   const navigate = useNavigate();
   const sendToExchange = useSendOsRowToExchange();
-  const [osActionBusy, setOsActionBusy] = useState<Set<string>>(() => new Set());
-  const osStatusOptions = ensureApprovalStatus(ensureDoneStatus(activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS));
+  const [osActionBusy, setOsActionBusy] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const osStatusOptions = ensureApprovalStatus(
+    ensureDoneStatus(activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS),
+  );
   // Раз в 10 с перерисовываем метку «не совпадает»: она показывается не сразу
   // после правки, а когда проход уже должен был довезти статус.
   const [osTick, setOsTick] = useState(0);
@@ -399,7 +532,8 @@ export default function DynamicTablePage() {
     const v = key ? row.cells[key] : null;
     return v === null || v === undefined ? "" : String(v).trim();
   };
-  const statusLabelOf = (value: string) => osStatusOptions.find((o) => o.value === value)?.label ?? value;
+  const statusLabelOf = (value: string) =>
+    osStatusOptions.find((o) => o.value === value)?.label ?? value;
   function osCellView(row: PageRow): CellActionView | null {
     const client = cellStr(row, osKeys.client);
     if (!client) return null;
@@ -411,10 +545,24 @@ export default function DynamicTablePage() {
     const dispatched = Boolean(mirror || (row.mirrorRowId && row.mirrorPageId));
     if (tech) {
       if (!dispatched && onApproval) {
-        return { label: "В работу", tone: "primary", icon: "send", busy, title: "Отдать выбранному технарю: статус станет «В работе», заказ уедет в его стол" };
+        return {
+          label: "В работу",
+          tone: "primary",
+          icon: "send",
+          busy,
+          title:
+            "Отдать выбранному технарю: статус станет «В работе», заказ уедет в его стол",
+        };
       }
       const problem = osDispatch.problems[row.id];
-      if (problem) return { label: "Не доехал", tone: "warning", icon: "alert", busy, title: `Заказ не доходит до технаря: ${problem}` };
+      if (problem)
+        return {
+          label: "Не доехал",
+          tone: "warning",
+          icon: "alert",
+          busy,
+          title: `Заказ не доходит до технаря: ${problem}`,
+        };
       if (mirror?.statusKey && !myOrders.loading) {
         const theirs = cellStr(mirror, mirror.statusKey);
         const settled = Date.now() - (row.updatedAt ?? 0) > 8_000;
@@ -432,32 +580,56 @@ export default function DynamicTablePage() {
     }
     if (dispatched) return null;
     if (row.orderId) {
-      return { label: "На «Заказах»", tone: "info", icon: "store", title: "Заказ на «Заказах» — отдайте его, когда технари откликнутся. Нажмите, чтобы открыть" };
+      return {
+        label: "На «Заказах»",
+        tone: "info",
+        icon: "store",
+        title:
+          "Заказ на «Заказах» — отдайте его, когда технари откликнутся. Нажмите, чтобы открыть",
+      };
     }
     return {
       label: "В работу",
       tone: "primary",
       icon: "send",
       busy,
-      title: "Отдать в работу: заказ уйдёт на «Заказы» со всеми данными строки, технари получат уведомление",
+      title:
+        "Отдать в работу: заказ уйдёт на «Заказы» со всеми данными строки, технари получат уведомление",
     };
   }
   /** Выбор способа оплаты у цены или апсейла: id, снимок комиссии и новое «Итого» — одной записью. */
-  async function pickPayment(row: PageRow, colKey: string, method: PaymentMethod | null) {
+  async function pickPayment(
+    row: PageRow,
+    colKey: string,
+    method: PaymentMethod | null,
+  ) {
     if (!activeWorkspaceId || !page) return;
-    const patch: Record<string, string | number | null> = paymentPatch(colKey, method);
+    const patch: Record<string, string | number | null> = paymentPatch(
+      colKey,
+      method,
+    );
     if (osTableColumns?.some((c) => c.key === osKeys.total)) {
       const total = osRowTotal({ cells: { ...row.cells, ...patch } }, osKeys);
       patch[osKeys.total] = total === null ? null : String(total);
     }
     try {
-      if (activeSubPageId) await updateSubPageRowCellsBulk(activeWorkspaceId, page.id, activeSubPageId, row.id, patch);
+      if (activeSubPageId)
+        await updateSubPageRowCellsBulk(
+          activeWorkspaceId,
+          page.id,
+          activeSubPageId,
+          row.id,
+          patch,
+        );
       else await updateRowCellsBulk(activeWorkspaceId, page.id, row.id, patch);
     } catch (error) {
-      toast.error(firestoreErrorText(error, "Не удалось сохранить способ оплаты"));
+      toast.error(
+        firestoreErrorText(error, "Не удалось сохранить способ оплаты"),
+      );
     }
   }
-  const isRealOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  const isRealOwner =
+    permissions.isWorkspaceOwner || permissions.realRole === "owner";
 
   async function runOsCellAction(row: PageRow) {
     const view = osCellView(row);
@@ -469,32 +641,61 @@ export default function DynamicTablePage() {
     }
     const problem = osDispatch.problems[row.id];
     if (view.label === "Не доехал" && problem) {
-      toast.error(`${client}: заказ не доходит до технаря`, { description: problem });
+      toast.error(`${client}: заказ не доходит до технаря`, {
+        description: problem,
+      });
       return;
     }
     setOsActionBusy((prev) => new Set(prev).add(row.id));
     try {
       const tech = cellStr(row, osKeys.technician);
       const mirror = myOrders.bySource.get(row.id) ?? null;
-      if (view.label === "Статус не совпал" && mirror?.statusKey && mirror.deskPageId) {
-        await sbPatchRow(activeWorkspaceId, mirror.deskPageId, mirror.tabId || null, mirror.id, {
-          cells: { [mirror.statusKey]: cellStr(row, osKeys.status) },
-        });
+      if (
+        view.label === "Статус не совпал" &&
+        mirror?.statusKey &&
+        mirror.deskPageId
+      ) {
+        await sbPatchRow(
+          activeWorkspaceId,
+          mirror.deskPageId,
+          mirror.tabId || null,
+          mirror.id,
+          {
+            cells: { [mirror.statusKey]: cellStr(row, osKeys.status) },
+          },
+        );
         myOrders.refresh();
         toast.success(`${client}: статус отправлен технарю`);
       } else if (tech) {
-        const inProgress = findInProgressStatusOption([...osStatusOptions])?.value;
+        const inProgress = findInProgressStatusOption([
+          ...osStatusOptions,
+        ])?.value;
         if (!inProgress) throw new Error("В списке статусов нет «В работе»");
-        await sbPatchRow(activeWorkspaceId, page.id, activeSubPageId, row.id, { cells: { [osKeys.status]: inProgress } });
-        toast.success(`${client} — в работу`, { description: "Заказ уедет в стол технаря через секунду." });
+        await sbPatchRow(activeWorkspaceId, page.id, activeSubPageId, row.id, {
+          cells: { [osKeys.status]: inProgress },
+        });
+        toast.success(`${client} — в работу`, {
+          description: "Заказ уедет в стол технаря через секунду.",
+        });
       } else {
-        await sendToExchange({ row, pageId: page.id, tabId: activeSubPageId, keys: osKeys });
+        await sendToExchange({
+          row,
+          pageId: page.id,
+          tabId: activeSubPageId,
+          keys: osKeys,
+        });
         toast.success(`${client} — на «Заказах»`, {
-          description: "Технари получили уведомление. Отдайте заказ, когда откликнутся, — он приедет к технарю сам.",
+          description:
+            "Технари получили уведомление. Отдайте заказ, когда откликнутся, — он приедет к технарю сам.",
         });
       }
     } catch (error) {
-      toast.error(firestoreErrorText(error, error instanceof Error ? error.message : "Не удалось отдать заказ"));
+      toast.error(
+        firestoreErrorText(
+          error,
+          error instanceof Error ? error.message : "Не удалось отдать заказ",
+        ),
+      );
     } finally {
       setOsActionBusy((prev) => {
         const next = new Set(prev);
@@ -519,13 +720,24 @@ export default function DynamicTablePage() {
   // вкладку могли завести до «Итого», а столбцы у вкладки свои.
   const osTabColumnsRan = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!page?.osDesk || !activeSubPage || !hasAccess || !permissions.canManagePage(page)) return;
+    if (
+      !page?.osDesk ||
+      !activeSubPage ||
+      !hasAccess ||
+      !permissions.canManagePage(page)
+    )
+      return;
     if (osTabColumnsRan.current.has(activeSubPage.id)) return;
     const next = missingOsDeskColumns(activeSubPage.columns ?? []);
     osTabColumnsRan.current.add(activeSubPage.id);
     if (!next || !activeSubPage.columns?.length) return;
-    void updateSubPageColumns(page.workspaceId, page.id, activeSubPage.id, next).catch((err) =>
-      console.error("Не удалось дописать столбцы вкладке стола ОС:", err)
+    void updateSubPageColumns(
+      page.workspaceId,
+      page.id,
+      activeSubPage.id,
+      next,
+    ).catch((err) =>
+      console.error("Не удалось дописать столбцы вкладке стола ОС:", err),
     );
   }, [page, activeSubPage, hasAccess, permissions]);
 
@@ -579,7 +791,10 @@ export default function DynamicTablePage() {
         </div>
         <div className="overflow-hidden rounded-[16px] border border-border/60">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-3 border-t border-border/50 px-4 py-3 first:border-t-0">
+            <div
+              key={i}
+              className="flex items-center gap-3 border-t border-border/50 px-4 py-3 first:border-t-0"
+            >
               <Skeleton className="h-3 w-6" />
               <Skeleton className="h-3.5 flex-1" />
               <Skeleton className="h-5 w-20 rounded-full" />
@@ -598,7 +813,8 @@ export default function DynamicTablePage() {
         <Lock className="h-8 w-8 text-muted-foreground" />
         <p className="page-title">Вы не участник этого workspace</p>
         <p className="max-w-sm text-sm text-muted-foreground">
-          Попросите владельца добавить вас — после этого страница откроется без перезагрузки.
+          Попросите владельца добавить вас — после этого страница откроется без
+          перезагрузки.
         </p>
       </div>
     );
@@ -613,8 +829,8 @@ export default function DynamicTablePage() {
         <Lock className="h-8 w-8 text-muted-foreground" />
         <p className="page-title">Страница недоступна</p>
         <p className="text-sm text-muted-foreground">
-          Она удалена, либо у вас нет к ней доступа. Обратитесь к Owner workspace или к
-          ответственному за страницу.
+          Она удалена, либо у вас нет к ней доступа. Обратитесь к Owner
+          workspace или к ответственному за страницу.
         </p>
       </div>
     );
@@ -638,7 +854,10 @@ export default function DynamicTablePage() {
         </div>
         <div className="overflow-hidden rounded-[16px] border border-border/60">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-3 border-t border-border/50 px-4 py-3 first:border-t-0">
+            <div
+              key={i}
+              className="flex items-center gap-3 border-t border-border/50 px-4 py-3 first:border-t-0"
+            >
               <Skeleton className="h-3 w-6" />
               <Skeleton className="h-3.5 flex-1" />
               <Skeleton className="h-5 w-20 rounded-full" />
@@ -656,20 +875,26 @@ export default function DynamicTablePage() {
         <Lock className="h-8 w-8 text-primary" />
         <p className="page-title">Таблицы закрыты</p>
         <p className="max-w-sm text-sm text-muted-foreground">
-          Тимлид ведёт людей и доступы, а не заказы: таблицы столов открываются, только если у него есть ещё роль
-          «Технарь». Доступы к «{page.name}» настраиваются в «Пользователях».
+          Тимлид ведёт людей и доступы, а не заказы: таблицы столов открываются,
+          только если у него есть ещё роль «Технарь». Доступы к «{page.name}»
+          настраиваются в «Пользователях».
         </p>
       </div>
     );
   }
 
   if (!hasAccess) {
-    const toUid = page.responsibleUserId || members.find((m) => m.role === "owner")?.uid || "";
+    const toUid =
+      page.responsibleUserId ||
+      members.find((m) => m.role === "owner")?.uid ||
+      "";
     const hidden = Boolean(page.hiddenByResponsible);
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
         <Lock className="h-8 w-8 text-primary" />
-        <p className="page-title">{hidden ? "Стол скрыт" : "Нужно разрешение"}</p>
+        <p className="page-title">
+          {hidden ? "Стол скрыт" : "Нужно разрешение"}
+        </p>
         <p className="max-w-sm text-sm text-muted-foreground">
           {hidden
             ? `«${page.name}» можно смотреть после разрешения ответственного. Данные листа не открываются.`
@@ -691,25 +916,26 @@ export default function DynamicTablePage() {
     );
   }
 
-  const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid;
   const canEditData = permissions.canEditPageData(page);
   const isResponsible = permissions.isResponsibleForPage(page);
-  // Кнопка «Доступ» в шапке: кто, кроме Owner, открывает стол, и сколько
-  // запросов на просмотр ждут именно меня по этому столу.
-  const accessMembers = members.filter(
-    (m) =>
-      m.status === "active" &&
-      m.role !== "owner" &&
-      (m.uid === page.responsibleUserId || Boolean(page.allowedUsers?.includes(m.uid)))
-  );
+  // Счётчик у «Доступ к столу» в меню ⋯: сколько запросов на просмотр ждут
+  // именно меня по этому столу.
   const pendingDeskRequests = requests.filter(
-    (r) => r.pageId === page.id && r.status === "pending" && r.toUid === profile?.uid
+    (r) =>
+      r.pageId === page.id &&
+      r.status === "pending" &&
+      r.toUid === profile?.uid,
   );
-  const responsibleMember = members.find((m) => m.uid === page.responsibleUserId) ?? null;
+  const responsibleMember =
+    members.find((m) => m.uid === page.responsibleUserId) ?? null;
   // Стол ОС принадлежит своему ОС: Тимлид смотрит его, но ответственного не
   // меняет и доступ не раздаёт (правила тоже не дают переназначить).
-  const canOpenAccess = permissions.canManagePage(page) || (permissions.canAssignResponsible && !page.osDesk);
-  const canRetireThisDesk = permissions.canRetireDesks && (!page.osDesk || permissions.hasFullDeskAccess);
+  const canOpenAccess =
+    permissions.canManagePage(page) ||
+    (permissions.canAssignResponsible && !page.osDesk);
+  const canRetireThisDesk =
+    permissions.canRetireDesks &&
+    (!page.osDesk || permissions.hasFullDeskAccess);
   // Personal Space is visible only to whoever is actually responsible for
   // THIS page (or explicitly whitelisted) — being a Manager elsewhere in the
   // workspace does not grant it. Owner keeps oversight, matching how every
@@ -720,7 +946,8 @@ export default function DynamicTablePage() {
     Boolean(page.personalZoneAllowedUsers?.includes(permissions.uid));
 
   const responsibleWorksAsTechnician = Boolean(
-    page?.responsibleUserId && worksAsTechnician(members.find((m) => m.uid === page.responsibleUserId))
+    page?.responsibleUserId &&
+    worksAsTechnician(members.find((m) => m.uid === page.responsibleUserId)),
   );
 
   async function handleToggleTechnicianDesk(next: boolean) {
@@ -730,10 +957,12 @@ export default function DynamicTablePage() {
       toast.success(
         next
           ? "Это стол технаря: вкладка месяца и строка на «Технари»"
-          : "Стол больше не считается столом технаря"
+          : "Стол больше не считается столом технаря",
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось изменить стол");
+      toast.error(
+        error instanceof Error ? error.message : "Не удалось изменить стол",
+      );
     }
   }
 
@@ -741,15 +970,27 @@ export default function DynamicTablePage() {
     if (!page) return;
     const willShow = Boolean(page.hiddenByResponsible);
     try {
-      const allActiveMemberUids = members.filter((m) => m.status === "active").map((m) => m.uid);
-      await togglePageVisibility(page.workspaceId, page.id, willShow, allActiveMemberUids, page.responsibleUserId);
+      const allActiveMemberUids = members
+        .filter((m) => m.status === "active")
+        .map((m) => m.uid);
+      await togglePageVisibility(
+        page.workspaceId,
+        page.id,
+        willShow,
+        allActiveMemberUids,
+        page.responsibleUserId,
+      );
       toast.success(
         willShow
           ? "Страница видна всем — доступ на просмотр (без редактирования)"
-          : "Доступ убран у всех, кроме вас и Owner"
+          : "Доступ убран у всех, кроме вас и Owner",
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось изменить видимость");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Не удалось изменить видимость",
+      );
     }
   }
 
@@ -760,7 +1001,11 @@ export default function DynamicTablePage() {
           open={Boolean(techPickRow)}
           title={`Технарь для «${String(techPickRow?.cells[osKeys.client] ?? "").trim() || "заказа"}»`}
           description="Заказ уедет в стол выбранного технаря (если он не на утверждении). Смена технаря заберёт заказ у прежнего."
-          selectedNick={techPickRow ? String(techPickRow.cells[osKeys.technician] ?? "") : null}
+          selectedNick={
+            techPickRow
+              ? String(techPickRow.cells[osKeys.technician] ?? "")
+              : null
+          }
           busy={techPickBusy}
           allowClear
           onPick={(tech) => void setRowTechnician(tech.nick)}
@@ -768,7 +1013,12 @@ export default function DynamicTablePage() {
           onClose={() => setTechPickRowId(null)}
         />
       ) : null}
-      {isOsDeskPage ? <PaymentMethodsDialog open={paymentDialogOpen} onClose={() => setPaymentDialogOpen(false)} /> : null}
+      {isOsDeskPage ? (
+        <PaymentMethodsDialog
+          open={paymentDialogOpen}
+          onClose={() => setPaymentDialogOpen(false)}
+        />
+      ) : null}
       {isMyOsDesk && page && osDispatch.choiceRow ? (
         <OsDispatchChoiceDialog
           key={osDispatch.choiceRow.id}
@@ -779,146 +1029,157 @@ export default function DynamicTablePage() {
           onClose={osDispatch.closeChoice}
         />
       ) : null}
-      {tableImmersive && !tableFullscreen ? <TableChromeExit label="Назад" /> : null}
-      <div className={cn("page-header", chromeHidden && "hidden")}>
-        <span
-          className="relative flex h-8 w-8 items-center justify-center rounded-lg"
-          style={{ backgroundColor: `hsl(${page.color} / 0.15)`, color: `hsl(${page.color})` }}
-        >
-          <Icon className="h-4 w-4" />
-          {page.accentColor ? (
-            <span className="absolute bottom-0 left-1 right-1 h-0.5 rounded-full" style={{ backgroundColor: `hsl(${page.accentColor})` }} />
-          ) : null}
-        </span>
-        <h1 className="page-title">{page.name}</h1>
+      {tableImmersive && !tableFullscreen ? (
+        <TableChromeExit label="Назад" />
+      ) : null}
+      {/* Шапка стола в одну строку (макет «C — плотный»): заголовок, сегмент
+          месяцев, итоги моно, «+ Заказ» и меню ⋯. Чат, статистика, полный
+          экран, доступ и настройка стола переехали в ⋯ — шапка перестала быть
+          стеной кнопок. `.page-header` из index.css перебит утилитами здесь,
+          сам класс не трогаем: им живут чат и Грок. */}
+      <div
+        className={cn(
+          "page-header flex-wrap gap-x-4 gap-y-2 border-transparent bg-transparent py-2.5 sm:flex-nowrap",
+          chromeHidden && "hidden",
+        )}
+      >
+        <h1 className="min-w-0 shrink truncate font-serif text-[22px] font-light leading-none tracking-[-0.01em] sm:text-[26px]">
+          {page.name}
+        </h1>
         {!canEditData && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="inline-flex cursor-default items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+              <span className="inline-flex shrink-0 cursor-default items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                 <Lock className="h-3 w-3" /> Только просмотр
               </span>
             </TooltipTrigger>
             <TooltipContent>
-              Правку выдаёт {responsibleMember ? `ответственный — ${displayNameOf(responsibleMember)}` : "ответственный за стол"} или Owner
+              Правку выдаёт{" "}
+              {responsibleMember
+                ? `ответственный — ${displayNameOf(responsibleMember)}`
+                : "ответственный за стол"}{" "}
+              или Owner
             </TooltipContent>
           </Tooltip>
         )}
+        {/* На телефоне сегмент месяцев уходит второй строкой на всю ширину —
+            иначе он давится кнопкой «+ Заказ» и обрезается. */}
+        {!personalSpaceOpen && (
+          <div className="order-last min-w-0 basis-full overflow-x-auto sm:order-none sm:basis-auto sm:overflow-visible">
+            <SubPageTabs
+              workspaceId={page.workspaceId}
+              page={page}
+              subPages={subPages}
+              activeSubPageId={activeSubPageId}
+              onSelect={handleSelectTab}
+              canManage={canEditData || permissions.canManagePage(page)}
+              canSetDefault={permissions.canManagePage(page)}
+              userId={profile?.uid ?? ""}
+              monthKey={monthKey}
+              isMonthly={isMonthlyDesk(page, members)}
+            />
+          </div>
+        )}
         <div className="flex-1" />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Чат страницы" onClick={() => setChatOpen(true)}>
-              <MessageSquare className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Чат страницы</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
+        {/* Итоги по видимым строкам — моно, без валюты: числа читаются
+            столбиком. «В работе» и «Ждём» при нуле молчат, без денежного
+            столбца блока нет вовсе, без статуса — только «Общий». На узком
+            экране блок не влезает — прячем. */}
+        {summary?.hasCurrency && (
+          <div className="hidden shrink-0 items-center gap-4 font-mono text-[12.5px] text-muted-foreground lg:flex">
+            <span>
+              Общий{" "}
+              <b className="font-medium text-foreground">
+                {formatNumber(summary.total)}
+              </b>
+            </span>
+            {summary.hasStatus && (
+              <span>
+                Готово{" "}
+                <b className="font-medium text-success">
+                  {formatNumber(summary.done)}
+                </b>
+              </span>
+            )}
+            {summary.hasStatus && summary.inProgress > 0 && (
+              <span>
+                В работе{" "}
+                <b className="font-medium text-primary">
+                  {formatNumber(summary.inProgress)}
+                </b>
+              </span>
+            )}
+            {summary.hasStatus && summary.waiting > 0 && (
+              <span>
+                Ждём{" "}
+                <b className="font-medium text-warning">
+                  {formatNumber(summary.waiting)}
+                </b>
+              </span>
+            )}
+          </div>
+        )}
+        {actions?.canQuickOrder ? (
+          <Button
+            size="sm"
+            className="h-9 shrink-0 gap-1 rounded-lg bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground sm:h-8"
+            onClick={actions.quickOrder}
+          >
+            <Plus className="h-3.5 w-3.5" /> Заказ
+          </Button>
+        ) : actions?.canAddRow ? (
+          <Button
+            size="sm"
+            className="h-9 shrink-0 gap-1 rounded-lg bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground sm:h-8"
+            onClick={actions.addRow}
+          >
+            <Plus className="h-3.5 w-3.5" /> Строка
+          </Button>
+        ) : null}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              aria-label={statsOpen ? "Скрыть статистику" : "Показать статистику"}
-              className={cn(statsOpen && "bg-primary/10 text-primary")}
-              onClick={() => setStatsOpen((v) => !v)}
+              aria-label="Ещё"
+              className="relative shrink-0"
             >
-              <BarChart3 className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{statsOpen ? "Скрыть статистику" : "Показать статистику"}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="На весь экран" onClick={() => { setTableFullscreen(true); setTableImmersive(true); }}>
-              <Maximize2 className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>На весь экран</TooltipContent>
-        </Tooltip>
-
-        {/* Everything else lives behind one menu instead of a wall of
-            text buttons — up to 5 of these could show at once for an
-            Owner viewing their own page, which crowded the header badly.
-            Frequency-of-use decided what stayed outside: chat + fullscreen
-            get used far more often per session than stats/history/settings. */}
-        {/* Доступ виден прямо в шапке: аватары тех, кому открыт стол, замок у
-            скрытого и счётчик запросов на просмотр. Раньше всё это лежало за
-            «⋯ → Доступ к листу», и кто видит стол, можно было узнать только
-            открыв диалог. */}
-        {canOpenAccess && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="hidden h-8 gap-1.5 sm:inline-flex"
-                onClick={() => setSettingsOpen(true)}
-                aria-label="Доступ к столу"
-              >
-                {page.hiddenByResponsible ? (
-                  <Lock className="h-3.5 w-3.5 text-muted-foreground" />
-                ) : (
-                  <Users className="h-3.5 w-3.5" />
-                )}
-                {accessMembers.length > 0 ? (
-                  <span className="flex items-center -space-x-1.5">
-                    {accessMembers.slice(0, 3).map((m) => (
-                      <MemberAvatar
-                        key={m.uid}
-                        id={m.uid}
-                        name={m.name}
-                        nickname={m.nickname}
-                        photoURL={m.photoURL}
-                        className="h-5 w-5 ring-2 ring-background"
-                      />
-                    ))}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">только вы</span>
-                )}
-                {accessMembers.length > 3 && (
-                  <span className="text-xs text-muted-foreground">+{accessMembers.length - 3}</span>
-                )}
-                {pendingDeskRequests.length > 0 && (
-                  <span className="rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground">
-                    {pendingDeskRequests.length}
-                  </span>
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {page.hiddenByResponsible ? "Стол скрыт · " : ""}
-              {accessMembers.length === 0
-                ? "Стол открыт только вам и Owner"
-                : `Открыт: ${accessMembers.map((m) => displayNameOf(m)).join(", ")}`}
-              {pendingDeskRequests.length > 0 ? ` · ждут ответа: ${pendingDeskRequests.length}` : ""}
-            </TooltipContent>
-          </Tooltip>
-        )}
-        {permissions.canManagePage(page) && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="hidden h-8 gap-1.5 sm:inline-flex"
-            onClick={() => setDeskStudioOpen(true)}
-          >
-            <Settings2 className="h-3.5 w-3.5" /> Настроить стол
-          </Button>
-        )}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Ещё" className="relative">
               <MoreHorizontal className="h-4 w-4" />
               {personalSpaceOpen && (
                 <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-primary" />
               )}
+              {pendingDeskRequests.length > 0 && canOpenAccess && (
+                <span className="absolute -right-0.5 -top-0.5 rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground">
+                  {pendingDeskRequests.length}
+                </span>
+              )}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => setChatOpen(true)}>
+              <MessageSquare className="h-4 w-4" /> Чат страницы
+            </DropdownMenuItem>
+            <DropdownMenuCheckboxItem
+              checked={statsOpen}
+              onCheckedChange={(checked) => setStatsOpen(checked === true)}
+            >
+              <BarChart3 className="h-4 w-4" /> Статистика
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuItem
+              onClick={() => {
+                setTableFullscreen(true);
+                setTableImmersive(true);
+              }}
+            >
+              <Maximize2 className="h-4 w-4" /> На весь экран
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             {isResponsible && (
               <DropdownMenuItem onClick={handleToggleVisibility}>
                 {page.hiddenByResponsible ? (
                   <>
-                    <EyeOff className="h-4 w-4 text-destructive" /> Скрыто от других — показать
+                    <EyeOff className="h-4 w-4 text-destructive" /> Скрыто от
+                    других — показать
                   </>
                 ) : (
                   <>
@@ -961,11 +1222,19 @@ export default function DynamicTablePage() {
               <>
                 <DropdownMenuSeparator />
                 {page.inactive ? (
-                  <DropdownMenuItem onClick={() => void restoreDesk(page, members, permissions.uid)}>
+                  <DropdownMenuItem
+                    onClick={() =>
+                      void restoreDesk(page, members, permissions.uid)
+                    }
+                  >
                     <ArchiveRestore className="h-4 w-4" /> Вернуть в столы
                   </DropdownMenuItem>
                 ) : (
-                  <DropdownMenuItem onClick={() => void retireDesk(page, members, permissions.uid)}>
+                  <DropdownMenuItem
+                    onClick={() =>
+                      void retireDesk(page, members, permissions.uid)
+                    }
+                  >
                     <Archive className="h-4 w-4" /> В неактуальные
                   </DropdownMenuItem>
                 )}
@@ -974,14 +1243,18 @@ export default function DynamicTablePage() {
             {/* Стол Технаря и стол Owner считаются столом технаря сами
                 (`worksAsTechnician`) — галочка там только путала бы: снять её
                 нельзя, а стояла бы она пустой. */}
-            {permissions.role === "owner" && page.responsibleUserId && !responsibleWorksAsTechnician && (
-              <DropdownMenuCheckboxItem
-                checked={Boolean(page.technicianDesk)}
-                onCheckedChange={(checked) => void handleToggleTechnicianDesk(checked === true)}
-              >
-                <HardHat className="h-4 w-4" /> Стол технаря
-              </DropdownMenuCheckboxItem>
-            )}
+            {permissions.role === "owner" &&
+              page.responsibleUserId &&
+              !responsibleWorksAsTechnician && (
+                <DropdownMenuCheckboxItem
+                  checked={Boolean(page.technicianDesk)}
+                  onCheckedChange={(checked) =>
+                    void handleToggleTechnicianDesk(checked === true)
+                  }
+                >
+                  <HardHat className="h-4 w-4" /> Стол технаря
+                </DropdownMenuCheckboxItem>
+              )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -991,10 +1264,17 @@ export default function DynamicTablePage() {
           <Archive className="h-4 w-4 shrink-0 text-warning" />
           <span className="min-w-0 flex-1">
             <span className="font-medium">Стол в неактуальных.</span>{" "}
-            <span className="text-muted-foreground">Его нет в «Столах», на дашборде и в «Технарях» — данные сохранены.</span>
+            <span className="text-muted-foreground">
+              Его нет в «Столах», на дашборде и в «Технарях» — данные сохранены.
+            </span>
           </span>
           {canRetireThisDesk && (
-            <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => void restoreDesk(page, members, permissions.uid)}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5"
+              onClick={() => void restoreDesk(page, members, permissions.uid)}
+            >
               <ArchiveRestore className="h-3.5 w-3.5" /> Вернуть
             </Button>
           )}
@@ -1007,7 +1287,8 @@ export default function DynamicTablePage() {
           <span className="min-w-0 flex-1">
             <span className="font-medium">Строки этого стола вам закрыты.</span>{" "}
             <span className="text-muted-foreground">
-              Доступ к строкам снят или ещё не выдан — попросите ответственного за стол или Owner открыть его.
+              Доступ к строкам снят или ещё не выдан — попросите ответственного
+              за стол или Owner открыть его.
             </span>
           </span>
         </div>
@@ -1018,9 +1299,16 @@ export default function DynamicTablePage() {
           <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
           <span className="min-w-0 flex-1">
             <span className="font-medium">Строки не загрузились.</span>{" "}
-            <span className="text-muted-foreground">{rowsReadError} Повторяем попытку сами.</span>
+            <span className="text-muted-foreground">
+              {rowsReadError} Повторяем попытку сами.
+            </span>
           </span>
-          <Button size="sm" variant="outline" className="min-h-9" onClick={retryRows}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="min-h-9"
+            onClick={retryRows}
+          >
             Повторить сейчас
           </Button>
         </div>
@@ -1030,17 +1318,24 @@ export default function DynamicTablePage() {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-warning/30 bg-warning/[0.07] px-4 py-2 text-sm">
           <Lock className="h-4 w-4 shrink-0 text-warning" />
           <span className="min-w-0 flex-1">
-            <span className="font-medium">Строки этого стола пока не видны.</span>{" "}
+            <span className="font-medium">
+              Строки этого стола пока не видны.
+            </span>{" "}
             <span className="text-muted-foreground">
-              Доступ к столу ещё не дошёл до базы строк — он обновится сам, когда Owner или Тимлид откроет приложение.
-              Данные не пропали: не вбивайте заказы заново.
+              Доступ к столу ещё не дошёл до базы строк — он обновится сам,
+              когда Owner или Тимлид откроет приложение. Данные не пропали: не
+              вбивайте заказы заново.
             </span>
           </span>
         </div>
       )}
 
       {DISPATCH_ENABLED && isOwnDesk && !chromeHidden && (
-        <IncomingDispatchBanner workspaceId={page.workspaceId} uid={permissions.uid} page={page} />
+        <IncomingDispatchBanner
+          workspaceId={page.workspaceId}
+          uid={permissions.uid}
+          page={page}
+        />
       )}
 
       {personalSpaceOpen ? (
@@ -1054,24 +1349,21 @@ export default function DynamicTablePage() {
         </div>
       ) : (
         <>
-          <div className={cn(chromeHidden && "hidden")}>
-            <SubPageTabs
-              workspaceId={page.workspaceId}
-              page={page}
-              subPages={subPages}
-              activeSubPageId={activeSubPageId}
-              onSelect={handleSelectTab}
-              canManage={canEditData || permissions.canManagePage(page)}
-              canSetDefault={permissions.canManagePage(page)}
-              userId={profile?.uid ?? ""}
+          {statsOpen && !chromeHidden && (
+            <SubPageStats
+              columns={activeSubPage ? activeSubPage.columns : page.columns}
+              rows={rows}
             />
-          </div>
-
-          {statsOpen && !chromeHidden && <SubPageStats columns={activeSubPage ? activeSubPage.columns : page.columns} rows={rows} />}
+          )}
 
           {/* Стол ОС: запросы технарей «удалить заказ» / «поставить статус». */}
           {isMyOsDesk ? (
-            <OsOrderRequestsPanel osUid={permissions.uid} mirrors={myOrders.rows} sourceRows={rows} onChanged={myOrders.refresh} />
+            <OsOrderRequestsPanel
+              osUid={permissions.uid}
+              mirrors={myOrders.rows}
+              sourceRows={rows}
+              onChanged={myOrders.refresh}
+            />
           ) : null}
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1079,7 +1371,10 @@ export default function DynamicTablePage() {
               <div className="p-4">
                 <div className="overflow-hidden rounded-[16px] border border-border/60">
                   {Array.from({ length: 10 }).map((_, i) => (
-                    <div key={i} className="flex items-center gap-3 border-t border-border/50 px-4 py-3 first:border-t-0">
+                    <div
+                      key={i}
+                      className="flex items-center gap-3 border-t border-border/50 px-4 py-3 first:border-t-0"
+                    >
                       <Skeleton className="h-3 w-6" />
                       <Skeleton className="h-3.5 flex-1" />
                       <Skeleton className="h-5 w-20 rounded-full" />
@@ -1091,9 +1386,16 @@ export default function DynamicTablePage() {
             ) : (
               <DataTable
                 workspaceId={page.workspaceId}
-                page={activeSubPage ? { ...page, columns: activeSubPage.columns } : page}
+                page={
+                  activeSubPage
+                    ? { ...page, columns: activeSubPage.columns }
+                    : page
+                }
                 subPageId={activeSubPage?.id}
-                manualRowOrder={(activeSubPage ? activeSubPage.rowOrder : page.rowOrder) === "manual"}
+                manualRowOrder={
+                  (activeSubPage ? activeSubPage.rowOrder : page.rowOrder) ===
+                  "manual"
+                }
                 rows={rows}
                 canEdit={canEditData}
                 // Заказы заводит только ОС: у технаря в его столе нет
@@ -1114,7 +1416,9 @@ export default function DynamicTablePage() {
                             canEdit={canEditData}
                             canConfigure={isRealOwner}
                             compact
-                            onPick={(method) => void pickPayment(row, colKey, method)}
+                            onPick={(method) =>
+                              void pickPayment(row, colKey, method)
+                            }
                             onConfigure={() => setPaymentDialogOpen(true)}
                           />
                         ),
@@ -1123,10 +1427,16 @@ export default function DynamicTablePage() {
                 }
                 cellAction={
                   isMyOsDesk
-                    ? { colKey: osKeys.technician, get: osCellView, run: (row) => void runOsCellAction(row) }
+                    ? {
+                        colKey: osKeys.technician,
+                        get: osCellView,
+                        run: (row) => void runOsCellAction(row),
+                      }
                     : undefined
                 }
-                onOpenCellPicker={isMyOsDesk ? (row) => setTechPickRowId(row.id) : undefined}
+                onOpenCellPicker={
+                  isMyOsDesk ? (row) => setTechPickRowId(row.id) : undefined
+                }
                 renderRowPanel={(row) => {
                   // Стол ОС — панель выдачи; стол технаря — его поля по заказу,
                   // который ведёт ОС (обычные строки панели не получают).
@@ -1146,7 +1456,8 @@ export default function DynamicTablePage() {
                         payment={{
                           methods: paymentMethods,
                           canConfigure: isRealOwner,
-                          onPick: (colKey, method) => void pickPayment(row, colKey, method),
+                          onPick: (colKey, method) =>
+                            void pickPayment(row, colKey, method),
                           onConfigure: () => setPaymentDialogOpen(true),
                         }}
                       />
@@ -1155,7 +1466,8 @@ export default function DynamicTablePage() {
                   // Панель технаря — и у перенесённых заказов, и у остальных
                   // строк, когда заказы ведёт ОС: просьба об «Успешке» нужна
                   // именно там, где статус закрыт.
-                  if (!activeWorkspaceId || (!row.osUid && !ordersFromOsOnly)) return null;
+                  if (!activeWorkspaceId || (!row.osUid && !ordersFromOsOnly))
+                    return null;
                   return (
                     <TechOrderPanel
                       row={row}
@@ -1173,6 +1485,8 @@ export default function DynamicTablePage() {
                 userId={profile?.uid ?? ""}
                 userName={myDisplayName(profile, members)}
                 focusRowId={focusRowId}
+                onSummaryChange={setSummary}
+                onActionsChange={setActions}
               />
             )}
           </div>
@@ -1185,16 +1499,40 @@ export default function DynamicTablePage() {
           onOpenChange={() => setSettingsOpen(false)}
           canToggleVisibility={isResponsible}
           pendingRequests={pendingDeskRequests}
-          onResolveRequest={(request, status) => resolveRequest(request, page, status, myDisplayName(profile, members))}
+          onResolveRequest={(request, status) =>
+            resolveRequest(
+              request,
+              page,
+              status,
+              myDisplayName(profile, members),
+            )
+          }
         />
       )}
       {permissions.canManagePage(page) && (
-        <DeskStudioSheet page={page} open={deskStudioOpen} onOpenChange={setDeskStudioOpen} uid={profile?.uid} />
+        <DeskStudioSheet
+          page={page}
+          open={deskStudioOpen}
+          onOpenChange={setDeskStudioOpen}
+          uid={profile?.uid}
+        />
       )}
       {permissions.canViewHistory && (
-        <HistoryPanel open={historyOpen} onOpenChange={setHistoryOpen} workspaceId={page.workspaceId} pageId={page.id} columns={page.columns} />
+        <HistoryPanel
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          workspaceId={page.workspaceId}
+          pageId={page.id}
+          columns={page.columns}
+        />
       )}
-      <PageChatPanel open={chatOpen} onOpenChange={setChatOpen} workspaceId={page.workspaceId} pageId={page.id} pageName={page.name} />
+      <PageChatPanel
+        open={chatOpen}
+        onOpenChange={setChatOpen}
+        workspaceId={page.workspaceId}
+        pageId={page.id}
+        pageName={page.name}
+      />
     </div>
   );
 }

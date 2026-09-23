@@ -1,10 +1,8 @@
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type FocusEvent, type PointerEvent } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import {
   CalendarDays,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   ClipboardList,
   HardHat,
   Keyboard,
@@ -19,6 +17,8 @@ import {
   MessageSquare,
   MoreVertical,
   PackageCheck,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Settings,
   Table2,
@@ -63,15 +63,19 @@ import { openOrdersState, subscribeOpenOrdersState } from "@/services/openOrders
 import { THEME_OPTIONS } from "@/components/layout/ThemeToggle";
 import { usePeopleDesks } from "@/hooks/usePeopleDesks";
 import { useInboxSummary } from "@/hooks/useInboxSummary";
+import { useCanHover } from "@/hooks/useMediaQuery";
 
+/** Сколько ждать мышь на рейке, прежде чем раскрыть панель поверх стола. */
+const PEEK_OPEN_MS = 220;
+/** Сколько держать панель после ухода мыши — чтобы не моргала на проходе. */
+const PEEK_CLOSE_MS = 180;
 
 /**
- * Active nav is the spec's "holographic pill": a cyan-to-purple gradient
- * capsule rather than a tinted row. `nav-link-active` carries the gradient
- * (see index.css) so this and the desk list in PageNavItem stay one visual
- * language. Inactive rows slide 3px toward the content on pointer hover.
- */
-/**
+ * Активный пункт — плоская заливка `nav-link-active` (index.css): один
+ * бирюзовый акцент, без градиента и свечения. Наведение — только лёгкая
+ * заливка, без сдвига и без смены цвета текста в акцент: акцентом отмечено
+ * «где я сейчас», и наведение не должно с ним спорить.
+ *
  * `alert` — «здесь вас ждёт заказ»: пункт горит зелёным (`--success`), пока
  * это правда. Зелёный взят намеренно не акцентный: акцентом подсвечен
  * АКТИВНЫЙ пункт, и «где я сейчас» не должно спорить с «куда надо зайти».
@@ -79,21 +83,23 @@ import { useInboxSummary } from "@/hooks/useInboxSummary";
 function navActiveClass(active: boolean, collapsed?: boolean, alert?: boolean) {
   if (collapsed) {
     return cn(
-      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200",
+      "flex h-10 w-10 items-center justify-center rounded-lg transition-colors duration-200",
       active
         ? "nav-link-active"
         : alert
           ? "bg-success/15 text-success hover:bg-success/25"
-          : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-primary"
+          : "text-sidebar-foreground hover:bg-foreground/5"
     );
   }
+  // На телефоне (drawer) цель остаётся 44px; 40px — только у мыши (lg — там,
+  // где широкое меню вообще бывает в потоке).
   return cn(
-    "flex min-h-11 w-full items-center gap-2.5 rounded-full px-3 text-left text-[14px] font-medium transition-all duration-200",
+    "flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 text-left text-[14px] font-medium transition-colors duration-200 lg:min-h-10",
     active
       ? "nav-link-active"
       : alert
-        ? "bg-success/15 text-success hover:bg-success/25 motion-safe:hover:translate-x-[3px]"
-        : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-primary motion-safe:hover:translate-x-[3px]"
+        ? "bg-success/15 text-success hover:bg-success/25"
+        : "text-sidebar-foreground hover:bg-foreground/5"
   );
 }
 
@@ -114,23 +120,21 @@ function AppNavLink({
   to,
   end,
   icon: Icon,
-  children,
+  label,
   onNavigate,
   forceActive,
   badge,
   collapsed,
-  title,
   alert,
 }: {
   to: string;
   end?: boolean;
   icon: LucideIcon;
-  children: ReactNode;
+  label: string;
   onNavigate?: () => void;
   forceActive?: boolean;
   badge?: number;
   collapsed?: boolean;
-  title?: string;
   /** Зелёная подсветка «сюда приехал заказ». */
   alert?: boolean;
 }) {
@@ -140,14 +144,16 @@ function AppNavLink({
     <NavLink
       to={to}
       end={end}
-      title={title}
+      // В рейке подписи нет, но `title` не ставим: при наведении панель и так
+      // раскрывается с подписями, а всплывашка браузера легла бы поверх неё.
+      aria-label={collapsed ? label : undefined}
       data-nav-active={active ? "true" : undefined}
       onClick={() => onNavigate?.()}
       className={navActiveClass(active, collapsed, alert)}
     >
       {collapsed ? (
         <span className="relative">
-          <Icon className="h-4 w-4" />
+          <Icon className="h-[18px] w-[18px]" />
           {badge ? <span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-primary" /> : null}
           {/* Не только цвет: в свёрнутом меню видна одна иконка, и точка
               отличает «зелёный пункт» от просто наведения. */}
@@ -157,13 +163,13 @@ function AppNavLink({
         </span>
       ) : (
         <>
-          <Icon className="h-4 w-4 shrink-0" />
-          <span className="min-w-0 flex-1 truncate">{children}</span>
+          <Icon className="h-[18px] w-[18px] shrink-0" />
+          <span className="min-w-0 flex-1 truncate">{label}</span>
           {alert && !badge ? (
             <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-success motion-safe:animate-pulse" />
           ) : null}
           {badge ? (
-            <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
+            <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none text-primary-foreground">
               {badge > 9 ? "9+" : badge}
             </span>
           ) : null}
@@ -245,22 +251,20 @@ function NavSections({
           // В рейке заголовков нет — секции разделяет тонкая черта.
           return (
             <div key={section.key} className="flex flex-col items-center gap-0.5">
-              {index > 0 && <span className="my-1 h-px w-6 rounded-full bg-primary/20" aria-hidden />}
+              {index > 0 && <span className="my-1 h-px w-6 bg-border" aria-hidden />}
               {section.items.map((item) => (
                 <AppNavLink
                   key={item.key}
                   collapsed
-                  title={item.label}
                   to={item.to}
                   end={item.end}
                   icon={item.icon}
+                  label={item.label}
                   forceActive={item.forceActive}
                   alert={item.alert}
                   badge={item.badge}
                   onNavigate={item.onNavigate}
-                >
-                  {item.label}
-                </AppNavLink>
+                />
               ))}
             </div>
           );
@@ -288,13 +292,12 @@ function NavSections({
                   to={item.to}
                   end={item.end}
                   icon={item.icon}
+                  label={item.label}
                   forceActive={item.forceActive}
                   alert={item.alert}
                   badge={item.badge}
                   onNavigate={item.onNavigate}
-                >
-                  {item.label}
-                </AppNavLink>
+                />
               ))}
           </div>
         );
@@ -315,9 +318,98 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   );
   const location = useLocation();
   const navigate = useNavigate();
-  const pinnedCollapsed = useUiStore((s) => s.sidebarCollapsed) && !mobile;
-  const toggleSidebar = useUiStore((s) => s.toggleSidebar);
-  const collapsed = pinnedCollapsed;
+  const sidebarPinned = useUiStore((s) => s.sidebarPinned);
+  const setSidebarPinned = useUiStore((s) => s.setSidebarPinned);
+  const canHover = useCanHover();
+  /**
+   * Три состояния десктопного меню: закреплено (248px в потоке), рейка (64px)
+   * и «подглядывание» — панель 248px ПОВЕРХ стола, пока над ней мышь или пока
+   * открыта одна из выпадашек (аккаунт, колокольчик: их содержимое живёт в
+   * портале, и pointerleave по панели срабатывает, хотя человек ещё в меню).
+   * Мобильный drawer (`mobile`) никогда не свёрнут — у него своя ширина.
+   * Пока человек не нажимал «Закрепить/Свернуть» (`null`), умолчание зависит
+   * от устройства: без наведения (iPad ≥1024 без мыши) рейка нераскрываема —
+   * ни peek, ни `title` у пунктов — поэтому там меню закреплено сразу.
+   */
+  const pinned = mobile ? false : (sidebarPinned ?? !canHover);
+  const [peek, setPeek] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [bellOpen, setBellOpen] = useState(false);
+  const holdOpen = menuOpen || bellOpen;
+  const collapsed = !mobile && !pinned && !peek && !holdOpen;
+  /** Панель раскрыта поверх стола (не закреплена и не рейка). */
+  const peeking = !mobile && !pinned && !collapsed;
+  const panelRef = useRef<HTMLDivElement>(null);
+  const openTimer = useRef<number | null>(null);
+  const closeTimer = useRef<number | null>(null);
+  /** Чем последний раз трогали панель — после закрытия выпадашки оставляем
+      её раскрытой только под мышью, чтобы на тач-планшете она не залипала. */
+  const lastPointer = useRef<string>("");
+
+  function clearPeekTimers() {
+    if (openTimer.current !== null) window.clearTimeout(openTimer.current);
+    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+    openTimer.current = null;
+    closeTimer.current = null;
+  }
+  useEffect(() => clearPeekTimers, []);
+
+  // Раскрытие — ТОЛЬКО для мыши: на таче pointerenter приходит от касания, и
+  // панель раскрывалась бы на каждый тап по рейке, перекрывая стол.
+  function onPanelPointerEnter(e: PointerEvent<HTMLDivElement>) {
+    lastPointer.current = e.pointerType;
+    if (mobile || e.pointerType !== "mouse") return;
+    clearPeekTimers();
+    openTimer.current = window.setTimeout(() => setPeek(true), PEEK_OPEN_MS);
+  }
+  function onPanelPointerLeave(e: PointerEvent<HTMLDivElement>) {
+    if (mobile || e.pointerType !== "mouse") return;
+    clearPeekTimers();
+    closeTimer.current = window.setTimeout(() => setPeek(false), PEEK_CLOSE_MS);
+  }
+  // Клавиатура: Tab в рейку раскрывает подписи, уход фокуса из панели —
+  // сворачивает. `:focus-visible` отличает клавиатуру от клика/тапа по пункту:
+  // тап по иконке рейки на планшете тоже ставит фокус, но раскрывать не должен.
+  function onPanelFocus(e: FocusEvent<HTMLDivElement>) {
+    if (mobile || !(e.target instanceof HTMLElement) || !e.target.matches(":focus-visible")) return;
+    clearPeekTimers();
+    setPeek(true);
+  }
+  function onPanelBlur(e: FocusEvent<HTMLDivElement>) {
+    if (mobile) return;
+    const next = e.relatedTarget;
+    if (next instanceof Node && panelRef.current?.contains(next)) return;
+    // Фокус ушёл, но мышь всё ещё на панели (кликнули по пустому месту) —
+    // сворачивать под курсором нельзя, pointerleave закроет сам.
+    if (panelRef.current?.matches(":hover") && lastPointer.current === "mouse") return;
+    setPeek(false);
+  }
+  /**
+   * Выпадашка закрылась: пункт выбрали над порталом (мышь уже вне панели —
+   * сворачиваемся) или нажали Esc, не уводя мышь (панель под курсором —
+   * остаёмся). `:hover` это и говорит; на таче hover «залипает» после тапа,
+   * поэтому верим ему только после мыши.
+   */
+  function onHoldChange(setter: (open: boolean) => void) {
+    return (open: boolean) => {
+      setter(open);
+      if (open || mobile) return;
+      clearPeekTimers();
+      setPeek(Boolean(panelRef.current?.matches(":hover")) && lastPointer.current === "mouse");
+    };
+  }
+  function togglePinned() {
+    // Из закреплённого — в рейку сразу, не дожидаясь ухода мыши: человек
+    // нажал «Свернуть» и должен увидеть, что свернулось.
+    if (pinned) {
+      clearPeekTimers();
+      setPeek(false);
+    }
+    // Пишем противоположное ЭФФЕКТИВНОМУ значению, а не сохранённому: при
+    // `null` в магазине «наоборот» посчитать некому, кроме нас.
+    setSidebarPinned(!pinned);
+  }
+
   const [createPageOpen, setCreatePageOpen] = useState(false);
   const [createWsOpen, setCreateWsOpen] = useState(false);
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
@@ -440,49 +532,65 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
     .map((section) => ({ ...section, items: section.items.filter((item) => item.show !== false) }))
     .filter((section) => section.items.length > 0);
 
+  const PinIcon = pinned ? PanelLeftClose : PanelLeftOpen;
+  const pinLabel = pinned ? "Свернуть в рейку" : "Закрепить меню";
+
   return (
     <div
       className={cn(
-        "relative z-40 shrink-0",
+        // z-[45], а не z-40: фейды прокрутки стола (DataTable, absolute z-40)
+        // стоят в DOM позже и при равном z ложились поверх раскрытой панели —
+        // видно при reduced-motion/таче, где PageShell без GSAP-transform не
+        // создаёт свой stacking context. RowCardSheet z-50 и полосы z-[60]
+        // остаются выше. `isolate` на main не ставим — это меняло бы наложение
+        // всего контента разом ради одного фейда.
+        "relative z-[45] shrink-0",
         mobile
-          ? "mr-0 h-full min-h-0 w-full bg-background"
-          : cn("h-full transition-[width] duration-280 ease-out", pinnedCollapsed ? "w-[72px]" : "w-[248px]")
+          ? "h-full min-h-0 w-full bg-background"
+          : // Обёртка держит место в потоке: рейка 64px или закреплённые 248px.
+            // Подглядывание её не трогает — стол под панелью не прыгает.
+            cn("h-full transition-[width] duration-280 ease-out", pinned ? "w-[248px]" : "w-16")
       )}
     >
       <div
+        ref={panelRef}
+        onPointerEnter={mobile ? undefined : onPanelPointerEnter}
+        onPointerLeave={mobile ? undefined : onPanelPointerLeave}
+        onFocusCapture={mobile ? undefined : onPanelFocus}
+        onBlurCapture={mobile ? undefined : onPanelBlur}
         className={cn(
-          "relative flex h-full min-h-0 flex-col text-sidebar-foreground",
-          // Floating glass pane, per the Neon Holographic spec: the nav reads
-          // as an object suspended over the ground rather than a screen
-          // partition, so it gets its own rounded surface + blur instead of a
-          // full-height divider rule. AppLayout already insets the shell (p-3).
+          "flex h-full min-h-0 flex-col text-sidebar-foreground",
+          // Плоская панель: свой фон и одна линия справа, как перегородка
+          // экрана. Без скруглений, стекла и тени — стол начинается встык.
           mobile
             ? "w-full bg-background/95 px-3 py-4"
             : cn(
-                "mr-3 rounded-[28px] border border-primary/25 bg-card/60 px-3 py-4 backdrop-blur-xl",
-                "shadow-[0_0_40px_-12px_hsl(0_0%_0%/0.8)]",
-                collapsed ? "w-[72px] items-center px-2" : "w-[248px]"
+                "overflow-hidden border-r border-sidebar-border bg-sidebar px-3 py-3 transition-[width] duration-200 ease-out",
+                peeking ? "absolute inset-y-0 left-0 z-50 w-[248px]" : "w-full",
+                collapsed && "items-center"
               )
         )}
       >
-        <div className={cn("mb-5 flex items-center", collapsed ? "justify-center" : "justify-between gap-2 pr-1")}>
-          {collapsed ? (
-            <div className="flex flex-col items-center gap-2">
-              <button type="button" onClick={goHome} className="wordmark text-lg" title="Главная">
-                N
-              </button>
-              <NotificationBell />
-            </div>
-          ) : (
-            <>
-              <button type="button" onClick={goHome} className="flex min-w-0 items-center gap-2" title="Главная">
-                <span className="wordmark text-[22px] leading-none">NOVA</span>
-                <span className="desk-accent-mark h-4 w-0.5 shrink-0 rounded-full" aria-hidden />
-              </button>
-              {!mobile && <NotificationBell />}
-            </>
-          )}
-        </div>
+        {collapsed ? (
+          <div className="mb-3 flex flex-col items-center gap-1">
+            <button
+              type="button"
+              onClick={goHome}
+              aria-label="Главная"
+              className="flex h-10 w-10 items-center justify-center rounded-lg font-serif text-[18px] font-medium leading-none text-foreground hover:bg-foreground/5"
+            >
+              N
+            </button>
+            <NotificationBell className="h-10 w-10 rounded-lg" onOpenChange={onHoldChange(setBellOpen)} />
+          </div>
+        ) : (
+          <div className="mb-4 flex items-center justify-between gap-2 px-1">
+            <button type="button" onClick={goHome} className="flex min-w-0 items-center" title="Главная">
+              <span className="font-serif text-[22px] font-medium leading-none text-foreground">NOVA</span>
+            </button>
+            {!mobile && <NotificationBell className="rounded-lg" onOpenChange={onHoldChange(setBellOpen)} />}
+          </div>
+        )}
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-thin">
           <NavSections sections={sections} collapsed={collapsed} pathname={location.pathname} />
@@ -490,22 +598,41 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
             <button
               type="button"
               onClick={() => setCreatePageOpen(true)}
-              className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[14px] font-medium text-sidebar-foreground hover:bg-sidebar-accent/80"
+              className="flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 text-left text-[14px] font-medium text-sidebar-foreground hover:bg-foreground/5"
             >
-              <Plus className="h-4 w-4 shrink-0" />
+              <Plus className="h-[18px] w-[18px] shrink-0" />
               Новый стол
             </button>
           )}
         </div>
 
-        <div className={cn("mt-3 flex items-center border-t border-primary/20 pt-3", collapsed ? "justify-center" : "gap-1")}>
-          <DropdownMenu modal={false}>
+        <div className={cn("mt-3 flex flex-col gap-1 border-t border-sidebar-border pt-3", collapsed && "items-center")}>
+          {/* Закрепление живёт пунктом внизу, а не кнопкой на ребре панели:
+              в рейке ребро перекрыто столом, и круглый шеврон там терялся. */}
+          {!mobile && (
+            <button
+              type="button"
+              onClick={togglePinned}
+              aria-label={pinLabel}
+              title={collapsed ? pinLabel : undefined}
+              aria-pressed={pinned}
+              className={cn(
+                "flex items-center rounded-lg text-sidebar-foreground transition-colors duration-200 hover:bg-foreground/5",
+                collapsed ? "h-10 w-10 justify-center" : "min-h-10 w-full gap-2.5 px-3 text-left text-[13px] font-medium"
+              )}
+            >
+              <PinIcon className="h-[18px] w-[18px] shrink-0" />
+              {!collapsed && <span className="min-w-0 flex-1 truncate">{pinLabel}</span>}
+            </button>
+          )}
+          <DropdownMenu modal={false} onOpenChange={onHoldChange(setMenuOpen)}>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
+                aria-label={collapsed ? "Аккаунт" : undefined}
                 className={cn(
-                  "relative flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl px-1.5 py-1 text-left hover:bg-sidebar-accent/80",
-                  collapsed && "flex-none justify-center px-0"
+                  "relative flex min-h-11 min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-foreground/5 lg:min-h-10",
+                  collapsed && "h-10 w-10 justify-center px-0 py-0"
                 )}
               >
                 {profile ? (
@@ -515,14 +642,14 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
                       name={profile.name}
                       nickname={profile.nickname}
                       photoURL={profile.photoURL}
-                      className="h-8 w-8"
+                      className="h-[34px] w-[34px]"
                     />
                     {privateUnreadTotal + workspaceChatUnread > 0 && (
                       <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-primary" />
                     )}
                   </span>
                 ) : (
-                  <Avatar className="h-8 w-8">
+                  <Avatar className="h-[34px] w-[34px]">
                     <AvatarFallback>
                       <User className="h-3.5 w-3.5" />
                     </AvatarFallback>
@@ -631,17 +758,6 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-
-        {!mobile && (
-          <button
-            type="button"
-            onClick={toggleSidebar}
-            title={pinnedCollapsed ? "Закрепить меню" : "Свернуть в рейку"}
-            className="absolute -right-2.5 top-[3.6rem] flex h-6 w-6 items-center justify-center rounded-full border border-primary/40 bg-card text-primary hover:bg-primary/10 hover:text-primary"
-          >
-            {pinnedCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
-          </button>
-        )}
 
         <CreatePageDialog open={createPageOpen} onOpenChange={setCreatePageOpen} />
         {canCreateWorkspace && <CreateWorkspaceDialog open={createWsOpen} onOpenChange={setCreateWsOpen} />}

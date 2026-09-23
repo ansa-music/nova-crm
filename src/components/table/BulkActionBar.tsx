@@ -59,10 +59,12 @@ export function BulkActionBar({
 
   return (
     <div className="bulk-action-bar pointer-events-none absolute inset-x-0 bottom-5 z-30 flex justify-center px-3 pb-[env(safe-area-inset-bottom)]">
-      {/* Sheen needs overflow:hidden on the surface it sweeps — kept on this
-          outer, non-scrolling shell so the inner row can still scroll
-          horizontally on narrow screens (the button row can overflow there). */}
-      <div className="bulk-action-panel reflective-sheen pointer-events-auto max-w-full rounded-lg border border-primary/40 bg-card px-2 py-1.5">
+      {/* Обводка одна — утилитой; в `.bulk-action-panel` (index.css) кольца
+          нет, иначе рамка двоилась. Бегущего блика тоже нет: плашка стоит
+          над столом постоянно, и анимация только отвлекала бы от строк.
+          Наружная оболочка не скроллится, ряд кнопок — внутри, чтобы на узком
+          экране он ехал вбок, а плашка держала форму. */}
+      <div className="bulk-action-panel pointer-events-auto max-w-full rounded-lg border border-border bg-popover px-2 py-1.5">
         <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin">
         <span className="shrink-0 pl-1.5 font-mono text-[11px] tabular text-muted-foreground">
           <span className="text-foreground">{count}</span>

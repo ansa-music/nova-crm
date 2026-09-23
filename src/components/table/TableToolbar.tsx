@@ -2,15 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import {
   Bookmark,
   CalendarDays,
-  UserRound,
+  Check,
+  ChevronDown,
   ClipboardList,
+  UserRound,
   Columns3,
   Copy,
   Download,
   Eye,
   Kanban,
   LayoutList,
-  Sparkles,
   Keyboard,
   Layers,
   ListOrdered,
@@ -62,7 +63,13 @@ interface TableToolbarProps {
   onAddRow: () => void;
   /** Заказы заводит только ОС — кнопку «Строка» технарю не показываем. */
   canAddRows?: boolean;
+  /** Быстрый заказ; передаётся, когда он вообще доступен (пункт в «⋯»). */
   onQuickOrder?: () => void;
+  /**
+   * Рисовать кнопку «Заказ» в строке тулбара. В обычном режиме её рисует
+   * шапка стола; на весь экран / иммерсивно шапки нет — кнопка нужна здесь.
+   */
+  quickOrderButton?: boolean;
   onExportCsv: () => void;
   onCopyTable?: () => void;
   canEdit: boolean;
@@ -74,8 +81,6 @@ interface TableToolbarProps {
   onShowColumn?: (colKey: string) => void;
   onShowAllColumns?: () => void;
   onAutoSizeAll?: () => void;
-  selectedCount: number;
-  onDeleteSelected: () => void;
   hasStatusColumn: boolean;
   statusOptions?: StatusOption[];
   statusFilter?: string | null;
@@ -111,6 +116,22 @@ const DENSITY_LABELS: Record<TableToolbarProps["density"], string> = {
   comfortable: "Свободно",
 };
 
+const VIEW_MODE_LABELS: Record<TableViewMode, string> = {
+  table: "Таблица",
+  cards: "Карточки",
+  kanban: "Канбан",
+};
+
+/**
+ * Чип тулбара по макету «C — плотный»: плоская рамка цвета границы, без
+ * заливки, один акцент на активном. Никаких цветных рамок по статусу —
+ * цвет статуса живёт в самой таблице.
+ */
+const CHIP_CLASS =
+  "table-chip inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-[12.5px] leading-none transition-colors sm:h-8";
+const CHIP_IDLE = "border-border bg-transparent text-foreground/80 hover:text-foreground";
+const CHIP_ACTIVE = "border-primary/30 bg-primary/12 text-primary";
+
 export function TableToolbar({
   columns,
   searchQuery,
@@ -125,6 +146,7 @@ export function TableToolbar({
   onAddRow,
   canAddRows = true,
   onQuickOrder,
+  quickOrderButton = false,
   onExportCsv,
   onCopyTable,
   canEdit,
@@ -136,8 +158,6 @@ export function TableToolbar({
   onShowColumn,
   onShowAllColumns,
   onAutoSizeAll,
-  selectedCount: _selectedCount,
-  onDeleteSelected: _onDeleteSelected,
   hasStatusColumn,
   statusOptions,
   statusFilter,
@@ -163,18 +183,7 @@ export function TableToolbar({
   mineOnly,
   onMineOnlyChange,
 }: TableToolbarProps) {
-  // Чипы статусов без строк прячутся за «+N»: на столе, где всё «Готово»,
-  // шесть серых чипов только шумели. Активный фильтр виден всегда, даже пустой.
-  const [showEmptyChips, setShowEmptyChips] = useState(false);
   const allStatusOptions = statusOptions ?? [];
-  // Пустой статус в счётчиках просто отсутствует (ключа нет), поэтому «0» —
-  // это «счётчики посчитаны, а строк с таким статусом нет».
-  const emptyStatusOptions = allStatusOptions.filter(
-    (opt) => Boolean(statusCounts) && !((statusCounts?.[opt.value] ?? 0) > 0) && statusFilter !== opt.value
-  );
-  const shownStatusOptions = showEmptyChips
-    ? allStatusOptions
-    : allStatusOptions.filter((opt) => !emptyStatusOptions.includes(opt));
   const [searchOpen, setSearchOpen] = useState(Boolean(searchQuery));
   const searchRef = useRef<HTMLInputElement>(null);
   const setShortcutsHelpOpen = useUiStore((s) => s.setShortcutsHelpOpen);
@@ -183,6 +192,9 @@ export function TableToolbar({
   const hiddenColumnCount = hiddenColumns.length;
   const dateColumns = columns.filter((c) => c.type === "date" && !c.hidden);
   const activeDateColumn = dateFilter ? columns.find((c) => c.key === dateFilter.colKey) : undefined;
+  const groupableColumns = columns.filter((c) => !c.hidden);
+  const groupColumn = groupByKey ? columns.find((c) => c.key === groupByKey) : undefined;
+  const showStatusChips = hasStatusColumn && allStatusOptions.length > 0 && Boolean(onStatusFilterChange);
 
   const searchExpanded = searchOpen || Boolean(searchQuery);
 
@@ -204,11 +216,11 @@ export function TableToolbar({
       : null;
 
   return (
-    <div className="table-toolbar z-10 flex h-12 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-primary/25 bg-background px-2 sm:h-auto sm:flex-wrap sm:gap-2 sm:overflow-visible sm:px-4 sm:py-2">
+    <div className="table-toolbar z-10 flex h-12 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border bg-background px-2 scrollbar-thin sm:h-10 sm:gap-2 sm:px-4">
       <div
         className={cn(
           "relative min-w-0",
-          searchExpanded ? "flex-1 sm:w-60 sm:flex-none" : "w-10 shrink-0 sm:w-60 sm:flex-none"
+          searchExpanded ? "flex-1 sm:w-[260px] sm:flex-none" : "w-10 shrink-0 sm:w-[260px] sm:flex-none"
         )}
       >
         {!searchExpanded && (
@@ -228,8 +240,8 @@ export function TableToolbar({
             ref={searchRef}
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Поиск по столу  (Ctrl+F)"
-            className="h-9 rounded-md bg-background pl-8 pr-8 text-sm sm:h-8"
+            placeholder="Поиск  Ctrl+F"
+            className="h-9 rounded-md border-border bg-transparent pl-8 pr-8 text-[12.5px] sm:h-8"
             autoFocus={searchOpen && !searchQuery}
             onFocus={() => setSearchOpen(true)}
             onBlur={() => {
@@ -259,147 +271,34 @@ export function TableToolbar({
         </div>
       </div>
 
-      {hasStatusColumn && statusOptions && statusOptions.length > 0 && onStatusFilterChange && (
-        <div className="flex min-w-0 max-w-full items-center gap-1 overflow-x-auto scrollbar-thin">
+      {/* «Все N» и «Не готово N» — единственные чипы статусов на виду; чипы по
+          отдельным статусам уехали в «⋯ → Статус», иначе на столе с шестью
+          статусами они занимали половину строки. */}
+      {showStatusChips && onStatusFilterChange && (
+        <>
           <button
             type="button"
             onClick={() => onStatusFilterChange(null)}
-            className={cn(
-              "table-chip h-7 shrink-0 rounded-full border px-2.5 text-[11px] font-medium",
-              !statusFilter
-                ? "border-primary/40 bg-primary/12 text-primary"
-                : "border-border bg-background text-muted-foreground hover:text-foreground"
-            )}
+            className={cn(CHIP_CLASS, CHIP_IDLE)}
+            title="Показать все заказы"
           >
             Все
-            {countLabel && !statusFilter && typeof totalCount === "number" ? (
-              <span className="ml-1 opacity-70">{totalCount}</span>
-            ) : null}
+            {typeof totalCount === "number" ? <span className="opacity-60">{totalCount}</span> : null}
           </button>
           <button
             type="button"
             onClick={() =>
               onStatusFilterChange(statusFilter === NOT_DONE_STATUS_FILTER ? null : NOT_DONE_STATUS_FILTER)
             }
-            className={cn(
-              "table-chip h-7 shrink-0 rounded-full border px-2.5 text-[11px] font-medium",
-              statusFilter === NOT_DONE_STATUS_FILTER
-                ? "border-primary/40 bg-primary/12 text-primary"
-                : "border-border bg-background text-muted-foreground hover:text-foreground"
-            )}
+            className={cn(CHIP_CLASS, statusFilter === NOT_DONE_STATUS_FILTER ? CHIP_ACTIVE : CHIP_IDLE)}
+            title="Только заказы, которые ещё не готовы"
           >
             Не готово
             {statusCounts && typeof statusCounts[NOT_DONE_STATUS_FILTER] === "number" ? (
-              <span className="ml-1 opacity-70">{statusCounts[NOT_DONE_STATUS_FILTER]}</span>
+              <span className="opacity-60">{statusCounts[NOT_DONE_STATUS_FILTER]}</span>
             ) : null}
           </button>
-          {shownStatusOptions.map((opt) => {
-            const n = statusCounts?.[opt.value];
-            const active = statusFilter === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => onStatusFilterChange(active ? null : opt.value)}
-                className={cn(
-                  "table-chip hidden h-7 shrink-0 items-center gap-1 rounded-full border px-2.5 text-[11px] font-medium sm:inline-flex",
-                  active
-                    ? "border-primary/40 bg-primary/12 text-primary"
-                    : "border-border bg-background text-muted-foreground hover:text-foreground",
-                  !active && n === 0 && "opacity-50"
-                )}
-                style={
-                  active
-                    ? {
-                        backgroundColor: `hsl(${opt.color} / 0.16)`,
-                        color: `hsl(${opt.color})`,
-                        borderColor: `hsl(${opt.color} / 0.28)`,
-                      }
-                    : undefined
-                }
-              >
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: `hsl(${opt.color})` }} />
-                {opt.label}
-                {typeof n === "number" && n > 0 ? <span className="opacity-70">{n}</span> : null}
-              </button>
-            );
-          })}
-          {emptyStatusOptions.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowEmptyChips((v) => !v)}
-              className="table-chip hidden h-7 shrink-0 items-center rounded-full border border-dashed border-border px-2.5 text-[11px] font-medium text-muted-foreground hover:text-foreground sm:inline-flex"
-              title={showEmptyChips ? "Скрыть статусы без заказов" : "Показать статусы без заказов"}
-            >
-              {showEmptyChips ? "скрыть пустые" : `+${emptyStatusOptions.length}`}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Подсветку новых заказов снимает только сам технарь — до этого чип
-          висит и показывает, сколько строк приехало с «Заказов». */}
-      {highlightCount > 0 && onClearHighlights && (
-        <button
-          type="button"
-          onClick={onClearHighlights}
-          className="table-chip inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-warning/55 bg-warning/15 px-2.5 text-[11px] font-medium text-warning"
-          title="Снять подсветку с новых заказов"
-        >
-          <Sparkles className="h-3 w-3" />
-          {highlightCount} {highlightCount === 1 ? "новый" : "новых"} · снять
-        </button>
-      )}
-
-      {/* Канбану нужен столбец-статус, таблице и карточкам — нет, поэтому
-          переключатель виден всегда, а кнопка канбана — по условию. */}
-      <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-background p-0.5">
-        <Button
-          variant={viewMode === "table" ? "secondary" : "ghost"}
-          size="sm"
-          className="h-7 min-w-0 gap-1.5 rounded-full px-2.5"
-          onClick={() => onViewModeChange("table")}
-          title="Таблица"
-        >
-          <Table2 className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant={viewMode === "cards" ? "secondary" : "ghost"}
-          size="sm"
-          className="h-7 min-w-0 gap-1.5 rounded-full px-2.5"
-          onClick={() => onViewModeChange("cards")}
-          title="Карточки"
-        >
-          <LayoutList className="h-3.5 w-3.5" />
-        </Button>
-        {hasStatusColumn && (
-          <Button
-            variant={viewMode === "kanban" ? "secondary" : "ghost"}
-            size="sm"
-            className="h-7 min-w-0 gap-1.5 rounded-full px-2.5"
-            onClick={() => onViewModeChange("kanban")}
-            title="Канбан"
-          >
-            <Kanban className="h-3.5 w-3.5" />
-          </Button>
-        )}
-      </div>
-
-      {canFilterMine && onMineOnlyChange && (
-        <button
-          type="button"
-          onClick={() => onMineOnlyChange(!mineOnly)}
-          className={cn(
-            "table-chip inline-flex h-7 shrink-0 items-center gap-1 rounded-full border px-2.5 text-[11px] font-medium",
-            mineOnly
-              ? "border-amber-400/40 bg-amber-400/15 text-amber-300"
-              : "border-border bg-background text-muted-foreground hover:text-foreground"
-          )}
-          title="Показать только строки, где ответственный — вы"
-        >
-          <UserRound className="h-3 w-3" />
-          Мои
-        </button>
+        </>
       )}
 
       {dateColumns.length > 0 && onDateFilterChange && viewMode === "table" && (
@@ -407,15 +306,9 @@ export function TableToolbar({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className={cn(
-                "table-chip inline-flex h-7 shrink-0 items-center gap-1 rounded-full border px-2.5 text-[11px] font-medium",
-                dateFilter
-                  ? "border-sky-400/40 bg-sky-400/15 text-sky-300"
-                  : "border-border bg-background text-muted-foreground hover:text-foreground"
-              )}
+              className={cn(CHIP_CLASS, dateFilter ? CHIP_ACTIVE : CHIP_IDLE)}
               title="Быстрый фильтр по дате"
             >
-              <CalendarDays className="h-3 w-3" />
               {dateFilter ? DATE_PRESET_LABELS[dateFilter.preset] : "Период"}
               {dateFilter && dateColumns.length > 1 && activeDateColumn ? (
                 <span className="opacity-70">· {activeDateColumn.label}</span>
@@ -460,88 +353,146 @@ export function TableToolbar({
         </DropdownMenu>
       )}
 
-      {hasActiveFilters && onResetFilters && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 shrink-0 gap-1 px-2 text-muted-foreground hover:text-foreground"
-          onClick={onResetFilters}
-          title="Сбросить поиск, фильтры, группировку и сортировку"
-        >
-          <X className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Сбросить</span>
-        </Button>
-      )}
-
-      {canEditStructure && hiddenColumnCount > 0 && (
+      {/* Группировка — видимый чип: по умолчанию стол сгруппирован по статусу,
+          и человек должен видеть, чем именно, и уметь переключить в один клик. */}
+      {viewMode === "table" && groupableColumns.length > 0 && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 shrink-0 gap-1.5 border-primary/50 bg-primary/10 text-primary hover:bg-primary/15"
-              title={`Скрытых столбцов: ${hiddenColumnCount} — нажмите, чтобы вернуть`}
-            >
-              <Eye className="h-3.5 w-3.5" />
-              <span className="hidden xs:inline">Скрыто: {hiddenColumnCount}</span>
-              <span className="xs:hidden">{hiddenColumnCount}</span>
-            </Button>
+            <button type="button" className={cn(CHIP_CLASS, CHIP_IDLE)} title="Группировать строки по столбцу">
+              <span className="hidden sm:inline">Группировать: </span>
+              <Layers className="h-3.5 w-3.5 sm:hidden" />
+              <span className="max-w-[140px] truncate">{groupColumn?.label ?? "нет"}</span>
+              <ChevronDown className="h-3 w-3 opacity-60" />
+            </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <DropdownMenuLabel>Скрытые столбцы</DropdownMenuLabel>
-            {hiddenColumns.map((c) => (
-              <DropdownMenuItem key={c.id} onClick={() => onShowColumn?.(c.key)}>
-                <Eye className="h-3.5 w-3.5" /> {c.label || "Без названия"}
+          <DropdownMenuContent align="start" className="w-56">
+            <DropdownMenuItem onClick={() => onGroupByChange(null)}>
+              Без группировки{!groupByKey && " ✓"}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {groupableColumns.map((c) => (
+              <DropdownMenuItem key={c.id} onClick={() => onGroupByChange(c.key)}>
+                {c.label}
+                {groupByKey === c.key && " ✓"}
               </DropdownMenuItem>
             ))}
-            {hiddenColumnCount > 1 && onShowAllColumns && (
+            {groupByKey && onCollapseAllGroups && onExpandAllGroups && (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={onShowAllColumns}>Показать все</DropdownMenuItem>
+                <DropdownMenuItem onClick={onCollapseAllGroups}>Свернуть все группы</DropdownMenuItem>
+                <DropdownMenuItem onClick={onExpandAllGroups}>Развернуть все группы</DropdownMenuItem>
               </>
             )}
           </DropdownMenuContent>
         </DropdownMenu>
       )}
 
-      <div className="hidden flex-1 sm:block" />
-
-      {countLabel && (
-        <span className="hidden shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground md:inline" title="Строк показано / всего">
-          {countLabel} стр.
-        </span>
+      {/* На телефоне чип «Мои» остаётся на виду, на десктопе он в «⋯». */}
+      {canFilterMine && onMineOnlyChange && (
+        <button
+          type="button"
+          onClick={() => onMineOnlyChange(!mineOnly)}
+          className={cn(CHIP_CLASS, mineOnly ? CHIP_ACTIVE : CHIP_IDLE, "sm:hidden")}
+          title="Показать только строки, где ответственный — вы"
+        >
+          <UserRound className="h-3 w-3" />
+          Мои
+        </button>
       )}
 
-      {canEdit && (
-        <div className="hidden shrink-0 items-center gap-0.5 sm:flex">
+      {/* Канбану нужен столбец-статус, таблице и карточкам — нет. На телефоне
+          сегмент видов нужен под пальцем, на десктопе он в «⋯». */}
+      <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border p-0.5 sm:hidden">
+        <Button
+          variant={viewMode === "table" ? "secondary" : "ghost"}
+          size="sm"
+          className="h-7 min-w-0 gap-1.5 rounded-sm px-2.5"
+          onClick={() => onViewModeChange("table")}
+          title="Таблица"
+        >
+          <Table2 className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          variant={viewMode === "cards" ? "secondary" : "ghost"}
+          size="sm"
+          className="h-7 min-w-0 gap-1.5 rounded-sm px-2.5"
+          onClick={() => onViewModeChange("cards")}
+          title="Карточки"
+        >
+          <LayoutList className="h-3.5 w-3.5" />
+        </Button>
+        {hasStatusColumn && (
           <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            disabled={!undoState.canUndo}
-            onClick={() => void undo()}
-            title={undoState.canUndo ? `Отменить (Ctrl+Z) — ${undoState.undoCount} в очереди` : "Нечего отменять"}
+            variant={viewMode === "kanban" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-7 min-w-0 gap-1.5 rounded-sm px-2.5"
+            onClick={() => onViewModeChange("kanban")}
+            title="Канбан"
           >
-            <Undo2 className="h-4 w-4" />
+            <Kanban className="h-3.5 w-3.5" />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            disabled={!undoState.canRedo}
-            onClick={() => void redo()}
-            title={undoState.canRedo ? "Вернуть (Ctrl+Y)" : "Нечего вернуть"}
-          >
-            <Redo2 className="h-4 w-4" />
-          </Button>
-        </div>
+        )}
+      </div>
+
+      {hasActiveFilters && onResetFilters && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-9 shrink-0 gap-1 px-2 text-muted-foreground hover:text-foreground sm:h-8"
+          onClick={onResetFilters}
+          title="Сбросить поиск, фильтры, группировку и сортировку"
+        >
+          <X className="h-3.5 w-3.5" />
+          <span className="hidden md:inline">Сбросить</span>
+        </Button>
+      )}
+
+      <div className="hidden flex-1 sm:block" />
+
+      {/* Подсветку новых заказов снимает только сам технарь — до этого чип
+          висит и показывает, сколько строк приехало с «Заказов». Янтарный
+          текст без заливки: один акцент на экране — бирюзовый. */}
+      {highlightCount > 0 && onClearHighlights && (
+        <button
+          type="button"
+          onClick={onClearHighlights}
+          className="inline-flex h-9 shrink-0 items-center whitespace-nowrap px-1 text-[12px] text-warning hover:underline sm:h-8"
+          title="Снять подсветку с новых заказов"
+        >
+          {highlightCount} {highlightCount === 1 ? "новый" : "новых"} · снять
+        </button>
+      )}
+
+      {canEdit && onQuickOrder && quickOrderButton && (
+        <button
+          type="button"
+          onClick={onQuickOrder}
+          className={cn(CHIP_CLASS, CHIP_IDLE)}
+          title="Быстрый заказ в открытую вкладку"
+        >
+          <ClipboardList className="h-3.5 w-3.5" />
+          <span className="hidden xs:inline">Заказ</span>
+        </button>
+      )}
+
+      {canEdit && canAddRows && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="sticky right-0 z-20 ml-1 h-10 shrink-0 gap-1.5 bg-background text-muted-foreground shadow-[-8px_0_8px_-4px_hsl(0_0%_2%)] hover:text-foreground sm:static sm:ml-0 sm:h-8 sm:bg-transparent sm:shadow-none"
+          onClick={onAddRow}
+          title="Добавить строку: сначала заполняется первая пустая, иначе новая в конце (Ctrl+Enter — под выделенной)"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          <span className="hidden xs:inline">Строка</span>
+        </Button>
       )}
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="icon" className="relative h-10 w-10 shrink-0 sm:h-8 sm:w-8" title="Ещё">
+          <Button variant="outline" size="icon" className="relative h-10 w-10 shrink-0 border-border sm:h-8 sm:w-8" title="Ещё">
             <MoreHorizontal className="h-4 w-4" />
-            {hiddenColumnCount > 0 && !canEditStructure && (
+            {hiddenColumnCount > 0 && (
               <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground">
                 {hiddenColumnCount}
               </span>
@@ -549,71 +500,99 @@ export function TableToolbar({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-60">
-          {onSaveView && onApplyView && onDeleteView && (
-            <>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <Bookmark className="h-3.5 w-3.5" /> Виды{savedViews && savedViews.length ? ` (${savedViews.length})` : ""}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  <DropdownMenuItem onClick={onSaveView}>
-                    <Plus className="h-3.5 w-3.5" /> Сохранить текущий вид
-                  </DropdownMenuItem>
-                  {savedViews && savedViews.length > 0 && <DropdownMenuSeparator />}
-                  {savedViews?.map((view) => (
-                    <DropdownMenuItem key={view.id} onClick={() => onApplyView(view)}>
-                      <Bookmark className="h-3.5 w-3.5" /> {view.name}
+          {/* Сегмент видов на десктопе живёт здесь (на телефоне — в строке). */}
+          <DropdownMenuLabel className="hidden sm:block">Вид</DropdownMenuLabel>
+          {(["table", "cards", "kanban"] as TableViewMode[])
+            .filter((mode) => mode !== "kanban" || hasStatusColumn)
+            .map((mode) => (
+              <DropdownMenuItem key={mode} onClick={() => onViewModeChange(mode)} className="hidden sm:flex">
+                {mode === "table" ? (
+                  <Table2 className="h-3.5 w-3.5" />
+                ) : mode === "cards" ? (
+                  <LayoutList className="h-3.5 w-3.5" />
+                ) : (
+                  <Kanban className="h-3.5 w-3.5" />
+                )}
+                {VIEW_MODE_LABELS[mode]}
+                {viewMode === mode && <Check className="ml-auto h-3.5 w-3.5 opacity-70" />}
+              </DropdownMenuItem>
+            ))}
+          <DropdownMenuSeparator className="hidden sm:block" />
+
+          {showStatusChips && onStatusFilterChange && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Palette className="h-3.5 w-3.5" />
+                Статус
+                {statusFilter && statusFilter !== NOT_DONE_STATUS_FILTER
+                  ? ": " + (allStatusOptions.find((o) => o.value === statusFilter)?.label ?? statusFilter)
+                  : ""}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-56">
+                <DropdownMenuItem onClick={() => onStatusFilterChange(null)}>
+                  Все{!statusFilter && <Check className="ml-auto h-3.5 w-3.5 opacity-70" />}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {allStatusOptions.map((opt) => {
+                  const n = statusCounts?.[opt.value];
+                  const active = statusFilter === opt.value;
+                  return (
+                    <DropdownMenuItem key={opt.value} onClick={() => onStatusFilterChange(active ? null : opt.value)}>
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: `hsl(${opt.color})` }} />
+                      <span className="truncate">{opt.label}</span>
+                      {typeof n === "number" && n > 0 ? <span className="ml-auto opacity-60">{n}</span> : null}
+                      {active && <Check className={cn("h-3.5 w-3.5 opacity-70", !(typeof n === "number" && n > 0) && "ml-auto")} />}
                     </DropdownMenuItem>
-                  ))}
-                  {savedViews && savedViews.length > 0 && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>Удалить вид</DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent>
-                          {savedViews.map((view) => (
-                            <DropdownMenuItem key={view.id} onClick={() => onDeleteView(view)}>
-                              {view.name}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                    </>
-                  )}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-              <DropdownMenuSeparator />
-            </>
+                  );
+                })}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
           )}
+
+          {canFilterMine && onMineOnlyChange && (
+            <DropdownMenuItem onClick={() => onMineOnlyChange(!mineOnly)} className="hidden sm:flex">
+              <UserRound className="h-3.5 w-3.5" /> Мои
+              {mineOnly && <Check className="ml-auto h-3.5 w-3.5 opacity-70" />}
+            </DropdownMenuItem>
+          )}
+
+          {onSaveView && onApplyView && onDeleteView && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Bookmark className="h-3.5 w-3.5" /> Виды{savedViews && savedViews.length ? ` (${savedViews.length})` : ""}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuItem onClick={onSaveView}>
+                  <Plus className="h-3.5 w-3.5" /> Сохранить текущий вид
+                </DropdownMenuItem>
+                {savedViews && savedViews.length > 0 && <DropdownMenuSeparator />}
+                {savedViews?.map((view) => (
+                  <DropdownMenuItem key={view.id} onClick={() => onApplyView(view)}>
+                    <Bookmark className="h-3.5 w-3.5" /> {view.name}
+                  </DropdownMenuItem>
+                ))}
+                {savedViews && savedViews.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>Удалить вид</DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
+                        {savedViews.map((view) => (
+                          <DropdownMenuItem key={view.id} onClick={() => onDeleteView(view)}>
+                            {view.name}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  </>
+                )}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
+
           {viewMode === "table" && (
             <>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <Layers className="h-3.5 w-3.5" />
-                  Группировка{groupByKey ? ": " + (columns.find((c) => c.key === groupByKey)?.label ?? "") : ""}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  <DropdownMenuItem onClick={() => onGroupByChange(null)}>
-                    Без группировки{!groupByKey && " ✓"}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  {columns
-                    .filter((c) => !c.hidden)
-                    .map((c) => (
-                      <DropdownMenuItem key={c.id} onClick={() => onGroupByChange(c.key)}>
-                        {c.label}
-                        {groupByKey === c.key && " ✓"}
-                      </DropdownMenuItem>
-                    ))}
-                  {groupByKey && onCollapseAllGroups && onExpandAllGroups && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={onCollapseAllGroups}>Свернуть все группы</DropdownMenuItem>
-                      <DropdownMenuItem onClick={onExpandAllGroups}>Развернуть все группы</DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
+              <DropdownMenuSeparator />
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                   <Rows3 className="h-3.5 w-3.5" /> Плотность: {DENSITY_LABELS[density]}
@@ -647,9 +626,43 @@ export function TableToolbar({
                   <Columns3 className="h-3.5 w-3.5" /> Подогнать ширину всех столбцов
                 </DropdownMenuItem>
               )}
-              <DropdownMenuSeparator />
             </>
           )}
+
+          {/* Скрытые столбцы: раньше цветная кнопка в строке, теперь подменю —
+              единственная цветная рамка в тулбаре должна быть у активного чипа. */}
+          {hiddenColumnCount > 0 && onShowColumn && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Eye className="h-3.5 w-3.5" /> Скрыто столбцов: {hiddenColumnCount}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {hiddenColumns.map((c) => (
+                  <DropdownMenuItem key={c.id} onClick={() => onShowColumn(c.key)}>
+                    <Eye className="h-3.5 w-3.5" /> {c.label || "Без названия"}
+                  </DropdownMenuItem>
+                ))}
+                {hiddenColumnCount > 1 && onShowAllColumns && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={onShowAllColumns}>Показать все</DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
+
+          {/* Резервный вход в быстрый заказ: кнопка живёт в шапке стола, а
+              шапка на весь экран скрыта — из меню заказ доступен всегда. */}
+          {canEdit && onQuickOrder && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onQuickOrder}>
+                <ClipboardList className="h-3.5 w-3.5" /> Быстрый заказ
+              </DropdownMenuItem>
+            </>
+          )}
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onExportCsv}>
             <Download className="h-3.5 w-3.5" /> Экспорт CSV
           </DropdownMenuItem>
@@ -675,13 +688,18 @@ export function TableToolbar({
               </DropdownMenuItem>
             </>
           )}
+          {/* Отменить/вернуть — здесь на всех экранах; хоткеи Ctrl+Z/Ctrl+Y
+              живут в GlobalUndoHotkeys и от кнопок не зависят. */}
           {canEdit && (
             <>
-              <DropdownMenuSeparator className="sm:hidden" />
-              <DropdownMenuItem onClick={() => void undo()} disabled={!undoState.canUndo} className="sm:hidden">
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => void undo()} disabled={!undoState.canUndo}>
                 <Undo2 className="h-3.5 w-3.5" /> Отменить
+                {undoState.canUndo && undoState.undoCount > 0 ? (
+                  <span className="ml-auto text-[10px] opacity-60">{undoState.undoCount}</span>
+                ) : null}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => void redo()} disabled={!undoState.canRedo} className="sm:hidden">
+              <DropdownMenuItem onClick={() => void redo()} disabled={!undoState.canRedo}>
                 <Redo2 className="h-3.5 w-3.5" /> Вернуть
               </DropdownMenuItem>
             </>
@@ -690,33 +708,13 @@ export function TableToolbar({
           <DropdownMenuItem onClick={() => setShortcutsHelpOpen(true)}>
             <Keyboard className="h-3.5 w-3.5" /> Горячие клавиши
           </DropdownMenuItem>
+          {countLabel && (
+            <DropdownMenuLabel className="font-mono text-[10px] font-normal uppercase tracking-[0.12em] text-muted-foreground">
+              {countLabel} стр.
+            </DropdownMenuLabel>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
-
-      {canEdit && onQuickOrder && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-10 shrink-0 gap-1.5 sm:h-8"
-          onClick={onQuickOrder}
-          title="Быстрый заказ в открытую вкладку"
-        >
-          <ClipboardList className="h-3.5 w-3.5" />
-          <span className="hidden xs:inline">Заказ</span>
-        </Button>
-      )}
-
-      {canEdit && canAddRows && (
-        <Button
-          size="sm"
-          className="sticky right-0 z-20 ml-1 h-10 shrink-0 gap-1.5 shadow-[-8px_0_8px_-4px_hsl(0_0%_2%)] sm:static sm:ml-0 sm:h-8 sm:shadow-none"
-          onClick={onAddRow}
-          title="Добавить строку: сначала заполняется первая пустая, иначе новая в конце (Ctrl+Enter — под выделенной)"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          <span className="hidden xs:inline">Строка</span>
-        </Button>
-      )}
     </div>
   );
 }

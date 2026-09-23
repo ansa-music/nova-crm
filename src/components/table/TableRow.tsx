@@ -63,7 +63,14 @@ interface TableRowProps {
   onUndoLast?: () => void;
   isExpanded?: boolean;
   coarsePointer?: boolean;
+  /**
+   * Цвет статуса строки. Оставлен в типах, но на фон больше НЕ ложится:
+   * тонировка строки цветом статуса спорила с зеброй, а статус и так виден
+   * в ячейке («● Слово») и рейлом в гаттере (accentColor).
+   */
   statusTint?: string;
+  /** Чётная строка группы — фон чуть светлее (класс table-row-zebra в index.css). */
+  zebra?: boolean;
   onMarkDone?: (rowId: string) => void;
   onInsertRowAbove?: (rowId: string) => void;
   onInsertRowBelow?: (rowId: string) => void;
@@ -141,7 +148,7 @@ function TableRowInner({
   onUndoLast,
   isExpanded,
   coarsePointer,
-  statusTint,
+  zebra = false,
   onMarkDone,
   onInsertRowAbove,
   onInsertRowBelow,
@@ -247,12 +254,12 @@ function TableRowInner({
         position: isDragging ? "relative" : undefined,
         zIndex: isDragging ? 35 : undefined,
         opacity: isDragging ? 0.75 : 1,
-        backgroundColor: statusTint ? `hsl(${statusTint} / 0.08)` : undefined,
       }}
       data-row-id={row.id}
       data-row-number={rowNumber}
       className={cn(
         "group/row table-data-row relative",
+        zebra && "table-row-zebra",
         blank && "table-row-blank",
         row.highlight && "table-row-new",
         (isRowFullySelected || isChecked) && "table-data-row-selected",
@@ -406,6 +413,7 @@ function TableRowInner({
             isInFill={Boolean(fillColKeys && fillColKeys.includes(column.key))}
             isDuplicate={Boolean(duplicateColKeys && duplicateColKeys.includes(column.key))}
             onFindDuplicates={onFindDuplicates ? () => onFindDuplicates(row.id, column.key) : undefined}
+            rowHeight={rowHeight}
           />
         );
       })}
@@ -450,7 +458,7 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     prev.diskUrl !== next.diskUrl ||
     prev.isExpanded !== next.isExpanded ||
     prev.coarsePointer !== next.coarsePointer ||
-    prev.statusTint !== next.statusTint ||
+    prev.zebra !== next.zebra ||
     prev.expandedColKey !== next.expandedColKey ||
     prev.gutterWidth !== next.gutterWidth ||
     prev.extrasHintKey !== next.extrasHintKey ||

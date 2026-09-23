@@ -273,12 +273,16 @@ export function ColumnHeaderCell({
           title={renaming ? undefined : headerTitle}
           data-col={column.key}
         >
-          <div className="flex h-11 min-w-0 items-center gap-0.5 overflow-hidden sm:h-9">
+          {/* Кнопки шапки (грип, пин, ⋯, фильтр) на десктопе видны только при
+              наведении — в плотной шапке 32px они иначе читались как шум.
+              На таче наведения нет, там они остаются полупрозрачными всегда;
+              закреплённый столбец и активный фильтр видны всегда. */}
+          <div className="flex h-11 min-w-0 items-center gap-0.5 overflow-hidden sm:h-8">
             {canReorder && !compactChrome && (
               <button
                 {...attributes}
                 {...listeners}
-                className="cursor-grab touch-none select-none rounded p-1.5 opacity-40 hover:bg-accent group-hover:opacity-100 active:cursor-grabbing sm:p-0.5"
+                className="cursor-grab touch-none select-none rounded p-1.5 opacity-40 hover:bg-accent group-hover:opacity-100 focus-visible:opacity-100 active:cursor-grabbing sm:p-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
                 title="Перетащить столбец"
               >
                 <GripVertical className="h-3.5 w-3.5" />
@@ -344,7 +348,8 @@ export function ColumnHeaderCell({
                 onClick={() => onTogglePin(column.key)}
                 className={cn(
                   "inline-flex shrink-0 items-center justify-center rounded select-none hover:bg-accent",
-                  compactChrome ? "h-7 w-7" : "min-h-10 min-w-10 p-1.5 opacity-40 group-hover:opacity-100 sm:min-h-0 sm:min-w-0 sm:p-0.5",
+                  compactChrome ? "h-7 w-7" : "min-h-10 min-w-10 p-1.5 opacity-40 group-hover:opacity-100 focus-visible:opacity-100 sm:min-h-0 sm:min-w-0 sm:p-0.5",
+                  !compactChrome && !isPinned && "sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
                   isPinned && "opacity-100 text-primary"
                 )}
                 title={pinLabel}
@@ -357,7 +362,7 @@ export function ColumnHeaderCell({
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    className="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground sm:min-h-0 sm:min-w-0 sm:p-0.5 sm:opacity-40 sm:group-hover:opacity-100"
+                    className="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground sm:min-h-0 sm:min-w-0 sm:p-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:data-[state=open]:opacity-100"
                     title="Настройки столбца"
                     onClick={(e) => e.stopPropagation()}
                   >
@@ -440,7 +445,8 @@ export function ColumnHeaderCell({
                 type="button"
                 onClick={(e) => onFilterClick(column.key, e)}
                 className={cn(
-                  "inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded p-1.5 select-none opacity-40 hover:bg-accent group-hover:opacity-100 sm:min-h-0 sm:min-w-0 sm:p-0.5",
+                  "inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded p-1.5 select-none opacity-40 hover:bg-accent group-hover:opacity-100 focus-visible:opacity-100 sm:min-h-0 sm:min-w-0 sm:p-0.5",
+                  !hasActiveFilter && "sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
                   hasActiveFilter && "opacity-100 text-primary"
                 )}
                 title={hasActiveFilter ? "Фильтр активен — изменить" : "Фильтр"}

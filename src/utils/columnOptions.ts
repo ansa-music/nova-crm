@@ -134,6 +134,25 @@ export function isDoneStatusLabel(label: string): boolean {
   return l.includes("готов") || l.includes("done") || l.includes("успеш") || l.includes("закрыт");
 }
 
+/**
+ * «Ждём» в сводке шапки стола — деньги, которые ещё не пришли: «Ждём оплату»,
+ * «Ожидание», «Оплата», «pending». По названию, как isDoneStatusLabel: списки
+ * статусов у каждого workspace свои. «Готово» и отрицания («не ждём»)
+ * отсекаются первыми, иначе «Не готово» попало бы и в «Ждём» по «жд».
+ */
+export function isWaitingStatusLabel(label: string): boolean {
+  const l = label.toLowerCase();
+  if (/(^|[\s-])не([\s-]|$)/.test(l)) return false;
+  if (isDoneStatusLabel(l)) return false;
+  return (
+    l.includes("ожид") ||
+    l.includes("жд") ||
+    l.includes("оплат") ||
+    l.includes("wait") ||
+    l.includes("pending")
+  );
+}
+
 /** «Заморозка» — a paused order. Not done, but doesn't make a Технарь busy on «Технари». */
 export const FREEZE_STATUS_OPTION: StatusOption = { value: "freeze", label: "Заморозка", color: "189 94% 43%" };
 

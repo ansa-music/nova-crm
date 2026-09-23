@@ -4,45 +4,46 @@
 
 @layer base {
   /*
-    Design tokens — Nova "Neon Holographic":
-    near-black #050505 ground, cool off-white text, electric-cyan primary
-    #70EAFF with a neon-purple secondary. Workspace accentColor writes
-    --desk-accent only, never --primary.
+    Токены — «один акцент, плоско» (макет «C — плотный по статусам»):
+    нейтральный тёмный фон #0b0c0e, панель #0f1113, рамки #1c1f23/#23272c,
+    текст #e6e8ea, ОДИН бирюзовый акцент #7fd6e6. Никаких неоновых свечений,
+    градиентов и стекла — глубина только оттенком поверхности. Цвет стола
+    (accentColor) пишет --desk-accent, но никогда --primary.
   */
   :root,
   .dark {
     /*
-      Neon Holographic (Stitch spec): the neutral ramp is a near-black
-      "Deep Space" so cyan and purple read as emitted light rather than as
-      tinted surfaces. Was a navy ramp (222 55% 6%) — every surface token
-      moves together, otherwise cards keep a blue cast the background no
-      longer has and the whole app looks two-toned.
+      Нейтральная шкала поверхностей: раньше рамки и поля были циановыми
+      (189 52% 22%), и вся сетка таблицы светилась голубым рядом с самим
+      акцентом — акцент переставал быть заметным. Теперь рамки — серые,
+      чуть светлее фона, а бирюза остаётся только у выделения, активной
+      ячейки, ссылок и активного пункта меню.
     */
-    --background: 0 0% 2%;
-    --foreground: 20 5% 89%;
+    --background: 220 12% 5%;
+    --foreground: 210 8% 91%;
 
-    --card: 0 0% 7%;
-    --card-foreground: 20 5% 89%;
+    --card: 220 10% 7%;
+    --card-foreground: 210 8% 91%;
 
-    --popover: 0 0% 9%;
-    --popover-foreground: 20 5% 89%;
+    --popover: 220 10% 9%;
+    --popover-foreground: 210 8% 91%;
 
-    /* Electric cyan kept as-is: already matches the spec's accent and its
-       dark foreground pairing is contrast-checked across every button. */
-    --primary: 189 100% 72%;
-    --primary-foreground: 191 100% 7%;
+    /* Бирюза #7fd6e6 — единственный акцент. Тёмный текст на ней остаётся:
+       на светлой заливке белая подпись не читается (~1.5:1). */
+    --primary: 189 67% 70%;
+    --primary-foreground: 191 70% 8%;
 
-    /* Neon purple — the spec's secondary. Drives the active-nav gradient
-       (see .nav-link-active) and premium/category accents. */
+    /* Фиолетовый secondary оставлен ТОЛЬКО для neon-pulse и заглушки обложки
+       стола (desk-cover-placeholder) — из навигации и таблицы убран. */
     --secondary: 256 100% 87%;
     --secondary-foreground: 0 0% 7%;
     --secondary-deep: 256 76% 46%;
 
-    --muted: 0 0% 12%;
-    --muted-foreground: 191 13% 76%;
+    --muted: 220 8% 12%;
+    --muted-foreground: 210 6% 60%;
 
-    --accent: 0 0% 13%;
-    --accent-foreground: 189 100% 81%;
+    --accent: 220 8% 13%;
+    --accent-foreground: 189 60% 78%;
 
     --destructive: 8 72% 52%;
     --destructive-foreground: 0 0% 100%;
@@ -53,14 +54,14 @@
     --warning: 42 88% 56%;
     --warning-foreground: 0 0% 7%;
 
-    --border: 189 52% 22%;
-    --input: 189 40% 18%;
-    --ring: 189 100% 72%;
+    --border: 220 8% 15%;
+    --input: 220 8% 13%;
+    --ring: 189 67% 70%;
 
-    --sidebar: 0 0% 6%;
-    --sidebar-foreground: 191 13% 76%;
-    --sidebar-border: 189 50% 20%;
-    --sidebar-accent: 0 0% 13%;
+    --sidebar: 220 10% 7%;
+    --sidebar-foreground: 210 6% 62%;
+    --sidebar-border: 220 8% 13%;
+    --sidebar-accent: 220 8% 13%;
 
     /*
       Шкала скруглений. При 0.25rem она давала rounded-sm = 0, rounded-md = 2px,
@@ -76,7 +77,7 @@
     --duration: 260ms;
     --duration-slow: 320ms;
     --hud-blur: 10px;
-    --desk-accent: 189 100% 72%;
+    --desk-accent: 189 67% 70%;
   }
 
   * {
@@ -97,7 +98,8 @@
     font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
     font-optical-sizing: auto;
     letter-spacing: -0.011em;
-    background-color: #050505;
+    /* Явный фон и здесь: до прихода токенов страница не должна мигать белым. */
+    background-color: #0b0c0e;
   }
 
   /* HUD toys off site-wide (cyber-grid overlay + scanlines). Phone kill-switch remains. */
@@ -162,36 +164,18 @@
     @apply bg-sidebar-accent/80;
     color: hsl(var(--primary));
   }
-  /* Nudge-on-hover, per spec. Pointer-only: on touch there is no hover to
-     preview, and the shift would fire on tap and read as a glitch. */
-  @media (hover: hover) and (pointer: fine) {
-    .nav-link:not(.nav-link-active):hover {
-      transform: translateX(3px);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .nav-link:hover {
-      transform: none;
-    }
-  }
   /*
-    "Holographic pill" — the spec's signature active state: a cyan-to-purple
-    gradient instead of a flat fill plus an inset rail. The dark foreground
-    is required, not cosmetic: the gradient is light at both ends, so the
-    inherited off-white label would sit at roughly 1.3:1 on it.
+    Активный пункт — плоская бирюзовая подложка, как в макете (#16262a под
+    #8fe0ee). Градиент и свечение убраны: акцент один, и он не должен
+    светиться. Подпись — сам акцент, а не тёмный текст: заливка тёмная.
   */
   .nav-link-active {
-    color: hsl(var(--primary-foreground));
-    background-image: linear-gradient(
-      100deg,
-      hsl(var(--primary)) 0%,
-      hsl(var(--secondary-deep)) 100%
-    );
-    box-shadow: 0 0 16px -2px hsl(var(--primary) / 0.35);
+    color: hsl(var(--primary));
+    background-color: hsl(var(--primary) / 0.14);
   }
   .nav-link-active:hover {
-    color: hsl(var(--primary-foreground));
-    background-color: transparent;
+    color: hsl(var(--primary));
+    background-color: hsl(var(--primary) / 0.18);
   }
   .nav-link-active::before {
     content: none;
@@ -270,16 +254,13 @@
     transition: background-color var(--duration-fast) var(--ease-out);
   }
 
-  .table-instrument thead th {
-    box-shadow: 0 1px 0 hsl(var(--border) / 0.9);
-  }
+  /* Тень шапки задаётся ниже, в нелейерном блоке .table-instrument thead th —
+     здесь её дубль убран, чтобы две тени не складывались в двойную линию. */
   .table-instrument tbody tr td {
     transition: background-color var(--duration) var(--ease-out);
   }
-  .table-instrument tbody tr:hover td {
-    background-color: hsl(var(--primary) / 0.06);
-    box-shadow: inset 0 1px 0 hsl(var(--primary) / 0.14), inset 0 -1px 0 hsl(var(--primary) / 0.14);
-  }
+  /* Наведение на строку живёт ниже, в медиа-блоке (hover: hover): на таче
+     «наведение» — это тап, и подсветка спорила с зеброй и выделением. */
 
   /*
     Spec "Topbar": a glass plate — a bottom border and a translucent fill,
@@ -297,8 +278,8 @@
   */
   .page-header {
     @apply flex items-center gap-2.5 border-b px-5 py-3 sm:px-6;
-    border-color: hsl(var(--primary) / 0.15);
-    background: hsl(var(--foreground) / 0.02);
+    border-color: hsl(var(--border));
+    background: transparent;
   }
 
   .page-title {
@@ -454,11 +435,11 @@
   }
   .surface-card {
     @apply border bg-card;
-    border-color: hsl(var(--primary) / 0.28);
+    border-color: hsl(var(--border));
   }
   html {
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--primary) / 0.45) transparent;
+    scrollbar-color: hsl(var(--foreground) / 0.24) transparent;
   }
   html::-webkit-scrollbar,
   .overflow-auto::-webkit-scrollbar,
@@ -479,7 +460,7 @@
   .overflow-x-scroll,
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--primary) / 0.45) transparent;
+    scrollbar-color: hsl(var(--foreground) / 0.24) transparent;
   }
   html::-webkit-scrollbar-thumb,
   .overflow-auto::-webkit-scrollbar-thumb,
@@ -489,7 +470,7 @@
   .overflow-y-scroll::-webkit-scrollbar-thumb,
   .overflow-x-scroll::-webkit-scrollbar-thumb,
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: hsl(var(--primary) / 0.45);
+    background-color: hsl(var(--foreground) / 0.24);
     border-radius: 2px;
   }
   html::-webkit-scrollbar-thumb:hover,
@@ -500,7 +481,7 @@
   .overflow-y-scroll::-webkit-scrollbar-thumb:hover,
   .overflow-x-scroll::-webkit-scrollbar-thumb:hover,
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    background-color: hsl(var(--primary) / 0.7);
+    background-color: hsl(var(--foreground) / 0.36);
   }
   html::-webkit-scrollbar-track,
   .overflow-auto::-webkit-scrollbar-track,
@@ -611,30 +592,14 @@
 }
 
 /*
- * Spec "Icons": 1.25px stroke everywhere, cyan glow on hover. `stroke-width`
- * here overrides lucide-react's own `strokeWidth={2}` prop — that prop
- * compiles to an SVG *presentation attribute*, which loses to any actual
- * CSS rule regardless of layer/specificity, so this is safe unlayered.
- * Every lucide-react icon carries a base `.lucide` class (see
- * node_modules/lucide-react Icon.js) in addition to its per-icon
- * `.lucide-<name>` class, so this one rule reaches all of them.
- * Deliberately does NOT force icon `color` on hover (only the glow) —
- * icons inherit `currentColor`, and plenty of buttons (destructive,
- * warning) rely on that for a non-cyan hover color; forcing cyan here
- * would fight that semantic color instead of complementing it.
+ * Иконки: штрих 1.25px везде. `stroke-width` здесь перебивает собственный
+ * `strokeWidth={2}` lucide-react — тот компилируется в presentation-атрибут
+ * SVG и проигрывает любому CSS-правилу, поэтому правило безопасно без слоя.
+ * Свечение иконок при наведении (drop-shadow) убрано вместе с остальным
+ * неоном: иконка наследует currentColor, и этого достаточно.
  */
 .lucide {
   stroke-width: 1.25;
-}
-@media (hover: hover) and (pointer: fine) {
-  .lucide {
-    transition: filter 150ms ease;
-  }
-  button:not(:disabled):hover .lucide,
-  a:hover .lucide,
-  [role="button"]:hover .lucide {
-    filter: drop-shadow(0 0 4px hsl(var(--primary) / 0.6));
-  }
 }
 
 @property --border-glow-angle {
@@ -685,9 +650,6 @@
   .border-glow-critical::before,
   .skeleton::after {
     animation: none !important;
-  }
-  .lucide {
-    transition: none !important;
   }
   .desk-row,
   .desk-card,
@@ -803,34 +765,51 @@
   box-shadow: 8px 0 12px -10px hsl(0 0% 0% / 0.65);
 }
 
+/*
+  ЗЕБРА. Класс ставит TableRow по пропу `zebra` (DataTable чередует его
+  внутри группы). Правило стоит ПЕРЕД blank/selected/active/hover/new — у них
+  та же специфичность, и побеждать они должны каскадом, а не !important.
+  Липкие ячейки — отдельно и непрозрачно (color-mix, не alpha): полупрозрачная
+  заливка на sticky-td просвечивала бы проезжающие под ней столбцы.
+*/
+.table-instrument tbody tr.table-row-zebra td,
+.table-instrument tbody tr.table-row-zebra td.table-sticky-col {
+  background-color: color-mix(in srgb, hsl(var(--foreground)) 3%, hsl(var(--background)));
+}
+
 /* A blank row is a free slot: no tint, softer rules, it recedes until typed into. */
 .table-instrument tbody tr.table-row-blank:not(.table-data-row-active):not(.table-data-row-selected) td {
   border-bottom-style: dashed;
   border-bottom-color: hsl(var(--border) / 0.55);
 }
+/* Выделение — единственное место, где строка красится акцентом. */
 .table-instrument tbody tr.table-data-row-selected td,
 .table-instrument tbody tr.table-data-row-active td {
-  background-color: color-mix(in srgb, hsl(var(--primary)) 16%, hsl(var(--background)));
+  background-color: color-mix(in srgb, hsl(var(--primary)) 12%, hsl(var(--background)));
 }
 .table-instrument tbody td.table-sticky-col,
 .table-instrument tfoot td.table-sticky-col {
   background-color: hsl(var(--background));
 }
 .table-instrument thead th.table-sticky-col {
-  background-color: color-mix(in srgb, rgb(255 255 255 / 1) 5%, hsl(var(--background)));
+  background-color: hsl(var(--background));
 }
 .table-instrument tbody tr.table-data-row-selected td.table-sticky-col,
 .table-instrument tbody tr.table-data-row-active td.table-sticky-col {
-  background-color: color-mix(in srgb, hsl(var(--primary)) 16%, hsl(var(--background)));
+  background-color: color-mix(in srgb, hsl(var(--primary)) 12%, hsl(var(--background)));
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .table-instrument tbody tr.table-data-row:hover td {
-    background-color: hsl(var(--primary) / 0.1);
+  /* Наведение — нейтральное, без inset-линий: линии рисовали «рамку» вокруг
+     строки и спорили с рингом активной ячейки. Выделенную и активную строку
+     наведение не трогает: у этого правила специфичность выше, чем у заливки
+     selected/active, и под курсором выделение становилось серым. */
+  .table-instrument tbody tr.table-data-row:not(.table-data-row-selected):not(.table-data-row-active):hover td {
+    background-color: hsl(var(--foreground) / 0.04);
     box-shadow: none;
   }
-  .table-instrument tbody tr.table-data-row:hover td.table-sticky-col {
-    background-color: color-mix(in srgb, hsl(var(--primary)) 10%, hsl(var(--background)));
+  .table-instrument tbody tr.table-data-row:not(.table-data-row-selected):not(.table-data-row-active):hover td.table-sticky-col {
+    background-color: color-mix(in srgb, hsl(var(--foreground)) 4%, hsl(var(--background)));
   }
   .status-pill {
     box-shadow: none;
@@ -846,10 +825,6 @@
 }
 
 @media (max-width: 767px), (hover: none), (pointer: coarse) {
-  .table-instrument tbody tr:hover td {
-    background-color: transparent;
-    box-shadow: none;
-  }
   .status-pill {
     min-height: 28px;
     padding: 5px 11px;
@@ -858,6 +833,11 @@
   .status-tick {
     display: none;
   }
+}
+/* 44px — только там, где по ячейке жмут пальцем. Без `(max-width: 767px)`:
+   на 640–767px с мышью утилита sm:min-h-0 давала строке 34px, а это правило
+   растягивало её до 44 — виртуализация же считала 34, и строки съезжали. */
+@media (hover: none), (pointer: coarse) {
   .table-status-trigger {
     min-height: 44px;
   }
@@ -877,11 +857,10 @@
 }
 .table-instrument td,
 .table-instrument th {
-  /* Was hsl(var(--border) / 0.85) — --border is a dark cyan (22% lightness)
-     that sits too close to the near-black table background to read
-     as a grid line at a glance. --muted-foreground is much lighter, so a
-     low-opacity slice of it stays subtle but actually separates cells. */
-  border-color: hsl(var(--muted-foreground) / 0.22);
+  /* Раньше тут была доля --muted-foreground: рамка была циановой и терялась
+     на чёрном. Теперь --border нейтральная и чуть светлее фона — ровно та
+     линия сетки, что в макете (#1c1f23). */
+  border-color: hsl(var(--border));
 }
 
 .table-grid-scroll {
@@ -894,38 +873,48 @@
   position: sticky;
   top: 0;
   z-index: 24;
-  /* Glass header plate, per spec. Kept as a solid-ish tint over the ground
-     rather than pure rgba: the header is sticky, so a transparent fill
-     would let scrolled rows show through underneath it. */
-  background-color: color-mix(in srgb, rgb(255 255 255 / 1) 5%, hsl(var(--background)));
-  color: hsl(189 70% 82%);
-  box-shadow: 0 1px 0 hsl(var(--primary) / 0.25);
+  /* Шапка липкая, поэтому фон ОБЯЗАН быть непрозрачным — иначе проезжающие
+     под ней строки просвечивают. Цвет подписи задаётся здесь, а не утилитой
+     в ColumnHeaderCell: нелейерное правило перебивает утилиту, и править
+     его надо в одном месте. */
+  background-color: hsl(var(--background));
+  color: hsl(var(--muted-foreground));
+  box-shadow: inset 0 -1px 0 hsl(var(--border));
 }
 
 
+/* Нижняя полоса итогов — плоская моно-строка, как в макете («16 строк · 3
+   группы … Общий 1 859 450 KZT»): крупная сумма переехала в шапку стола. */
 .table-totals-bar {
   flex-shrink: 0;
-  border-top: 1px solid hsl(var(--primary) / 0.55);
-  background:
-    linear-gradient(180deg, hsl(var(--primary) / 0.14) 0%, hsl(var(--background)) 100%);
-  padding: 0.55rem 1.25rem max(0.6rem, env(safe-area-inset-bottom, 0px));
+  /* Высота зафиксирована переменной: от неё отсчитывает отступ панель
+     массовых действий (.has-table-totals .bulk-action-bar ниже). Считать
+     ResizeObserver'ом ради одной строки незачем — при переносе сумм на
+     вторую строку панель просто встанет чуть ближе. */
+  --table-totals-h: 32px;
+  min-height: var(--table-totals-h);
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  padding: 6px 16px max(6px, env(safe-area-inset-bottom, 0px));
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: hsl(var(--muted-foreground));
 }
+/* Цвет суммы задаёт разметка (text-foreground у общей, text-primary у
+   выделения): нелейерное правило здесь перебило бы утилиту. */
 .table-totals-sum {
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: -0.04em;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.2;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-@media (min-width: 640px) {
-  .table-totals-sum {
-    font-size: 22px;
-  }
-}
+/* Панель висит над полосой итогов, а не над её старой высотой (3.5rem были
+   от прежней, крупной полосы). Переменная объявлена на самой полосе, до
+   панели она не доходит — поэтому число повторено здесь; менять оба. */
 .has-table-totals .bulk-action-bar {
-  bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+  bottom: calc(32px + 0.5rem + env(safe-area-inset-bottom, 0px));
 }
 
 /* iOS: Radix scroll-lock must not freeze the sheet or leak clicks through the overlay. */
@@ -956,21 +945,17 @@ html body[data-scroll-locked] {
 .table-col-resizer:active .table-col-resizer-line {
   opacity: 1;
   background-color: hsl(var(--primary));
-  box-shadow: 0 0 6px hsl(var(--primary) / 0.7);
 }
 
-/* Cells: range wash + a crisp active ring with a soft outer glow. */
+/* Cells: range wash + a crisp active ring. Свечения нет — ринг и так виден. */
 .table-instrument tbody td.table-cell-range {
   background-color: hsl(var(--primary) / 0.09) !important;
 }
 .table-instrument tbody td.table-cell-active {
-  box-shadow:
-    inset 0 0 0 2px hsl(var(--primary) / 0.85),
-    0 0 0 1px hsl(var(--primary) / 0.25),
-    0 0 12px -2px hsl(var(--primary) / 0.45);
+  box-shadow: inset 0 0 0 2px hsl(var(--primary));
 }
 .table-instrument tbody td.table-cell-editing {
-  box-shadow: inset 0 0 0 2px hsl(var(--primary)), 0 0 16px -2px hsl(var(--primary) / 0.5);
+  box-shadow: inset 0 0 0 2px hsl(var(--primary));
   overflow: visible;
 }
 .table-instrument tbody td.table-cell-editing input {
@@ -1000,10 +985,10 @@ html body[data-scroll-locked] {
   background: hsl(var(--primary) / 0.14);
 }
 
-/* Footer aggregates row. */
+/* Footer aggregates row — плоский, как полоса итогов. */
 .table-instrument tfoot td.table-footer-cell {
-  border-top: 1px solid hsl(var(--primary) / 0.35);
-  background: linear-gradient(180deg, hsl(var(--primary) / 0.05) 0%, hsl(var(--background)) 100%);
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
   padding: 0;
 }
 .table-instrument tfoot td.table-footer-cell button {
@@ -1012,48 +997,57 @@ html body[data-scroll-locked] {
 
 /* Filter chip bar under the toolbar. */
 .table-filter-bar {
-  background: linear-gradient(180deg, hsl(var(--primary) / 0.05) 0%, transparent 100%);
+  background: transparent;
 }
 .table-filter-chip {
-  transition: transform var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+  transition: transform var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
 }
 @media (hover: hover) and (pointer: fine) {
   .table-filter-chip:hover {
-    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.3), 0 0 10px -3px hsl(var(--primary) / 0.5);
+    border-color: hsl(var(--primary) / 0.5);
   }
 }
 .table-chip {
   transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
 }
 
-/* Group header rows: color rail on the left, subtle gradient, sums right-aligned. */
+/*
+  Заголовок группы: строка 30px, подкрашенная цветом статуса (макет: #131a1c
+  под «В работе», #1a1712 под «Ждём оплату»). GroupHeaderRow кладёт
+  --group-color на <tr> HSL-триплетом «h s% l%» (тот же формат, что у
+  statusOptions.color, применяется как hsl(var(--group-color) / a)) и вешает
+  класс table-group-row-colored; без цвета (группировка по не-статусу) —
+  нейтральная подложка на 4% foreground.
+*/
 .table-instrument tbody tr.table-group-row td.table-group-cell {
-  background: linear-gradient(90deg, hsl(var(--primary) / 0.1) 0%, hsl(var(--muted) / 0.55) 40%, hsl(var(--muted) / 0.35) 100%);
+  background: color-mix(in srgb, hsl(var(--foreground)) 4%, hsl(var(--background)));
   overflow: visible;
 }
-/* The toggle itself sticks to the left edge, so a group's name and sum stay
-   readable however far the wide table is scrolled horizontally. Was split
-   across two separate `.table-group-toggle` rules — the second one's own
-   `position: relative` (not actually needed; nothing here anchors a
-   pseudo-element) cascaded over this block's `position: sticky` since same
-   selector + later in the file always wins, silently undoing the sticky
-   behavior this comment promises. Merged into one rule so that can't happen
-   again. */
+.table-instrument tbody tr.table-group-row.table-group-row-colored td.table-group-cell {
+  background: hsl(var(--group-color) / 0.1);
+}
+/* Кнопка тянется на всю строку: слева «▾ Статус · N», дальше точечный лидер,
+   справа сумма. Inset-рейл слева убран — подпись и сумма и так в цвете
+   статуса. Цена: на очень широком столе сумма уезжает за правый край, пока
+   не проскроллишь. */
+/*
+  Кнопка группы липнет к левому краю и шириной ровно с окно прокрутки
+  (--table-view-w ставит DataTable по ResizeObserver): таблица шире экрана,
+  и без этого сумма группы уезжала за правый край до горизонтальной
+  прокрутки.
+*/
 .table-group-toggle {
   position: sticky;
   left: 0;
-  width: auto;
-  min-width: 280px;
+  width: var(--table-view-w, 100%);
   max-width: 100%;
-  box-shadow: inset 3px 0 0 hsl(var(--group-color, var(--primary)));
   transition: background-color var(--duration-fast) var(--ease-out);
 }
 .table-instrument tbody tr.table-group-row:hover td {
-  background-color: transparent;
   box-shadow: none;
 }
 .table-group-toggle:hover {
-  background-color: hsl(var(--primary) / 0.08);
+  background-color: hsl(var(--foreground) / 0.04);
 }
 
 /* Kanban. */
@@ -1071,15 +1065,11 @@ html body[data-scroll-locked] {
   }
 }
 
-/* Bulk action panel: glass + glow so it reads as a floating command bar. */
+/* Панель массовых действий: плотная плашка над столом, без стекла и свечения.
+   Фон и обводку задаёт разметка (border-border bg-popover в BulkActionBar) —
+   кольцо в box-shadow сверх border давало двойную рамку. Здесь только тень. */
 .bulk-action-panel {
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  background: hsl(var(--card) / 0.92);
-  box-shadow:
-    0 0 0 1px hsl(var(--primary) / 0.18),
-    0 16px 40px -18px hsl(var(--primary) / 0.55),
-    0 12px 32px -20px hsl(0 0% 0% / 0.8);
+  box-shadow: 0 12px 32px -20px hsl(0 0% 0% / 0.8);
   animation: glass-pop 200ms var(--ease-out);
 }
 
@@ -1088,19 +1078,15 @@ html body[data-scroll-locked] {
   transition: background-color var(--duration-fast) var(--ease-out);
 }
 
-/* Saving progress bar keyframe lives in tailwind.config; give it a glow. */
+/* Тулбар стола плоский: границу снизу рисует сама разметка (.page-header). */
 .table-toolbar {
-  box-shadow: 0 1px 0 hsl(var(--primary) / 0.08);
+  box-shadow: none;
 }
 
 @media (max-width: 767px), (hover: none), (pointer: coarse) {
-  .table-instrument tbody td.table-cell-active {
-    box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.85);
-  }
+  /* На таче тень не нужна — обводка остаётся от border в разметке. */
   .bulk-action-panel {
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.25);
+    box-shadow: none;
   }
   .table-filter-bar {
     padding-top: 6px;
@@ -1133,7 +1119,7 @@ html body[data-scroll-locked] {
   border-radius: 2px;
   background: hsl(var(--primary));
   border: 1.5px solid hsl(var(--background));
-  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.6), 0 0 8px hsl(var(--primary) / 0.5);
+  box-shadow: 0 0 0 1px hsl(var(--background));
   cursor: crosshair;
   z-index: 30;
   touch-action: none;
@@ -1143,7 +1129,6 @@ html body[data-scroll-locked] {
 }
 .table-instrument tbody td.table-cell-fill {
   background-color: hsl(var(--primary) / 0.13) !important;
-  box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.55);
 }
 
 /* Status rail in the gutter cell. */
@@ -1159,11 +1144,9 @@ html body[data-scroll-locked] {
    технарь сам не снимет подсветку чипом «N новых» в тулбаре. */
 /* Новый заказ с «Заказов» — ЯНТАРНЫЙ, а не цвета акцента: акцентом в таблице
    подсвечены выделение, активная ячейка и «добавлено недавно», и технарь
-   путал приехавший заказ с собственной строкой. */
-.table-instrument tbody tr.table-row-new td {
-  background: hsl(var(--warning) / 0.14);
-  box-shadow: inset 0 1px 0 hsl(var(--warning) / 0.4), inset 0 -1px 0 hsl(var(--warning) / 0.4);
-}
+   путал приехавший заказ с собственной строкой. Заливки строки больше нет
+   (она спорила с зеброй) — признак держат янтарная полоса слева (3px, как в
+   макете) и янтарный чип визитки. */
 .table-instrument tbody tr.table-row-new .table-row-rail {
   background: hsl(var(--warning));
   opacity: 1;

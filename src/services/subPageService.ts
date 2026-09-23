@@ -283,6 +283,16 @@ export function monthTabNameForKey(monthKey: string): string {
   return `${titleMonth(MONTHS_RU[month - 1])} ${year}`;
 }
 
+/**
+ * "2026-09" → "Сентябрь" — подпись сегмента месяцев в шапке стола. Год там
+ * лишний: сегмент показывает прошлый · текущий · следующий, и год у соседних
+ * месяцев один и тот же (разве что на стыке декабря и января).
+ */
+export function monthShortNameForKey(monthKey: string): string {
+  const month = Number(monthKey.split("-")[1]);
+  return titleMonth(MONTHS_RU[month - 1] ?? "");
+}
+
 /** Guesses "next month" from a subpage name like "Январь" or "Июль 2026", falling back to a generic name if it doesn't recognize a month. */
 function guessNextMonthName(currentName: string): string {
   const trimmed = currentName.trim();

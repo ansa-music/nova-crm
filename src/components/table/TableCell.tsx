@@ -68,6 +68,23 @@ interface TableCellProps {
    * столе ОС — полноэкранный список с поиском и занятостью).
    */
   onOpenPicker?: () => void;
+  /**
+   * Высота строки (та же, что `<tr>` ставит в style): по ней ячейка решает,
+   * сколько строк текста показать на десктопе. Без неё текст резался в одну
+   * строку и при «Просторно», и после ручного ресайза строки — ресайз терял смысл.
+   */
+  rowHeight?: number;
+}
+
+/**
+ * Сколько строк текста влезает в строку такой высоты на десктопе (13px,
+ * leading-snug ≈ 17px): 34px — одна, 40–55 — две, от 56 — три. Тач сюда не
+ * попадает — там строки выше и `max-sm:line-clamp-2` остаётся как был.
+ */
+function desktopTextClampClass(rowHeight: number | undefined): string {
+  if (rowHeight === undefined || rowHeight < 40) return "sm:truncate";
+  if (rowHeight < 56) return "sm:line-clamp-2 sm:whitespace-normal sm:break-words";
+  return "sm:line-clamp-3 sm:whitespace-normal sm:break-words";
 }
 
 /** Digits-only tel: href; keeps a leading + for international numbers. */
@@ -116,6 +133,7 @@ export function TableCell({
   onFindDuplicates,
   placeholder,
   onOpenPicker,
+  rowHeight,
 }: TableCellProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const tdRef = useRef<HTMLTableCellElement>(null);
@@ -212,18 +230,33 @@ export function TableCell({
       return <span className="truncate text-[12px] italic text-muted-foreground/55">{placeholder}</span>;
     }
     if (isOptionColumn(column.type)) {
-      return <StatusBadge value={stringValue} options={column.statusOptions ?? []} showTick={column.type === "status"} />;
+      // В ячейке — «● Слово» без пилюли (variant plain); пилюли остаются в
+      // пунктах выпадашки ниже, там они помогают отличать варианты. Серым
+      // гасится только «Готово» у столбца-статуса: у ответственного, технаря
+      // и кастомного списка подпись варианта ничего о «сделанности» не говорит.
+      return (
+        <StatusBadge
+          value={stringValue}
+          options={column.statusOptions ?? []}
+          variant="plain"
+          muteDone={column.type === "status"}
+        />
+      );
     }
     if (column.type === "currency" && stringValue) {
-      return <span className={cn("tabular-nums", isNegative && "font-medium text-destructive")}>{formatCurrencyCell(stringValue)}</span>;
+      return (
+        <span className={cn("font-mono text-[12.5px] tabular-nums", isNegative && "font-medium text-destructive")}>
+          {formatCurrencyCell(stringValue)}
+        </span>
+      );
     }
     if (column.type === "number" && stringValue) {
       const n = Number(String(stringValue).replace(/\s/g, "").replace(",", "."));
       const shown = Number.isFinite(n) ? formatNumber(n) : stringValue;
-      return <span className={cn("tabular-nums", isNegative && "font-medium text-destructive")}>{shown}</span>;
+      return <span className={cn("font-mono text-[12.5px] tabular-nums", isNegative && "font-medium text-destructive")}>{shown}</span>;
     }
     if (column.type === "date" && stringValue) {
-      return <span className="truncate">{formatOrderDate(Number(stringValue))}</span>;
+      return <span className="truncate text-[12.5px] text-muted-foreground">{formatOrderDate(Number(stringValue))}</span>;
     }
     if (column.type === "phone" && stringValue) {
       const href = telHref(stringValue);
@@ -240,7 +273,7 @@ export function TableCell({
               <Phone className="h-3 w-3" />
             </a>
           ) : null}
-          <span className="truncate tabular-nums">
+          <span className="truncate font-mono text-[12px] tabular-nums">
             <HighlightText text={stringValue} query={searchQuery} />
           </span>
           {duplicateBadge}
@@ -292,7 +325,7 @@ export function TableCell({
       }
       if (stringValue)
         return (
-          <span className="line-clamp-2 text-[11px] leading-snug text-destructive/80" title="Нужна ссылка http(s)">
+          <span className="truncate text-[11px] leading-snug text-destructive/80" title="Нужна ссылка http(s)">
             не ссылка http(s)
           </span>
         );
@@ -302,8 +335,19 @@ export function TableCell({
         </span>
       );
     }
+    // Строка 34px на десктопе вмещает одну строку текста — вторая у clamp
+    // резалась пополам; выше 40px (плотность «Просторно», ручной ресайз)
+    // строк текста показываем столько, сколько влезает. На телефоне строки
+    // выше, там две строки остаются.
     return (
-      <span className={cn(isExpanded ? "whitespace-normal break-words leading-snug" : "line-clamp-2 whitespace-normal break-words leading-snug")}>
+      <span
+        className={cn(
+          "leading-snug",
+          isExpanded
+            ? "whitespace-normal break-words"
+            : cn("max-sm:line-clamp-2 max-sm:whitespace-normal max-sm:break-words", desktopTextClampClass(rowHeight))
+        )}
+      >
         <HighlightText text={stringValue} query={searchQuery} />
       </span>
     );
@@ -348,7 +392,7 @@ export function TableCell({
           onClick={() => {
             if (canEdit) onOpenPicker();
           }}
-          className="table-status-trigger flex h-full min-h-11 w-full min-w-0 max-w-full items-center overflow-hidden px-2 text-left disabled:cursor-default sm:min-h-[32px]"
+          className="table-status-trigger flex h-full min-h-11 w-full min-w-0 max-w-full items-center overflow-hidden px-2 text-left disabled:cursor-default sm:min-h-0"
         >
           {stringValue ? renderDisplay() : <span className="text-xs text-muted-foreground/70">{canEdit ? "Выбрать…" : "—"}</span>}
         </button>
@@ -362,7 +406,7 @@ export function TableCell({
           disabled={!canEdit}
         >
           <SelectTrigger
-            className="table-status-trigger h-full min-h-11 w-full min-w-0 max-w-full overflow-hidden rounded-none border-0 bg-transparent px-2 shadow-none focus:ring-0 sm:min-h-[32px] [&>svg]:hidden"
+            className="table-status-trigger h-full min-h-11 w-full min-w-0 max-w-full overflow-hidden rounded-none border-0 bg-transparent px-2 shadow-none focus:ring-0 sm:min-h-0 [&>svg]:hidden"
             onDoubleClick={(e) => {
               if (!canEdit || column.type !== "status" || !onMarkDone) return;
               e.preventDefault();
@@ -425,7 +469,7 @@ export function TableCell({
             <button
               type="button"
               disabled={!canEdit}
-              className="flex h-full min-h-11 w-full items-center gap-1.5 px-2.5 text-left text-sm disabled:cursor-default sm:min-h-[32px]"
+              className="flex h-full min-h-11 w-full items-center gap-1.5 px-2.5 text-left text-[13px] disabled:cursor-default sm:min-h-0"
             >
               <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               {stringValue ? renderDisplay() : <span className="text-muted-foreground">—</span>}
@@ -508,8 +552,8 @@ export function TableCell({
             }
           }}
           className={cn(
-            "h-full min-h-11 w-full border-0 bg-background px-2.5 text-sm outline-none ring-1 ring-inset ring-primary sm:min-h-0",
-            isNumeric && "text-right tabular-nums",
+            "h-full min-h-11 w-full border-0 bg-background px-2.5 text-[13px] outline-none ring-1 ring-inset ring-primary sm:min-h-0",
+            isNumeric && "text-right font-mono tabular-nums",
             column.type === "url" && editValue.trim() && !parseHttpUrl(editValue) && "pb-3"
           )}
         />
@@ -522,8 +566,10 @@ export function TableCell({
       ) : (
         <div
           className={cn(
-            "flex h-full min-h-11 w-full items-center px-2.5 text-sm leading-snug sm:min-h-[32px]",
-            isNumeric && "justify-end tabular-nums",
+            // Высоту на десктопе задаёт сама <tr> (34px в плотном столе), ячейке
+            // свой минимум не нужен; на таче цель ≥44px остаётся.
+            "flex h-full min-h-11 w-full items-center px-2.5 text-[13px] leading-snug sm:min-h-0",
+            isNumeric && "justify-end font-mono tabular-nums",
             showFull && "absolute inset-0 z-30 items-start bg-card py-1.5 shadow-md"
           )}
           title={column.type === "url" ? (diskUrl?.href ?? "") : stringValue}
@@ -536,7 +582,7 @@ export function TableCell({
         >
           {leading && !showFull ? <span className="mr-auto flex min-w-0 shrink items-center pr-1.5">{leading}</span> : null}
           {showFull ? (
-            <span className="whitespace-pre-wrap break-words text-sm">
+            <span className="whitespace-pre-wrap break-words text-[13px]">
               <HighlightText text={stringValue} query={searchQuery} />
             </span>
           ) : (
@@ -547,20 +593,24 @@ export function TableCell({
               type="button"
               data-client-card
               className={cn(
-                "ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border pl-1.5 pr-2 text-[10px] font-medium tabular-nums transition-colors",
+                // Чип визитки прозрачный: в макете это «15 перс · 3 мин»
+                // серым рядом с именем, без пилюли. Заливка и рамка остались
+                // только у пустой визитки-заглушки (пунктир), чтобы было
+                // видно, куда жать.
+                "ml-auto inline-flex shrink-0 items-center gap-1 rounded-md pl-1 pr-1.5 text-[10px] font-medium tabular-nums transition-colors",
                 coarsePointer ? "h-8" : "h-6",
-                // Фиолетовый — «это приехало с «Заказов», а не заведено руками».
-                // Метка постоянная, в отличие от подсветки новой строки, и
-                // цвет специально не тот, что у обычной визитки и статусов.
+                // Янтарный — «только что приехал с «Заказов», подсветку ещё не
+                // сняли»; фиолетовая иконка — постоянная метка заказа с биржи.
+                // Цвета специально не те, что у статусов и акцента.
                 clientCard.summary && clientCard.isNewOrder
-                  ? "border-warning/60 bg-warning/20 text-warning hover:bg-warning/30"
+                  ? "text-warning hover:text-foreground"
                   : clientCard.summary && clientCard.fromOrder
-                  ? "border-violet-400/55 bg-violet-400/15 text-violet-200 hover:bg-violet-400/25"
+                  ? "text-muted-foreground hover:text-foreground [&>svg]:text-violet-300"
                   : clientCard.summary
-                  ? "border-primary/45 bg-primary/12 text-primary hover:bg-primary/20"
+                  ? "text-muted-foreground hover:text-foreground"
                   : cn(
                       coarsePointer ? "w-8" : "w-6",
-                      "justify-center border-dashed border-border px-0 text-muted-foreground hover:border-primary/50 hover:text-primary",
+                      "justify-center rounded-full border border-dashed border-border px-0 text-muted-foreground hover:border-primary/50 hover:text-primary",
                       "opacity-50 group-hover/row:opacity-100 focus-visible:opacity-100"
                     )
               )}

@@ -36,7 +36,15 @@ function notificationHref(n: Notification): string | null {
   return "/messages";
 }
 
-export function NotificationBell({ className }: { className?: string }) {
+export function NotificationBell({
+  className,
+  onOpenChange,
+}: {
+  className?: string;
+  /** Сайдбар держит панель раскрытой, пока список открыт: он в портале, и
+      pointerleave по панели срабатывает, хотя человек ещё читает уведомления. */
+  onOpenChange?: (open: boolean) => void;
+}) {
   const { profile } = useAuth();
   // allPages, а не pages: запросы бывают и к столам ОС, которых в `pages` нет.
   const { activeWorkspaceId, allPages: pages } = useWorkspace();
@@ -58,6 +66,7 @@ export function NotificationBell({ className }: { className?: string }) {
   return (
     <DropdownMenu
       onOpenChange={(open) => {
+        onOpenChange?.(open);
         if (open) {
           void reload();
           void reloadRequests();
