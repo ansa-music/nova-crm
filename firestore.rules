@@ -262,6 +262,31 @@ service cloud.firestore {
         || resource.data.get('osUid', '') == request.auth.uid;
     }
 
+    // Удаление заказа на «Заказах» убирает и его строку в столе технаря
+    // (просьба Nurba 23.09.2026). Заказ удаляют его ОС, Тимлид и Owner, а
+    // в чужой стол из них пишет только Owner, — поэтому право даёт сам
+    // заказ, а не стол: строка обязана быть ровно той, куда он заехал
+    // (takenPageId/takenSubPageId/takenRowId, и метка orderId на ней), а
+    // удаляющий — тем, кто вправе удалить сам заказ (как в match /orders).
+    // Строку-заказ стола ОС (osUid) так не убрать — её ведёт ОС. Строки уже
+    // нет (resource == null) — удалять нечего, отказ лишь ронял бы удаление.
+    function orderRowDeleteOk(workspaceId, pageId, tabId, rowId) {
+      return isMember(workspaceId) && rowsWritableHere(workspaceId)
+        && (resource == null || orderRowDeleteByOrder(workspaceId, pageId, tabId, rowId));
+    }
+
+    function orderRowDeleteByOrder(workspaceId, pageId, tabId, rowId) {
+      let orderId = resource.data.get('orderId', '');
+      let order = get(/databases/$(database)/documents/workspaces/$(workspaceId)/orders/$(orderId)).data;
+      return orderId is string && orderId != ''
+        && resource.data.get('osUid', null) == null
+        && order.get('takenPageId', '') == pageId
+        && order.get('takenSubPageId', null) == tabId
+        && order.get('takenRowId', '') == rowId
+        && (hasFullAccess(workspaceId)
+          || (canIssueOrders(workspaceId) && order.createdBy == request.auth.uid));
+    }
+
     // Owner: every page. Тимлид: none, если он не Технарь, — кроме столов ОС.
     // Столы ОС — любому участнику на чтение. ОС (основной или второй ролью) —
     // ВСЕ столы на чтение по умолчанию (просьба Nurba 23.09.2026): заказы ОС
@@ -637,9 +662,10 @@ service cloud.firestore {
             rowsWritableHere(workspaceId) &&
             osStatusWriteOk(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
             (!isManagedRow() || managedRowUpdateOk(workspaceId));
-          allow delete: if isMember(workspaceId) &&
+          allow delete: if (isMember(workspaceId) &&
             canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
-            rowsWritableHere(workspaceId) && managedRowDeleteOk(workspaceId);
+            rowsWritableHere(workspaceId) && managedRowDeleteOk(workspaceId))
+            || orderRowDeleteOk(workspaceId, pageId, null, rowId);
 
           // Row-level comment threads — anyone with VIEW access to the
           // page (even a Viewer) can read and post; editing/deleting a
@@ -684,9 +710,10 @@ service cloud.firestore {
               rowsWritableHere(workspaceId) &&
               osStatusWriteOk(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
               (!isManagedRow() || managedRowUpdateOk(workspaceId));
-            allow delete: if isMember(workspaceId) &&
+            allow delete: if (isMember(workspaceId) &&
               canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
-              rowsWritableHere(workspaceId) && managedRowDeleteOk(workspaceId);
+              rowsWritableHere(workspaceId) && managedRowDeleteOk(workspaceId))
+              || orderRowDeleteOk(workspaceId, pageId, subPageId, rowId);
           }
         }
 

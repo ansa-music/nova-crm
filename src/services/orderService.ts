@@ -22,8 +22,10 @@ import { formatOrderDate, normalizeTimestamp } from "@/utils/date";
 import { formatCurrency } from "@/utils/format";
 import { buildQuickOrderRow, mergeColumnPicks } from "@/utils/quickOrder";
 import { sendNotification } from "@/services/notificationService";
-import { addRow, fetchRows, markRowOrder, updateRowCellsBulk } from "@/services/pageService";
-import { addSubPageRow, fetchSubPageRows, fetchSubPages, updateSubPageRowCellsBulk } from "@/services/subPageService";
+import { addRow, deleteRow, fetchRows, markRowOrder, updateRowCellsBulk } from "@/services/pageService";
+import { addSubPageRow, deleteSubPageRow, fetchSubPageRows, fetchSubPages, updateSubPageRowCellsBulk } from "@/services/subPageService";
+import { usesSupabaseRows } from "@/services/rows/rowsBackend";
+import { sbDropOrderRow } from "@/services/rows/supabaseRowStore";
 import { findInProgressStatusOption, getColumnOptions } from "@/utils/columnOptions";
 import { isBlankRow, isFilledCellValue } from "@/utils/blankRow";
 import { currentMonthSubPageId, ensureMonthTab, isMonthlyDesk } from "@/services/monthTabService";
@@ -443,6 +445,27 @@ export async function setOrderCancelled(workspaceId: string, order: WorkOrder, c
 export async function deleteOrder(workspaceId: string, orderId: string) {
   if (!db) throw new Error("Firebase не настроен");
   await deleteDoc(paths.order(workspaceId, orderId));
+}
+
+/**
+ * Убрать из стола технаря строку, которую туда привёз заказ, — перед
+ * удалением самого заказа (просьба Nurba: удалил заказ — пропал и у
+ * технаря). Удаляют заказ его ОС, Тимлид и Owner, а в чужой стол из них
+ * пишет только Owner, поэтому право даёт не стол, а сам заказ: правило
+ * Firestore сверяет строку с `takenRowId` заказа и автора заказа, в Supabase
+ * — функция `rows_drop_order_row`. Строки уже нет — не ошибка.
+ */
+export async function removeOrderDeskRow(workspaceId: string, order: WorkOrder): Promise<void> {
+  const pageId = order.takenPageId;
+  if (!pageId) return;
+  const rowId = order.takenRowId ?? orderRowId(order.id);
+  const tab = order.takenSubPageId ?? null;
+  if (usesSupabaseRows(workspaceId)) {
+    await sbDropOrderRow(workspaceId, pageId, tab, rowId, order.id);
+    return;
+  }
+  if (tab) await deleteSubPageRow(workspaceId, pageId, tab, rowId);
+  else await deleteRow(workspaceId, pageId, rowId);
 }
 
 /**

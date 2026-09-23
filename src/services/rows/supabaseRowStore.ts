@@ -1023,6 +1023,40 @@ export async function sbDeleteRow(workspaceId: string, pageId: string, tab: stri
   );
 }
 
+/**
+ * Строка, приехавшая в стол технаря с «Заказов», — при удалении самого
+ * заказа. Удаляют заказ ОС, Тимлид и Owner, а политики строк первых двоих в
+ * чужой стол не пускают (и отказ там молчаливый: удаление просто находит
+ * ноль строк), поэтому — функция базы, которая сверяет роль и то, что строка
+ * рождена ЭТИМ заказом. false — строки уже нет.
+ */
+export async function sbDropOrderRow(
+  workspaceId: string,
+  pageId: string,
+  tab: string | null,
+  rowId: string,
+  orderId: string
+): Promise<boolean> {
+  const { data, error } = await supabaseRows.rpc("rows_drop_order_row", {
+    p_workspace: workspaceId,
+    p_page: pageId,
+    p_tab: tabKey(tab),
+    p_row: rowId,
+    p_order: orderId,
+  });
+  if (error) {
+    // Функции нет — SQL 20260926_order_row_drop.sql ещё не накатан.
+    if (error.code === "PGRST202" || error.code === "42883") {
+      throw new RowsStoreError(
+        "В базе строк ещё нет функции удаления строки заказа — накатите SQL (Настройки → Строки таблиц → «Скопировать SQL»)",
+        "supabase-missing-function"
+      );
+    }
+    throw toStoreError(error, "Не удалось убрать строку заказа из стола технаря");
+  }
+  return Boolean(data);
+}
+
 /** Все строки вкладки (tab) или всего стола (tab = undefined). */
 export async function sbDeleteRows(workspaceId: string, pageId: string, tab?: string | null): Promise<void> {
   await optimistic(

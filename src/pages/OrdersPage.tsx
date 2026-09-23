@@ -22,6 +22,7 @@ import {
   countOrdersWithStatus,
   createOrder,
   deleteOrder,
+  removeOrderDeskRow,
   fetchOrder,
   fetchOrderHistoryPage,
   isHistoryOrderStatus,
@@ -911,10 +912,33 @@ export default function OrdersPage() {
                         disabled={busy}
                         onClick={async () => {
                           if (!activeWorkspaceId) return;
-                          if (!(await confirmDialog({ title: `Удалить заказ «${order.client}»?`, description: order.status === "taken" ? "Строка в столе технаря останется." : undefined, destructive: true }))) return;
+                          const inDesk = Boolean(order.takenPageId);
+                          if (
+                            !(await confirmDialog({
+                              title: `Удалить заказ «${order.client}»?`,
+                              description: inDesk ? "Строка в столе технаря удалится вместе с ним." : undefined,
+                              destructive: true,
+                            }))
+                          )
+                            return;
                           void withBusy(
                             order.id,
                             async () => {
+                              // Сначала строка у технаря, потом заказ: право убрать её
+                              // правило берёт из самого заказа, и без него строка
+                              // осталась бы в столе навсегда.
+                              if (inDesk) {
+                                try {
+                                  await removeOrderDeskRow(activeWorkspaceId, order);
+                                } catch (error) {
+                                  const anyway = await confirmDialog({
+                                    title: "Строку у технаря убрать не удалось",
+                                    description: `${firestoreErrorText(error, error instanceof Error && error.message ? error.message : "Ошибка базы")}. Удалить заказ всё равно? Строку тогда уберёт Owner.`,
+                                    destructive: true,
+                                  });
+                                  if (!anyway) return;
+                                }
+                              }
                               await deleteOrder(activeWorkspaceId, order.id);
                               // История не живая — убираем удалённый сами, и из счётчика чипа тоже.
                               setHistory((prev) => (prev === null ? prev : prev.filter((o) => o.id !== order.id)));
