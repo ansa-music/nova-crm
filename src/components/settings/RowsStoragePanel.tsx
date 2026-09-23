@@ -23,6 +23,7 @@ import {
   type RowsHealth,
 } from "@/services/rows/rowsMigrationService";
 import { cn } from "@/utils/cn";
+import { setOsManagedDesks } from "@/services/workspaceService";
 
 const FIREBASE_PROJECT_ID = "nurba-6e70d";
 
@@ -175,6 +176,23 @@ export function RowsStoragePanel() {
     }
   }
 
+  const osManaged = Boolean(activeWorkspace?.osManagedDesks);
+
+  async function toggleOsManaged() {
+    if (!workspaceId) return;
+    setBusy(true);
+    try {
+      await setOsManagedDesks(workspaceId, !osManaged);
+      toast.success(osManaged ? "Технари снова заводят строки сами" : "Заказы теперь заводит только ОС");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setLastError(message);
+      toast.error("Не удалось переключить");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function runMigrate(direction: "supabase" | "firestore") {
     if (!workspaceId || !activeWorkspace) return;
     const toSupabase = direction === "supabase";
@@ -324,6 +342,30 @@ export function RowsStoragePanel() {
               </span>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Заказы заводит только ОС</CardTitle>
+          <CardDescription>
+            Включено — у технарей в их столах нет «Добавить строку» и «Быстрого заказа»: заказы приходят со столов ОС
+            и там же им меняют статус. Сами строки-заказы технарь не правит в любом случае — это держит база.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-3">
+          <Button
+            size="sm"
+            variant={osManaged ? "outline" : "default"}
+            className="gap-1.5"
+            disabled={busy}
+            onClick={() => void toggleOsManaged()}
+          >
+            {osManaged ? "Выключить" : "Включить"}
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            Сейчас: <span className="font-medium text-foreground">{osManaged ? "только ОС" : "как раньше"}</span>
+          </span>
         </CardContent>
       </Card>
 

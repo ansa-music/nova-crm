@@ -812,6 +812,13 @@ export default function DynamicTablePage() {
                 manualRowOrder={(activeSubPage ? activeSubPage.rowOrder : page.rowOrder) === "manual"}
                 rows={rows}
                 canEdit={canEditData}
+                // Заказы заводит только ОС: у технаря в его столе нет
+                // «Добавить строку» и «Быстрый заказ» (Owner не ограничиваем).
+                ordersFromOsOnly={Boolean(
+                  activeWorkspace?.osManagedDesks &&
+                    !page.osDesk &&
+                    !(permissions.isWorkspaceOwner || permissions.realRole === "owner")
+                )}
                 renderRowPanel={(row) => {
                   // Стол ОС — панель выдачи; стол технаря — его поля по заказу,
                   // который ведёт ОС (обычные строки панели не получают).

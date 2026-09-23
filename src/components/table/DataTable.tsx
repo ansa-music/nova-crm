@@ -286,6 +286,11 @@ interface DataTableProps {
   viewer?: RowViewer;
   /** Панель в карточке строки — стол ОС рисует в ней «Заказ у технаря». */
   renderRowPanel?: (row: PageRow) => React.ReactNode;
+  /**
+   * Строки в этом столе заводит только ОС (workspace.osManagedDesks):
+   * «Добавить строку» и «Быстрый заказ» технарю не показываем.
+   */
+  ordersFromOsOnly?: boolean;
   canEditStructure: boolean;
   userId: string;
   userName: string;
@@ -312,7 +317,7 @@ function normalizeContact(raw: string, type: "phone" | "email" | string): string
   return v.toLowerCase();
 }
 
-export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel }: DataTableProps) {
+export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false }: DataTableProps) {
   const columns = useMemo(
     () =>
       page.columns
@@ -3608,7 +3613,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         density={density}
         onDensityChange={handleDensityChange}
         onAddRow={handleAddRow}
-        onQuickOrder={canEdit ? () => { setQuickOrderStatus(null); setQuickOrderOpen(true); } : undefined}
+        canAddRows={!ordersFromOsOnly}
+        onQuickOrder={canEdit && !ordersFromOsOnly ? () => { setQuickOrderStatus(null); setQuickOrderOpen(true); } : undefined}
         highlightCount={highlightedRowIds.length}
         onClearHighlights={canEdit && highlightedRowIds.length > 0 ? handleClearHighlights : undefined}
         onExportCsv={handleExportCsv}
@@ -4055,7 +4061,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       </DndContext>
       )}
 
-      {canEdit && viewMode === "table" && processedRows.length > 0 && (
+      {canEdit && !ordersFromOsOnly && viewMode === "table" && processedRows.length > 0 && (
         <button
           type="button"
           onClick={() => void handleAddRow()}

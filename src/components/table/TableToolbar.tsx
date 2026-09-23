@@ -60,6 +60,8 @@ interface TableToolbarProps {
   density: "compact" | "default" | "comfortable";
   onDensityChange: (density: "compact" | "default" | "comfortable") => void;
   onAddRow: () => void;
+  /** Заказы заводит только ОС — кнопку «Строка» технарю не показываем. */
+  canAddRows?: boolean;
   onQuickOrder?: () => void;
   onExportCsv: () => void;
   onCopyTable?: () => void;
@@ -121,6 +123,7 @@ export function TableToolbar({
   density,
   onDensityChange,
   onAddRow,
+  canAddRows = true,
   onQuickOrder,
   onExportCsv,
   onCopyTable,
@@ -703,7 +706,7 @@ export function TableToolbar({
         </Button>
       )}
 
-      {canEdit && (
+      {canEdit && canAddRows && (
         <Button
           size="sm"
           className="sticky right-0 z-20 ml-1 h-10 shrink-0 gap-1.5 shadow-[-8px_0_8px_-4px_hsl(0_0%_2%)] sm:static sm:ml-0 sm:h-8 sm:shadow-none"

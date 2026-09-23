@@ -64,6 +64,14 @@ export async function requestReloadEverywhere(workspaceId: string) {
   await updateDoc(paths.workspace(workspaceId), { reloadEpoch: increment(1) });
 }
 
+/**
+ * «Заказы заводит только ОС» — Owner. У технарей в их столах пропадают
+ * «Добавить строку» и «Быстрый заказ»; сами заказы приходят со столов ОС.
+ */
+export async function setOsManagedDesks(workspaceId: string, on: boolean) {
+  await updateWorkspace(workspaceId, { osManagedDesks: on });
+}
+
 export async function updateResponsibleOptions(workspaceId: string, options: StatusOption[]) {
   await updateWorkspace(workspaceId, { responsibleOptions: options });
 }
