@@ -937,7 +937,11 @@ export default function OrdersPage() {
                               // осталась бы в столе навсегда.
                               if (inDesk) {
                                 try {
-                                  await removeOrderDeskRow(activeWorkspaceId, order);
+                                  await removeOrderDeskRow(
+                                    activeWorkspaceId,
+                                    order,
+                                    permissions.hasFullDeskAccess || order.createdBy === profile?.uid
+                                  );
                                 } catch (error) {
                                   const anyway = await confirmDialog({
                                     title: "Строку у технаря убрать не удалось",

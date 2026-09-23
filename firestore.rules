@@ -1462,6 +1462,47 @@ service cloud.firestore {
       // (mark-as-read) their own — never anyone else's — and may delete
       // their own to clear it from their list.
       // -----------------------------------------------------------------
+      // Запрос технаря к ОС по заказу, который ведёт ОС: «удалить заказ»
+      // или «поставьте такой-то статус» (просьба Nurba 23.09.2026). Технарь
+      // пишет за себя и только `pending`, набор ключей — ровно тот, что пишет
+      // submitOrderRequest; решает ОС этого заказа (или руководство) — меняет
+      // только state и отметки о решении; читают технарь, ОС и руководство.
+      match /orderRequests/{requestId} {
+        function orderRequestShapeOk() {
+          return request.resource.data.keys().hasOnly(['workspaceId', 'kind', 'status', 'statusLabel', 'note', 'techUid',
+              'techName', 'osUid', 'client', 'deskPageId', 'deskTabId', 'rowId', 'srcPageId', 'srcTabId', 'srcRowId',
+              'state', 'createdAt', 'resolvedAt', 'resolvedBy'])
+            && request.resource.data.workspaceId == workspaceId
+            && request.resource.data.kind in ['delete', 'status']
+            && request.resource.data.note is string && request.resource.data.note.size() <= 300
+            && request.resource.data.osUid is string && request.resource.data.osUid != request.auth.uid
+            && request.resource.data.createdAt is number
+            && request.resource.data.resolvedAt == null && request.resource.data.resolvedBy == null;
+        }
+        allow read: if isMember(workspaceId)
+          && (resource.data.techUid == request.auth.uid
+            || resource.data.osUid == request.auth.uid
+            || hasFullAccess(workspaceId));
+        // Новая просьба и повтор после решения (тот же id) — от технаря за себя.
+        allow create, update: if isMember(workspaceId)
+          && request.resource.data.techUid == request.auth.uid
+          && request.resource.data.state == 'pending'
+          && (resource == null || resource.data.techUid == request.auth.uid)
+          && orderRequestShapeOk();
+        // Решение ОС этого заказа или руководства.
+        allow update: if isMember(workspaceId)
+          && (resource.data.osUid == request.auth.uid || hasFullAccess(workspaceId))
+          && resource.data.state == 'pending'
+          && request.resource.data.state in ['approved', 'rejected']
+          && request.resource.data.resolvedBy == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state', 'resolvedAt', 'resolvedBy']);
+        // Отозвать — сам технарь, пока не решили; убрать — ОС или Owner.
+        allow delete: if isMember(workspaceId)
+          && ((resource.data.techUid == request.auth.uid && resource.data.state == 'pending')
+            || resource.data.osUid == request.auth.uid
+            || isOwner(workspaceId));
+      }
+
       match /notifications/{notificationId} {
         allow read, delete: if signedIn() && resource.data.targetUid == request.auth.uid;
         allow update: if signedIn()

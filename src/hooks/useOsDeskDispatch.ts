@@ -78,6 +78,12 @@ export interface OsDeskDispatchInput {
   };
   osUid: string;
   osNickValue: string;
+  /**
+   * Строки стола пришли С СЕРВЕРА (не из кэша и не пустота до первой выборки).
+   * Только по такому списку можно решать «строки больше нет — убрать заказ у
+   * технаря»: по неполному списку проход снял бы живые заказы.
+   */
+  rowsFromServer?: boolean;
 }
 
 const OS_COLUMNS = OS_MIRROR_COLUMNS;
@@ -167,6 +173,51 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
         }
       }
       if (extra.length) toast.success(`Убрал лишние копии заказов: ${extra.length}`);
+
+      // Строку удалили со стола ОС — заказ уходит и из стола технаря (жалоба
+      // Nurba 23.09.2026: «удаляешь заказ — у технаря он остаётся»). Сирота —
+      // копия, чья строка-источник лежала в ЭТОЙ таблице и её больше нет.
+      // Только по списку строк с сервера: пустота до первой выборки сняла бы
+      // все заказы разом.
+      if (cur.rowsFromServer) {
+        const present = new Set(cur.rows.map((r) => r.id));
+        const tab = cur.subPageId ?? "";
+        const orphans = cur.orders.rows.filter(
+          (m) =>
+            m.srcRowId &&
+            m.srcPageId === cur.pageId &&
+            (m.srcTabId ?? "") === tab &&
+            m.osUid === cur.osUid &&
+            !present.has(m.srcRowId) &&
+            !busy.current.has(m.srcRowId)
+        );
+        for (const m of orphans) {
+          try {
+            await sbDeleteRow(cur.workspaceId, m.deskPageId ?? "", m.tabId || null, m.id);
+            changed = true;
+            const deskPage = allPages.find((p) => p.id === m.deskPageId);
+            const clientKey = deskPage?.osFieldKeys?.client;
+            void logOsDispatch(cur.workspaceId, {
+              kind: "unassign",
+              osUid: cur.osUid,
+              osName,
+              techUid: null,
+              techName: "",
+              prevTechName: nameOf(deskPage?.responsibleUserId, "технарь"),
+              client: clientKey ? cellText(m, clientKey) : "",
+              phone: "",
+              amount: null,
+              srcPageId: cur.pageId,
+              srcRowId: m.srcRowId ?? "",
+            }).catch(() => undefined);
+          } catch {
+            // Не вышло — повторим в следующий проход.
+          }
+        }
+        if (orphans.length) {
+          toast.success(orphans.length === 1 ? "Удалённый заказ убран у технаря" : `Удалённые заказы убраны у технарей: ${orphans.length}`);
+        }
+      }
 
       for (const row of cur.rows) {
         if (busy.current.has(row.id)) continue;

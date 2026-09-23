@@ -49,6 +49,7 @@ import { useMyOrderRows } from "@/hooks/useMyOrderRows";
 import { useOsDeskDispatch } from "@/hooks/useOsDeskDispatch";
 import { OsOrderPanel } from "@/components/os/OsOrderPanel";
 import { OsDispatchChoiceDialog } from "@/components/os/OsDispatchChoiceDialog";
+import { OsOrderRequestsPanel } from "@/components/os/OsOrderRequestsPanel";
 import { TechPickerSheet } from "@/components/os/TechPickerSheet";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { TechOrderPanel } from "@/components/os/TechOrderPanel";
@@ -324,6 +325,7 @@ export default function DynamicTablePage() {
     orders: myOrders,
     osUid: permissions.uid,
     osNickValue: myOsNickValue,
+    rowsFromServer,
   });
 
   useDeskLoadPublisher({
@@ -875,6 +877,11 @@ export default function DynamicTablePage() {
           </div>
 
           {statsOpen && !chromeHidden && <SubPageStats columns={activeSubPage ? activeSubPage.columns : page.columns} rows={rows} />}
+
+          {/* Стол ОС: запросы технарей «удалить заказ» / «поставить статус». */}
+          {isMyOsDesk ? (
+            <OsOrderRequestsPanel osUid={permissions.uid} mirrors={myOrders.rows} sourceRows={rows} onChanged={myOrders.refresh} />
+          ) : null}
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {rowsLoading ? (

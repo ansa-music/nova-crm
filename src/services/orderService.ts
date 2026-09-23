@@ -25,7 +25,7 @@ import { sendNotification } from "@/services/notificationService";
 import { addRow, deleteRow, fetchRows, markRowOrder, updateRowCellsBulk } from "@/services/pageService";
 import { addSubPageRow, deleteSubPageRow, fetchSubPageRows, fetchSubPages, updateSubPageRowCellsBulk } from "@/services/subPageService";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
-import { sbDropOrderRow } from "@/services/rows/supabaseRowStore";
+import { sbDeleteRow, sbDropOrderRow, sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { findInProgressStatusOption, getColumnOptions } from "@/utils/columnOptions";
 import { isBlankRow, isFilledCellValue } from "@/utils/blankRow";
 import { currentMonthSubPageId, ensureMonthTab, isMonthlyDesk } from "@/services/monthTabService";
@@ -459,11 +459,28 @@ export async function deleteOrder(workspaceId: string, orderId: string) {
  * Firestore сверяет строку с `takenRowId` заказа и автора заказа, в Supabase
  * — функция `rows_drop_order_row`. Строки уже нет — не ошибка.
  */
-export async function removeOrderDeskRow(workspaceId: string, order: WorkOrder): Promise<void> {
+export async function removeOrderDeskRow(
+  workspaceId: string,
+  order: WorkOrder,
+  /** Удаляющий вправе убрать строку-заказ ОС: это сам ОС-автор или Owner. */
+  canDropOsOrder = false
+): Promise<void> {
   const pageId = order.takenPageId;
   if (!pageId) return;
   const rowId = order.takenRowId ?? orderRowId(order.id);
   const tab = order.takenSubPageId ?? null;
+  // Заказ со стола ОС: у технаря лежит строка-заказ с меткой ОС (её ведёт ОС),
+  // а не строка с биржи, и `rows_drop_order_row` её не найдёт. Убирает её сам
+  // ОС (или Owner), и вместе с ней снимается ник технаря в строке ОС — иначе
+  // проход стола ОС завёл бы копию заново.
+  if (order.osSource && usesSupabaseRows(workspaceId)) {
+    if (!canDropOsOrder) throw new Error("Заказ со стола ОС убирает у технаря сам ОС или Owner");
+    await sbDeleteRow(workspaceId, pageId, tab, rowId);
+    await sbPatchRow(workspaceId, order.osSource.pageId, order.osSource.tabId, order.osSource.rowId, {
+      cells: { technician: "" },
+    });
+    return;
+  }
   if (usesSupabaseRows(workspaceId)) {
     await sbDropOrderRow(workspaceId, pageId, tab, rowId, order.id);
     return;
