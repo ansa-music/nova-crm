@@ -320,6 +320,70 @@ select tst.expect('Тимлид заводит стол ОС настоящем�
   tst.try('TL', $q$insert into rows_page_acl (workspace_id, page_id, responsible_uid, created_by, os_desk, allowed_uids, editable_uids) values ('W','osdesk_OS2','OS2','OS2',true,'{OS2}','{}')$q$), 'ok');
 
 -- ---------------------------------------------------------------------
+-- Строка-заказ: ведёт ОС, технарю оставлены свои поля.
+-- ---------------------------------------------------------------------
+-- ОС заводит строку в столе технаря (P1 — стол T1).
+select tst.expect('ОС заводит строку-заказ в столе технаря',
+  tst.try('OS1', $q$insert into desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at, os_uid, tech_uid, status_key)
+    values ('W','P1','','ord1','{"client":"Заказ ОС","status":"work"}',10,1000,1000,'OS1','T1','status')$q$), 'ok');
+-- Адресность: строка обязана быть адресована ОТВЕТСТВЕННОМУ за этот стол.
+select tst.expect('ОС НЕ заводит строку чужому технарю в этот стол',
+  tst.try('OS1', $q$insert into desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at, os_uid, tech_uid, status_key)
+    values ('W','P1','','ord2','{"client":"Мимо"}',11,1000,1000,'OS1','T2','status')$q$), 'error');
+select tst.expect('ОС без роли ОС строку-заказ не заводит',
+  tst.try('T2', $q$insert into desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at, os_uid, tech_uid, status_key)
+    values ('W','P1','','ord3','{"client":"Чужой"}',12,1000,1000,'T2','T1','status')$q$), 'error');
+
+-- Дальше строка нужна НАСТОЯЩАЯ: tst.try откатывает свои изменения.
+select tst.run('OS1', $q$insert into desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at, os_uid, tech_uid, status_key)
+  values ('W','P1','','ord1','{"client":"Заказ ОС","status":"work"}',10,1000,1000,'OS1','T1','status')$q$);
+
+-- Технарь: свои поля можно, чужие нельзя.
+select tst.expect('технарь пишет свои поля строки-заказа',
+  tst.try('T1', $q$update desk_rows set cells = cells || '{"techLink":"https://site","techNote":"сделал"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'ok');
+select tst.expect('технарь НЕ меняет статус строки-заказа',
+  tst.try('T1', $q$update desk_rows set cells = cells || '{"status":"done"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'error');
+select tst.expect('технарь НЕ меняет цену строки-заказа',
+  tst.try('T1', $q$update desk_rows set cells = cells || '{"price":"999"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'error');
+select tst.expect('технарь НЕ переписывает замок строки',
+  tst.try('T1', $q$update desk_rows set os_uid = 'T1' where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'error');
+select tst.expect('технарь НЕ удаляет строку-заказ',
+  tst.try('T1', $q$delete from desk_rows where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'deny');
+select tst.expect('технарь просит «Успешку» за себя',
+  tst.try('T1', $q$update desk_rows set success_requested_at = 123, success_requested_by = 'T1' where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'ok');
+select tst.expect('технарь НЕ просит «Успешку» за другого',
+  tst.try('T1', $q$update desk_rows set success_requested_by = 'T2' where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'error');
+select tst.expect('технарь правит обычную строку как раньше',
+  tst.try('T1', $q$update desk_rows set cells = cells || '{"client":"Аня-2"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='r1'$q$), 'ok');
+
+-- ОС: своя строка целиком, чужая — нет.
+select tst.expect('ОС меняет статус и цену своей строки',
+  tst.try('OS1', $q$update desk_rows set cells = cells || '{"status":"done","price":"5000"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'ok');
+select tst.expect('ОС видит свою строку в чужом столе',
+  tst.try('OS1', $q$select * from desk_rows where workspace_id='W' and page_id='P1' and id='ord1'$q$, true), 'ok:1');
+select tst.expect('ОС НЕ видит остальные строки чужого стола',
+  tst.try('OS1', $q$select * from desk_rows where workspace_id='W' and page_id='P1' and id='r1'$q$, true), 'ok:0');
+select tst.expect('чужой ОС не видит эту строку',
+  tst.try('OS2', $q$select * from desk_rows where workspace_id='W' and page_id='P1' and id='ord1'$q$, true), 'ok:0');
+select tst.expect('чужой ОС не правит эту строку',
+  tst.try('OS2', $q$update desk_rows set cells = cells || '{"status":"work"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'deny');
+
+-- Тимлид: ровно статус (успешка по просьбе).
+select tst.expect('Тимлид ставит статус в строке-заказе',
+  tst.try('TL', $q$update desk_rows set cells = cells || '{"status":"success"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'ok');
+select tst.expect('Тимлид НЕ меняет цену в строке-заказе',
+  tst.try('TL', $q$update desk_rows set cells = cells || '{"price":"1"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'error');
+select tst.expect('Тимлид НЕ трогает обычные строки стола технаря',
+  tst.try('TL', $q$update desk_rows set cells = cells || '{"client":"Нет"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='r1'$q$), 'deny');
+
+-- Owner: аварийное снятие управления.
+select tst.expect('Owner снимает управление со строки',
+  tst.try('O', $q$update desk_rows set os_uid = null, tech_uid = null, status_key = null where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'ok');
+select tst.run('O', $q$update desk_rows set os_uid = null, tech_uid = null, status_key = null where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$);
+select tst.expect('после снятия технарь правит строку сам',
+  tst.try('T1', $q$update desk_rows set cells = cells || '{"status":"work"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'ok');
+
+-- ---------------------------------------------------------------------
 select case when ok then '  OK  ' else 'FAIL  ' end || label || case when ok then '' else '  → ' || got end
 from tst.results order by n;
 select format('ПРОВЕРОК: %s, ПРОВАЛЕНО: %s', count(*), count(*) filter (where not ok)) from tst.results;

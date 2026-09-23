@@ -467,7 +467,36 @@ create table if not exists public.desk_rows (
   primary key (workspace_id, page_id, tab_id, id)
 );
 
+-- Строка-заказ, которую ВЕДЁТ ОС (см. «Стол ОС — источник» в CLAUDE.md).
+-- os_uid — это и есть замок: он не пустой, значит статус, цену и клиента
+-- правит только ОС, а технарю оставлены свои поля. Именно uid, а не ник: ник
+-- лежит в обычной ЯЧЕЙКЕ, которую пишет сам технарь, и право, выведенное из
+-- ячейки, чеканил бы тот, кого оно ограничивает; плюс ник переназначает
+-- руководство, и смена ника молча передала бы права на старые строки.
+alter table public.desk_rows
+  add column if not exists os_uid text,
+  -- Кому адресована строка: политика вставки сверяет его с ответственным за
+  -- стол, иначе любой ОС дописывал бы строки в любой стол.
+  add column if not exists tech_uid text,
+  -- Ключ столбца статуса ЭТОЙ вкладки: ключи у вкладок разные, хардкод
+  -- 'status' не годится. По нему же Тимлид получает право ставить «Успешку».
+  add column if not exists status_key text,
+  -- Адрес строки-источника в столе ОС (и зеркальный адрес на той строке).
+  add column if not exists src_page_id text,
+  add column if not exists src_tab_id text,
+  add column if not exists src_row_id text,
+  add column if not exists mirror_page_id text,
+  add column if not exists mirror_tab_id text,
+  add column if not exists mirror_row_id text,
+  -- Хеш зеркалируемых полей, одинаковый на обеих строках: сверка «доехало ли»
+  -- идёт по нему БЕЗ выборки самих ячеек (на стол это мегабайты трафика).
+  add column if not exists sync_hash text,
+  -- Технарь просит поставить «Успешку» — чип прямо на строке.
+  add column if not exists success_requested_at bigint,
+  add column if not exists success_requested_by text;
+
 create index if not exists desk_rows_tab_order on public.desk_rows (workspace_id, page_id, tab_id, sort_order);
+create index if not exists desk_rows_os_uid on public.desk_rows (workspace_id, os_uid) where os_uid is not null;
 create index if not exists desk_rows_created on public.desk_rows (workspace_id, page_id, created_at);
 create index if not exists desk_rows_filled on public.desk_rows (workspace_id, page_id, filled_at);
 
@@ -479,41 +508,108 @@ create policy desk_rows_read on public.desk_rows for select to anon, authenticat
   using (
     workspace_id in (select public.rows_read_all_workspaces())
     or (workspace_id, page_id) in (select r.workspace_id, r.page_id from public.rows_readable_pages() r)
+    -- СВОИ строки-заказы в чужих столах: ОС ведёт заказ у себя, а живёт он в
+    -- столе технаря. Видит он ровно свои строки и ничего больше этого стола.
+    or (os_uid is not null and os_uid = public.rows_uid() and public.rows_is_member(workspace_id))
+    -- Тимлид видит строки-ЗАКАЗЫ (и только их): по просьбе технаря он ставит
+    -- «Успешку», а поставить статус в строке, которой не видишь, нельзя.
+    -- Ничего нового ему это не открывает: те же заказы лежат на столах ОС,
+    -- которые любой Тимлид читает и сейчас. Обычные строки стола технаря
+    -- по-прежнему закрыты (это и есть isDeskBlocked).
+    or (os_uid is not null and public.rows_is_teamlead(workspace_id))
   );
 
 drop policy if exists desk_rows_insert on public.desk_rows;
 create policy desk_rows_insert on public.desk_rows for insert to anon, authenticated
   with check (
     workspace_id in (select public.rows_writable_workspaces())
-    and (workspace_id in (select public.rows_edit_all_workspaces())
-      or (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e))
+    and (
+      workspace_id in (select public.rows_edit_all_workspaces())
+      or (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e)
+      -- ОС заводит строку-заказ в столе технаря. Три условия обязательны:
+      -- владелец ячеек — он сам, у него есть роль ОС, и строка адресована
+      -- ИМЕННО ответственному за этот стол. Без последнего любой ОС дописывал
+      -- бы строки в любой стол (метки заказа тут не защита: коллекцию заказов
+      -- читает любой участник, id заказа не секрет).
+      or (
+        os_uid is not null
+        and os_uid = public.rows_uid()
+        and public.rows_has_role(workspace_id, 'os')
+        and tech_uid is not null
+        and status_key is not null
+        and exists (
+          select 1 from public.rows_page_acl a
+          where a.workspace_id = desk_rows.workspace_id
+            and a.page_id = desk_rows.page_id
+            and not a.os_desk
+            and a.responsible_uid = desk_rows.tech_uid
+        )
+      )
+    )
   );
 
+-- Кто вообще может ТРОНУТЬ строку — здесь; какие ПОЛЯ ему при этом можно —
+-- в триггере desk_rows_guard ниже (политика не видит старое значение рядом с
+-- новым, а правило «технарь пишет только свои поля» без этого не выразить).
 drop policy if exists desk_rows_update on public.desk_rows;
 create policy desk_rows_update on public.desk_rows for update to anon, authenticated
   using (
     workspace_id in (select public.rows_writable_workspaces())
-    and (workspace_id in (select public.rows_edit_all_workspaces())
-      or (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e))
+    and (
+      workspace_id in (select public.rows_edit_all_workspaces())
+      or (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e)
+      -- ОС правит свою строку-заказ в чужом столе.
+      or (os_uid is not null and os_uid = public.rows_uid())
+      -- Тимлид ставит «Успешку» по просьбе технаря — только статус, см. триггер.
+      or (os_uid is not null and public.rows_is_teamlead(workspace_id))
+    )
   )
   with check (
     workspace_id in (select public.rows_writable_workspaces())
-    and (workspace_id in (select public.rows_edit_all_workspaces())
-      or (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e))
+    and (
+      workspace_id in (select public.rows_edit_all_workspaces())
+      or (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e)
+      or (os_uid is not null and os_uid = public.rows_uid())
+      or (os_uid is not null and public.rows_is_teamlead(workspace_id))
+    )
   );
 
 drop policy if exists desk_rows_delete on public.desk_rows;
 create policy desk_rows_delete on public.desk_rows for delete to anon, authenticated
   using (
     workspace_id in (select public.rows_writable_workspaces())
-    and (workspace_id in (select public.rows_edit_all_workspaces())
-      or (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e))
+    and (
+      workspace_id in (select public.rows_edit_all_workspaces())
+      -- Строку-заказ технарь не удаляет: иначе он выходил бы из-под замка
+      -- удалением. Её убирает ОС этого заказа или Owner.
+      or (os_uid is null and (workspace_id, page_id) in (select e.workspace_id, e.page_id from public.rows_editable_pages() e))
+      or (os_uid is not null and os_uid = public.rows_uid())
+    )
   );
 
 -- ---------------------------------------------------------------------
 -- 5. Операции, которых нет в простом REST: слияние ячеек и порядок.
 --    SECURITY INVOKER — политики выше действуют как обычно.
 -- ---------------------------------------------------------------------
+
+-- Номер для НОВОЙ строки внизу таблицы. SECURITY DEFINER намеренно: обычный
+-- подзапрос считал бы максимум под правами вызывающего, а ОС видит в чужом
+-- столе только СВОИ строки — новые строки вставали бы друг на друга и на
+-- чужие. Наружу отдаётся одно число, ничего чужого через него не видно.
+create or replace function public.rows_append_order(p_workspace text, p_page text, p_tab text)
+returns double precision
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select coalesce(max(x.sort_order) + 1, 0)
+  from public.desk_rows x
+  where x.workspace_id = p_workspace and x.page_id = p_page and x.tab_id = coalesce(p_tab, '')
+$$;
+
+-- Старая сигнатура rows_patch удаляется ЯВНО: `create or replace` с новым
+-- списком параметров создал бы ВТОРУЮ функцию, и PostgREST ответил бы
+-- PGRST203 «ambiguous» — перестали бы сохраняться все правки у всех.
+drop function if exists public.rows_patch(text, text, text, text, jsonb, bigint, bigint, text, jsonb, boolean, text, boolean, jsonb, integer);
 
 -- Правка строки слиянием — как setDoc(..., { merge: true }) в Firestore:
 -- переданные ячейки ложатся поверх, остальные не трогаются. Слияние идёт
@@ -535,7 +631,20 @@ create or replace function public.rows_patch(
   p_order_id text default null,
   p_attachments_set boolean default false,
   p_attachments jsonb default null,
-  p_height integer default null
+  p_height integer default null,
+  -- Поля строки-заказа (см. выше). Все с default null: обычная правка их не
+  -- передаёт и не трогает.
+  p_os_uid text default null,
+  p_tech_uid text default null,
+  p_status_key text default null,
+  p_sync_hash text default null,
+  p_src_page text default null,
+  p_src_tab text default null,
+  p_src_row text default null,
+  p_success_requested_at bigint default null,
+  p_success_requested_by text default null,
+  -- Снять просьбу об «Успешке» (решили — чип гаснет).
+  p_clear_success boolean default false
 ) returns void
 language plpgsql
 set search_path = public, pg_temp
@@ -549,16 +658,19 @@ begin
   end if;
   insert into public.desk_rows as r (
     workspace_id, page_id, tab_id, id, cells, extras, attachments, sort_order, height,
-    created_at, updated_at, filled_at, order_id, highlight
+    created_at, updated_at, filled_at, order_id, highlight,
+    os_uid, tech_uid, status_key, sync_hash, src_page_id, src_tab_id, src_row_id,
+    success_requested_at, success_requested_by
   ) values (
     p_workspace, p_page, tab, p_id,
     coalesce(p_cells, '{}'::jsonb),
     case when p_extras_mode = 'set' then p_extras end,
     case when p_attachments_set then p_attachments end,
-    coalesce((select max(x.sort_order) + 1 from public.desk_rows x
-      where x.workspace_id = p_workspace and x.page_id = p_page and x.tab_id = tab), 0),
+    public.rows_append_order(p_workspace, p_page, tab),
     p_height,
-    now_ms, now_ms, p_filled_at, p_order_id, coalesce(p_highlight, false)
+    now_ms, now_ms, p_filled_at, p_order_id, coalesce(p_highlight, false),
+    p_os_uid, p_tech_uid, p_status_key, p_sync_hash, p_src_page, p_src_tab, p_src_row,
+    p_success_requested_at, p_success_requested_by
   )
   on conflict (workspace_id, page_id, tab_id, id) do update set
     cells = r.cells || coalesce(p_cells, '{}'::jsonb),
@@ -572,7 +684,16 @@ begin
       then r.updated_at else now_ms end,
     filled_at = coalesce(p_filled_at, r.filled_at),
     order_id = coalesce(p_order_id, r.order_id),
-    highlight = coalesce(p_highlight, r.highlight);
+    highlight = coalesce(p_highlight, r.highlight),
+    os_uid = coalesce(p_os_uid, r.os_uid),
+    tech_uid = coalesce(p_tech_uid, r.tech_uid),
+    status_key = coalesce(p_status_key, r.status_key),
+    sync_hash = coalesce(p_sync_hash, r.sync_hash),
+    src_page_id = coalesce(p_src_page, r.src_page_id),
+    src_tab_id = coalesce(p_src_tab, r.src_tab_id),
+    src_row_id = coalesce(p_src_row, r.src_row_id),
+    success_requested_at = case when p_clear_success then null else coalesce(p_success_requested_at, r.success_requested_at) end,
+    success_requested_by = case when p_clear_success then null else coalesce(p_success_requested_by, r.success_requested_by) end;
 end;
 $$;
 
@@ -647,6 +768,107 @@ as $$
 $$;
 
 -- ---------------------------------------------------------------------
+-- 5б. Страж полей строки-заказа.
+--
+-- Политика решает, КТО может тронуть строку; какие ПОЛЯ ему при этом можно —
+-- решается здесь: политике не видно старое значение рядом с новым, а всё
+-- правило держится именно на сравнении. Технарю в строке-заказе оставлены
+-- только свои поля (ссылка на работу, примечание, файлы, высота, порядок,
+-- снятие подсветки) и просьба об «Успешке»; статус, цену, клиента и ОС он не
+-- трогает. Тимлиду оставлен ровно статус — тот, что назван в status_key.
+-- ---------------------------------------------------------------------
+create or replace function public.desk_rows_guard() returns trigger
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  me text := public.rows_uid();
+  is_owner boolean := old.workspace_id in (select public.rows_edit_all_workspaces());
+  changed text[];
+  allowed text[] := array['techLink', 'techNote'];
+begin
+  -- Не строка-заказ и ею не становится — обычная правка, решает политика.
+  if old.os_uid is null and new.os_uid is null then
+    return new;
+  end if;
+
+  -- Owner может всё, включая снятие управления со строки (аварийный выход,
+  -- если ОС уволился или недоступен, а заказ надо закрыть).
+  if is_owner then
+    return new;
+  end if;
+
+  -- Взять строку под управление может только сам ОС и только на себя.
+  if old.os_uid is null and new.os_uid is not null then
+    if new.os_uid <> me or not public.rows_has_role(new.workspace_id, 'os') then
+      raise exception 'desk_rows: строку-заказ заводит её ОС' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+
+  -- Дальше строка уже управляемая. Опорные поля не переписываются никем,
+  -- кроме Owner: иначе замок снимается переписыванием замка.
+  if new.os_uid is distinct from old.os_uid
+     or new.tech_uid is distinct from old.tech_uid
+     or new.status_key is distinct from old.status_key
+     or new.src_page_id is distinct from old.src_page_id
+     or new.src_tab_id is distinct from old.src_tab_id
+     or new.src_row_id is distinct from old.src_row_id then
+    raise exception 'desk_rows: поля строки-заказа меняет только Owner' using errcode = '42501';
+  end if;
+
+  -- ОС этой строки — хозяин её содержимого.
+  if old.os_uid = me then
+    return new;
+  end if;
+
+  -- Какие ячейки изменились.
+  changed := array(
+    select coalesce(o.key, n.key)
+    from jsonb_each(coalesce(old.cells, '{}'::jsonb)) o
+    full outer join jsonb_each(coalesce(new.cells, '{}'::jsonb)) n on n.key = o.key
+    where o.value is distinct from n.value
+  );
+
+  -- Тимлид: ровно статус (по ключу из строки) и снятие просьбы об «Успешке».
+  if public.rows_is_teamlead(old.workspace_id) then
+    if not (changed <@ array[old.status_key]) then
+      raise exception 'desk_rows: Тимлид меняет в строке-заказе только статус' using errcode = '42501';
+    end if;
+    if new.extras is distinct from old.extras
+       or new.attachments is distinct from old.attachments
+       or new.order_id is distinct from old.order_id
+       or new.sync_hash is distinct from old.sync_hash then
+      raise exception 'desk_rows: Тимлид меняет в строке-заказе только статус' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+
+  -- Технарь: свои поля и просьба об «Успешке».
+  if not (changed <@ allowed) then
+    raise exception 'desk_rows: статус, цену и клиента в этой строке ведёт ОС' using errcode = '42501';
+  end if;
+  if new.extras is distinct from old.extras
+     or new.order_id is distinct from old.order_id
+     or new.sync_hash is distinct from old.sync_hash
+     or new.filled_at is distinct from old.filled_at then
+    raise exception 'desk_rows: эту строку ведёт ОС' using errcode = '42501';
+  end if;
+  -- Просить «Успешку» можно только за себя.
+  if new.success_requested_by is distinct from old.success_requested_by
+     and new.success_requested_by is not null
+     and new.success_requested_by <> me then
+    raise exception 'desk_rows: просьбу об «Успешке» оставляют за себя' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists desk_rows_guard on public.desk_rows;
+create trigger desk_rows_guard before update on public.desk_rows
+  for each row execute function public.desk_rows_guard();
+
+-- ---------------------------------------------------------------------
 -- 6. Доступ ролей API. RLS решает, что видно, а без GRANT не видно ничего.
 --    Токен Firebase без claim `role` приходит ролью anon — поэтому обе.
 -- ---------------------------------------------------------------------
@@ -663,7 +885,9 @@ grant execute on function
   public.rows_set_state(text, boolean, boolean),
   public.rows_edit_all_workspaces(), public.rows_editable_pages(),
   public.rows_can_access_page(text, text), public.rows_can_edit_page(text, text),
-  public.rows_patch(text, text, text, text, jsonb, bigint, bigint, text, jsonb, boolean, text, boolean, jsonb, integer),
+  public.rows_patch(text, text, text, text, jsonb, bigint, bigint, text, jsonb, boolean, text, boolean, jsonb, integer,
+    text, text, text, text, text, text, text, bigint, text, boolean),
+  public.rows_append_order(text, text, text),
   public.rows_set_order(text, text, text, text[]),
   public.rows_whoami(text), public.rows_page_access(text, text)
   to anon, authenticated;
