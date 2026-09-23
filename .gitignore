@@ -10,3 +10,4 @@ dist
 # via `graphify update .`; not committed to avoid bloating the repo with
 # a large regenerable build artifact (graph.json/graph.html run ~5-6MB).
 graphify-out/
+src/firebase/firestoreChannel.ts
