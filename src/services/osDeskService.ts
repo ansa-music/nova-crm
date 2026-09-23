@@ -2,7 +2,9 @@ import { getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
-import { ensureNewDeskAcl, stripUndefined, updatePageColumns } from "@/services/pageService";
+import { ensureNewDeskAcl, stripUndefined, updatePageColumns, updatePageMainTab } from "@/services/pageService";
+import { currentMonthKey, ensureMonthTab } from "@/services/monthTabService";
+import { monthTabNameForKey } from "@/services/subPageService";
 import type { PageColumn, WorkspacePage } from "@/types";
 
 /**
@@ -130,4 +132,32 @@ export async function ensureOsDesk({ workspaceId, uid, name }: EnsureOsDeskInput
   await setDoc(ref, stripUndefined(page));
   await ensureNewDeskAcl(workspaceId, page);
   return page;
+}
+
+/**
+ * Стол ОС живёт по месяцам, как стол технаря, но БЕЗ лишних сущностей.
+ *
+ * Просьба Nurba 23.09.2026: «у ОС стол стоит как Основная, а должно быть
+ * название Сентябрь и автоматом в следующий месяц уходить — не создавай
+ * новую страницу, только переименуй основную».
+ *
+ * Поэтому:
+ * - первый раз просто НАЗЫВАЕМ главную вкладку текущим месяцем — ни стола,
+ *   ни вкладки не заводим, заказы остаются на месте;
+ * - в новом месяце заводим ВКЛАДКУ (не стол) и делаем её открываемой по
+ *   умолчанию, а прошлый месяц остаётся под своим именем — туда можно
+ *   вернуться, и его заказы не смешиваются с новыми.
+ *
+ * Зовётся из сессии хозяина стола (и Owner), один раз за заход.
+ */
+export async function ensureOsDeskMonth(page: WorkspacePage, uid: string): Promise<void> {
+  const monthKey = currentMonthKey();
+  if (!page.mainTabMonthKey) {
+    await updatePageMainTab(page.workspaceId, page.id, { name: monthTabNameForKey(monthKey), monthKey });
+    return;
+  }
+  // Месяц главной вкладки или последней заведённой совпал с нынешним —
+  // делать нечего.
+  if (page.mainTabMonthKey === monthKey || page.autoMonthKey === monthKey) return;
+  await ensureMonthTab(page, monthKey, uid);
 }

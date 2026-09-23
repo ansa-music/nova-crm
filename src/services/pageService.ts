@@ -497,6 +497,25 @@ export async function updatePageOsFieldKeys(workspaceId: string, pageId: string,
   await setDoc(paths.page(workspaceId, pageId), { osFieldKeys, updatedAt: Date.now() }, { merge: true });
 }
 
+/**
+ * Подпись главной вкладки (и месяц, который в ней лежит) — стол ОС называет
+ * её месяцем. Отдельная функция, а не общий `updatePage`: правило строк для
+ * стола ОС разрешает ответственному писать свой стол, и чем уже запись, тем
+ * меньше шансов задеть поля, которые ему трогать нельзя.
+ */
+export async function updatePageMainTab(
+  workspaceId: string,
+  pageId: string,
+  input: { name: string; monthKey?: string }
+) {
+  if (!db) return;
+  await setDoc(
+    paths.page(workspaceId, pageId),
+    stripUndefined({ mainTabName: input.name, mainTabMonthKey: input.monthKey, updatedAt: Date.now() }),
+    { merge: true }
+  );
+}
+
 export async function updatePagePermissions(workspaceId: string, pageId: string, allowedUsers: string[]) {
   if (!db) return;
   await setDoc(paths.page(workspaceId, pageId), { allowedUsers, updatedAt: Date.now() }, { merge: true });

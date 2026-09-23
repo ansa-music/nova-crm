@@ -208,7 +208,7 @@ export function SubPageTabs({
       )}
     >
       {isDefaultMain && <Star className="h-3 w-3 fill-current" />}
-      Основная
+      {page.mainTabName?.trim() || "Основная"}
     </button>
   );
 

@@ -35,7 +35,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { ensureDiskColumn, ensurePriceColumn, fetchPageIfAccessible, setPageTechnicianDesk, togglePageVisibility } from "@/services/pageService";
-import { ensureOsDeskStatusColumn, isOsDeskId } from "@/services/osDeskService";
+import { ensureOsDeskMonth, ensureOsDeskStatusColumn, isOsDeskId } from "@/services/osDeskService";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { canOpenDesk, isRestrictedDeskRole, worksAsTechnician } from "@/utils/peopleDesks";
 import { useUiStore } from "@/store/uiStore";
@@ -319,14 +319,21 @@ export default function DynamicTablePage() {
   useEffect(() => {
     if (!page || !hasAccess || !permissions.canManagePage(page)) return;
     if (standardColumnMigrationRan.current.has(page.id)) return;
-    // Стол ОС: у заведённых до того, как статус переехал сюда, столбца
-    // «Статус» нет — дописываем его один раз (см. osDeskService).
+    // Стол ОС: дописываем столбец «Статус» (у заведённых до того, как статус
+    // переехал сюда, его нет) и называем вкладку месяцем — она же сама уходит
+    // в следующий (см. osDeskService).
     if (page.osDesk) {
-      if (page.columns.some((c) => c.type === "status")) return;
       standardColumnMigrationRan.current.add(page.id);
-      void ensureOsDeskStatusColumn(page.workspaceId, page.id, page.columns).catch((err) =>
-        console.error("Не удалось добавить столбец «Статус» столу ОС:", err)
-      );
+      void (async () => {
+        try {
+          if (!page.columns.some((c) => c.type === "status")) {
+            await ensureOsDeskStatusColumn(page.workspaceId, page.id, page.columns);
+          }
+          await ensureOsDeskMonth(page, permissions.uid);
+        } catch (err) {
+          console.error("Не удалось подготовить стол ОС:", err);
+        }
+      })();
       return;
     }
     const needsPrice = !page.columns.some((c) => c.type === "currency");

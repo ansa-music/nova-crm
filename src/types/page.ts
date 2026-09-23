@@ -189,6 +189,17 @@ export interface WorkspacePage {
    */
   hideMainTab?: boolean;
   /**
+   * Подпись главной вкладки вместо «Основная». У стола ОС там стоит месяц
+   * («Сентябрь 2026»): просьба Nurba 23.09.2026 — не заводить ради месяца
+   * ни стола, ни лишней вкладки, а назвать месяцем ту, что уже есть.
+   */
+  mainTabName?: string;
+  /**
+   * Какой месяц лежит в главной вкладке (стол ОС). По нему видно, что месяц
+   * сменился и пора заводить вкладку нового — прошлый остаётся на месте.
+   */
+  mainTabMonthKey?: string;
+  /**
    * Personal monthly revenue target for whoever is responsible for this
    * page — purely a personal-motivation number shown as a progress bar on
    * their own Dashboard landing, editable by them or the Owner. Not used

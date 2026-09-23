@@ -209,7 +209,9 @@ export async function ensureMonthTab(page: WorkspacePage, monthKey: string, uid:
   // зовут и тогда, когда вкладка уже была, а лишняя запись документа стола
   // рассылается снимком ВСЕМ участникам — это их чтения.
   const columns = tab.columns ?? page.columns;
-  const fresh = columns?.length ? computeOsFieldKeys(tab.id, columns, Date.now()) : null;
+  // Карта столбцов нужна только столам ТЕХНАРЕЙ: в стол ОС заказы не
+  // зеркалят, и лишнее поле там — просто мусор в документе.
+  const fresh = columns?.length && !page.osDesk ? computeOsFieldKeys(tab.id, columns, Date.now()) : null;
   const changed = Boolean(fresh && !sameOsFieldKeys(page.osFieldKeys, fresh));
   await markMonthTab(page.workspaceId, page.id, tab.id, monthKey, changed ? columns : undefined);
   return tab.id;
