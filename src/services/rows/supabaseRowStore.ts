@@ -1,5 +1,6 @@
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { DESK_ROWS_CONFLICT, DESK_ROWS_TABLE, supabaseRows } from "@/lib/supabaseRows";
+import { listenRowsDoorbell, ringRowsDoorbell } from "@/services/rows/rowsDoorbell";
 import { toast } from "@/components/ui/sonner";
 import type { PageRow, RowAttachment } from "@/types";
 
@@ -142,6 +143,12 @@ export function rowToRecord(workspaceId: string, pageId: string, tab: string | n
 /** PostgREST отдаёт не больше 1000 строк за запрос — длинный стол читается страницами. */
 /** Сколько ждём переподключения канала, прежде чем сказать человеку. */
 const LIVE_WARN_AFTER_MS = 15_000;
+/**
+ * Плашку «живое обновление не работает» — один раз за загрузку страницы, а не
+ * на каждом открытом столе: причина одна на всё приложение (сеть, настройки
+ * Realtime), и повтор на каждом столе только пугал.
+ */
+let liveWarnedOnce = false;
 /**
  * Страховка живых строк: пока канал Realtime не подключён, стол раз в столько
  * спрашивает отметку своей таблицы (`rows_table_stamp`: число строк + хеш) и
@@ -485,6 +492,8 @@ async function optimistic<T>(
       const overlay = t.overlays.get(id);
       if (overlay) overlay.committedAt = Date.now();
     }
+    // Остальным, у кого стол открыт, — «звонок» (см. rowsDoorbell.ts).
+    ringRowsDoorbell(workspaceId, pageId, tab === undefined ? "*" : tabKey(tab));
     return result;
   } catch (error) {
     for (const t of targets) {
@@ -624,8 +633,6 @@ export function sbSubscribeRows(
   let loading = false;
   let reloadQueued = false;
   let channelHealthy = false;
-  /** Предупредили ли уже, что живой канал не поднялся (один раз на подписку). */
-  let liveWarned = false;
   let liveWarnTimer: ReturnType<typeof setTimeout> | null = null;
   let retryDelay = 3000;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -637,6 +644,8 @@ export function sbSubscribeRows(
   let lastStamp: string | null = null;
   /** В базе нет `rows_table_stamp` — страховку не зовём. */
   let stampMissing = false;
+  /** Канал «звонков» поднят — чужие правки доезжают сразу и без Postgres Changes. */
+  let doorbellReady = false;
 
   const inScope = (record: Partial<DeskRowRecord>) =>
     record.workspace_id === workspaceId && record.page_id === pageId && (record.tab_id ?? "") === tabId;
@@ -865,11 +874,12 @@ export function sbSubscribeRows(
       // таблица перечитывается), а ЧУЖИЕ не появятся вовсе, и человек будет
       // думать, что коллега ничего не сделал. Ждём 15 с — phoenix сам
       // переподключается, и без выдержки предупреждение мигало бы постоянно.
-      if (cancelled || liveWarned || liveWarnTimer) return;
+      if (cancelled || liveWarnedOnce || liveWarnTimer) return;
       liveWarnTimer = setTimeout(() => {
         liveWarnTimer = null;
-        if (cancelled || channelHealthy) return;
-        liveWarned = true;
+        // Звонки работают — чужие правки и так доезжают за секунду, пугать незачем.
+        if (cancelled || channelHealthy || doorbellReady) return;
+        liveWarnedOnce = true;
         toast.error("Живое обновление строк не работает", {
           description: stampMissing
             ? "Свои правки сохраняются, а чужие появятся только после обновления страницы."
@@ -878,6 +888,44 @@ export function sbSubscribeRows(
         });
       }, LIVE_WARN_AFTER_MS);
     });
+
+  /**
+   * Кто-то записал строки этой вкладки (rowsDoorbell). Живой канал сам привёз
+   * бы событие — тогда ничего не делаем; иначе сверяем отметку таблицы и
+   * перечитываем, только если она сменилась (записавший мог и не поменять
+   * ничего, а свёрнутая вкладка перечитает при возврате).
+   */
+  async function onRing() {
+    if (cancelled || channelHealthy || !loaded) return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    if (loading) {
+      reloadQueued = true;
+      return;
+    }
+    // Своя запись в пути — таблицу и так перечитает `settled`.
+    if (table.pending > 0) return;
+    if (stampMissing) {
+      void load();
+      return;
+    }
+    try {
+      const stamp = await fetchTableStamp(workspaceId, pageId, tabId);
+      if (!cancelled && stamp !== lastStamp) void load();
+    } catch {
+      void load();
+    }
+  }
+
+  const stopDoorbell = listenRowsDoorbell(
+    workspaceId,
+    pageId,
+    (ringTab) => {
+      if (ringTab === tabId || ringTab === "*") void onRing();
+    },
+    (ready) => {
+      doorbellReady = ready;
+    }
+  );
 
   // Выборка сразу, не дожидаясь канала: Realtime может и не подключиться
   // (сеть, расширения), а таблица должна открыться всё равно.
@@ -894,6 +942,7 @@ export function sbSubscribeRows(
     liveTables.delete(table);
     for (const timer of [retryTimer, reloadTimer, sweepTimer, emitTimer, liveWarnTimer, stampTimer]) if (timer) clearTimeout(timer);
     document.removeEventListener("visibilitychange", onVisible);
+    stopDoorbell();
     void supabaseRows.removeChannel(channel);
   };
 }
@@ -1089,6 +1138,7 @@ export async function sbDropOrderRow(
     }
     throw toStoreError(error, "Не удалось убрать строку заказа из стола технаря");
   }
+  if (data) ringRowsDoorbell(workspaceId, pageId, tabKey(tab));
   return Boolean(data);
 }
 
