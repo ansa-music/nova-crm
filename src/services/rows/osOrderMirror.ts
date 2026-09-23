@@ -37,36 +37,60 @@ export interface TechTarget {
   keys: OsFieldKeys;
 }
 
+/** Почему стол не годится для заказа ОС. null — годится. */
+function deskProblem(page: WorkspacePage): string | null {
+  if (!page.autoMonthSubPageId) return "У технаря ещё нет вкладки текущего месяца — пусть откроет свой стол";
+  if (!page.osFieldKeys || page.osFieldKeys.tabId !== page.autoMonthSubPageId) {
+    return "Стол технаря ещё не сообщил, куда писать — пусть откроет свой стол и обновит страницу";
+  }
+  // Без ключа `os` заказ уехал бы БЕЗ ника ОС: он бы не попал ни в счётчики
+  // этого ОС, ни в его оценки, а через 30 дней тихо пропало бы право
+  // оценивать технаря. Лучше честный отказ.
+  if (!page.osFieldKeys.os) {
+    return "В таблице технаря нет столбца «Ответственный» — без него заказ уедет без вашего ника";
+  }
+  return null;
+}
+
+/**
+ * Столы технаря в порядке предпочтения: сначала тот, где заказ УЖЕ лежит
+ * (`preferPageId`), потом остальные. У одного человека бывает несколько
+ * столов (у Owner — почти всегда): раньше брался первый попавшийся, и заказ
+ * то «переезжал» между столами одного и того же человека, то не выдавался
+ * вовсе, если у первого стола не было карты столбцов.
+ */
+function techDesks(pages: readonly WorkspacePage[], techUid: string, preferPageId?: string | null): WorkspacePage[] {
+  const own = pages.filter((p) => p.responsibleUserId === techUid && !p.inactive && !p.osDesk && !p.isDashboard);
+  if (!preferPageId) return own;
+  return [...own.filter((p) => p.id === preferPageId), ...own.filter((p) => p.id !== preferPageId)];
+}
+
 /**
  * Куда писать заказ технарю: его активный стол и текущая месячная вкладка.
  * Карта столбцов обязана быть от ЭТОЙ вкладки — иначе значения ушли бы в
  * чужие ключи (этим уже ломался заезд заказов с биржи).
  */
-export function findTechTarget(pages: readonly WorkspacePage[], techUid: string): TechTarget | null {
-  const page = pages.find((p) => p.responsibleUserId === techUid && !p.inactive && !p.osDesk);
-  if (!page) return null;
-  const tabId = page.autoMonthSubPageId;
-  const keys = page.osFieldKeys;
-  // Без ключа `os` заказ уехал бы БЕЗ ника ОС: он бы не попал ни в счётчики
-  // этого ОС, ни в его оценки, а через 30 дней тихо пропало бы право
-  // оценивать технаря. Лучше честный отказ.
-  if (!tabId || !keys || keys.tabId !== tabId || !keys.os) return null;
-  return { page, tabId, keys };
+export function findTechTarget(
+  pages: readonly WorkspacePage[],
+  techUid: string,
+  preferPageId?: string | null
+): TechTarget | null {
+  const page = techDesks(pages, techUid, preferPageId).find((p) => !deskProblem(p));
+  if (!page || !page.autoMonthSubPageId || !page.osFieldKeys) return null;
+  return { page, tabId: page.autoMonthSubPageId, keys: page.osFieldKeys };
 }
 
 /** Почему заказ нельзя выдать — текст человеку. null — можно. */
-export function techTargetProblem(pages: readonly WorkspacePage[], techUid: string | null): string | null {
+export function techTargetProblem(
+  pages: readonly WorkspacePage[],
+  techUid: string | null,
+  preferPageId?: string | null
+): string | null {
   if (!techUid) return "У этого ника технаря нет аккаунта — закрепите ник на «Команде»";
-  const page = pages.find((p) => p.responsibleUserId === techUid && !p.inactive && !p.osDesk);
-  if (!page) return "У технаря нет активного стола";
-  if (!page.autoMonthSubPageId) return "У технаря ещё нет вкладки текущего месяца — пусть откроет свой стол";
-  if (!page.osFieldKeys || page.osFieldKeys.tabId !== page.autoMonthSubPageId) {
-    return "Стол технаря ещё не сообщил, куда писать — пусть откроет свой стол и обновит страницу";
-  }
-  if (!page.osFieldKeys.os) {
-    return "В таблице технаря нет столбца «Ответственный» — без него заказ уедет без вашего ника";
-  }
-  return null;
+  const desks = techDesks(pages, techUid, preferPageId);
+  if (desks.length === 0) return "У технаря нет активного стола";
+  if (desks.some((p) => !deskProblem(p))) return null;
+  return deskProblem(desks[0]);
 }
 
 /** uid технаря по его нику (столбец «Технарь» на столе ОС). */

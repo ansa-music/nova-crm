@@ -27,7 +27,9 @@ import type { WorkOrder } from "@/types";
 export function useOsExchangeHandoff() {
   const { profile } = useAuth();
   const permissions = usePermissions();
-  const { activeWorkspace, activeWorkspaceId, members, pages } = useWorkspace();
+  const { activeWorkspace, activeWorkspaceId, members, pages: deskPages, osDesks } = useWorkspace();
+  // Столы ОС нужны переносу ради ключей столбцов своей строки-источника.
+  const pages = [...deskPages, ...osDesks];
   const uid = profile?.uid ?? "";
   const osNickValue = members.find((m) => m.uid === uid)?.osNickValue ?? "";
   const latest = useRef({ pages, members, osNickValue, statusOptions: activeWorkspace?.statusOptions });

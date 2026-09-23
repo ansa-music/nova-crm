@@ -4,8 +4,8 @@ import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { toast } from "@/components/ui/sonner";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { OS_DESK_COLUMNS } from "@/services/osDeskService";
-import { findTechTarget, OS_MIRROR_COLUMNS, pushOrderToTech, techTargetProblem, techUidByNick } from "@/services/rows/osOrderMirror";
+import { resolveOsDeskKeys, type OsDeskKeys } from "@/services/osDeskService";
+import { findTechTarget, pushOrderToTech, techTargetProblem, techUidByNick } from "@/services/rows/osOrderMirror";
 import { sbDeleteRow } from "@/services/rows/supabaseRowStore";
 import { findDuplicateMirrors, mirrorAddressOf, planOsDispatch } from "@/utils/osDispatchPlan";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
@@ -22,7 +22,7 @@ import { logOsDispatch } from "@/services/osDispatchLogService";
 import { isExchangeHandoffRow } from "@/services/rows/osExchange";
 import { firestoreErrorText } from "@/utils/dbError";
 import { personLabel } from "@/utils/peopleDesks";
-import type { PageRow } from "@/types";
+import type { PageColumn, PageRow } from "@/types";
 
 /**
  * Стол ОС работает САМ: заполнил строку и выбрал технаря — заказ уже у него.
@@ -65,6 +65,8 @@ export interface OsDeskDispatchInput {
   pageId: string;
   subPageId: string | null;
   rows: PageRow[];
+  /** Столбцы открытой таблицы — ключи ячеек берём из них (resolveOsDeskKeys). */
+  columns?: readonly PageColumn[] | null;
   /** Заказы этого ОС в столах технарей (useMyOrderRows). */
   orders: {
     /** Все заказы этого ОС — по ним видно и лишние копии одного заказа. */
@@ -85,8 +87,6 @@ export interface OsDeskDispatchInput {
    */
   rowsFromServer?: boolean;
 }
-
-const OS_COLUMNS = OS_MIRROR_COLUMNS;
 
 function cellText(row: PageRow, key: string | undefined): string {
   if (!key) return "";
@@ -115,7 +115,19 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
   /** О чём уже сказали человеку — чтобы не повторять тост на каждый такт. */
   const told = useRef(new Set<string>());
 
+  /** Почему заказ не доходит до технаря — по id строки (стол рисует метку). */
+  const [problems, setProblems] = useState<Record<string, string>>({});
+  const setProblem = (rowId: string, text: string | null) =>
+    setProblems((prev) => {
+      if ((prev[rowId] ?? null) === text) return prev;
+      const next = { ...prev };
+      if (text) next[rowId] = text;
+      else delete next[rowId];
+      return next;
+    });
+
   const { workspaceId, enabled, rows, orders } = input;
+  const keys = resolveOsDeskKeys(input.columns);
   /**
    * Пока список своих заказов не прочитан, проход НЕ работает: иначе каждая
    * строка выглядит невыданной, и заказ уезжает технарю ВТОРОЙ раз — те самые
@@ -124,10 +136,16 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
   const ready = !orders.loading && !orders.error;
   const active = Boolean(enabled && workspaceId && ready && usesSupabaseRows(workspaceId ?? ""));
   // Подпись: правка строки меняет updatedAt, выдача — появление зеркала.
+  // В подпись идут и сами ячейки статуса и технаря: своя правка ложится
+  // оптимистично, и `updatedAt` у строки может не смениться до ответа базы —
+  // проход тогда не видел, что ОС поменял статус.
   const signature = active
-    ? rows.map((r) => `${r.id}:${r.updatedAt}:${r.syncHash ?? ""}`).join("|") +
+    ? rows
+        .map((r) => `${r.id}:${r.updatedAt}:${r.syncHash ?? ""}:${cellText(r, keys.status)}:${cellText(r, keys.technician)}:${cellText(r, keys.client)}`)
+        .join("|") +
       "#" +
-      [...orders.bySource.entries()].map(([id, m]) => `${id}:${m.updatedAt}`).join("|")
+      [...orders.bySource.entries()].map(([id, m]) => `${id}:${m.updatedAt}:${m.statusKey ? cellText(m, m.statusKey) : ""}`).join("|") +
+      `#${JSON.stringify(keys)}`
     : "";
 
   useEffect(() => {
@@ -139,8 +157,10 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
       const cur = latest.current;
       const { pages: allPages, members: allMembers, statusOptions } = ctx.current;
       if (!cur.workspaceId) return;
-      const techColumn = OS_DESK_COLUMNS.find((c) => c.type === "technician");
-      const statusColumn = OS_DESK_COLUMNS.find((c) => c.type === "status");
+      const k: OsDeskKeys = resolveOsDeskKeys(cur.columns);
+      const OS_COLUMNS = { client: k.client, phone: k.phone, price: k.price, upsell: k.upsell, note: k.note, link: k.link };
+      const techColumn = { key: k.technician };
+      const statusColumn = { key: k.status };
       let changed = false;
       const scope = `${cur.workspaceId}|${cur.pageId}|${cur.subPageId ?? ""}`;
       const firstLook = seenScope.current !== scope;
@@ -161,7 +181,7 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
           const row = cur.rows.find((r) => r.id === srcRowId);
           const nick = row && techColumn ? cellText(row, techColumn.key) : "";
           const uid = techUidByNick(allMembers, nick);
-          return uid ? (findTechTarget(allPages, uid)?.page.id ?? "") : "";
+          return uid ? (findTechTarget(allPages, uid, row?.mirrorPageId)?.page.id ?? "") : "";
         },
       });
       for (const dup of extra) {
@@ -290,7 +310,7 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
               prevTechName: nameOf(prevUid, "технарь"),
               client,
               phone: cellText(row, OS_COLUMNS.phone),
-              amount: orderAmount(row),
+              amount: orderAmount(row, OS_COLUMNS),
               srcPageId: cur.pageId,
               srcRowId: row.id,
             }).catch(() => undefined);
@@ -308,17 +328,49 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
         if (!client && !at) continue;
 
         const techUid = techUidByNick(allMembers, techNick);
-        const problem = techTargetProblem(allPages, techUid);
-        const target = techUid ? findTechTarget(allPages, techUid) : null;
+        // Стол, где заказ уже лежит, — первым: у человека бывает несколько
+        // столов, и заказ не должен «переезжать» между ними сам.
+        const problem = techTargetProblem(allPages, techUid, at?.pageId);
+        const target = techUid ? findTechTarget(allPages, techUid, at?.pageId) : null;
         if (problem || !target || !techUid) {
           // Молча не выдаём, но один раз объясняем почему: иначе заказ
           // «висит» на столе ОС, и непонятно, дошёл он или нет.
-          if (problem && !told.current.has(`${row.id}:${problem}`)) {
-            told.current.add(`${row.id}:${problem}`);
-            toast.error(`${client || "Заказ"}: ${problem}`);
+          const reason = problem ?? "Не нашёл стол технаря";
+          setProblem(row.id, reason);
+          if (!told.current.has(`${row.id}:${reason}`)) {
+            told.current.add(`${row.id}:${reason}`);
+            toast.error(`${client || "Заказ"}: ${reason}`);
+          }
+          // Заказ уже у технаря, а ОС сменил статус — статус доезжает и без
+          // карты столбцов: ключ статуса записан на самой копии. Иначе
+          // «Ждём оплату» у ОС и «В работе» у технаря висели бы, пока технарь
+          // не откроет свой стол.
+          const theirs = mirror?.statusKey ? cellText(mirror, mirror.statusKey) : "";
+          if (
+            at &&
+            mirror?.statusKey &&
+            statusNow &&
+            !onApproval &&
+            statusNow !== theirs &&
+            techUid &&
+            mirror.deskPageId &&
+            allPages.find((p) => p.id === mirror.deskPageId)?.responsibleUserId === techUid &&
+            prevStatus !== undefined &&
+            prevStatus !== statusNow
+          ) {
+            busy.current.add(row.id);
+            try {
+              await sbPatchRow(cur.workspaceId, at.pageId, at.tabId, at.rowId, { cells: { [mirror.statusKey]: statusNow } });
+              changed = true;
+            } catch {
+              // Не вышло — метка на строке остаётся, ОС видит, что не доехало.
+            } finally {
+              busy.current.delete(row.id);
+            }
           }
           continue;
         }
+        setProblem(row.id, null);
 
         const plan = planOsDispatch({
           row,
@@ -381,7 +433,7 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
                   prevTechName: prevUid ? nameOf(prevUid, "технарь") : null,
                   client,
                   phone: cellText(row, OS_COLUMNS.phone),
-                  amount: orderAmount(row),
+                  amount: orderAmount(row, OS_COLUMNS),
                   srcPageId: cur.pageId,
                   srcRowId: row.id,
                 }).catch(() => undefined);
@@ -412,6 +464,7 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
           }
         } catch (error) {
           const text = firestoreErrorText(error, "Не удалось отдать заказ технарю");
+          setProblem(row.id, text);
           if (!told.current.has(`${row.id}:${text}`)) {
             told.current.add(`${row.id}:${text}`);
             toast.error(text);
@@ -427,6 +480,10 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
 
   const choiceRow = choiceRowId ? (rows.find((r) => r.id === choiceRowId) ?? null) : null;
   return {
+    /** Почему заказ не доходит до технаря — по id строки. */
+    problems,
+    /** Ключи ячеек открытой таблицы стола ОС. */
+    keys,
     /** Заказ, по которому стол спрашивает «общий или выборочно». */
     choiceRow,
     openChoice: (rowId: string) => setChoiceRowId(rowId),
@@ -435,7 +492,7 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
 }
 
 /** Цена + апсейл — как сумма у технаря. */
-function orderAmount(row: PageRow): number | null {
+function orderAmount(row: PageRow, OS_COLUMNS: { price: string; upsell: string }): number | null {
   const n = (v: unknown) => {
     const parsed = Number(String(v ?? "").replace(/\s/g, "").replace(",", "."));
     return Number.isFinite(parsed) ? parsed : 0;

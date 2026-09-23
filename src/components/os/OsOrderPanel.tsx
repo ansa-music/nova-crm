@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { toast } from "@/components/ui/sonner";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { OS_DESK_COLUMNS } from "@/services/osDeskService";
+import { OS_DESK_KEYS, type OsDeskKeys } from "@/services/osDeskService";
 import { pushOrderToTech, findTechTarget, techTargetProblem, techUidByNick } from "@/services/rows/osOrderMirror";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
 import {
@@ -37,6 +37,7 @@ export function OsOrderPanel({
   onChanged,
   onChoose,
   onPickTech,
+  keys = OS_DESK_KEYS,
 }: {
   row: PageRow;
   pageId: string;
@@ -50,19 +51,20 @@ export function OsOrderPanel({
   onChoose?: () => void;
   /** Выбрать / сменить технаря — полноэкранный список. */
   onPickTech?: () => void;
+  /** Ключи ячеек открытой таблицы стола ОС. */
+  keys?: OsDeskKeys;
 }) {
   const { activeWorkspaceId, activeWorkspace, pages, members } = useWorkspace();
   const [busy, setBusy] = useState(false);
   const statusOptions = ensureApprovalStatus(ensureDoneStatus(activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS));
 
-  const techColumn = OS_DESK_COLUMNS.find((c) => c.type === "technician");
-  const techNick = techColumn ? String(row.cells[techColumn.key] ?? "") : "";
+  const techNick = String(row.cells[keys.technician] ?? "");
   const techUid = techUidByNick(members, techNick);
-  const problem = techTargetProblem(pages, techUid);
-  const target = techUid ? findTechTarget(pages, techUid) : null;
+  const problem = techTargetProblem(pages, techUid, mirror?.deskPageId ?? row.mirrorPageId);
+  const target = techUid ? findTechTarget(pages, techUid, mirror?.deskPageId ?? row.mirrorPageId) : null;
   // Статус живёт в столбце стола ОС (его синхронизирует useOsDeskDispatch):
   // так он виден прямо в таблице, а не только в карточке.
-  const osStatusColumn = OS_DESK_COLUMNS.find((c) => c.type === "status");
+  const osStatusColumn = { key: keys.status };
   const mirrorStatusKey = mirror?.statusKey ?? target?.keys.status ?? null;
   const status =
     (osStatusColumn ? String(row.cells[osStatusColumn.key] ?? "") : "") ||
@@ -88,14 +90,7 @@ export function OsOrderPanel({
         source: row,
         srcPageId: pageId,
         srcTabId: subPageId,
-        osColumns: {
-          client: "client",
-          phone: "phone",
-          price: "price",
-          upsell: "upsell",
-          note: "note",
-          link: "link",
-        },
+        osColumns: { client: keys.client, phone: keys.phone, price: keys.price, upsell: keys.upsell, note: keys.note, link: keys.link },
         target,
         techUid,
         // Та же дата, что считает автопроход: иначе подписи разъедутся и

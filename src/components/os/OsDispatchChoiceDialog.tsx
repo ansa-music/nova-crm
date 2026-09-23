@@ -4,11 +4,9 @@ import { toast } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { TechPickerSheet } from "@/components/os/TechPickerSheet";
-import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { osNickLabel } from "@/services/memberService";
-import { OS_DESK_COLUMNS } from "@/services/osDeskService";
-import { sendOsRowToExchange } from "@/services/rows/osExchange";
+import { useSendOsRowToExchange } from "@/hooks/useSendOsRowToExchange";
+import { OS_DESK_KEYS, type OsDeskKeys } from "@/services/osDeskService";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
 import {
   DEFAULT_STATUS_OPTIONS,
@@ -18,12 +16,7 @@ import {
   isApprovalStatusValue,
 } from "@/utils/columnOptions";
 import { firestoreErrorText } from "@/utils/dbError";
-import { myDisplayName } from "@/utils/displayName";
-import { worksAsTechnician } from "@/utils/peopleDesks";
 import type { PageRow } from "@/types";
-
-const TECH_KEY = OS_DESK_COLUMNS.find((c) => c.type === "technician")?.key ?? "technician";
-const STATUS_KEY = OS_DESK_COLUMNS.find((c) => c.type === "status")?.key ?? "status";
 
 /**
  * «Как отдать заказ?» — спрашивает стол ОС, когда заказ переходит из
@@ -38,19 +31,24 @@ export function OsDispatchChoiceDialog({
   row,
   pageId,
   subPageId,
+  keys = OS_DESK_KEYS,
   onClose,
 }: {
   row: PageRow;
   pageId: string;
   subPageId: string | null;
+  /** Ключи ячеек открытой таблицы стола ОС. */
+  keys?: OsDeskKeys;
   onClose: () => void;
 }) {
-  const { profile } = useAuth();
-  const { activeWorkspaceId, activeWorkspace, members } = useWorkspace();
+  const { activeWorkspaceId, activeWorkspace } = useWorkspace();
+  const sendToExchange = useSendOsRowToExchange();
+  const TECH_KEY = keys.technician;
+  const STATUS_KEY = keys.status;
   const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const statusOptions = ensureApprovalStatus(ensureDoneStatus(activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS));
-  const client = String(row.cells.client ?? "").trim() || "Заказ";
+  const client = String(row.cells[keys.client] ?? "").trim() || "Заказ";
 
   /** Статус «Утверждение» снимается: заказ отдают — значит, он в работе. */
   function statusPatch(): Record<string, string> {
@@ -75,24 +73,10 @@ export function OsDispatchChoiceDialog({
   }
 
   async function giveToAll() {
-    if (!activeWorkspaceId || !profile) return;
+    if (!activeWorkspaceId) return;
     setBusy(true);
     try {
-      const me = members.find((m) => m.uid === profile.uid);
-      const osValue = me?.osNickValue ?? "";
-      await sendOsRowToExchange({
-        workspaceId: activeWorkspaceId,
-        pageId,
-        tabId: subPageId,
-        row,
-        me: { uid: profile.uid, name: myDisplayName(profile, members) },
-        osValue,
-        osLabel: osNickLabel(me, activeWorkspace?.responsibleOptions) ?? osValue,
-        technicianUids: members
-          .filter((m) => m.status === "active" && m.uid && worksAsTechnician(m))
-          .map((m) => m.uid),
-        statusOptions,
-      });
+      await sendToExchange({ row, pageId, tabId: subPageId, keys });
       toast.success(`${client} — на «Заказах»`, {
         description: "Технари получили уведомление. Отдайте заказ, когда откликнутся, — он приедет к технарю сам.",
       });

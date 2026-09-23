@@ -1,4 +1,5 @@
 import { useSortable } from "@dnd-kit/sortable";
+import { CellActionButton, sameCellAction, type CellActionView } from "@/components/table/CellActionButton";
 import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
 import { memo, useState } from "react";
@@ -93,6 +94,10 @@ interface TableRowProps {
    * counts, footer and «Технари» skip it (see utils/blankRow.ts).
    */
   blank?: boolean;
+  /** Кнопка поверх ячейки `cellActionKey` — см. DataTable.cellAction. */
+  cellActionKey?: string | null;
+  cellAction?: CellActionView | null;
+  onCellAction?: (rowId: string) => void;
 }
 
 function TableRowInner({
@@ -151,6 +156,9 @@ function TableRowInner({
   duplicateColKeys,
   onFindDuplicates,
   blank = false,
+  cellActionKey,
+  cellAction,
+  onCellAction,
 }: TableRowProps) {
   const allowRowDrag = canReorder && !coarsePointer;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -376,6 +384,11 @@ function TableRowInner({
                 : null
             }
             coarsePointer={coarsePointer}
+            trailing={
+              cellAction && onCellAction && column.key === cellActionKey && !blank ? (
+                <CellActionButton view={cellAction} coarsePointer={coarsePointer} onRun={() => onCellAction(row.id)} />
+              ) : undefined
+            }
             searchQuery={searchQuery}
             openRequest={isActive ? openRequest : undefined}
             showFillHandle={fillHandleColKey === column.key}
@@ -434,6 +447,9 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     (prev.fillColKeys?.join(",") ?? "") !== (next.fillColKeys?.join(",") ?? "") ||
     (prev.duplicateColKeys?.join(",") ?? "") !== (next.duplicateColKeys?.join(",") ?? "") ||
     prev.anyChecked !== next.anyChecked ||
+    prev.cellActionKey !== next.cellActionKey ||
+    prev.onCellAction !== next.onCellAction ||
+    !sameCellAction(prev.cellAction, next.cellAction) ||
     prev.row.extras?.persons !== next.row.extras?.persons ||
     prev.row.extras?.minutes !== next.row.extras?.minutes ||
     prev.row.extras?.note !== next.row.extras?.note

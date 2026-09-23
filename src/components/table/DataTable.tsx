@@ -1,3 +1,4 @@
+import type { CellActionView } from "@/components/table/CellActionButton";
 import {
   Fragment,
   useCallback,
@@ -297,6 +298,16 @@ interface DataTableProps {
    */
   cellPickerKeys?: readonly string[];
   onOpenCellPicker?: (row: PageRow, colKey: string) => void;
+  /**
+   * Кнопка поверх ячейки строки (стол ОС: «В работу» — заказ уходит на
+   * «Заказы»; метка «не доехало до технаря»). `get` решает, что рисовать у
+   * строки, `run` — что делать по нажатию.
+   */
+  cellAction?: {
+    colKey: string;
+    get: (row: PageRow) => CellActionView | null;
+    run: (row: PageRow) => void;
+  };
   canEditStructure: boolean;
   userId: string;
   userName: string;
@@ -323,7 +334,7 @@ function normalizeContact(raw: string, type: "phone" | "email" | string): string
   return v.toLowerCase();
 }
 
-export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, cellPickerKeys, onOpenCellPicker }: DataTableProps) {
+export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, cellPickerKeys, onOpenCellPicker, cellAction }: DataTableProps) {
   // Внешний выбор ячейки: колбэк стабилен (через ref), иначе каждый рендер
   // стола перерисовывал бы все строки — TableRow сравнивает пропсы.
   const cellPickerRef = useRef(onOpenCellPicker);
@@ -333,6 +344,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const openCellPicker = useCallback((rowId: string, colKey: string) => {
     const row = rowsRef.current.find((r) => r.id === rowId);
     if (row) cellPickerRef.current?.(row, colKey);
+  }, []);
+  const cellActionRef = useRef(cellAction);
+  cellActionRef.current = cellAction;
+  const runCellAction = useCallback((rowId: string) => {
+    const row = rowsRef.current.find((r) => r.id === rowId);
+    if (row) cellActionRef.current?.run(row);
   }, []);
   // Режим «заказы ведёт ОС» — один объект на всю таблицу, чтобы правило
   // замка считалось в одном месте (см. utils/managedRow.ts).
@@ -3532,6 +3549,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         cellLock={cellLockFor}
         pickerKeys={cellPickerKeys}
         onOpenCellPicker={onOpenCellPicker ? openCellPicker : undefined}
+        cellActionKey={cellAction?.colKey ?? null}
+        cellAction={cellAction ? cellAction.get(row) : null}
+        onCellAction={cellAction ? runCellAction : undefined}
         canReorder={canReorderRows}
         isRowFullySelected={isRowFullySelected(row.id)}
         isChecked={selectedRowIds.has(row.id)}

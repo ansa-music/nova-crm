@@ -38,6 +38,8 @@ export const OS_DESK_COLUMNS: Array<Pick<PageColumn, "key" | "label" | "type" | 
   { key: "link", label: "Ссылка", type: "url", width: 190 },
 ];
 
+export { OS_DESK_KEYS, resolveOsDeskKeys, type OsDeskKeys } from "@/utils/osDeskKeys";
+
 /**
  * Id выводится из uid, поэтому стол ОС у человека ровно один: повторный
  * `create` того же документа Firestore отклонит сам, без отдельного

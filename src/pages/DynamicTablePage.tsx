@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { useParams, useSearchParams } from "react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { AlertTriangle, Archive, ArchiveRestore, BarChart3, Eye, EyeOff, HardHat, History, Lock, Maximize2, MessageSquare, MoreHorizontal, Settings2, User, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -35,7 +35,16 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/hooks/useAuth";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { ensureDiskColumn, ensurePriceColumn, fetchPageIfAccessible, setPageTechnicianDesk, togglePageVisibility } from "@/services/pageService";
-import { ensureOsDeskMonth, ensureOsDeskStatusColumn, isOsDeskId, OS_DESK_COLUMNS } from "@/services/osDeskService";
+import { ensureOsDeskMonth, ensureOsDeskStatusColumn, isOsDeskId, resolveOsDeskKeys } from "@/services/osDeskService";
+import { useSendOsRowToExchange } from "@/hooks/useSendOsRowToExchange";
+import type { CellActionView } from "@/components/table/CellActionButton";
+import {
+  DEFAULT_STATUS_OPTIONS,
+  ensureApprovalStatus,
+  ensureDoneStatus,
+  findInProgressStatusOption,
+  isApprovalStatusValue,
+} from "@/utils/columnOptions";
 import { firestoreErrorText } from "@/utils/dbError";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { canOpenDesk, isRestrictedDeskRole, worksAsTechnician } from "@/utils/peopleDesks";
@@ -54,11 +63,8 @@ import { TechPickerSheet } from "@/components/os/TechPickerSheet";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { TechOrderPanel } from "@/components/os/TechOrderPanel";
 import { isMonthlyDesk } from "@/services/monthTabService";
-import type { PageIconName, SubPage, WorkspacePage } from "@/types";
+import type { PageIconName, PageRow, SubPage, WorkspacePage } from "@/types";
 
-
-/** Столбец «Технарь» стола ОС — выбирается полноэкранным списком. */
-const OS_TECH_PICKER_KEYS = [OS_DESK_COLUMNS.find((c) => c.type === "technician")?.key ?? "technician"];
 
 function visibleSubPages(subPages: SubPage[]) {
   return subPages.filter((s) => !s.isArchived).sort((a, b) => a.order - b.order);
@@ -297,6 +303,11 @@ export default function DynamicTablePage() {
       !(permissions.isWorkspaceOwner || permissions.realRole === "owner")
   );
   const myOrders = useMyOrderRows(activeWorkspaceId, permissions.uid, isMyOsDesk);
+  // Ключи ячеек открытой таблицы стола ОС: столбец мог завести сам ОС, и
+  // фиксированные `status`/`technician` тогда смотрели бы мимо.
+  const osTableColumns = activeSubPage ? activeSubPage.columns : page?.columns;
+  const osKeys = useMemo(() => resolveOsDeskKeys(osTableColumns), [osTableColumns]);
+  const osTechPickerKeys = useMemo(() => [osKeys.technician], [osKeys.technician]);
 
   // Стол ОС выдаёт заказы сам: заполнил строку, выбрал технаря — заказ у
   // него. Тот же проход везёт статус в обе стороны (см. хук).
@@ -308,7 +319,7 @@ export default function DynamicTablePage() {
     if (!activeWorkspaceId || !page || !techPickRow) return;
     setTechPickBusy(true);
     try {
-      await sbPatchRow(activeWorkspaceId, page.id, activeSubPageId, techPickRow.id, { cells: { [OS_TECH_PICKER_KEYS[0]]: nick } });
+      await sbPatchRow(activeWorkspaceId, page.id, activeSubPageId, techPickRow.id, { cells: { [osKeys.technician]: nick } });
       setTechPickRowId(null);
     } catch (error) {
       toast.error(firestoreErrorText(error, "Не удалось выбрать технаря"));
@@ -322,11 +333,120 @@ export default function DynamicTablePage() {
     pageId: page?.id ?? "",
     subPageId: activeSubPageId,
     rows,
+    columns: osTableColumns,
     orders: myOrders,
     osUid: permissions.uid,
     osNickValue: myOsNickValue,
     rowsFromServer,
   });
+
+  // «В работу» прямо в таблице ОС (просьба Nurba 23.09.2026): заказ уходит на
+  // «Заказы» сразу с данными строки. Там же метка, если заказ не доехал до
+  // технаря или статусы у ОС и технаря разошлись, — с починкой по нажатию.
+  const navigate = useNavigate();
+  const sendToExchange = useSendOsRowToExchange();
+  const [osActionBusy, setOsActionBusy] = useState<Set<string>>(() => new Set());
+  const osStatusOptions = ensureApprovalStatus(ensureDoneStatus(activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS));
+  // Раз в 10 с перерисовываем метку «не совпадает»: она показывается не сразу
+  // после правки, а когда проход уже должен был довезти статус.
+  const [osTick, setOsTick] = useState(0);
+  useEffect(() => {
+    if (!isMyOsDesk) return;
+    const timer = window.setInterval(() => setOsTick((n) => n + 1), 10_000);
+    return () => window.clearInterval(timer);
+  }, [isMyOsDesk]);
+  void osTick;
+  const cellStr = (row: PageRow, key: string | null | undefined) => {
+    const v = key ? row.cells[key] : null;
+    return v === null || v === undefined ? "" : String(v).trim();
+  };
+  const statusLabelOf = (value: string) => osStatusOptions.find((o) => o.value === value)?.label ?? value;
+  function osCellView(row: PageRow): CellActionView | null {
+    const client = cellStr(row, osKeys.client);
+    if (!client) return null;
+    const busy = osActionBusy.has(row.id);
+    const tech = cellStr(row, osKeys.technician);
+    const status = cellStr(row, osKeys.status);
+    const onApproval = isApprovalStatusValue(status, osStatusOptions);
+    const mirror = myOrders.bySource.get(row.id) ?? null;
+    const dispatched = Boolean(mirror || (row.mirrorRowId && row.mirrorPageId));
+    if (tech) {
+      if (!dispatched && onApproval) {
+        return { label: "В работу", tone: "primary", icon: "send", busy, title: "Отдать выбранному технарю: статус станет «В работе», заказ уедет в его стол" };
+      }
+      const problem = osDispatch.problems[row.id];
+      if (problem) return { label: "Не доехал", tone: "warning", icon: "alert", busy, title: `Заказ не доходит до технаря: ${problem}` };
+      if (mirror?.statusKey && !myOrders.loading) {
+        const theirs = cellStr(mirror, mirror.statusKey);
+        const settled = Date.now() - (row.updatedAt ?? 0) > 8_000;
+        if (status && theirs !== status && !onApproval && settled) {
+          return {
+            label: "Статус не совпал",
+            tone: "warning",
+            icon: "alert",
+            busy,
+            title: `У технаря «${theirs ? statusLabelOf(theirs) : "без статуса"}», у вас «${statusLabelOf(status)}». Нажмите — отправлю ваш.`,
+          };
+        }
+      }
+      return null;
+    }
+    if (dispatched) return null;
+    if (row.orderId) {
+      return { label: "На «Заказах»", tone: "info", icon: "store", title: "Заказ на «Заказах» — отдайте его, когда технари откликнутся. Нажмите, чтобы открыть" };
+    }
+    return {
+      label: "В работу",
+      tone: "primary",
+      icon: "send",
+      busy,
+      title: "Отдать в работу: заказ уйдёт на «Заказы» со всеми данными строки, технари получат уведомление",
+    };
+  }
+  async function runOsCellAction(row: PageRow) {
+    const view = osCellView(row);
+    if (!view || !activeWorkspaceId || !page) return;
+    const client = cellStr(row, osKeys.client) || "Заказ";
+    if (view.icon === "store") {
+      navigate("/orders");
+      return;
+    }
+    const problem = osDispatch.problems[row.id];
+    if (view.label === "Не доехал" && problem) {
+      toast.error(`${client}: заказ не доходит до технаря`, { description: problem });
+      return;
+    }
+    setOsActionBusy((prev) => new Set(prev).add(row.id));
+    try {
+      const tech = cellStr(row, osKeys.technician);
+      const mirror = myOrders.bySource.get(row.id) ?? null;
+      if (view.label === "Статус не совпал" && mirror?.statusKey && mirror.deskPageId) {
+        await sbPatchRow(activeWorkspaceId, mirror.deskPageId, mirror.tabId || null, mirror.id, {
+          cells: { [mirror.statusKey]: cellStr(row, osKeys.status) },
+        });
+        myOrders.refresh();
+        toast.success(`${client}: статус отправлен технарю`);
+      } else if (tech) {
+        const inProgress = findInProgressStatusOption([...osStatusOptions])?.value;
+        if (!inProgress) throw new Error("В списке статусов нет «В работе»");
+        await sbPatchRow(activeWorkspaceId, page.id, activeSubPageId, row.id, { cells: { [osKeys.status]: inProgress } });
+        toast.success(`${client} — в работу`, { description: "Заказ уедет в стол технаря через секунду." });
+      } else {
+        await sendToExchange({ row, pageId: page.id, tabId: activeSubPageId, keys: osKeys });
+        toast.success(`${client} — на «Заказах»`, {
+          description: "Технари получили уведомление. Отдайте заказ, когда откликнутся, — он приедет к технарю сам.",
+        });
+      }
+    } catch (error) {
+      toast.error(firestoreErrorText(error, error instanceof Error ? error.message : "Не удалось отдать заказ"));
+    } finally {
+      setOsActionBusy((prev) => {
+        const next = new Set(prev);
+        next.delete(row.id);
+        return next;
+      });
+    }
+  }
 
   useDeskLoadPublisher({
     page: hasAccess ? page : null,
@@ -569,9 +689,9 @@ export default function DynamicTablePage() {
       {isMyOsDesk ? (
         <TechPickerSheet
           open={Boolean(techPickRow)}
-          title={`Технарь для «${String(techPickRow?.cells.client ?? "").trim() || "заказа"}»`}
+          title={`Технарь для «${String(techPickRow?.cells[osKeys.client] ?? "").trim() || "заказа"}»`}
           description="Заказ уедет в стол выбранного технаря (если он не на утверждении). Смена технаря заберёт заказ у прежнего."
-          selectedNick={techPickRow ? String(techPickRow.cells[OS_TECH_PICKER_KEYS[0]] ?? "") : null}
+          selectedNick={techPickRow ? String(techPickRow.cells[osKeys.technician] ?? "") : null}
           busy={techPickBusy}
           allowClear
           onPick={(tech) => void setRowTechnician(tech.nick)}
@@ -585,6 +705,7 @@ export default function DynamicTablePage() {
           row={osDispatch.choiceRow}
           pageId={page.id}
           subPageId={activeSubPageId}
+          keys={osKeys}
           onClose={osDispatch.closeChoice}
         />
       ) : null}
@@ -908,7 +1029,12 @@ export default function DynamicTablePage() {
                 // Заказы заводит только ОС: у технаря в его столе нет
                 // «Добавить строку» и «Быстрый заказ» (Owner не ограничиваем).
                 ordersFromOsOnly={ordersFromOsOnly}
-                cellPickerKeys={isMyOsDesk ? OS_TECH_PICKER_KEYS : undefined}
+                cellPickerKeys={isMyOsDesk ? osTechPickerKeys : undefined}
+                cellAction={
+                  isMyOsDesk
+                    ? { colKey: osKeys.technician, get: osCellView, run: (row) => void runOsCellAction(row) }
+                    : undefined
+                }
                 onOpenCellPicker={isMyOsDesk ? (row) => setTechPickRowId(row.id) : undefined}
                 renderRowPanel={(row) => {
                   // Стол ОС — панель выдачи; стол технаря — его поля по заказу,
@@ -925,6 +1051,7 @@ export default function DynamicTablePage() {
                         onChanged={myOrders.refresh}
                         onChoose={() => osDispatch.openChoice(row.id)}
                         onPickTech={() => setTechPickRowId(row.id)}
+                        keys={osKeys}
                       />
                     );
                   }

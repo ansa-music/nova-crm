@@ -6,12 +6,11 @@ import { fetchRows, markRowOrder } from "@/services/pageService";
 import { fetchSubPageRows } from "@/services/subPageService";
 import {
   findTechTarget,
-  OS_MIRROR_COLUMNS,
   pushOrderToTech,
   techTargetProblem,
 } from "@/services/rows/osOrderMirror";
 import { sbDeleteRow, sbPatchRow } from "@/services/rows/supabaseRowStore";
-import { OS_DESK_COLUMNS } from "@/services/osDeskService";
+import { OS_DESK_KEYS, resolveOsDeskKeys, type OsDeskKeys } from "@/services/osDeskService";
 import { findInProgressStatusOption, isApprovalStatusValue } from "@/utils/columnOptions";
 import { parseLooseNumber } from "@/utils/numberInput";
 import type { PageRow, StatusOption, WorkOrder, WorkspaceMember, WorkspacePage } from "@/types";
@@ -27,9 +26,6 @@ import type { PageRow, StatusOption, WorkOrder, WorkspaceMember, WorkspacePage }
  * (useOrderAutoPickup его пропускает): его заводит сессия ОС —
  * `handOffExchangeOrder` из useOsExchangeHandoff.
  */
-
-const TECH_KEY = OS_DESK_COLUMNS.find((c) => c.type === "technician")?.key ?? "technician";
-const STATUS_KEY = OS_DESK_COLUMNS.find((c) => c.type === "status")?.key ?? "status";
 
 /**
  * Строки, которые прямо сейчас переносит с биржи сессия ОС: проход стола
@@ -61,23 +57,26 @@ export interface SendToExchangeInput {
   osLabel: string;
   technicianUids: string[];
   statusOptions: readonly StatusOption[];
+  /** Ключи ячеек открытой таблицы (resolveOsDeskKeys); нет — ключи по умолчанию. */
+  keys?: OsDeskKeys;
 }
 
 /** «Общий»: заказ со стола ОС уходит на биржу «Заказы». */
 export async function sendOsRowToExchange(input: SendToExchangeInput): Promise<WorkOrder> {
   const { row } = input;
-  const total = num(cell(row, OS_MIRROR_COLUMNS.price)) + num(cell(row, OS_MIRROR_COLUMNS.upsell));
+  const k = input.keys ?? OS_DESK_KEYS;
+  const total = num(cell(row, k.price)) + num(cell(row, k.upsell));
   const order = await createOrder({
     workspaceId: input.workspaceId,
-    client: cell(row, OS_MIRROR_COLUMNS.client),
-    phone: cell(row, OS_MIRROR_COLUMNS.phone),
-    link: cell(row, OS_MIRROR_COLUMNS.link) || row.extras?.link || "",
+    client: cell(row, k.client),
+    phone: cell(row, k.phone),
+    link: cell(row, k.link) || row.extras?.link || "",
     deadline: row.extras?.deadline ?? null,
     urgency: "normal",
     price: total > 0 ? total : null,
     persons: row.extras?.persons ?? null,
     minutes: row.extras?.minutes ?? null,
-    note: cell(row, OS_MIRROR_COLUMNS.note) || row.extras?.note || "",
+    note: cell(row, k.note) || row.extras?.note || "",
     osValue: input.osValue,
     osLabel: input.osLabel,
     createdBy: input.me.uid,
@@ -89,10 +88,10 @@ export async function sendOsRowToExchange(input: SendToExchangeInput): Promise<W
   // закроет заказ на «Заказах», а не оставит технарей откликаться впустую.
   await markRowOrder(input.workspaceId, input.pageId, input.tabId, row.id, order.id);
   // «Утверждение» с заказа снимается: он уже в работе, просто ещё без технаря.
-  if (isApprovalStatusValue(cell(row, STATUS_KEY), input.statusOptions)) {
+  if (isApprovalStatusValue(cell(row, k.status), input.statusOptions)) {
     const inProgress = findInProgressStatusOption([...input.statusOptions])?.value;
     if (inProgress) {
-      await sbPatchRow(input.workspaceId, input.pageId, input.tabId, row.id, { cells: { [STATUS_KEY]: inProgress } });
+      await sbPatchRow(input.workspaceId, input.pageId, input.tabId, row.id, { cells: { [k.status]: inProgress } });
     }
   }
   return order;
@@ -122,13 +121,17 @@ export async function handOffExchangeOrder(input: HandoffInput): Promise<{ techN
   const tech = input.members.find((m) => m.uid === order.assignedUid && m.status === "active");
   const nick = tech?.techNickValue ?? "";
   if (!nick) throw new HandoffProblem(`У технаря ${order.assignedName ?? ""} нет ника — закрепите его на «Команде»`);
-  const problem = techTargetProblem(input.pages, order.assignedUid);
-  const target = findTechTarget(input.pages, order.assignedUid);
-  if (problem || !target) throw new HandoffProblem(problem ?? "У технаря нет стола");
-
   const rows = src.tabId ? await fetchSubPageRows(workspaceId, src.pageId, src.tabId) : await fetchRows(workspaceId, src.pageId);
   const row = rows.find((r) => r.id === src.rowId);
   if (!row) throw new HandoffProblem("Строки этого заказа на вашем столе уже нет");
+
+  const problem = techTargetProblem(input.pages, order.assignedUid, row.mirrorPageId);
+  const target = findTechTarget(input.pages, order.assignedUid, row.mirrorPageId);
+  if (problem || !target) throw new HandoffProblem(problem ?? "У технаря нет стола");
+  // Ключи ячеек — от столбцов стола ОС (вкладки месяцев копируют их как есть).
+  const k = resolveOsDeskKeys(input.pages.find((p) => p.id === src.pageId)?.columns);
+  const TECH_KEY = k.technician;
+  const STATUS_KEY = k.status;
 
   const current = cell(row, STATUS_KEY);
   const status = isApprovalStatusValue(current, input.statusOptions)
@@ -155,7 +158,7 @@ export async function handOffExchangeOrder(input: HandoffInput): Promise<{ techN
       source,
       srcPageId: src.pageId,
       srcTabId: src.tabId,
-      osColumns: OS_MIRROR_COLUMNS,
+      osColumns: { client: k.client, phone: k.phone, price: k.price, upsell: k.upsell, note: k.note, link: k.link },
       target,
       techUid: order.assignedUid,
       status,
