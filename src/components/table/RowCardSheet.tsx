@@ -54,6 +54,8 @@ interface RowCardSheetProps {
   onDelete?: (rowId: string) => void;
   /** «3 перс · 2 мин» for the row's client card, null when it's empty. */
   clientCardSummary?: (row: PageRow) => string | null;
+  /** Доп. панель над полями — сейчас это «Заказ у технаря» на столе ОС. */
+  extraPanel?: React.ReactNode;
   onOpenClientCard?: (rowId: string) => void;
 }
 
@@ -78,6 +80,7 @@ export function RowCardSheet({
   onDelete,
   clientCardSummary,
   onOpenClientCard,
+  extraPanel,
 }: RowCardSheetProps) {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -421,6 +424,7 @@ export function RowCardSheet({
                 </div>
               </div>
               <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-4 scrollbar-thin sm:px-6">
+                {extraPanel ? <div className="mb-4">{extraPanel}</div> : null}
                 {onOpenClientCard && (clientCardSummary?.(record) || editable) ? (
                   <button
                     type="button"

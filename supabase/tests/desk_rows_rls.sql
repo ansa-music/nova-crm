@@ -376,6 +376,16 @@ select tst.expect('Тимлид НЕ меняет цену в строке-за�
 select tst.expect('Тимлид НЕ трогает обычные строки стола технаря',
   tst.try('TL', $q$update desk_rows set cells = cells || '{"client":"Нет"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='r1'$q$), 'deny');
 
+-- Выдача заказа идёт через rows_patch (так её зовёт приложение).
+select tst.expect('ОС выдаёт заказ через rows_patch',
+  tst.try('OS1', $q$select rows_patch('W','P1','','ord2','{"client":"Через функцию","status":"work"}'::jsonb,
+    null, null, 'keep', null, true, null, false, null, null,
+    'OS1','T1','status','h1','osdesk_OS1','','o9', null, null, null, null, null, false)$q$), 'ok');
+select tst.expect('ОС НЕ выдаёт заказ чужому технарю через rows_patch',
+  tst.try('OS1', $q$select rows_patch('W','P1','','ord3','{"client":"Мимо"}'::jsonb,
+    null, null, 'keep', null, null, null, false, null, null,
+    'OS1','T2','status','h1','osdesk_OS1','','o8', null, null, null, null, null, false)$q$), 'error');
+
 -- Owner: аварийное снятие управления.
 select tst.expect('Owner снимает управление со строки',
   tst.try('O', $q$update desk_rows set os_uid = null, tech_uid = null, status_key = null where workspace_id='W' and page_id='P1' and tab_id='' and id='ord1'$q$), 'ok');

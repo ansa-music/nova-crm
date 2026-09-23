@@ -81,6 +81,8 @@ export function recordToRow(record: DeskRowRecord): PageRow {
     createdAt: Number(record.created_at) || 0,
     updatedAt: Number(record.updated_at) || 0,
   };
+  row.deskPageId = record.page_id;
+  row.tabId = record.tab_id ?? "";
   if (Array.isArray(record.attachments)) row.attachments = record.attachments;
   if (record.height != null) row.height = Number(record.height);
   if (record.filled_at != null) row.filledAt = Number(record.filled_at);
@@ -214,6 +216,26 @@ export async function sbFetchRows(
       .range(from, to)
   );
   if (records.length === 0 && options.assertAccess !== false) await assertReadable(workspaceId, pageId);
+  return records.map(recordToRow);
+}
+
+/**
+ * ВСЕ строки-заказы этого ОС — по всем столам технарей сразу.
+ *
+ * Политика чтения отдаёт ему ровно строки с его `os_uid`, поэтому один запрос
+ * заменяет обход столов (их у технарей полтора десятка) и не требует доступа
+ * к самим столам. По нему стол ОС показывает статус каждого заказа и видит,
+ * доехала ли правка (`sync_hash`).
+ */
+export async function sbFetchMyOrderRows(workspaceId: string, osUid: string): Promise<PageRow[]> {
+  const records = await fetchPaged((from, to, withCount) =>
+    selectRows(withCount)
+      .eq("workspace_id", workspaceId)
+      .eq("os_uid", osUid)
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to)
+  );
   return records.map(recordToRow);
 }
 
@@ -804,6 +826,25 @@ export interface RowPatch {
   height?: number;
   /** Время правки; по умолчанию — сейчас. Высоту строки время правки не сдвигает. */
   updatedAt?: number;
+  /**
+   * Поля строки-заказа (её ведёт ОС, см. PageRow.osUid). Пишутся только при
+   * выдаче заказа и при снятии управления; обычная правка их не передаёт.
+   */
+  osUid?: string;
+  techUid?: string;
+  statusKey?: string;
+  syncHash?: string;
+  srcPageId?: string;
+  srcTabId?: string;
+  srcRowId?: string;
+  successRequestedAt?: number;
+  successRequestedBy?: string;
+  /** Адрес строки-копии — пишется на строку стола ОС. */
+  mirrorPageId?: string;
+  mirrorTabId?: string;
+  mirrorRowId?: string;
+  /** Снять просьбу об «Успешке» (решили — чип гаснет). */
+  clearSuccessRequest?: boolean;
 }
 
 /**
@@ -853,6 +894,19 @@ export async function sbPatchRow(
         p_attachments_set: patch.attachments !== undefined,
         p_attachments: patch.attachments ?? null,
         p_height: patch.height ?? null,
+        p_os_uid: patch.osUid ?? null,
+        p_tech_uid: patch.techUid ?? null,
+        p_status_key: patch.statusKey ?? null,
+        p_sync_hash: patch.syncHash ?? null,
+        p_src_page: patch.srcPageId ?? null,
+        p_src_tab: patch.srcTabId ?? null,
+        p_src_row: patch.srcRowId ?? null,
+        p_success_requested_at: patch.successRequestedAt ?? null,
+        p_success_requested_by: patch.successRequestedBy ?? null,
+        p_clear_success: patch.clearSuccessRequest ?? false,
+        p_mirror_page: patch.mirrorPageId ?? null,
+        p_mirror_tab: patch.mirrorTabId ?? null,
+        p_mirror_row: patch.mirrorRowId ?? null,
       });
       if (error) throw toStoreError(error, "Не удалось сохранить строку");
     }

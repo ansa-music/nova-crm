@@ -44,6 +44,8 @@ import { recordRecentPage } from "@/hooks/useUserPageNav";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import { useDeskLoadPublisher } from "@/hooks/useDeskLoadPublisher";
 import { useOsFieldKeysPublisher } from "@/hooks/useOsFieldKeysPublisher";
+import { useMyOrderRows } from "@/hooks/useMyOrderRows";
+import { OsOrderPanel } from "@/components/os/OsOrderPanel";
 import { isMonthlyDesk } from "@/services/monthTabService";
 import type { PageIconName, SubPage, WorkspacePage } from "@/types";
 
@@ -268,6 +270,13 @@ export default function DynamicTablePage() {
   // Карта столбцов месячной вкладки — её читает ОС, когда ведёт заказ в
   // чужом столе (см. WorkspacePage.osFieldKeys).
   useOsFieldKeysPublisher({ page: hasAccess ? page : null, subPage: activeSubPage, canEdit: Boolean(page && permissions.canEditPageData(page)) });
+
+  // Ник ОС — он уходит в столбец «Ответственный» стола технаря: по нему
+  // считаются заказы ОС, его оценки и право оценивать.
+  const myOsNickValue = members.find((m) => m.uid === permissions.uid)?.osNickValue ?? "";
+  // Стол ОС: заказы этого ОС в столах технарей — один запрос на весь стол.
+  const isMyOsDesk = Boolean(page?.osDesk && page.responsibleUserId === permissions.uid);
+  const myOrders = useMyOrderRows(activeWorkspaceId, permissions.uid, isMyOsDesk);
 
   useDeskLoadPublisher({
     page: hasAccess ? page : null,
@@ -802,6 +811,21 @@ export default function DynamicTablePage() {
                 manualRowOrder={(activeSubPage ? activeSubPage.rowOrder : page.rowOrder) === "manual"}
                 rows={rows}
                 canEdit={canEditData}
+                renderRowPanel={
+                  isMyOsDesk
+                    ? (row) => (
+                        <OsOrderPanel
+                          row={row}
+                          pageId={page.id}
+                          subPageId={activeSubPageId}
+                          osUid={permissions.uid}
+                          osNickValue={myOsNickValue}
+                          mirror={myOrders.bySource.get(row.id) ?? null}
+                          onChanged={myOrders.refresh}
+                        />
+                      )
+                    : undefined
+                }
                 // Кто смотрит — для замка строк-заказов: их ведёт ОС.
                 viewer={{
                   uid: permissions.uid,

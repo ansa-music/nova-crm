@@ -610,6 +610,8 @@ $$;
 -- списком параметров создал бы ВТОРУЮ функцию, и PostgREST ответил бы
 -- PGRST203 «ambiguous» — перестали бы сохраняться все правки у всех.
 drop function if exists public.rows_patch(text, text, text, text, jsonb, bigint, bigint, text, jsonb, boolean, text, boolean, jsonb, integer);
+-- Промежуточная сигнатура (без адреса копии) — если её успели накатить.
+drop function if exists public.rows_patch(text, text, text, text, jsonb, bigint, bigint, text, jsonb, boolean, text, boolean, jsonb, integer, text, text, text, text, text, text, text, bigint, text, boolean);
 
 -- Правка строки слиянием — как setDoc(..., { merge: true }) в Firestore:
 -- переданные ячейки ложатся поверх, остальные не трогаются. Слияние идёт
@@ -643,6 +645,10 @@ create or replace function public.rows_patch(
   p_src_row text default null,
   p_success_requested_at bigint default null,
   p_success_requested_by text default null,
+  -- Адрес строки-копии — пишется на строку стола ОС.
+  p_mirror_page text default null,
+  p_mirror_tab text default null,
+  p_mirror_row text default null,
   -- Снять просьбу об «Успешке» (решили — чип гаснет).
   p_clear_success boolean default false
 ) returns void
@@ -660,7 +666,7 @@ begin
     workspace_id, page_id, tab_id, id, cells, extras, attachments, sort_order, height,
     created_at, updated_at, filled_at, order_id, highlight,
     os_uid, tech_uid, status_key, sync_hash, src_page_id, src_tab_id, src_row_id,
-    success_requested_at, success_requested_by
+    success_requested_at, success_requested_by, mirror_page_id, mirror_tab_id, mirror_row_id
   ) values (
     p_workspace, p_page, tab, p_id,
     coalesce(p_cells, '{}'::jsonb),
@@ -670,7 +676,7 @@ begin
     p_height,
     now_ms, now_ms, p_filled_at, p_order_id, coalesce(p_highlight, false),
     p_os_uid, p_tech_uid, p_status_key, p_sync_hash, p_src_page, p_src_tab, p_src_row,
-    p_success_requested_at, p_success_requested_by
+    p_success_requested_at, p_success_requested_by, p_mirror_page, p_mirror_tab, p_mirror_row
   )
   on conflict (workspace_id, page_id, tab_id, id) do update set
     cells = r.cells || coalesce(p_cells, '{}'::jsonb),
@@ -693,7 +699,10 @@ begin
     src_tab_id = coalesce(p_src_tab, r.src_tab_id),
     src_row_id = coalesce(p_src_row, r.src_row_id),
     success_requested_at = case when p_clear_success then null else coalesce(p_success_requested_at, r.success_requested_at) end,
-    success_requested_by = case when p_clear_success then null else coalesce(p_success_requested_by, r.success_requested_by) end;
+    success_requested_by = case when p_clear_success then null else coalesce(p_success_requested_by, r.success_requested_by) end,
+    mirror_page_id = coalesce(p_mirror_page, r.mirror_page_id),
+    mirror_tab_id = coalesce(p_mirror_tab, r.mirror_tab_id),
+    mirror_row_id = coalesce(p_mirror_row, r.mirror_row_id);
 end;
 $$;
 
@@ -886,7 +895,7 @@ grant execute on function
   public.rows_edit_all_workspaces(), public.rows_editable_pages(),
   public.rows_can_access_page(text, text), public.rows_can_edit_page(text, text),
   public.rows_patch(text, text, text, text, jsonb, bigint, bigint, text, jsonb, boolean, text, boolean, jsonb, integer,
-    text, text, text, text, text, text, text, bigint, text, boolean),
+    text, text, text, text, text, text, text, bigint, text, text, text, text, boolean),
   public.rows_append_order(text, text, text),
   public.rows_set_order(text, text, text, text[]),
   public.rows_whoami(text), public.rows_page_access(text, text)

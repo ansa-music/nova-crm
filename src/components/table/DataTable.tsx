@@ -284,6 +284,8 @@ interface DataTableProps {
    * Не передан — замка нет (стол ОС, личная зона и прочие таблицы).
    */
   viewer?: RowViewer;
+  /** Панель в карточке строки — стол ОС рисует в ней «Заказ у технаря». */
+  renderRowPanel?: (row: PageRow) => React.ReactNode;
   canEditStructure: boolean;
   userId: string;
   userName: string;
@@ -310,7 +312,7 @@ function normalizeContact(raw: string, type: "phone" | "email" | string): string
   return v.toLowerCase();
 }
 
-export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer }: DataTableProps) {
+export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel }: DataTableProps) {
   const columns = useMemo(
     () =>
       page.columns
@@ -4205,6 +4207,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onDuplicate={(id) => void handleDuplicateRowById(id)}
         onDelete={(id) => void handleDeleteRowById(id)}
         clientCardSummary={(row) => rowExtrasSummary(row.extras)}
+        extraPanel={(() => {
+          const r = rows.find((x) => x.id === expandedRowId);
+          return r ? renderRowPanel?.(r) : null;
+        })()}
         onOpenClientCard={extrasHintKey ? setClientCardRowId : undefined}
       />
 

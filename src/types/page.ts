@@ -302,6 +302,14 @@ export interface PageRow {
   /** Технарь просит поставить «Успешку». */
   successRequestedAt?: number | null;
   successRequestedBy?: string | null;
+  /**
+   * Где строка лежит физически: id СТОЛА и id вкладки ('' — «Основная»).
+   * У строки вкладки `pageId` исторически равен id ВКЛАДКИ, и по нему нельзя
+   * написать в стол — а заказы ОС правит в чужих столах, зная только строку.
+   * Заполняется хранилищем Supabase.
+   */
+  deskPageId?: string;
+  tabId?: string;
 }
 
 /**
