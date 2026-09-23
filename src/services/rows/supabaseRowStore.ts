@@ -443,6 +443,22 @@ function sequenced<T>(key: string, rowIds: string[] | null, write: () => Promise
 }
 
 /**
+ * Дождаться записей строк, ушедших в базу из ЭТОЙ вкладки. У Supabase нет
+ * очереди офлайн-записей, как у Firestore-SDK: перезагрузка страницы посреди
+ * запроса обрывает правку. Этим пользуется обновление сайта перед reload.
+ */
+export async function sbWaitForPendingWrites(): Promise<void> {
+  for (let round = 0; round < 5 && lanes.size > 0; round++) {
+    const all: Promise<void>[] = [];
+    for (const lane of lanes.values()) {
+      if (lane.table) all.push(lane.table);
+      all.push(...lane.rows.values());
+    }
+    await Promise.all(all);
+  }
+}
+
+/**
  * Запись с немедленным показом: `op` ложится поверх строк у всех открытых
  * подписок этой таблицы сразу, `write` уходит в базу в очередь своей строки
  * (см. sequenced). Отказ — правка снимается и таблица перечитывается (а

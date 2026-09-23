@@ -3,13 +3,15 @@ import { waitForPendingWrites } from "firebase/firestore";
 import { toast } from "@/components/ui/sonner";
 import { db } from "@/firebase/firebase";
 import { flushHistory } from "@/services/historyService";
+import { sbWaitForPendingWrites } from "@/services/rows/supabaseRowStore";
+import { dbQuotaHit } from "@/utils/dbError";
 import { useWorkspace } from "@/hooks/useWorkspace";
 
 /**
- * ПРИНУДИТЕЛЬНОЕ обновление сайта у всех. Сайт — одностраничное приложение:
- * вкладку не перезагружают днями, и после деплоя человек продолжает работать
- * на СТАРОМ коде (так новый звук заказа «не работал», а экономия квоты Spark
- * не доходила до открытых вкладок).
+ * ЖИВОЕ обновление сайта. Сайт — одностраничное приложение: вкладку не
+ * перезагружают днями, и после деплоя человек продолжает работать на СТАРОМ
+ * коде. Данные на страницах и так живые (подписки Firestore, Realtime строк);
+ * этот хук доводит до вкладки новый КОД.
  *
  * Два повода перезагрузиться:
  * 1. Вышла новая версия: `index.html` отдаётся без кэша (firebase.json), в нём
@@ -21,23 +23,60 @@ import { useWorkspace } from "@/hooks/useWorkspace";
  *    (документ workspace и так живой — лишних чтений нет). Сравниваем со
  *    значением на момент загрузки, а не по часам — часы у всех разные.
  *
- * Новая версия — только тост «Обновить» (сама не перезагружает: каждая
- * перезагрузка заново читает все подписки, ~340 чтений на вкладку, и волна
- * после каждого деплоя съедала квоту Spark). ПРИНУДИТЕЛЬНО — по кнопке Owner:
- * вкладка на виду — через 30 с с тостом «Обновить сейчас», человек печатает
- * или открыт диалог — ждём, но не дольше 2 минут; свёрнутая — когда на неё
- * вернутся (брошенные фоновые вкладки не перечитывают всё впустую).
- * Перед перезагрузкой ждём, пока уйдут на сервер последние правки
- * (`reloadSafely`).
+ * Новая версия обновляет вкладку САМА, но осторожно — каждая перезагрузка
+ * заново читает все подписки (~340 чтений на вкладку), и раньше волна после
+ * каждого деплоя съедала квоту Spark:
+ * - деплои идут пачками (параллельные сессии), поэтому ждём, пока версия
+ *   «устоится» — 3 минуты без новой (`SETTLE_MS`);
+ * - одна вкладка обновляется сама не чаще раза в 30 минут (`AUTO_COOLDOWN_MS`,
+ *   в sessionStorage — переживает саму перезагрузку);
+ * - на виду — только когда человек отвлёкся: минуту без кликов и клавиш, не
+ *   печатает, нет открытого диалога; и ещё 10 секунд тоста «Обновляю… ·
+ *   Позже» — любое касание отменяет;
+ * - свёрнутая вкладка не перезагружается (брошенные вкладки не читают всё
+ *   впустую) — обновится, когда на неё вернутся, ДО первого клика;
+ * - кончилась квота базы (`dbQuotaHit`) — только тост: после перезагрузки
+ *   страница бы просто не загрузилась.
+ * ПРИНУДИТЕЛЬНО — по кнопке Owner: через 30 с с тостом «Обновить сейчас»,
+ * человек печатает или открыт диалог — ждём, но не дольше 2 минут.
+ * Перед любой перезагрузкой ждём, пока уйдут на сервер последние правки
+ * (`reloadSafely`: и Firestore, и строки Supabase).
  */
 
 const CHECK_EVERY_MS = 2 * 60_000;
 const MIN_GAP_MS = 30_000;
 const COUNTDOWN_MS = 30_000;
 const MAX_WAIT_BUSY_MS = 2 * 60_000;
+/** Версия «устоялась» — столько без нового деплоя. */
+const SETTLE_MS = 3 * 60_000;
+/** Сама вкладка обновляется не чаще. */
+const AUTO_COOLDOWN_MS = 30 * 60_000;
+/** Человек отвлёкся — столько без кликов и клавиш. */
+const IDLE_MS = 60_000;
+/** Тост «Обновляю…» перед автоматической перезагрузкой. */
+const AUTO_NOTICE_MS = 10_000;
+/** «Позже» откладывает на столько. */
+const SNOOZE_MS = 10 * 60_000;
+const TICK_MS = 5_000;
 const TOAST_ID = "nova-app-update";
 const PRELOAD_RELOAD_KEY = "nova:preload-reload-at";
+const AUTO_RELOAD_KEY = "nova:auto-reload-at";
 
+function lastAutoReloadAt(): number {
+  try {
+    return Number(sessionStorage.getItem(AUTO_RELOAD_KEY) ?? 0) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function markAutoReload() {
+  try {
+    sessionStorage.setItem(AUTO_RELOAD_KEY, String(Date.now()));
+  } catch {
+    /* без sessionStorage — пауза просто не переживёт перезагрузку */
+  }
+}
 
 /**
  * Главный бандл ЭТОГО сайта. Только свой origin: расширение браузера может
@@ -69,7 +108,8 @@ async function reloadSafely() {
     // История копится пачкой в памяти — её надо поставить в очередь ДО
     // ожидания, иначе перезагрузка унесёт последние записи журнала.
     void flushHistory();
-    if (db) await Promise.race([waitForPendingWrites(db), new Promise((resolve) => setTimeout(resolve, 4000))]);
+    const writes = Promise.all([db ? waitForPendingWrites(db) : Promise.resolve(), sbWaitForPendingWrites()]);
+    await Promise.race([writes, new Promise((resolve) => setTimeout(resolve, 4000))]);
   } catch {
     /* всё равно перезагружаем */
   }
@@ -85,21 +125,8 @@ function userIsBusy(): boolean {
 }
 
 let scheduled = false;
-function scheduleForcedReload(reason: "deploy" | "owner") {
+function scheduleForcedReload(reason: "owner") {
   if (scheduled || reloading) return;
-  // Новая версия — только ПРЕДЛАГАЕМ обновиться. Сама по каждому деплою
-  // перезагрузка стоила ~8 500 чтений на деплой (каждая вкладка заново читает
-  // все подписки), а деплоев бывает по 20 в день — аудит квоты 22.09.2026
-  // поставил это первым пунктом. Принудительно — только кнопкой Owner.
-  if (reason === "deploy") {
-    toast("Вышла новая версия Nova", {
-      id: TOAST_ID,
-      description: "Обновите страницу, когда будет удобно.",
-      duration: Infinity,
-      action: { label: "Обновить", onClick: () => void reloadSafely() },
-    });
-    return;
-  }
   scheduled = true;
   if (document.visibilityState !== "visible") {
     // Свёрнутая вкладка: обновим, когда на неё вернутся, — брошенные фоновые
@@ -112,7 +139,7 @@ function scheduleForcedReload(reason: "deploy" | "owner") {
     document.addEventListener("visibilitychange", onVisible);
     return;
   }
-  toast(reason === "owner" ? "Owner обновляет сайт у всех" : "Вышла новая версия Nova", {
+  toast(reason === "owner" ? "Owner обновляет сайт у всех" : "Обновление сайта", {
     id: TOAST_ID,
     description: "Страница обновится через 30 секунд.",
     duration: Infinity,
@@ -149,7 +176,6 @@ async function latestEntry(): Promise<string | null> {
 
 export function useAppUpdateCheck() {
   const { activeWorkspace } = useWorkspace();
-  const updateReadyRef = useRef(false);
   const epochBaselineRef = useRef<{ workspaceId: string; epoch: number } | null>(null);
 
   useEffect(() => {
@@ -177,32 +203,134 @@ export function useAppUpdateCheck() {
     if (!loaded) return;
     let lastCheck = 0;
     let cancelled = false;
+    /** Новая версия на хостинге и когда её увидели (новая версия — отсчёт заново). */
+    let pending: { entry: string; seenAt: number } | null = null;
+    let lastInputAt = Date.now();
+    let visibleSince = document.visibilityState === "visible" ? Date.now() : 0;
+    let snoozedUntil = 0;
+    /** Идёт тост «Обновляю через 10 с»: когда показан. */
+    let noticeAt = 0;
+    /** Какой тост-предложение сейчас висит (чтобы не перерисовывать его каждые 5 с). */
+    let offered: "quota" | "auto" | null = null;
 
-    const check = async () => {
-      if (cancelled || updateReadyRef.current || document.visibilityState !== "visible") return;
+    const offer = (quota: boolean) => {
+      if (offered === (quota ? "quota" : "auto")) return;
+      offered = quota ? "quota" : "auto";
+      toast("Вышла новая версия Nova", {
+        id: TOAST_ID,
+        description: quota
+          ? "База сейчас не принимает запросы — обновите страницу, когда она заработает."
+          : "Страница обновится сама, когда вы отвлечётесь.",
+        duration: Infinity,
+        action: { label: "Обновить сейчас", onClick: () => void reloadSafely() },
+      });
+    };
+
+    const autoReload = () => {
+      markAutoReload();
+      void reloadSafely();
+    };
+
+    /** Можно ли сейчас обновиться самим (без учёта «человек отвлёкся»). */
+    const allowed = (now: number) =>
+      pending !== null && !dbQuotaHit() && now - lastAutoReloadAt() >= AUTO_COOLDOWN_MS && now >= snoozedUntil;
+
+    const snooze = () => {
+      if (!noticeAt) return;
+      snoozedUntil = Date.now() + SNOOZE_MS;
+      noticeAt = 0;
+    };
+
+    const evaluate = () => {
+      if (cancelled || reloading || scheduled || !pending) return;
       const now = Date.now();
-      if (now - lastCheck < MIN_GAP_MS) return;
+      if (dbQuotaHit()) {
+        offer(true);
+        return;
+      }
+      offer(false);
+      if (document.visibilityState !== "visible") return;
+      if (noticeAt) {
+        // Тост «Обновляю…» висит: коснулись — отмена, дождались — обновляем.
+        if (lastInputAt > noticeAt || userIsBusy()) {
+          noticeAt = 0;
+          offered = null;
+          offer(false);
+          return;
+        }
+        if (now - noticeAt >= AUTO_NOTICE_MS && allowed(now)) autoReload();
+        return;
+      }
+      if (!allowed(now) || now - pending.seenAt < SETTLE_MS) return;
+      if (now - lastInputAt < IDLE_MS || userIsBusy()) return;
+      noticeAt = now;
+      offered = null;
+      toast("Обновляю страницу до новой версии", {
+        id: TOAST_ID,
+        description: "Через 10 секунд. Любое касание — отмена.",
+        duration: AUTO_NOTICE_MS + 5_000,
+        action: { label: "Обновить", onClick: () => void autoReload() },
+        cancel: { label: "Позже", onClick: snooze },
+        onDismiss: snooze,
+      });
+    };
+
+    const check = async (returning = false) => {
+      if (cancelled || document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastCheck < MIN_GAP_MS && !returning) return;
       lastCheck = now;
       try {
         const latest = await latestEntry();
         if (cancelled || !latest || latest === loaded) return;
-        updateReadyRef.current = true;
-        scheduleForcedReload("deploy");
+        if (pending?.entry !== latest) pending = { entry: latest, seenAt: Date.now() };
+        // Вернулись на вкладку, а там уже новая версия: обновляем сразу,
+        // пока человек ничего не начал делать, — перезагрузка посреди его
+        // работы потом была бы хуже мигания экрана сейчас.
+        // Только после настоящей отлучки (минута без касаний): alt-tab на
+        // пару секунд посреди работы — не повод перезагружать.
+        const idleNow = Date.now();
+        if (returning && lastInputAt < visibleSince && idleNow - lastInputAt >= IDLE_MS && allowed(idleNow) && !userIsBusy()) {
+          autoReload();
+          return;
+        }
+        evaluate();
       } catch {
         /* нет сети — проверим в следующий раз */
       }
     };
 
-    const interval = window.setInterval(() => void check(), CHECK_EVERY_MS);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void check();
+    const onInput = () => {
+      lastInputAt = Date.now();
     };
-    document.addEventListener("visibilitychange", onVisible);
+    const inputEvents = ["pointerdown", "keydown", "wheel", "touchstart"] as const;
+    for (const type of inputEvents) window.addEventListener(type, onInput, { capture: true, passive: true });
+
+    const interval = window.setInterval(() => void check(), CHECK_EVERY_MS);
+    const tick = window.setInterval(evaluate, TICK_MS);
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const returning = !visibleSince;
+      if (returning) visibleSince = Date.now();
+      void check(returning);
+    };
+    const onHidden = () => {
+      if (document.visibilityState === "visible") return;
+      visibleSince = 0;
+      noticeAt = 0;
+    };
+    const onVisibility = () => {
+      onHidden();
+      onVisible();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onVisible);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(tick);
+      for (const type of inputEvents) window.removeEventListener(type, onInput, { capture: true });
+      document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onVisible);
     };
   }, []);
