@@ -274,6 +274,52 @@ select tst.expect('rows_page_access: просмотр без правки',
   tst.try('T2', $q$select 1 where (rows_page_access('W','P1')->>'canRead')::boolean and not (rows_page_access('W','P1')->>'canEdit')::boolean$q$, true), 'ok:1');
 
 -- ---------------------------------------------------------------------
+-- Владелец по документу workspace — БЕЗ записи участника (firestore.rules:
+-- isOwner = isDocOwner || участник с ролью owner). Сверка прав пишет
+-- rows_members из списка участников и такого владельца туда не добавит.
+-- ---------------------------------------------------------------------
+insert into public.rows_workspaces (workspace_id, owner_id, live) values ('W2', 'DOCOWNER', true);
+insert into public.rows_page_acl (workspace_id, page_id, responsible_uid, created_by, os_desk, allowed_uids, editable_uids)
+  values ('W2', 'P9', 'T9', 'T9', false, '{T9}', '{}');
+insert into public.desk_rows (workspace_id, page_id, tab_id, id, cells, sort_order, created_at, updated_at)
+  values ('W2', 'P9', '', 'r9', '{"client":"Владелец"}', 0, 1000, 1000);
+-- Паритет с firestore.rules: правило строк там — `isMember && canAccessPage`,
+-- поэтому владелец БЕЗ записи участника не читает строк и здесь.
+select tst.expect('владелец по документу БЕЗ записи участника не читает строк',
+  tst.try('DOCOWNER', $q$select * from desk_rows where workspace_id = 'W2'$q$, true), 'ok:0');
+select tst.expect('владелец по документу БЕЗ записи участника не правит строки',
+  tst.try('DOCOWNER', $q$select rows_patch('W2','P9','','r9','{"x":"1"}'::jsonb)$q$), 'error');
+insert into public.rows_members (workspace_id, uid, role, extra_roles) values ('W2', 'DOCOWNER', 'owner', '{}');
+select tst.expect('он же с записью участника читает',
+  tst.try('DOCOWNER', $q$select * from desk_rows where workspace_id = 'W2'$q$, true), 'ok:1');
+select tst.expect('он же с записью участника правит',
+  tst.try('DOCOWNER', $q$select rows_patch('W2','P9','','r9','{"x":"1"}'::jsonb)$q$), 'ok');
+select tst.expect('анонимный ключ не читает строк W2',
+  tst.try('__anon_key__', $q$select * from desk_rows where workspace_id = 'W2'$q$, true), 'ok:0');
+select tst.expect('посторонний в чужом workspace не читает',
+  tst.try('T1', $q$select * from desk_rows where workspace_id = 'W2'$q$, true), 'ok:0');
+select tst.expect('владелец W2 НЕ читает строки W',
+  tst.try('DOCOWNER', $q$select * from desk_rows where workspace_id = 'W'$q$, true), 'ok:0');
+
+-- ---------------------------------------------------------------------
+-- Тимлид не заводит себе стол ОС в копии прав (в Firestore такой стол ему
+-- создать нельзя — нужна роль ОС).
+-- ---------------------------------------------------------------------
+select tst.expect('Тимлид НЕ заводит себе стол ОС',
+  tst.try('TL', $q$insert into rows_page_acl (workspace_id, page_id, responsible_uid, created_by, os_desk, allowed_uids, editable_uids) values ('W','osdesk_TL','TL','TL',true,'{TL}','{}')$q$), 'error');
+-- Id стола ОС всегда `osdesk_{uid}` — убираем фикстуру и заводим её заново
+-- от самого TLO, как это делает приложение (ensureNewDeskAcl).
+delete from public.rows_page_acl where workspace_id = 'W' and page_id = 'osdesk_TLO';
+select tst.expect('Тимлид + ОС заводит СВОЙ стол ОС',
+  tst.try('TLO', $q$insert into rows_page_acl (workspace_id, page_id, responsible_uid, created_by, os_desk, allowed_uids, editable_uids) values ('W','osdesk_TLO','TLO','TLO',true,'{TLO}','{}')$q$), 'ok');
+select tst.expect('Тимлид НЕ заводит запись о чужом столе ОС под видом обычного',
+  tst.try('TLT', $q$insert into rows_page_acl (workspace_id, page_id, responsible_uid, created_by, os_desk, allowed_uids, editable_uids) values ('W','osdesk_OS2','TLT','TLT',false,'{TLT}','{}')$q$), 'error');
+select tst.expect('Тимлид заводит обычный стол с собой ответственным',
+  tst.try('TLT', $q$insert into rows_page_acl (workspace_id, page_id, responsible_uid, created_by, os_desk, allowed_uids, editable_uids) values ('W','page_TLT_new','TLT','TLT',false,'{TLT}','{}')$q$), 'ok');
+select tst.expect('Тимлид заводит стол ОС настоящему ОС',
+  tst.try('TL', $q$insert into rows_page_acl (workspace_id, page_id, responsible_uid, created_by, os_desk, allowed_uids, editable_uids) values ('W','osdesk_OS2','OS2','OS2',true,'{OS2}','{}')$q$), 'ok');
+
+-- ---------------------------------------------------------------------
 select case when ok then '  OK  ' else 'FAIL  ' end || label || case when ok then '' else '  → ' || got end
 from tst.results order by n;
 select format('ПРОВЕРОК: %s, ПРОВАЛЕНО: %s', count(*), count(*) filter (where not ok)) from tst.results;

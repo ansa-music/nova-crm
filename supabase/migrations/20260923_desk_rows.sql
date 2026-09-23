@@ -152,6 +152,10 @@ create or replace function public.rows_read_all_workspaces() returns setof text
 language sql stable security definer
 set search_path = public, pg_temp
 as $$
+  -- Владельца БЕЗ записи участника здесь намеренно нет: правило строк в
+  -- firestore.rules — `isMember(workspaceId) && canAccessPage(...)`, то есть
+  -- и там он строк не прочитает. Копия прав повторяет Firestore, а не даёт
+  -- больше; запись участника владельцу заводит обычная сверка прав.
   select m.workspace_id from public.rows_members m
   where m.uid = public.rows_uid()
     and (
@@ -319,9 +323,21 @@ drop policy if exists rows_page_acl_insert on public.rows_page_acl;
 create policy rows_page_acl_insert on public.rows_page_acl for insert to anon, authenticated
   with check (
     public.rows_is_owner(workspace_id)
+    -- Тимлид заводит запись о столе ОС только ЧУЖОМУ человеку: себе он
+    -- завёл бы `osdesk_{свой uid}` и получил бы на него правку мимо запрета
+    -- Тимлиду на таблицы (в Firestore такой стол ему создать нельзя — там
+    -- нужна роль ОС). Свой стол ОС Тимлид + ОС заводит веткой участника ниже,
+    -- где роль ОС проверяется.
     or (public.rows_is_teamlead(workspace_id) and (
-      not os_desk
-      or (page_id = 'osdesk_' || responsible_uid and created_by = responsible_uid)))
+      -- Обычный стол — с любым ответственным (Тимлид их и переназначает), но
+      -- id не из-под столов ОС: иначе он завёл бы запись о ЧУЖОМ столе ОС с
+      -- `os_desk = false` и, будучи ещё и Технарём, получил бы правку его
+      -- строк — в Firestore ответственного у стола ОС он менять не вправе.
+      (not os_desk and not starts_with(page_id, 'osdesk_'))
+      or (os_desk
+        and page_id = 'osdesk_' || responsible_uid
+        and created_by = responsible_uid
+        and responsible_uid <> public.rows_uid())))
     or (public.rows_is_member(workspace_id)
       and responsible_uid = public.rows_uid()
       and created_by = public.rows_uid()
