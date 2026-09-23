@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
-import { Archive, ArchiveRestore, BarChart3, Eye, EyeOff, HardHat, History, Lock, Maximize2, MessageSquare, MoreHorizontal, Settings2, User, Users } from "lucide-react";
+import { AlertTriangle, Archive, ArchiveRestore, BarChart3, Eye, EyeOff, HardHat, History, Lock, Maximize2, MessageSquare, MoreHorizontal, Settings2, User, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -182,6 +182,8 @@ export default function DynamicTablePage() {
     isLoading: pageRowsLoading,
     serverSynced: pageRowsSynced,
     accessPending: pageRowsAccessPending,
+    readError: pageRowsError,
+    retry: retryPageRows,
   } = usePageRows(
     activeWorkspaceId,
     listenMainRows && page ? page.id : null
@@ -191,6 +193,8 @@ export default function DynamicTablePage() {
     isLoading: subPageRowsLoading,
     serverSynced: subPageRowsSynced,
     accessPending: subPageRowsAccessPending,
+    readError: subPageRowsError,
+    retry: retrySubPageRows,
   } = useSubPageRows(
     activeWorkspaceId,
     listenSubRows && page ? page.id : null,
@@ -250,6 +254,10 @@ export default function DynamicTablePage() {
   const rowsLoading = !tabsReady || (activeSubPageId ? subPageRowsLoading : pageRowsLoading);
   // Строки в Supabase, а права на стол туда ещё не доехали — см. useSyncedTableRows.
   const rowsAccessPending = activeSubPageId ? subPageRowsAccessPending : pageRowsAccessPending;
+  // Строки не прочитались (нет прав, нет связи, кончилась квота) — таблица
+  // остаётся скелетом, и без этой полосы человек не знает, что случилось.
+  const rowsReadError = activeSubPageId ? subPageRowsError : pageRowsError;
+  const retryRows = activeSubPageId ? retrySubPageRows : retryPageRows;
   const rowsFromServer = tabsReady && (activeSubPageId ? subPageRowsSynced : pageRowsSynced);
 
   useDeskLoadPublisher({
@@ -692,6 +700,19 @@ export default function DynamicTablePage() {
               <ArchiveRestore className="h-3.5 w-3.5" /> Вернуть
             </Button>
           )}
+        </div>
+      )}
+
+      {rowsReadError && !rowsAccessPending && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-destructive/30 bg-destructive/[0.07] px-4 py-2 text-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
+          <span className="min-w-0 flex-1">
+            <span className="font-medium">Строки не загрузились.</span>{" "}
+            <span className="text-muted-foreground">{rowsReadError} Повторяем попытку сами.</span>
+          </span>
+          <Button size="sm" variant="outline" className="min-h-9" onClick={retryRows}>
+            Повторить сейчас
+          </Button>
         </div>
       )}
 

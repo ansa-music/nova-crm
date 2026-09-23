@@ -3,6 +3,7 @@ import { onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { OrderNotAssignedError, OrderOfflineError, takeOrderToDesk } from "@/services/orderService";
+import { isRowsMigratingError } from "@/utils/dbError";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -119,6 +120,15 @@ export function useOrderAutoPickup() {
               // после переподключения повторит заезд сам.
               if (error instanceof OrderOfflineError) {
                 handledRef.current.delete(order.id);
+                return;
+              }
+              // Идёт перенос строк таблиц — «Забрать в стол» тоже откажет.
+              // Заказ остаётся выданным и приедет сам, когда перенос кончится.
+              if (isRowsMigratingError(error)) {
+                handledRef.current.delete(order.id);
+                toast.info(`Заказ «${order.client}» приедет в стол чуть позже`, {
+                  description: "Идёт перенос строк таблиц — заказ запишется сам, когда он закончится.",
+                });
                 return;
               }
               // Не получилось — разрешаем повтор на следующем снапшоте или

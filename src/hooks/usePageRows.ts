@@ -2,6 +2,21 @@ import { useEffect, useRef, useState } from "react";
 import { subscribeToRows } from "@/services/pageService";
 import { subscribeToSubPageRows } from "@/services/subPageService";
 import { sbPageAccess } from "@/services/rows/supabaseRowStore";
+import { firestoreErrorText } from "@/utils/dbError";
+
+/**
+ * Текст про ЧТЕНИЕ строк: общий `firestoreErrorText` написан под записи
+ * («База отклонила запись…»), а здесь человек ничего не сохранял — он просто
+ * открыл стол.
+ */
+function readErrorText(error: unknown): string {
+  const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "";
+  if (code === "permission-denied") return "Нет доступа к строкам этого стола — возможно, доступ изменился.";
+  if (code === "unauthenticated") return "Вход устарел — обновите страницу.";
+  if (code === "unavailable") return "Нет связи с базой строк.";
+  if (code === "resource-exhausted") return firestoreErrorText(error, "Не удалось прочитать строки стола");
+  return firestoreErrorText(error, "Не удалось прочитать строки стола");
+}
 import { useRowsBackend } from "@/hooks/useRowsBackend";
 import type { PageRow } from "@/types";
 
@@ -48,6 +63,15 @@ export function useSyncedTableRows(
   /** Права на стол доехали после плашки — переподписаться и перечитать строки. */
   const [reloadNonce, setReloadNonce] = useState(0);
   /**
+   * Строки не прочитались. Хранилище повторяет само (3 → 30 с), но МОЛЧА:
+   * человек видел пустой скелет таблицы без единого слова и не понимал, ждать
+   * ему или звать на помощь. Текст берём от самой ошибки — «нет прав», «нет
+   * связи», «кончилась квота» лечатся по-разному.
+   */
+  const [readError, setReadError] = useState<string | null>(null);
+  /** Какой таблицы эта ошибка — чтобы не показывать её на соседней вкладке. */
+  const [errorKey, setErrorKey] = useState("");
+  /**
    * Таблица, право читать которую уже подтверждено. Пустая выборка и проверка
    * прав — два запроса, и права могли доехать МЕЖДУ ними: выборка отдала
    * пустоту по старым правам, проверка — «читать можно». Поэтому после
@@ -73,6 +97,7 @@ export function useSyncedTableRows(
     setIsLoading(true);
     setServerSynced(false);
     setAccessPending(false);
+    setReadError(null);
 
     let cancelled = false;
     /** Supabase: право читать стол подтверждено — пустота значит «строк нет». */
@@ -127,12 +152,18 @@ export function useSyncedTableRows(
         confirmedKey.current = key;
         setAccessPending(false);
       }
+      setReadError(null);
       setServerSynced(fromServer);
     };
     // Ошибка чтения — таблица остаётся «загружается» (хранилище повторит само),
     // а НЕ показывает строки прошлой вкладки как строки этой: правка такой
-    // «чужой» строки завела бы её копию здесь.
-    const onError = () => undefined;
+    // «чужой» строки завела бы её копию здесь. Но человеку об этом говорим:
+    // молчаливый пустой скелет неотличим от «стол пустой».
+    const onError = (error: unknown) => {
+      if (cancelled) return;
+      setErrorKey(key);
+      setReadError(readErrorText(error));
+    };
 
     const unsubscribe = subPageId
       ? subscribeToSubPageRows(workspaceId, pageId, subPageId, onData, onError)
@@ -151,6 +182,12 @@ export function useSyncedTableRows(
     isLoading: Boolean(workspaceId && pageId) && (isLoading || !current),
     serverSynced: serverSynced && current,
     accessPending: accessPending && current,
+    readError: scopeKey !== "" && errorKey === scopeKey ? readError : null,
+    /** «Повторить» — переподписка сразу, не дожидаясь очередного повтора хранилища. */
+    retry: () => {
+      setReadError(null);
+      setReloadNonce((n) => n + 1);
+    },
   };
 }
 

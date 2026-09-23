@@ -273,13 +273,41 @@ async function upsertRows<T extends object>(
     errors.push(`${table}: ${describe(error)}`);
     return 0;
   }
+  const keys = conflict.split(",");
   let done = 0;
   for (const row of rows) {
     const { error } = await supabaseRows.from(table).upsert([row], { onConflict: conflict });
-    if (error) errors.push(`${label(row)}: ${describe(error)}`);
-    else done += 1;
+    if (!error) {
+      done += 1;
+      continue;
+    }
+    // `upsert` — это INSERT ... ON CONFLICT: Postgres проверяет политику
+    // ВСТАВКИ, даже когда запись уже есть и дело кончится правкой. Поэтому
+    // ответственный за старый стол (его id не вида `page_{свой uid}_…`) не мог
+    // обновить ДАЖЕ СВОЮ запись прав: сверка падала на каждом заходе. Правку
+    // политика разрешает — пробуем ею, и только если строки нет, отказ честный.
+    if (error.code === "42501") {
+      const updated = await updateExisting(table, row, keys);
+      if (updated === true) {
+        done += 1;
+        continue;
+      }
+    }
+    errors.push(`${label(row)}: ${describe(error)}`);
   }
   return done;
+}
+
+/** Правка существующей записи по ключу. true — нашлась и обновлена. */
+async function updateExisting<T extends object>(table: string, row: T, keys: string[]): Promise<boolean> {
+  let q = supabaseRows.from(table).update(row);
+  for (const key of keys) {
+    const value = (row as Record<string, unknown>)[key];
+    if (value === undefined) return false;
+    q = q.eq(key, value as string);
+  }
+  const { data, error } = await q.select(keys[0]);
+  return !error && Array.isArray(data) && data.length > 0;
 }
 
 export interface AclSyncInput {

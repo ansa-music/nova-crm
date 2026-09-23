@@ -3,7 +3,8 @@ import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { sbFetchAllPageRows, sbFetchRows, sbPutRows } from "@/services/rows/supabaseRowStore";
-import type { PageRow } from "@/types";
+import { putPageAcl } from "@/services/rows/rowAclService";
+import type { PageRow, WorkspacePage } from "@/types";
 
 type SnapshotRow = { id: string; data: Record<string, unknown> };
 
@@ -77,6 +78,14 @@ export async function restorePageSnapshot(workspaceId: string, pageId: string, s
   }
 
   if (onSupabase) {
+    // Вернули стол (Ctrl+Z после удаления) — вернуть и его запись в копии прав:
+    // удаление стола её снесло, а без неё политика Supabase не отдаёт ни одной
+    // строки, и восстановленный стол выглядел бы пустым до сверки у Owner.
+    try {
+      await putPageAcl(workspaceId, { ...(snapshot.pageData as WorkspacePage), id: pageId });
+    } catch (error) {
+      console.warn("[rows-acl] права восстановленного стола не записаны — доведёт сверка", error);
+    }
     await sbPutRows(workspaceId, pageId, null, fromSnapshotRows(snapshot.rows));
     for (const sp of snapshot.subPages) await sbPutRows(workspaceId, pageId, sp.id, fromSnapshotRows(sp.rows));
   }

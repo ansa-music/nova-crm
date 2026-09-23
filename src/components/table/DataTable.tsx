@@ -64,6 +64,7 @@ import { confirmDialog, promptDialog } from "@/utils/appDialog";
 import { DATE_PRESET_LABELS, isInDatePreset, type DatePreset } from "@/utils/dateRanges";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/components/ui/sonner";
+import { isRowsMigratingError } from "@/utils/dbError";
 import {
   addRow as addRowServiceBase,
   deleteRow as deleteRowServiceBase,
@@ -1101,6 +1102,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       if (autoDateKey) await persistCellEdit(rowId, autoDateKey, "", String(Date.now()));
     } catch (error) {
       pendingWrites.fail(rowId, colKey, version);
+      if (isRowsMigratingError(error)) {
+        toast.error("Идёт перенос строк таблиц", {
+          description: "Правки сейчас не сохраняются — подождите пару минут и повторите.",
+        });
+        return;
+      }
       toast.error("Не удалось сохранить значение", {
         description: "Текст остался на месте. Повторите сохранение.",
         action: {
@@ -1200,6 +1207,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       })
     );
     if (failed.length === 0) return;
+    if (isRowsMigratingError(firstError)) {
+      toast.error("Идёт перенос строк таблиц", {
+        description: "Правки сейчас не сохраняются — подождите пару минут и повторите.",
+      });
+      return;
+    }
     // Один тост на всю операцию: при кончившейся квоте по тосту на ячейку
     // засыпали бы весь экран.
     toast.error("Не удалось сохранить значение", {

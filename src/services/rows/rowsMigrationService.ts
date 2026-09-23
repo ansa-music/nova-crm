@@ -199,6 +199,44 @@ async function setSupabaseState(workspaceId: string, live: boolean, migrating: b
 
 /** Столько живёт замок переноса — как `rowsMigrating()` в firestore.rules. */
 const MIGRATION_LOCK_MS = 15 * 60 * 1000;
+/** Как часто продлеваем замок, пока идёт копирование. */
+const LOCK_REFRESH_MS = 4 * 60 * 1000;
+/**
+ * Дольше этого без ПОДТВЕРЖДЁННОГО продления — переключать хранилище нельзя.
+ * Замок живёт 15 минут, а перенос десятка столов на медленной сети идёт
+ * дольше: он отпустил бы чужие сессии, те дописали бы строки в старое
+ * хранилище, и переключение похоронило бы эти правки.
+ */
+const LOCK_MAX_GAP_MS = 12 * 60 * 1000;
+
+/**
+ * Держит замок переноса живым, пока копируем, и умеет сказать, не было ли
+ * дыры. Продлеваем ОБА замка: `rowsMigrationAt` в Firestore и `migrating`
+ * в Supabase (`migrating_until` там тоже на 15 минут).
+ */
+function startMigrationLockKeeper(workspaceId: string, supabaseState: { live: boolean; migrating: boolean } | null) {
+  let lastOkAt = Date.now();
+  const tick = async () => {
+    try {
+      await setMigrationFlag(workspaceId, true);
+      if (supabaseState) await setSupabaseState(workspaceId, supabaseState.live, supabaseState.migrating);
+      lastOkAt = Date.now();
+    } catch {
+      // Не продлилось — попробуем на следующем тике; затянувшийся провал
+      // поймает assertFresh перед самым переключением.
+    }
+  };
+  const timer = window.setInterval(() => void tick(), LOCK_REFRESH_MS);
+  return {
+    stop: () => window.clearInterval(timer),
+    assertFresh() {
+      if (Date.now() - lastOkAt <= LOCK_MAX_GAP_MS) return;
+      throw new Error(
+        "Перенос затянулся, и запрет на правку мог отпустить чужие вкладки — хранилище НЕ переключено, данные на месте. Повторите перенос."
+      );
+    },
+  };
+}
 
 /**
  * Держит замок Supabase равным Firestore: строки там (`rowsBackend:
@@ -252,9 +290,11 @@ export async function migrateRowsToSupabase(input: MigrateInput): Promise<Migrat
   progress({ phase: "prepare", done: 0, total: 1, label: "Проверяю Supabase" });
   await assertHealthy(workspaceId);
   await setMigrationFlag(workspaceId, true);
+  let lock: ReturnType<typeof startMigrationLockKeeper> | null = null;
   try {
     // Пока копируем — хранилище неживое, писать в него может только Owner.
     await setSupabaseState(workspaceId, false, true);
+    lock = startMigrationLockKeeper(workspaceId, { live: false, migrating: true });
     progress({ phase: "acl", done: 0, total: 1, label: "Переношу права доступа" });
     // Участники и наблюдатели — свежим чтением с сервера, не из памяти вкладки.
     const [members, observers] = await Promise.all([
@@ -302,6 +342,7 @@ export async function migrateRowsToSupabase(input: MigrateInput): Promise<Migrat
     }
 
     progress({ phase: "switch", done: 0, total: 1, label: "Переключаю хранилище" });
+    lock.assertFresh();
     await setSupabaseState(workspaceId, true, false);
     // reloadEpoch — перезагрузить все открытые вкладки: старый код на них
     // писал бы строки в Firestore (правила такую запись теперь отклоняют).
@@ -317,6 +358,8 @@ export async function migrateRowsToSupabase(input: MigrateInput): Promise<Migrat
     await setSupabaseState(workspaceId, false, false).catch(() => undefined);
     await setMigrationFlag(workspaceId, false).catch(() => undefined);
     throw error;
+  } finally {
+    lock?.stop();
   }
 }
 
@@ -335,10 +378,14 @@ export async function migrateRowsToFirestore(input: Omit<MigrateInput, "me" | "o
   progress({ phase: "prepare", done: 0, total: 1, label: "Проверяю Supabase" });
   await assertHealthy(workspaceId);
   await setMigrationFlag(workspaceId, true);
+  let lock: ReturnType<typeof startMigrationLockKeeper> | null = null;
   try {
     // Supabase замерзает ДО копирования: поздняя правка сессии, которая ещё не
     // узнала о переносе, отказывает громко, а не пропадает в брошенном хранилище.
     await setSupabaseState(workspaceId, false, false);
+    // Замок Supabase здесь уже не «перенос», а «закрыто», продлевать нечего —
+    // держим только запрет правки строк в Firestore.
+    lock = startMigrationLockKeeper(workspaceId, null);
     const tables = await listTables(workspaceId, input.pages);
     const expected = new Map<TableRef, number>();
     let rows = 0;
@@ -388,6 +435,7 @@ export async function migrateRowsToFirestore(input: Omit<MigrateInput, "me" | "o
     }
 
     progress({ phase: "switch", done: 0, total: 1, label: "Переключаю хранилище" });
+    lock.assertFresh();
     await updateDoc(paths.workspace(workspaceId), {
       rowsBackend: "firestore",
       rowsMigrationAt: null,
@@ -400,6 +448,8 @@ export async function migrateRowsToFirestore(input: Omit<MigrateInput, "me" | "o
     await setSupabaseState(workspaceId, true, false).catch(() => undefined);
     await setMigrationFlag(workspaceId, false).catch(() => undefined);
     throw error;
+  } finally {
+    lock?.stop();
   }
 }
 

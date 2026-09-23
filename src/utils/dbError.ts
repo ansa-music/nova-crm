@@ -25,7 +25,17 @@ const CODE_TEXT: Record<string, string> = {
   "resource-exhausted":
     "Кончилась дневная квота бесплатного Firebase — до её сброса (около 13:00 по Алматы) записи не проходят нигде в приложении.",
   internal: "Внутренняя ошибка базы — попробуйте ещё раз.",
+  // Гибрид строк: Owner переносит строки столов между Firestore и Supabase,
+  // и на это время правки запрещены всем (см. «Строки таблиц» в CLAUDE.md).
+  // Без своего текста человек видел «Не удалось сохранить значение» и жал
+  // «Повторить» по кругу — повтор тоже отказывает, пока перенос не кончится.
+  "rows-migrating": "Идёт перенос строк таблиц в другое хранилище — правки сейчас не сохраняются. Подождите пару минут.",
 };
+
+/** Отказ из-за идущего переноса строк — повторять бесполезно, надо ждать. */
+export function isRowsMigratingError(error: unknown): boolean {
+  return errorCode(error) === "rows-migrating";
+}
 
 function errorCode(error: unknown): string | null {
   if (typeof error === "object" && error && "code" in error) {
