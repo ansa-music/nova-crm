@@ -145,10 +145,10 @@ service cloud.firestore {
     }
 
     // «Стол ОС» (`osDesk: true`) — личная таблица ОС. Её смотрит ЛЮБОЙ
-    // Тимлид (и без роли Технаря): столы ОС — предмет мониторинга
-    // руководства, а не столы технарей, на которые распространяется запрет
-    // Тимлиду. Остальные — по разрешению ОС (allowedUsers). Правка так не
-    // даётся: canEditPage требует ответственного или editableUsers.
+    // участник на ЧТЕНИЕ, без запроса (просьба Nurba 23.09.2026: столы ОС
+    // видны всем), в том числе Тимлид без Технаря — запрет Тимлиду касается
+    // столов технарей. Правка так не даётся: canEditPage требует
+    // ответственного или editableUsers.
     function isOsDeskPage(pageData) {
       return pageData.get('osDesk', false) == true;
     }
@@ -233,12 +233,13 @@ service cloud.firestore {
     }
 
     // Owner: every page. Тимлид: none, если он не Технарь, — кроме столов ОС.
+    // Столы ОС — любому участнику на чтение.
     // Responsible person: their own desk even if hidden or missing from
     // allowedUsers. Everyone else: explicit allowedUsers grant.
     function canAccessPage(workspaceId, pageData) {
       return isOwner(workspaceId) ||
         isTeamLeadTech(workspaceId) ||
-        (isTeamLead(workspaceId) && isOsDeskPage(pageData)) ||
+        (isMember(workspaceId) && isOsDeskPage(pageData)) ||
         // Наблюдатель — ДО isDeskBlocked: право выдано человеку, а не роли.
         isDeskObserver(workspaceId) ||
         (!isDeskBlocked(workspaceId) && (

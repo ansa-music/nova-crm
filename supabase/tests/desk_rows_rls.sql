@@ -122,13 +122,18 @@ select tst.expect('Тимлид + Технарь читает чужой сто�
 select tst.expect('Тимлид + ОС НЕ читает стол технаря', tst.try('TLO', $q$select * from desk_rows where page_id = 'P1'$q$, true), 'ok:0');
 select tst.expect('Тимлид + ОС читает чужой стол ОС', tst.try('TLO', $q$select * from desk_rows where page_id = 'osdesk_OS1'$q$, true), 'ok:1');
 select tst.expect('наблюдатель читает чужой стол', tst.try('OBS', $q$select * from desk_rows where page_id = 'P2'$q$, true), 'ok:1');
-select tst.expect('ОС НЕ читает чужой стол ОС', tst.try('OS2', $q$select * from desk_rows where page_id = 'osdesk_OS1'$q$, true), 'ok:0');
+-- Столы ОС видны ВСЕМ участникам на чтение (просьба Nurba 23.09.2026), но не посторонним.
+select tst.expect('ОС читает чужой стол ОС', tst.try('OS2', $q$select * from desk_rows where page_id = 'osdesk_OS1'$q$, true), 'ok:1');
+select tst.expect('технарь без разрешения читает стол ОС', tst.try('T2', $q$select * from desk_rows where page_id = 'osdesk_OS1'$q$, true), 'ok:1');
+select tst.expect('технарь НЕ правит чужой стол ОС', tst.try('T2', $q$select rows_patch('W','osdesk_OS1','','o1','{"price":"1"}'::jsonb)$q$), 'error');
+select tst.expect('посторонний НЕ читает стол ОС', tst.try('X', $q$select * from desk_rows where page_id = 'osdesk_OS1'$q$, true), 'ok:0');
+select tst.expect('анонимный ключ НЕ читает стол ОС', tst.try('__anon_key__', $q$select * from desk_rows where page_id = 'osdesk_OS1'$q$, true), 'ok:0');
 select tst.expect('Admin без доступа НЕ читает', tst.try('AD', $q$select * from desk_rows where page_id = 'P1'$q$, true), 'ok:0');
 select tst.expect('не участник с настоящим токеном НЕ читает', tst.try('X', $q$select * from desk_rows$q$, true), 'ok:0');
 select tst.expect('анонимный ключ (из репозитория) НЕ читает', tst.try('__anon_key__', $q$select * from desk_rows$q$, true), 'ok:0');
 select tst.expect('токен ЧУЖОГО проекта с uid Owner НЕ читает', tst.try('__forged__:O', $q$select * from desk_rows$q$, true), 'ok:0');
-select tst.expect('весь список строк технарю — только доступные', tst.try('T1', $q$select * from desk_rows$q$, true), 'ok:3');
-select tst.expect('весь список Viewer — только доступные', tst.try('V', $q$select * from desk_rows$q$, true), 'ok:3');
+select tst.expect('весь список строк технарю — только доступные (+2 строки столов ОС)', tst.try('T1', $q$select * from desk_rows$q$, true), 'ok:5');
+select tst.expect('весь список Viewer — только доступные (+2 строки столов ОС)', tst.try('V', $q$select * from desk_rows$q$, true), 'ok:5');
 
 -- ---------------------------------------------------------------------
 -- Запись: canEditPage.

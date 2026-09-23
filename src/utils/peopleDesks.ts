@@ -167,7 +167,7 @@ export function canOpenDesk(opts: {
    * по роли либо «наблюдатель» (тихое право Owner).
    */
   seesAllDesks?: boolean;
-  /** usePermissions().seesOsDesks — Owner и любой Тимлид: столы ОС напрямую. */
+  /** usePermissions().seesOsDesks — столы ОС видны всем участникам на чтение. */
   seesOsDesks?: boolean;
 }): boolean {
   const uid = opts.uid ?? "";

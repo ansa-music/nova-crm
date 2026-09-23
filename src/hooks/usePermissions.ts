@@ -179,18 +179,18 @@ export function usePermissions() {
        */
       seesAllDesks: isResolved && !isOwnerOfWorkspace && (seesAllDesks(roles) || isDeskObserver),
       /**
-       * Столы ОС (`page.osDesk`) смотрят Owner и ЛЮБОЙ Тимлид — напрямую, без
-       * запроса (мониторинг руководства). Зеркало `isOsDeskPage` в
-       * firestore.rules. Остальные — по разрешению ОС (или как наблюдатели).
+       * Столы ОС (`page.osDesk`) видны ВСЕМ участникам на чтение, без запроса
+       * (просьба Nurba 23.09.2026). Зеркало ветки `isOsDeskPage` в
+       * canAccessPage firestore.rules и `rows_readable_pages` в Supabase.
        */
-      seesOsDesks: isResolved && (isOwnerOfWorkspace || roles.includes("owner") || roles.includes("teamlead") || isDeskObserver),
+      seesOsDesks: isResolved,
       canAccessPage: (page: WorkspacePage) => {
         if (!isResolved || !uid) return false;
         if (isOwnerOfWorkspace) return true;
         // Наблюдатель — ДО проверки deskBlocked: право выдаётся человеку, а не
         // роли, и Тимлиду без Технаря оно тоже должно работать.
         if (isDeskObserver) return true;
-        if (page.osDesk && (roles.includes("teamlead") || isResponsibleForPage(page, uid))) return true;
+        if (page.osDesk) return true;
         if (deskBlocked) return false;
         if (seesAllDesks(roles)) return true;
         if (isResponsibleForPage(page, uid)) return true;

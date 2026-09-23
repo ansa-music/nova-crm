@@ -213,11 +213,10 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   const showGrokNav = !isOs;
   const showTechniciansNav = permissions.canSeeTechnicians && !isOs;
   // «Стол ОС» — личная таблица ОС, пункт только у ОС (и как второй роли).
-  // «Столы ОС» — мониторинг всех столов ОС: у всех, кроме чистого ОС (у него
-  // свой «Стол ОС»). Owner и Тимлид смотрят столы напрямую, остальные — по
-  // запросу к ОС.
+  // «Столы ОС» — все столы ОС на просмотр: у ВСЕХ, и у самих ОС тоже (чужие
+  // столы видны каждому участнику).
   const showOsDeskNav = permissions.isResolved && permissions.hasRole("os");
-  const showOsDesksNav = permissions.isResolved && !isOs;
+  const showOsDesksNav = permissions.isResolved;
   /**
    * Зелёные пункты меню:
    * — «Заказы», пока на бирже есть хоть один ОТКРЫТЫЙ заказ (живое состояние,

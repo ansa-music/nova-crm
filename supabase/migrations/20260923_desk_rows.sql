@@ -183,8 +183,8 @@ as $$
   from public.rows_page_acl a
   join public.rows_members m on m.workspace_id = a.workspace_id and m.uid = public.rows_uid()
   where
-    -- Любой Тимлид: столы ОС.
-    (m.role = 'teamlead' and a.os_desk)
+    -- Столы ОС — любому участнику на чтение (как isOsDeskPage в firestore.rules).
+    a.os_desk
     -- isDeskBlocked: Тимлид без Технаря — нет.
     or (not (m.role = 'teamlead' and not ('manager' = any (m.extra_roles)))
       and (a.responsible_uid = m.uid or m.uid = any (a.allowed_uids)))
