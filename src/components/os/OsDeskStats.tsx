@@ -53,6 +53,7 @@ export function OsDeskStats({
   keys,
   tabId,
   tabLabel,
+  embedded = false,
 }: {
   page: WorkspacePage;
   rows: PageRow[];
@@ -61,6 +62,8 @@ export function OsDeskStats({
   tabId: string | null;
   /** Подпись открытой вкладки («Сентябрь 2026»). */
   tabLabel: string;
+  /** Внутри окна «Статистика» — без нижней рамки панели. */
+  embedded?: boolean;
 }) {
   const { activeWorkspace, activeWorkspaceId, members, pages } = useWorkspace();
   const monthKey = useCurrentMonthKey();
@@ -185,7 +188,7 @@ export function OsDeskStats({
   ].filter(Boolean);
 
   return (
-    <div className="border-b border-border p-3 sm:p-4">
+    <div className={cn("p-3 sm:p-4", !embedded && "border-b border-border")}>
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
         <p className="text-xs text-muted-foreground">Статистика ОС · {monthLower}: KPI и ваш процент с апсейла</p>
         <Link to="/abs?v=os" className="ml-auto inline-flex items-center gap-1 text-xs text-primary underline-offset-2 hover:underline">

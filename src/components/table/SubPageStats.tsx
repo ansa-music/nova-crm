@@ -13,9 +13,11 @@ const PERCENTS = [5, 8, 10, 12];
 interface SubPageStatsProps {
   columns: PageColumn[];
   rows: PageRow[];
+  /** Внутри окна «Статистика» — без нижней рамки панели. */
+  embedded?: boolean;
 }
 
-export function SubPageStats({ columns, rows }: SubPageStatsProps) {
+export function SubPageStats({ columns, rows, embedded = false }: SubPageStatsProps) {
   const { activeWorkspace } = useWorkspace();
   const [percentBase, setPercentBase] = useState<"done" | "total">("done");
   const stats = useMemo(() => {
@@ -69,7 +71,7 @@ export function SubPageStats({ columns, rows }: SubPageStatsProps) {
   );
 
   return (
-    <div className="border-b border-border p-3 sm:p-4">
+    <div className={cn("p-3 sm:p-4", !embedded && "border-b border-border")}>
       <div className="mb-3 flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">Проценты {percentHint}</p>
         {baseToggle}

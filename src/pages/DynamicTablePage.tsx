@@ -39,6 +39,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { useIsMobile } from "@/hooks/useMediaQuery";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AccessDenied } from "@/components/common/AccessDenied";
 import { DataTable } from "@/components/table/DataTable";
@@ -314,9 +317,6 @@ function DeskSummaryInline({ store }: { store: DeskSummaryStore }) {
   );
 }
 
-/** Статистика стола открыта (на устройстве, для всех столов). */
-const DESK_STATS_OPEN_KEY = "nova:desk-stats-open";
-
 export default function DynamicTablePage() {
   const { pageId } = useParams<{ pageId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -376,30 +376,13 @@ export default function DynamicTablePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deskStudioOpen, setDeskStudioOpen] = useState(false);
   const [personalSpaceOpen, setPersonalSpaceOpen] = useState(false);
-  // Статистика — кнопкой в шапке (просьба Nurba 25.09.2026: «на видном месте
-  // и подсвети»). Открыта/закрыта — помним на устройстве: кто ею пользуется,
-  // держит её открытой. Стол технаря — прежняя сводка по столбцам, стол ОС —
-  // KPI и % от апсейла (OsDeskStats).
-  const [statsOpen, setStatsOpenState] = useState(() => {
-    try {
-      // На телефоне стол открывается без статистики всегда: панель высокая, и
-      // вместе с шапкой и подсказкой она не оставляла таблице ни строки.
-      return (
-        window.matchMedia("(min-width: 768px)").matches &&
-        window.localStorage.getItem(DESK_STATS_OPEN_KEY) === "1"
-      );
-    } catch {
-      return false;
-    }
-  });
-  const setStatsOpen = useCallback((open: boolean) => {
-    setStatsOpenState(open);
-    try {
-      window.localStorage.setItem(DESK_STATS_OPEN_KEY, open ? "1" : "0");
-    } catch {
-      /* без localStorage — только на эту вкладку */
-    }
-  }, []);
+  // Статистика — по кнопке в шапке, ОКНОМ поверх стола (просьба Nurba
+  // 25.09.2026: панель над таблицей «занимает место — сделай по вызову
+  // кнопки»). Не запоминается: открыл — посмотрел — закрыл. Стол технаря —
+  // сводка по столбцам, стол ОС — KPI и % от апсейла (OsDeskStats); их
+  // подписки живут, только пока окно открыто. На телефоне — лист снизу.
+  const [statsOpen, setStatsOpen] = useState(false);
+  const statsOnPhone = useIsMobile();
   // Сводка и действия стола — их считает DataTable (у него отфильтрованные
   // строки и статусы), шапка только рисует. См. types/deskSummary.ts.
   const [summaryStore] = useState(createDeskSummaryStore);
@@ -2108,12 +2091,9 @@ export default function DynamicTablePage() {
             <DropdownMenuItem onClick={() => setChatOpen(true)}>
               <MessageSquare className="h-4 w-4" /> Чат страницы
             </DropdownMenuItem>
-            <DropdownMenuCheckboxItem
-              checked={statsOpen}
-              onCheckedChange={(checked) => setStatsOpen(checked === true)}
-            >
+            <DropdownMenuItem onClick={() => setStatsOpen(true)}>
               <BarChart3 className="h-4 w-4" /> Статистика
-            </DropdownMenuCheckboxItem>
+            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {
                 setTableFullscreen(true);
@@ -2318,27 +2298,42 @@ export default function DynamicTablePage() {
         </div>
       ) : (
         <>
-          {statsOpen && !chromeHidden ? (
-            // На телефоне — не выше 40 % экрана со своей прокруткой: таблице
-            // под ней всегда остаются строки.
-            <div className="max-h-[40dvh] shrink-0 overflow-y-auto scrollbar-thin md:max-h-none">
-              {page.osDesk ? (
+          {statsOpen ? (
+            (() => {
+              const body = page.osDesk ? (
                 <OsDeskStats
                   page={page}
                   rows={rows}
                   keys={osKeys}
                   tabId={activeSubPageId}
-                  tabLabel={
-                    activeSubPage?.name ?? page.mainTabName ?? "Основная"
-                  }
+                  tabLabel={activeSubPage?.name ?? page.mainTabName ?? "Основная"}
+                  embedded
                 />
               ) : (
-                <SubPageStats
-                  columns={activeSubPage ? activeSubPage.columns : page.columns}
-                  rows={rows}
-                />
-              )}
-            </div>
+                <SubPageStats columns={activeSubPage ? activeSubPage.columns : page.columns} rows={rows} embedded />
+              );
+              const title = page.osDesk ? "Статистика ОС" : "Статистика стола";
+              const description = page.osDesk
+                ? "KPI, апсейл месяца и ваш процент. Стол под окном не трогаем."
+                : "«Готово», общий доход и проценты по открытой вкладке.";
+              return statsOnPhone ? (
+                <Sheet open onOpenChange={(o) => !o && setStatsOpen(false)}>
+                  <SheetContent side="bottom" className="flex max-h-[88dvh] flex-col gap-0 p-0 pb-[env(safe-area-inset-bottom)]">
+                    <SheetTitle className="px-4 pt-1">{title}</SheetTitle>
+                    <SheetDescription className="px-4 pb-1 text-[12px]">{description}</SheetDescription>
+                    <div className="min-h-0 flex-1 overflow-y-auto">{body}</div>
+                  </SheetContent>
+                </Sheet>
+              ) : (
+                <Dialog open onOpenChange={(o) => !o && setStatsOpen(false)}>
+                  <DialogContent className="max-w-4xl gap-0 p-0">
+                    <DialogTitle className="px-4 pt-4 sm:px-5">{title}</DialogTitle>
+                    <DialogDescription className="px-4 pb-1 pt-1 text-[12px] sm:px-5">{description}</DialogDescription>
+                    {body}
+                  </DialogContent>
+                </Dialog>
+              );
+            })()
           ) : null}
 
           {/* Стол ОС: запросы технарей «удалить заказ» / «поставить статус». */}

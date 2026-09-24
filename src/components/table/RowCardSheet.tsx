@@ -471,12 +471,41 @@ export function RowCardSheet({
                   <div>
                     <p className="eyebrow mb-2">Поля</p>
                     <div className="flex flex-col">
-                      {rest.map((col) => (
-                        <div key={col.id} className="flex items-start justify-between gap-4 border-t border-border/50 py-2.5">
-                          <p className="shrink-0 pt-1 text-[12px] text-muted-foreground">{col.label}</p>
-                          <div className="min-w-0 max-w-[70%] text-right">{renderValue(col)}</div>
-                        </div>
-                      ))}
+                      {rest.map((col) => {
+                        // Вся строка поля кликабельна (просьба Nurba 25.09.2026:
+                        // «всю зону кликабельной»): правка начиналась только с
+                        // узкого «—» справа, и в пустое поле было не попасть.
+                        // Списки и даты открывают свои выпадашки сами, им
+                        // строка-кнопка не нужна; ссылки внутри останавливают
+                        // всплытие и открываются как раньше.
+                        const rowEditable = canEditCell(col) && !isOptionColumn(col.type) && col.type !== "date" && editingKey !== col.key;
+                        return (
+                          <div
+                            key={col.id}
+                            role={rowEditable ? "button" : undefined}
+                            tabIndex={rowEditable ? 0 : undefined}
+                            onClick={rowEditable ? () => beginEdit(col) : undefined}
+                            onKeyDown={
+                              rowEditable
+                                ? (e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      beginEdit(col);
+                                    }
+                                  }
+                                : undefined
+                            }
+                            title={rowEditable ? "Нажмите, чтобы изменить" : undefined}
+                            className={cn(
+                              "flex items-start justify-between gap-4 border-t border-border/50 py-2.5",
+                              rowEditable && "-mx-2 cursor-text rounded-md px-2 transition-colors hover:bg-primary/[0.06] focus-visible:bg-primary/[0.06] focus-visible:outline-none"
+                            )}
+                          >
+                            <p className="shrink-0 pt-1 text-[12px] text-muted-foreground">{col.label}</p>
+                            <div className="min-w-0 max-w-[70%] text-right">{renderValue(col)}</div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
