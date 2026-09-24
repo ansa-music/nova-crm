@@ -916,7 +916,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // Мышью — ровно плотность (34/40/48), пола в 48 больше нет: он и делал
   // «компактно» неотличимым от «обычно». Тач-ветку не трогаем.
   const rowHeight = coarsePointer ? Math.max(52, DENSITY_ROW_HEIGHT[density]) : DENSITY_ROW_HEIGHT[density];
-  const gutterWidth = coarsePointer ? 48 : 56;
+  // На таче в гаттере только номер (без «⋯»), поэтому он уже — ширина
+  // достаётся имени клиента в липком первом столбце.
+  const gutterWidth = coarsePointer ? 40 : 56;
 
   const [gridFocused, setGridFocused] = useState(false);
   const [expandedTextCell, setExpandedTextCell] = useState<CellAddress | null>(null);

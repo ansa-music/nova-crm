@@ -412,7 +412,11 @@ function TableRowInner({
           <span className="flex min-w-[1.1rem] items-center justify-center text-[11px]" title={blank ? "Пустая строка — не считается заказом" : undefined}>
             {blank ? <Plus className="h-3 w-3 text-muted-foreground/60" aria-label="Пустая строка" /> : rowNumber}
           </span>
-          {rowMenu}
+          {/* На таче в гаттере — только номер (просьба Nurba 25.09.2026:
+              «оставить только нумерацию»): «⋯» стоял у каждой строки и
+              съедал ширину у имени клиента. Действия со строкой на телефоне —
+              долгое нажатие (то же контекстное меню) и карточка строки. */}
+          {!coarsePointer && rowMenu}
           {/* Row height is a write on the row doc — a pure viewer (allowedUsers
               without editableUsers) could grab this, see the height follow the
               drag, then watch it snap back when the rejected write never
