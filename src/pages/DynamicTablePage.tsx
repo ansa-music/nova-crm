@@ -179,6 +179,7 @@ import { osDateSlots, slotShown, type OsDateSlot } from "@/utils/osDates";
 import { PaymentMethodsDialog } from "@/components/cashbox/PaymentMethodsDialog";
 import { useOsTotalsKeeper } from "@/hooks/useOsTotalsKeeper";
 import { osRowTotal, paymentMethodsOf, paymentPatch } from "@/utils/payment";
+import { normalizeNumericInput, parseLooseNumber } from "@/utils/numberInput";
 import {
   updateSubPageColumns,
   updateSubPageRowCellsBulk,
@@ -1338,6 +1339,40 @@ export default function DynamicTablePage() {
       toast.error(
         firestoreErrorText(error, "Не удалось сохранить способ оплаты"),
       );
+    }
+  }
+  /**
+   * Сумма цены или апсейла из «Кассы» карточки строки (просьба Nurba
+   * 25.09.2026: «тут надо, чтобы можно было изменять суммы»). Число
+   * канонизируется, как в ячейке («1 500,50» → «1500.5»), «Итого» пересчитано
+   * той же записью; дату апсейла ставит useOsTotalsKeeper, как при правке в
+   * таблице.
+   */
+  async function setOsAmount(row: PageRow, colKey: string, raw: string) {
+    if (!activeWorkspaceId || !page) return;
+    const value = raw.trim() === "" ? "" : normalizeNumericInput(raw);
+    if (value !== "" && parseLooseNumber(value) === null) {
+      toast.error("Нужна сумма числом");
+      return;
+    }
+    if (String(row.cells[colKey] ?? "") === value) return;
+    const patch: Record<string, string | number | null> = { [colKey]: value };
+    if (osTableColumns?.some((c) => c.key === osKeys.total)) {
+      const total = osRowTotal({ cells: { ...row.cells, ...patch } }, osKeys);
+      patch[osKeys.total] = total === null ? null : String(total);
+    }
+    try {
+      if (activeSubPageId)
+        await updateSubPageRowCellsBulk(
+          activeWorkspaceId,
+          page.id,
+          activeSubPageId,
+          row.id,
+          patch,
+        );
+      else await updateRowCellsBulk(activeWorkspaceId, page.id, row.id, patch);
+    } catch (error) {
+      toast.error(firestoreErrorText(error, "Не удалось сохранить сумму"));
     }
   }
   const isRealOwner =
@@ -2550,6 +2585,8 @@ export default function DynamicTablePage() {
                           onPick: (colKey, method) =>
                             void pickPayment(row, colKey, method),
                           onConfigure: () => setPaymentDialogOpen(true),
+                          onAmount: (colKey, raw) =>
+                            setOsAmount(row, colKey, raw),
                         }}
                       />
                     );

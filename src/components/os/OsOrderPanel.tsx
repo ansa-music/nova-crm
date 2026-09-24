@@ -37,6 +37,86 @@ function cellText(row: PageRow, key: string | null | undefined): string {
   return v === null || v === undefined ? "" : String(v).trim();
 }
 
+/**
+ * Сумма в «Кассе» карточки — нажал и правишь (просьба Nurba 25.09.2026:
+ * «тут надо, чтобы можно было изменять суммы»). Enter или уход с поля —
+ * запись, Esc — отмена; пусто — сумма стирается. Пока идёт запись, поле
+ * показывает введённое, а не старое значение из строки.
+ */
+function AmountField({
+  rowId,
+  label,
+  value,
+  onSave,
+}: {
+  rowId: string;
+  label: string;
+  value: unknown;
+  onSave: (raw: string) => Promise<void>;
+}) {
+  const shown = String(value ?? "").trim();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  // Другая строка (стрелки в карточке) — правка не переезжает на неё.
+  useEffect(() => {
+    setEditing(false);
+  }, [rowId]);
+
+  async function commit() {
+    setEditing(false);
+    if (draft.trim() === shown) return;
+    setSaving(true);
+    try {
+      await onSave(draft);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        inputMode="decimal"
+        aria-label={label}
+        onChange={(e) => setDraft(e.target.value)}
+        // Сумма выделена целиком: новая сумма просто печатается поверх старой.
+        onFocus={(e) => e.currentTarget.select()}
+        onBlur={() => void commit()}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return;
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void commit();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            setEditing(false);
+          }
+        }}
+        className="h-9 w-32 rounded-md border border-primary bg-background px-2 text-right font-mono text-[13px] tabular-nums outline-none ring-1 ring-primary sm:h-8"
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setDraft(shown);
+        setEditing(true);
+      }}
+      disabled={saving}
+      title={`Изменить: ${label.toLowerCase()}`}
+      className="inline-flex h-9 min-w-[5.5rem] items-center justify-end gap-1.5 rounded-md border border-dashed border-border px-2 font-mono text-[13px] tabular-nums transition-colors hover:border-primary/50 hover:bg-primary/[0.06] sm:h-8"
+    >
+      {saving ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" /> : null}
+      {shown ? formatCurrency(cellAmount(value)) : <span className="font-sans text-muted-foreground">+ сумма</span>}
+    </button>
+  );
+}
+
 /** Подпись чипа в шапке панели там, где в ячейке только значок. */
 const CHIP_FALLBACK: Partial<Record<OsTechCellState["kind"], string>> = {
   "with-tech": "у технаря",
@@ -131,6 +211,8 @@ export function OsOrderPanel({
     canConfigure: boolean;
     onPick: (colKey: string, method: PaymentMethod | null) => void;
     onConfigure: () => void;
+    /** Правка суммы цены/апсейла прямо в «Кассе» (нет — сумма только показана). */
+    onAmount?: (colKey: string, raw: string) => Promise<void>;
   };
 }) {
   const { activeWorkspaceId, activeWorkspace, pages, members } = useWorkspace();
@@ -318,7 +400,11 @@ export function OsOrderPanel({
           ].map((f) => (
             <div key={f.key} className="flex flex-wrap items-center gap-2 text-sm">
               <span className="w-16 text-muted-foreground">{f.label}</span>
-              <span className="tabular-nums">{String(row.cells[f.key] ?? "").trim() ? formatCurrency(cellAmount(row.cells[f.key])) : "—"}</span>
+              {payment.onAmount ? (
+                <AmountField rowId={row.id} label={f.label} value={row.cells[f.key]} onSave={(raw) => payment.onAmount!(f.key, raw)} />
+              ) : (
+                <span className="tabular-nums">{String(row.cells[f.key] ?? "").trim() ? formatCurrency(cellAmount(row.cells[f.key])) : "—"}</span>
+              )}
               <PaymentChip
                 row={row}
                 colKey={f.key}
