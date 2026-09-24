@@ -76,6 +76,8 @@ import {
   resolveOsDeskKeys,
 } from "@/services/osDeskService";
 import { useSendOsRowToExchange } from "@/hooks/useSendOsRowToExchange";
+import { claimCount, useMyExchangeOrders } from "@/hooks/useMyExchangeOrders";
+import { OsExchangePicker } from "@/components/os/OsExchangePicker";
 import type { CellActionView } from "@/components/table/CellActionButton";
 import {
   DEFAULT_STATUS_OPTIONS,
@@ -684,6 +686,29 @@ export default function DynamicTablePage() {
     permissions.uid,
     isMyOsDesk,
   );
+  // Свои заказы на «Заказах» со стола — с живыми откликами: выбрать технаря
+  // можно прямо в ячейке «Технарь» (OsExchangePicker), не уходя на «Заказы».
+  const exchange = useMyExchangeOrders(
+    activeWorkspaceId,
+    permissions.uid,
+    isMyOsDesk,
+  );
+  const [pickOrderId, setPickOrderId] = useState<string | null>(null);
+  const pickOrder = pickOrderId
+    ? (exchange.byId.get(pickOrderId) ?? null)
+    : null;
+  // Уведомление «готов взять заказ» ведёт сюда с `?pick=<заказ>` — сразу
+  // открываем выбор. Параметр снимаем: F5 не должен открывать окно снова.
+  const pickParam = searchParams.get("pick");
+  useEffect(() => {
+    if (!pickParam || !exchange.loaded) return;
+    if (exchange.byId.has(pickParam)) setPickOrderId(pickParam);
+    else toast.info("Этот заказ уже отдан или снят с «Заказов»");
+    const next = new URLSearchParams(searchParams);
+    next.delete("pick");
+    setSearchParams(next, { replace: true, state: locationStateRef.current });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickParam, exchange.loaded]);
   // Ключи ячеек открытой таблицы стола ОС: столбец мог завести сам ОС, и
   // фиксированные `status`/`technician` тогда смотрели бы мимо.
   const osTableColumns = activeSubPage ? activeSubPage.columns : page?.columns;
@@ -842,6 +867,33 @@ export default function DynamicTablePage() {
     }
     if (dispatched) return null;
     if (row.orderId) {
+      const onExchange = exchange.byRow.get(row.id);
+      if (onExchange?.status === "assigned") {
+        return {
+          label: `Выдан: ${onExchange.assignedName ?? "технарю"}`,
+          tone: "info",
+          icon: "send",
+          title:
+            "Заказ отдан с «Заказов» и едет в стол технаря — ник появится в строке сам",
+        };
+      }
+      if (onExchange) {
+        const claims = claimCount(onExchange);
+        return claims > 0
+          ? {
+              label: `Отклики · ${claims}`,
+              tone: "primary",
+              icon: "hand",
+              title: `Откликнулись: ${claims}. Нажмите — выбрать технаря (или «Рандом»)`,
+            }
+          : {
+              label: "Ждём отклики",
+              tone: "info",
+              icon: "store",
+              title:
+                "Заказ на «Заказах», технари получили уведомление. Нажмите — отдать напрямую, не дожидаясь отклика",
+            };
+      }
       return {
         label: "На «Заказах»",
         tone: "info",
@@ -897,6 +949,17 @@ export default function DynamicTablePage() {
     const view = osCellView(row);
     if (!view || !activeWorkspaceId || !page) return;
     const client = cellStr(row, osKeys.client) || "Заказ";
+    const onExchange = row.orderId ? exchange.byRow.get(row.id) : undefined;
+    if (onExchange?.status === "assigned") {
+      toast.info(`${client}: заказ едет к технарю`, {
+        description: "Ник технаря появится в строке сам, как только заказ доедет.",
+      });
+      return;
+    }
+    if (onExchange && !cellStr(row, osKeys.technician)) {
+      setPickOrderId(onExchange.id);
+      return;
+    }
     if (view.icon === "store") {
       navigate("/orders");
       return;
@@ -948,7 +1011,7 @@ export default function DynamicTablePage() {
         });
         toast.success(`${client} — на «Заказах»`, {
           description:
-            "Технари получили уведомление. Отдайте заказ, когда откликнутся, — он приедет к технарю сам.",
+            "Технари получили уведомление. Отклики появятся здесь же, в ячейке «Технарь», — нажмите и выберите технаря.",
         });
       }
     } catch (error) {
@@ -1249,6 +1312,12 @@ export default function DynamicTablePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      {isMyOsDesk ? (
+        <OsExchangePicker
+          order={pickOrder}
+          onClose={() => setPickOrderId(null)}
+        />
+      ) : null}
       {isMyOsDesk ? (
         <TechPickerSheet
           open={Boolean(techPickRow)}
@@ -1722,6 +1791,8 @@ export default function DynamicTablePage() {
                         onChanged={myOrders.refresh}
                         onChoose={() => osDispatch.openChoice(row.id)}
                         onPickTech={() => setTechPickRowId(row.id)}
+                        exchangeOrder={exchange.byRow.get(row.id) ?? null}
+                        onPickFromExchange={(order) => setPickOrderId(order.id)}
                         keys={osKeys}
                         payment={{
                           methods: paymentMethods,

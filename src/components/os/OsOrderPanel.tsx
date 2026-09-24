@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowUpRight, Loader2, RefreshCw } from "lucide-react";
+import { ArrowUpRight, Hand, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/table/StatusBadge";
@@ -19,7 +19,7 @@ import { firestoreErrorText } from "@/utils/dbError";
 import { mirrorAddressOf } from "@/utils/osDispatchPlan";
 import { OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
 import { personLabel } from "@/utils/peopleDesks";
-import type { PageRow, PaymentMethod } from "@/types";
+import type { PageRow, PaymentMethod, WorkOrder } from "@/types";
 import { PaymentChip } from "@/components/cashbox/PaymentChip";
 import { osRowFees, osRowTotal } from "@/utils/payment";
 import { formatCurrency } from "@/utils/format";
@@ -49,6 +49,8 @@ export function OsOrderPanel({
   onChanged,
   onChoose,
   onPickTech,
+  exchangeOrder = null,
+  onPickFromExchange,
   keys = OS_DESK_KEYS,
   payment,
 }: {
@@ -64,6 +66,10 @@ export function OsOrderPanel({
   onChoose?: () => void;
   /** Выбрать / сменить технаря — полноэкранный список. */
   onPickTech?: () => void;
+  /** Заказ этой строки на «Заказах» (живой, с откликами), если он там открыт. */
+  exchangeOrder?: WorkOrder | null;
+  /** Выбрать технаря из откликнувшихся — прямо со стола. */
+  onPickFromExchange?: (order: WorkOrder) => void;
   /** Ключи ячеек открытой таблицы стола ОС. */
   keys?: OsDeskKeys;
   /** Касса: способы оплаты у цены и апсейла (на телефоне — только отсюда). */
@@ -250,7 +256,13 @@ export function OsOrderPanel({
         </p>
       ) : onExchange ? (
         <p className="text-xs text-muted-foreground">
-          Заказ на «Заказах» — отдайте его там, когда технари откликнутся, и он приедет к технарю сам.
+          {exchangeOrder?.status === "assigned"
+            ? `Отдан: ${exchangeOrder.assignedName ?? "технарю"} — заказ едет в его стол.`
+            : exchangeOrder
+            ? Object.keys(exchangeOrder.claims ?? {}).length > 0
+              ? `На «Заказах»: откликнулись ${Object.keys(exchangeOrder.claims ?? {}).length}. Выберите технаря — заказ приедет к нему сам.`
+              : "На «Заказах», ждём откликов. Можно отдать и напрямую, не дожидаясь."
+            : "Заказ на «Заказах» — отдайте его там, когда технари откликнутся, и он приедет к технарю сам."}
         </p>
       ) : !mirror && !problem && techNick ? (
         <p className="text-xs text-muted-foreground">Заказ уедет к технарю сам через секунду.</p>
@@ -261,6 +273,13 @@ export function OsOrderPanel({
           <Button size="sm" className="min-h-9" onClick={() => void handlePush()} disabled={busy || Boolean(problem)}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : mirror ? <RefreshCw className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />}
             {mirror ? "Обновить у технаря" : "Выдать в работу"}
+          </Button>
+        ) : onExchange && exchangeOrder?.status === "open" && onPickFromExchange ? (
+          <Button size="sm" className="min-h-9" onClick={() => onPickFromExchange(exchangeOrder)} disabled={busy}>
+            <Hand className="h-4 w-4" />
+            {Object.keys(exchangeOrder.claims ?? {}).length > 0
+              ? `Выбрать технаря · ${Object.keys(exchangeOrder.claims ?? {}).length}`
+              : "Отдать напрямую…"}
           </Button>
         ) : onChoose && !onExchange ? (
           <Button size="sm" className="min-h-9" onClick={onChoose} disabled={busy}>

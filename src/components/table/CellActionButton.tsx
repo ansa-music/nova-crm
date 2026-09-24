@@ -1,17 +1,17 @@
-import { AlertTriangle, Loader2, Send, Store } from "lucide-react";
+import { AlertTriangle, Hand, Loader2, Send, Store } from "lucide-react";
 import { cn } from "@/utils/cn";
 
 /**
  * Кнопка-действие поверх ячейки строки. Таблица сама про заказы ничего не
  * знает: что нарисовать, решает страница (`DataTable.cellAction`). Сейчас это
- * стол ОС — «В работу» (заказ уходит на «Заказы» с данными строки), метка
- * «на «Заказах»» и «не доехало до технаря».
+ * стол ОС — «В работу» (заказ уходит на «Заказы» с данными строки), «Отклики ·
+ * N» (выбрать технаря прямо со стола) и «не доехало до технаря».
  */
 export interface CellActionView {
   label: string;
   title: string;
   tone: "primary" | "info" | "warning";
-  icon?: "send" | "store" | "alert";
+  icon?: "send" | "store" | "alert" | "hand";
   busy?: boolean;
 }
 
@@ -29,7 +29,15 @@ export function CellActionButton({
   coarsePointer?: boolean;
   onRun: () => void;
 }) {
-  const Icon = view.busy ? Loader2 : view.icon === "store" ? Store : view.icon === "alert" ? AlertTriangle : Send;
+  const Icon = view.busy
+    ? Loader2
+    : view.icon === "store"
+      ? Store
+      : view.icon === "alert"
+        ? AlertTriangle
+        : view.icon === "hand"
+          ? Hand
+          : Send;
   return (
     <button
       type="button"

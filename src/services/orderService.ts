@@ -17,6 +17,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
+import { deskRowHref } from "@/utils/deskLinks";
 import { generateId } from "@/utils/id";
 import { formatOrderDate, normalizeTimestamp } from "@/utils/date";
 import { formatCurrency } from "@/utils/format";
@@ -248,12 +249,18 @@ export async function setOrderClaim(workspaceId: string, order: WorkOrder, me: {
       {
         workspaceId,
         title: `${me.name} готов взять заказ ${order.client}`,
-        body: "Выдайте заказ ему или выберите другого технаря.",
+        body: order.osSource
+          ? "Выберите технаря прямо на своём столе — окно откроется само."
+          : "Выдайте заказ ему или выберите другого технаря.",
         priority: "normal",
         fromUid: me.uid,
         fromName: me.name,
         target: "selected",
-        href: "/orders",
+        // Заказ со стола ОС — ведём на его строку с открытым выбором
+        // технаря (`?pick=`), а не на «Заказы».
+        href: order.osSource
+          ? `${deskRowHref(order.osSource.pageId, order.osSource.tabId, order.osSource.rowId)}&pick=${encodeURIComponent(order.id)}`
+          : "/orders",
       },
       [order.createdBy]
     ).catch(() => {});

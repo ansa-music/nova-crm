@@ -78,7 +78,7 @@ export function OsDispatchChoiceDialog({
     try {
       await sendToExchange({ row, pageId, tabId: subPageId, keys });
       toast.success(`${client} — на «Заказах»`, {
-        description: "Технари получили уведомление. Отдайте заказ, когда откликнутся, — он приедет к технарю сам.",
+        description: "Технари получили уведомление. Отклики появятся в ячейке «Технарь» — нажмите и выберите технаря.",
       });
       onClose();
     } catch (error) {
@@ -118,7 +118,7 @@ export function OsDispatchChoiceDialog({
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Store className="h-4 w-4 text-primary" />}
                 Общий
               </span>
-              <span className="text-xs text-muted-foreground">На биржу «Заказы» — всем технарям. Отдадите тому, кто откликнется.</span>
+              <span className="text-xs text-muted-foreground">Всем технарям на «Заказы». Кто откликнется — видно прямо в таблице, выберете там же.</span>
             </button>
             <button
               type="button"

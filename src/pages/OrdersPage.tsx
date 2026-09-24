@@ -15,10 +15,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { useUrlState } from "@/hooks/useUrlState";
 import { deskHref, deskNavState, deskRowHref } from "@/utils/deskLinks";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
-import { useDeskLoads, useTechSchedules } from "@/hooks/useDeskLoads";
-import { currentBusyUids, effectiveTechLoadKinds } from "@/utils/techLoad";
-import { currentMonthSubPageId } from "@/services/monthTabService";
-import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
+import { useOrderAssignment } from "@/hooks/useOrderAssignment";
 import {
   assignOrder,
   countOrdersWithStatus,
@@ -28,8 +25,6 @@ import {
   fetchOrder,
   fetchOrderHistoryPage,
   isHistoryOrderStatus,
-  orderRandomPool,
-  pickFromPool,
   setOrderCancelled,
   setOrderClaim,
   setOrderClaimScope,
@@ -42,9 +37,9 @@ import {
 import { feedOpenOrdersFromPage, releaseOpenOrdersPageFeed } from "@/services/openOrdersPulse";
 import { firestoreErrorText } from "@/utils/dbError";
 import { parseOptionalNumber } from "@/utils/quickOrder";
-import { displayNameOf, myDisplayName } from "@/utils/displayName";
+import { myDisplayName } from "@/utils/displayName";
 import { formatCurrency } from "@/utils/format";
-import { almatyNoonMillis, formatOrderDate, timeAgo, ymdInTimeZone } from "@/utils/date";
+import { almatyNoonMillis, formatOrderDate, timeAgo } from "@/utils/date";
 import { hasFullAccess } from "@/utils/permissions";
 import { confirmDialog } from "@/utils/appDialog";
 import { parseHttpUrl } from "@/utils/httpUrl";
@@ -52,9 +47,7 @@ import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { OrdersNotifyBanner } from "@/components/common/BrowserNotifySetting";
 import { cn } from "@/utils/cn";
 import {
-  memberHasRole,
   orderClaimScope,
-  scheduleDayKey,
   scheduleStateOf,
   WORK_ORDER_CLAIM_SCOPE_LABELS,
   WORK_ORDER_STATUS_LABELS,
@@ -63,8 +56,6 @@ import {
   type WorkOrderClaimScope,
   type WorkOrderStatus,
   type WorkOrderUrgency,
-  type WorkspaceMember,
-  type TechSchedule,
 } from "@/types";
 
 const TABS: WorkOrderStatus[] = ["open", "assigned", "taken", "cancelled"];
@@ -196,48 +187,21 @@ export default function OrdersPage() {
   // только свободным), а у выдающего — для пометок и приоритета «Рандома».
   // Обе подписки живут только пока открыта эта страница (см. лимиты
   // слушателей в CLAUDE.md).
+  // График и загрузка столов — для запретов на отклик и для «Кому отдать»:
+  // одно место на «Заказы» и стол ОС (useOrderAssignment).
   const {
-    schedules,
-    loaded: schedulesLoaded,
-    failed: schedulesFailed,
-    retry: retrySchedules,
-  } = useTechSchedules(activeWorkspaceId, monthKey, permissions.isResolved);
-  const { loads } = useDeskLoads(activeWorkspaceId, permissions.isResolved);
-  const todayKey = scheduleDayKey(ymdInTimeZone(Date.now()));
-  const kinds = useMemo(() => effectiveTechLoadKinds(activeWorkspace), [activeWorkspace]);
-  const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
-
-  const scheduleByUid = useMemo(() => {
-    const map = new Map<string, TechSchedule>();
-    for (const sc of schedules) map.set(sc.uid, sc);
-    return map;
-  }, [schedules]);
-
-  /**
-   * У кого прямо сейчас есть заказ «в работе». Считаем по тем же
-   * агрегатам deskLoad и тем же правилам статусов, что и «Технари», —
-   * иначе «занят» на двух экранах означал бы разное.
-   */
-  const inWorkUids = useMemo(
-    () =>
-      currentBusyUids({
-        pages,
-        loads: loads ?? [],
-        monthKey,
-        statusOptions,
-        kinds,
-        currentTabOf: (page) => currentMonthSubPageId(page, monthKey),
-      }),
-    [pages, loads, monthKey, statusOptions, kinds]
-  );
-
-  /** Выходной и «отпросился» закрывают отклик на ЛЮБОЙ заказ. */
-  function scheduleBlockReasonFor(technicianUid: string): string | null {
-    const state = scheduleStateOf(scheduleByUid.get(technicianUid), todayKey);
-    if (state === "off") return "сегодня выходной";
-    if (state === "excused") return "отпросился";
-    return null;
-  }
+    technicians,
+    deskByUid,
+    scheduleByUid,
+    inWorkUids,
+    todayKey,
+    schedulesLoaded,
+    schedulesFailed,
+    retrySchedules,
+    scheduleBlockReasonFor,
+    candidatesFor,
+    drawRandom,
+  } = useOrderAssignment(permissions.isResolved);
 
   /**
    * Почему технарь не может откликнуться на ЭТОТ заказ. Заказ «в работе»
@@ -249,11 +213,6 @@ export default function OrdersPage() {
       scheduleBlockReasonFor(technicianUid) ??
       (orderClaimScope(order) === "free" && inWorkUids.has(technicianUid) ? "уже есть заказ в работе" : null)
     );
-  }
-
-  /** Для выдачи: график плюс «уже есть заказ в работе» — предупреждение и приоритет «Рандома», не запрет. */
-  function blockReasonFor(technicianUid: string): string | null {
-    return scheduleBlockReasonFor(technicianUid) ?? (inWorkUids.has(technicianUid) ? "уже есть заказ в работе" : null);
   }
 
   /**
@@ -283,16 +242,6 @@ export default function OrdersPage() {
     });
     toast.success(scope === "all" ? `«${order.client}»: откликаются все технари` : `«${order.client}»: откликаются только свободные`);
   }
-
-  const technicians = useMemo(
-    () => members.filter((m) => m.status === "active" && Boolean(m.uid) && memberHasRole(m, "manager")),
-    [members]
-  );
-  const deskByUid = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const page of pages) if (page.responsibleUserId) map.set(page.responsibleUserId, page.name);
-    return map;
-  }, [pages]);
 
   // Другой workspace — своя история: старую выбрасываем, ответы в пути отбрасываем.
   useEffect(() => {
@@ -456,19 +405,6 @@ export default function OrdersPage() {
     return Boolean(page) && permissions.canAccessPage(page!);
   }
 
-  function candidatesFor(order: WorkOrder): Array<OrderCandidate & { member: WorkspaceMember; deskName: string | null }> {
-    return technicians.map((m) => ({
-      uid: m.uid,
-      name: displayNameOf(m),
-      hasDesk: deskByUid.has(m.uid),
-      claimedAt: order.claims[m.uid]?.at ?? null,
-      blockedReason: blockReasonFor(m.uid),
-      absentToday: scheduleStateOf(scheduleByUid.get(m.uid), todayKey) !== "work",
-      member: m,
-      deskName: deskByUid.get(m.uid) ?? null,
-    }));
-  }
-
   /**
    * Выходной и «отпросился» снимает ТОЛЬКО руководство: график — документ
    * Тимлида, и кнопки «вышел на смену» у человека больше нет — поэтому у
@@ -528,27 +464,13 @@ export default function OrdersPage() {
   }
 
   async function handleRandom(order: WorkOrder) {
-    // До первого снимка графика «кто сегодня отсутствует» неизвестен, и
-    // случайный выбор мог бы достаться выходному. При отказе чтения плашка
-    // уже предупреждает — там не держим, иначе «Рандом» умер бы совсем.
-    if (!schedulesLoaded && !schedulesFailed) {
-      toast.info("График ещё загружается — попробуйте через секунду");
-      return;
-    }
-    const candidates = candidatesFor(order);
-    const pool = orderRandomPool(candidates, orderClaimScope(order));
-    const pick = pickFromPool(pool);
-    if (!pick) {
-      const withDesk = candidates.filter((c) => c.hasDesk);
-      toast.error(
-        withDesk.length > 0
-          ? "Сегодня все технари со столом отсутствуют (выходной или отпросились) — выдайте вручную"
-          : "Некому выдать: ни у кого нет стола"
-      );
+    const draw = drawRandom(order);
+    if (!draw.ok) {
+      toast.error(draw.reason);
       return;
     }
     // Дальше показывает барабан — он же и запишет выдачу, параллельно вращению.
-    setWheel({ order, pool, winner: pick });
+    setWheel({ order, pool: draw.pool, winner: draw.winner });
   }
 
   async function handleTake(order: WorkOrder) {
