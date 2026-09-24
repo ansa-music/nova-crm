@@ -11,7 +11,7 @@ import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { RoleSwitcher } from "@/components/common/RoleSwitcher";
 import { useAuth } from "@/hooks/useAuth";
 import { bottomBarSlot, useAccountMenu, useNavModel } from "@/hooks/useNavModel";
-import { DESKS_ITEM_KEY, isNavItemActive, type NavItem } from "@/config/nav";
+import { DESKS_ITEM_KEY, MORE_ITEM_KEY, isNavItemActive, type NavItem } from "@/config/nav";
 import { cn } from "@/utils/cn";
 
 /** Кнопки нижней панели — в листе не повторяются. */
@@ -40,6 +40,7 @@ function Tile({ item, pathname, onNavigate }: { item: NavItem; pathname: string;
     >
       <Icon className="h-5 w-5" />
       <span className="line-clamp-2">{item.label}</span>
+      {item.hint ? <span className="font-mono text-[10px] tabular-nums text-muted-foreground">{item.hint}</span> : null}
       {item.badge ? (
         <span className="absolute right-1.5 top-1.5 rounded-full bg-primary px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none text-primary-foreground">
           {item.badge > 9 ? "9+" : item.badge}
@@ -118,7 +119,9 @@ function MoreSheetBody({
   });
   // Вторая кнопка нижней панели («Стол ОС», «Дашборд») в листе лишняя. Кроме
   // «Столов»: плитка — вход в секцию, рядом с «Столами ОС» и прочими.
-  const hiddenKeys = new Set(BOTTOM_BAR_KEYS);
+  // Плитка «Ещё» в самом листе «Ещё» — лишняя: «Остальное» здесь и так
+  // развёрнуто целиком (на телефоне место есть, страница /more — для ПК).
+  const hiddenKeys = new Set([...BOTTOM_BAR_KEYS, MORE_ITEM_KEY]);
   const slot = bottomBarSlot(nav);
   if (slot.key !== DESKS_ITEM_KEY) hiddenKeys.add(slot.key);
   const sections = nav.sections

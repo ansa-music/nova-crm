@@ -14,6 +14,7 @@ export const loadUsersPage = () => import("@/pages/UsersPage");
 export const loadTeamPage = () => import("@/pages/TeamPage");
 export const loadPeoplePage = () => import("@/pages/PeoplePage");
 export const loadDesksPage = () => import("@/pages/DesksPage");
+export const loadMorePage = () => import("@/pages/MorePage");
 export const loadAnnouncementsPage = () => import("@/pages/AnnouncementsPage");
 export const loadGrokLimitPage = () => import("@/pages/GrokLimitPage");
 export const loadDispatchPage = () => import("@/pages/DispatchPage");
@@ -40,6 +41,7 @@ const ROUTE_LOADERS: Record<string, () => Promise<unknown>> = {
   team: loadTeamPage,
   people: loadPeoplePage,
   desks: loadDesksPage,
+  more: loadMorePage,
   announcements: loadAnnouncementsPage,
   "grok-limit": loadGrokLimitPage,
   dispatch: loadDispatchPage,

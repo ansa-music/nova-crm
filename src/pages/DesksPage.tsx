@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Archive, ArchiveRestore, MoreHorizontal, Search } from "lucide-react";
+import { Archive, ArchiveRestore, LayoutGrid, List, MoreHorizontal, Search } from "lucide-react";
 import { useNavigate } from "react-router";
 import { EmptyState } from "@/components/common/EmptyState";
 import { DeskCoverGrid } from "@/components/dashboard/DeskCoverGrid";
@@ -7,6 +7,7 @@ import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { restoreDesk, retireDesk } from "@/components/desks/deskRetireActions";
 import { AllDesksAccessButton } from "@/components/desks/AllDesksAccessButton";
 import { DeskEditAccessButton } from "@/components/desks/DeskEditAccessButton";
+import { DeskListView, type DeskListRow } from "@/components/desks/DeskListView";
 import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +21,9 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import { useLeaderboard } from "@/hooks/useLeaderboard";
+import { usePresenceMap } from "@/hooks/usePresenceMap";
+import { useUrlState } from "@/hooks/useUrlState";
+import { useUserPageNav } from "@/hooks/useUserPageNav";
 import { usePeopleDesks } from "@/hooks/usePeopleDesks";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useViewRequests } from "@/hooks/useViewRequests";
@@ -33,6 +37,15 @@ import type { WorkspacePage } from "@/types";
 
 type DeskChip = "all" | "mine" | "others" | "hidden";
 
+const DESKS_VIEW_KEY = "nova:desks-view";
+function readDesksView(): "list" | "covers" {
+  try {
+    return localStorage.getItem(DESKS_VIEW_KEY) === "covers" ? "covers" : "list";
+  } catch {
+    return "list";
+  }
+}
+
 export default function DesksPage() {
   const navigate = useNavigate();
   const { profile } = useAuth();
@@ -44,6 +57,19 @@ export default function DesksPage() {
   const [query, setQuery] = useState("");
   const [inactiveOpen, setInactiveOpen] = useState(false);
   const [chip, setChip] = useState<DeskChip>("all");
+  // Вид: список (умолчание, 25.09.2026 — «страница столы неудобная») или
+  // обложки. Помнится в адресе и на устройстве.
+  const [view, setViewState] = useUrlState<"list" | "covers">("v", readDesksView(), { values: ["list", "covers"] });
+  const setView = (v: "list" | "covers") => {
+    setViewState(v);
+    try {
+      localStorage.setItem(DESKS_VIEW_KEY, v);
+    } catch {
+      /* без localStorage — только на этот заход */
+    }
+  };
+  const lastActiveOf = usePresenceMap(activeWorkspaceId);
+  const { pinnedIds, togglePin } = useUserPageNav(profile?.uid);
 
   const progressByPageId = useMemo(() => {
     const next: Record<string, number> = {};
@@ -85,6 +111,31 @@ export default function DesksPage() {
     { id: "others", label: "Чужие", count: others.length },
     ...(hidden.length > 0 ? [{ id: "hidden" as const, label: "Скрытые", count: hidden.length }] : []),
   ];
+
+  // Список: свои столы сверху, потом закреплённые, потом остальные по имени.
+  const listRows = useMemo<DeskListRow[]>(() => {
+    const pinnedSet = new Set(pinnedIds);
+    const rows = filtered.map((page) => {
+      const owner = members.find((m) => m.uid === page.responsibleUserId) ?? null;
+      return {
+        page,
+        owner,
+        lastActiveAt: lastActiveOf(owner),
+        percent: progressByPageId[page.id] ?? null,
+        openable: mayOpen(page),
+        pending: latestForPage(page.id)?.status === "pending",
+        pinned: pinnedSet.has(page.id),
+        mine: page.responsibleUserId === uid,
+      };
+    });
+    return rows.sort(
+      (a, b) =>
+        Number(b.mine) - Number(a.mine) ||
+        Number(b.pinned) - Number(a.pinned) ||
+        a.page.name.localeCompare(b.page.name, "ru")
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, members, pinnedIds, progressByPageId, uid, lastActiveOf, latestForPage]);
 
   const inactiveSorted = useMemo(
     () => inactivePages.slice().sort((a, b) => (b.inactiveAt ?? 0) - (a.inactiveAt ?? 0)),
@@ -164,15 +215,64 @@ export default function DesksPage() {
             </label>
           </>
         }
-        filters={chips.map((item) => (
-          <button key={item.id} type="button" onClick={() => setChip(item.id)} className={pageChipClass(chip === item.id)}>
-            {item.label}
-            <span className="tabular-nums text-[10px] opacity-80">{item.count}</span>
-          </button>
-        ))}
+        filters={
+          <>
+            {chips.map((item) => (
+              <button key={item.id} type="button" onClick={() => setChip(item.id)} className={pageChipClass(chip === item.id)}>
+                {item.label}
+                <span className="tabular-nums text-[10px] opacity-80">{item.count}</span>
+              </button>
+            ))}
+            <span className="ml-auto inline-flex rounded-md border border-border p-0.5" role="group" aria-label="Вид">
+              <button
+                type="button"
+                aria-pressed={view === "list"}
+                onClick={() => setView("list")}
+                className={cn("flex h-8 w-9 items-center justify-center rounded-[5px]", view === "list" ? "bg-primary/12 text-primary" : "text-muted-foreground hover:text-foreground")}
+                title="Списком"
+              >
+                <List className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                aria-pressed={view === "covers"}
+                onClick={() => setView("covers")}
+                className={cn("flex h-8 w-9 items-center justify-center rounded-[5px]", view === "covers" ? "bg-primary/12 text-primary" : "text-muted-foreground hover:text-foreground")}
+                title="Обложками"
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </button>
+            </span>
+          </>
+        }
       />
 
-      {filtered.length > 0 ? (
+      {filtered.length > 0 && view === "list" ? (
+        <DeskListView
+          rows={listRows}
+          onOpen={(page) => navigate(`/page/${page.id}`)}
+          onRequest={(page) => void requestFromCard(page)}
+          onTogglePin={(page) => togglePin(page.id)}
+          renderMenu={
+            permissions.canRetireDesks
+              ? (page) => (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" variant="ghost" size="icon" className="h-9 w-9 shrink-0" aria-label={`Действия со столом «${page.name}»`}>
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => void retireDesk(page, members, permissions.uid)}>
+                        <Archive className="h-4 w-4" /> В неактуальные
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )
+              : undefined
+          }
+        />
+      ) : filtered.length > 0 ? (
         <DeskCoverGrid
           pages={filtered}
           members={members}

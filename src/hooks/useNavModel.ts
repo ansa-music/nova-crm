@@ -10,6 +10,7 @@ import {
   KeyRound,
   LayoutDashboard,
   LayoutGrid,
+  LayoutList,
   ListChecks,
   LogOut,
   Megaphone,
@@ -27,17 +28,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import {
-  DESK_SHORTCUTS_LIMIT,
-  DESKS_ITEM_KEY,
-  EXTRA_ROUTE_META,
-  pathMatches,
-  pathOnly,
-  type NavChild,
-  type NavItem,
-  type NavSection,
-  type PageMeta,
-} from "@/config/nav";
+import { DESKS_ITEM_KEY, DESK_SHORTCUTS_LIMIT, EXTRA_ROUTE_META, MORE_ITEM_KEY, MORE_SECTION_KEY, pathMatches, pathOnly, type NavChild, type NavItem, type NavSection, type PageMeta } from "@/config/nav";
 import { memberHasRole, rolesLabel, type Role, type WorkspaceMember, type WorkspacePage } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -56,6 +47,23 @@ import { toast } from "@/components/ui/sonner";
 import { THEME_OPTIONS } from "@/components/layout/ThemeToggle";
 import { osDispatchLogState, subscribeOsDispatchLogState } from "@/services/osDispatchLogService";
 import { openOrdersState, subscribeOpenOrdersState } from "@/services/openOrdersPulse";
+import { useGrokPoolSignal } from "@/hooks/useGrokPoolSignal";
+
+/** Пути разделов страницы «Ещё» — на них в меню горит сам пункт «Ещё». */
+const MORE_PAGE_PATHS = [
+  "/dashboard",
+  "/os-dispatch",
+  "/desk-editing",
+  "/people",
+  "/team",
+  "/users",
+  "/schedule",
+  "/messages",
+  "/chat",
+  "/announcements",
+  "/dispatch",
+  "/settings",
+];
 import { requestReloadEverywhere } from "@/services/workspaceService";
 import { downloadWorkspaceBackup } from "@/services/backupService";
 import { setActiveRole } from "@/services/memberService";
@@ -147,6 +155,8 @@ export interface NavSignals {
   osDispatchUnseen: number;
   ordersAlert: boolean;
   deskAlerts: string[];
+  /** Аккаунты Грока: сколько доступно из скольких (null — ещё не читали). */
+  grokPool: { available: number; total: number } | null;
 }
 
 const NO_SIGNALS: NavSignals = {
@@ -155,6 +165,7 @@ const NO_SIGNALS: NavSignals = {
   osDispatchUnseen: 0,
   ordersAlert: false,
   deskAlerts: [],
+  grokPool: null,
 };
 
 function deskChild(page: WorkspacePage): NavChild {
@@ -251,6 +262,14 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
   // открывали (метку снимает сам стол, переживает перезагрузку).
   const deskAlert = Boolean(myDeskId && sig.deskAlerts.includes(myDeskId));
   const homeTo = g.homeTo;
+  // «Грок лимит» — частая функция (просьба Nurba 25.09.2026: «сделать чуть
+  // главнее и удобнее»): в главной секции, жирным, с «доступно N из M».
+  const grokHint = sig.grokPool ? `${sig.grokPool.available} из ${sig.grokPool.total}` : undefined;
+  // Просьба Nurba 25.09.2026: «в левой части слишком много кнопок — оставить
+  // только нужные: заказ, ABS, стол, Грок лимит, остальное скрыть или в
+  // отдельное меню». Главная секция — ровно они, всё прочее — под одной
+  // свёрнутой шапкой «Остальное» (в рейке — за чертой). Секция с активным
+  // пунктом раскрыта всегда (NavSections), так что «где я» не теряется.
   return [
     {
       key: "main",
@@ -264,14 +283,8 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
           alert: deskAlert,
         },
         { key: "orders", to: "/orders", label: "Заказы", icon: ClipboardList, alert: sig.ordersAlert },
-        { key: "dashboard", to: "/dashboard", label: "Дашборд", icon: LayoutDashboard },
-        { key: "abs", to: "/abs", label: "ABS система", icon: Trophy },
-      ],
-    },
-    {
-      key: "desks",
-      title: "Столы",
-      items: [
+        // У ОС дом — «Технари» (дубль убирает фильтр ниже); стол ОС — свой пункт.
+        { key: "os-desk", to: "/os-desk", label: "Стол ОС", icon: Table2, show: g.showOsDeskNav },
         {
           key: DESKS_ITEM_KEY,
           to: "/desks",
@@ -280,8 +293,30 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
           show: g.showDeskNav,
           children: deskShortcuts,
         },
-        { key: "os-desk", to: "/os-desk", label: "Стол ОС", icon: Table2, show: g.showOsDeskNav },
+        { key: "technicians", to: "/technicians", label: "Технари", icon: HardHat, show: g.showTechniciansNav },
         { key: "os-desks", to: "/os-desks", label: "Столы ОС", icon: ScanEye, show: g.showOsDesksNav },
+        { key: "grok", to: "/grok-limit", label: "Грок лимит", icon: KeyRound, show: g.showGrokNav, hint: grokHint, emphasis: true },
+        { key: "abs", to: "/abs", label: "ABS система", icon: Trophy },
+        // Всё остальное — отдельной страницей (просьба Nurba 25.09.2026), а в
+        // меню один пункт. Бейдж — сумма непрочитанного с той страницы.
+        {
+          key: MORE_ITEM_KEY,
+          to: "/more",
+          label: "Ещё",
+          icon: LayoutList,
+          badge: sig.privateUnreadTotal + sig.workspaceChatUnread + (g.showOsDispatchNav ? sig.osDispatchUnseen : 0),
+          // «Ещё» горит и на своих разделах: человек пришёл туда через неё.
+          activeOn: (pathname) =>
+            pathname === "/more" ||
+            MORE_PAGE_PATHS.some((to) => pathMatches(pathname, to)),
+        },
+      ],
+    },
+    {
+      key: MORE_SECTION_KEY,
+      title: "Остальное",
+      items: [
+        { key: "dashboard", to: "/dashboard", label: "Дашборд", icon: LayoutDashboard },
         {
           key: "os-dispatch",
           to: "/os-dispatch",
@@ -290,36 +325,14 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
           show: g.showOsDispatchNav,
           badge: g.showOsDispatchNav ? sig.osDispatchUnseen : 0,
         },
-        { key: "technicians", to: "/technicians", label: "Технари", icon: HardHat, show: g.showTechniciansNav },
         { key: "desk-editing", to: "/desk-editing", label: "Правка столов", icon: PenLine, show: g.showDeskEditingNav },
-      ],
-    },
-    {
-      key: "people",
-      title: "Люди",
-      items: [
         { key: "people", to: "/people", label: "Люди", icon: UsersRound },
         { key: "team", to: "/team", label: "Команда", icon: Contact, show: g.showUsersNav },
         { key: "users", to: "/users", label: "Пользователи", icon: Users, show: g.showUsersNav && !g.isTeamlead },
         { key: "schedule", to: "/schedule", label: "График", icon: CalendarDays },
-      ],
-    },
-    {
-      key: "talk",
-      title: "Связь",
-      items: [
         { key: "messages", to: "/messages", label: "Сообщения", icon: MessageCircle, badge: sig.privateUnreadTotal },
         { key: "chat", to: "/chat", label: "Чат", icon: MessageSquare, badge: sig.workspaceChatUnread },
         { key: "announcements", to: "/announcements", label: "Объявления", icon: Megaphone },
-      ],
-    },
-    {
-      key: "more",
-      title: "Ещё",
-      collapsible: true,
-      defaultOpen: false,
-      items: [
-        { key: "grok", to: "/grok-limit", label: "Грок лимит", icon: KeyRound, show: g.showGrokNav },
         { key: "dispatch", to: "/dispatch", label: "Выдача", icon: PackageCheck, show: g.showDispatchNav },
         { key: "settings", to: "/settings", label: "Настройки", icon: Settings },
       ],
@@ -367,7 +380,10 @@ export function buildPageMeta(inp: NavInputs): (pathname: string) => PageMeta {
     }
     if (best) {
       const title = best.item.key === "home" ? g.homeLabel : best.item.label;
-      return { title, eyebrow: best.section.title ?? "Nova" };
+      // Разделы со страницы «Ещё» — надзаголовок «Ещё»: так и в шапке
+      // телефона видно, откуда сюда пришли.
+      const eyebrow = best.section.key === MORE_SECTION_KEY ? "Ещё" : (best.section.title ?? "Nova");
+      return { title, eyebrow };
     }
     const extra = EXTRA_ROUTE_META.find((r) => pathMatches(pathname, r.prefix));
     if (extra) return { title: extra.title, eyebrow: extra.eyebrow };
@@ -495,14 +511,15 @@ export function NavModelProvider({ children }: { children: ReactNode }) {
   const osDispatchUnseen = useSyncExternalStore(subscribeOsDispatchLogState, osDispatchLogState).unseen;
   const openOrders = useSyncExternalStore(subscribeOpenOrdersState, openOrdersState);
   const ordersAlert = openOrders.loaded && openOrders.count > 0;
+  const grokPool = useGrokPoolSignal(activeWorkspaceId, permissions.isResolved && !permissions.roles.every((r) => r === "os"));
 
   const inputs = useMemo<NavInputs>(
     () => ({ uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds }),
     [uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds]
   );
   const signals = useMemo<NavSignals>(
-    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, ordersAlert, deskAlerts }),
-    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, ordersAlert, deskAlerts]
+    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, ordersAlert, deskAlerts, grokPool }),
+    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, ordersAlert, deskAlerts, grokPool]
   );
   const pageMeta = useMemo(() => buildPageMeta(inputs), [inputs]);
   const model = useMemo(() => buildNavModel(inputs, signals, pageMeta), [inputs, signals, pageMeta]);

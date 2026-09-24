@@ -29,7 +29,7 @@ import { cn } from "@/utils/cn";
 import { useUiStore } from "@/store/uiStore";
 import { useCanHover } from "@/hooks/useMediaQuery";
 import { useAccountMenu, useNavModel } from "@/hooks/useNavModel";
-import { NAV_SECTIONS_KEY, isNavItemActive, pathMatches, type NavChild, type NavSection } from "@/config/nav";
+import { MORE_SECTION_KEY, NAV_SECTIONS_KEY, isNavItemActive, pathMatches, type NavChild, type NavSection } from "@/config/nav";
 import { preloadRoute } from "@/config/pageLoaders";
 
 /** Сколько ждать мышь на рейке, прежде чем раскрыть панель поверх стола. */
@@ -80,6 +80,8 @@ function AppNavLink({
   badge,
   collapsed,
   alert,
+  hint,
+  emphasis,
 }: {
   to: string;
   end?: boolean;
@@ -91,6 +93,10 @@ function AppNavLink({
   collapsed?: boolean;
   /** Зелёная подсветка «сюда приехал заказ». */
   alert?: boolean;
+  /** Подсказка справа («3 из 8» у «Грок лимита»). */
+  hint?: string;
+  /** Жирная строка — частая функция. */
+  emphasis?: boolean;
 }) {
   const { pathname } = useLocation();
   const active = isNavItemActive({ to, end, activeOn }, pathname);
@@ -108,11 +114,11 @@ function AppNavLink({
       aria-label={collapsed ? label : undefined}
       data-nav-active={active ? "true" : undefined}
       onClick={() => onNavigate?.()}
-      className={navActiveClass(active, collapsed, alert)}
+      className={cn(navActiveClass(active, collapsed, alert), emphasis && !active && !collapsed && "font-semibold text-foreground")}
     >
       {collapsed ? (
         <span className="relative">
-          <Icon className="h-[18px] w-[18px]" />
+          <Icon className={cn("h-[18px] w-[18px]", emphasis && !active && "text-foreground")} />
           {badge ? <span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-primary" /> : null}
           {/* Не только цвет: в свёрнутом меню видна одна иконка, и точка
               отличает «зелёный пункт» от просто наведения. */}
@@ -124,6 +130,9 @@ function AppNavLink({
         <>
           <Icon className="h-[18px] w-[18px] shrink-0" />
           <span className="min-w-0 flex-1 truncate">{label}</span>
+          {hint && !badge ? (
+            <span className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">{hint}</span>
+          ) : null}
           {alert && !badge ? (
             <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-success motion-safe:animate-pulse" />
           ) : null}
@@ -217,6 +226,7 @@ function NavSections({
                   activeOn={item.activeOn}
                   alert={item.alert}
                   badge={item.badge}
+                  emphasis={item.emphasis}
                   onNavigate={onNavigate}
                 />
               ))}
@@ -250,6 +260,8 @@ function NavSections({
                     activeOn={item.activeOn}
                     alert={item.alert}
                     badge={item.badge}
+                    hint={item.hint}
+                    emphasis={item.emphasis}
                     onNavigate={onNavigate}
                   />
                   {/* Закреплённые/недавние столы — подпунктами под «Столами».
@@ -466,7 +478,12 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
         )}
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-thin">
-          <NavSections sections={sections} collapsed={collapsed} pathname={location.pathname} onNavigate={onNavigate} />
+          <NavSections
+            sections={sections.filter((s) => s.key !== MORE_SECTION_KEY)}
+            collapsed={collapsed}
+            pathname={location.pathname}
+            onNavigate={onNavigate}
+          />
           {mobile && permissions.canCreatePages && (
             <button
               type="button"

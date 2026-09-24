@@ -15,6 +15,7 @@ import {
   watchBrowserNotifyPermission,
 } from "@/utils/browserNotify";
 import { pickFreshNotifications } from "@/utils/freshNotifications";
+import { orderPopupOf, showOrderPopup } from "@/components/orders/OrderPopup";
 import type { Notification } from "@/types";
 
 /**
@@ -139,6 +140,14 @@ function announce(n: Notification, navigate: (to: string) => void, silent: boole
   // открыто на втором мониторе и формально «видимо», а человек — в другом окне.
   const hidden = document.visibilityState !== "visible" || !document.hasFocus();
   const shown = hidden && showBrowserNotification({ title: n.title, body: n.body, tag: n.id, href, silent });
+  // Заказ (выдан вам / новый на бирже) — окном поверх любого экрана с кнопкой
+  // «Перейти к заказу» (OrderPopupHost), и на виду, и после возврата на
+  // вкладку: всплывашка браузера мимо взгляда — окно останется.
+  const popup = orderPopupOf(n);
+  if (popup) {
+    showOrderPopup(popup);
+    return;
+  }
   if (shown) return;
   toast(n.title, {
     description: n.body,

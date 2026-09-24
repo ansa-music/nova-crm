@@ -22,6 +22,7 @@ import { AppDialogHost } from "@/components/common/AppDialogHost";
 import { DbQuotaBanner } from "@/components/common/DbQuotaBanner";
 import { SupabaseSqlBanner } from "@/components/common/SupabaseSqlBanner";
 import { NotifyHelpHost } from "@/components/common/NotifyHelpDialog";
+import { OrderPopupHost } from "@/components/orders/OrderPopup";
 import { AccentColorSync } from "@/components/common/AccentColorSync";
 import { RemovedFromWorkspace } from "@/components/common/RemovedFromWorkspace";
 import { Button } from "@/components/ui/button";
@@ -238,6 +239,7 @@ const AppChrome = memo(function AppChrome({
       <AppDialogHost />
       <DbQuotaBanner />
       <NotifyHelpHost />
+      <OrderPopupHost />
       <AccentColorSync />
       {!isCompactNav && !isFullscreen && <Sidebar />}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">

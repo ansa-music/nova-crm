@@ -29,6 +29,7 @@ import {
   loadDashboardPage,
   loadDesksPage,
   loadDispatchPage,
+  loadMorePage,
   loadDynamicTablePage,
   loadGrokLimitPage,
   loadMessagesPage,
@@ -55,6 +56,7 @@ const UsersPage = lazy(loadUsersPage);
 const TeamPage = lazy(loadTeamPage);
 const PeoplePage = lazy(loadPeoplePage);
 const DesksPage = lazy(loadDesksPage);
+const MorePage = lazy(loadMorePage);
 const AnnouncementsPage = lazy(loadAnnouncementsPage);
 const GrokLimitPage = lazy(loadGrokLimitPage);
 const DispatchPage = lazy(loadDispatchPage);
@@ -81,6 +83,7 @@ const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
 const MENU_PAGE_LOADERS: Array<() => Promise<unknown>> = [
   loadOrdersPage,
   loadDesksPage,
+  loadMorePage,
   loadSchedulePage,
   loadMessagesPage,
   loadWorkspaceChatPage,
@@ -256,6 +259,7 @@ function AppShell() {
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="abs" element={<AbsPage />} />
             <Route path="desks" element={<DesksPage />} />
+            <Route path="more" element={<MorePage />} />
             <Route path="people" element={<PeoplePage />} />
             <Route path="technicians" element={<TechniciansPage />} />
             <Route path="orders" element={<OrdersPage />} />
