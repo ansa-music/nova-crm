@@ -5,12 +5,30 @@ import { generateId } from "@/utils/id";
 import { ensureNewDeskAcl, stripUndefined, updatePageColumns, updatePageMainTab } from "@/services/pageService";
 import { currentMonthKey, ensureMonthTab } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
-import { OS_DATES_COLUMN_KEY } from "@/utils/osDeskKeys";
+import { OS_DATES_COLUMN_KEY, type OsDeskKeys } from "@/utils/osDeskKeys";
+import { findInProgressStatusOption, isApprovalStatusValue } from "@/utils/columnOptions";
+import { mirrorAddressOf } from "@/utils/osDispatchPlan";
+import { OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
+import {
+  findTechTarget,
+  mirrorRowId,
+  pushOrderToTech,
+  sbDeskRowExists,
+  techTargetProblem,
+  techUidByNick,
+} from "@/services/rows/osOrderMirror";
+import { personLabel } from "@/utils/peopleDesks";
 
 /** Ширина «Дат»: без времени хватает 92 px (первая версия со временем была 112). */
 const OS_DATES_COLUMN_WIDTH = 92;
 const OS_DATES_COLUMN_WIDTH_V1 = 112;
-import type { PageColumn, WorkspacePage } from "@/types";
+/**
+ * Ширина «Технаря»: в ячейке теперь бейдж технаря (аватар, ник) и чип
+ * действия рядом («Отдать», «Не доехал») — в прежние 170 px они не влезали.
+ */
+const OS_TECH_COLUMN_WIDTH = 190;
+const OS_TECH_COLUMN_WIDTH_V1 = 170;
+import type { PageColumn, PageRow, StatusOption, WorkspaceMember, WorkspacePage } from "@/types";
 
 /**
  * «Стол ОС» — личная таблица ОС.
@@ -26,7 +44,12 @@ import type { PageColumn, WorkspacePage } from "@/types";
  * механизм рядом разошёлся бы с первым за месяц.
  */
 
-/** Столбцы стола ОС — ровно те, что просил Nurba, в его порядке. */
+/**
+ * Столбцы стола ОС — те, что просил Nurba. Порядок с 24.09.2026: «Статус» и
+ * «Технарь» сразу за «Датами» (жалоба «непонятно, кто технарь»): «Технарь»
+ * стоял девятым из десяти, за 240-пиксельным «Примечанием», и на ноутбуке
+ * 1440 px целиком уезжал за правый край — вместе с кнопкой выдачи.
+ */
 export const OS_DESK_COLUMNS: Array<Pick<PageColumn, "key" | "label" | "type" | "width">> = [
   { key: "client", label: "Имя", type: "text", width: 200 },
   // Когда заказ получен и когда выдан технарю (просьба Nurba 24.09.2026):
@@ -34,6 +57,14 @@ export const OS_DESK_COLUMNS: Array<Pick<PageColumn, "key" | "label" | "type" | 
   // почти не занимает. Сама ячейка пустая и закрыта: её рисует стол
   // (`OsDatesCell`), а даты лежат служебными ячейками строки (utils/osDates.ts).
   { key: OS_DATES_COLUMN_KEY, label: "Даты", type: "text", width: OS_DATES_COLUMN_WIDTH },
+  // Статус заказа ведёт ОС и ведёт его ОТСЮДА: правка уезжает в строку
+  // технаря (useOsDeskDispatch). Сам заказ по-прежнему считается по строке
+  // технаря — «Технари», дашборд и оценки читают её, а не этот столбец.
+  { key: "status", label: "Статус", type: "status", width: 150 },
+  // Ник ТЕХНАРЯ, а не «Ответственный»: столбцы «Ответственный» везде читаются
+  // как ник ОС (osColumnsOf), и технарь оттуда попал бы в счётчики ОС. Рядом
+  // со статусом: от статуса зависит, выдан заказ или ещё нет.
+  { key: "technician", label: "Технарь", type: "technician", width: OS_TECH_COLUMN_WIDTH },
   { key: "phone", label: "Номер", type: "phone", width: 150 },
   { key: "price", label: "Цена", type: "currency", width: 180 },
   { key: "upsell", label: "Апсейл", type: "currency", width: 180 },
@@ -41,16 +72,18 @@ export const OS_DESK_COLUMNS: Array<Pick<PageColumn, "key" | "label" | "type" | 
   // Столбец только для чтения — его пишет стол ОС сам (useOsTotalsKeeper), и
   // именно эта сумма уезжает технарю как цена заказа.
   { key: "total", label: "Итого", type: "currency", width: 140 },
-  // Статус заказа ведёт ОС и ведёт его ОТСЮДА: правка уезжает в строку
-  // технаря (useOsStatusSync). Сам заказ по-прежнему считается по строке
-  // технаря — «Технари», дашборд и оценки читают её, а не этот столбец.
-  { key: "status", label: "Статус", type: "status", width: 150 },
   { key: "note", label: "Примечание", type: "text", width: 240 },
-  // Ник ТЕХНАРЯ, а не «Ответственный»: столбцы «Ответственный» везде читаются
-  // как ник ОС (osColumnsOf), и технарь оттуда попал бы в счётчики ОС.
-  { key: "technician", label: "Технарь", type: "technician", width: 170 },
   { key: "link", label: "Ссылка", type: "url", width: 190 },
 ];
+
+/**
+ * Прежний порядок столбцов стола ОС (до 24.09.2026), ключ в ключ. Только стол
+ * с РОВНО таким порядком переставляется на новый (`missingOsDeskColumns`):
+ * стол, где ОС переставил или добавил столбцы сам, не трогаем.
+ */
+const OS_DESK_LEGACY_ORDER = ["client", OS_DATES_COLUMN_KEY, "phone", "price", "upsell", "total", "status", "note", "technician", "link"];
+/** Новый порядок тех же ключей — из `OS_DESK_COLUMNS`. */
+const OS_DESK_ORDER = OS_DESK_COLUMNS.map((c) => c.key);
 
 export { OS_DESK_KEYS, resolveOsDeskKeys, type OsDeskKeys } from "@/utils/osDeskKeys";
 
@@ -72,10 +105,18 @@ export function isOsDeskId(pageId: string): boolean {
  * перед «Примечанием»), «Итого» (сразу после «Апсейла») и «Даты» (сразу за
  * именем; нет «Имени» — первым). Ячейки не
  * трогаются — у старых строк статус пустой, а «Итого» досчитает сам стол.
+ * Стол (и вкладка месяца) с прежним порядком столбцов ключ в ключ получает
+ * новый порядок: «Статус» и «Технарь» сразу за «Датами». Любой другой
+ * порядок — дело рук ОС, его не трогаем.
+ * Порядок — тот, что ВИДЕН (как сортирует таблица: по `order`, при равенстве
+ * по месту в массиве), а не порядок массива: перетаскивание и «сдвинуть
+ * столбец» пишут только `order` (`applyColumnLayout`), массив остаётся
+ * прежним, и перетащенный стол выглядел «нетронутым» — порядок ОС
+ * сбрасывался на наш при следующем открытии.
  * Возвращает null, если добавлять нечего (писать документ не нужно).
  */
 export function missingOsDeskColumns(existingColumns: PageColumn[]): PageColumn[] | null {
-  let cols = existingColumns;
+  let cols = columnsInDisplayOrder(existingColumns);
   let changed = false;
   if (!cols.some((c) => c.type === "status")) {
     const noteIndex = cols.findIndex((c) => c.key === "note");
@@ -109,9 +150,154 @@ export function missingOsDeskColumns(existingColumns: PageColumn[]): PageColumn[
       changed = true;
       return { ...c, width: OS_DATES_COLUMN_WIDTH };
     }
+    // В «Технаре» теперь бейдж и чип рядом — нетронутый столбец шире.
+    if (c.key === "technician" && c.type === "technician" && c.width === OS_TECH_COLUMN_WIDTH_V1) {
+      changed = true;
+      return { ...c, width: OS_TECH_COLUMN_WIDTH };
+    }
     return c;
   });
+  // Прежний порядок ключ в ключ — «Статус» и «Технарь» к «Датам». Порядок
+  // решается ПОСЛЕ дописывания: старый стол без «Итого»/«Дат» после него как
+  // раз приходит к прежнему полному набору.
+  const keys = cols.map((c) => c.key);
+  if (keys.length === OS_DESK_LEGACY_ORDER.length && keys.every((k, i) => k === OS_DESK_LEGACY_ORDER[i])) {
+    const byKey = new Map(cols.map((c) => [c.key, c]));
+    cols = OS_DESK_ORDER.map((k) => byKey.get(k)!);
+    changed = true;
+  }
   return changed ? cols.map((c, i) => ({ ...c, order: i })) : null;
+}
+
+/** Столбцы в порядке показа — как `compareColumnsBySchema` в DataTable. */
+function columnsInDisplayOrder(columns: readonly PageColumn[]): PageColumn[] {
+  const at = (c: PageColumn, i: number) => (typeof c.order === "number" && Number.isFinite(c.order) ? c.order : i);
+  return columns
+    .map((column, index) => ({ column, index }))
+    .sort((a, b) => at(a.column, a.index) - at(b.column, b.index) || a.index - b.index)
+    .map(({ column }) => column);
+}
+
+/** Отказ «Выдать заново»: заказ вернули технарю, его строка на месте. */
+export const OS_RETURNED_REISSUE_ERROR =
+  "Заказ вернули технарю на «Правке столов» — его строка осталась у него в столе, новая копия была бы дублем. Вернуть заказ под ОС может Owner: «Правка столов» → «Передать ОС»";
+
+/**
+ * Лежит ли ещё в столе технаря строка этого заказа, который Owner вернул
+ * технарю («Правка столов» → «Вернуть»): `releaseDeskOrders` снимает с неё
+ * метку ОС, но строку (и её id) оставляет. Ищем по ВСЕМ его столам и вкладкам
+ * одним запросом: копию, заведённую ОС (`os_<источник>`), и — у источника
+ * `adopt_…` — собственную строку технаря. Ошибка чтения — исключение: «не
+ * узнали» не значит «строки нет».
+ */
+export async function returnedRowOnTechDesk(input: {
+  workspaceId: string;
+  row: Pick<PageRow, "id">;
+  techUid: string;
+  pages: readonly WorkspacePage[];
+  /** Стол, куда собирались писать (на случай, если его нет в `pages`). */
+  targetPageId?: string | null;
+}): Promise<boolean> {
+  const desks = input.pages
+    .filter((p) => !p.osDesk && !p.isDashboard && p.responsibleUserId === input.techUid)
+    .map((p) => p.id);
+  if (input.targetPageId) desks.push(input.targetPageId);
+  const ids = [mirrorRowId(input.row.id)];
+  if (input.row.id.startsWith("adopt_") && input.row.id.length > "adopt_".length) {
+    ids.push(input.row.id.slice("adopt_".length));
+  }
+  return sbDeskRowExists(input.workspaceId, desks, ids);
+}
+
+/**
+ * Выдать (или обновить) заказ строки стола ОС её технарю сейчас — кнопкой, а
+ * не проходом стола: карточка строки («Обновить у технаря», «Выдать заново»)
+ * и тост «Не доехал» у заказа, копию которого удалили у технаря. Одна
+ * функция на оба места, чтобы ручная выдача не разошлась с проходом.
+ * Бросает ошибку с причиной, если отдать некому (нет аккаунта, стола, карты
+ * столбцов), если заказ ещё на «Утверждении» (он технарю не уходит «ни сам,
+ * ни кнопкой») и если заказ вернули технарю, а его строка у него на месте
+ * (новая копия была бы дублем, а в той же вкладке — вечным отказом прав).
+ */
+export async function pushOsRowToTech(input: {
+  workspaceId: string;
+  osUid: string;
+  osNickValue: string;
+  row: PageRow;
+  pageId: string;
+  subPageId: string | null;
+  keys: OsDeskKeys;
+  /** Копия у технаря (`useMyOrderRows().bySource`), если заказ уже выдан. */
+  mirror: PageRow | null;
+  pages: readonly WorkspacePage[];
+  members: readonly WorkspaceMember[];
+  statusOptions: readonly StatusOption[];
+}): Promise<{ techName: string; updated: boolean }> {
+  const { row, keys, mirror } = input;
+  const techNick = String(row.cells[keys.technician] ?? "").trim();
+  const techUid = techUidByNick(input.members, techNick);
+  const preferPage = mirror?.deskPageId ?? row.mirrorPageId;
+  const problem = techTargetProblem([...input.pages], techUid, preferPage);
+  const target = techUid ? findTechTarget([...input.pages], techUid, preferPage) : null;
+  if (!target || !techUid) throw new Error(problem ?? "Не удалось определить стол технаря");
+  const ownStatus = String(row.cells[keys.status] ?? "").trim();
+  const status = ownStatus || (mirror?.statusKey ? String(mirror.cells[mirror.statusKey] ?? "").trim() : "");
+  const pushStatus = status || findInProgressStatusOption([...input.statusOptions])?.value || "";
+  const at = mirrorAddressOf(row, mirror);
+  if (!at) {
+    // Заказ ещё не у технаря. На «Утверждении» (пустой статус — тоже) он не
+    // уходит ни проходом, ни кнопкой: сначала «Отдать».
+    if (isApprovalStatusValue(ownStatus, input.statusOptions)) {
+      throw new Error("Заказ на «Утверждении» — сначала «Отдать» в столбце «Технарь»");
+    }
+    // Связь оборвана (`osLostFor`): копию удалили — выдать заново можно; а
+    // если Owner вернул заказ технарю, его строка лежит у него — не дублируем.
+    if (String(row.cells[OS_LOST_FOR_KEY] ?? "").trim()) {
+      let returned: boolean;
+      try {
+        returned = await returnedRowOnTechDesk({
+          workspaceId: input.workspaceId,
+          row,
+          techUid,
+          pages: input.pages,
+          targetPageId: target.page.id,
+        });
+      } catch {
+        throw new Error("Не удалось проверить стол технаря — заказ не выдан, повторите позже");
+      }
+      if (returned) throw new Error(OS_RETURNED_REISSUE_ERROR);
+    }
+  }
+  await pushOrderToTech({
+    workspaceId: input.workspaceId,
+    osUid: input.osUid,
+    osNickValue: input.osNickValue,
+    source: row,
+    srcPageId: input.pageId,
+    srcTabId: input.subPageId,
+    osColumns: { client: keys.client, phone: keys.phone, price: keys.price, upsell: keys.upsell, note: keys.note, link: keys.link },
+    target,
+    techUid,
+    // Та же дата заказа, что у автопрохода: max(createdAt, filledAt). Слот
+    // стола ОС заводят заранее и заполняют через дни — по одному createdAt
+    // выданная заново копия легла бы у технаря днём заведения слота.
+    dateMs: Math.max(row.createdAt || 0, row.filledAt || 0) || 0,
+    // Заказ уже в столе технаря (выдан раньше или перенесён) — правим ту же
+    // строку в ТОЙ ЖЕ вкладке, а не заводим рядом вторую (на переломе месяца
+    // вкладка копии — не текущая).
+    mirrorRowId: at?.rowId,
+    mirrorTabId: at?.tabId,
+    // Копия на руках — статус под ЕЁ ключом и её опорные поля (см. JSDoc
+    // pushOrderToTech); ключ «Статуса» стола ОС — для переноса статуса базой.
+    copy: mirror ?? undefined,
+    osStatusKey: keys.status,
+    status: pushStatus,
+    // Ручная выдача — это и перевыдача после удаления копии: метку «копию
+    // удалили» снимаем, синхронизированный статус запоминаем.
+    sourceCells: { [OS_STATUS_SENT_KEY]: pushStatus, [OS_LOST_FOR_KEY]: "" },
+  });
+  const member = input.members.find((m) => m.uid === techUid);
+  return { techName: personLabel(member) || "технарь", updated: Boolean(mirror) };
 }
 
 /** Дописать недостающие столбцы главной вкладке стола ОС. */

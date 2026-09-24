@@ -13,9 +13,16 @@ import type { PageRow } from "@/types";
  * для этого не нужен. Читаем разово (при открытии стола и после действий), а
  * не подпиской: столов у технарей полтора десятка, живой канал на каждый —
  * лишний трафик.
+ *
+ * `fetchedAtLocal` — когда (performance.now()) НАЧАЛОСЬ чтение, результат
+ * которого сейчас в `rows`; публикуется вместе со строками. По нему проход
+ * стола ОС видит, что строка поменялась уже после того, как список пошёл
+ * читаться, и не решает по нему «статус сменили у технаря» / «копии нет»
+ * (гонка 24.09.2026: старый статус технаря возвращался поверх нового).
+ * 0 — список ещё ни разу не прочитан.
  */
 export function useMyOrderRows(workspaceId: string | null, osUid: string | null, enabled: boolean) {
-  const [rows, setRows] = useState<PageRow[]>([]);
+  const [state, setState] = useState<{ rows: PageRow[]; fetchedAtLocal: number }>(EMPTY);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
@@ -24,7 +31,7 @@ export function useMyOrderRows(workspaceId: string | null, osUid: string | null,
 
   useEffect(() => {
     if (!active || !workspaceId || !osUid) {
-      setRows([]);
+      setState(EMPTY);
       return;
     }
     let cancelled = false;
@@ -32,11 +39,14 @@ export function useMyOrderRows(workspaceId: string | null, osUid: string | null,
     let attempt = 0;
     const load = () => {
       setLoading(true);
+      // Отметка — ДО запроса: правка, сделанная, пока он летел, в ответ могла
+      // не попасть, и список считается старше неё.
+      const startedAt = performance.now();
       void sbFetchMyOrderRows(workspaceId, osUid)
         .then((list) => {
           if (cancelled) return;
           attempt = 0;
-          setRows(list);
+          setState({ rows: list, fetchedAtLocal: startedAt });
           setError(null);
         })
         .catch((e) => {
@@ -68,7 +78,20 @@ export function useMyOrderRows(workspaceId: string | null, osUid: string | null,
   }, [active, workspaceId, osUid, nonce]);
 
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
+  const { rows, fetchedAtLocal } = state;
   /** Заказ по id строки-ИСТОЧНИКА (строки стола ОС). */
   const bySource = new Map(rows.filter((r) => r.srcRowId).map((r) => [r.srcRowId as string, r]));
-  return { rows, bySource, loading, error, refresh };
+  return {
+    rows,
+    bySource,
+    loading,
+    error,
+    refresh,
+    /** performance.now() начала чтения, результат которого в `rows` (0 — не читали). */
+    fetchedAtLocal,
+    /** То же, что `fetchedAtLocal` (имя из разбора гонки). */
+    loadStartedAt: fetchedAtLocal,
+  };
 }
+
+const EMPTY: { rows: PageRow[]; fetchedAtLocal: number } = { rows: [], fetchedAtLocal: 0 };

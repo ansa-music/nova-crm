@@ -7,7 +7,9 @@ import { fetchSubPageRows } from "@/services/subPageService";
 import {
   findTechTarget,
   pushOrderToTech,
+  sbFetchRowById,
   techTargetProblem,
+  type MirrorCopyRef,
 } from "@/services/rows/osOrderMirror";
 import { sbDeleteRow, sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { OS_DESK_KEYS, resolveOsDeskKeys, type OsDeskKeys } from "@/services/osDeskService";
@@ -168,6 +170,16 @@ export async function handOffExchangeOrder(input: HandoffInput): Promise<{ techN
     if (row.mirrorPageId && row.mirrorRowId && !keepAt) {
       await sbDeleteRow(workspaceId, row.mirrorPageId, row.mirrorTabId || null, row.mirrorRowId);
     }
+    // Копия у этого же технаря уже есть — её опорные поля и ключ статуса берём
+    // с НЕЁ (страж базы отклоняет их смену). Не прочиталась — правка уйдёт без
+    // опорных полей, база оставит их как есть.
+    let copy: MirrorCopyRef | undefined;
+    if (keepAt?.mirrorPageId && keepAt.mirrorRowId) {
+      copy =
+        (await sbFetchRowById(workspaceId, keepAt.mirrorPageId, keepAt.mirrorTabId || null, keepAt.mirrorRowId).catch(
+          () => null
+        )) ?? undefined;
+    }
     const pushed = await pushOrderToTech({
       workspaceId,
       osUid: input.osUid,
@@ -179,9 +191,13 @@ export async function handOffExchangeOrder(input: HandoffInput): Promise<{ techN
       target,
       techUid: order.assignedUid,
       status,
-      dateMs: row.createdAt || 0,
+      // Дата заказа — как у прохода стола ОС: max(createdAt, filledAt) —
+      // слот могли завести заранее и заполнить через дни.
+      dateMs: Math.max(row.createdAt || 0, row.filledAt || 0) || 0,
       mirrorRowId: keepAt?.mirrorRowId || undefined,
       mirrorTabId: keepAt ? keepAt.mirrorTabId || null : undefined,
+      copy,
+      osStatusKey: STATUS_KEY,
     });
     if (db) {
       const now = Date.now();

@@ -115,6 +115,14 @@ interface TableRowProps {
   cellAddonKeys?: readonly string[];
   cellAddonVersion?: string;
   renderCellAddon?: (row: PageRow, colKey: string) => React.ReactNode;
+  /**
+   * Своя отрисовка значения в ячейках этих столбцов — см. DataTable.cellDisplay.
+   * `cellDisplayVersion` меняется, когда меняется то, что рисует `render`
+   * помимо самой строки (люди, фото, ники): строка сравнивает пропсы (memo).
+   */
+  cellDisplayKeys?: readonly string[];
+  cellDisplayVersion?: string;
+  renderCellDisplay?: (row: PageRow, colKey: string) => React.ReactNode | undefined;
 }
 
 /**
@@ -148,12 +156,15 @@ function LiveCellAction({
   getView,
   pulse,
   coarsePointer,
+  inline,
   onRun,
 }: {
   rowId: string;
   getView: (rowId: string) => CellActionView | null;
   pulse?: CellActionPulse;
   coarsePointer?: boolean;
+  /** Чип в строке рядом со значением (ячейка с внешним выбором), а не поверх. */
+  inline?: boolean;
   onRun: (rowId: string) => void;
 }) {
   const [, rerender] = useReducer((n: number) => n + 1, 0);
@@ -169,7 +180,7 @@ function LiveCellAction({
     });
   }, [pulse, getView, rowId]);
   if (!view) return null;
-  return <CellActionButton view={view} coarsePointer={coarsePointer} onRun={() => onRun(rowId)} />;
+  return <CellActionButton view={view} coarsePointer={coarsePointer} inline={inline} onRun={() => onRun(rowId)} />;
 }
 
 function TableRowInner({
@@ -234,6 +245,8 @@ function TableRowInner({
   onCellAction,
   cellAddonKeys,
   renderCellAddon,
+  cellDisplayKeys,
+  renderCellDisplay,
 }: TableRowProps) {
   const allowRowDrag = canReorder && !coarsePointer;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -420,6 +433,7 @@ function TableRowInner({
         const isEditing = editingCell?.rowId === row.id && editingCell?.colKey === column.key;
         const isInRange = rangeCells.has(`${row.id}:${column.key}`);
         const stickyLeft = pinnedOffsets.get(column.key);
+        const isPicker = Boolean(onOpenCellPicker && pickerKeys?.includes(column.key));
         return (
           <TableCell
             key={column.id}
@@ -431,8 +445,9 @@ function TableRowInner({
             editValue={editValue}
             canEdit={canEdit && !cellLock?.(row, column.key)}
             lockedReason={cellLock?.(row, column.key) ?? null}
-            onOpenPicker={
-              onOpenCellPicker && pickerKeys?.includes(column.key) ? () => onOpenCellPicker(row.id, column.key) : undefined
+            onOpenPicker={isPicker && onOpenCellPicker ? () => onOpenCellPicker(row.id, column.key) : undefined}
+            display={
+              renderCellDisplay && !blank && cellDisplayKeys?.includes(column.key) ? renderCellDisplay(row, column.key) : undefined
             }
             onMouseDown={(e) => onCellMouseDown(row.id, column.key, e)}
             onClick={() => onCellClick(row.id, column.key)}
@@ -469,6 +484,7 @@ function TableRowInner({
                   getView={getCellAction}
                   pulse={cellActionPulse}
                   coarsePointer={coarsePointer}
+                  inline={isPicker}
                   onRun={onCellAction}
                 />
               ) : undefined
@@ -566,6 +582,9 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     prev.cellAddonKeys !== next.cellAddonKeys ||
     prev.cellAddonVersion !== next.cellAddonVersion ||
     prev.renderCellAddon !== next.renderCellAddon ||
+    prev.cellDisplayKeys !== next.cellDisplayKeys ||
+    prev.cellDisplayVersion !== next.cellDisplayVersion ||
+    prev.renderCellDisplay !== next.renderCellDisplay ||
     prev.onCellAction !== next.onCellAction ||
     prev.getCellAction !== next.getCellAction ||
     prev.cellActionPulse !== next.cellActionPulse

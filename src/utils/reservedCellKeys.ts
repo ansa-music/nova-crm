@@ -39,6 +39,16 @@ export const OS_ISSUED_AT_KEY = "osIssuedAt";
  */
 export const OS_RECEIVED_ON_KEY = "osReceivedOn";
 export const OS_ISSUED_ON_KEY = "osIssuedOn";
+/**
+ * Служебная ячейка строки ТЕХНАРЯ: ник ОС, у которого Owner забрал этот заказ
+ * и вернул технарю («Правка столов» → «Вернуть», `releaseDeskOrders`). Пока
+ * ник в ней совпадает с ником ОС в строке, забор (`rows_os_claimable` /
+ * `rows_os_claim_order`, `pickClaims`) строку этому ОС снова не отдаёт — что
+ * бы ОС ни сделал со своей строкой-источником (удалил, выдал другому).
+ * Снимает её «Передать ОС» (`adoptOrdersToOsDesks`). Другой ОС, которого
+ * технарь впишет потом, строку забрать может.
+ */
+export const OS_RELEASED_FROM_KEY = "osReleasedFrom";
 
 export const RESERVED_CELL_KEYS: readonly string[] = [
   TECH_LINK_KEY,
@@ -48,17 +58,25 @@ export const RESERVED_CELL_KEYS: readonly string[] = [
   OS_ISSUED_AT_KEY,
   OS_RECEIVED_ON_KEY,
   OS_ISSUED_ON_KEY,
+  OS_RELEASED_FROM_KEY,
 ];
 
 const RESERVED_LOWER = new Set(RESERVED_CELL_KEYS.map((k) => k.toLowerCase()));
 
 /** Служебные ячейки заказа ОС — им не место в копии строки. */
-const OS_ROW_SERVICE_KEYS = new Set([OS_STATUS_SENT_KEY, OS_LOST_FOR_KEY, OS_ISSUED_AT_KEY, OS_RECEIVED_ON_KEY, OS_ISSUED_ON_KEY]);
+const OS_ROW_SERVICE_KEYS = new Set([
+  OS_STATUS_SENT_KEY,
+  OS_LOST_FOR_KEY,
+  OS_ISSUED_AT_KEY,
+  OS_RECEIVED_ON_KEY,
+  OS_ISSUED_ON_KEY,
+  OS_RELEASED_FROM_KEY,
+]);
 
 /**
  * Ячейки КОПИИ строки («Дублировать»): содержимое без служебных меток и дат
  * заказа ОС — `osStatusSent`, `osLostFor`, `osIssuedAt`, `osReceivedOn`,
- * `osIssuedOn` и дат апсейла `{ключ}__at/__was/__on`. Иначе копия заказа,
+ * `osIssuedOn`, `osReleasedFrom` и дат апсейла `{ключ}__at/__was/__on`. Иначе копия заказа,
  * заведённая 24-го, показывала бы «получен 10.09, выдан 11.09» оригинала как
  * поставленные ОС. Способ оплаты (`__pay`, `__fee`) — содержимое, остаётся.
  */

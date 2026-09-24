@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { ArrowDownToLine, CalendarDays, Check, Send, Store, X } from "lucide-react";
+import { ArrowDownToLine, CalendarDays, Check, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -237,21 +237,15 @@ export function OsDateButton({
  */
 export function OsDatesCell({ info, onSet }: { info: OsDatesInfo; onSet?: OsDateSetter }) {
   const { received, issued, exchange } = info;
-  const issuedEmpty = exchange ? (exchange.status === "assigned" ? "едет" : "Заказы") : "не выдан";
+  // Состояние выдачи («не выдан», «ждём отклики», «едет») показывает ячейка
+  // «Технарь» — здесь только дата, без дубля: пока её нет, «—».
   return (
     <span className="flex min-w-0 flex-col items-start justify-center gap-px [@media(pointer:coarse)]:gap-0.5">
       <OsDateButton slot={received} icon={<ArrowDownToLine className="h-2.5 w-2.5 shrink-0 opacity-70" aria-hidden />} empty="—" onSet={onSet} />
       <OsDateButton
         slot={issued}
-        icon={
-          exchange && !slotShown(issued) ? (
-            <Store className="h-2.5 w-2.5 shrink-0" aria-hidden />
-          ) : (
-            <Send className={cn("h-2.5 w-2.5 shrink-0", issued.value ? "text-success" : "opacity-60")} aria-hidden />
-          )
-        }
-        empty={issuedEmpty}
-        emptyClassName={exchange ? "font-sans text-primary/85" : "font-sans"}
+        icon={<Send className={cn("h-2.5 w-2.5 shrink-0", issued.value ? "text-success" : "opacity-60")} aria-hidden />}
+        empty="—"
         onSet={onSet}
         title={
           !slotShown(issued)
@@ -269,10 +263,11 @@ export function OsDatesCell({ info, onSet }: { info: OsDatesInfo; onSet?: OsDate
 
 /** Та же пара дат в одну строку — для «Карточек» на телефоне (только показ). */
 export function OsDatesInline({ info }: { info: OsDatesInfo }) {
-  const { received, issued, exchange } = info;
+  const { received, issued } = info;
   const r = slotShown(received);
   const i = slotShown(issued);
-  if (!r && !i && !exchange) return null;
+  // Состояние выдачи — в подвале карточки («Технарь»), здесь только даты.
+  if (!r && !i) return null;
   const tone = (slot: OsDateSlot) => (slot.value ? "text-foreground/85" : "opacity-70");
   return (
     <span className="inline-flex items-center gap-1.5 font-mono tabular-nums">
@@ -287,14 +282,7 @@ export function OsDatesInline({ info }: { info: OsDatesInfo }) {
           <Send className="h-3 w-3 text-success" aria-hidden />
           {formatDayMonth(i)}
         </span>
-      ) : exchange ? (
-        <span className="inline-flex items-center gap-0.5 font-sans text-primary/85">
-          <Store className="h-3 w-3" aria-hidden />
-          {exchange.status === "assigned" ? "едет" : "на «Заказах»"}
-        </span>
-      ) : (
-        <span className="font-sans opacity-60">не выдан</span>
-      )}
+      ) : null}
     </span>
   );
 }

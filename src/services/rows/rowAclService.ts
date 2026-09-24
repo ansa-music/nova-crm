@@ -41,6 +41,16 @@ export interface AclPageRow {
   os_desk: boolean;
   allowed_uids: string[];
   editable_uids: string[];
+  /**
+   * Копия карты столбцов стола (`page.osFieldKeys`, SQL 20261002): вкладка,
+   * столбец ОС и столбец статуса. По ней база проверяет, что ОС забирает
+   * строку, где его ник стоит ИМЕННО в столбце ОС (`rows_os_claim_order`), а
+   * не в имени клиента. У столов ОС — null. Поля нет (undefined) — в базе ещё
+   * нет столбцов: сверка работает по-старому, без них.
+   */
+  os_keys_tab?: string | null;
+  os_key?: string | null;
+  os_status_key?: string | null;
 }
 
 export interface AclSyncReport {
@@ -82,6 +92,8 @@ export function desiredMemberRows(members: readonly WorkspaceMember[]): AclMembe
 }
 
 export function desiredPageRow(page: WorkspacePage): AclPageRow {
+  // Карта столбцов — только у столов технарей: в стол ОС заказы не зеркалят.
+  const keys = !page.osDesk ? (page.osFieldKeys ?? null) : null;
   return {
     page_id: page.id,
     responsible_uid: page.responsibleUserId ?? null,
@@ -89,6 +101,9 @@ export function desiredPageRow(page: WorkspacePage): AclPageRow {
     os_desk: page.osDesk === true,
     allowed_uids: sortedUnique(page.allowedUsers),
     editable_uids: sortedUnique(page.editableUsers),
+    os_keys_tab: keys?.tabId || null,
+    os_key: keys?.os || null,
+    os_status_key: keys?.status || null,
   };
 }
 
@@ -98,7 +113,10 @@ export function samePageRow(a: AclPageRow, b: AclPageRow): boolean {
     a.created_by === b.created_by &&
     a.os_desk === b.os_desk &&
     sameList(a.allowed_uids, b.allowed_uids) &&
-    sameList(a.editable_uids, b.editable_uids)
+    sameList(a.editable_uids, b.editable_uids) &&
+    (a.os_keys_tab ?? null) === (b.os_keys_tab ?? null) &&
+    (a.os_key ?? null) === (b.os_key ?? null) &&
+    (a.os_status_key ?? null) === (b.os_status_key ?? null)
   );
 }
 
@@ -172,13 +190,19 @@ export function planMemberSync(
 export function planPageSync(
   pages: readonly WorkspacePage[],
   current: readonly AclPageRow[],
-  opts: { actor: "owner" | "teamlead" | "admin" | "responsible"; me: string; meHasOsRole?: boolean }
+  opts: {
+    actor: "owner" | "teamlead" | "admin" | "responsible";
+    me: string;
+    meHasOsRole?: boolean;
+    /** В базе ещё нет столбцов карты столбцов (SQL 20261002 не вставлен). */
+    withoutKeys?: boolean;
+  }
 ): { upsert: AclPageRow[]; skipped: string[] } {
   const skipped: string[] = [];
   const currentById = new Map(current.map((p) => [p.page_id, p]));
   const upsert: AclPageRow[] = [];
   for (const page of pages) {
-    const want = desiredPageRow(page);
+    const want = opts.withoutKeys ? withoutKeys(desiredPageRow(page)) : desiredPageRow(page);
     const cur = currentById.get(want.page_id);
     if (cur && samePageRow(cur, want)) continue;
     if (
@@ -289,6 +313,39 @@ function withoutNick(row: AclMemberRow): AclMemberRow {
   return rest;
 }
 
+/*
+ * Столбцы карты столбцов в `rows_page_acl` (`os_keys_tab`, `os_key`,
+ * `os_status_key`) появляются только с SQL 20261002 — как и ник выше: пока их
+ * нет (42703 / PGRST204), копия прав столов пишется и читается без них, иначе
+ * ОДНО новое поле роняло бы сверку прав всех столов. Через 10 минут
+ * спрашиваем снова. null — ещё не спрашивали.
+ */
+let keysColumn: boolean | null = null;
+let keysColumnMissingAt = 0;
+
+/** Для проверок: забыть, есть ли столбцы карты столбцов. */
+export function resetAclKeysColumn() {
+  keysColumn = null;
+  keysColumnMissingAt = 0;
+}
+
+function refreshKeysColumnMemory() {
+  if (keysColumn === false && Date.now() - keysColumnMissingAt >= NICK_COLUMN_RECHECK_MS) keysColumn = null;
+}
+
+function markKeysColumnMissing() {
+  keysColumn = false;
+  keysColumnMissingAt = Date.now();
+}
+
+function withoutKeys(row: AclPageRow): AclPageRow {
+  const rest = { ...row };
+  delete rest.os_keys_tab;
+  delete rest.os_key;
+  delete rest.os_status_key;
+  return rest;
+}
+
 async function readMembers(workspaceId: string): Promise<AclMemberRow[]> {
   refreshNickColumnMemory();
   if (nickColumn !== false) {
@@ -315,17 +372,35 @@ async function readMembers(workspaceId: string): Promise<AclMemberRow[]> {
   return ((data ?? []) as AclMemberRow[]).map((m) => ({ ...m, extra_roles: sortedUnique(m.extra_roles) }));
 }
 
+const PAGE_COLUMNS = "page_id, responsible_uid, created_by, os_desk, allowed_uids, editable_uids";
+
 async function readPages(workspaceId: string): Promise<AclPageRow[]> {
-  const { data, error } = await supabaseRows
-    .from("rows_page_acl")
-    .select("page_id, responsible_uid, created_by, os_desk, allowed_uids, editable_uids")
-    .eq("workspace_id", workspaceId);
-  if (error) throw new Error(`копия прав столов не прочиталась: ${describe(error)}`);
-  return ((data ?? []) as AclPageRow[]).map((p) => ({
+  const normalize = (p: AclPageRow): AclPageRow => ({
     ...p,
     allowed_uids: sortedUnique(p.allowed_uids),
     editable_uids: sortedUnique(p.editable_uids),
-  }));
+  });
+  refreshKeysColumnMemory();
+  if (keysColumn !== false) {
+    const { data, error } = await supabaseRows
+      .from("rows_page_acl")
+      .select(`${PAGE_COLUMNS}, os_keys_tab, os_key, os_status_key`)
+      .eq("workspace_id", workspaceId);
+    if (!error) {
+      keysColumn = true;
+      return ((data ?? []) as AclPageRow[]).map((p) => ({
+        ...normalize(p),
+        os_keys_tab: p.os_keys_tab || null,
+        os_key: p.os_key || null,
+        os_status_key: p.os_status_key || null,
+      }));
+    }
+    if (!isSbMissingError(error)) throw new Error(`копия прав столов не прочиталась: ${describe(error)}`);
+    markKeysColumnMissing();
+  }
+  const { data, error } = await supabaseRows.from("rows_page_acl").select(PAGE_COLUMNS).eq("workspace_id", workspaceId);
+  if (error) throw new Error(`копия прав столов не прочиталась: ${describe(error)}`);
+  return ((data ?? []) as AclPageRow[]).map(normalize);
 }
 
 /**
@@ -452,7 +527,13 @@ export async function syncRowAcl(input: AclSyncInput): Promise<AclSyncReport> {
   const meHasOsRole = (input.members ?? []).some(
     (m) => m.uid === input.me && (m.role === "os" || (m.extraRoles ?? []).includes("os"))
   );
-  const pagePlan = planPageSync(input.pages, currentPages, { actor, me: input.me, meHasOsRole });
+  // Столбцов карты столбцов в базе нет — сравниваем и пишем без них (см. keysColumn).
+  const pagePlan = planPageSync(input.pages, currentPages, {
+    actor,
+    me: input.me,
+    meHasOsRole,
+    withoutKeys: keysColumn === false,
+  });
   report.skipped.push(...pagePlan.skipped);
   report.pagesUpserted = await upsertRows(
     "rows_page_acl",
@@ -547,11 +628,22 @@ export async function putMemberAcl(workspaceId: string, uid: string, member: Wor
  * стола (id с его uid, `generateDeskId`), Owner — любого.
  */
 export async function putPageAcl(workspaceId: string, page: WorkspacePage): Promise<void> {
-  const { error } = await supabaseRows
-    .from("rows_page_acl")
-    .upsert([{ workspace_id: workspaceId, ...desiredPageRow(page), updated_at: Date.now() }], {
-      onConflict: "workspace_id,page_id",
-    });
+  const put = (value: AclPageRow) =>
+    supabaseRows
+      .from("rows_page_acl")
+      .upsert([{ workspace_id: workspaceId, ...value, updated_at: Date.now() }], {
+        onConflict: "workspace_id,page_id",
+      });
+  const row = desiredPageRow(page);
+  refreshKeysColumnMemory();
+  let { error } = await put(keysColumn === false ? withoutKeys(row) : row);
+  if (error && keysColumn !== false && isSbMissingError(error)) {
+    // Столбцов карты столбцов ещё нет (SQL не вставлен) — права важнее, пишем без них.
+    markKeysColumnMissing();
+    ({ error } = await put(withoutKeys(row)));
+  } else if (!error && keysColumn === null) {
+    keysColumn = true;
+  }
   if (error) throw new Error(`запись о правах стола не создана: ${describe(error)}`);
 }
 

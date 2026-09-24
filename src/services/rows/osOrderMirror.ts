@@ -1,4 +1,5 @@
-import { sbPatchRow } from "@/services/rows/supabaseRowStore";
+import { DESK_ROWS_TABLE, supabaseRows } from "@/lib/supabaseRows";
+import { recordToRow, sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { currentMonthKey, currentMonthSubPageId } from "@/services/monthTabService";
 import { osRowTotal } from "@/utils/payment";
 import { OS_ISSUED_AT_KEY } from "@/utils/reservedCellKeys";
@@ -163,6 +164,67 @@ export function mirrorSyncHash(cells: Record<string, string | number | null>, ex
   return JSON.stringify([Object.entries(cells).sort(), extras ?? null]);
 }
 
+/**
+ * Строка по первичному ключу — один крошечный запрос мимо подписок и кэша.
+ * Нужен там, где решение «строки нет» необратимо (удалить копию-сироту,
+ * завести копию заново): списки столов и заказов читаются отдельно и могут
+ * отставать на секунды. null — строки нет (или её не видно этой сессии);
+ * ошибка чтения — исключение: «не узнали» не значит «нет».
+ */
+export async function sbFetchRowById(
+  workspaceId: string,
+  pageId: string,
+  tab: string | null,
+  rowId: string
+): Promise<PageRow | null> {
+  const { data, error } = await supabaseRows
+    .from(DESK_ROWS_TABLE)
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .eq("page_id", pageId)
+    .eq("tab_id", tab ?? "")
+    .eq("id", rowId)
+    .limit(1);
+  if (error) throw new Error(error.message || "Не удалось прочитать строку");
+  const record = Array.isArray(data) ? data[0] : null;
+  return record ? recordToRow(record as Parameters<typeof recordToRow>[0]) : null;
+}
+
+/**
+ * Есть ли на этих столах (любой вкладке) строка с одним из этих id — один
+ * запрос. Ошибка чтения — исключение: «не узнали» не значит «нет».
+ */
+export async function sbDeskRowExists(
+  workspaceId: string,
+  pageIds: readonly string[],
+  rowIds: readonly string[]
+): Promise<boolean> {
+  if (pageIds.length === 0 || rowIds.length === 0) return false;
+  const { data, error } = await supabaseRows
+    .from(DESK_ROWS_TABLE)
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .in("page_id", [...new Set(pageIds)])
+    .in("id", [...new Set(rowIds)])
+    .limit(1);
+  if (error) throw new Error(error.message || "Не удалось прочитать стол технаря");
+  return Array.isArray(data) && data.length > 0;
+}
+
+/**
+ * Опорные поля копии, какими они лежат в базе СЕЙЧАС (строка из
+ * `useMyOrderRows`). Любую их смену `desk_rows_guard` отклоняет всем, кроме
+ * Owner, — вместе со всей записью, статусом в том числе.
+ */
+export interface MirrorCopyRef {
+  statusKey?: string | null;
+  techUid?: string | null;
+  srcPageId?: string | null;
+  srcTabId?: string | null;
+  srcRowId?: string | null;
+  osUid?: string | null;
+}
+
 export interface PushOrderInput {
   workspaceId: string;
   /** Кто выдаёт — ОС. */
@@ -197,14 +259,84 @@ export interface PushOrderInput {
   sourceCells?: Record<string, string>;
   /** Когда заказ отдан (для «Даты» стола ОС); нет — сейчас. Только при заведении копии. */
   issuedAt?: number;
+  /**
+   * Копия, которую правим (`mirrorRowId` задан), — строка из `useMyOrderRows`
+   * (`mirrorForRow`/`myOrders.bySource`). Статус пишется под ЕЁ `statusKey`, а
+   * опорные поля уходят её же значениями: карта столбцов текущего месяца у
+   * технаря могла смениться (пересоздали «Статус», копия лежит в прошлой
+   * вкладке, у старой копии `src_tab_id` пуст), и прежняя запись с ключами
+   * `target.keys` целиком падала 42501 — статус не доезжал вовсе. Нет копии на
+   * руках — опорные поля при правке не шлём совсем (база их не трогает).
+   * Значения `target` уходят только при ЗАВЕДЕНИИ копии.
+   */
+  copy?: MirrorCopyRef | null;
+  /**
+   * Ключ столбца статуса НА СТОЛЕ ОС. Не «status» — пишется в `status_key`
+   * строки-источника: по нему база (`desk_rows_os_status_push`, SQL
+   * 20261002) сама везёт статус ОС в копию технаря той же записью.
+   */
+  osStatusKey?: string | null;
+}
+
+/** Отказ базы в правах (42501 → `permission-denied`, см. supabaseRowStore). */
+function isPermissionDenied(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "permission-denied");
+}
+
+/** Отказ записи именно КОПИИ (строку-источник ещё не трогали). */
+class CopyWriteError extends Error {
+  original: unknown;
+  constructor(original: unknown) {
+    super(original instanceof Error ? original.message : String(original));
+    this.original = original;
+  }
 }
 
 /**
  * Выдать заказ в работу: строка появляется в столе технаря и с этой минуты
  * принадлежит ОС. Повторный вызов — обновление той же строки (id выведен из
  * строки-источника), поэтому «выдать» и «обновить» — одно и то же действие.
+ *
+ * Как звать (проход стола ОС, карточка строки `OsOrderPanel`, довоз с биржи):
+ * ```ts
+ * pushOrderToTech({
+ *   ...,
+ *   mirrorRowId: at?.rowId,     // копия уже есть — правим её
+ *   mirrorTabId: at?.tabId,
+ *   copy: mirror ?? undefined,  // строка копии из useMyOrderRows: её ключ статуса и опорные поля
+ *   osStatusKey: keys.status,   // ключ «Статуса» на столе ОС (resolveOsDeskKeys)
+ * });
+ * ```
+ * Копию, которая пропала между чтением списка и записью (Owner удалил её,
+ * вкладку убрали), правка не находит, и `rows_patch` уходит во вставку —
+ * отказ 42501. Тогда один раз сверяем по первичному ключу, что строки правда
+ * нет, и заводим копию заново, как при первой выдаче (так вела себя и
+ * прежняя запись, славшая опорные поля цели). Строка есть, но не наша (её
+ * вернули технарю на «Правке столов») — отказ остаётся отказом: вторую
+ * копию рядом с вернувшейся строкой не заводим.
  */
 export async function pushOrderToTech(input: PushOrderInput): Promise<{ rowId: string; syncHash: string }> {
+  try {
+    return await writeOrder(input);
+  } catch (error) {
+    const original = error instanceof CopyWriteError ? error.original : error;
+    if (!(error instanceof CopyWriteError) || !input.mirrorRowId || !isPermissionDenied(original)) throw original;
+    let still: PageRow | null;
+    try {
+      still = await sbFetchRowById(input.workspaceId, input.target.page.id, input.mirrorTabId ?? input.target.tabId, input.mirrorRowId);
+    } catch {
+      throw original;
+    }
+    if (still) throw original;
+    try {
+      return await writeOrder({ ...input, mirrorRowId: undefined, mirrorTabId: undefined, copy: undefined });
+    } catch (retryError) {
+      throw retryError instanceof CopyWriteError ? retryError.original : retryError;
+    }
+  }
+}
+
+async function writeOrder(input: PushOrderInput): Promise<{ rowId: string; syncHash: string }> {
   const rowId = input.mirrorRowId || mirrorRowId(input.source.id);
   const tabId = input.mirrorTabId ?? input.target.tabId;
   // Копия уже есть — это правка. Дату получения и подсветку «новый заказ»
@@ -212,10 +344,14 @@ export async function pushOrderToTech(input: PushOrderInput): Promise<{ rowId: s
   // технарю дату заказа датой строки ОС и снова красила строку в «новую».
   const creating = !input.mirrorRowId;
   const withStatus = input.withStatus !== false;
+  const copy = creating ? null : (input.copy ?? null);
+  // Статус правки — под ключом САМОЙ копии: у вкладки, где она лежит, ключ
+  // «Статуса» мог быть другим, чем в нынешней карте столбцов технаря.
+  const keys: OsFieldKeys = copy?.statusKey ? { ...input.target.keys, status: copy.statusKey } : input.target.keys;
   const cells = buildMirrorCells({
     source: input.source,
     osColumns: input.osColumns,
-    keys: input.target.keys,
+    keys,
     osNickValue: input.osNickValue,
     status: input.status,
     withStatus,
@@ -235,20 +371,46 @@ export async function pushOrderToTech(input: PushOrderInput): Promise<{ rowId: s
     }),
     extras
   );
-  await sbPatchRow(input.workspaceId, input.target.page.id, tabId, rowId, {
-    cells,
-    extras: extras ?? undefined,
-    ...(creating ? { highlight: true } : {}),
-    // Статус решили — просьба технаря об «Успешке» снята.
-    ...(withStatus && input.status ? { clearSuccessRequest: true } : {}),
-    osUid: input.osUid,
-    techUid: input.techUid,
-    statusKey: input.target.keys.status,
-    syncHash,
-    srcPageId: input.srcPageId,
-    srcTabId: input.srcTabId ?? "",
-    srcRowId: input.source.id,
-  });
+  // Опорные поля строки-заказа: при заведении — цели; при правке — ровно
+  // нынешние значения копии (страж базы не видит смены), а без копии на
+  // руках — никаких: `rows_patch` оставляет их как есть.
+  const reference = creating
+    ? {
+        osUid: input.osUid,
+        techUid: input.techUid,
+        statusKey: input.target.keys.status,
+        srcPageId: input.srcPageId,
+        srcTabId: input.srcTabId ?? "",
+        srcRowId: input.source.id,
+      }
+    : copy
+      ? {
+          osUid: copy.osUid || input.osUid,
+          techUid: copy.techUid ?? undefined,
+          statusKey: copy.statusKey ?? undefined,
+          srcPageId: copy.srcPageId ?? undefined,
+          srcTabId: copy.srcTabId ?? undefined,
+          srcRowId: copy.srcRowId ?? undefined,
+        }
+      : {};
+  try {
+    await sbPatchRow(input.workspaceId, input.target.page.id, tabId, rowId, {
+      cells,
+      extras: extras ?? undefined,
+      ...(creating ? { highlight: true } : {}),
+      // Статус решили — просьба технаря об «Успешке» снята.
+      ...(withStatus && input.status ? { clearSuccessRequest: true } : {}),
+      ...reference,
+      syncHash,
+    });
+  } catch (error) {
+    throw new CopyWriteError(error);
+  }
+  // Ключ «Статуса» стола ОС — на строку-источник, если он не «status» (или
+  // сменился): по нему база сама везёт статус ОС в копию. Строка-источник
+  // лежит на столе ОС и `os_uid` не несёт — стражу опорных полей всё равно.
+  const srcStatusKey =
+    input.osStatusKey && input.osStatusKey !== (input.source.statusKey || "status") ? input.osStatusKey : undefined;
   // На строке-источнике — адрес копии (по нему ОС потом её обновляет) и
   // служебные ячейки: последний синхронизированный статус и прочее.
   await sbPatchRow(input.workspaceId, input.srcPageId, input.srcTabId, input.source.id, {
@@ -259,6 +421,7 @@ export async function pushOrderToTech(input: PushOrderInput): Promise<{ rowId: s
     mirrorPageId: input.target.page.id,
     mirrorTabId: tabId,
     mirrorRowId: rowId,
+    ...(srcStatusKey ? { statusKey: srcStatusKey } : {}),
   });
   return { rowId, syncHash };
 }

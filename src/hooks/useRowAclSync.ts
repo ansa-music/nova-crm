@@ -47,7 +47,11 @@ export function useRowAclSync() {
   const management = realRole === "owner" || realRole === "teamlead";
   const active = Boolean(workspaceId && backend === "supabase" && permissions.isResolved && me);
 
-  // Подпись прав столов: при её смене — сверка столов.
+  // Подпись прав столов: при её смене — сверка столов. В неё входит и копия
+  // карты столбцов (`page.osFieldKeys` → os_keys_tab / os_key / os_status_key,
+  // SQL 20261002): стол опубликовал новую карту (новый месяц, пересоздали
+  // столбец) — копия, по которой ОС забирает заказы с его ником, догоняет её
+  // за ~1,5 с в сессии хозяина стола, Owner или Тимлида.
   const pageSignature = useMemo(() => {
     if (!active) return "";
     return allPages

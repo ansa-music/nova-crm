@@ -1,25 +1,24 @@
-import { useState } from "react";
-import { ArrowDownToLine, ArrowUpRight, Hand, Loader2, RefreshCw, Send } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowDownToLine, Hand, Loader2, RefreshCw, Send, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/table/StatusBadge";
+import { CellActionButton } from "@/components/table/CellActionButton";
+import { OsTechLeftView, TechBadge } from "@/components/os/TechBadge";
 import { toast } from "@/components/ui/sonner";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { OS_DESK_KEYS, type OsDeskKeys } from "@/services/osDeskService";
-import { pushOrderToTech, findTechTarget, techTargetProblem, techUidByNick } from "@/services/rows/osOrderMirror";
-import { sbPatchRow } from "@/services/rows/supabaseRowStore";
 import {
-  DEFAULT_STATUS_OPTIONS,
-  ensureApprovalStatus,
-  ensureDoneStatus,
-  findInProgressStatusOption,
-  isApprovalStatusValue,
-} from "@/utils/columnOptions";
+  OS_DESK_KEYS,
+  OS_RETURNED_REISSUE_ERROR,
+  pushOsRowToTech,
+  returnedRowOnTechDesk,
+  type OsDeskKeys,
+} from "@/services/osDeskService";
+import { techTargetProblem, techUidByNick } from "@/services/rows/osOrderMirror";
+import { DEFAULT_STATUS_OPTIONS, ensureApprovalStatus, ensureDoneStatus } from "@/utils/columnOptions";
 import { firestoreErrorText } from "@/utils/dbError";
-import { mirrorAddressOf } from "@/utils/osDispatchPlan";
-import { OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
-import { personLabel } from "@/utils/peopleDesks";
-import type { PageRow, PaymentMethod, WorkOrder } from "@/types";
+import { resolveTechIdentity } from "@/utils/techIdentity";
+import { OS_DEAD_LINK_PROBLEM, type OsTechAction, type OsTechCellState } from "@/utils/osTechCell";
+import type { PageRow, PaymentMethod } from "@/types";
 import { PaymentChip } from "@/components/cashbox/PaymentChip";
 import { osRowFees, osRowTotal } from "@/utils/payment";
 import { formatCurrency } from "@/utils/format";
@@ -33,13 +32,53 @@ function cellAmount(value: unknown): number {
   return parseLooseNumber(String(value ?? "")) ?? 0;
 }
 
+function cellText(row: PageRow, key: string | null | undefined): string {
+  const v = key ? row.cells[key] : null;
+  return v === null || v === undefined ? "" : String(v).trim();
+}
+
+/** Подпись чипа в шапке панели там, где в ячейке только значок. */
+const CHIP_FALLBACK: Partial<Record<OsTechCellState["kind"], string>> = {
+  "with-tech": "у технаря",
+  loading: "ждём…",
+};
+
+/** Что сказать под технарём — по состоянию выдачи (то же, что в ячейке). */
+function stateHint(state: OsTechCellState, claims: number): string | null {
+  switch (state.kind) {
+    case "issue":
+      return "Заказ ещё не выдан. «Выдать…» — всем на «Заказы» или одному технарю.";
+    case "reissue":
+      return "Прежний заказ сняли с «Заказов». «Выдать заново…» — всем или одному технарю.";
+    case "give":
+      return "Технарь намечен. Нажмите «Отдать» — заказ уедет к нему.";
+    case "pick":
+      return "Технаря нет. Выберите — заказ уедет к нему сразу.";
+    case "waiting":
+      return "На «Заказах», ждём откликов. Можно отдать и напрямую, не дожидаясь.";
+    case "claims":
+      return `На «Заказах»: откликнулись ${claims}. Выберите технаря — заказ приедет к нему сам.`;
+    case "handoff":
+      return "Отдан с «Заказов» — заказ едет в стол технаря, ник появится сам.";
+    case "travelling":
+      return "Заказ уедет к технарю сам через секунду.";
+    case "loading":
+      return state.title;
+    default:
+      return null;
+  }
+}
+
 /**
- * Заказ в карточке строки стола ОС: кому выдан, какой статус и кнопка выдачи.
+ * «Выдача» в карточке строки стола ОС: кто технарь, что у него сейчас и ОДНА
+ * главная кнопка — та же, что чип в ячейке «Технарь» (состояние считает
+ * `osTechCellState`, его передаёт стол; действие — `onAction`, тот же
+ * обработчик, что у таблицы). Раньше карточка спорила с таблицей: у заказа
+ * на «Утверждении» с технарём предлагала «Отдать заказ…», обещала «стол
+ * спросит» и называлась «Заказ у технаря», даже если заказ никому не выдан.
  *
- * Статус живёт в строке СТОЛА ТЕХНАРЯ — по ней считают «Технари», дашборд и
- * оценки, — поэтому здесь он и читается, и пишется: у ОС есть право на свои
- * строки в чужих столах. Столбца статуса на столе ОС нет намеренно (так
- * просил Nurba: «из карточки строки»).
+ * Статус ОС меняет в шапке карточки (там столбец «Статус»); здесь — статус
+ * У ТЕХНАРЯ, прочитанный из его копии, и «Отправить ваш», если они разошлись.
  */
 export function OsOrderPanel({
   row,
@@ -49,16 +88,16 @@ export function OsOrderPanel({
   osNickValue,
   mirror,
   onChanged,
-  onChoose,
-  onPickTech,
-  exchangeOrder = null,
-  onPickFromExchange,
+  state,
+  onAction,
+  busy = false,
+  problem = null,
+  claims = 0,
   keys = OS_DESK_KEYS,
   payment,
   dates,
   upsellDate,
   onSetDate,
-  exchangeLoaded = true,
 }: {
   row: PageRow;
   pageId: string;
@@ -68,14 +107,16 @@ export function OsOrderPanel({
   /** Строка этого заказа в столе технаря, если он уже выдан. */
   mirror: PageRow | null;
   onChanged: () => void;
-  /** «Отдать заказ…» — тот же вопрос «общий или выборочно», что после «В работе». */
-  onChoose?: () => void;
-  /** Выбрать / сменить технаря — полноэкранный список. */
-  onPickTech?: () => void;
-  /** Заказ этой строки на «Заказах» (живой, с откликами), если он там открыт. */
-  exchangeOrder?: WorkOrder | null;
-  /** Выбрать технаря из откликнувшихся — прямо со стола. */
-  onPickFromExchange?: (order: WorkOrder) => void;
+  /** Состояние выдачи — то же, что рисует ячейка «Технарь». */
+  state: OsTechCellState | null;
+  /** Нажатие главной кнопки / «Сменить» — тот же обработчик, что у ячейки. */
+  onAction: (action: OsTechAction) => void;
+  /** По строке идёт запись (главная кнопка крутится). */
+  busy?: boolean;
+  /** Почему заказ не доходит до технаря (проход стола). */
+  problem?: string | null;
+  /** Сколько откликов на «Заказах». */
+  claims?: number;
   /** Ключи ячеек открытой таблицы стола ОС. */
   keys?: OsDeskKeys;
   /** Когда заказ получен и выдан — то же, что в столбце «Даты». */
@@ -84,11 +125,6 @@ export function OsOrderPanel({
   upsellDate?: OsDateSlot;
   /** Поставить дату (нет — только показ). */
   onSetDate?: OsDateSetter;
-  /**
-   * Список своих заказов на «Заказах» прочитан. Пока нет, строка с `orderId`
-   * считается висящей там (иначе «Отдать заказ…» выставил бы её второй раз).
-   */
-  exchangeLoaded?: boolean;
   /** Касса: способы оплаты у цены и апсейла (на телефоне — только отсюда). */
   payment?: {
     methods: readonly PaymentMethod[];
@@ -98,109 +134,119 @@ export function OsOrderPanel({
   };
 }) {
   const { activeWorkspaceId, activeWorkspace, pages, members } = useWorkspace();
-  const [busy, setBusy] = useState(false);
+  const [pushing, setPushing] = useState(false);
   const statusOptions = ensureApprovalStatus(ensureDoneStatus(activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS));
 
-  const techNick = String(row.cells[keys.technician] ?? "");
+  const kind = state?.kind ?? null;
+  const techNick = cellText(row, keys.technician);
   const techUid = techUidByNick(members, techNick);
-  const problem = techTargetProblem(pages, techUid, mirror?.deskPageId ?? row.mirrorPageId);
-  const target = techUid ? findTechTarget(pages, techUid, mirror?.deskPageId ?? row.mirrorPageId) : null;
-  // Статус живёт в столбце стола ОС (его синхронизирует useOsDeskDispatch):
-  // так он виден прямо в таблице, а не только в карточке.
-  const osStatusColumn = { key: keys.status };
-  const mirrorStatusKey = mirror?.statusKey ?? target?.keys.status ?? null;
-  const status =
-    (osStatusColumn ? String(row.cells[osStatusColumn.key] ?? "") : "") ||
-    (mirror && mirrorStatusKey ? String(mirror.cells[mirrorStatusKey] ?? "") : "");
+  // Отдать некому (нет аккаунта, стола, карты столбцов) — «Выдать заново» не
+  // предлагаем, причина и так написана.
+  const targetProblem = techNick ? techTargetProblem(pages, techUid, mirror?.deskPageId ?? row.mirrorPageId) : null;
+  const theirStatus = state?.theirStatus ?? (mirror?.statusKey ? cellText(mirror, mirror.statusKey) : null);
 
-  const techName = techUid ? personLabel(members.find((m) => m.uid === techUid)) : techNick;
-  // На утверждении заказ технарю не уходит — ни сам, ни кнопкой.
-  const onApproval = !mirror && isApprovalStatusValue(status, statusOptions);
-  // Заказ выставлен на «Заказы» и ждёт, кому его отдадут. Заказ, который
-  // оттуда сняли (отменили, удалили, взяли — а технаря потом стёрли), уже не
-  // «на бирже»: его можно отдать заново.
-  const onExchange = !mirror && !techNick && Boolean(row.orderId) && (Boolean(exchangeOrder) || !exchangeLoaded);
-  // Прежний заказ сняли с биржи. Выдать заново — по тому же правилу, что в
-  // таблице и на «Заказах»: только заказ «на утверждении».
-  const staleOrder = !mirror && !techNick && Boolean(row.orderId) && !onExchange;
+  // Связь с копией оборвана: копию удалили (выдать заново можно) или Owner
+  // вернул заказ технарю, и его строка у него в столе (новая копия была бы
+  // дублем). Что из двух — спрашиваем базу один раз на открытие карточки;
+  // пока не знаем, «Выдать заново» не предлагаем. Не прочиталось — кнопка
+  // есть: выдача всё равно проверит ещё раз и откажет с причиной.
+  const deadLink = kind === "problem" && problem === OS_DEAD_LINK_PROBLEM;
+  const [returned, setReturned] = useState<boolean | null>(null);
+  useEffect(() => {
+    setReturned(null);
+    if (!deadLink || !activeWorkspaceId || !techUid) return;
+    let cancelled = false;
+    returnedRowOnTechDesk({ workspaceId: activeWorkspaceId, row, techUid, pages })
+      .then((value) => {
+        if (!cancelled) setReturned(value);
+      })
+      .catch(() => {
+        if (!cancelled) setReturned(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Спрашиваем по строке и технарю, а не на каждый снимок столов.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deadLink, activeWorkspaceId, techUid, row.id]);
 
   async function handlePush() {
-    if (!activeWorkspaceId || !target || !techUid) {
-      toast.error(problem ?? "Не удалось определить стол технаря");
-      return;
-    }
-    setBusy(true);
-    const at = mirrorAddressOf(row, mirror);
-    const pushStatus = status || findInProgressStatusOption(statusOptions)?.value || "";
+    if (!activeWorkspaceId) return;
+    setPushing(true);
     try {
-      await pushOrderToTech({
+      const { techName, updated } = await pushOsRowToTech({
         workspaceId: activeWorkspaceId,
         osUid,
         osNickValue,
-        source: row,
-        srcPageId: pageId,
-        srcTabId: subPageId,
-        osColumns: { client: keys.client, phone: keys.phone, price: keys.price, upsell: keys.upsell, note: keys.note, link: keys.link },
-        target,
-        techUid,
-        // Та же дата, что считает автопроход: иначе подписи разъедутся и
-        // заказ отправится второй раз без причины.
-        dateMs: row.createdAt || 0,
-        // Заказ уже в столе технаря (выдан раньше или перенесён) — правим ту
-        // же строку в ТОЙ ЖЕ вкладке, а не заводим рядом вторую (на переломе
-        // месяца вкладка копии — не текущая).
-        mirrorRowId: at?.rowId,
-        mirrorTabId: at?.tabId,
-        status: pushStatus,
-        // Ручная выдача — это и перевыдача после удаления копии: метку
-        // «копию удалили» снимаем, синхронизированный статус запоминаем.
-        sourceCells: { [OS_STATUS_SENT_KEY]: pushStatus, [OS_LOST_FOR_KEY]: "" },
+        row,
+        pageId,
+        subPageId,
+        keys,
+        mirror,
+        pages,
+        members,
+        statusOptions,
       });
-      toast.success(mirror ? "Заказ обновлён у технаря" : `Заказ у технаря: ${techName}`);
+      toast.success(updated ? "Заказ обновлён у технаря" : `Заказ у технаря: ${techName}`);
       onChanged();
     } catch (error) {
-      toast.error(firestoreErrorText(error, "Не удалось отдать заказ технарю"));
+      toast.error(firestoreErrorText(error, error instanceof Error ? error.message : "Не удалось отдать заказ технарю"));
     } finally {
-      setBusy(false);
+      setPushing(false);
     }
   }
 
-  /**
-   * Статус пишем в СВОЮ строку, а к технарю его увезёт useOsDeskDispatch.
-   * Один писатель вместо двух: иначе правка из карточки и правка из столбца
-   * разъезжались бы, и «кто прав» решал бы порядок сохранения.
-   */
-  async function handleStatus(value: string) {
-    if (!activeWorkspaceId || !osStatusColumn) return;
-    setBusy(true);
-    try {
-      await sbPatchRow(activeWorkspaceId, pageId, subPageId, row.id, {
-        cells: { [osStatusColumn.key]: value },
-      });
-      if (mirror) {
-        // Решили по просьбе технаря — чип «просит успешку» гаснет сразу.
-        await sbPatchRow(activeWorkspaceId, mirror.deskPageId ?? "", mirror.tabId ?? "", mirror.id, {
-          cells: {},
-          clearSuccessRequest: true,
-        }).catch(() => undefined);
-      }
-      onChanged();
-    } catch (error) {
-      toast.error(firestoreErrorText(error, "Не удалось поменять статус"));
-    } finally {
-      setBusy(false);
+  // ОДНА главная кнопка — то же действие, что чип в ячейке.
+  const who = state?.left.type === "badge" ? state.left.identity?.label : null;
+  const primary: { label: string; icon: React.ReactNode; run: () => void } | null = (() => {
+    if (!state) return null;
+    const send = <Send className="h-4 w-4" />;
+    switch (state.kind) {
+      case "issue":
+        return { label: "Выдать…", icon: send, run: () => onAction("choice") };
+      case "reissue":
+        return { label: "Выдать заново…", icon: send, run: () => onAction("choice") };
+      case "give":
+        return { label: who ? `Отдать ${who}` : "Отдать", icon: send, run: () => onAction("give") };
+      case "pick":
+        return { label: "Выбрать технаря", icon: <UserPlus className="h-4 w-4" />, run: () => onAction("picker-give") };
+      case "waiting":
+        return { label: "Отдать напрямую…", icon: <Hand className="h-4 w-4" />, run: () => onAction("exchange-picker") };
+      case "claims":
+        return { label: `Выбрать технаря · ${claims}`, icon: <Hand className="h-4 w-4" />, run: () => onAction("exchange-picker") };
+      case "mismatch":
+        return { label: "Отправить ваш статус", icon: <RefreshCw className="h-4 w-4" />, run: () => onAction("push-status") };
+      case "problem":
+        // Некуда отдавать (причина и так написана) или заказ вернули технарю
+        // (его строка у него — выдавать нечего; пока не знаем — тоже нет).
+        if (targetProblem || (deadLink && returned !== false)) return null;
+        return { label: "Выдать заново", icon: send, run: () => void handlePush() };
+      default:
+        return null;
     }
-  }
+  })();
+  // «Сменить» / «Выбрать технаря» рядом с технарём — когда это не главная
+  // кнопка и заказ не висит на «Заказах» (там выбирают из откликов).
+  const onExchange = kind === "waiting" || kind === "claims" || kind === "handoff" || kind === "loading";
+  const pickAction: OsTechAction | null =
+    onExchange || kind === "pick" ? null : kind === "give" || !techNick ? "picker-give" : "picker-change";
+  const hint = state ? stateHint(state, claims) : null;
+  const headerChip = state?.chip
+    ? {
+        kind: state.kind,
+        label: state.chip.label || CHIP_FALLBACK[state.kind] || "",
+        title: state.title,
+        tone: state.chip.tone,
+        icon: state.chip.icon ?? undefined,
+        passive: true,
+      }
+    : null;
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted/30 p-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium">Заказ у технаря</span>
-        {mirror && (
-          <span className="text-xs text-muted-foreground">
-            {mirror.syncHash && row.syncHash && mirror.syncHash !== row.syncHash ? "правка не доехала" : "в работе у технаря"}
-          </span>
-        )}
+        <span className="text-sm font-medium">Выдача</span>
+        {headerChip ? <CellActionButton view={headerChip} inline onRun={() => undefined} /> : null}
       </div>
 
       {dates ? (
@@ -226,15 +272,43 @@ export function OsOrderPanel({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="text-muted-foreground">Технарь:</span>
-        <span className="font-medium">{techName || "не выбран"}</span>
-        {onPickTech && !onExchange ? (
-          <button type="button" onClick={onPickTech} className="text-xs text-primary underline-offset-2 hover:underline">
-            {techNick ? "сменить" : "выбрать"}
-          </button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <span className="mb-1 block text-xs text-muted-foreground">Технарь</span>
+          {state ? (
+            <OsTechLeftView left={state.left} size="card" title={state.title} />
+          ) : techNick ? (
+            // Строка ещё не заказ (нет клиента), а технарь уже выбран — его
+            // и показываем: в «Карточках» и в полях карточки его больше нигде нет.
+            <TechBadge identity={resolveTechIdentity(techNick, members, activeWorkspace?.techNickOptions)} size="card" />
+          ) : (
+            <span className="text-sm text-muted-foreground">не выбран</span>
+          )}
+        </div>
+        {pickAction ? (
+          <Button variant="outline" size="sm" className="min-h-11 sm:min-h-9" onClick={() => onAction(pickAction)}>
+            {techNick ? "Сменить" : "Выбрать технаря"}
+          </Button>
         ) : null}
       </div>
+
+      {mirror ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+          <span className="text-muted-foreground">У технаря сейчас:</span>
+          {theirStatus ? (
+            <StatusBadge value={theirStatus} options={statusOptions} variant="plain" />
+          ) : (
+            <span className="text-muted-foreground">без статуса</span>
+          )}
+          {kind === "mismatch" ? <span className="text-xs text-warning">не совпадает с вашим</span> : null}
+          {mirror.syncHash && row.syncHash && mirror.syncHash !== row.syncHash ? (
+            <span className="text-xs text-muted-foreground">правка полей ещё едет</span>
+          ) : null}
+          {mirror.successRequestedAt ? (
+            <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">технарь просит «Успешку»</span>
+          ) : null}
+        </div>
+      ) : null}
 
       {payment ? (
         <div className="flex flex-col gap-1.5 rounded-lg border border-border/70 p-2">
@@ -274,72 +348,34 @@ export function OsOrderPanel({
         </div>
       ) : null}
 
-      {osStatusColumn ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm text-muted-foreground">Статус:</span>
-          <Select value={status} onValueChange={(v) => void handleStatus(v)} disabled={busy}>
-            <SelectTrigger className="h-9 w-[190px]">
-              <SelectValue placeholder="Выберите статус" />
-            </SelectTrigger>
-            <SelectContent>
-              {statusOptions.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  <StatusBadge value={o.value} options={statusOptions} />
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {mirror?.successRequestedAt ? (
-            <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
-              технарь просит «Успешку»
-            </span>
+      {kind === "problem" && problem ? <p className="text-xs text-warning">Не доехал: {problem}</p> : null}
+      {deadLink && returned ? <p className="text-xs text-muted-foreground">{OS_RETURNED_REISSUE_ERROR}</p> : null}
+      {!problem && targetProblem && techNick && !mirror ? <p className="text-xs text-warning">{targetProblem}</p> : null}
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+
+      {primary || mirror ? (
+        <div className="flex flex-wrap gap-2">
+          {primary ? (
+            <Button size="sm" className="min-h-11 sm:min-h-9" onClick={primary.run} disabled={busy || pushing}>
+              {busy || pushing ? <Loader2 className="h-4 w-4 animate-spin" /> : primary.icon}
+              {primary.label}
+            </Button>
+          ) : null}
+          {mirror ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="min-h-11 sm:min-h-9"
+              title="Переслать поля и статус ещё раз"
+              onClick={() => void handlePush()}
+              disabled={pushing || Boolean(targetProblem)}
+            >
+              {pushing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Обновить у технаря
+            </Button>
           ) : null}
         </div>
       ) : null}
-      {problem && techNick ? <p className="text-xs text-warning">{problem}</p> : null}
-      {onApproval ? (
-        <p className="text-xs text-muted-foreground">
-          На утверждении — технарю заказ не уйдёт. Поставьте «В работе», и стол спросит, кому отдать: всем на «Заказы» или
-          выбранному технарю.
-        </p>
-      ) : onExchange ? (
-        <p className="text-xs text-muted-foreground">
-          {exchangeOrder?.status === "assigned"
-            ? `Отдан: ${exchangeOrder.assignedName ?? "технарю"} — заказ едет в его стол.`
-            : exchangeOrder
-            ? Object.keys(exchangeOrder.claims ?? {}).length > 0
-              ? `На «Заказах»: откликнулись ${Object.keys(exchangeOrder.claims ?? {}).length}. Выберите технаря — заказ приедет к нему сам.`
-              : "На «Заказах», ждём откликов. Можно отдать и напрямую, не дожидаясь."
-            : "Заказ на «Заказах» — отдайте его там, когда технари откликнутся, и он приедет к технарю сам."}
-        </p>
-      ) : staleOrder && !onApproval ? (
-        <p className="text-xs text-muted-foreground">
-          Прежний заказ снят с «Заказов». Чтобы выставить его заново, поставьте «Утверждение».
-        </p>
-      ) : !mirror && !problem && techNick ? (
-        <p className="text-xs text-muted-foreground">Заказ уедет к технарю сам через секунду.</p>
-      ) : null}
-
-      <div className="flex flex-wrap gap-2">
-        {mirror || (techNick && !onApproval) ? (
-          <Button size="sm" className="min-h-9" onClick={() => void handlePush()} disabled={busy || Boolean(problem)}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : mirror ? <RefreshCw className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />}
-            {mirror ? "Обновить у технаря" : "Выдать в работу"}
-          </Button>
-        ) : onExchange && exchangeOrder?.status === "open" && onPickFromExchange ? (
-          <Button size="sm" className="min-h-9" onClick={() => onPickFromExchange(exchangeOrder)} disabled={busy}>
-            <Hand className="h-4 w-4" />
-            {Object.keys(exchangeOrder.claims ?? {}).length > 0
-              ? `Выбрать технаря · ${Object.keys(exchangeOrder.claims ?? {}).length}`
-              : "Отдать напрямую…"}
-          </Button>
-        ) : onChoose && !onExchange && (!staleOrder || onApproval) ? (
-          <Button size="sm" className="min-h-9" onClick={onChoose} disabled={busy}>
-            <ArrowUpRight className="h-4 w-4" />
-            Отдать заказ…
-          </Button>
-        ) : null}
-      </div>
     </div>
   );
 }

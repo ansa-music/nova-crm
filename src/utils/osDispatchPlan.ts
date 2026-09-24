@@ -312,3 +312,128 @@ export function findDuplicateMirrors(input: {
   }
   return extra;
 }
+
+// ---------------------------------------------------------------------------
+// Проход по устаревшему списку заказов (гонка, найденная 24.09.2026)
+// ---------------------------------------------------------------------------
+
+/**
+ * Что в строке стола ОС решает «тянуть статус от технаря» и «копия пропала»:
+ * статус ОС, последний синхронизированный статус и адрес копии.
+ */
+export function rowSyncFingerprint(row: PageRow, osStatusKey: string | null | undefined): string {
+  return [
+    cellOf(row, osStatusKey),
+    cellOf(row, OS_STATUS_SENT_KEY),
+    row.mirrorPageId ?? "",
+    row.mirrorTabId ?? "",
+    row.mirrorRowId ?? "",
+  ].join("|");
+}
+
+/** Память прохода: как строка выглядела и когда (performance.now()) она поменялась ЗДЕСЬ. */
+export interface RowChangeMemory {
+  seen: Map<string, string>;
+  changedAt: Map<string, number>;
+}
+
+/**
+ * Отметить строки, которые поменялись с прошлого взгляда. Первый взгляд на
+ * таблицу (`seen` пуст) — строки старые (отметки нет): список заказов читался
+ * одновременно с ними. Строка, появившаяся ПОЗЖЕ (источник, заведённый
+ * функцией базы, пришёл звонком), — новая: её копии в прочитанном списке ещё
+ * может не быть.
+ */
+export function noteRowChanges(
+  memory: RowChangeMemory,
+  rows: readonly PageRow[],
+  osStatusKey: string | null | undefined,
+  now: number
+): void {
+  const initial = memory.seen.size === 0;
+  for (const row of rows) {
+    const next = rowSyncFingerprint(row, osStatusKey);
+    const prev = memory.seen.get(row.id);
+    if (prev === next) continue;
+    memory.seen.set(row.id, next);
+    if (prev !== undefined || !initial) memory.changedAt.set(row.id, now);
+  }
+}
+
+/**
+ * Список заказов старше правки строки: его чтение началось ДО того, как
+ * строка поменялась здесь (статус ОС, `osStatusSent`, адрес копии). По такому
+ * списку нельзя решать «статус поменяли у технаря — тянем» (вернули бы ОС его
+ * же прежний статус) и «копии нет — её удалили» (сняли бы адрес у только что
+ * выданного заказа) — сначала перечитать. `fetchedAtLocal` не передан (старый
+ * вызов) — прежнее поведение; 0 — список ещё ни разу не прочитан.
+ */
+export function orderListStaleFor(changedAt: number | undefined, fetchedAtLocal: number | undefined): boolean {
+  if (fetchedAtLocal === undefined) return false;
+  if (!(fetchedAtLocal > 0)) return true;
+  return (changedAt ?? 0) > fetchedAtLocal;
+}
+
+/**
+ * Один проход за раз. Проход асинхронный (десятки записей в базу), а таймер
+ * взводится на каждую правку строки — второй проход, начатый поверх первого,
+ * решал по списку, который первый как раз менял. Вызов во время прохода
+ * только просит «ещё раз» — текущий, закончив, пройдёт снова (пока
+ * `shouldRerun()`: стол не закрыт, список не перечитывается).
+ */
+export function createSingleFlight(run: () => Promise<void>, shouldRerun: () => boolean = () => true) {
+  let running = false;
+  let again = false;
+  return {
+    isRunning: () => running,
+    async trigger(): Promise<void> {
+      if (running) {
+        again = true;
+        return;
+      }
+      running = true;
+      try {
+        do {
+          again = false;
+          await run();
+        } while (again && shouldRerun());
+      } finally {
+        running = false;
+        again = false;
+      }
+    },
+  };
+}
+
+/**
+ * Когда перечитывать свои заказы за проход: сразу после ПЕРВОЙ удачной записи
+ * в копию (окно, в котором следующий проход видит старый список, — как можно
+ * короче), остальное — одним чтением в конце: на 25 выдач 25 полных чтений
+ * списка не нужны.
+ */
+export function createPassRefresher(refresh: () => void) {
+  let requested = false;
+  let pending = false;
+  return {
+    /** Записали в копию — перечитать сейчас (или в конце, если уже перечитывали). */
+    now() {
+      if (requested) {
+        pending = true;
+        return;
+      }
+      requested = true;
+      pending = false;
+      refresh();
+    },
+    /** Перечитать в конце прохода. */
+    later() {
+      pending = true;
+    },
+    flush() {
+      if (!pending) return;
+      pending = false;
+      requested = true;
+      refresh();
+    },
+  };
+}

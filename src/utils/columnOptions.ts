@@ -42,11 +42,24 @@ export const DEFAULT_STATUS_OPTIONS: StatusOption[] = [
  * писать не вправе, — поэтому вариант подставляется при чтении, как
  * «Готово» ниже, а не хранится. Если Owner завёл свой «Утверждение», берётся
  * его вариант (узнаём по названию).
+ *
+ * Цвет — приглушённый песочный (24.09.2026): прежний фиолетовый совпадал с
+ * фиолетовой меткой «заказ с «Заказов»» у визитки и в «Карточках», а яркий
+ * янтарь спорил бы с «В работе» и подсветкой нового заказа. «Не выдан» —
+ * состояние ожидания, ему нейтральный тон.
  */
-export const APPROVAL_STATUS_OPTION: StatusOption = { value: "approval", label: "Утверждение", color: "271 81% 56%" };
+export const APPROVAL_STATUS_OPTION: StatusOption = { value: "approval", label: "Утверждение", color: "40 30% 62%" };
+
+/**
+ * Название «на утверждении»: существительное «Утверждение…» в начале, а не
+ * любое «утвержд»: «Утверждено» / «Утверждён» — уже согласованный заказ, и
+ * по старому шаблону такой заказ технарю не уходил вовсе, даже с выбранным
+ * технарём (разбор 24.09.2026).
+ */
+const APPROVAL_LABEL = /^утверждени/i;
 
 export function isApprovalOption(option: Pick<StatusOption, "value" | "label">): boolean {
-  return option.value === APPROVAL_STATUS_OPTION.value || /утвержд/i.test(option.label);
+  return option.value === APPROVAL_STATUS_OPTION.value || APPROVAL_LABEL.test((option.label ?? "").trim());
 }
 
 /** Значение статуса — «на утверждении» (или статуса ещё нет вовсе). */
@@ -144,6 +157,9 @@ export function isWaitingStatusLabel(label: string): boolean {
   const l = label.toLowerCase();
   if (/(^|[\s-])не([\s-]|$)/.test(l)) return false;
   if (isDoneStatusLabel(l)) return false;
+  // «УтверЖДение» / «УтверЖДено» — не «ждём оплату»: заказ на утверждении
+  // денег ещё не обещал, а «жд» ниже записывал его в «Ждём» в шапке стола.
+  if (/утвержд/.test(l)) return false;
   return (
     l.includes("ожид") ||
     l.includes("жд") ||

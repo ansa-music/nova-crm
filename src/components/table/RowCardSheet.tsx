@@ -60,9 +60,15 @@ interface RowCardSheetProps {
   onDelete?: (rowId: string) => void;
   /** «3 перс · 2 мин» for the row's client card, null when it's empty. */
   clientCardSummary?: (row: PageRow) => string | null;
-  /** Доп. панель над полями — сейчас это «Заказ у технаря» на столе ОС. */
+  /** Доп. панель над полями — сейчас это «Выдача» на столе ОС. */
   extraPanel?: React.ReactNode;
   onOpenClientCard?: (rowId: string) => void;
+  /**
+   * Столбцы, которых нет в «Полях» (их показывает `extraPanel`): на столе ОС —
+   * «Технарь», иначе в карточке было два способа выбрать технаря, и второй —
+   * голая выпадашка ников без занятости.
+   */
+  hiddenFieldKeys?: readonly string[];
 }
 
 function isTitleColumn(col: PageColumn) {
@@ -88,6 +94,7 @@ export function RowCardSheet({
   clientCardSummary,
   onOpenClientCard,
   extraPanel,
+  hiddenFieldKeys,
 }: RowCardSheetProps) {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -172,7 +179,7 @@ export function RowCardSheet({
   const statusLabel = statusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
   const headerTint = headerTintForStatus(statusLabel);
   const identityKeys = new Set([titleCol?.key, statusCol?.key, responsibleCol?.key].filter(Boolean) as string[]);
-  const rest = columns.filter((c) => !identityKeys.has(c.key));
+  const rest = columns.filter((c) => !identityKeys.has(c.key) && !hiddenFieldKeys?.includes(c.key));
   const isDone = isDoneStatusLabel(statusLabel);
 
   function commitDraft(col: PageColumn) {

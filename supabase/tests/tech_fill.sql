@@ -92,8 +92,14 @@ select tst.expect('mixed: свою строку технарь правит',
 select tst.expect('mixed: заказ ОС заперт',
   tst.try('T1', $q$update desk_rows set cells = cells || '{"status":"done"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='tf1'$q$), 'error');
 
--- Повторный накат файла не ломает режим и замок.
+-- Повторный накат файла не ломает режим и замок. desk_rows_guard с 24.09.2026
+-- живёт в 20261002_os_sync.sql (ветка «ОС возвращает строку технарю»), и
+-- повтор ОДНОГО раннего файла вернул бы старый guard — поэтому, как каскад
+-- scripts/supabase-sql.mjs, следом накатываются и файлы после него.
 \ir ../migrations/20261001_tech_fill.sql
+\ir ../migrations/20261002_os_sync.sql
+select tst.expect('после каскадного наката guard — версия с веткой возврата (20261002)',
+  tst.try('O', $q$select 1 from pg_proc where proname = 'desk_rows_guard' and prosrc like '%вернуть строку технарю%'$q$, true), 'ok:1');
 select tst.expect('после повторного наката режим mixed на месте',
   tst.try('T1', $q$select 1 where rows_desk_mode('W') = 'mixed'$q$, true), 'ok:1');
 select tst.expect('после повторного наката заказ ОС заперт',

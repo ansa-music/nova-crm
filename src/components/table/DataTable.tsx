@@ -195,6 +195,7 @@ type BodyItem =
       color?: string;
       sumText: string | null;
       doneText: string | null;
+      hint: string | null;
     }
   | { kind: "row"; row: PageRow; index: number };
 
@@ -451,6 +452,31 @@ interface DataTableProps {
   lockedKeys?: Readonly<Record<string, string>>;
   /** Добавка в мета-строку вида «Карточки» (стол ОС: даты получен / выдан). */
   cardMeta?: (row: PageRow) => React.ReactNode;
+  /**
+   * Своя отрисовка значения в ячейках `keys` вместо обычной (стол ОС: бейдж
+   * технаря и состояние выдачи в «Технаре»). `render` отдаёт `undefined` —
+   * ячейка рисуется как обычно. `version` меняется, когда меняется то, что
+   * рисует `render` помимо самой строки (люди, фото, ники, «Заказы»), —
+   * строки сравнивают пропсы (memo) и без неё остались бы со старым видом.
+   */
+  cellDisplay?: {
+    keys: readonly string[];
+    render: (row: PageRow, colKey: string) => React.ReactNode | undefined;
+    version: string;
+  };
+  /** Полоса под карточкой вида «Карточки» со своим действием (стол ОС: технарь и «Выдать…»). */
+  cardFooter?: (row: PageRow) => React.ReactNode;
+  /** Столбцы, которых нет в «Полях» карточки строки (их показывает `renderRowPanel`). */
+  rowCardHiddenKeys?: readonly string[];
+  /**
+   * Можно ли предлагать «Отметить «Готово»» в карточке строки (стол ОС: только
+   * выданному заказу — невыданный «Готово» не бывает). Нет — как раньше.
+   */
+  canMarkRowDone?: (row: PageRow) => boolean;
+  /** Пояснение в заголовке группы (стол ОС: «Утверждение — не выданы»). */
+  groupHint?: (label: string, column: PageColumn | null) => string | null;
+  /** Свой текст пустого стола (стол ОС объясняет, с чего начать). */
+  emptyState?: { title: string; description?: string };
   canEditStructure: boolean;
   userId: string;
   userName: string;
@@ -477,7 +503,7 @@ function normalizeContact(raw: string, type: "phone" | "email" | string): string
   return v.toLowerCase();
 }
 
-export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, techFills = false, onSummaryChange, onActionsChange, cellPickerKeys, onOpenCellPicker, cellAction, cellAddon, lockedKeys, cardMeta }: DataTableProps) {
+export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, techFills = false, onSummaryChange, onActionsChange, cellPickerKeys, onOpenCellPicker, cellAction, cellAddon, lockedKeys, cardMeta, cellDisplay, cardFooter, rowCardHiddenKeys, canMarkRowDone, groupHint, emptyState }: DataTableProps) {
   // Внешний выбор ячейки: колбэк стабилен (через ref), иначе каждый рендер
   // стола перерисовывал бы все строки — TableRow сравнивает пропсы.
   const cellPickerRef = useRef(onOpenCellPicker);
@@ -493,6 +519,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const cellAddonRef = useRef(cellAddon);
   cellAddonRef.current = cellAddon;
   const renderCellAddon = useCallback((row: PageRow, colKey: string) => cellAddonRef.current?.render(row, colKey) ?? null, []);
+  // Своя отрисовка значения — тоже через ref: колбэк один на все строки, а
+  // перерисовку строк решает `cellDisplay.version`.
+  const cellDisplayRef = useRef(cellDisplay);
+  cellDisplayRef.current = cellDisplay;
+  const renderCellDisplay = useCallback((row: PageRow, colKey: string) => cellDisplayRef.current?.render(row, colKey), []);
+  const groupHintRef = useRef(groupHint);
+  groupHintRef.current = groupHint;
   const runCellAction = useCallback((rowId: string) => {
     const row = rowsRef.current.find((r) => r.id === rowId);
     if (row) cellActionRef.current?.run(row);
@@ -1255,6 +1288,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         color: groups.options.find((o) => o.label === label)?.color,
         sumText: sums?.sumText ?? null,
         doneText: sums?.doneText ?? null,
+        hint: groupHintRef.current?.(label, groups.col ?? null) ?? null,
       });
       if (collapsed) continue;
       // Сквозной индекс по visibleRows: номер строки и зебра обязаны
@@ -3766,7 +3800,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // как нижняя полоса. «В работе» — по варианту статуса, «Готово»/«Ждём» — по
   // названию: списки статусов у каждого workspace свои.
   const summaryNumbers = useMemo(() => {
-    const currencyCols = columns.filter((c) => c.type === "currency");
+    const allCurrencyCols = columns.filter((c) => c.type === "currency");
+    // Денежный столбец только для чтения (`lockedKeys`) — ВЫВЕДЕННАЯ сумма:
+    // «Итого» стола ОС = цена + апсейл за вычетом комиссии. Сложи его с ними —
+    // и «Общий»/«Ждём» удваивались (один заказ на 45 000 давал «Ждём 90 000»).
+    const ownCurrencyCols = allCurrencyCols.filter((c) => !lockedKeys?.[c.key]);
+    const currencyCols = ownCurrencyCols.length > 0 ? ownCurrencyCols : allCurrencyCols;
     const statusCol = footerStatusColumn;
     const options = statusCol ? getColumnOptions(statusCol, activeWorkspace) : NO_OPTIONS;
     const inProgressValue = statusCol ? findInProgressStatusOption(options)?.value ?? null : null;
@@ -3796,7 +3835,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       hasCurrency: currencyCols.length > 0,
       hasStatus: Boolean(statusCol),
     };
-  }, [columns, footerStatusColumn, activeWorkspace, processedRows, filledProcessedRows.length, groups]);
+  }, [columns, footerStatusColumn, activeWorkspace, processedRows, filledProcessedRows.length, groups, lockedKeys]);
   // Объект собирается заново только когда изменилось хоть одно число —
   // иначе шапка стола перерисовывалась бы на каждый рендер таблицы.
   const deskSummary = useMemo<DeskSummary>(
@@ -4079,6 +4118,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         cellAddonKeys={cellAddon?.keys}
         cellAddonVersion={cellAddon?.version}
         renderCellAddon={cellAddon ? renderCellAddon : undefined}
+        cellDisplayKeys={cellDisplay?.keys}
+        cellDisplayVersion={cellDisplay?.version}
+        renderCellDisplay={cellDisplay ? renderCellDisplay : undefined}
         cellActionKey={cellAction?.colKey ?? null}
         getCellAction={cellAction ? getCellActionView : undefined}
         cellActionPulse={cellAction ? cellActionPulse : undefined}
@@ -4161,6 +4203,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         color={item.color}
         sumText={item.sumText}
         doneText={item.doneText}
+        hint={item.hint}
         onToggle={toggleGroupCollapsed}
         measureRef={shouldVirtualize ? rowVirtualizer.measureElement : undefined}
         dataIndex={shouldVirtualize ? i : undefined}
@@ -4293,6 +4336,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           canEdit={canEdit}
           onOpenRow={setExpandedRowId}
           renderMeta={cardMeta}
+          renderFooter={cardFooter}
+          emptyText={emptyState ? [emptyState.title, emptyState.description].filter(Boolean).join(". ") : undefined}
           onAddOrder={
             canEdit && !ordersFromOsOnly
               ? () => {
@@ -4452,8 +4497,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                         {rows.length === 0 ? (
                           <EmptyState
                             className="py-12"
-                            title="Пока пусто"
-                            description={canEdit ? "Добавьте первую строку — или вставьте данные из Excel через Ctrl+V." : undefined}
+                            title={emptyState?.title ?? "Пока пусто"}
+                            description={
+                              emptyState
+                                ? emptyState.description
+                                : canEdit
+                                  ? "Добавьте первую строку — или вставьте данные из Excel через Ctrl+V."
+                                  : undefined
+                            }
                             action={
                               canEdit ? (
                                 <Button size="sm" className="gap-1.5" onClick={handleAddRow}>
@@ -4816,7 +4867,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         position={expandedRowIndex >= 0 ? { index: expandedRowIndex + 1, total: processedRowIds.length } : null}
         onMarkDone={
           kanbanStatusColumn &&
-          !(viewer && cellLockFor(rows.find((r) => r.id === expandedRowId) ?? ({} as PageRow), kanbanStatusColumn.key))
+          !(viewer && cellLockFor(rows.find((r) => r.id === expandedRowId) ?? ({} as PageRow), kanbanStatusColumn.key)) &&
+          (() => {
+            // Стол ОС: «Готово» — только выданному заказу.
+            if (!canMarkRowDone) return true;
+            const r = rows.find((x) => x.id === expandedRowId);
+            return Boolean(r && canMarkRowDone(r));
+          })()
             ? markRowDone
             : undefined
         }
@@ -4832,6 +4889,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           return r ? renderRowPanel?.(r) : null;
         })()}
         onOpenClientCard={extrasHintKey ? setClientCardRowId : undefined}
+        hiddenFieldKeys={rowCardHiddenKeys}
       />
 
       <ClientCardDialog

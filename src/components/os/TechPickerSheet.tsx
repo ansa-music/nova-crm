@@ -90,6 +90,8 @@ export function TechPickerSheet({
   problemOf,
   markOf,
   onlyUids,
+  mode,
+  secondary,
 }: {
   open: boolean;
   title?: string;
@@ -114,6 +116,18 @@ export function TechPickerSheet({
   markOf?: (uid: string) => string | null;
   /** Показывать только этих людей (кандидаты заказа на «Заказах»). */
   onlyUids?: ReadonlySet<string>;
+  /**
+   * Зачем открыт список (стол ОС): `give` — выбор = выдача заказа, `change` —
+   * сменить технаря (заказ переедет). Меняет только подпись «Сохраняю…» и
+   * «Без технаря»: заголовок и описание страница передаёт сама.
+   */
+  mode?: "give" | "change";
+  /**
+   * Второстепенное действие внизу окна — переключатель (стол ОС: «Только
+   * наметить технаря — отдам позже»). `active` — включено: следующий выбор
+   * пойдёт по нему.
+   */
+  secondary?: { label: string; active?: boolean; onClick: () => void } | null;
 }) {
   const { activeWorkspaceId, activeWorkspace, members, pages } = useWorkspace();
   const monthKey = useCurrentMonthKey();
@@ -283,7 +297,7 @@ export function TechPickerSheet({
               className="mb-3 flex min-h-11 w-full items-center gap-2 rounded-xl border border-dashed border-border px-3 text-sm text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
             >
               <UserX className="h-4 w-4" />
-              Без технаря — забрать заказ
+              {mode === "give" ? "Снять намеченного технаря" : "Без технаря — забрать заказ"}
             </button>
           ) : null}
           {shown.length === 0 ? (
@@ -302,7 +316,24 @@ export function TechPickerSheet({
         </div>
         {busy ? (
           <div className="flex items-center justify-center gap-2 border-t border-border/70 py-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Сохраняю…
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> {mode === "give" && !secondary?.active ? "Отдаю…" : "Сохраняю…"}
+          </div>
+        ) : secondary ? (
+          <div className="flex items-center justify-center border-t border-border/70 px-4 py-1.5 pb-[max(env(safe-area-inset-bottom),0.375rem)]">
+            <button
+              type="button"
+              aria-pressed={Boolean(secondary.active)}
+              onClick={secondary.onClick}
+              className={cn(
+                "inline-flex min-h-11 items-center gap-2 rounded-md px-3 text-sm transition-colors sm:min-h-9",
+                secondary.active
+                  ? "bg-primary/12 text-primary"
+                  : "text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              )}
+            >
+              {secondary.active ? <Check className="h-4 w-4 shrink-0" /> : null}
+              {secondary.label}
+            </button>
           </div>
         ) : null}
       </DialogContent>

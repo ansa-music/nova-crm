@@ -69,6 +69,12 @@ interface TableCellProps {
    */
   onOpenPicker?: () => void;
   /**
+   * Своя отрисовка значения вместо обычной (`DataTable.cellDisplay`): стол ОС
+   * рисует в «Технаре» бейдж технаря и состояние выдачи. `undefined` —
+   * обычная отрисовка, как у всех столов.
+   */
+  display?: ReactNode;
+  /**
    * Высота строки (та же, что `<tr>` ставит в style): по ней ячейка решает,
    * сколько строк текста показать на десктопе. Без неё текст резался в одну
    * строку и при «Просторно», и после ручного ресайза строки — ресайз терял смысл.
@@ -133,6 +139,7 @@ export function TableCell({
   onFindDuplicates,
   placeholder,
   onOpenPicker,
+  display,
   rowHeight,
 }: TableCellProps) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -386,16 +393,27 @@ export function TableCell({
       data-col={column.key}
     >
       {isOptionColumn(column.type) && onOpenPicker ? (
-        <button
-          type="button"
-          disabled={!canEdit}
-          onClick={() => {
-            if (canEdit) onOpenPicker();
-          }}
-          className="table-status-trigger flex h-full min-h-11 w-full min-w-0 max-w-full items-center overflow-hidden px-2 text-left disabled:cursor-default sm:min-h-0"
-        >
-          {stringValue ? renderDisplay() : <span className="text-xs text-muted-foreground/70">{canEdit ? "Выбрать…" : "—"}</span>}
-        </button>
+        // Внешний выбор: [значение][чип действия] рядом, а не друг на друге —
+        // чип поверх ячейки закрывал имя технаря (стол ОС, 24.09.2026).
+        <div className={cn("flex h-full min-h-11 w-full min-w-0 items-center gap-1 sm:min-h-0", trailing ? "pr-1" : undefined)}>
+          <button
+            type="button"
+            disabled={!canEdit}
+            onClick={() => {
+              if (canEdit) onOpenPicker();
+            }}
+            className="table-status-trigger flex h-full min-h-11 min-w-0 flex-1 items-center overflow-hidden px-2 text-left disabled:cursor-default sm:min-h-0"
+          >
+            {display !== undefined ? (
+              display
+            ) : stringValue ? (
+              renderDisplay()
+            ) : (
+              <span className="text-xs text-muted-foreground/70">{canEdit ? "Выбрать…" : "—"}</span>
+            )}
+          </button>
+          {trailing}
+        </div>
       ) : isOptionColumn(column.type) ? (
         <Select
           value={stringValue || undefined}
@@ -427,7 +445,7 @@ export function TableCell({
                 : undefined
             }
           >
-            <SelectValue placeholder="">{renderDisplay()}</SelectValue>
+            <SelectValue placeholder="">{display !== undefined ? display : renderDisplay()}</SelectValue>
           </SelectTrigger>
           <SelectContent onCloseAutoFocus={refocusGrid}>
             {optionSplit.active.map((opt) => (
@@ -637,7 +655,8 @@ export function TableCell({
           ) : null}
         </div>
       )}
-      {trailing}
+      {/* У внешнего выбора чип уже стоит в строке рядом со значением. */}
+      {isOptionColumn(column.type) && onOpenPicker ? null : trailing}
       {showFillHandle && canEdit && !isEditing && onFillStart && (
         <span
           className="table-fill-handle"

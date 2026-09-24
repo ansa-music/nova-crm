@@ -22,6 +22,15 @@ interface CardListViewProps {
   onAddOrder?: () => void;
   /** Своя добавка в строку мета-данных карточки (стол ОС: «получен / выдан»). */
   renderMeta?: (row: PageRow) => ReactNode;
+  /**
+   * Полоса под карточкой со своим действием (стол ОС: технарь и «Выдать…»).
+   * Стоит РЯДОМ с кнопкой карточки, а не внутри неё: кнопка в кнопке — это
+   * невалидная разметка и двойной клик по одному касанию. Нет — карточка как
+   * раньше. Технарь в строке мета-данных тогда не повторяется — он в полосе.
+   */
+  renderFooter?: (row: PageRow) => ReactNode;
+  /** Текст пустого списка (стол ОС объясняет, с чего начать). */
+  emptyText?: string;
 }
 
 /**
@@ -36,7 +45,7 @@ interface CardListViewProps {
  * На телефоне карточки идут одной колонкой, на широком экране — сеткой:
  * иначе на десктопе это была бы одна колонка во всю ширину стола.
  */
-export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder, renderMeta }: CardListViewProps) {
+export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder, renderMeta, renderFooter, emptyText }: CardListViewProps) {
   const fields = useMemo(() => pickRowCardColumns(columns), [columns]);
   const [limit, setLimit] = useState(PAGE_SIZE);
 
@@ -69,7 +78,7 @@ export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder, re
       </div>
 
       {orders.length === 0 ? (
-        <p className="px-1 py-8 text-center text-sm text-muted-foreground">Заказов пока нет.</p>
+        <p className="px-1 py-8 text-center text-sm text-muted-foreground">{emptyText ?? "Заказов пока нет."}</p>
       ) : (
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {visible.map((row) => {
@@ -78,26 +87,34 @@ export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder, re
               ? parseLooseNumber(String(row.cells[fields.currency.key] ?? ""))
               : null;
             const statusValue = fields.status ? String(row.cells[fields.status.key] ?? "") : "";
-            const responsibleValue = fields.responsible ? String(row.cells[fields.responsible.key] ?? "") : "";
-            const responsibleOption = fields.responsible?.statusOptions?.find((o) => o.value === responsibleValue);
+            const footer = renderFooter?.(row) ?? null;
+            // Технарь (запасной «ответственный» стола ОС) при своей полосе под
+            // карточкой уже стоит там — второй раз в мета-строке он не нужен.
+            // Только когда полоса у ЭТОЙ карточки правда есть: у строки без
+            // клиента её нет, и технарь не показывался бы нигде.
+            const responsibleCol =
+              footer && fields.responsible?.type === "technician" ? undefined : fields.responsible;
+            const responsibleValue = responsibleCol ? String(row.cells[responsibleCol.key] ?? "") : "";
+            const responsibleOption = responsibleCol?.statusOptions?.find((o) => o.value === responsibleValue);
+            // Заказ, приехавший с «Заказов», должен быть виден и здесь: на
+            // телефоне стол открывается карточками, а чип «N новых» в тулбаре
+            // не показывает, КАКАЯ из карточек новая.
+            const tone = row.highlight
+              ? "border-warning/70 bg-warning/[0.12]"
+              : row.orderId
+                ? "border-violet-400/45 bg-violet-400/[0.07]"
+                : "border-border bg-card";
             const dateValue = fields.date ? Number(row.cells[fields.date.key] ?? 0) : 0;
             const phone = fields.phone ? String(row.cells[fields.phone.key] ?? "").trim() : "";
 
-            return (
+            const card = (
               <button
-                key={row.id}
+                key={footer ? undefined : row.id}
                 type="button"
                 onClick={() => onOpenRow(row.id)}
                 className={cn(
-                  "flex w-full items-start gap-2 rounded-lg border p-3 text-left transition-colors hover:border-primary/40 hover:bg-accent/40",
-                  // Заказ, приехавший с «Заказов», должен быть виден и здесь:
-                  // на телефоне стол открывается карточками, а чип «N новых»
-                  // в тулбаре не показывает, КАКАЯ из карточек новая.
-                  row.highlight
-                    ? "border-warning/70 bg-warning/[0.12]"
-                    : row.orderId
-                      ? "border-violet-400/45 bg-violet-400/[0.07]"
-                      : "border-border bg-card"
+                  "flex w-full items-start gap-2 p-3 text-left transition-colors hover:bg-accent/40",
+                  footer ? "rounded-t-lg" : cn("rounded-lg border hover:border-primary/40", tone)
                 )}
               >
                 <div className="min-w-0 flex-1">
@@ -148,6 +165,13 @@ export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder, re
                 </div>
                 <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
               </button>
+            );
+            if (!footer) return card;
+            return (
+              <div key={row.id} className={cn("flex flex-col rounded-lg border transition-colors hover:border-primary/40", tone)}>
+                {card}
+                <div className="flex min-h-11 items-center gap-2 border-t border-border/60 px-3 py-1.5">{footer}</div>
+              </div>
             );
           })}
         </div>

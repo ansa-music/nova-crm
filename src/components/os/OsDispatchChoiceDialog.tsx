@@ -19,19 +19,24 @@ import { firestoreErrorText } from "@/utils/dbError";
 import type { PageRow } from "@/types";
 
 /**
- * «Как отдать заказ?» — спрашивает стол ОС, когда заказ переходит из
- * «Утверждения» в работу (просьба Nurba 23.09.2026):
- * - «Общий» — на биржу «Заказы», всем технарям; отдаёте, когда откликнутся;
- * - «Выборочно» — сразу выбранному технарю (и это увидят Тимлид и Owner во
+ * «Как выдать заказ?» — один вопрос на выдачу со стола ОС (просьба Nurba
+ * 23.09.2026, слова — 24.09.2026):
+ * - «Всем технарям» — на биржу «Заказы»; отклики видны в столбце «Технарь»,
+ *   там же ОС выбирает, кому отдать;
+ * - «Одному технарю» — сразу в его стол (это увидят Тимлид и Owner во
  *   «Выдачах ОС»).
- * Сам диалог только пишет строку стола ОС (ник технаря) или выставляет заказ
- * на биржу — доставку технарю делает проход стола (useOsDeskDispatch).
+ * Открывается кнопкой «Выдать…» в ячейке «Технарь» / карточке строки
+ * (`reason="button"`) или сам, когда ОС сменил статус с «Утверждения» у
+ * невыданного заказа (`reason="status"`). Сам диалог только пишет строку
+ * стола ОС (ник технаря и «В работе») или выставляет заказ на биржу —
+ * доставку технарю делает проход стола (useOsDeskDispatch).
  */
 export function OsDispatchChoiceDialog({
   row,
   pageId,
   subPageId,
   keys = OS_DESK_KEYS,
+  reason = "status",
   onClose,
 }: {
   row: PageRow;
@@ -39,6 +44,8 @@ export function OsDispatchChoiceDialog({
   subPageId: string | null;
   /** Ключи ячеек открытой таблицы стола ОС. */
   keys?: OsDeskKeys;
+  /** Кто открыл: кнопка «Выдать…» или смена статуса с «Утверждения». */
+  reason?: "button" | "status";
   onClose: () => void;
 }) {
   const { activeWorkspaceId, activeWorkspace } = useWorkspace();
@@ -78,7 +85,7 @@ export function OsDispatchChoiceDialog({
     try {
       await sendToExchange({ row, pageId, tabId: subPageId, keys });
       toast.success(`${client} — на «Заказах»`, {
-        description: "Технари получили уведомление. Отклики появятся в ячейке «Технарь» — нажмите и выберите технаря.",
+        description: "Технари получили уведомление. Отклики появятся в столбце «Технарь» — нажмите и выберите технаря.",
       });
       onClose();
     } catch (error) {
@@ -92,8 +99,9 @@ export function OsDispatchChoiceDialog({
     <>
     <TechPickerSheet
       open={pickerOpen}
+      mode="give"
       title={`Кому отдать «${client}»?`}
-      description="Заказ уедет в стол выбранного технаря. Тимлид и Owner увидят выдачу во «Выдачах ОС»."
+      description="Заказ сразу уедет в стол выбранного технаря, статус станет «В работе»."
       busy={busy}
       onPick={(tech) => void giveToTech(tech.nick, tech.name)}
       onClose={() => setPickerOpen(false)}
@@ -101,9 +109,11 @@ export function OsDispatchChoiceDialog({
     <Dialog open={!pickerOpen} onOpenChange={(open) => !open && !busy && onClose()}>
       <DialogContent className="flex max-h-[90vh] max-w-lg flex-col">
         <DialogHeader>
-          <DialogTitle>Как отдать заказ «{client}»?</DialogTitle>
+          <DialogTitle>Как выдать «{client}»?</DialogTitle>
           <DialogDescription>
-            Заказ в работе. Отдайте его всем на «Заказы» или сразу выбранному технарю.
+            {reason === "button"
+              ? "Заказ ещё никому не выдан. Статус станет «В работе»."
+              : "Вы сменили статус — заказ пора выдать."}
           </DialogDescription>
         </DialogHeader>
 
@@ -116,9 +126,9 @@ export function OsDispatchChoiceDialog({
             >
               <span className="flex items-center gap-2 text-sm font-medium">
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Store className="h-4 w-4 text-primary" />}
-                Общий
+                Всем технарям
               </span>
-              <span className="text-xs text-muted-foreground">Всем технарям на «Заказы». Кто откликнется — видно прямо в таблице, выберете там же.</span>
+              <span className="text-xs text-muted-foreground">На «Заказы». Отклики увидите в столбце «Технарь», там же выберете.</span>
             </button>
             <button
               type="button"
@@ -128,9 +138,9 @@ export function OsDispatchChoiceDialog({
             >
               <span className="flex items-center gap-2 text-sm font-medium">
                 <UserCheck className="h-4 w-4 text-primary" />
-                Выборочно
+                Одному технарю
               </span>
-              <span className="text-xs text-muted-foreground">Сразу одному технарю — выберете его на следующем шаге.</span>
+              <span className="text-xs text-muted-foreground">Сразу в его стол. Свободные — сверху. Тимлид и Owner увидят выдачу.</span>
             </button>
         </div>
 

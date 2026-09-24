@@ -1,4 +1,4 @@
-import { ensureOsDesk, findOsDeskOf, OS_DESK_COLUMNS } from "@/services/osDeskService";
+import { ensureOsDesk, findOsDeskOf, type OsDeskKeys } from "@/services/osDeskService";
 import { fetchPagesFresh, updatePageOsFieldKeys } from "@/services/pageService";
 import { fetchSubPageFresh } from "@/services/subPageService";
 import { currentMonthKey, currentMonthSubPageId, isMonthlyDesk } from "@/services/monthTabService";
@@ -6,7 +6,16 @@ import { computeOsFieldKeys, sameOsFieldKeys } from "@/utils/osFieldKeys";
 import { sbFetchAllPageRows, sbFetchRows, sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { buildMirrorCells, mirrorSyncHash } from "@/services/rows/osOrderMirror";
-import { OS_ISSUED_AT_KEY, OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
+import { openOsDeskCurrentTab, type OsDeskTab } from "@/services/rows/osDeskIssue";
+import { sbFindDeskRowTab } from "@/services/rows/osOrderClaim";
+import {
+  OS_ISSUED_AT_KEY,
+  OS_ISSUED_ON_KEY,
+  OS_LOST_FOR_KEY,
+  OS_RELEASED_FROM_KEY,
+  OS_STATUS_SENT_KEY,
+} from "@/utils/reservedCellKeys";
+import { normalizeNumericInput } from "@/utils/numberInput";
 import { isBlankRow } from "@/utils/blankRow";
 import { personLabel } from "@/utils/peopleDesks";
 import type { OsFieldKeys, PageRow, WorkspaceMember, WorkspacePage } from "@/types";
@@ -60,6 +69,94 @@ function cellText(row: PageRow, key: string | undefined): string {
   if (!key) return "";
   const value = row.cells[key];
   return value === null || value === undefined ? "" : String(value);
+}
+
+/** Строка-источник на столе ОС для заказа, записанного технарём. */
+export interface ClaimSource {
+  /** Ячейки — под НАСТОЯЩИМИ ключами столбцов вкладки стола ОС. */
+  cells: Record<string, string>;
+  /** Визитка — как у строки технаря. */
+  extras: PageRow["extras"] | null;
+  /** Подпись полей — ровно та, что посчитает проход стола ОС по этой строке. */
+  syncHash: string;
+  /** Дата заказа у технаря: max(createdAt, filledAt) (нет — сейчас). */
+  orderAt: number;
+}
+
+/**
+ * Строка-источник для заказа, который записал ТЕХНАРЬ (или любой человек у
+ * себя в столе) с ником ОС: разовый перенос Owner (`adoptOrdersToOsDesks`) и
+ * автоматический «забор» сессией ОС (`useOsOrderClaims`) собирают её здесь,
+ * одинаково.
+ *
+ * Ключи ячеек — от настоящих столбцов вкладки стола ОС (`resolveOsDeskKeys`
+ * той вкладки, куда ляжет строка, — `openOsDeskCurrentTab`). Раньше перенос
+ * писал в фиксированные «client/phone/price/status», и на столе со своими
+ * столбцами значения уезжали мимо, а подпись не совпадала с подписью прохода —
+ * и первый же проход «исправлял» технарю его поля.
+ *
+ * Подпись — ТА ЖЕ, что считает проход стола ОС (`planOsDispatch`: только
+ * поля, без статуса и даты, ключи технаря — карта его стола): иначе первый же
+ * проход счёл бы заказ правкой ОС и переслал бы его технарю ещё раз.
+ */
+export function buildClaimSource(input: {
+  techRow: PageRow;
+  /** Карта столбцов вкладки технаря (`page.osFieldKeys` той вкладки, где строка). */
+  techKeys: OsFieldKeys;
+  /** Ключи вкладки стола ОС, куда ляжет строка-источник. */
+  osKeys: OsDeskKeys;
+  /** Ник ОС — он и так стоит у технаря в столбце ОС; входит в подпись. */
+  osNickValue: string;
+  /** Ник технаря — в столбец «Технарь» стола ОС. */
+  techNick: string;
+}): ClaimSource {
+  const { techRow: row, techKeys: keys, osKeys } = input;
+  const orderAt = Math.max(row.createdAt || 0, row.filledAt || 0) || Date.now();
+  const cells: Record<string, string> = {};
+  const put = (key: string | undefined, value: string) => {
+    if (key && value) cells[key] = value;
+  };
+  put(osKeys.client, cellText(row, keys.client).trim());
+  put(osKeys.phone, cellText(row, keys.phone).trim());
+  // Цена у технаря — это уже сумма заказа; апсейл отдельной цифрой ОС
+  // проставит сам, разделить задним числом нельзя.
+  const price = cellText(row, keys.price).trim();
+  put(osKeys.price, price ? normalizeNumericInput(price) : "");
+  put(osKeys.link, cellText(row, keys.link).trim());
+  put(osKeys.note, String(row.extras?.note ?? "").trim());
+  put(osKeys.technician, input.techNick);
+  // Заказ лежал у технаря с самого начала — «выдан» тогда же (столбец «Даты»).
+  cells[OS_ISSUED_AT_KEY] = String(orderAt);
+  // Заказ снова связан — отметка «у этого технаря забрали» больше не про него.
+  cells[OS_LOST_FOR_KEY] = "";
+  // Статус технаря — сразу и в столбец ОС, и как «синхронизированный»:
+  // проходу тогда нечего ни тянуть, ни слать.
+  const techStatus = cellText(row, keys.status).trim();
+  if (techStatus) {
+    cells[osKeys.status] = techStatus;
+    cells[OS_STATUS_SENT_KEY] = techStatus;
+  }
+  const source = { id: "", pageId: "", cells, extras: row.extras, order: 0, createdAt: orderAt, updatedAt: orderAt } as PageRow;
+  const syncHash = mirrorSyncHash(
+    buildMirrorCells({
+      source,
+      osColumns: {
+        client: osKeys.client,
+        phone: osKeys.phone,
+        price: osKeys.price,
+        upsell: osKeys.upsell,
+        note: osKeys.note,
+        link: osKeys.link,
+      },
+      keys,
+      osNickValue: input.osNickValue,
+      status: "",
+      withStatus: false,
+      dateMs: 0,
+    }),
+    row.extras
+  );
+  return { cells, extras: row.extras ?? null, syncHash, orderAt };
 }
 
 /**
@@ -144,6 +241,8 @@ export async function adoptOrdersToOsDesks(input: {
   report.deskTotal = techDesks.length;
   const unknownNicks = new Set<string>();
   const osDeskByUid = new Map<string, WorkspacePage>();
+  /** Вкладка текущего месяца стола ОС (как её откроет сам стол) — по uid ОС. */
+  const osTabByUid = new Map<string, OsDeskTab>();
   for (const page of pages) if (page.osDesk && page.responsibleUserId) osDeskByUid.set(page.responsibleUserId, page);
 
   let done = 0;
@@ -211,77 +310,77 @@ export async function adoptOrdersToOsDesks(input: {
         }
       }
 
-      const techNick = techNickOfDesk;
-      const srcId = sourceRowIdFor(row.id);
-      // Источник — во вкладку ТЕКУЩЕГО месяца стола ОС (если она уже есть),
-      // иначе в главную: ОС открывает стол на текущем месяце и заказ должен
-      // быть перед глазами.
-      const osTab = currentMonthSubPageId(osDesk, monthKey) ?? null;
-      // Дата заказа у технаря — как считает сводка стола ОС: max(createdAt,
-      // filledAt). Она станет created_at источника, чтобы «Столы ОС» и
-      // сортировка не датировали перенесённое днём переноса.
-      const orderAt = Math.max(row.createdAt || 0, row.filledAt || 0) || Date.now();
-      const srcCells: Record<string, string> = {};
-      const put = (key: string, value: string) => {
-        if (value) srcCells[key] = value;
-      };
-      put("client", cellText(row, keys.client));
-      put("phone", cellText(row, keys.phone));
-      // Цена у технаря — это уже сумма заказа; апсейл отдельной цифрой ОС
-      // проставит сам, разделить задним числом нельзя.
-      put("price", cellText(row, keys.price));
-      put("link", cellText(row, keys.link));
-      put("note", String(row.extras?.note ?? ""));
-      const techColumn = OS_DESK_COLUMNS.find((c) => c.type === "technician");
-      if (techColumn && techNick) srcCells[techColumn.key] = techNick;
-      // Заказ лежал у технаря с самого начала — «выдан» тогда же (столбец «Даты»).
-      if (orderAt > 0) srcCells[OS_ISSUED_AT_KEY] = String(orderAt);
-
-      // Подпись — ТА ЖЕ, что считает проход стола ОС (только поля, без
-      // статуса и даты): иначе первый же проход счёл бы перенесённый заказ
-      // правкой ОС и переслал бы его технарю ещё раз.
-      const srcRowForHash = { id: srcId, cells: srcCells, extras: row.extras, order: 0, createdAt: orderAt, updatedAt: orderAt } as PageRow;
-      const syncHash = mirrorSyncHash(
-        buildMirrorCells({
-          source: srcRowForHash,
-          osColumns: { client: "client", phone: "phone", price: "price", upsell: "upsell", note: "note", link: "link" },
-          keys,
-          osNickValue: osMember.osNickValue ?? "",
-          status: "",
-          withStatus: false,
-          dateMs: 0,
-        }),
-        row.extras
-      );
-      const techStatus = cellText(row, keys.status);
-      // Статус технаря — сразу и в столбец ОС, и как «синхронизированный»:
-      // проходу тогда нечего ни тянуть, ни слать.
-      if (techStatus) {
-        srcCells.status = techStatus;
-        srcCells[OS_STATUS_SENT_KEY] = techStatus;
+      // Источник — во вкладку ТЕКУЩЕГО месяца стола ОС, ту же, что откроет
+      // сам стол (`openOsDeskCurrentTab`: первый месяц — «Основная» под именем
+      // месяца, дальше — вкладка месяца): ОС открывает стол на текущем месяце,
+      // и заказ должен быть перед глазами. Ключи ячеек — от её столбцов.
+      let osTab = osTabByUid.get(osMember.uid);
+      if (!osTab) {
+        try {
+          osTab =
+            (await openOsDeskCurrentTab({
+              workspaceId,
+              uid: osMember.uid,
+              name: personLabel(osMember),
+              osDesks: [osDesk],
+              createIfMissing: false,
+            })) ?? undefined;
+        } catch (error) {
+          report.errors.push(`Стол ОС «${personLabel(osMember)}»: вкладка месяца не открылась — ${error instanceof Error ? error.message : String(error)}`);
+          continue;
+        }
+        if (!osTab) continue;
+        osTabByUid.set(osMember.uid, osTab);
       }
+
+      const techNick = techNickOfDesk;
+      // Заказ, который ОС сам выдал, а Owner вернул технарю («Вернуть» на
+      // «Правке столов»): у строки технаря id копии `os_<источник>`, и на столе
+      // ОС жива ИСХОДНАЯ строка (с `osLostFor`). Подключаем её, а не заводим
+      // рядом вторую `adopt_os_…` — иначе у ОС заказ висел бы дважды. Исходной
+      // строки нет (удалили) — как с обычной строкой технаря.
+      let srcId = sourceRowIdFor(row.id);
+      let srcTab: string | null = osTab.tabId;
+      if (row.id.startsWith("os_") && row.id.length > 3) {
+        const originalTab = await sbFindDeskRowTab(workspaceId, osDesk.id, row.id.slice(3)).catch(() => undefined);
+        if (originalTab !== undefined) {
+          srcId = row.id.slice(3);
+          srcTab = originalTab || null;
+        }
+      }
+      const src = buildClaimSource({
+        techRow: row,
+        techKeys: keys,
+        osKeys: osTab.keys,
+        osNickValue: osMember.osNickValue ?? "",
+        techNick,
+      });
       try {
-        // 1. Строка-источник в столе ОС (адрес копии — на неё).
-        await sbPatchRow(workspaceId, osDesk.id, osTab, srcId, {
-          cells: srcCells,
+        // 1. Строка-источник в столе ОС (адрес копии — на неё). Ячейки
+        //    ложатся поверх (`rows_patch`): у подключённой заново исходной
+        //    строки остаётся всё, что ОС вёл сам.
+        await sbPatchRow(workspaceId, osDesk.id, srcTab, srcId, {
+          cells: src.cells,
           extras: row.extras ?? undefined,
-          updatedAt: orderAt,
-          syncHash,
+          updatedAt: src.orderAt,
+          syncHash: src.syncHash,
           mirrorPageId: page.id,
           mirrorTabId: tabId,
           mirrorRowId: row.id,
         });
-        // 2. Строка технаря переходит под управление ОС.
+        // 2. Строка технаря переходит под управление ОС. Метку «Owner забрал
+        //    у ОС» (`osReleasedFrom`, «Вернуть») снимаем: «Передать ОС» —
+        //    и есть явный путь назад.
         await sbPatchRow(workspaceId, page.id, tabId, row.id, {
-          cells: {},
+          cells: cellText(row, OS_RELEASED_FROM_KEY).trim() ? { [OS_RELEASED_FROM_KEY]: "" } : {},
           osUid: osMember.uid,
           techUid: page.responsibleUserId as string,
           // Только настоящий ключ столбца: по нему Тимлид получает право
           // поставить «Успешку», и выдуманный ключ дал бы право в никуда.
           statusKey: keys.status,
-          syncHash,
+          syncHash: src.syncHash,
           srcPageId: osDesk.id,
-          srcTabId: osTab ?? "",
+          srcTabId: srcTab ?? "",
           srcRowId: srcId,
         });
         report.adopted += 1;
@@ -334,20 +433,36 @@ export async function releaseAllOrders(input: {
  */
 export async function releaseDeskOrders(workspaceId: string, page: WorkspacePage, techNick = ""): Promise<number> {
   const byTab = await sbFetchAllPageRows(workspaceId, page.id);
+  const osKeys = page.osFieldKeys;
   let released = 0;
   for (const [tabId, rows] of byTab) {
     for (const row of rows) {
       if (!row.osUid) continue;
-      await sbPatchRow(workspaceId, page.id, tabId || null, row.id, { cells: {}, releaseOrder: true });
+      // Решение Owner — на САМОЙ строке технаря: ник ОС, у которого заказ
+      // забрали (`osReleasedFrom`). Раньше его держала только строка-источник
+      // ОС (`osLostFor`, без адреса), и стоило ОС удалить её или выдать
+      // заказ другому, как забор (SQL 20261002) снова брал строку себе.
+      // Только во вкладке, где забор ищет строки (вкладка карты столбцов
+      // стола), и только если в строке есть ник ОС. Owner пишет мимо стража,
+      // а до SQL 20261002 ячейка просто лежит без дела.
+      const releasedFrom =
+        osKeys?.os && (tabId || "") === (osKeys.tabId || "") ? cellText(row, osKeys.os).trim() : "";
+      await sbPatchRow(workspaceId, page.id, tabId || null, row.id, {
+        cells: releasedFrom ? { [OS_RELEASED_FROM_KEY]: releasedFrom } : {},
+        releaseOrder: true,
+      });
       released += 1;
       // У строки-источника ОС снимаем адрес копии и помечаем «у этого технаря
       // заказ забрали» (как при потере, `osLostFor`): иначе проход стола ОС
       // увидел бы пропавшую копию, показал бы ОС тост о потере, а заказ
       // «у того же технаря» считал бы выданным. Не вышло — не страшно: проход
       // сам придёт к тому же через ветку `lost`.
+      // Даты «выдан» (авто и поставленную ОС) снимаем тоже, как ветка `lost`:
+      // строка у ОС иначе выглядела бы выданной, хотя статус к технарю
+      // больше не уходит.
       if (techNick && row.srcPageId && row.srcRowId) {
         await sbPatchRow(workspaceId, row.srcPageId, row.srcTabId || null, row.srcRowId, {
-          cells: { [OS_LOST_FOR_KEY]: techNick, [OS_STATUS_SENT_KEY]: "" },
+          cells: { [OS_LOST_FOR_KEY]: techNick, [OS_STATUS_SENT_KEY]: "", [OS_ISSUED_AT_KEY]: "", [OS_ISSUED_ON_KEY]: "" },
           clearMirror: true,
         }).catch(() => undefined);
       }

@@ -15,6 +15,11 @@ interface GroupHeaderRowProps {
   /** Pre-formatted «Готово» share of that total. */
   doneText?: string | null;
   /**
+   * Короткое пояснение после счётчика (стол ОС: «Утверждение · 3 — не
+   * выданы»). Решает страница (`DataTable.groupHint`); нет — как раньше.
+   */
+  hint?: string | null;
+  /**
    * Виртуализация стола: заголовок — такой же элемент списка, как строка, но
    * его высота зависит от ширины экрана (44 на телефоне, ~30 на ПК), поэтому
    * виртуализатор меряет его сам (measureElement + data-index).
@@ -43,6 +48,7 @@ function GroupHeaderRowInner({
   onToggle,
   color,
   sumText,
+  hint,
   measureRef,
   dataIndex,
 }: GroupHeaderRowProps) {
@@ -70,6 +76,7 @@ function GroupHeaderRowInner({
             {label || "Без значения"}
           </span>
           <span className="shrink-0 font-normal tabular-nums text-muted-foreground">· {count}</span>
+          {hint ? <span className="min-w-0 shrink truncate text-[11.5px] font-normal text-muted-foreground">— {hint}</span> : null}
           <span className="mx-2 min-w-4 flex-1 self-center border-b border-dotted border-muted-foreground/30" aria-hidden />
           {sumText && (
             <span className="shrink-0 font-mono text-[12.5px] tabular-nums" style={tone} title="Сумма по группе">
