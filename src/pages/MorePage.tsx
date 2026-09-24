@@ -15,8 +15,8 @@ import { cn } from "@/utils/cn";
  */
 const GROUPS: Array<{ title: string; keys: string[] }> = [
   { title: "Работа", keys: ["dashboard", "os-dispatch", "desk-editing", "dispatch"] },
-  { title: "Люди", keys: ["people", "team", "users", "schedule"] },
-  { title: "Связь", keys: ["messages", "chat", "announcements"] },
+  { title: "Люди", keys: ["people", "team", "users"] },
+  { title: "Связь", keys: ["announcements"] },
   { title: "Настройки", keys: ["settings"] },
 ];
 
@@ -54,7 +54,7 @@ export default function MorePage() {
       <PageHeader
         eyebrow="Nova"
         title="Ещё"
-        description="Остальные разделы. Частое — в меню слева: стол, заказы, технари, столы ОС, Грок лимит, ABS."
+        description="Остальные разделы. Частое — в меню слева: стол, заказы, технари, столы ОС, Грок лимит, чат, график, ABS."
         actions={
           <button
             type="button"

@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
-import { MessageSquare } from "lucide-react";
 import { ChatPanel } from "@/components/chat/ChatPanel";
+import { ChatModeSwitch } from "@/components/chat/ChatModeSwitch";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspaceChat } from "@/hooks/useWorkspaceChat";
@@ -59,11 +59,11 @@ export default function WorkspaceChatPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-border px-6 py-4">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-          <MessageSquare className="h-4 w-4" />
-        </span>
-        <h1 className="text-lg font-semibold">Чат Workspace</h1>
+      {/* Одна страница «Чат»: сверху переключатель «Общий / Личные». */}
+      <div className="flex items-center gap-3 border-b border-border px-4 py-3 sm:px-6">
+        <h1 className="sr-only">Чат — общий</h1>
+        <ChatModeSwitch />
+        <p className="hidden truncate text-[12px] text-muted-foreground sm:block">Общий чат всей команды</p>
       </div>
       <div className="flex-1 overflow-hidden">
         <ChatPanel

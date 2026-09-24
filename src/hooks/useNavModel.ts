@@ -58,9 +58,6 @@ const MORE_PAGE_PATHS = [
   "/people",
   "/team",
   "/users",
-  "/schedule",
-  "/messages",
-  "/chat",
   "/announcements",
   "/dispatch",
   "/settings",
@@ -112,6 +109,8 @@ export interface NavModel {
   badgeTotal: number;
   /** Непрочитанные (сообщения + чат) — точка на аватаре в меню аккаунта. */
   inboxUnread: number;
+  /** Непрочитанное по видам — переключатель «Общий / Личные» на странице чата. */
+  chatUnread: { workspace: number; private: number };
   /** Заказы на бирже ждут — зелёный пункт «Заказы». */
   ordersAlert: boolean;
   /** Чистый ОС (без второй роли): дом — «Технари», стол — «Стол ОС». */
@@ -307,6 +306,20 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
         { key: "technicians", to: "/technicians", label: "Технари", icon: HardHat, show: g.showTechniciansNav },
         { key: "os-desks", to: "/os-desks", label: "Столы ОС", icon: ScanEye, show: g.showOsDesksNav },
         { key: "grok", to: "/grok-limit", label: "Грок лимит", icon: KeyRound, show: g.showGrokNav, hint: grokHint, emphasis: true },
+        // Чат — ОДИН пункт (просьба Nurba 25.09.2026: «чат в быстром доступе,
+        // одна страница, внутри переключиться на общий и личный»): горит и на
+        // «/chat», и на «/messages», бейдж — сумма. Ведёт туда, где ждут:
+        // есть непрочитанные только в личных — сразу в личные.
+        {
+          key: "chat",
+          to: sig.privateUnreadTotal > 0 && sig.workspaceChatUnread === 0 ? "/messages" : "/chat",
+          label: "Чат",
+          icon: MessageSquare,
+          badge: sig.privateUnreadTotal + sig.workspaceChatUnread,
+          activeOn: (pathname) => pathMatches(pathname, "/chat") || pathMatches(pathname, "/messages"),
+        },
+        // График — тоже частое (та же просьба): смены и выходные на сегодня.
+        { key: "schedule", to: "/schedule", label: "График", icon: CalendarDays },
         { key: "abs", to: "/abs", label: "ABS система", icon: Trophy },
         // Всё остальное — отдельной страницей (просьба Nurba 25.09.2026), а в
         // меню один пункт. Бейдж — сумма непрочитанного с той страницы.
@@ -315,7 +328,7 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
           to: "/more",
           label: "Ещё",
           icon: LayoutList,
-          badge: sig.privateUnreadTotal + sig.workspaceChatUnread + (g.showOsDispatchNav ? sig.osDispatchUnseen : 0),
+          badge: g.showOsDispatchNav ? sig.osDispatchUnseen : 0,
           // «Ещё» горит и на своих разделах: человек пришёл туда через неё.
           activeOn: (pathname) =>
             pathname === "/more" ||
@@ -340,9 +353,10 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
         { key: "people", to: "/people", label: "Люди", icon: UsersRound },
         { key: "team", to: "/team", label: "Команда", icon: Contact, show: g.showUsersNav },
         { key: "users", to: "/users", label: "Пользователи", icon: Users, show: g.showUsersNav && !g.isTeamlead },
-        { key: "schedule", to: "/schedule", label: "График", icon: CalendarDays },
-        { key: "messages", to: "/messages", label: "Сообщения", icon: MessageCircle, badge: sig.privateUnreadTotal },
-        { key: "chat", to: "/chat", label: "Чат", icon: MessageSquare, badge: sig.workspaceChatUnread },
+        // «Сообщения» в меню нет — это вкладка «Личные» того же «Чата». Пункт
+        // остаётся скрытым ради заголовка экрана «/messages» (buildPageMeta
+        // читает и скрытые пункты).
+        { key: "messages", to: "/messages", label: "Сообщения", icon: MessageCircle, show: false },
         { key: "announcements", to: "/announcements", label: "Объявления", icon: Megaphone },
         { key: "dispatch", to: "/dispatch", label: "Выдача", icon: PackageCheck, show: g.showDispatchNav },
         { key: "settings", to: "/settings", label: "Настройки", icon: Settings },
@@ -427,13 +441,15 @@ export function buildNavModel(
     if (target) myDeskTo = `/page/${target.id}`;
   }
 
-  // Закреплённые впереди недавних; только живые столы (закрытый по ссылке
+  // Подпункты «Столов» — ДВА последних посещённых стола (просьба Nurba
+  // 25.09.2026), закреплённые сюда больше не лезут: они наверху списка
+  // «Столов» и в палитре. Только живые столы (закрытый по ссылке
   // «Неактуальный» в подсказки не лезет), свой стол не дублируем — он дом.
   // Доступ проверяем здесь же: недавний мог попасть в список до того, как
   // стол отобрали (или Owner смотрел «как Технарь»), и ярлык вёл бы в отказ.
   const deskShortcuts: NavChild[] = [];
   const seen = new Set<string>();
-  for (const id of [...pinnedIds, ...recentIds]) {
+  for (const id of recentIds) {
     if (seen.has(id) || id === myDeskId) continue;
     const page = allPages.find((p) => p.id === id && !p.inactive);
     if (!page || !permissions.canAccessPage(page)) continue;
@@ -471,6 +487,7 @@ export function buildNavModel(
     deskShortcuts,
     badgeTotal,
     inboxUnread: sig.privateUnreadTotal + sig.workspaceChatUnread,
+    chatUnread: { workspace: sig.workspaceChatUnread, private: sig.privateUnreadTotal },
     ordersAlert: sig.ordersAlert,
     isOs: g.isOs,
     isTeamlead: g.isTeamlead,

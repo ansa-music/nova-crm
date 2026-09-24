@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { CheckCheck, MessageCircle, Search, UserPlus } from "lucide-react";
+import { ArrowLeft, CheckCheck, MessageCircle, Search, UserPlus } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ChatPanel } from "@/components/chat/ChatPanel";
+import { ChatModeSwitch } from "@/components/chat/ChatModeSwitch";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePresenceMap } from "@/hooks/usePresenceMap";
 import { useAuth } from "@/hooks/useAuth";
@@ -147,8 +148,16 @@ export default function MessagesPage() {
   }
 
   return (
-    <div className="flex h-full">
-      <div className="flex w-72 shrink-0 flex-col border-r border-border">
+    <div className="flex h-full flex-col">
+      {/* Одна страница «Чат»: сверху переключатель «Общий / Личные». */}
+      <div className="flex items-center gap-3 border-b border-border px-4 py-3 sm:px-6">
+        <ChatModeSwitch />
+        <p className="hidden truncate text-[12px] text-muted-foreground sm:block">Личные переписки один на один</p>
+      </div>
+      <div className="flex min-h-0 flex-1">
+      {/* Телефон: либо список, либо переписка (w-72 рядом с перепиской на
+          375 px оставлял сообщениям сотню пикселей); с md — рядом. */}
+      <div className={cn("w-full shrink-0 flex-col border-r border-border md:flex md:w-72", selectedUid ? "hidden" : "flex")}>
         <div className="border-b border-border p-3">
           <div className="mb-2 flex items-center justify-between">
             <h1 className="text-sm font-semibold">Личные сообщения</h1>
@@ -277,10 +286,19 @@ export default function MessagesPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden">
+      <div className={cn("min-w-0 flex-1 overflow-hidden", selectedUid ? "block" : "hidden md:block")}>
         {selectedUid ? (
           <div className="flex h-full flex-col">
             <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0 md:hidden"
+                aria-label="К списку переписок"
+                onClick={() => navigate("/messages")}
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
               <Avatar className="h-8 w-8">
                 <AvatarImage src={selectedMember?.photoURL ?? undefined} />
                 <AvatarFallback>
@@ -335,6 +353,7 @@ export default function MessagesPage() {
             <p className="text-sm">Выберите переписку слева</p>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

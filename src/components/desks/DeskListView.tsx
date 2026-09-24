@@ -113,7 +113,7 @@ export function DeskListView({
                 type="button"
                 onClick={() => onTogglePin(page)}
                 aria-pressed={pinned}
-                title={pinned ? "Открепить из меню" : "Закрепить в меню"}
+                title={pinned ? "Открепить" : "Закрепить — наверху списка и в поиске"}
                 className={cn(
                   "flex h-9 w-9 shrink-0 items-center justify-center rounded-md",
                   pinned ? "text-primary" : "text-muted-foreground/60 hover:bg-accent hover:text-foreground"
