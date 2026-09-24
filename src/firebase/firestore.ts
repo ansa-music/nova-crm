@@ -174,6 +174,8 @@ export const paths = {
     collection(requireDb(), "workspaces", workspaceId, "ownerAccessRequests"),
   ownerAccessRequest: (workspaceId: string, uid: string) =>
     doc(requireDb(), "workspaces", workspaceId, "ownerAccessRequests", uid),
+  /** Текущий ключ доступа («Настройки → Ключ доступа»): читает и пишет только Owner. */
+  ownerAccessKey: (workspaceId: string) => doc(requireDb(), "workspaces", workspaceId, "ownerAccess", "key"),
 
   /** «Заказы» — биржа заказов между ОС и технарями. */
   orders: (workspaceId: string) => collection(requireDb(), "workspaces", workspaceId, "orders"),

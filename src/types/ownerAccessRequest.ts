@@ -1,3 +1,5 @@
+import type { Role } from "./role";
+
 export type OwnerAccessRequestStatus = "pending" | "approved" | "denied";
 
 /**
@@ -20,4 +22,11 @@ export interface OwnerAccessRequest {
   updatedAt: number;
   resolvedByUid?: string | null;
   resolvedByName?: string | null;
+  /**
+   * sha256(`${workspaceId}:${ключ}`) в hex — правило заявки сверяет его с
+   * `ownerAccess/key.hash` (ключ Owner может сменить). Сам ключ сюда не пишется.
+   */
+  keyHash?: string;
+  /** Какую роль выдал Owner по заявке (не обязательно Owner). */
+  grantedRole?: Role | null;
 }

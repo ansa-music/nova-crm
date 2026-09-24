@@ -3,7 +3,7 @@ import {
   fetchOwnerAccessRequests,
   resolveOwnerAccessRequest,
 } from "@/services/ownerAccessService";
-import type { OwnerAccessRequest } from "@/types";
+import type { OwnerAccessRequest, Role } from "@/types";
 
 /**
  * Заявки на права Owner для колокольчика. Живёт только у Owner (`enabled`),
@@ -35,9 +35,23 @@ export function useOwnerAccessRequests(workspaceId: string | null, enabled: bool
   }, [reload]);
 
   const resolve = useCallback(
-    async (request: OwnerAccessRequest, status: "approved" | "denied", actorUid: string, actorName: string) => {
+    async (
+      request: OwnerAccessRequest,
+      status: "approved" | "denied",
+      actorUid: string,
+      actorName: string,
+      grant?: { role: Role; currentExtraRoles?: Role[] }
+    ) => {
       if (!workspaceId) return;
-      await resolveOwnerAccessRequest({ workspaceId, request, status, actorUid, actorName });
+      await resolveOwnerAccessRequest({
+        workspaceId,
+        request,
+        status,
+        role: grant?.role,
+        currentExtraRoles: grant?.currentExtraRoles,
+        actorUid,
+        actorName,
+      });
       await reload();
     },
     [workspaceId, reload]

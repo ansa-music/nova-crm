@@ -63,11 +63,14 @@ export function NotificationBell({
   const navigate = useNavigate();
   const location = useLocation();
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const visible = unreadOnly ? notifications.filter((n) => !n.read) : notifications;
 
   return (
     <DropdownMenu
+      open={menuOpen}
       onOpenChange={(open) => {
+        setMenuOpen(open);
         onOpenChange?.(open);
         if (open) {
           void reload();
@@ -215,25 +218,14 @@ export function NotificationBell({
                           onClick={async (e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            if (!profile) return;
-                            if (
-                              !(await confirmDialog({
-                                title: `Выдать права Owner: ${ownerReq.fromName}?`,
-                                description:
-                                  "Человек получит полный доступ Owner: все столы, участники, роли, настройки и история. Забрать права можно только сменив ему роль на «Пользователи».",
-                              }))
-                            )
-                              return;
-                            try {
-                              await resolveOwnerRequest(ownerReq, "approved", profile.uid, displayNameOf(profile));
-                              if (activeWorkspaceId) await refreshWorkspaceMembers(activeWorkspaceId);
-                              toast.success(`${ownerReq.fromName} — теперь Owner`);
-                            } catch (error) {
-                              toast.error(error instanceof Error ? error.message : "Не удалось выдать права");
-                            }
+                            // Роль выбирается в «Настройки → Ключ доступа» — выпадашка
+                            // внутри выпадашки колокольчика закрывала бы её.
+                            setMenuOpen(false);
+                            onOpenChange?.(false);
+                            navigate("/settings?tab=access-key");
                           }}
                         >
-                          Выдать права
+                          Выбрать роль…
                         </Button>
                         <Button
                           type="button"

@@ -41,6 +41,16 @@ service cloud.firestore {
         get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '') == request.auth.uid;
     }
 
+    // Ключ заявки на доступ: хеш сверяется с ownerAccess/key, а пока Owner
+    // ключ не менял — с хешем ключа по умолчанию (OWNER_ACCESS_KEY).
+    function ownerAccessKeyOk(workspaceId, keyHash) {
+      return keyHash is string && (
+        (exists(/databases/$(database)/documents/workspaces/$(workspaceId)/ownerAccess/key)
+          && keyHash == get(/databases/$(database)/documents/workspaces/$(workspaceId)/ownerAccess/key).data.hash)
+        || (!exists(/databases/$(database)/documents/workspaces/$(workspaceId)/ownerAccess/key)
+          && keyHash == hashing.sha256(workspaceId + ':21122005').toHexString().lower()));
+    }
+
     function isOwner(workspaceId) {
       return isDocOwner(workspaceId) || (isMember(workspaceId) && myRole(workspaceId) == 'owner');
     }
@@ -907,10 +917,25 @@ service cloud.firestore {
           && requestId == request.auth.uid
           && request.resource.data.fromUid == request.auth.uid
           && request.resource.data.workspaceId == workspaceId
-          && request.resource.data.status == 'pending';
+          && request.resource.data.status == 'pending'
+          && ownerAccessKeyOk(workspaceId, request.resource.data.get('keyHash', ''));
         // Подтвердить/отклонить/убрать — только Owner.
         allow update: if isOwner(workspaceId);
         allow delete: if isOwner(workspaceId);
+      }
+
+      // Текущий ключ доступа (Owner меняет его в «Настройки → Ключ доступа»).
+      // Читает и пишет только Owner; заявка несёт лишь хеш
+      // sha256("{workspaceId}:{ключ}"), сверку делает ownerAccessKeyOk.
+      match /ownerAccess/{docId} {
+        allow read, delete: if isOwner(workspaceId);
+        allow create, update: if isOwner(workspaceId)
+          && docId == 'key'
+          && request.resource.data.key is string
+          && request.resource.data.key.size() >= 4
+          && request.resource.data.key.size() <= 64
+          && request.resource.data.hash is string
+          && request.resource.data.hash.size() == 64;
       }
 
       // -----------------------------------------------------------------

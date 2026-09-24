@@ -25,8 +25,10 @@ export function RoleSelect({
   // Radix Select throws on "" / unknown values. UsersPage is lazy-loaded, so
   // that throw is caught by the app ErrorBoundary and looks like "the site broke".
   const selectValue: Role = isRole(value) ? value : "viewer";
+  // Owner в списке — только если он уже стоит или его явно разрешили
+  // (выдача роли по ключу доступа, снятие Owner); и всегда первым.
   const items: Role[] = [];
-  if (selectValue === "owner") items.push("owner");
+  if (selectValue === "owner" || assignableRoles.includes("owner")) items.push("owner");
   for (const role of [selectValue, ...assignableRoles]) {
     if (role !== "owner" && !items.includes(role) && isRole(role)) items.push(role);
   }

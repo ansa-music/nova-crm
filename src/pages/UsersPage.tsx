@@ -19,6 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/sonner";
 import { InviteMemberForm } from "@/components/members/InviteMemberForm";
 import { RoleSelect } from "@/components/members/RoleSelect";
+import { revokeOwnerRole } from "@/services/ownerAccessService";
 import {
   cancelInvite,
   changeMemberRole,
@@ -202,6 +203,32 @@ export default function UsersPage() {
       await changeMemberRole(activeWorkspaceId!, id, role, currentExtraRoles);
       await refreshWorkspaceMembers(activeWorkspaceId!);
       toast.success("Роль обновлена");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сменить роль");
+    }
+  }
+
+  async function handleRevokeOwner(member: WorkspaceMember, role: Role) {
+    if (role === "owner" || !profile) return;
+    const name = displayNameOf(member);
+    const ok = await confirmDialog({
+      title: `Забрать права Owner у ${name}?`,
+      description: `Роль станет «${ROLE_LABELS[role]}». Уведомление ему не придёт.`,
+      confirmLabel: "Забрать",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await revokeOwnerRole({
+        workspaceId: activeWorkspaceId!,
+        uid: member.uid,
+        role,
+        currentExtraRoles: member.extraRoles,
+        workspaceOwnerId: activeWorkspace?.ownerId ?? null,
+        actorUid: profile.uid,
+      });
+      await refreshWorkspaceMembers(activeWorkspaceId!);
+      toast.success(`${name} — теперь «${ROLE_LABELS[role]}»`, { description: "Без уведомления" });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось сменить роль");
     }
@@ -603,7 +630,15 @@ export default function UsersPage() {
                 <span className="hidden text-xs text-muted-foreground sm:block">
                   {member.status === "active" ? timeAgo(member.joinedAt ?? member.invitedAt) : timeAgo(member.invitedAt)}
                 </span>
-                {isOwner ? (
+                {isOwner && viewerIsOwner && member.status === "active" && member.uid &&
+                member.uid !== activeWorkspace?.ownerId && member.uid !== profile?.uid ? (
+                  // Забрать права Owner — тихо, без уведомления человеку.
+                  <RoleSelect
+                    className="w-full sm:w-32"
+                    value="owner"
+                    onChange={(role) => void handleRevokeOwner(member, role)}
+                  />
+                ) : isOwner ? (
                   <Badge variant="outline">Owner</Badge>
                 ) : (
                   <RoleSelect

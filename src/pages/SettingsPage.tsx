@@ -47,7 +47,7 @@ import { ManageOptionsDialog } from "@/components/table/ManageOptionsDialog";
 import { profileSchema, type ProfileFormValues } from "@/utils/validation";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
-import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
+import { useWorkspace } from "@/hooks/useWorkspace";
 import { updateUserPassword, updateUserProfile } from "@/firebase/auth";
 import { syncNicknameToMemberships, updateUserDoc } from "@/services/authService";
 import {
@@ -63,6 +63,7 @@ import {
 import { downloadWorkspaceBackup } from "@/services/backupService";
 import { fetchMyOwnerAccessRequest, requestOwnerAccess } from "@/services/ownerAccessService";
 import { useOwnerAccessRequests } from "@/hooks/useOwnerAccessRequests";
+import { OwnerAccessPanel } from "@/components/settings/OwnerAccessPanel";
 import { getAuthErrorMessage } from "@/utils/firebaseErrors";
 import { PageHeader } from "@/components/common/PageHeader";
 import { DEFAULT_STATUS_OPTIONS, splitOptionsByActivity } from "@/utils/columnOptions";
@@ -144,11 +145,6 @@ const FEATURE_ITEMS = [
 ] as const;
 
 /** Подпись уже разобранной заявки в списке у Owner. */
-const OWNER_REQUEST_STATUS: Record<"approved" | "denied", string> = {
-  approved: "Права выданы",
-  denied: "Отклонено",
-};
-
 const SETTINGS_NAV = [
   { value: "features", label: "Возможности", icon: Sparkles },
   { value: "profile", label: "Профиль", icon: User },
@@ -167,6 +163,11 @@ const SETTINGS_NAV = [
 export default function SettingsPage() {
   // «/settings?tab=cashbox» — прямая ссылка на вкладку (кнопка «Настроить» на «ABS»).
   const [settingsParams] = useSearchParams();
+  const tabParam = settingsParams.get("tab") ?? "features";
+  // Вкладка управляемая: переход на «/settings?tab=…», когда настройки уже
+  // открыты (кнопка «Выбрать роль…» в колокольчике), тоже её переключает.
+  const [settingsTab, setSettingsTab] = useState(tabParam);
+  useEffect(() => setSettingsTab(tabParam), [tabParam]);
   const { profile } = useAuth();
   const permissions = usePermissions();
   const { activeWorkspace, members } = useWorkspace();
@@ -274,26 +275,6 @@ export default function SettingsPage() {
     isRealOwner
   );
 
-  async function handleResolveOwnerRequest(request: OwnerAccessRequest, status: "approved" | "denied") {
-    if (!activeWorkspace || !profile) return;
-    if (
-      status === "approved" &&
-      !(await confirmDialog({
-        title: `Выдать права Owner: ${request.fromName || request.fromEmail}?`,
-        description:
-          "Человек получит полный доступ Owner: все столы, участники, роли, настройки и история. Забрать права можно, сменив ему роль на «Пользователи».",
-      }))
-    )
-      return;
-    try {
-      await resolveOwnerRequest(request, status, profile.uid, displayNameOf(profile));
-      if (status === "approved") await refreshWorkspaceMembers(activeWorkspace.id);
-      toast.success(status === "approved" ? `${request.fromName} — теперь Owner` : "Запрос отклонён");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось обработать заявку");
-    }
-  }
-
   async function handleSubmitAccessKey() {
     if (!activeWorkspace || !profile) return;
     setIsSendingKey(true);
@@ -399,11 +380,12 @@ export default function SettingsPage() {
       />
 
       <Tabs
-        defaultValue={settingsParams.get("tab") ?? "features"}
+        value={settingsTab}
         // Список заявок читается разово (без onSnapshot), поэтому обновляем его
         // на каждом входе на вкладку — иначе заявка, поданная при открытой
         // странице, появилась бы только после перезагрузки.
         onValueChange={(value) => {
+          setSettingsTab(value);
           if (value === "access-key") void reloadOwnerRequests();
         }}
         orientation="vertical"
@@ -524,43 +506,7 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               {isRealOwner ? (
-                ownerRequests.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Заявок нет.</p>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {ownerRequests.map((request) => (
-                      <div
-                        key={request.id}
-                        className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-3"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">
-                            {request.fromName || request.fromEmail || request.fromUid}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {request.status === "pending"
-                              ? timeAgo(request.createdAt)
-                              : `${OWNER_REQUEST_STATUS[request.status]} · ${timeAgo(request.updatedAt)}`}
-                          </p>
-                        </div>
-                        {request.status === "pending" && (
-                          <div className="flex gap-2">
-                            <Button size="sm" onClick={() => handleResolveOwnerRequest(request, "approved")}>
-                              Выдать права
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleResolveOwnerRequest(request, "denied")}
-                            >
-                              Отклонить
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )
+                <OwnerAccessPanel requests={ownerRequests} resolve={resolveOwnerRequest} />
               ) : ownerRequest?.status === "pending" ? (
                 <div className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
                   <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" />
