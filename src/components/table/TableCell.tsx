@@ -622,9 +622,10 @@ export function TableCell({
                 // кольцо-свечение, как у «Статистики» в шапке; видна всегда.
                 // Один клик открывает карточку строки с визиткой наверху.
                 "ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border text-[10.5px] font-semibold tabular-nums transition-colors",
-                // На таче — только значок 32×32: подпись «до 15 окт · 2 перс»
-                // в узкой липкой ячейке съедала имя клиента; она есть в карточке.
-                coarsePointer ? "h-8 w-8 justify-center px-0" : "h-6 max-w-[55%] px-1.5",
+                // Только значок, и на таче, и мышью (Nurba 25.09.2026: «просто
+                // кнопка без текста, чтобы имя клиента было видно»): подпись
+                // «до 15 окт · 2 перс» съедала имя; она во всплывашке и в карточке.
+                coarsePointer ? "h-8 w-8 justify-center px-0" : "h-6 w-7 justify-center px-0",
                 // Янтарный — «только что приехал с «Заказов», подсветку ещё не
                 // сняли»; фиолетовый — постоянная метка заказа с биржи.
                 // Цвета специально не те, что у статусов.
@@ -651,11 +652,6 @@ export function TableCell({
               }}
             >
               <IdCard className={cn("shrink-0", coarsePointer ? "h-4 w-4" : "h-3.5 w-3.5")} />
-              {coarsePointer ? null : clientCard.summary ? (
-                <span className="max-w-[7.5rem] truncate">{clientCard.summary}</span>
-              ) : (
-                <span>карточка</span>
-              )}
             </button>
           ) : null}
         </div>

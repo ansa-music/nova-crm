@@ -402,7 +402,45 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
       setPeek(Boolean(panelRef.current?.matches(":hover")) && lastPointer.current === "mouse");
     };
   }
+  const applyModeMenu = onHoldChange(setModeMenuOpen);
+  const modeMenuTimer = useRef<number | null>(null);
+  /** Когда нажали на кнопку при уже открытом (наведением) выборе. */
+  const modeMenuPressAt = useRef(0);
+  function clearModeMenuTimer() {
+    if (modeMenuTimer.current !== null) window.clearTimeout(modeMenuTimer.current);
+    modeMenuTimer.current = null;
+  }
+  /**
+   * Открыть/закрыть по решению Radix (клик, Esc, выбор пункта). Отложенное
+   * наведение при этом снимается: иначе таймер «мышь вошла в выбор» открывал
+   * его заново сразу после выбора пункта. Закрытие от нажатия на саму кнопку,
+   * пока выбор уже открыт наведением, не выполняем — человек по привычке
+   * кликнул и не должен потерять раскрытый список.
+   */
+  function setModeMenu(open: boolean) {
+    clearModeMenuTimer();
+    if (!open && Date.now() - modeMenuPressAt.current < 150) return;
+    applyModeMenu(open);
+  }
+  useEffect(
+    () => () => {
+      if (modeMenuTimer.current !== null) window.clearTimeout(modeMenuTimer.current);
+    },
+    []
+  );
+  /** Наведение на кнопку или сам выбор держит его открытым; уход — закрывает с паузой. */
+  function hoverModeMenu(inside: boolean) {
+    clearModeMenuTimer();
+    modeMenuTimer.current = window.setTimeout(
+      () => {
+        modeMenuTimer.current = null;
+        applyModeMenu(inside);
+      },
+      inside ? 120 : 280
+    );
+  }
   function chooseMode(next: SidebarMode) {
+    clearModeMenuTimer();
     // Свернуть — сразу, не дожидаясь ухода мыши: человек выбрал и должен
     // увидеть результат.
     clearPeekTimers();
@@ -532,10 +570,21 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
           {/* Закрепление живёт пунктом внизу, а не кнопкой на ребре панели:
               в рейке ребро перекрыто столом, и круглый шеврон там терялся. */}
           {!mobile && (
-            <DropdownMenu modal={false} onOpenChange={onHoldChange(setModeMenuOpen)}>
+            <DropdownMenu modal={false} open={modeMenuOpen} onOpenChange={setModeMenu}>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
+                  // Выбор раскрывается от одного наведения мыши (просьба Nurba
+                  // 25.09.2026) — в любом положении меню, и в «узком» тоже.
+                  onPointerEnter={(e) => e.pointerType === "mouse" && hoverModeMenu(true)}
+                  onPointerLeave={(e) => e.pointerType === "mouse" && hoverModeMenu(false)}
+                  // Открыто наведением — клик не должен тут же его закрыть.
+                  onPointerDown={(e) => {
+                    if (e.pointerType === "mouse" && modeMenuOpen) {
+                      modeMenuPressAt.current = Date.now();
+                      e.preventDefault();
+                    }
+                  }}
                   aria-label={modeLabel}
                   title={collapsed ? modeLabel : undefined}
                   className={cn(
@@ -548,7 +597,13 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
                   {!collapsed && <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" side="top" className="z-[330] w-64">
+              <DropdownMenuContent
+                align="start"
+                side="top"
+                className="z-[330] w-64"
+                onPointerEnter={(e) => e.pointerType === "mouse" && hoverModeMenu(true)}
+                onPointerLeave={(e) => e.pointerType === "mouse" && hoverModeMenu(false)}
+              >
                 <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">Как показывать меню</DropdownMenuLabel>
                 <DropdownMenuRadioGroup value={mode} onValueChange={(v) => chooseMode(v as SidebarMode)}>
                   {SIDEBAR_MODES.map((m) => (
