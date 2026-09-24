@@ -107,8 +107,7 @@ import { ManageOptionsDialog } from "@/components/table/ManageOptionsDialog";
 import { TableSchemaEditor } from "@/components/table/TableSchemaEditor";
 import { RowCommentsPanel } from "@/components/chat/RowCommentsPanel";
 import { RowCardSheet } from "@/components/table/RowCardSheet";
-import { ClientCardDialog } from "@/components/table/ClientCardDialog";
-import { hasRowExtras, rowExtrasSummary, type RowExtras } from "@/utils/rowExtras";
+import { hasRowExtras, type RowExtras } from "@/utils/rowExtras";
 import { BulkActionBar } from "@/components/table/BulkActionBar";
 import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
 import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
@@ -756,7 +755,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   });
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [quickOrderOpen, setQuickOrderOpen] = useState(false);
-  const [clientCardRowId, setClientCardRowId] = useState<string | null>(null);
   const [quickOrderStatus, setQuickOrderStatus] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   // Row ids in the order of a drop that's still being written.
@@ -2538,7 +2536,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       if (e.isComposing || e.key === "Process") return;
       // The row card owns the keyboard while it's open (←/→ navigate rows,
       // Esc closes) — grid shortcuts must not fire underneath it.
-      if (expandedRowId || clientCardRowId) return;
+      if (expandedRowId) return;
       if (e.key === "Escape" && !editingCellRef.current) {
         const pop = document.querySelector("[data-radix-popper-content-wrapper], [role=listbox], [data-radix-select-content]");
         if (pop) return;
@@ -3203,17 +3201,28 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     contextRowIdRef.current = rowId;
   }
 
-  const clientCardRow = clientCardRowId ? (rows.find((r) => r.id === clientCardRowId) ?? null) : null;
-
   function numberCell(row: PageRow, colKey: string | undefined) {
     if (!colKey) return null;
     const raw = row.cells[colKey];
     return raw === null || raw === undefined || raw === "" ? null : parseOptionalNumber(String(raw));
   }
 
+  /** Визитка строки для карточки: extras, а без них — столбцы «Перс»/«Мин»/ссылка. */
+  function clientCardInitial(row: PageRow): RowExtras {
+    return {
+      persons: row.extras?.persons ?? numberCell(row, quickOrderCols.persons?.key),
+      minutes: row.extras?.minutes ?? numberCell(row, quickOrderCols.minutes?.key),
+      note: row.extras?.note ?? null,
+      link: row.extras?.link ?? linkCell(row, quickOrderCols.link?.key),
+      deadline: row.extras?.deadline ?? null,
+    };
+  }
+
   /**
    * Saves «Визитка клиента». Desks that also keep «Перс»/«Минуты» as columns
    * get the same numbers there, in the same write, with one undo step.
+   * Пишется само из секции карточки, поэтому без тоста об успехе — иначе
+   * каждая пауза в печати всплывала бы «Визитка сохранена».
    */
   async function saveClientCard(rowId: string, next: RowExtras | null) {
     const row = rows.find((r) => r.id === rowId);
@@ -3257,9 +3266,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       pushCommand({
         undo: () => fillRowService(workspaceId, page.id, rowId, oldPatch, before),
         redo: () => fillRowService(workspaceId, page.id, rowId, patch, written),
-      });
-      toast.success(written ? "Визитка сохранена" : "Визитка очищена", {
-        description: rowExtrasSummary(written) ?? undefined,
       });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось сохранить визитку");
@@ -4151,7 +4157,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         isExpanded={expandedRowId === row.id}
         coarsePointer={coarsePointer}
         extrasHintKey={extrasHintKey}
-        onOpenClientCard={setClientCardRowId}
+        onOpenClientCard={setExpandedRowId}
         anyChecked={selectedRowIds.size > 0}
         zebra={index % 2 === 1}
         onMarkDone={rowHandlers.onMarkDone}
@@ -4884,35 +4890,22 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
             ? undefined
             : (id) => void handleDeleteRowById(id)
         }
-        clientCardSummary={(row) => rowExtrasSummary(row.extras)}
+        // Визитка — верхней секцией карточки. Замок тот же, что у ячейки
+        // клиента: заказ ведёт ОС — технарь визитку не правит, только видит.
+        clientCard={
+          extrasHintKey
+            ? {
+                initialOf: clientCardInitial,
+                canEditOf: (row) => !cellLockFor(row, extrasHintKey),
+                onSave: saveClientCard,
+              }
+            : undefined
+        }
         extraPanel={(() => {
           const r = rows.find((x) => x.id === expandedRowId);
           return r ? renderRowPanel?.(r) : null;
         })()}
-        onOpenClientCard={extrasHintKey ? setClientCardRowId : undefined}
         hiddenFieldKeys={rowCardHiddenKeys}
-      />
-
-      <ClientCardDialog
-        open={Boolean(clientCardRow)}
-        onOpenChange={(o) => {
-          if (!o) setClientCardRowId(null);
-        }}
-        clientName={clientCardRow && quickOrderCols.client ? String(clientCardRow.cells[quickOrderCols.client.key] ?? "") : ""}
-        subtitle={clientCardRow && quickOrderCols.number ? String(clientCardRow.cells[quickOrderCols.number.key] ?? "") || null : null}
-        initial={
-          clientCardRow
-            ? {
-                persons: clientCardRow.extras?.persons ?? numberCell(clientCardRow, quickOrderCols.persons?.key),
-                minutes: clientCardRow.extras?.minutes ?? numberCell(clientCardRow, quickOrderCols.minutes?.key),
-                note: clientCardRow.extras?.note ?? null,
-                link: clientCardRow.extras?.link ?? linkCell(clientCardRow, quickOrderCols.link?.key),
-                deadline: clientCardRow.extras?.deadline ?? null,
-              }
-            : {}
-        }
-        canEdit={canEdit}
-        onSave={(next) => (clientCardRowId ? saveClientCard(clientCardRowId, next) : Promise.resolve())}
       />
 
       <QuickOrderDialog

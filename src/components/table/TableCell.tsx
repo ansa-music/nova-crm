@@ -39,7 +39,7 @@ interface TableCellProps {
   trailing?: ReactNode;
   /** Добавка слева от значения (способ оплаты у денежной ячейки стола ОС). */
   leading?: ReactNode;
-  /** «Визитка клиента» button in the client column; summary is null while the card is empty. */
+  /** Кнопка «Карточка клиента» в столбце клиента; summary — «до 15 окт · 2 перс», null пока визитка пуста. */
   clientCard?: {
     summary: string | null;
     canEdit: boolean;
@@ -611,32 +611,30 @@ export function TableCell({
               type="button"
               data-client-card
               className={cn(
-                // Визитка — ЗАМЕТНАЯ кнопка (просьба Nurba 24.09.2026: «сделай
-                // более заметную кнопку визитки клиента»): пилюля с рамкой и
-                // заливкой, видна всегда, а не только при наведении. Пустая —
-                // пунктир акцентом с подписью «визитка», чтобы было видно,
-                // куда жать.
-                "ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 text-[10.5px] font-medium tabular-nums transition-colors",
+                // «Карточка клиента» — САМАЯ заметная кнопка строки (просьба
+                // Nurba 25.09.2026: «чтобы сразу в глаза бросалось, 1 клик
+                // открывает, сразу светится»): заливка акцентом и мягкое
+                // кольцо-свечение, как у «Статистики» в шапке; видна всегда.
+                // Один клик открывает карточку строки с визиткой наверху.
+                "ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 text-[10.5px] font-semibold tabular-nums transition-colors",
                 coarsePointer ? "h-8" : "h-6",
                 // Янтарный — «только что приехал с «Заказов», подсветку ещё не
                 // сняли»; фиолетовый — постоянная метка заказа с биржи.
                 // Цвета специально не те, что у статусов.
                 clientCard.summary && clientCard.isNewOrder
-                  ? "border-warning/50 bg-warning/15 text-warning hover:bg-warning/25"
+                  ? "border-warning/50 bg-warning/15 text-warning shadow-[0_0_0_3px_hsl(var(--warning)/0.14)] hover:bg-warning/25"
                   : clientCard.summary && clientCard.fromOrder
-                  ? "border-violet-400/45 bg-violet-400/12 text-violet-200 hover:bg-violet-400/20"
-                  : clientCard.summary
-                  ? "border-primary/35 bg-primary/10 text-primary hover:bg-primary/20"
-                  : "border-dashed border-primary/45 bg-transparent text-primary/85 hover:border-primary hover:bg-primary/10"
+                  ? "border-violet-400/45 bg-violet-400/12 text-violet-200 shadow-[0_0_0_3px_hsl(263_70%_70%/0.16)] hover:bg-violet-400/20"
+                  : "border-primary/45 bg-primary/12 text-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.14)] hover:bg-primary/20"
               )}
               title={
                 clientCard.fromOrder
-                  ? `Заказ с «Заказов»${clientCard.summary ? ` · ${clientCard.summary}` : ""}`
+                  ? `Заказ с «Заказов»${clientCard.summary ? ` · ${clientCard.summary}` : ""} — открыть карточку`
                   : clientCard.summary
-                    ? `Визитка клиента: ${clientCard.summary}`
-                    : "Визитка клиента — персы, минуты, пожелания"
+                    ? `Карточка клиента: ${clientCard.summary}`
+                    : "Карточка клиента — персы, минуты, дедлайн, пожелания"
               }
-              aria-label="Визитка клиента"
+              aria-label="Карточка клиента"
               onMouseDown={(e) => e.stopPropagation()}
               onPointerDown={(e) => e.stopPropagation()}
               onDoubleClick={(e) => e.stopPropagation()}
@@ -649,7 +647,7 @@ export function TableCell({
               {clientCard.summary ? (
                 <span className="max-w-[7.5rem] truncate">{clientCard.summary}</span>
               ) : (
-                <span>визитка</span>
+                <span>карточка</span>
               )}
             </button>
           ) : null}

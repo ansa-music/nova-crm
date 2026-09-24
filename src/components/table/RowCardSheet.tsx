@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Archive, CalendarDays, CheckCheck, ChevronLeft, ChevronRight, Copy, IdCard, Trash2, X } from "lucide-react";
+import { Archive, CalendarDays, CheckCheck, ChevronLeft, ChevronRight, Copy, Trash2, X } from "lucide-react";
 import { StatusBadge } from "@/components/table/StatusBadge";
+import { ClientCardSection } from "@/components/table/ClientCardSection";
 import { splitOptionsByActivity } from "@/utils/columnOptions";
 import { DiskLinkChip } from "@/components/table/DiskLinkChip";
 import { DateCalendar } from "@/components/table/DateCalendar";
@@ -14,6 +15,7 @@ import { DEFAULT_STATUS_OPTIONS, isDoneStatusLabel, isOptionColumn } from "@/uti
 import { normalizeNumericInput } from "@/utils/numberInput";
 import { cn } from "@/utils/cn";
 import { parseHttpUrl } from "@/utils/httpUrl";
+import type { RowExtras } from "@/utils/rowExtras";
 import type { PageColumn, PageRow } from "@/types";
 
 function isReworkStatusLabel(label: string): boolean {
@@ -58,11 +60,17 @@ interface RowCardSheetProps {
   onMarkDone?: (rowId: string) => void;
   onDuplicate?: (rowId: string) => void;
   onDelete?: (rowId: string) => void;
-  /** «3 перс · 2 мин» for the row's client card, null when it's empty. */
-  clientCardSummary?: (row: PageRow) => string | null;
+  /**
+   * «Визитка клиента» — верхняя секция карточки (персы, минуты, дедлайн,
+   * ссылка, пожелания), пишется сама. Нет — у стола нет столбца клиента.
+   */
+  clientCard?: {
+    initialOf: (row: PageRow) => RowExtras;
+    canEditOf: (row: PageRow) => boolean;
+    onSave: (rowId: string, next: RowExtras | null) => Promise<void>;
+  };
   /** Доп. панель над полями — сейчас это «Выдача» на столе ОС. */
   extraPanel?: React.ReactNode;
-  onOpenClientCard?: (rowId: string) => void;
   /**
    * Столбцы, которых нет в «Полях» (их показывает `extraPanel`): на столе ОС —
    * «Технарь», иначе в карточке было два способа выбрать технаря, и второй —
@@ -91,8 +99,7 @@ export function RowCardSheet({
   onMarkDone,
   onDuplicate,
   onDelete,
-  clientCardSummary,
-  onOpenClientCard,
+  clientCard,
   extraPanel,
   hiddenFieldKeys,
 }: RowCardSheetProps) {
@@ -391,7 +398,7 @@ export function RowCardSheet({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="eyebrow mb-2 flex items-center gap-2 text-primary">
-                      Карточка
+                      Карточка клиента
                       {position && (
                         <span className="rounded-full bg-primary/12 px-1.5 py-0.5 font-mono text-[10px] tabular text-primary">
                           {position.index} / {position.total}
@@ -447,23 +454,19 @@ export function RowCardSheet({
                 </div>
               </div>
               <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-4 scrollbar-thin sm:px-6">
-                {extraPanel ? <div className="mb-4">{extraPanel}</div> : null}
-                {onOpenClientCard && (clientCardSummary?.(record) || editableRow) ? (
-                  <button
-                    type="button"
-                    onClick={() => onOpenClientCard(record.id)}
-                    className="mb-4 flex w-full items-center gap-3 rounded-lg border border-primary/30 bg-primary/[0.06] px-3 py-2.5 text-left transition-colors hover:bg-primary/[0.12]"
-                  >
-                    <IdCard className="h-4 w-4 shrink-0 text-primary" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[12px] text-muted-foreground">Визитка клиента</span>
-                      <span className="block truncate text-sm font-medium">
-                        {clientCardSummary?.(record) ?? "Пусто — добавить персов, минуты, пожелания"}
-                      </span>
-                    </span>
-                    <span className="text-xs text-primary">{editableRow ? "Открыть" : "Смотреть"}</span>
-                  </button>
+                {/* Визитка — первой: ради неё карточку и открывают (что просил
+                    клиент), поля таблицы ниже. */}
+                {clientCard ? (
+                  <div className="mb-4">
+                    <ClientCardSection
+                      rowId={record.id}
+                      initial={clientCard.initialOf(record)}
+                      canEdit={editableRow && clientCard.canEditOf(record)}
+                      onSave={(next) => clientCard.onSave(record.id, next)}
+                    />
+                  </div>
                 ) : null}
+                {extraPanel ? <div className="mb-4">{extraPanel}</div> : null}
                 {rest.length > 0 && (
                   <div>
                     <p className="eyebrow mb-2">Поля</p>

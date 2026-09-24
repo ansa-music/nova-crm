@@ -78,7 +78,7 @@ interface TableRowProps {
   expandedColKey?: string | null;
   gutterWidth?: number;
   extrasHintKey?: string | null;
-  /** Opens «Визитка клиента» for this row (the client column's ID-card button). */
+  /** Кнопка «Карточка клиента» в столбце клиента — открывает карточку строки (визитка наверху). */
   onOpenClientCard?: (rowId: string) => void;
   /** Some row is ticked — keep every checkbox visible so more can be added. */
   anyChecked?: boolean;
