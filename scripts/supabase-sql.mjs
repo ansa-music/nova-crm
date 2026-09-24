@@ -118,11 +118,17 @@ async function realtimeHasRows() {
 async function apply() {
   const done = await appliedMap();
   let changed = 0;
+  // Изменился файл — накатываем и ВСЕ файлы после него: поздние файлы
+  // перекрывают функции ранних (`desk_rows_guard` из 20261001_tech_fill.sql
+  // заменяет версию из 20260923_desk_rows.sql), и повтор одного раннего файла
+  // молча вернул бы старую версию. Файлы повторяемые, лишний накат безопасен.
+  let cascade = false;
   for (const file of migrationFiles()) {
-    if (done.get(file.name) === file.sha) {
+    if (!cascade && done.get(file.name) === file.sha) {
       console.log(`  = ${file.name} — уже накатан`);
       continue;
     }
+    cascade = true;
     console.log(`  → ${file.name} — накатываю…`);
     await run(
       `${file.sql}\n;\ninsert into public.nova_sql_applied (file, sha256, applied_at) values (${lit(file.name)}, ${lit(file.sha)}, now())\n` +

@@ -16,6 +16,7 @@ import {
   MessageCircle,
   MessageSquare,
   PackageCheck,
+  PenLine,
   Plus,
   RefreshCw,
   ScanEye,
@@ -196,6 +197,9 @@ function navGates(inp: NavInputs) {
   const showOsDesksNav = permissions.isResolved;
   // «Выдачи ОС» — мониторинг выборочных выдач: от Тимлида и выше.
   const showOsDispatchNav = permissions.isResolved && hasFullAccess(permissions.role);
+  // «Правка столов» — кто заполняет столы технарей: только НАСТОЯЩИЙ Owner
+  // (режим пишет база только ему — rows_set_desk_mode).
+  const showDeskEditingNav = permissions.isResolved && (permissions.isWorkspaceOwner || permissions.realRole === "owner");
 
   // «Где дом» — раньше это считали порознь HomePage и Sidebar. Без своего
   // стола дом — список столов (а не «/»: HomePage сама редиректит на home.to,
@@ -229,6 +233,7 @@ function navGates(inp: NavInputs) {
     showOsDeskNav,
     showOsDesksNav,
     showOsDispatchNav,
+    showDeskEditingNav,
     homeTo,
     homeLabel,
     homeIcon,
@@ -286,6 +291,7 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
           badge: g.showOsDispatchNav ? sig.osDispatchUnseen : 0,
         },
         { key: "technicians", to: "/technicians", label: "Технари", icon: HardHat, show: g.showTechniciansNav },
+        { key: "desk-editing", to: "/desk-editing", label: "Правка столов", icon: PenLine, show: g.showDeskEditingNav },
       ],
     },
     {

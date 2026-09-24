@@ -36,6 +36,7 @@ import {
   loadOsDeskPage,
   loadOsDesksPage,
   loadOsDispatchPage,
+  loadDeskEditingPage,
   loadPeoplePage,
   loadSchedulePage,
   loadSettingsPage,
@@ -63,6 +64,7 @@ const OsDeskPage = lazy(loadOsDeskPage);
 const OsDesksPage = lazy(loadOsDesksPage);
 const AbsPage = lazy(loadAbsPage);
 const OsDispatchPage = lazy(loadOsDispatchPage);
+const DeskEditingPage = lazy(loadDeskEditingPage);
 // Скрытая страница Owner: в меню и поиске её нет, только прямой адрес.
 const DeskObserversPage = lazy(() => import("@/pages/DeskObserversPage"));
 const SchedulePage = lazy(loadSchedulePage);
@@ -260,6 +262,7 @@ function AppShell() {
             <Route path="os-desk" element={<OsDeskPage />} />
             <Route path="os-desks" element={<OsDesksPage />} />
             <Route path="os-dispatch" element={<OsDispatchPage />} />
+            <Route path="desk-editing" element={<DeskEditingPage />} />
             <Route path="observers" element={<DeskObserversPage />} />
             <Route path="schedule" element={<SchedulePage />} />
             <Route path="overview" element={<Navigate to="/dashboard" replace />} />

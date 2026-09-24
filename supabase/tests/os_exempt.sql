@@ -37,8 +37,10 @@ select tst.expect('с исключением технарь правит цен�
   tst.try('T1', $q$select rows_patch('W','P1','','ex1','{"price":"500"}'::jsonb)$q$), 'ok:1');
 select tst.expect('с исключением технарь удаляет свою строку',
   tst.try('T1', $q$delete from desk_rows where workspace_id='W' and page_id='P1' and tab_id='' and id='ex2'$q$), 'ok:1');
-select tst.expect('заказ ОС в столе-исключении технарь по-прежнему НЕ правит',
-  tst.try('T1', $q$update desk_rows set cells = cells || '{"status":"done"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='exm'$q$), 'error');
+-- С 24.09.2026 (20261001_tech_fill.sql) стол-исключение открывает технарю и
+-- строки-заказы ОС: «заполняет сам» значит весь свой стол.
+select tst.expect('заказ ОС в столе-исключении технарь теперь правит',
+  tst.try('T1', $q$update desk_rows set cells = cells || '{"status":"done"}'::jsonb where workspace_id='W' and page_id='P1' and tab_id='' and id='exm'$q$), 'ok:1');
 select tst.expect('заказ ОС в столе-исключении технарь НЕ удаляет',
   tst.try('T1', $q$delete from desk_rows where workspace_id='W' and page_id='P1' and tab_id='' and id='exm'$q$), 'deny');
 select tst.expect('другой технарь без исключения по-прежнему заперт',

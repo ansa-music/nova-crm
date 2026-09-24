@@ -106,6 +106,7 @@ import { OsDispatchChoiceDialog } from "@/components/os/OsDispatchChoiceDialog";
 import { OsOrderRequestsPanel } from "@/components/os/OsOrderRequestsPanel";
 import { TechPickerSheet } from "@/components/os/TechPickerSheet";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
+import { useDeskModeSupported } from "@/services/rows/deskMode";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { DESK_ROWS_TABLE, supabaseRows } from "@/lib/supabaseRows";
 import {
@@ -755,6 +756,18 @@ export default function DynamicTablePage() {
     // Owner разрешил технарю править этот стол самому.
     !page.techEditable &&
     !(permissions.isWorkspaceOwner || permissions.realRole === "owner"),
+  );
+  // «Технари заполняют сами» (вкладка Owner «Правка столов»): всем разом
+  // (`workspace.techFillsAll`) или этому столу (`page.techEditable`) —
+  // строки-заказы ОС технарь тогда тоже правит; базу держит `rows_tech_fills`.
+  // Пока база не знает этот режим (SQL 20261001 не вставлен), строки ОС в
+  // Supabase заперты — интерфейс их не открывает, иначе правка упала бы.
+  const deskModeSupported = useDeskModeSupported(activeWorkspaceId);
+  const techFills = Boolean(
+    page &&
+    !page.osDesk &&
+    (activeWorkspace?.techFillsAll || page.techEditable) &&
+    deskModeSupported === true,
   );
   const myOrders = useMyOrderRows(
     activeWorkspaceId,
@@ -1781,6 +1794,7 @@ export default function DynamicTablePage() {
                 // Заказы заводит только ОС: у технаря в его столе нет
                 // «Добавить строку» и «Быстрый заказ» (Owner не ограничиваем).
                 ordersFromOsOnly={ordersFromOsOnly}
+                techFills={techFills}
                 cellPickerKeys={isMyOsDesk ? osTechPickerKeys : undefined}
                 lockedKeys={osLockedKeys}
                 cellAddon={

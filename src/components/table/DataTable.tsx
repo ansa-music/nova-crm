@@ -401,6 +401,11 @@ interface DataTableProps {
    */
   ordersFromOsOnly?: boolean;
   /**
+   * Технарь заполняет этот стол сам (Owner: «технари заполняют сами» — всем
+   * или этому столу): строки-заказы ОС он тоже правит (см. `OsManagedContext`).
+   */
+  techFills?: boolean;
+  /**
    * Сводка по видимым строкам для шапки стола («Общий · Готово · В работе ·
    * Ждём»). Зовётся только когда числа изменились, не на каждый рендер.
    */
@@ -470,7 +475,7 @@ function normalizeContact(raw: string, type: "phone" | "email" | string): string
   return v.toLowerCase();
 }
 
-export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, onSummaryChange, onActionsChange, cellPickerKeys, onOpenCellPicker, cellAction, cellAddon, lockedKeys }: DataTableProps) {
+export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, techFills = false, onSummaryChange, onActionsChange, cellPickerKeys, onOpenCellPicker, cellAction, cellAddon, lockedKeys }: DataTableProps) {
   // Внешний выбор ячейки: колбэк стабилен (через ref), иначе каждый рендер
   // стола перерисовывал бы все строки — TableRow сравнивает пропсы.
   const cellPickerRef = useRef(onOpenCellPicker);
@@ -514,7 +519,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }, [cellActionTickMs, cellActionPulse]);
   // Режим «заказы ведёт ОС» — один объект на всю таблицу, чтобы правило
   // замка считалось в одном месте (см. utils/managedRow.ts).
-  const lockCtx = useMemo(() => ({ osManaged: ordersFromOsOnly }), [ordersFromOsOnly]);
+  const lockCtx = useMemo(() => ({ osManaged: ordersFromOsOnly, techFills }), [ordersFromOsOnly, techFills]);
   // Тот же замок, но для самой ячейки: ссылка стабильна, иначе строки
   // перерисовывались бы на каждый рендер таблицы (memo в TableRow).
   const cellLockFor = useCallback(

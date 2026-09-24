@@ -6,7 +6,7 @@ import { computeOsFieldKeys, sameOsFieldKeys } from "@/utils/osFieldKeys";
 import { sbFetchAllPageRows, sbFetchRows, sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { buildMirrorCells, mirrorSyncHash } from "@/services/rows/osOrderMirror";
-import { OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
+import { OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
 import { isBlankRow } from "@/utils/blankRow";
 import { personLabel } from "@/utils/peopleDesks";
 import type { OsFieldKeys, PageRow, WorkspaceMember, WorkspacePage } from "@/types";
@@ -99,6 +99,8 @@ async function ensureOsFieldKeys(
 export async function adoptOrdersToOsDesks(input: {
   workspaceId: string;
   members: readonly WorkspaceMember[];
+  /** Только эти столы («Передать ОС» у одного технаря на «Правке столов»); нет — все. */
+  pageIds?: readonly string[];
   onProgress?: (p: OsAdoptionProgress) => void;
 }): Promise<OsAdoptionReport> {
   const { workspaceId, members } = input;
@@ -129,7 +131,10 @@ export async function adoptOrdersToOsDesks(input: {
   // Круг столов — тот же, что у автопилота месячных вкладок (`isMonthlyDesk`):
   // стол Admin или дашборд месячных вкладок не имеют вовсе, и жаловаться на
   // них в отчёте — шум, за которым не видно настоящих отставших столов.
-  const candidates = pages.filter((p) => !p.osDesk && !p.inactive && p.responsibleUserId && isMonthlyDesk(p, [...members]));
+  const only = input.pageIds ? new Set(input.pageIds) : null;
+  const candidates = pages.filter(
+    (p) => !p.osDesk && !p.inactive && p.responsibleUserId && isMonthlyDesk(p, [...members]) && (!only || only.has(p.id))
+  );
   const techDesks = candidates.filter((p) => currentMonthSubPageId(p, monthKey));
   for (const stale of candidates.filter((p) => !currentMonthSubPageId(p, monthKey))) {
     report.errors.push(
@@ -295,6 +300,8 @@ export async function adoptOrdersToOsDesks(input: {
  */
 export async function releaseAllOrders(input: {
   workspaceId: string;
+  /** Для уборки адресов у строк-источников ОС (ник технаря стола). */
+  members?: readonly WorkspaceMember[];
   onProgress?: (p: OsAdoptionProgress) => void;
 }): Promise<{ released: number; errors: string[] }> {
   const { workspaceId } = input;
@@ -310,7 +317,7 @@ export async function releaseAllOrders(input: {
     done += 1;
     input.onProgress?.({ done, total: desks.length, label: page.name });
     try {
-      released += await releaseDeskOrders(workspaceId, page);
+      released += await releaseDeskOrders(workspaceId, page, techNickOf(input.members, page));
     } catch (error) {
       errors.push(`«${page.name}» — ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -323,7 +330,7 @@ export async function releaseAllOrders(input: {
  * текущему месяцу: заказ, выданный в сентябре, в октябре лежит в прошлой
  * вкладке, и аварийная кнопка обязана расстегнуть и его.
  */
-export async function releaseDeskOrders(workspaceId: string, page: WorkspacePage): Promise<number> {
+export async function releaseDeskOrders(workspaceId: string, page: WorkspacePage, techNick = ""): Promise<number> {
   const byTab = await sbFetchAllPageRows(workspaceId, page.id);
   let released = 0;
   for (const [tabId, rows] of byTab) {
@@ -331,7 +338,56 @@ export async function releaseDeskOrders(workspaceId: string, page: WorkspacePage
       if (!row.osUid) continue;
       await sbPatchRow(workspaceId, page.id, tabId || null, row.id, { cells: {}, releaseOrder: true });
       released += 1;
+      // У строки-источника ОС снимаем адрес копии и помечаем «у этого технаря
+      // заказ забрали» (как при потере, `osLostFor`): иначе проход стола ОС
+      // увидел бы пропавшую копию, показал бы ОС тост о потере, а заказ
+      // «у того же технаря» считал бы выданным. Не вышло — не страшно: проход
+      // сам придёт к тому же через ветку `lost`.
+      if (techNick && row.srcPageId && row.srcRowId) {
+        await sbPatchRow(workspaceId, row.srcPageId, row.srcTabId || null, row.srcRowId, {
+          cells: { [OS_LOST_FOR_KEY]: techNick, [OS_STATUS_SENT_KEY]: "" },
+          clearMirror: true,
+        }).catch(() => undefined);
+      }
     }
   }
   return released;
+}
+
+function techNickOf(members: readonly WorkspaceMember[] | undefined, page: WorkspacePage): string {
+  return members?.find((m) => m.uid === page.responsibleUserId)?.techNickValue ?? "";
+}
+
+export interface DeskOrderCounts {
+  /** Заполненных строк во вкладке текущего месяца. */
+  total: number;
+  /** Строк-заказов под управлением ОС. */
+  managed: number;
+  /** Строк с ником ОС, которые ещё можно передать ОС; null — карта столбцов стола не от этой вкладки. */
+  adoptable: number | null;
+  /** Вкладки текущего месяца у стола ещё нет. */
+  noMonthTab: boolean;
+}
+
+/**
+ * Сколько заказов стола ведёт ОС и сколько ещё можно передать — для списка на
+ * «Правке столов». Только вкладка ТЕКУЩЕГО месяца, строки — из Supabase
+ * (квоту Firestore не тратит). Ник ОС ищется по карте столбцов стола
+ * (`osFieldKeys`), и только если она от этой же вкладки.
+ */
+export async function countDeskOrders(workspaceId: string, page: WorkspacePage): Promise<DeskOrderCounts> {
+  const tabId = currentMonthSubPageId(page, currentMonthKey());
+  if (!tabId) return { total: 0, managed: 0, adoptable: null, noMonthTab: true };
+  const rows = await sbFetchRows(workspaceId, page.id, tabId);
+  const keys = page.osFieldKeys && page.osFieldKeys.tabId === tabId && page.osFieldKeys.os ? page.osFieldKeys : null;
+  let total = 0;
+  let managed = 0;
+  let adoptable = 0;
+  for (const row of rows) {
+    if (isBlankRow(row)) continue;
+    total += 1;
+    if (row.osUid) managed += 1;
+    else if (keys && cellText(row, keys.os)) adoptable += 1;
+  }
+  return { total, managed, adoptable: keys ? adoptable : null, noMonthTab: false };
 }

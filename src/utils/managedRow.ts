@@ -34,6 +34,14 @@ export function isManagedRow(row: Pick<PageRow, "osUid"> | null | undefined): bo
  */
 export interface OsManagedContext {
   osManaged?: boolean;
+  /**
+   * Технарь заполняет этот стол сам (Owner включил «технари заполняют сами»
+   * для всех или для этого стола — `workspace.techFillsAll` / `page.techEditable`):
+   * ячейки строк-заказов ОС он тоже правит, статус проход стола ОС подтянет к
+   * ОС. В базе то же держит ветка `rows_tech_fills` в `desk_rows_guard`
+   * (20261001_tech_fill.sql).
+   */
+  techFills?: boolean;
 }
 
 /** Почему ячейку нельзя править. null — можно. */
@@ -57,6 +65,8 @@ export function cellLockReason(
   if (viewer.isOwner) return null;
   if (row.osUid === viewer.uid) return null;
   if (TECH_EDITABLE_CELL_KEYS.includes(colKey)) return null;
+  // Тимлид и здесь ставит только статус — его ветка в базе стоит раньше.
+  if (ctx?.techFills && !viewer.isTeamLead) return null;
   if (viewer.isTeamLead && row.statusKey && colKey === row.statusKey) return null;
   if (viewer.isTeamLead) return "В заказе ОС Тимлид меняет только статус";
   return "Этот заказ ведёт ОС — статус, сумму и клиента меняет он";

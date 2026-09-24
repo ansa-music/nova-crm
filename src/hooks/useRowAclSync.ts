@@ -7,6 +7,7 @@ import { fetchDeskObserverUidsFresh } from "@/services/deskObserverService";
 import { fetchMembersFresh } from "@/services/memberService";
 import { desiredPageRow, noteAclSync, syncRowAcl, type AclSyncInput } from "@/services/rows/rowAclService";
 import { reconcileSupabaseLive, reconcileSupabaseOsManaged } from "@/services/rows/rowsMigrationService";
+import { deskModeOf, reconcileSupabaseDeskMode } from "@/services/rows/deskMode";
 import type { Role } from "@/types";
 
 /** Пауза после последнего изменения: правка доступа — это обычно серия щелчков. */
@@ -58,8 +59,9 @@ export function useRowAclSync() {
   }, [active, allPages, management, realRole, me]);
 
   const osManaged = Boolean(activeWorkspace?.osManagedDesks);
-  const latest = useRef({ allPages, ownerId, realRole, me, osManaged });
-  latest.current = { allPages, ownerId, realRole, me, osManaged };
+  const deskMode = deskModeOf(activeWorkspace);
+  const latest = useRef({ allPages, ownerId, realRole, me, osManaged, deskMode });
+  latest.current = { allPages, ownerId, realRole, me, osManaged, deskMode };
 
   const run = useRef(async (wsId: string, withMembers: boolean) => {
     const ctx = latest.current;
@@ -76,7 +78,11 @@ export function useRowAclSync() {
           // Флаг «заказы ведёт ОС» мог остаться только в Firestore — например
           // его включили до того, как накатили SQL. Молчащий замок хуже
           // отсутствующего: технарь думает, что статус закрыт, а он открыт.
-          if (await reconcileSupabaseOsManaged(wsId, ctx.osManaged).catch(() => false)) {
+          // Режим «кто заполняет столы» (os / tech / mixed) — новой функцией;
+          // её нет (SQL 20261001 не вставлен) — старый флаг os_managed.
+          const modeFixed = await reconcileSupabaseDeskMode(wsId, ctx.deskMode).catch(() => false);
+          if (modeFixed) console.warn("[rows] режим «кто заполняет столы» в Supabase догнал Firestore");
+          if (modeFixed === null && (await reconcileSupabaseOsManaged(wsId, ctx.osManaged).catch(() => false))) {
             console.warn("[rows] флаг «заказы ведёт ОС» в Supabase догнал Firestore");
           }
           // Столы, где технарь правит сам (page.techEditable), — та же сверка.

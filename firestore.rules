@@ -253,16 +253,28 @@ service cloud.firestore {
     }
 
     // Owner — всё; ОС этого заказа — всё; Тимлид — РОВНО ячейку статуса
-    // («Успешка» по просьбе); технарь — только свои поля и свою просьбу.
-    function managedRowUpdateOk(workspaceId) {
+    // («Успешка» по просьбе); технарь — только свои поля и свою просьбу, а
+    // если Owner разрешил ему заполнять стол самому (всем — techFillsAll у
+    // workspace, выборочно — techEditable у стола), то и ячейки, визитку,
+    // вложения заказа (как `rows_tech_fills` в Postgres, 20261001_tech_fill.sql).
+    function managedRowUpdateOk(workspaceId, pageData) {
       return isOwner(workspaceId)
         || resource.data.get('osUid', '') == request.auth.uid
         || (isTeamLead(workspaceId)
           && rowKeysOnly(['cells', 'updatedAt'])
           && rowCellsOnly([resource.data.get('statusKey', '')]))
+        || (!isTeamLead(workspaceId)
+          && techFillsHere(workspaceId, pageData)
+          && rowKeysOnly(['cells', 'updatedAt', 'successRequestedAt', 'successRequestedBy', 'highlight', 'height', 'extras', 'attachments', 'filledAt'])
+          && request.resource.data.get('successRequestedBy', request.auth.uid) == request.auth.uid)
         || (rowKeysOnly(['cells', 'updatedAt', 'successRequestedAt', 'successRequestedBy'])
           && rowCellsOnly(['techLink', 'techNote'])
           && request.resource.data.get('successRequestedBy', request.auth.uid) == request.auth.uid);
+    }
+
+    function techFillsHere(workspaceId, pageData) {
+      return pageData.get('techEditable', false) == true
+        || get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('techFillsAll', false) == true;
     }
 
     // Завести строку с чужой меткой нельзя: иначе технарь пометил бы свою
@@ -387,8 +399,11 @@ service cloud.firestore {
       // коллекций (sbCollections — счётчики столов и др. в Supabase): это
       // тот же переключатель и тот же откат, что у строк. И не касса:
       // способы оплаты с комиссией и премии технарям настраивает только Owner.
+      // И не режим «кто заполняет столы» (osManagedDesks/techFillsAll): в базе
+      // его пишет только Owner (rows_set_desk_mode), а сессия Owner сверяет
+      // базу ПО Firestore — Тимлид иначе переключал бы замок через неё.
       allow update: if isTeamLead(workspaceId)
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['ownerId', 'rowsBackend', 'rowsMigrationAt', 'sbCollections', 'paymentMethods', 'techBonuses', 'osPay', 'scheduleSettings']);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['ownerId', 'rowsBackend', 'rowsMigrationAt', 'sbCollections', 'paymentMethods', 'techBonuses', 'osPay', 'scheduleSettings', 'osManagedDesks', 'techFillsAll']);
       // Deleting the workspace stays Owner-only — no Тимлид branch.
       allow delete: if isOwner(workspaceId);
 
@@ -696,7 +711,7 @@ service cloud.firestore {
             canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
             rowsWritableHere(workspaceId) &&
             osStatusWriteOk(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
-            (!isManagedRow() || managedRowUpdateOk(workspaceId));
+            (!isManagedRow() || managedRowUpdateOk(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data));
           allow delete: if (isMember(workspaceId) &&
             canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
             rowsWritableHere(workspaceId) && managedRowDeleteOk(workspaceId) &&
@@ -745,7 +760,7 @@ service cloud.firestore {
               canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
               rowsWritableHere(workspaceId) &&
               osStatusWriteOk(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
-              (!isManagedRow() || managedRowUpdateOk(workspaceId));
+              (!isManagedRow() || managedRowUpdateOk(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data));
             allow delete: if (isMember(workspaceId) &&
               canEditPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
               rowsWritableHere(workspaceId) && managedRowDeleteOk(workspaceId) &&
