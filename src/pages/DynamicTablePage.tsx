@@ -1205,13 +1205,11 @@ export default function DynamicTablePage() {
   function osRequestCellView(row: PageRow): CellActionView | null {
     const request = osRequestByRow.get(row.id);
     if (!request) return null;
-    const label =
-      request.kind === "delete"
-        ? "Просит: удалить"
-        : `Просит: ${request.statusLabel ?? request.status ?? ""}`;
+    // Только значок в конце ячейки (Nurba 25.09.2026: подпись «Просит: Ждём
+    // оплату» закрывала весь статус); что просят — во всплывашке и в окне.
     return {
       kind: `req:${request.id}`,
-      label,
+      label: "",
       title: `${(() => {
         const tech = members.find((m) => m.uid === request.techUid);
         return tech ? displayNameOf(tech) : "Технарь";
@@ -1664,7 +1662,8 @@ export default function DynamicTablePage() {
     if (pending && pending.kind === "status" && pending.status !== current) {
       return {
         kind: "req-pending",
-        label: `Просит: ${pending.statusLabel ?? pending.status}`,
+        // Значок без подписи: подпись закрывала сам статус в ячейке.
+        label: "",
         title: `Вы попросили ОС поставить «${pending.statusLabel ?? pending.status}». Нажмите, чтобы отозвать`,
         tone: "warning",
         icon: "hand",
@@ -1673,7 +1672,7 @@ export default function DynamicTablePage() {
     if (pending && pending.kind === "delete") {
       return {
         kind: "req-pending",
-        label: "Просит: удалить",
+        label: "",
         title: "Вы попросили ОС удалить заказ",
         tone: "warning",
         icon: "hand",
