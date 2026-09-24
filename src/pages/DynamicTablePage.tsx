@@ -2477,7 +2477,7 @@ export default function DynamicTablePage() {
                           if (colKey !== osKeys.upsell) return chip;
                           const upsellValue = row.cells[osKeys.upsell];
                           return (
-                            <span className="flex min-w-0 items-center gap-1">
+                            <span className="flex min-w-0 items-center gap-0.5">
                               {chip}
                               <OsUpsellDate
                                 slot={osSlotsOf(row).upsell}

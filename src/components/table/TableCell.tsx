@@ -209,6 +209,7 @@ export function TableCell({
   }
 
   const isNumeric = column.type === "number" || column.type === "currency";
+  const stackedLeading = Boolean(leading) && isNumeric && !clientCard;
   const stringValue = value === null || value === undefined ? "" : String(value);
   const duplicateBadge = isDuplicate ? (
     <button
@@ -588,6 +589,10 @@ export function TableCell({
             // свой минимум не нужен; на таче цель ≥44px остаётся.
             "flex h-full min-h-11 w-full items-center px-2.5 text-[13px] leading-snug sm:min-h-0",
             isNumeric && "justify-end font-mono tabular-nums",
+            // Сумма с добавкой (способ оплаты, дата апсейла на столе ОС) — в
+            // ДВЕ строки: сумма сверху, добавка мелко под ней. В одну строку
+            // чип, дата и сумма налезали друг на друга (жалоба Nurba 25.09.2026).
+            stackedLeading && "flex-col items-end justify-center gap-0.5 leading-none",
             showFull && "absolute inset-0 z-30 items-start bg-card py-1.5 shadow-md"
           )}
           title={column.type === "url" ? (diskUrl?.href ?? "") : stringValue}
@@ -598,7 +603,7 @@ export function TableCell({
             if (stringValue.length > 36) setExpanded((v) => !v);
           }}
         >
-          {leading && !showFull ? <span className="mr-auto flex min-w-0 shrink items-center pr-1.5">{leading}</span> : null}
+          {leading && !showFull && !stackedLeading ? <span className="mr-auto flex min-w-0 shrink items-center pr-1.5">{leading}</span> : null}
           {showFull ? (
             <span className="whitespace-pre-wrap break-words text-[13px]">
               <HighlightText text={stringValue} query={searchQuery} />
@@ -608,9 +613,14 @@ export function TableCell({
             // место кнопке карточки, и в узкой ячейке (телефон) она
             // выталкивала имя за край — «имя клиента не видно» (Nurba).
             <span className="flex min-w-0 flex-1 items-center">{renderDisplay()}</span>
+          ) : stackedLeading ? (
+            <span className="max-w-full truncate">{renderDisplay()}</span>
           ) : (
             renderDisplay()
           )}
+          {stackedLeading && !showFull ? (
+            <span className="flex max-w-full min-w-0 items-center justify-end gap-1 font-sans">{leading}</span>
+          ) : null}
           {clientCard && !showFull && (clientCard.summary || clientCard.canEdit) ? (
             <button
               type="button"

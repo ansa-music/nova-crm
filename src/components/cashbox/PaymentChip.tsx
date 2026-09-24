@@ -48,13 +48,19 @@ export function PaymentChip({
   const chip = (
     <span
       className={cn(
-        "inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border text-[10px] font-medium leading-none",
-        compact ? "h-5 px-1.5" : "h-7 px-2.5 text-xs",
+        "inline-flex max-w-full min-w-0 items-center gap-1 border font-medium leading-none",
+        compact
+          ? // В ячейке — строка под суммой, без пилюли: рамка с заливкой
+            // съедала место и налезала на сумму и дату (Nurba 25.09.2026).
+            "h-[15px] rounded-[4px] px-1 text-[10.5px] [@media(pointer:coarse)]:h-6 [@media(pointer:coarse)]:text-xs"
+          : "h-7 rounded-full px-2.5 text-xs",
         label
-          ? "border-border bg-muted/60 text-foreground"
+          ? compact
+            ? "border-transparent text-foreground/85 hover:border-border hover:bg-accent"
+            : "border-border bg-muted/60 text-foreground"
           : compact
             ? // В ячейке таблицы пустой чип проявляется при наведении на строку.
-              "border-dashed border-border px-1.5 text-muted-foreground opacity-50 group-hover/row:opacity-100"
+              "border-dashed border-border text-muted-foreground opacity-50 group-hover/row:opacity-100"
             : // В карточке строки наведения на строку нет — там пустой чип
               // был полупрозрачным всегда и «пропадал» рядом с суммой
               // (жалоба Nurba 25.09.2026). Здесь это явная кнопка.
