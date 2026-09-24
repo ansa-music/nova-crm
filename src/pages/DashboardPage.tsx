@@ -48,6 +48,7 @@ import {
   recentMonthKeys,
 } from "@/utils/overviewStats";
 import { PageHeader } from "@/components/common/PageHeader";
+import { StatsModeSwitch } from "@/components/chat/ChatModeSwitch";
 import { effectiveTechLoadKinds, techLoadKindForOption } from "@/utils/techLoad";
 import { ratingMonthKey, type StatusOption } from "@/types";
 import { techBonusesOf } from "@/utils/payment";
@@ -211,6 +212,7 @@ export default function DashboardPage() {
   if (!permissions.isResolved || (loads === null && !loadsFailed)) {
     return (
       <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-4 p-5 sm:p-8">
+        <StatsModeSwitch />
         <Skeleton className="h-8 w-60" />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -232,6 +234,7 @@ export default function DashboardPage() {
 
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-4 p-5 sm:p-8">
+      <StatsModeSwitch />
       <PageHeader
         className="mb-0"
         eyebrow={`Дашборд · ${monthName}`}

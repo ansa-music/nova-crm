@@ -4,6 +4,7 @@ import { Crown, Gift, HardHat, Medal, Settings2, Target, TrendingUp, UserRound }
 import { EmptyState } from "@/components/common/EmptyState";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
+import { StatsModeSwitch } from "@/components/chat/ChatModeSwitch";
 import { BonusChip, formatMoneyCompact, ordersWord, Panel, StatTile } from "@/components/overview/OverviewParts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
@@ -125,6 +126,7 @@ export default function AbsPage() {
   if (!permissions.isResolved || (loads === null && !failed)) {
     return (
       <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-4 p-5 sm:p-8">
+        <StatsModeSwitch />
         <Skeleton className="h-8 w-60" />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -138,6 +140,7 @@ export default function AbsPage() {
 
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-4 p-5 sm:p-8">
+      <StatsModeSwitch />
       <PageHeader
         className="mb-0"
         eyebrow={`ABS · ${monthName}`}

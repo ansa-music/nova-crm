@@ -1,7 +1,6 @@
-import { NavLink } from "react-router";
-import { MessageCircle, MessageSquare } from "lucide-react";
+import { LayoutDashboard, MessageCircle, MessageSquare, Trophy } from "lucide-react";
+import { PageModeSwitch } from "@/components/common/PageModeSwitch";
 import { useNavModel } from "@/hooks/useNavModel";
-import { cn } from "@/utils/cn";
 
 /**
  * «Общий / Личные» — переключатель одного пункта меню «Чат» (просьба Nurba
@@ -12,32 +11,31 @@ import { cn } from "@/utils/cn";
  */
 export function ChatModeSwitch({ className }: { className?: string }) {
   const { chatUnread } = useNavModel();
-  const tabs = [
-    { to: "/chat", label: "Общий", icon: MessageSquare, count: chatUnread.workspace },
-    { to: "/messages", label: "Личные", icon: MessageCircle, count: chatUnread.private },
-  ];
   return (
-    <nav className={cn("inline-flex rounded-lg border border-border p-0.5", className)} aria-label="Чат">
-      {tabs.map((tab) => (
-        <NavLink
-          key={tab.to}
-          to={tab.to}
-          className={({ isActive }) =>
-            cn(
-              "inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-colors sm:h-8",
-              isActive ? "bg-primary/[0.12] text-primary" : "text-muted-foreground hover:text-foreground"
-            )
-          }
-        >
-          <tab.icon className="h-3.5 w-3.5" />
-          {tab.label}
-          {tab.count > 0 && (
-            <span className="rounded-full bg-primary px-1.5 font-mono text-[10px] font-semibold leading-4 text-primary-foreground">
-              {tab.count > 9 ? "9+" : tab.count}
-            </span>
-          )}
-        </NavLink>
-      ))}
-    </nav>
+    <PageModeSwitch
+      label="Чат"
+      className={className}
+      tabs={[
+        { to: "/chat", label: "Общий", icon: MessageSquare, count: chatUnread.workspace },
+        { to: "/messages", label: "Личные", icon: MessageCircle, count: chatUnread.private },
+      ]}
+    />
+  );
+}
+
+/**
+ * «Дашборд / ABS система» — один пункт меню «Дашборд · ABS» (просьба Nurba
+ * 25.09.2026: «объедини так же Дашборд и ABS систему в одну вкладку»).
+ */
+export function StatsModeSwitch({ className }: { className?: string }) {
+  return (
+    <PageModeSwitch
+      label="Дашборд и ABS"
+      className={className}
+      tabs={[
+        { to: "/dashboard", label: "Дашборд", icon: LayoutDashboard },
+        { to: "/abs", label: "ABS система", icon: Trophy },
+      ]}
+    />
   );
 }

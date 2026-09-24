@@ -52,7 +52,6 @@ import { useOsPendingOrderRequests } from "@/hooks/useOsPendingOrderRequests";
 
 /** Пути разделов страницы «Ещё» — на них в меню горит сам пункт «Ещё». */
 const MORE_PAGE_PATHS = [
-  "/dashboard",
   "/os-dispatch",
   "/desk-editing",
   "/people",
@@ -320,7 +319,16 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
         },
         // График — тоже частое (та же просьба): смены и выходные на сегодня.
         { key: "schedule", to: "/schedule", label: "График", icon: CalendarDays },
-        { key: "abs", to: "/abs", label: "ABS система", icon: Trophy },
+        // «Дашборд» и «ABS система» — ОДИН пункт (просьба Nurba 25.09.2026:
+        // «объедини так же Дашборд и ABS в одну вкладку»): горит на обоих
+        // адресах, внутри переключатель «Дашборд / ABS система».
+        {
+          key: "dashboard",
+          to: "/dashboard",
+          label: "Дашборд · ABS",
+          icon: LayoutDashboard,
+          activeOn: (pathname) => pathMatches(pathname, "/dashboard") || pathMatches(pathname, "/abs"),
+        },
         // Всё остальное — отдельной страницей (просьба Nurba 25.09.2026), а в
         // меню один пункт. Бейдж — сумма непрочитанного с той страницы.
         {
@@ -340,7 +348,9 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
       key: MORE_SECTION_KEY,
       title: "Остальное",
       items: [
-        { key: "dashboard", to: "/dashboard", label: "Дашборд", icon: LayoutDashboard },
+        // «ABS система» — вкладка пункта «Дашборд · ABS»; скрытый пункт — только
+        // ради заголовка экрана «/abs» (buildPageMeta читает и скрытые).
+        { key: "abs", to: "/abs", label: "ABS система", icon: Trophy, show: false },
         {
           key: "os-dispatch",
           to: "/os-dispatch",
