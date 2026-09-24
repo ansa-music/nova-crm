@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useLocation } from "react-router";
 import { Menu, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,8 +14,10 @@ import { usePageMeta } from "@/hooks/useNavModel";
  * живут в нижней панели и листе «Ещё»; слева заголовок раздела из модели,
  * справа поиск и колокольчик. Планшет (768–1023): гамбургер с drawer,
  * как раньше. `title` — совместимость: кто передаёт, тот и подписывает.
+ * `memo`: заголовок берётся из `usePageMeta` (бейджи его не трогают), и
+ * перерисовка AppLayout шапку не задевает.
  */
-export function Topbar({ title }: { title?: string }) {
+export const Topbar = memo(function Topbar({ title }: { title?: string }) {
   const isCompactNav = useIsTablet();
   const isPhone = useIsMobile();
   const { pathname } = useLocation();
@@ -87,4 +89,4 @@ export function Topbar({ title }: { title?: string }) {
       <RoleSwitcher />
     </header>
   );
-}
+});

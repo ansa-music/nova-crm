@@ -1,7 +1,11 @@
-import { getDocs, onSnapshot, setDoc } from "firebase/firestore";
+import { documentId, getDocs, onSnapshot, query, setDoc, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths } from "@/firebase/firestore";
-import type { LeaderboardEntry } from "@/types";
+import { getDocsResumable, paths } from "@/firebase/firestore";
+import { currentMonthSubPageId, isMonthlyDesk } from "@/services/monthTabService";
+import { sbBackendOf } from "@/services/sb/sbCollections";
+import { useWorkspaceStore } from "@/store/workspaceStore";
+import { doneSumFromStatusSums } from "@/utils/overviewStats";
+import type { DeskLoad, LeaderboardEntry, StatusOption, Workspace, WorkspaceMember, WorkspacePage } from "@/types";
 
 export type LeaderboardEntryDraft = Omit<LeaderboardEntry, "updatedAt">;
 
@@ -88,8 +92,20 @@ function entrySignature(entry: LeaderboardEntryDraft): string {
  */
 export async function publishLeaderboardEntries(workspaceId: string, entries: LeaderboardEntryDraft[]) {
   restoreMemory();
+  const state = useWorkspaceStore.getState();
+  const workspace = state.workspaces.find((w) => w.id === workspaceId);
+  // Счётчики в Supabase — обложки столов технарей считаются из них
+  // (leaderboardFromDeskLoads), и запись таких столов в Firestore не нужна:
+  // каждая расходилась чтением по всем открытым «Столам». Пишем только столы,
+  // у которых счётчиков нет (не столы технарей), — их обложкам больше неоткуда
+  // взять цифры.
+  const derived = state.activeWorkspaceId === workspaceId && leaderboardDerived(workspace);
+  const pagesById = derived ? new Map(state.pages.map((p) => [p.id, p])) : null;
+  const written = pagesById
+    ? entries.filter((entry) => !derivableDesk(pagesById.get(entry.pageId), state.members))
+    : entries;
   await Promise.all(
-    entries.map(async (entry) => {
+    written.map(async (entry) => {
       const key = `${workspaceId}/${entry.pageId}`;
       const signature = entrySignature(entry);
       const previous = lastPublished.get(key);
@@ -114,6 +130,97 @@ export async function fetchLeaderboard(workspaceId: string): Promise<Leaderboard
   if (!db) return [];
   const snap = await getDocs(paths.leaderboard(workspaceId));
   return snap.docs.map((d) => d.data() as LeaderboardEntry);
+}
+
+// ---------------------------------------------------------------------
+// Режим «счётчики в Supabase»: leaderboard выводится из desk_loads.
+// ---------------------------------------------------------------------
+
+/**
+ * Обложки «Столов» берут цифры из счётчиков столов, а не из коллекции
+ * leaderboard, когда счётчики живут в Supabase (ключ `deskLoads` в
+ * sbCollections, с памятью «таблицы нет»). Поля записи — «Общий», «Готово»
+ * и процент — те же, что в счётчиках (`grandTotal`, `statusSums` по сырому
+ * статусу; «Готово» — по названию статуса, как на дашборде). Режим Firestore —
+ * как было: пишет дашборд, читают «Столы».
+ */
+export function leaderboardDerived(workspace: Pick<Workspace, "rowsBackend" | "sbCollections"> | null | undefined): boolean {
+  return Boolean(workspace) && sbBackendOf(workspace, "deskLoads") === "supabase";
+}
+
+/**
+ * Стол, чьи цифры есть в счётчиках: стол технаря (месячные вкладки, их
+ * публикует useDeskLoadPublisher и пересчёт Owner). Неизвестный стол — нет:
+ * лучше лишняя запись, чем пропавшая обложка.
+ */
+export function derivableDesk(page: WorkspacePage | undefined, members: WorkspaceMember[]): boolean {
+  return Boolean(page) && isMonthlyDesk(page as WorkspacePage, members);
+}
+
+/**
+ * Записи leaderboard из счётчиков — только текущего месяца и только той
+ * вкладки, что сейчас месячная у стола (как «Технари»: чужая вкладка — не
+ * этот месяц). Стола без таких счётчиков в ответе нет: «не знаем», а не 0 %.
+ */
+export function leaderboardFromDeskLoads(
+  loads: readonly DeskLoad[],
+  pages: readonly WorkspacePage[],
+  statusOptions: StatusOption[],
+  monthKey: string
+): LeaderboardEntry[] {
+  const loadByPage = new Map(loads.map((load) => [load.pageId, load]));
+  const out: LeaderboardEntry[] = [];
+  for (const page of pages) {
+    const load = loadByPage.get(page.id);
+    const subPageId = currentMonthSubPageId(page, monthKey);
+    if (!load || !subPageId || load.monthKey !== monthKey || load.subPageId !== subPageId) continue;
+    const grandTotal = Number(load.grandTotal ?? 0) || 0;
+    const doneTotal = doneSumFromStatusSums(load.statusSums, statusOptions);
+    const doneCount = doneSumFromStatusSums(load.statusCounts, statusOptions);
+    out.push({
+      pageId: page.id,
+      pageName: page.name,
+      responsibleUserId: load.responsibleUserId || page.responsibleUserId || "",
+      doneTotal,
+      grandTotal,
+      percent: grandTotal > 0 ? Math.round((doneTotal / grandTotal) * 100) : 0,
+      openCount: Math.max(0, Number(load.total ?? 0) - doneCount),
+      doneCount,
+      updatedAt: load.updatedAt,
+    });
+  }
+  return out;
+}
+
+/**
+ * Старые записи leaderboard для столов, которых нет в счётчиках, — РАЗОВО и
+ * только этих столов (`documentId in`, по 30), без живой подписки: их пишут
+ * редко (стол не технаря), а подписка на всю коллекцию стоила чтение на
+ * каждую запись любого стола. Кэш на модуле — 15 минут на workspace и набор.
+ */
+const LEGACY_TTL_MS = 15 * 60_000;
+const legacyCache = new Map<string, { at: number; value: Promise<LeaderboardEntry[]> }>();
+
+export function fetchLeaderboardEntries(workspaceId: string, pageIds: readonly string[]): Promise<LeaderboardEntry[]> {
+  if (!db || pageIds.length === 0) return Promise.resolve([]);
+  const ids = [...new Set(pageIds)].sort();
+  const key = `${workspaceId}|${ids.join(",")}`;
+  const cached = legacyCache.get(key);
+  if (cached && Date.now() - cached.at < LEGACY_TTL_MS) return cached.value;
+  const value = (async () => {
+    const out: LeaderboardEntry[] = [];
+    for (let i = 0; i < ids.length; i += 30) {
+      const snap = await getDocsResumable(query(paths.leaderboard(workspaceId), where(documentId(), "in", ids.slice(i, i + 30))));
+      for (const d of snap.docs) out.push({ ...(d.data() as LeaderboardEntry), pageId: d.id });
+    }
+    return out;
+  })();
+  legacyCache.set(key, { at: Date.now(), value });
+  // Отказ не кэшируем: следующий заход «Столов» спросит снова.
+  value.catch(() => {
+    if (legacyCache.get(key)?.value === value) legacyCache.delete(key);
+  });
+  return value;
 }
 
 export function subscribeLeaderboard(

@@ -52,7 +52,7 @@ export function useNotificationAlerts() {
   const { activeWorkspaceId } = useWorkspace();
   const { profile } = useAuth();
   const uid = profile?.uid ?? null;
-  const { notifications } = useNotifications(activeWorkspaceId, uid);
+  const { notifications, fromCache } = useNotifications(activeWorkspaceId, uid);
   const navigate = useNavigate();
 
   /**
@@ -97,6 +97,13 @@ export function useNotificationAlerts() {
 
   useEffect(() => {
     if (!activeWorkspaceId || !uid) return;
+    // Снимок уведомлений Supabase с этого устройства — только для отрисовки:
+    // «непрочитанное» в нём могли уже прочитать на телефоне, и звук с
+    // всплывашкой по нему были бы ложными. Ждём ответа сервера (он придёт
+    // следом и покажет настоящее новое). Одно уведомление из двух источников
+    // (Supabase и хвост Firestore) склеено по id ещё в сервисе, а `seen`
+    // держит id — показ один.
+    if (fromCache) return;
     const seen = seenRef.current ?? loadSeen();
     seenRef.current = seen;
     const fresh = pickFreshNotifications(notifications, seen, startedAtRef.current);
@@ -111,7 +118,7 @@ export function useNotificationAlerts() {
     if (fresh.some(isOrderNotification)) playOrderSound();
     else playAlertSound();
     for (const n of fresh.slice(0, 3)) announce(n, navigate, silent);
-  }, [notifications, activeWorkspaceId, uid, navigate]);
+  }, [notifications, fromCache, activeWorkspaceId, uid, navigate]);
 }
 
 /** Уведомление про заказ: всё, что ведёт на «Заказы» (новый, «открыт всем», отклик, выдача). */

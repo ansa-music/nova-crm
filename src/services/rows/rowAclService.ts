@@ -1,4 +1,5 @@
 import { supabaseRows } from "@/lib/supabaseRows";
+import { isSbMissingError } from "@/services/sb/sbCollections";
 import type { Role, WorkspaceMember, WorkspacePage } from "@/types";
 
 /**
@@ -24,6 +25,13 @@ export interface AclMemberRow {
   uid: string;
   role: Role;
   extra_roles: string[];
+  /**
+   * Ник ОС (`members.osNickValue`) — по нему политика `os_orders` отдаёт ОС
+   * его списки заказов (20260930b_os_orders.sql). null — ника нет. Поля нет
+   * (undefined) — в базе ещё нет столбца: SQL этой миграции не вставлен, и
+   * сверка работает по-старому, без ника.
+   */
+  os_nick_value?: string | null;
 }
 
 export interface AclPageRow {
@@ -66,6 +74,8 @@ export function desiredMemberRows(members: readonly WorkspaceMember[]): AclMembe
       uid: m.uid,
       role: m.role,
       extra_roles: sortedUnique((m.extraRoles ?? []).filter((r) => r === "manager" || r === "os")),
+      // Как в правилах: пустой ник не открывает ничего, поэтому "" = нет ника.
+      os_nick_value: typeof m.osNickValue === "string" && m.osNickValue ? m.osNickValue : null,
     });
   }
   return [...byUid.values()];
@@ -93,7 +103,7 @@ export function samePageRow(a: AclPageRow, b: AclPageRow): boolean {
 }
 
 function sameMemberRow(a: AclMemberRow, b: AclMemberRow): boolean {
-  return a.role === b.role && sameList(a.extra_roles, b.extra_roles);
+  return a.role === b.role && sameList(a.extra_roles, b.extra_roles) && (a.os_nick_value ?? null) === (b.os_nick_value ?? null);
 }
 
 /**
@@ -241,7 +251,62 @@ function describe(error: { message?: string; code?: string } | null | undefined)
   return error.code ? `${error.message ?? ""} (${error.code})` : (error.message ?? "ошибка");
 }
 
+/*
+ * Столбец ника ОС (`rows_members.os_nick_value`) появляется только с SQL
+ * `20260930b_os_orders.sql`, а его Nurba вставляет руками. Пока столбца нет
+ * (42703 / PGRST204), сверка и мгновенная запись участника работают
+ * по-старому, без ника, — иначе ОДНО новое поле роняло бы всю копию прав
+ * (роли, вторые роли) у всех. null — ещё не спрашивали.
+ */
+let nickColumn: boolean | null = null;
+/** Когда сказали «столбца нет»: через 10 минут спрашиваем снова — SQL могли вставить. */
+let nickColumnMissingAt = 0;
+const NICK_COLUMN_RECHECK_MS = 10 * 60_000;
+
+/** Для проверок: забыть, есть ли столбец ника. */
+export function resetAclNickColumn() {
+  nickColumn = null;
+  nickColumnMissingAt = 0;
+}
+
+/**
+ * «Столбца ника нет» — память модуля, а вкладка руководства живёт сутками.
+ * Без срока ник после вставки SQL не копировался бы до перезагрузки, и ОС
+ * видели бы свои заказы только через запасной Firestore.
+ */
+function refreshNickColumnMemory() {
+  if (nickColumn === false && Date.now() - nickColumnMissingAt >= NICK_COLUMN_RECHECK_MS) nickColumn = null;
+}
+
+function markNickColumnMissing() {
+  nickColumn = false;
+  nickColumnMissingAt = Date.now();
+}
+
+function withoutNick(row: AclMemberRow): AclMemberRow {
+  const rest = { ...row };
+  delete rest.os_nick_value;
+  return rest;
+}
+
 async function readMembers(workspaceId: string): Promise<AclMemberRow[]> {
+  refreshNickColumnMemory();
+  if (nickColumn !== false) {
+    const { data, error } = await supabaseRows
+      .from("rows_members")
+      .select("uid, role, extra_roles, os_nick_value")
+      .eq("workspace_id", workspaceId);
+    if (!error) {
+      nickColumn = true;
+      return ((data ?? []) as AclMemberRow[]).map((m) => ({
+        ...m,
+        extra_roles: sortedUnique(m.extra_roles),
+        os_nick_value: typeof m.os_nick_value === "string" && m.os_nick_value ? m.os_nick_value : null,
+      }));
+    }
+    if (!isSbMissingError(error)) throw new Error(`копия участников не прочиталась: ${describe(error)}`);
+    markNickColumnMissing();
+  }
   const { data, error } = await supabaseRows
     .from("rows_members")
     .select("uid, role, extra_roles")
@@ -354,7 +419,9 @@ export async function syncRowAcl(input: AclSyncInput): Promise<AclSyncReport> {
 
   if ((actor === "owner" || actor === "teamlead") && input.members) {
     const currentMembers = await readMembers(workspaceId);
-    const plan = planMemberSync(desiredMemberRows(input.members), currentMembers, {
+    // Столбца ника в базе нет — сравниваем и пишем без него (см. nickColumn).
+    const desired = desiredMemberRows(input.members).map((m) => (nickColumn === false ? withoutNick(m) : m));
+    const plan = planMemberSync(desired, currentMembers, {
       rosterComplete: true,
       actor,
       me: input.me,
@@ -457,9 +524,19 @@ export async function putMemberAcl(workspaceId: string, uid: string, member: Wor
     await removeMemberAcl(workspaceId, uid);
     return;
   }
-  const { error } = await supabaseRows
-    .from("rows_members")
-    .upsert([{ workspace_id: workspaceId, ...row, updated_at: Date.now() }], { onConflict: "workspace_id,uid" });
+  const put = (value: AclMemberRow) =>
+    supabaseRows
+      .from("rows_members")
+      .upsert([{ workspace_id: workspaceId, ...value, updated_at: Date.now() }], { onConflict: "workspace_id,uid" });
+  refreshNickColumnMemory();
+  let { error } = await put(nickColumn === false ? withoutNick(row) : row);
+  if (error && nickColumn !== false && isSbMissingError(error)) {
+    // Столбца ника ещё нет (SQL не вставлен) — роль важнее, пишем без ника.
+    markNickColumnMissing();
+    ({ error } = await put(withoutNick(row)));
+  } else if (!error && nickColumn === null) {
+    nickColumn = true;
+  }
   if (error) throw new Error(`участник не записан в копию прав: ${describe(error)}`);
 }
 

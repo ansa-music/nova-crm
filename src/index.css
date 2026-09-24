@@ -1142,3 +1142,31 @@ html body[data-scroll-locked] {
     bottom: 1px;
   }
 }
+
+/* ---- Появление каркаса: CSS вместо GSAP (24.09.2026) --------------------
+   Только opacity и без fill-mode forwards: по окончании у элемента не
+   остаётся ни transform, ни своего stacking context. Transform на обёртке
+   экрана (так делал GSAP в PageShell) превращал её в containing block, и
+   fixed-оверлеи внутри main вставали не по окну. Здесь transform не писать. */
+@keyframes nova-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* Экран сменился (PageShell, ключ по пути). Только ПК с мышью, как было у
+   GSAP: на телефоне и таче переход должен быть мгновенным. */
+@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+  .page-enter {
+    animation: nova-fade-in 150ms var(--ease-out);
+  }
+}
+/* Экран загрузки, форма входа, лента «Что менялось». `backwards` — чтобы
+   пункты ленты с задержкой (animation-delay) не мигали видимыми до старта. */
+.nova-fade-in {
+  animation: nova-fade-in 150ms var(--ease-out) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .nova-fade-in {
+    animation: none !important;
+  }
+}

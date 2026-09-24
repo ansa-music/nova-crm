@@ -1,5 +1,5 @@
 // PATH: src/layouts/AppLayout.tsx  (REPLACES EXISTING)
-import { useState, useEffect } from "react";
+import { memo, useCallback, useState, useEffect } from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
 import { Building2, Lock, Plus } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -20,12 +20,15 @@ import { GlobalUndoHotkeys } from "@/components/common/GlobalUndoHotkeys";
 import { GoChordHotkeys } from "@/components/common/GoChordHotkeys";
 import { AppDialogHost } from "@/components/common/AppDialogHost";
 import { DbQuotaBanner } from "@/components/common/DbQuotaBanner";
+import { SupabaseSqlBanner } from "@/components/common/SupabaseSqlBanner";
 import { NotifyHelpHost } from "@/components/common/NotifyHelpDialog";
 import { AccentColorSync } from "@/components/common/AccentColorSync";
 import { RemovedFromWorkspace } from "@/components/common/RemovedFromWorkspace";
 import { Button } from "@/components/ui/button";
 import { TableChromeExit } from "@/components/table/TableChromeExit";
-import { useActiveWorkspaceDataBootstrap, useWorkspace } from "@/hooks/useWorkspace";
+import { useActiveWorkspaceDataBootstrap } from "@/hooks/useWorkspace";
+import { NavModelProvider } from "@/hooks/useNavModel";
+import { useWorkspaceStore } from "@/store/workspaceStore";
 import { useAppBootstrap } from "@/hooks/useAppBootstrap";
 import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
 import { useOpenApprovedDesk } from "@/hooks/useOpenApprovedDesk";
@@ -79,48 +82,19 @@ export function AppLayout() {
   useDeskObserverLoad();
   // Один слушатель открытых заказов — зелёный пункт «Заказы» в меню.
   useOpenOrdersWatch();
-  const location = useLocation();
-
   const { phase } = useAppBootstrap();
-  const { activeWorkspace } = useWorkspace();
+  // Узкий селектор, а не useWorkspace() целиком: здесь нужен только факт
+  // «активный workspace есть», а не каждый снимок столов и участников.
+  const hasActiveWorkspace = useWorkspaceStore((s) => s.workspaces.some((w) => w.id === s.activeWorkspaceId));
   const { profile } = useAuth();
   const permissions = usePermissions();
-  const isCompactNav = useIsTablet();
-  const isPhone = useIsMobile();
-  const keyboardOpen = useKeyboardOpen();
   const [createOpen, setCreateOpen] = useState(false);
   // Лист «Ещё» и его диалоги — здесь, а не в нижней панели: панель прячется
   // под клавиатурой, и диалог с набранным именем стола пропадал вместе с ней.
   const [moreOpen, setMoreOpen] = useState(false);
   const [createPageOpen, setCreatePageOpen] = useState(false);
-  const tableFullscreen = useUiStore((s) => s.tableFullscreen);
-  const tableImmersive = useUiStore((s) => s.tableImmersive);
-  const setTableFullscreen = useUiStore((s) => s.setTableFullscreen);
-  const setTableImmersive = useUiStore((s) => s.setTableImmersive);
-  // Only actually hides chrome on a table page — the setting can stay on
-  // (persisted) without leaving every OTHER page in the app chrome-less too.
-  const isOnTablePage = location.pathname.startsWith("/page/");
-  const isFullscreen = tableFullscreen && isOnTablePage;
-  const chromeHidden = isOnTablePage && (tableFullscreen || tableImmersive);
-  // Нижняя панель — только телефон, и не поверх полноэкранного стола и не под
-  // экранной клавиатурой (там она лишь отнимала бы у поля ввода 56px). Под
-  // клавиатурой панель прячется классом, а не размонтируется.
-  const mountBottomNav = isPhone && !chromeHidden;
-  const showBottomNav = mountBottomNav && !keyboardOpen;
 
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
-
-  useEffect(() => {
-    if (!chromeHidden) return;
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.code === "Escape") {
-        setTableFullscreen(false);
-        setTableImmersive(false);
-      }
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [chromeHidden, setTableFullscreen, setTableImmersive]);
 
   // Any not-yet-resolved phase renders the shared boot screen. Crucially this
   // includes "workspace-data": members (=> role) and pages (=> access) must
@@ -131,7 +105,7 @@ export function AppLayout() {
 
   // Reached only when the workspace list has definitively resolved to empty —
   // never as a flash while it was still loading.
-  if (phase === "no-workspace" || !activeWorkspace) {
+  if (phase === "no-workspace" || !hasActiveWorkspace) {
     return (
       <div className="cyber-grid flex h-[100dvh] flex-col items-center justify-center gap-5 bg-background px-4 text-center">
         <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-card text-primary">
@@ -166,6 +140,85 @@ export function AppLayout() {
     return <RemovedFromWorkspace />;
   }
 
+  // Модель навигации считается здесь ОДИН раз (NavModelProvider) и
+  // раздаётся меню, палитре, шапке и нижней панели контекстом.
+  return (
+    <NavModelProvider>
+      <AppChrome
+        moreOpen={moreOpen}
+        setMoreOpen={setMoreOpen}
+        createPageOpen={createPageOpen}
+        setCreatePageOpen={setCreatePageOpen}
+        createWorkspaceOpen={createOpen}
+        setCreateWorkspaceOpen={setCreateOpen}
+        canCreateWorkspace={canCreateWorkspace}
+      />
+    </NavModelProvider>
+  );
+}
+
+/**
+ * Сам каркас: меню, шапка, <main> с экраном, нижняя панель, лист «Ещё».
+ * Отдельным `memo`-компонентом, потому что AppLayout перерисовывается на
+ * каждый снимок столов и участников (его фоновые хуки и usePermissions
+ * читают workspace целиком), а каркасу от этих снимков ничего не нужно —
+ * меню берёт своё из навигационного контекста, экран — из своих хуков.
+ * Состояние листа и диалогов остаётся в AppLayout (см. выше), сюда приходят
+ * только флаги и стабильные сеттеры.
+ */
+const AppChrome = memo(function AppChrome({
+  moreOpen,
+  setMoreOpen,
+  createPageOpen,
+  setCreatePageOpen,
+  createWorkspaceOpen,
+  setCreateWorkspaceOpen,
+  canCreateWorkspace,
+}: {
+  moreOpen: boolean;
+  setMoreOpen: (open: boolean) => void;
+  createPageOpen: boolean;
+  setCreatePageOpen: (open: boolean) => void;
+  createWorkspaceOpen: boolean;
+  setCreateWorkspaceOpen: (open: boolean) => void;
+  canCreateWorkspace: boolean;
+}) {
+  const location = useLocation();
+  const isCompactNav = useIsTablet();
+  const isPhone = useIsMobile();
+  const keyboardOpen = useKeyboardOpen();
+  const tableFullscreen = useUiStore((s) => s.tableFullscreen);
+  const tableImmersive = useUiStore((s) => s.tableImmersive);
+  const setTableFullscreen = useUiStore((s) => s.setTableFullscreen);
+  const setTableImmersive = useUiStore((s) => s.setTableImmersive);
+  // Only actually hides chrome on a table page — the setting can stay on
+  // (persisted) without leaving every OTHER page in the app chrome-less too.
+  const isOnTablePage = location.pathname.startsWith("/page/");
+  const isFullscreen = tableFullscreen && isOnTablePage;
+  const chromeHidden = isOnTablePage && (tableFullscreen || tableImmersive);
+  // Нижняя панель — только телефон, и не поверх полноэкранного стола и не под
+  // экранной клавиатурой (там она лишь отнимала бы у поля ввода 56px). Под
+  // клавиатурой панель прячется классом, а не размонтируется.
+  const mountBottomNav = isPhone && !chromeHidden;
+  const showBottomNav = mountBottomNav && !keyboardOpen;
+  // Стабильные колбэки: BottomNav под memo, и новая стрелка на каждый рендер
+  // перерисовывала бы его зря.
+  const openMore = useCallback(() => setMoreOpen(true), [setMoreOpen]);
+  const openCreatePage = useCallback(() => setCreatePageOpen(true), [setCreatePageOpen]);
+  const openCreateWorkspace = useCallback(() => setCreateWorkspaceOpen(true), [setCreateWorkspaceOpen]);
+
+  useEffect(() => {
+    if (!chromeHidden) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.code === "Escape") {
+        setTableFullscreen(false);
+        setTableImmersive(false);
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [chromeHidden, setTableFullscreen, setTableImmersive]);
+
   return (
     // Каркас без инсета и рамки: рейка — перегородка экрана, стол начинается
     // встык с ней, на общем фоне. Полноэкранная таблица прячет и рейку.
@@ -187,6 +240,7 @@ export function AppLayout() {
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {!isFullscreen && <Topbar />}
         {!isFullscreen && <SimulationBanner />}
+        {!isFullscreen && <SupabaseSqlBanner />}
         {isFullscreen && <TableChromeExit label="Свернуть" />}
         {/* overflow-x задан явно: один `overflow-y-auto` даёт и горизонтальный
             скролл, и широкие страницы ездили бы вместе с рейкой; вбок
@@ -201,21 +255,21 @@ export function AppLayout() {
         {/* В потоке колонки, после <main>: fixed-панель легла бы поверх итогов
             стола и панели массовых действий. */}
         {mountBottomNav && (
-          <BottomNav hidden={keyboardOpen} moreOpen={moreOpen} onMore={() => setMoreOpen(true)} />
+          <BottomNav hidden={keyboardOpen} moreOpen={moreOpen} onMore={openMore} />
         )}
       </div>
       {isPhone && (
         <MoreSheet
           open={moreOpen}
           onOpenChange={setMoreOpen}
-          onCreatePage={() => setCreatePageOpen(true)}
-          onCreateWorkspace={() => setCreateOpen(true)}
+          onCreatePage={openCreatePage}
+          onCreateWorkspace={openCreateWorkspace}
         />
       )}
       {/* Не только на телефоне: поворот в альбомную ориентацию переходит
           порог isPhone, и открытый диалог не должен от этого закрываться. */}
       <CreatePageDialog open={createPageOpen} onOpenChange={setCreatePageOpen} />
-      {canCreateWorkspace && <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />}
+      {canCreateWorkspace && <CreateWorkspaceDialog open={createWorkspaceOpen} onOpenChange={setCreateWorkspaceOpen} />}
     </div>
   );
-}
+});

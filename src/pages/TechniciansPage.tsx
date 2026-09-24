@@ -35,6 +35,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { osNickLabel } from "@/services/memberService";
 import { subscribeMyOsOrders } from "@/services/osOrdersService";
+import { useSbBackend } from "@/services/sb/sbCollections";
 import { currentMonthSubPageId, previousMonthKey } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
 import { orderRatingId, rateOrder, removeOrderRating } from "@/services/orderRatingService";
@@ -226,12 +227,22 @@ export default function TechniciansPage() {
   const myOsNick = isOsViewer ? osNickLabel(myMember, responsibleOptions) : null;
 
   // The ОС's own order lists, one doc per desk — only their nick's docs
-  // are readable, so the query filters on exactly that.
+  // are readable, so the query filters on exactly that. Где они лежат
+  // (Firestore или Supabase `os_orders`) — ключ `osOrders` в sbCollections;
+  // null — документ workspace ещё не пришёл, подписываться рано (иначе старт
+  // читал бы Firestore и тут же переподписывался).
+  const osOrdersBackend = useSbBackend(activeWorkspace, "osOrders");
   useEffect(() => {
     setOsOrderDocs([]);
-    if (!activeWorkspaceId || !canSee || !myOsValue) return;
-    return subscribeMyOsOrders(activeWorkspaceId, myOsValue, setOsOrderDocs, () => setOsOrderDocs([]));
-  }, [activeWorkspaceId, canSee, myOsValue]);
+    if (!activeWorkspaceId || !canSee || !myOsValue || !osOrdersBackend) return;
+    return subscribeMyOsOrders(
+      activeWorkspaceId,
+      myOsValue,
+      (docs) => setOsOrderDocs(docs),
+      () => setOsOrderDocs([]),
+      osOrdersBackend
+    );
+  }, [activeWorkspaceId, canSee, myOsValue, osOrdersBackend]);
 
   const statusMeta = useMemo(() => {
     const byValue = new Map(statusOptions.map((o) => [o.value, o]));

@@ -1,5 +1,4 @@
-import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { useLocation } from "react-router";
+import { createContext, createElement, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import {
   CalendarDays,
   ClipboardList,
@@ -38,7 +37,7 @@ import {
   type NavSection,
   type PageMeta,
 } from "@/config/nav";
-import { memberHasRole, rolesLabel, type Role, type WorkspacePage } from "@/types";
+import { memberHasRole, rolesLabel, type Role, type WorkspaceMember, type WorkspacePage } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -80,8 +79,8 @@ export interface NavHome {
   to: string;
   label: string;
   icon: LucideIcon;
-  /** Дом активен на «/», на своём пути и на своём столе — не только по `to`. */
-  active: boolean;
+  /** Свой стол — дом горит и на нём (`isHomeActive`). */
+  myDeskId: string | null;
   /** На стол приехал заказ, который ещё не открывали. */
   alert: boolean;
 }
@@ -101,6 +100,8 @@ export interface NavModel {
   deskShortcuts: NavChild[];
   /** Сумма бейджей всех пунктов — на «Ещё» в нижней панели. */
   badgeTotal: number;
+  /** Непрочитанные (сообщения + чат) — точка на аватаре в меню аккаунта. */
+  inboxUnread: number;
   /** Заказы на бирже ждут — зелёный пункт «Заказы». */
   ordersAlert: boolean;
   /** Чистый ОС (без второй роли): дом — «Технари», стол — «Стол ОС». */
@@ -112,40 +113,63 @@ export interface NavModel {
    * ОС. Остальным «/orders#new» открыл бы диалог, который правила не пропустят.
    */
   canIssueOrders: boolean;
+  /** Заголовок экрана; та же функция, что в `usePageMeta` (бейджи её не меняют). */
   pageMeta: (pathname: string) => PageMeta;
 }
 
-function deskChild(page: WorkspacePage, onNavigate?: () => void): NavChild {
+type Permissions = ReturnType<typeof usePermissions>;
+
+/**
+ * Всё, из чего складывается СОСТАВ меню: роли, столы, участники, ярлыки.
+ * Меняется редко (снимок столов/участников, смена роли, открытие стола).
+ */
+export interface NavInputs {
+  uid: string | null;
+  members: WorkspaceMember[];
+  /** Все столы, с «Неактуальными» и столами ОС. */
+  allPages: WorkspacePage[];
+  /** Живые столы технарей (`useWorkspace().pages`). */
+  pages: WorkspacePage[];
+  permissions: Permissions;
+  myDesk: WorkspacePage | null;
+  recentIds: string[];
+  pinnedIds: string[];
+}
+
+/**
+ * Бейджи и зелёные пункты — меняются на каждое сообщение, заказ на бирже и
+ * выдачу. Отдельно от состава: заголовок экрана и G-аккорды от них не зависят.
+ */
+export interface NavSignals {
+  privateUnreadTotal: number;
+  workspaceChatUnread: number;
+  osDispatchUnseen: number;
+  ordersAlert: boolean;
+  deskAlerts: string[];
+}
+
+const NO_SIGNALS: NavSignals = {
+  privateUnreadTotal: 0,
+  workspaceChatUnread: 0,
+  osDispatchUnseen: 0,
+  ordersAlert: false,
+  deskAlerts: [],
+};
+
+function deskChild(page: WorkspacePage): NavChild {
   return {
     key: page.id,
     to: `/page/${page.id}`,
     label: page.name,
     icon: PAGE_ICON_MAP[page.icon] ?? PAGE_ICON_MAP.LayoutGrid,
     color: page.color,
-    onNavigate,
   };
 }
 
-/**
- * Живая модель навигации. `onNavigate` вешается на каждый пункт — drawer и
- * нижний лист закрывают себя после перехода; Sidebar в потоке его не передаёт.
- */
-export function useNavModel(opts: { onNavigate?: () => void } = {}): NavModel {
-  const { onNavigate } = opts;
-  const { pathname } = useLocation();
-  const { profile } = useAuth();
-  const { members, activeWorkspaceId, allPages, pages } = useWorkspace();
-  const permissions = usePermissions();
-  const { myDesk } = usePeopleDesks();
-  const { privateUnreadTotal, workspaceChatUnread } = useInboxSummary(activeWorkspaceId, profile?.uid ?? null, {
-    includeWorkspaceChat: true,
-  });
-  const { recentIds, pinnedIds } = useUserPageNav(profile?.uid);
-  const deskAlerts = useUiStore((s) => s.deskAlerts);
-  const osDispatchLog = useSyncExternalStore(subscribeOsDispatchLogState, osDispatchLogState);
-  const openOrders = useSyncExternalStore(subscribeOpenOrdersState, openOrdersState);
-
-  const myMembership = members.find((m) => m.uid === profile?.uid);
+/** Гейты по ролям и «где дом» — общие для модели и заголовков экранов. */
+function navGates(inp: NavInputs) {
+  const { permissions, myDesk } = inp;
+  const myMembership = inp.members.find((m) => m.uid === inp.uid);
   const showUsersNav = permissions.canManageUsers;
   // Настоящая роль закрывает пункт сразу — Owner, смотрящий как Технарь,
   // должен его потерять, поэтому проверяется и эффективная (permissions.role):
@@ -172,13 +196,6 @@ export function useNavModel(opts: { onNavigate?: () => void } = {}): NavModel {
   const showOsDesksNav = permissions.isResolved;
   // «Выдачи ОС» — мониторинг выборочных выдач: от Тимлида и выше.
   const showOsDispatchNav = permissions.isResolved && hasFullAccess(permissions.role);
-  const osDispatchUnseen = showOsDispatchNav ? osDispatchLog.unseen : 0;
-
-  // Зелёные пункты: «Заказы», пока на бирже есть ОТКРЫТЫЙ заказ (забрали
-  // последний — гаснет само); дом — когда на стол приехал заказ и его ещё не
-  // открывали (метку снимает сам стол, переживает перезагрузку).
-  const ordersAlert = openOrders.loaded && openOrders.count > 0;
-  const deskAlert = Boolean(myDesk && deskAlerts.includes(myDesk.id));
 
   // «Где дом» — раньше это считали порознь HomePage и Sidebar. Без своего
   // стола дом — список столов (а не «/»: HomePage сама редиректит на home.to,
@@ -200,49 +217,50 @@ export function useNavModel(opts: { onNavigate?: () => void } = {}): NavModel {
         ? "Мой стол"
         : "Главная";
   const homeIcon = isOs ? HardHat : isTeamlead ? Users : Home;
-  const homeActive = isHomeActive(pathname, { to: homeTo }, myDesk?.id);
   const canIssueOrders = permissions.isResolved && (hasFullAccess(permissions.role) || permissions.hasRole("os"));
+  return {
+    isOs,
+    isTeamlead,
+    showUsersNav,
+    showDispatchNav,
+    showDeskNav,
+    showGrokNav,
+    showTechniciansNav,
+    showOsDeskNav,
+    showOsDesksNav,
+    showOsDispatchNav,
+    homeTo,
+    homeLabel,
+    homeIcon,
+    canIssueOrders,
+  };
+}
 
-  // «Свой стол» для G-S и нижней панели: у Owner без стола — закреплённый или
-  // первый стол (так делал GoChordHotkeys), иначе список.
-  const myDeskTo = useMemo(() => {
-    if (isOs) return "/os-desk";
-    if (myDesk) return `/page/${myDesk.id}`;
-    if (permissions.hasFullDeskAccess) {
-      const pinned = pinnedIds.map((id) => pages.find((p) => p.id === id)).find((p) => p !== undefined);
-      const target = pinned ?? pages[0];
-      if (target) return `/page/${target.id}`;
-    }
-    return showDeskNav ? "/desks" : "/os-desks";
-  }, [isOs, myDesk, permissions.hasFullDeskAccess, pinnedIds, pages, showDeskNav]);
+type NavGates = ReturnType<typeof navGates>;
 
-  // Закреплённые впереди недавних; только живые столы (закрытый по ссылке
-  // «Неактуальный» в подсказки не лезет), свой стол не дублируем — он дом.
-  // Доступ проверяем здесь же: недавний мог попасть в список до того, как
-  // стол отобрали (или Owner смотрел «как Технарь»), и ярлык вёл бы в отказ.
-  const { canAccessPage } = permissions;
-  const deskShortcuts = useMemo<NavChild[]>(() => {
-    const out: NavChild[] = [];
-    const seen = new Set<string>();
-    for (const id of [...pinnedIds, ...recentIds]) {
-      if (seen.has(id) || id === myDesk?.id) continue;
-      const page = allPages.find((p) => p.id === id && !p.inactive);
-      if (!page || !canAccessPage(page)) continue;
-      seen.add(id);
-      out.push(deskChild(page, onNavigate));
-      if (out.length >= DESK_SHORTCUTS_LIMIT) break;
-    }
-    return out;
-  }, [pinnedIds, recentIds, myDesk?.id, allPages, onNavigate, canAccessPage]);
-
-  const rawSections: NavSection[] = [
+/** Все секции ДО фильтра по `show` — заголовкам экранов нужны и скрытые. */
+function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShortcuts: NavChild[]): NavSection[] {
+  const myDeskId = inp.myDesk?.id ?? null;
+  // Зелёные пункты: «Заказы», пока на бирже есть ОТКРЫТЫЙ заказ (забрали
+  // последний — гаснет само); дом — когда на стол приехал заказ и его ещё не
+  // открывали (метку снимает сам стол, переживает перезагрузку).
+  const deskAlert = Boolean(myDeskId && sig.deskAlerts.includes(myDeskId));
+  const homeTo = g.homeTo;
+  return [
     {
       key: "main",
       items: [
-        { key: "home", to: homeTo, label: homeLabel, icon: homeIcon, forceActive: homeActive, alert: deskAlert, onNavigate },
-        { key: "orders", to: "/orders", label: "Заказы", icon: ClipboardList, alert: ordersAlert, onNavigate },
-        { key: "dashboard", to: "/dashboard", label: "Дашборд", icon: LayoutDashboard, onNavigate },
-        { key: "abs", to: "/abs", label: "ABS система", icon: Trophy, onNavigate },
+        {
+          key: "home",
+          to: homeTo,
+          label: g.homeLabel,
+          icon: g.homeIcon,
+          activeOn: (pathname) => isHomeActive(pathname, { to: homeTo, myDeskId }),
+          alert: deskAlert,
+        },
+        { key: "orders", to: "/orders", label: "Заказы", icon: ClipboardList, alert: sig.ordersAlert },
+        { key: "dashboard", to: "/dashboard", label: "Дашборд", icon: LayoutDashboard },
+        { key: "abs", to: "/abs", label: "ABS система", icon: Trophy },
       ],
     },
     {
@@ -254,41 +272,39 @@ export function useNavModel(opts: { onNavigate?: () => void } = {}): NavModel {
           to: "/desks",
           label: "Столы",
           icon: LayoutGrid,
-          show: showDeskNav,
-          onNavigate,
+          show: g.showDeskNav,
           children: deskShortcuts,
         },
-        { key: "os-desk", to: "/os-desk", label: "Стол ОС", icon: Table2, show: showOsDeskNav, onNavigate },
-        { key: "os-desks", to: "/os-desks", label: "Столы ОС", icon: ScanEye, show: showOsDesksNav, onNavigate },
+        { key: "os-desk", to: "/os-desk", label: "Стол ОС", icon: Table2, show: g.showOsDeskNav },
+        { key: "os-desks", to: "/os-desks", label: "Столы ОС", icon: ScanEye, show: g.showOsDesksNav },
         {
           key: "os-dispatch",
           to: "/os-dispatch",
           label: "Выдачи ОС",
           icon: ListChecks,
-          show: showOsDispatchNav,
-          badge: osDispatchUnseen,
-          onNavigate,
+          show: g.showOsDispatchNav,
+          badge: g.showOsDispatchNav ? sig.osDispatchUnseen : 0,
         },
-        { key: "technicians", to: "/technicians", label: "Технари", icon: HardHat, show: showTechniciansNav, onNavigate },
+        { key: "technicians", to: "/technicians", label: "Технари", icon: HardHat, show: g.showTechniciansNav },
       ],
     },
     {
       key: "people",
       title: "Люди",
       items: [
-        { key: "people", to: "/people", label: "Люди", icon: UsersRound, onNavigate },
-        { key: "team", to: "/team", label: "Команда", icon: Contact, show: showUsersNav, onNavigate },
-        { key: "users", to: "/users", label: "Пользователи", icon: Users, show: showUsersNav && !isTeamlead, onNavigate },
-        { key: "schedule", to: "/schedule", label: "График", icon: CalendarDays, onNavigate },
+        { key: "people", to: "/people", label: "Люди", icon: UsersRound },
+        { key: "team", to: "/team", label: "Команда", icon: Contact, show: g.showUsersNav },
+        { key: "users", to: "/users", label: "Пользователи", icon: Users, show: g.showUsersNav && !g.isTeamlead },
+        { key: "schedule", to: "/schedule", label: "График", icon: CalendarDays },
       ],
     },
     {
       key: "talk",
       title: "Связь",
       items: [
-        { key: "messages", to: "/messages", label: "Сообщения", icon: MessageCircle, badge: privateUnreadTotal, onNavigate },
-        { key: "chat", to: "/chat", label: "Чат", icon: MessageSquare, badge: workspaceChatUnread, onNavigate },
-        { key: "announcements", to: "/announcements", label: "Объявления", icon: Megaphone, onNavigate },
+        { key: "messages", to: "/messages", label: "Сообщения", icon: MessageCircle, badge: sig.privateUnreadTotal },
+        { key: "chat", to: "/chat", label: "Чат", icon: MessageSquare, badge: sig.workspaceChatUnread },
+        { key: "announcements", to: "/announcements", label: "Объявления", icon: Megaphone },
       ],
     },
     {
@@ -297,16 +313,107 @@ export function useNavModel(opts: { onNavigate?: () => void } = {}): NavModel {
       collapsible: true,
       defaultOpen: false,
       items: [
-        { key: "grok", to: "/grok-limit", label: "Грок лимит", icon: KeyRound, show: showGrokNav, onNavigate },
-        { key: "dispatch", to: "/dispatch", label: "Выдача", icon: PackageCheck, show: showDispatchNav, onNavigate },
-        { key: "settings", to: "/settings", label: "Настройки", icon: Settings, onNavigate },
+        { key: "grok", to: "/grok-limit", label: "Грок лимит", icon: KeyRound, show: g.showGrokNav },
+        { key: "dispatch", to: "/dispatch", label: "Выдача", icon: PackageCheck, show: g.showDispatchNav },
+        { key: "settings", to: "/settings", label: "Настройки", icon: Settings },
       ],
     },
   ];
+}
+
+/**
+ * Заголовок экрана по пути. Строится только из состава меню (без бейджей):
+ * сообщение в чате не должно перерисовывать шапку и `document.title`.
+ */
+export function buildPageMeta(inp: NavInputs): (pathname: string) => PageMeta {
+  const g = navGates(inp);
+  const rawSections = buildRawSections(inp, g, NO_SIGNALS, []);
+  const { allPages, members } = inp;
+  const { canAccessPage } = inp.permissions;
+  return (pathname: string): PageMeta => {
+    if (pathname === "/") return { title: g.homeLabel, eyebrow: "Nova" };
+    // Свой стол — «Мой стол», чужой — его имя; стол ОС подписан отдельно.
+    // На телефоне шапка стола прячет свой h1 — имя стола здесь единственное.
+    // Закрытый стол не подписываем: имя чужого стола — тоже его содержимое.
+    if (pathname.startsWith("/page/")) {
+      const id = pathname.slice("/page/".length).split("/")[0];
+      const page = allPages.find((p) => p.id === id);
+      if (page && canAccessPage(page)) return { title: page.name, eyebrow: page.osDesk ? "Стол ОС" : "Стол" };
+      return { title: "Стол", eyebrow: "Столы" };
+    }
+    if (pathname.startsWith("/messages/")) {
+      const uid = pathname.slice("/messages/".length).split("/")[0];
+      const peer = members.find((m) => m.uid === uid);
+      if (peer) return { title: displayNameOf(peer), eyebrow: "Сообщения" };
+    }
+    // Пункт меню с самым длинным совпавшим путём — «/grok-limit/apps» под
+    // «Грок лимит». Берём из НЕотфильтрованных секций: у ОС «Столы» скрыты,
+    // а заголовок странице всё равно нужен. При равной длине побеждает не
+    // дом: «/desks» без своего стола — «Столы», а не «Главная».
+    let best: { item: NavItem; section: NavSection } | null = null;
+    for (const section of rawSections) {
+      for (const item of section.items) {
+        const to = pathOnly(item.to);
+        if (!pathMatches(pathname, to, item.end)) continue;
+        const bestLen = best ? pathOnly(best.item.to).length : -1;
+        if (to.length > bestLen || (to.length === bestLen && best?.item.key === "home")) best = { item, section };
+      }
+    }
+    if (best) {
+      const title = best.item.key === "home" ? g.homeLabel : best.item.label;
+      return { title, eyebrow: best.section.title ?? "Nova" };
+    }
+    const extra = EXTRA_ROUTE_META.find((r) => pathMatches(pathname, r.prefix));
+    if (extra) return { title: extra.title, eyebrow: extra.eyebrow };
+    return { title: "Nova", eyebrow: "Nova" };
+  };
+}
+
+/**
+ * Модель навигации из входов — чистая функция: считается ОДИН раз на
+ * приложение (`NavModelProvider`), а не в каждом меню. От адреса не зависит:
+ * активность пунктов меню считают сами по `isNavItemActive`/`isHomeActive`.
+ */
+export function buildNavModel(
+  inp: NavInputs,
+  sig: NavSignals,
+  pageMeta: (pathname: string) => PageMeta
+): NavModel {
+  const { permissions, myDesk, pages, allPages, pinnedIds, recentIds } = inp;
+  const g = navGates(inp);
+  const myDeskId = myDesk?.id ?? null;
+
+  // «Свой стол» для G-S и нижней панели: у Owner без стола — закреплённый или
+  // первый стол (так делал GoChordHotkeys), иначе список.
+  let myDeskTo = g.showDeskNav ? "/desks" : "/os-desks";
+  if (g.isOs) myDeskTo = "/os-desk";
+  else if (myDesk) myDeskTo = `/page/${myDesk.id}`;
+  else if (permissions.hasFullDeskAccess) {
+    const pinned = pinnedIds.map((id) => pages.find((p) => p.id === id)).find((p) => p !== undefined);
+    const target = pinned ?? pages[0];
+    if (target) myDeskTo = `/page/${target.id}`;
+  }
+
+  // Закреплённые впереди недавних; только живые столы (закрытый по ссылке
+  // «Неактуальный» в подсказки не лезет), свой стол не дублируем — он дом.
+  // Доступ проверяем здесь же: недавний мог попасть в список до того, как
+  // стол отобрали (или Owner смотрел «как Технарь»), и ярлык вёл бы в отказ.
+  const deskShortcuts: NavChild[] = [];
+  const seen = new Set<string>();
+  for (const id of [...pinnedIds, ...recentIds]) {
+    if (seen.has(id) || id === myDeskId) continue;
+    const page = allPages.find((p) => p.id === id && !p.inactive);
+    if (!page || !permissions.canAccessPage(page)) continue;
+    seen.add(id);
+    deskShortcuts.push(deskChild(page));
+    if (deskShortcuts.length >= DESK_SHORTCUTS_LIMIT) break;
+  }
+
+  const rawSections = buildRawSections(inp, g, sig, deskShortcuts);
   // Без своего стола дом — чужой адрес («/desks»): отдельная «Главная» на тот
   // же путь дала бы два активных пункта рядом. Тогда дом — сам тот пункт.
   const homeDuplicated = rawSections.some((section) =>
-    section.items.some((item) => item.key !== "home" && item.show !== false && pathOnly(item.to) === homeTo)
+    section.items.some((item) => item.key !== "home" && item.show !== false && pathOnly(item.to) === g.homeTo)
   );
   const sections = rawSections
     .map((section) => ({
@@ -317,69 +424,111 @@ export function useNavModel(opts: { onNavigate?: () => void } = {}): NavModel {
   const items = sections.flatMap((s) => s.items);
   const badgeTotal = items.reduce((sum, item) => sum + (item.badge ?? 0), 0);
 
-  const pageMeta = useCallback(
-    (pathname: string): PageMeta => {
-      if (pathname === "/") return { title: homeLabel, eyebrow: "Nova" };
-      // Свой стол — «Мой стол», чужой — его имя; стол ОС подписан отдельно.
-      // На телефоне шапка стола прячет свой h1 — имя стола здесь единственное.
-      // Закрытый стол не подписываем: имя чужого стола — тоже его содержимое.
-      if (pathname.startsWith("/page/")) {
-        const id = pathname.slice("/page/".length).split("/")[0];
-        const page = allPages.find((p) => p.id === id);
-        if (page && canAccessPage(page)) return { title: page.name, eyebrow: page.osDesk ? "Стол ОС" : "Стол" };
-        return { title: "Стол", eyebrow: "Столы" };
-      }
-      if (pathname.startsWith("/messages/")) {
-        const uid = pathname.slice("/messages/".length).split("/")[0];
-        const peer = members.find((m) => m.uid === uid);
-        if (peer) return { title: displayNameOf(peer), eyebrow: "Сообщения" };
-      }
-      // Пункт меню с самым длинным совпавшим путём — «/grok-limit/apps» под
-      // «Грок лимит». Берём из НЕотфильтрованных секций: у ОС «Столы» скрыты,
-      // а заголовок странице всё равно нужен. При равной длине побеждает не
-      // дом: «/desks» без своего стола — «Столы», а не «Главная».
-      let best: { item: NavItem; section: NavSection } | null = null;
-      for (const section of rawSections) {
-        for (const item of section.items) {
-          const to = pathOnly(item.to);
-          if (!pathMatches(pathname, to, item.end)) continue;
-          const bestLen = best ? pathOnly(best.item.to).length : -1;
-          if (to.length > bestLen || (to.length === bestLen && best?.item.key === "home")) best = { item, section };
-        }
-      }
-      if (best) {
-        const title = best.item.key === "home" ? homeLabel : best.item.label;
-        return { title, eyebrow: best.section.title ?? "Nova" };
-      }
-      const extra = EXTRA_ROUTE_META.find((r) => pathMatches(pathname, r.prefix));
-      if (extra) return { title: extra.title, eyebrow: extra.eyebrow };
-      return { title: "Nova", eyebrow: "Nova" };
-    },
-    // rawSections пересобираются каждый рендер; их содержимое зависит от
-    // этих же значений, так что список честный.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [homeLabel, allPages, members, isOs, isTeamlead, showDeskNav, showUsersNav, showOsDispatchNav, canAccessPage]
-  );
-
   return {
     home: {
-      to: homeTo,
-      label: homeLabel,
-      icon: homeIcon,
-      active: homeActive,
-      alert: deskAlert,
+      to: g.homeTo,
+      label: g.homeLabel,
+      icon: g.homeIcon,
+      myDeskId,
+      alert: Boolean(myDeskId && sig.deskAlerts.includes(myDeskId)),
     },
     myDeskTo,
     sections,
     items,
     deskShortcuts,
     badgeTotal,
-    ordersAlert,
-    isOs,
-    isTeamlead,
-    canIssueOrders,
+    inboxUnread: sig.privateUnreadTotal + sig.workspaceChatUnread,
+    ordersAlert: sig.ordersAlert,
+    isOs: g.isOs,
+    isTeamlead: g.isTeamlead,
+    canIssueOrders: g.canIssueOrders,
     pageMeta,
   };
+}
+
+/** Куда ведут G-D и G-S — отдельно, чтобы аккорды не перерисовывались на бейджи. */
+export interface NavTargets {
+  homeTo: string;
+  myDeskTo: string;
+}
+
+const NavModelContext = createContext<NavModel | null>(null);
+const PageMetaContext = createContext<((pathname: string) => PageMeta) | null>(null);
+const NavTargetsContext = createContext<NavTargets | null>(null);
+
+function missingProvider(): never {
+  throw new Error("Навигационная модель читается только внутри NavModelProvider (AppLayout)");
+}
+
+/**
+ * Считает навигационную модель ОДИН раз на приложение и раздаёт тремя
+ * контекстами. Раньше `useNavModel` звали Sidebar, палитра, G-аккорды,
+ * PageShell, Topbar, нижняя панель и лист «Ещё» — каждый со своими
+ * `usePeopleDesks` (группировка участники×столы) и `useInboxSummary` (свои
+ * setState), и одно сообщение в чате давало 7–8 перерисовок каркаса.
+ *
+ * Контексты разделены по частоте изменений: полная модель (бейджи —
+ * перерисовываются меню и нижняя панель), `pageMeta` (только состав —
+ * заголовок и `document.title`), адреса G-аккордов. `children` провайдера
+ * создаёт AppLayout, поэтому новое значение будит только подписчиков,
+ * а не весь каркас.
+ */
+export function NavModelProvider({ children }: { children: ReactNode }) {
+  const { profile } = useAuth();
+  const uid = profile?.uid ?? null;
+  // `pages` из useWorkspace — кэшированный срез (один массив на снимок), так
+  // что memo ниже не рвётся на каждый рендер провайдера.
+  const { members, allPages, pages, activeWorkspaceId } = useWorkspace();
+  const permissions = usePermissions();
+  const { myDesk } = usePeopleDesks();
+  const { privateUnreadTotal, workspaceChatUnread } = useInboxSummary(activeWorkspaceId, uid, {
+    includeWorkspaceChat: true,
+  });
+  const { recentIds, pinnedIds } = useUserPageNav(uid ?? undefined);
+  const deskAlerts = useUiStore((s) => s.deskAlerts);
+  const osDispatchUnseen = useSyncExternalStore(subscribeOsDispatchLogState, osDispatchLogState).unseen;
+  const openOrders = useSyncExternalStore(subscribeOpenOrdersState, openOrdersState);
+  const ordersAlert = openOrders.loaded && openOrders.count > 0;
+
+  const inputs = useMemo<NavInputs>(
+    () => ({ uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds }),
+    [uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds]
+  );
+  const signals = useMemo<NavSignals>(
+    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, ordersAlert, deskAlerts }),
+    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, ordersAlert, deskAlerts]
+  );
+  const pageMeta = useMemo(() => buildPageMeta(inputs), [inputs]);
+  const model = useMemo(() => buildNavModel(inputs, signals, pageMeta), [inputs, signals, pageMeta]);
+  const homeTo = model.home.to;
+  const myDeskTo = model.myDeskTo;
+  const targets = useMemo<NavTargets>(() => ({ homeTo, myDeskTo }), [homeTo, myDeskTo]);
+
+  return createElement(
+    NavModelContext.Provider,
+    { value: model },
+    createElement(
+      PageMetaContext.Provider,
+      { value: pageMeta },
+      createElement(NavTargetsContext.Provider, { value: targets }, children)
+    )
+  );
+}
+
+/**
+ * Живая модель навигации (из `NavModelProvider`). Перерисовывает на каждый
+ * бейдж — брать там, где бейджи и рисуются (меню, нижняя панель, лист «Ещё»,
+ * открытая палитра). Кому нужен только заголовок или адреса — `usePageMeta`,
+ * `useNavTargets`. Закрыть drawer/лист после перехода — забота того, кто
+ * рисует пункт: модель общая, и колбэка одного меню в ней нет.
+ */
+export function useNavModel(): NavModel {
+  return useContext(NavModelContext) ?? missingProvider();
+}
+
+/** Адреса «дом» и «свой стол» — для G-аккордов; бейджи их не трогают. */
+export function useNavTargets(): NavTargets {
+  return useContext(NavTargetsContext) ?? missingProvider();
 }
 
 /** Вторая кнопка нижней панели — одна правда для BottomNav и листа «Ещё». */
@@ -413,13 +562,17 @@ export function bottomBarSlot(nav: Pick<NavModel, "home" | "items" | "isOs">): B
  * другим пунктом («/desks»), модель убирает «Главную» из секций, и двух
  * активных пунктов не бывает.
  */
-export function isHomeActive(pathname: string, home: Pick<NavHome, "to">, myDeskId?: string | null) {
-  return pathname === "/" || pathname === home.to || Boolean(myDeskId && pathname === `/page/${myDeskId}`);
+export function isHomeActive(pathname: string, home: Pick<NavHome, "to" | "myDeskId">) {
+  return pathname === "/" || pathname === home.to || Boolean(home.myDeskId && pathname === `/page/${home.myDeskId}`);
 }
 
-/** Только заголовок экрана — для `document.title` и шапки телефона. */
+/**
+ * Только заголовок экрана — для `document.title` и шапки телефона. Берёт
+ * `pageMeta` из своего контекста: бейджи его не меняют, и сообщение в чате
+ * PageShell/Topbar не перерисовывает.
+ */
 export function usePageMeta(pathname: string): PageMeta {
-  const { pageMeta } = useNavModel();
+  const pageMeta = useContext(PageMetaContext) ?? missingProvider();
   return useMemo(() => pageMeta(pathname), [pageMeta, pathname]);
 }
 
@@ -470,9 +623,9 @@ export function useAccountMenu(opts: { openCreatePage?: () => void; openCreateWo
   const { profile } = useAuth();
   const { members, workspaces, activeWorkspace, activeWorkspaceId, setActiveWorkspaceId } = useWorkspace();
   const permissions = usePermissions();
-  const { privateUnreadTotal, workspaceChatUnread } = useInboxSummary(activeWorkspaceId, profile?.uid ?? null, {
-    includeWorkspaceChat: true,
-  });
+  // Непрочитанные — из общей модели: свой useInboxSummary здесь был ещё одним
+  // набором setState на каждое сообщение в каждом меню.
+  const unread = useNavModel().inboxUnread;
   const theme = useUiStore((s) => s.theme);
   const setTheme = useUiStore((s) => s.setTheme);
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
@@ -566,7 +719,7 @@ export function useAccountMenu(opts: { openCreatePage?: () => void; openCreateWo
   return {
     name: profile?.nickname || profile?.name || "",
     caption,
-    unread: privateUnreadTotal + workspaceChatUnread,
+    unread,
     workspaces: workspaces.map((ws) => ({
       id: ws.id,
       name: ws.name,

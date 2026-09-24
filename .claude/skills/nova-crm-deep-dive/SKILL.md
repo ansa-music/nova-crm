@@ -131,8 +131,10 @@ leaderboard, command palette, backup/export, change history. Added since (~90+ c
 - **Mobile desk rework** — swipe/double-tap on status, sticky columns without visual seams,
   phone-safe bulk-action panel, iOS viewport-height fixes, clipboard (Ctrl+Alt+C copies a row as
   TSV, Ctrl+Space selects a column).
-- **New visual theme** ("Nova OS" — glass floating sidebar nav, cyan-glow HUD accents) — GSAP
-  animations on the dashboard, disabled on touch devices for performance.
+- **Visual theme** — since 24.09.2026 «один акцент, плоско» (neutral dark tokens, single teal
+  accent, no glass/glow/gradients; 64px icon rail). The earlier «Nova OS» neon/glass theme and GSAP
+  are gone: shell animations are CSS `@keyframes nova-fade-in` (opacity only, no transform). See
+  «Дизайн экранов» in CLAUDE.md.
 - **Desk Studio** — the responsible person can customize their own desk's look independent of
   the shared theme.
 

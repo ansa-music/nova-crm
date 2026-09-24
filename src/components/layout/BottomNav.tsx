@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router";
 import { ClipboardList, Menu } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { bottomBarSlot, useNavModel } from "@/hooks/useNavModel";
+import { bottomBarSlot, isHomeActive, useNavModel } from "@/hooks/useNavModel";
 import { pathMatches } from "@/config/nav";
+import { preloadRoute } from "@/config/pageLoaders";
 import { cn } from "@/utils/cn";
 
 /**
@@ -64,8 +65,20 @@ function Tab({
     </>
   );
   if (to) {
+    // Касание приходит раньше клика на ~100 мс — chunk страницы начинает
+    // качаться уже тогда: касание пункта панели — намерение перейти (листа
+    // под ним нет, тянуть нечего), поэтому без проверок «экономия трафика /
+    // человек занят». Наведение и фокус — догадка, с проверками.
+    const preload = () => preloadRoute(to);
     return (
-      <NavLink to={to} aria-current={active ? "page" : undefined} className={className}>
+      <NavLink
+        to={to}
+        aria-current={active ? "page" : undefined}
+        className={className}
+        onPointerEnter={preload}
+        onPointerDown={() => preloadRoute(to, { intent: true })}
+        onFocus={preload}
+      >
         {body}
       </NavLink>
     );
@@ -85,7 +98,7 @@ function Tab({
  * панель прячется, и всё, что смонтировано внутри неё, пропадало бы вместе
  * с набранным текстом.
  */
-export function BottomNav({
+export const BottomNav = memo(function BottomNav({
   hidden = false,
   moreOpen = false,
   onMore,
@@ -98,10 +111,11 @@ export function BottomNav({
   const { pathname } = useLocation();
   const nav = useNavModel();
   const home = nav.home;
+  const homeActive = isHomeActive(pathname, home);
   const orders = nav.items.find((i) => i.key === "orders");
   const slot = bottomBarSlot(nav);
-  const slotActive = pathMatches(pathname, slot.to) && !home.active;
-  const moreActive = !home.active && !slotActive && !pathMatches(pathname, "/orders");
+  const slotActive = pathMatches(pathname, slot.to) && !homeActive;
+  const moreActive = !homeActive && !slotActive && !pathMatches(pathname, "/orders");
   // Бейдж «Ещё» — всё непрочитанное, что не видно на трёх других кнопках.
   const moreBadge = nav.badgeTotal - (orders?.badge ?? 0);
 
@@ -115,10 +129,10 @@ export function BottomNav({
         hidden && "hidden"
       )}
     >
-      <Tab to={home.to} label={home.label} icon={home.icon} active={home.active} alert={home.alert} />
+      <Tab to={home.to} label={home.label} icon={home.icon} active={homeActive} alert={home.alert} />
       <Tab to={slot.to} label={slot.label} icon={slot.icon} active={slotActive} />
       <Tab to="/orders" label="Заказы" icon={ClipboardList} active={pathMatches(pathname, "/orders")} alert={nav.ordersAlert} />
       <Tab label="Ещё" icon={Menu} active={moreOpen || moreActive} badge={moreBadge} onClick={onMore} />
     </nav>
   );
-}
+});

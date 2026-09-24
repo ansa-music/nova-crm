@@ -1,10 +1,24 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useLocation } from "react-router";
-import { deskEase, gsap, useGSAP } from "@/lib/gsap";
 import { usePageMeta } from "@/hooks/useNavModel";
 
+/**
+ * Обёртка экрана внутри <main>. Появление нового экрана — CSS-анимация
+ * `.page-enter` (index.css): только opacity, 150 мс, только на ПК с мышью.
+ *
+ * Раньше здесь был GSAP-твин opacity + y + scale на 300 мс. Он оставлял на
+ * обёртке inline `transform`, а transform делает элемент containing block для
+ * `position: fixed` потомков и отдельным stacking context: fixed-оверлеи
+ * внутри main (RowCardSheet рисуется без портала) позиционировались от
+ * обёртки, а не от окна. Поэтому здесь НИКАКОГО transform — ни в анимации,
+ * ни после неё (fill-mode none: по окончании стилей анимации не остаётся).
+ * И сам GSAP (≈69 КБ в стартовом chunk) ради одного fade был не нужен.
+ *
+ * `key` по пути: новый экран — новая обёртка, и анимация стартует сама, без
+ * принудительного reflow. Поддерево и так пересоздаётся при смене пути
+ * (ErrorBoundary в AppLayout — с тем же ключом), так что лишней работы нет.
+ */
 export function PageShell({ children }: { children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
   const location = useLocation();
   const meta = usePageMeta(location.pathname);
 
@@ -14,27 +28,8 @@ export function PageShell({ children }: { children: ReactNode }) {
     document.title = `${meta.title} · Nova`;
   }, [meta.title]);
 
-  useGSAP(
-    () => {
-      if (!ref.current) return;
-      if (
-        window.matchMedia(
-          "(prefers-reduced-motion: reduce), (hover: none), (pointer: coarse), (max-width: 1023px)"
-        ).matches
-      ) {
-        return;
-      }
-      gsap.fromTo(
-        ref.current,
-        { opacity: 0, y: 8, scale: 0.992 },
-        { opacity: 1, y: 0, scale: 1, duration: 0.3, ease: deskEase }
-      );
-    },
-    { scope: ref, dependencies: [location.pathname] }
-  );
-
   return (
-    <div ref={ref} className="flex h-full min-h-0 flex-col origin-top">
+    <div key={location.pathname} className="page-enter flex h-full min-h-0 flex-col">
       {children}
     </div>
   );

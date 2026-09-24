@@ -20,26 +20,31 @@ import { useAuthStore } from "@/store/authStore";
 // одного запроса ПОСЛЕ загрузки workspace, прямо перед первым экраном.
 import HomePage from "@/pages/HomePage";
 
-// Загрузчики страниц вынесены, чтобы предзагрузка ниже звала РОВНО тот же
-// import(), что и lazy: браузер держит модуль один, и второй вызов берёт готовый.
-const loadDynamicTablePage = () => import("@/pages/DynamicTablePage");
-const loadDashboardPage = () => import("@/pages/DashboardPage");
-const loadSettingsPage = () => import("@/pages/SettingsPage");
-const loadUsersPage = () => import("@/pages/UsersPage");
-const loadTeamPage = () => import("@/pages/TeamPage");
-const loadPeoplePage = () => import("@/pages/PeoplePage");
-const loadDesksPage = () => import("@/pages/DesksPage");
-const loadAnnouncementsPage = () => import("@/pages/AnnouncementsPage");
-const loadGrokLimitPage = () => import("@/pages/GrokLimitPage");
-const loadTechniciansPage = () => import("@/pages/TechniciansPage");
-const loadOrdersPage = () => import("@/pages/OrdersPage");
-const loadOsDeskPage = () => import("@/pages/OsDeskPage");
-const loadOsDesksPage = () => import("@/pages/OsDesksPage");
-const loadAbsPage = () => import("@/pages/AbsPage");
-const loadOsDispatchPage = () => import("@/pages/OsDispatchPage");
-const loadSchedulePage = () => import("@/pages/SchedulePage");
-const loadWorkspaceChatPage = () => import("@/pages/WorkspaceChatPage");
-const loadMessagesPage = () => import("@/pages/MessagesPage");
+// Загрузчики страниц — общие с предзагрузкой ниже и с наведением на пункты
+// меню (config/pageLoaders.ts): все зовут РОВНО тот же import(), и браузер
+// держит модуль один — второй вызов берёт готовый.
+import {
+  loadAbsPage,
+  loadAnnouncementsPage,
+  loadDashboardPage,
+  loadDesksPage,
+  loadDispatchPage,
+  loadDynamicTablePage,
+  loadGrokLimitPage,
+  loadMessagesPage,
+  loadOrdersPage,
+  loadOsDeskPage,
+  loadOsDesksPage,
+  loadOsDispatchPage,
+  loadPeoplePage,
+  loadSchedulePage,
+  loadSettingsPage,
+  loadTeamPage,
+  loadTechniciansPage,
+  loadUsersPage,
+  loadWorkspaceChatPage,
+  saveDataMode,
+} from "@/config/pageLoaders";
 
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
 const DashboardPage = lazy(loadDashboardPage);
@@ -51,7 +56,7 @@ const PeoplePage = lazy(loadPeoplePage);
 const DesksPage = lazy(loadDesksPage);
 const AnnouncementsPage = lazy(loadAnnouncementsPage);
 const GrokLimitPage = lazy(loadGrokLimitPage);
-const DispatchPage = lazy(() => import("@/pages/DispatchPage"));
+const DispatchPage = lazy(loadDispatchPage);
 const TechniciansPage = lazy(loadTechniciansPage);
 const OrdersPage = lazy(loadOrdersPage);
 const OsDeskPage = lazy(loadOsDeskPage);
@@ -101,13 +106,6 @@ function wantsDeskChunk(): boolean {
   } catch {
     return false;
   }
-}
-
-/** Сеть «берегите трафик» или 2G — фоновые загрузки не нужны. */
-function saveDataMode(): boolean {
-  const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } })
-    .connection;
-  return Boolean(connection?.saveData) || /(^|-)2g$/.test(connection?.effectiveType ?? "");
 }
 
 type IdleWindow = Window & {

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { useNavModel } from "@/hooks/useNavModel";
+import { useNavTargets } from "@/hooks/useNavModel";
 
 const CHORD_MS = 800;
 
@@ -16,16 +16,17 @@ function isTypingTarget(el: EventTarget | null): boolean {
  * Bare KeyG (no ctrl/meta/alt) arms a short window; second key navigates.
  * Does not steal Ctrl+K / undo (those use modifiers).
  * «Дом» (G D) и «свой стол» (G S / G P) — из навигационной модели, той же,
- * что у меню и нижней панели.
+ * что у меню и нижней панели. Берёт только два адреса (`useNavTargets`), а не
+ * всю модель: бейджи меню аккорды не перерисовывают.
  */
-export function GoChordHotkeys() {
+export const GoChordHotkeys = memo(function GoChordHotkeys() {
   const navigate = useNavigate();
-  const nav = useNavModel();
+  const targets = useNavTargets();
   const [armed, setArmed] = useState(false);
   const timerRef = useRef<number | null>(null);
   // Слушатель клавиш живёт дольше рендера — адреса читаем через ref.
-  const targetsRef = useRef({ home: nav.home.to, desk: nav.myDeskTo });
-  targetsRef.current = { home: nav.home.to, desk: nav.myDeskTo };
+  const targetsRef = useRef({ home: targets.homeTo, desk: targets.myDeskTo });
+  targetsRef.current = { home: targets.homeTo, desk: targets.myDeskTo };
 
   function disarm() {
     if (timerRef.current) window.clearTimeout(timerRef.current);
@@ -80,4 +81,4 @@ export function GoChordHotkeys() {
       G …
     </div>
   );
-}
+});

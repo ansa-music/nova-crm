@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { BrandMark } from "@/components/common/BrandMark";
 import { Button } from "@/components/ui/button";
 import { signOutUser } from "@/firebase/auth";
 import { isFirestoreCompatMode, reloadInCompatMode } from "@/firebase/firebase";
 import { useBootstrapStore } from "@/store/bootstrapStore";
-import { deskEase, gsap, useGSAP } from "@/lib/gsap";
 import type { BootstrapPhase } from "@/hooks/useAppBootstrap";
 
 const PHASE_LABEL: Partial<Record<BootstrapPhase, string>> = {
@@ -18,6 +17,14 @@ const PHASE_ORDER: BootstrapPhase[] = ["auth", "profile", "workspaces", "workspa
 
 /** Через сколько стадия считается «подозрительно долгой». */
 const SLOW_AFTER_MS = 12_000;
+
+/**
+ * Экран загрузки уже появлялся в этой вкладке. Его рисуют три места подряд
+ * (RequireAuth, AppLayout, запасной экран Suspense), и каждое — новый
+ * экземпляр: с появлением на каждом монтировании карточка мигала при каждой
+ * смене стадии. Плавно — только первый раз.
+ */
+let bootScreenShown = false;
 
 /**
  * Чаще всего загрузка встаёт не из-за приложения, а из-за того, что браузер
@@ -63,8 +70,10 @@ function NetworkHelp({ lead }: { lead?: string }) {
 }
 
 export function AppBootScreen({ phase }: { phase: BootstrapPhase }) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const barRef = useRef<HTMLDivElement>(null);
+  const [fadeIn] = useState(() => !bootScreenShown);
+  useEffect(() => {
+    bootScreenShown = true;
+  }, []);
   const bootError = useBootstrapStore((s) => s.bootError);
   // Таймер только для подсказки — ход загрузки он не меняет. Раньше экран
   // мог висеть бесконечно молча, и было не понять, ждать или что-то делать.
@@ -78,40 +87,15 @@ export function AppBootScreen({ phase }: { phase: BootstrapPhase }) {
   const step = Math.max(0, PHASE_ORDER.indexOf(phase));
   const progress = ((step + 1) / PHASE_ORDER.length) * 100;
 
-  useGSAP(
-    () => {
-      if (!rootRef.current) return;
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-      gsap.fromTo(
-        rootRef.current.querySelector(".boot-card"),
-        { opacity: 0, y: 8 },
-        { opacity: 1, y: 0, duration: 0.32, ease: deskEase }
-      );
-    },
-    { scope: rootRef }
-  );
-
-  useGSAP(
-    () => {
-      if (!barRef.current) return;
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        barRef.current.style.width = `${progress}%`;
-        return;
-      }
-      gsap.to(barRef.current, { width: `${progress}%`, duration: 0.28, ease: deskEase });
-    },
-    { scope: rootRef, dependencies: [progress] }
-  );
-
   return (
     <div
-      ref={rootRef}
       className="cyber-grid flex h-screen w-full flex-col items-center justify-center gap-8 bg-background"
       role="status"
       aria-live="polite"
       aria-busy={!failed}
     >
-      <div className="boot-card flex w-[calc(100%-2rem)] max-w-[360px] flex-col items-center gap-6 rounded-md border border-primary/35 bg-card/95 px-8 py-10">
+      {/* Появление — CSS (`.nova-fade-in`, только opacity), не GSAP. */}
+      <div className={`boot-card${fadeIn ? " nova-fade-in" : ""} flex w-[calc(100%-2rem)] max-w-[360px] flex-col items-center gap-6 rounded-md border border-primary/35 bg-card/95 px-8 py-10`}>
         <BrandMark />
         {failed ? (
           <>
@@ -132,7 +116,13 @@ export function AppBootScreen({ phase }: { phase: BootstrapPhase }) {
         ) : (
           <>
             <div className="h-px w-40 overflow-hidden bg-border">
-              <div ref={barRef} className="h-full bg-primary" style={{ width: "12%" }} />
+              {/* Ширина — сразу текущая стадия, смена стадии едет CSS-переходом.
+                  Раньше полоса на каждом новом экземпляре экрана заново
+                  росла с 12%, и загрузка будто начиналась сначала. */}
+              <div
+                className="h-full bg-primary transition-[width] duration-280 ease-out motion-reduce:transition-none"
+                style={{ width: `${progress}%` }}
+              />
             </div>
             <p className="eyebrow">{PHASE_LABEL[phase] ?? "Загрузка…"}</p>
             {slow && (

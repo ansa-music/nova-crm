@@ -2,7 +2,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CellActionButton, sameCellAction, type CellActionView } from "@/components/table/CellActionButton";
 import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
-import { memo, useState } from "react";
+import { memo, useEffect, useReducer, useRef, useState } from "react";
 import { Copy, GripVertical, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { TableCell } from "@/components/table/TableCell";
 import { rowExtrasSummary } from "@/utils/rowExtras";
@@ -101,14 +101,75 @@ interface TableRowProps {
    * counts, footer and «Технари» skip it (see utils/blankRow.ts).
    */
   blank?: boolean;
-  /** Кнопка поверх ячейки `cellActionKey` — см. DataTable.cellAction. */
+  /**
+   * Кнопка поверх ячейки `cellActionKey` — см. DataTable.cellAction. Метку
+   * считает сама ячейка (`getCellAction` по id строки) и пересчитывает по
+   * `cellActionPulse`: таблица «пульсирует» после своего рендера и по таймеру,
+   * а строка перерисовывается, только если метка правда сменилась.
+   */
   cellActionKey?: string | null;
-  cellAction?: CellActionView | null;
+  getCellAction?: (rowId: string) => CellActionView | null;
+  cellActionPulse?: CellActionPulse;
   onCellAction?: (rowId: string) => void;
   /** Добавка слева внутри ячеек этих столбцов — см. DataTable.cellAddon. */
   cellAddonKeys?: readonly string[];
   cellAddonVersion?: string;
   renderCellAddon?: (row: PageRow, colKey: string) => React.ReactNode;
+}
+
+/**
+ * «Пульс» меток поверх ячеек: таблица зовёт `emit` после своего рендера и по
+ * таймеру (метка стола ОС «статус не совпал» зависит от времени), каждая
+ * метка сверяет себя и перерисовывается одна. Раньше ради этого раз в 10 с
+ * перерисовывалась вся страница стола вместе с таблицей.
+ */
+export interface CellActionPulse {
+  subscribe: (listener: () => void) => () => void;
+  emit: () => void;
+}
+
+export function createCellActionPulse(): CellActionPulse {
+  const listeners = new Set<() => void>();
+  return {
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    emit() {
+      for (const listener of [...listeners]) listener();
+    },
+  };
+}
+
+function LiveCellAction({
+  rowId,
+  getView,
+  pulse,
+  coarsePointer,
+  onRun,
+}: {
+  rowId: string;
+  getView: (rowId: string) => CellActionView | null;
+  pulse?: CellActionPulse;
+  coarsePointer?: boolean;
+  onRun: (rowId: string) => void;
+}) {
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  // Считаем метку при каждом своём рендере: строка перерисовалась — значит,
+  // и данные для метки могли смениться.
+  const view = getView(rowId);
+  const shownRef = useRef(view);
+  shownRef.current = view;
+  useEffect(() => {
+    if (!pulse) return;
+    return pulse.subscribe(() => {
+      if (!sameCellAction(shownRef.current, getView(rowId))) rerender();
+    });
+  }, [pulse, getView, rowId]);
+  if (!view) return null;
+  return <CellActionButton view={view} coarsePointer={coarsePointer} onRun={() => onRun(rowId)} />;
 }
 
 function TableRowInner({
@@ -168,7 +229,8 @@ function TableRowInner({
   onFindDuplicates,
   blank = false,
   cellActionKey,
-  cellAction,
+  getCellAction,
+  cellActionPulse,
   onCellAction,
   cellAddonKeys,
   renderCellAddon,
@@ -401,8 +463,14 @@ function TableRowInner({
               renderCellAddon && !blank && cellAddonKeys?.includes(column.key) ? renderCellAddon(row, column.key) : undefined
             }
             trailing={
-              cellAction && onCellAction && column.key === cellActionKey && !blank ? (
-                <CellActionButton view={cellAction} coarsePointer={coarsePointer} onRun={() => onCellAction(row.id)} />
+              getCellAction && onCellAction && column.key === cellActionKey && !blank ? (
+                <LiveCellAction
+                  rowId={row.id}
+                  getView={getCellAction}
+                  pulse={cellActionPulse}
+                  coarsePointer={coarsePointer}
+                  onRun={onCellAction}
+                />
               ) : undefined
             }
             searchQuery={searchQuery}
@@ -425,26 +493,49 @@ function addrOnRow(addr: CellAddress | null, rowId: string) {
   return addr?.rowId === rowId;
 }
 
-function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
-  if (prev.row.id !== next.row.id) return false;
-  if (prev.row.updatedAt !== next.row.updatedAt || prev.row.cells !== next.row.cells) {
-    const keys = new Set([...Object.keys(prev.row.cells), ...Object.keys(next.row.cells)]);
+/**
+ * Визитка по значению, а не по ссылке: строка из Firestore приходит новым
+ * объектом на каждый снимок, и сравнение по ссылке перерисовывало её без
+ * повода. Поля визитки — числа и строки, JSON тут честное сравнение.
+ */
+function sameExtras(a: PageRow["extras"], b: PageRow["extras"]): boolean {
+  if (a === b) return true;
+  if (!a || !b) return !a && !b;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Поля строки, которые рисует TableRow. Тот же объект (стор Supabase отдаёт
+ * прежний PageRow, если `rev` не изменился) — сравнивать нечего.
+ */
+function sameRowContent(a: PageRow, b: PageRow): boolean {
+  if (a === b) return true;
+  if (a.id !== b.id) return false;
+  if (a.updatedAt !== b.updatedAt || a.cells !== b.cells) {
+    const keys = new Set([...Object.keys(a.cells), ...Object.keys(b.cells)]);
     for (const key of keys) {
-      if (prev.row.cells[key] !== next.row.cells[key]) return false;
+      if (a.cells[key] !== b.cells[key]) return false;
     }
   }
+  return (
+    // Подсветка «новый заказ» живёт на самой строке: без этой пары строка
+    // оставалась подсвеченной до перезагрузки, хотя чип «снять» уже пропал.
+    Boolean(a.highlight) === Boolean(b.highlight) &&
+    a.orderId === b.orderId &&
+    // Замок строки-заказа и просьба об «Успешке» — тоже повод перерисовать.
+    a.osUid === b.osUid &&
+    a.statusKey === b.statusKey &&
+    a.successRequestedAt === b.successRequestedAt &&
+    a.createdAt === b.createdAt &&
+    sameExtras(a.extras, b.extras)
+  );
+}
+
+function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
+  if (!sameRowContent(prev.row, next.row)) return false;
   if (
     prev.rowNumber !== next.rowNumber ||
     prev.blank !== next.blank ||
-    // Подсветка «новый заказ» живёт на самой строке: без этой пары строка
-    // оставалась подсвеченной до перезагрузки, хотя чип «снять» уже пропал.
-    Boolean(prev.row.highlight) !== Boolean(next.row.highlight) ||
-    prev.row.orderId !== next.row.orderId ||
-    // Замок строки-заказа и просьба об «Успешке» — тоже повод перерисовать.
-    prev.row.osUid !== next.row.osUid ||
-    prev.row.statusKey !== next.row.statusKey ||
-    prev.row.successRequestedAt !== next.row.successRequestedAt ||
-    prev.row.extras !== next.row.extras ||
     prev.columns !== next.columns ||
     prev.rowHeight !== next.rowHeight ||
     prev.canEdit !== next.canEdit ||
@@ -473,10 +564,8 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     prev.cellAddonVersion !== next.cellAddonVersion ||
     prev.renderCellAddon !== next.renderCellAddon ||
     prev.onCellAction !== next.onCellAction ||
-    !sameCellAction(prev.cellAction, next.cellAction) ||
-    prev.row.extras?.persons !== next.row.extras?.persons ||
-    prev.row.extras?.minutes !== next.row.extras?.minutes ||
-    prev.row.extras?.note !== next.row.extras?.note
+    prev.getCellAction !== next.getCellAction ||
+    prev.cellActionPulse !== next.cellActionPulse
   ) {
     return false;
   }

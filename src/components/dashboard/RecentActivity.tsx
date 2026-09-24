@@ -1,6 +1,4 @@
-import { useRef } from "react";
 import { History, Pencil, Plus, Trash2 } from "lucide-react";
-import { deskEase, gsap, useGSAP } from "@/lib/gsap";
 import { timeAgo } from "@/utils/date";
 import type { HistoryEntry } from "@/types";
 
@@ -22,30 +20,29 @@ function lineFor(entry: HistoryEntry) {
   return field ? `${actor} изменил(а) «${field}»${place}` : `${actor} изменил(а) запись${place}`;
 }
 
-export function RecentActivity({ entries }: { entries: HistoryEntry[] }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useGSAP(
-    () => {
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-      const nodes = ref.current?.querySelectorAll(".feed-item");
-      if (!nodes?.length) return;
-      gsap.fromTo(nodes, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.28, stagger: 0.04, ease: deskEase });
-    },
-    { scope: ref, dependencies: [entries.length] }
-  );
+/** Шаг «лесенки» появления пунктов ленты. */
+const FEED_STAGGER_MS = 40;
 
+export function RecentActivity({ entries }: { entries: HistoryEntry[] }) {
+  // Появление — CSS (`.nova-fade-in`, только opacity) с задержкой по номеру.
+  // Пункты с ключом по id: пришла новая запись — появляется она одна, а не
+  // вся лента заново, как было у GSAP-твина на каждое изменение длины.
   return (
-    <div ref={ref} className="desk-cluster hud-frame lift-card p-5">
+    <div className="desk-cluster hud-frame lift-card p-5">
       <p className="eyebrow mb-1 text-primary">Лента</p>
       <p className="section mb-4">Что менялось</p>
       {entries.length === 0 && (
         <p className="body py-4">Изменений пока нет</p>
       )}
       <div className="flex flex-col gap-0.5">
-        {entries.slice(0, 8).map((entry) => {
+        {entries.slice(0, 8).map((entry, index) => {
           const Icon = ACTION_ICON[entry.action];
           return (
-            <div key={entry.id} className="feed-item flex items-start gap-3">
+            <div
+              key={entry.id}
+              className="feed-item nova-fade-in flex items-start gap-3"
+              style={{ animationDelay: `${index * FEED_STAGGER_MS}ms` }}
+            >
               <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border/70 bg-muted/40">
                 <Icon className="h-3 w-3" />
               </span>

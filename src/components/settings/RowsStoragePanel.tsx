@@ -1,16 +1,7 @@
 import { useState, useSyncExternalStore } from "react";
-import { CheckCircle2, Copy, Database, Loader2, RefreshCw, TriangleAlert, Undo2, UploadCloud } from "lucide-react";
-// Все файлы миграций по порядку: «Скопировать SQL» должен давать то же, что
-// накатывает деплой (scripts/supabase-sql.mjs), а не только первый файл.
-const migrationFiles = import.meta.glob("../../../supabase/migrations/*.sql", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-}) as Record<string, string>;
-const migrationSql = Object.keys(migrationFiles)
-  .sort()
-  .map((path) => migrationFiles[path])
-  .join("\n\n");
+import { CheckCircle2, Copy, Database, ExternalLink, Loader2, RefreshCw, TriangleAlert, Undo2, UploadCloud } from "lucide-react";
+// Все файлы миграций по порядку — общий модуль с плашкой Owner «SQL не вставлен».
+import { migrationSql, sqlEditorUrl } from "@/services/sb/migrationSql";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/components/ui/sonner";
@@ -412,9 +403,16 @@ export function RowsStoragePanel() {
               <b>Secrets and variables</b> → <b>Actions</b> → секрет <code>SUPABASE_ACCESS_TOKEN</code> (личный токен из
               supabase.com → Account → Access Tokens). Тогда каждый деплой сайта сам накатывает изменившийся SQL.
             </p>
-            <Button size="sm" variant="outline" className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => void copy(migrationSql, "SQL")}>
-              <Copy className="h-3.5 w-3.5" /> Скопировать SQL ({Math.round(migrationSql.length / 1024)} КБ)
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => void copy(migrationSql, "SQL")}>
+                <Copy className="h-3.5 w-3.5" /> Скопировать SQL ({Math.round(migrationSql.length / 1024)} КБ)
+              </Button>
+              <Button size="sm" variant="outline" className="min-h-11 gap-1.5 sm:min-h-0" asChild>
+                <a href={sqlEditorUrl()} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-3.5 w-3.5" /> Открыть SQL Editor
+                </a>
+              </Button>
+            </div>
           </Step>
           <Step n={3} done={step3} title="Кто владелец workspace">
             <p className="text-muted-foreground">Та же вкладка SQL Editor — одна строка:</p>

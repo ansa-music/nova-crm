@@ -25,7 +25,7 @@ import { cn } from "@/utils/cn";
  * Firestore — их настройку можно поставить заранее, она подхватится, когда
  * придёт код переноса.
  */
-const WIRED: ReadonlySet<CollectionKey> = new Set<CollectionKey>(["deskLoads", "presence"]);
+const WIRED: ReadonlySet<CollectionKey> = new Set<CollectionKey>(["deskLoads", "presence", "notifications", "osOrders"]);
 
 const SETTINGS: { value: SbSetting; label: string }[] = [
   { value: "auto", label: "Авто" },

@@ -36,7 +36,7 @@ const MEMBERS_EVERY_MS = 25 * 60 * 1000;
  * убранному человеку.
  */
 export function useRowAclSync() {
-  const { activeWorkspace, allPages } = useWorkspace();
+  const { activeWorkspace, allPages, members: roster } = useWorkspace();
   const permissions = usePermissions();
   const workspaceId = activeWorkspace?.id ?? null;
   const backend = useRowsBackend(workspaceId);
@@ -108,6 +108,42 @@ export function useRowAclSync() {
     const timer = window.setTimeout(() => void run.current(workspaceId, false), DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [active, workspaceId, pageSignature]);
+
+  // Ник ОС сменили (NickDialog, «Привязать» на «Команде» — действие пишет
+  // только Firestore) — копию ника довести СРАЗУ, а не через 25 минут: по нему
+  // политика os_orders отдаёт ОС его заказы, и до сверки новый ОС видел бы
+  // пустоту (а снятый ник — чужие заказы). Сигнал — ростер вкладки (его
+  // освежает само действие), но пишем, как и всегда, по СВЕЖЕМУ чтению.
+  const nickSignature = useMemo(() => {
+    if (!active || !management) return "";
+    return roster
+      .filter((m) => m.uid && !m.uid.includes("@"))
+      .map((m) => `${m.uid}:${m.osNickValue ?? ""}`)
+      .sort()
+      .join("|");
+  }, [active, management, roster]);
+  const nickSeen = useRef<string | null>(null);
+  const nickTimer = useRef<number | null>(null);
+  useEffect(() => {
+    if (!active || !workspaceId || !management || !nickSignature) return;
+    const key = `${workspaceId}#${nickSignature}`;
+    const previous = nickSeen.current;
+    nickSeen.current = key;
+    // Первый увиденный ростер (и смена workspace) — это загрузка: её
+    // сверку и так делает эффект ниже.
+    if (previous === null || previous === key || !previous.startsWith(`${workspaceId}#`)) return;
+    if (nickTimer.current !== null) window.clearTimeout(nickTimer.current);
+    nickTimer.current = window.setTimeout(() => {
+      nickTimer.current = null;
+      void run.current(workspaceId, true);
+    }, DEBOUNCE_MS);
+  }, [active, workspaceId, management, nickSignature]);
+  useEffect(
+    () => () => {
+      if (nickTimer.current !== null) window.clearTimeout(nickTimer.current);
+    },
+    []
+  );
 
   // Участники и наблюдатели — свежим чтением: при загрузке и раз в 25 минут.
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   useLocation,
   useNavigate,
@@ -187,6 +187,81 @@ async function lookupRowTab(
   return tab === "" ? null : tab;
 }
 
+/**
+ * Сводка стола для шапки («Общий · Готово · В работе · Ждём») — маленький
+ * стор на экземпляр страницы, а не state страницы: DataTable отдаёт сводку
+ * после правки, и setState у страницы перерисовывал её ЦЕЛИКОМ вместе с
+ * таблицей — второй полный проход стола на каждую правку денег или статуса.
+ * Теперь перерисовывается только блок итогов в шапке.
+ */
+interface DeskSummaryStore {
+  get: () => DeskSummary | null;
+  set: (next: DeskSummary | null) => void;
+  subscribe: (listener: () => void) => () => void;
+}
+
+function createDeskSummaryStore(): DeskSummaryStore {
+  let value: DeskSummary | null = null;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => value,
+    set: (next) => {
+      if (next === value) return;
+      value = next;
+      for (const listener of [...listeners]) listener();
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+/** Итоги по видимым строкам в шапке стола — подписаны на стор сами. */
+function DeskSummaryInline({ store }: { store: DeskSummaryStore }) {
+  const summary = useSyncExternalStore(store.subscribe, store.get, store.get);
+  // Моно, без валюты: числа читаются столбиком. «В работе» и «Ждём» при нуле
+  // молчат, без денежного столбца блока нет вовсе, без статуса — только
+  // «Общий». На узком экране блок не влезает — прячем.
+  if (!summary?.hasCurrency) return null;
+  return (
+    <div className="hidden shrink-0 items-center gap-4 font-mono text-[12.5px] text-muted-foreground lg:flex">
+      <span>
+        Общий{" "}
+        <b className="font-medium text-foreground">
+          {formatNumber(summary.total)}
+        </b>
+      </span>
+      {summary.hasStatus && (
+        <span>
+          Готово{" "}
+          <b className="font-medium text-success">
+            {formatNumber(summary.done)}
+          </b>
+        </span>
+      )}
+      {summary.hasStatus && summary.inProgress > 0 && (
+        <span>
+          В работе{" "}
+          <b className="font-medium text-primary">
+            {formatNumber(summary.inProgress)}
+          </b>
+        </span>
+      )}
+      {summary.hasStatus && summary.waiting > 0 && (
+        <span>
+          Ждём{" "}
+          <b className="font-medium text-warning">
+            {formatNumber(summary.waiting)}
+          </b>
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function DynamicTablePage() {
   const { pageId } = useParams<{ pageId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -244,7 +319,7 @@ export default function DynamicTablePage() {
   const [statsOpen, setStatsOpen] = useState(false);
   // Сводка и действия стола — их считает DataTable (у него отфильтрованные
   // строки и статусы), шапка только рисует. См. types/deskSummary.ts.
-  const [summary, setSummary] = useState<DeskSummary | null>(null);
+  const [summaryStore] = useState(createDeskSummaryStore);
   const [actions, setActions] = useState<DeskTableActions | null>(null);
   const [activeSubPageId, setActiveSubPageId] = useState<string | null>(null);
   // Пока грузится другой стол или вкладка, DataTable ещё не смонтирован и
@@ -252,9 +327,9 @@ export default function DynamicTablePage() {
   // стола. Сброс только по смене адреса, а не на каждый ререндер: иначе
   // кнопка мигала бы при каждом пересчёте сводки.
   useEffect(() => {
-    setSummary(null);
+    summaryStore.set(null);
     setActions(null);
-  }, [pageId, activeSubPageId]);
+  }, [pageId, activeSubPageId, summaryStore]);
   const [tabsReady, setTabsReady] = useState(false);
   const appliedDefaultForPageRef = useRef<string | null>(null);
   const userPickedTabRef = useRef(false);
@@ -806,15 +881,11 @@ export default function DynamicTablePage() {
   const osStatusOptions = ensureApprovalStatus(
     ensureDoneStatus(activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS),
   );
-  // Раз в 10 с перерисовываем метку «не совпадает»: она показывается не сразу
-  // после правки, а когда проход уже должен был довезти статус.
-  const [osTick, setOsTick] = useState(0);
-  useEffect(() => {
-    if (!isMyOsDesk) return;
-    const timer = window.setInterval(() => setOsTick((n) => n + 1), 10_000);
-    return () => window.clearInterval(timer);
-  }, [isMyOsDesk]);
-  void osTick;
+  // Метка «не совпадает» показывается не сразу после правки, а когда проход
+  // уже должен был довезти статус (8 с). Раньше ради неё раз в 10 с
+  // перерисовывалась вся страница вместе с таблицей; теперь таблица сама
+  // пересчитывает ТОЛЬКО метки (`cellAction.tickMs`, см. DataTable).
+  const OS_CELL_ACTION_TICK_MS = 10_000;
   const cellStr = (row: PageRow, key: string | null | undefined) => {
     const v = key ? row.cells[key] : null;
     return v === null || v === undefined ? "" : String(v).trim();
@@ -1103,6 +1174,15 @@ export default function DynamicTablePage() {
       }
     })();
   }, [page, hasAccess, permissions.canManagePage]);
+
+  // Стол для таблицы: у месячной вкладки — со столбцами вкладки. Один объект
+  // на смену стола/столбцов, а не новый на каждый рендер страницы.
+  const activeSubColumns = activeSubPage?.columns;
+  const tablePage = useMemo(
+    () =>
+      page && activeSubColumns ? { ...page, columns: activeSubColumns } : page,
+    [page, activeSubColumns],
+  );
 
   // 1. Still resolving user -> role -> workspace -> pages. Never render a
   //    verdict here: this is precisely the window where the old code could
@@ -1420,44 +1500,9 @@ export default function DynamicTablePage() {
           </div>
         )}
         <div className="flex-1" />
-        {/* Итоги по видимым строкам — моно, без валюты: числа читаются
-            столбиком. «В работе» и «Ждём» при нуле молчат, без денежного
-            столбца блока нет вовсе, без статуса — только «Общий». На узком
-            экране блок не влезает — прячем. */}
-        {summary?.hasCurrency && (
-          <div className="hidden shrink-0 items-center gap-4 font-mono text-[12.5px] text-muted-foreground lg:flex">
-            <span>
-              Общий{" "}
-              <b className="font-medium text-foreground">
-                {formatNumber(summary.total)}
-              </b>
-            </span>
-            {summary.hasStatus && (
-              <span>
-                Готово{" "}
-                <b className="font-medium text-success">
-                  {formatNumber(summary.done)}
-                </b>
-              </span>
-            )}
-            {summary.hasStatus && summary.inProgress > 0 && (
-              <span>
-                В работе{" "}
-                <b className="font-medium text-primary">
-                  {formatNumber(summary.inProgress)}
-                </b>
-              </span>
-            )}
-            {summary.hasStatus && summary.waiting > 0 && (
-              <span>
-                Ждём{" "}
-                <b className="font-medium text-warning">
-                  {formatNumber(summary.waiting)}
-                </b>
-              </span>
-            )}
-          </div>
-        )}
+        {/* Итоги по видимым строкам — свой маленький компонент на сторе:
+            правка в таблице перерисовывает только его, а не всю страницу. */}
+        <DeskSummaryInline store={summaryStore} />
         {actions?.canQuickOrder ? (
           <Button
             size="sm"
@@ -1725,11 +1770,7 @@ export default function DynamicTablePage() {
             ) : (
               <DataTable
                 workspaceId={page.workspaceId}
-                page={
-                  activeSubPage
-                    ? { ...page, columns: activeSubPage.columns }
-                    : page
-                }
+                page={tablePage ?? page}
                 subPageId={activeSubPage?.id}
                 manualRowOrder={
                   (activeSubPage ? activeSubPage.rowOrder : page.rowOrder) ===
@@ -1770,6 +1811,7 @@ export default function DynamicTablePage() {
                         colKey: osKeys.technician,
                         get: osCellView,
                         run: (row) => void runOsCellAction(row),
+                        tickMs: OS_CELL_ACTION_TICK_MS,
                       }
                     : undefined
                 }
@@ -1826,7 +1868,7 @@ export default function DynamicTablePage() {
                 userId={profile?.uid ?? ""}
                 userName={myDisplayName(profile, members)}
                 focusRowId={focusRowId}
-                onSummaryChange={setSummary}
+                onSummaryChange={summaryStore.set}
                 onActionsChange={setActions}
               />
             )}

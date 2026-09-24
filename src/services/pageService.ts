@@ -684,8 +684,148 @@ export async function toggleUserPageAccess(
 }
 
 export async function updatePageColumns(workspaceId: string, pageId: string, columns: PageColumn[]) {
-  if (!db) return;
-  await setDoc(paths.page(workspaceId, pageId), { columns: stripUndefined(columns), updatedAt: Date.now() }, { merge: true });
+  // Отложенная раскладка того же стола (ширина/порядок, см. ниже) уезжает
+  // ЭТОЙ записью: иначе её таймер позже переписал бы столбцы старым списком
+  // поверх только что сделанного переименования или добавления.
+  const pending = takePendingLayout(workspaceId, pageId);
+  const next = pending ? applyColumnLayout(columns, pending.patch) : columns;
+  if (!db) {
+    pending?.waiters.forEach((w) => w.resolve());
+    return;
+  }
+  try {
+    await setDoc(paths.page(workspaceId, pageId), { columns: stripUndefined(next), updatedAt: Date.now() }, { merge: true });
+    pending?.waiters.forEach((w) => w.resolve());
+  } catch (error) {
+    pending?.waiters.forEach((w) => w.reject(error));
+    throw error;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Ширина и порядок столбцов «Основной» — с паузой и отсечкой одинакового.
+// Столбцы главной вкладки лежат В ДОКУМЕНТЕ СТОЛА, а коллекцию pages слушает
+// каждая вкладка каждого человека (~28): одна запись = чтение у всех. Подгон
+// ширины, перетаскивание и «подогнать всё» идут сериями — склеиваем серию в
+// одну запись и не пишем, если раскладка не изменилась. Пока запись ждёт,
+// DataTable держит раскладку на экране сам (applyColumnLayout поверх столбцов).
+// ---------------------------------------------------------------------------
+
+/** Ширина и/или порядок одного столбца. */
+export interface ColumnLayoutPatch {
+  width?: number;
+  order?: number;
+}
+
+/** Пауза перед записью раскладки: серия правок мышью укладывается в неё. */
+export const PAGE_COLUMNS_LAYOUT_DELAY_MS = 1500;
+
+interface PendingLayout {
+  workspaceId: string;
+  pageId: string;
+  patch: Record<string, ColumnLayoutPatch>;
+  /** Столбцы стола на момент записи (свежие, с сервера/кэша), поверх них ложится patch. */
+  current: () => PageColumn[];
+  timer: ReturnType<typeof setTimeout> | null;
+  waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }>;
+}
+
+const pendingLayouts = new Map<string, PendingLayout>();
+let layoutFlushOnHideInstalled = false;
+
+function layoutKey(workspaceId: string, pageId: string) {
+  return `${workspaceId}/${pageId}`;
+}
+
+/** Раскладка поверх столбцов; порядок массива не меняется, только поля width/order. */
+export function applyColumnLayout(columns: PageColumn[], patch: Readonly<Record<string, ColumnLayoutPatch>>): PageColumn[] {
+  let changed = false;
+  const next = columns.map((column) => {
+    const p = patch[column.key];
+    if (!p) return column;
+    const width = p.width ?? column.width;
+    const order = p.order ?? column.order;
+    if (width === column.width && order === column.order) return column;
+    changed = true;
+    return { ...column, width, order };
+  });
+  return changed ? next : columns;
+}
+
+function takePendingLayout(workspaceId: string, pageId: string): PendingLayout | null {
+  const key = layoutKey(workspaceId, pageId);
+  const pending = pendingLayouts.get(key) ?? null;
+  if (!pending) return null;
+  pendingLayouts.delete(key);
+  if (pending.timer) clearTimeout(pending.timer);
+  return pending;
+}
+
+async function flushLayout(workspaceId: string, pageId: string): Promise<void> {
+  const pending = takePendingLayout(workspaceId, pageId);
+  if (!pending) return;
+  const base = pending.current();
+  const next = applyColumnLayout(base, pending.patch);
+  // Раскладка уже такая (вернули ширину назад, повторный «подогнать») —
+  // запись в документ стола не нужна вовсе.
+  if (next === base || !db) {
+    pending.waiters.forEach((w) => w.resolve());
+    return;
+  }
+  try {
+    await setDoc(paths.page(workspaceId, pageId), { columns: stripUndefined(next), updatedAt: Date.now() }, { merge: true });
+    pending.waiters.forEach((w) => w.resolve());
+  } catch (error) {
+    pending.waiters.forEach((w) => w.reject(error));
+  }
+}
+
+/** Все отложенные раскладки — сразу (уход со страницы, свёрнутая вкладка). */
+export function flushPageColumnsLayouts(): Promise<void> {
+  const all = [...pendingLayouts.values()];
+  return Promise.all(all.map((p) => flushLayout(p.workspaceId, p.pageId))).then(() => undefined);
+}
+
+function installLayoutFlushOnHide() {
+  if (layoutFlushOnHideInstalled || typeof window === "undefined") return;
+  layoutFlushOnHideInstalled = true;
+  // Вкладку закрывают или сворачивают — не держим раскладку в памяти: запись
+  // Firestore встаёт в очередь SDK и уедет, даже если страница выгрузится.
+  window.addEventListener("pagehide", () => void flushPageColumnsLayouts());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") void flushPageColumnsLayouts();
+  });
+}
+
+/**
+ * Ширина/порядок столбцов главной вкладки — с паузой: правки за
+ * PAGE_COLUMNS_LAYOUT_DELAY_MS склеиваются в одну запись, одинаковое не
+ * пишется. Промис — итог записи, в которую попала эта правка.
+ */
+export function schedulePageColumnsLayout(
+  workspaceId: string,
+  pageId: string,
+  patch: Record<string, ColumnLayoutPatch>,
+  current: () => PageColumn[],
+  delayMs: number = PAGE_COLUMNS_LAYOUT_DELAY_MS
+): Promise<void> {
+  installLayoutFlushOnHide();
+  const key = layoutKey(workspaceId, pageId);
+  let pending = pendingLayouts.get(key);
+  if (!pending) {
+    pending = { workspaceId, pageId, patch: {}, current, timer: null, waiters: [] };
+    pendingLayouts.set(key, pending);
+  }
+  for (const [colKey, p] of Object.entries(patch)) {
+    pending.patch[colKey] = { ...pending.patch[colKey], ...p };
+  }
+  pending.current = current;
+  if (pending.timer) clearTimeout(pending.timer);
+  pending.timer = setTimeout(() => void flushLayout(workspaceId, pageId), delayMs);
+  const target = pending;
+  return new Promise<void>((resolve, reject) => {
+    target.waiters.push({ resolve, reject });
+  });
 }
 
 /** Airtable-style: append a brand new column to a page. Owner/Admin only (enforced by caller via permissions). */

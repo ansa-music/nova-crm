@@ -6,6 +6,8 @@ import type { LucideIcon } from "lucide-react";
  * (`hooks/useNavModel.ts`); её рисуют Sidebar, BottomNav, MoreSheet, палитра
  * Ctrl+K и G-аккорды. Раньше «где дом» лежало в HomePage и Sidebar порознь,
  * а список разделов — только в Sidebar, и палитра поиска знала половину.
+ * «Закрыть drawer/лист после перехода» — забота того, кто рисует пункт:
+ * модель общая, и колбэк одного меню в ней не живёт.
  */
 
 /** Пункт меню. `show: false` — пункта у этой роли нет (модель его отфильтрует). */
@@ -19,12 +21,14 @@ export interface NavItem {
   badge?: number;
   /** Зелёная подсветка «здесь вас ждёт заказ». */
   alert?: boolean;
-  /** Активность считается не по `to` (дом активен и на «/», и на своём столе). */
-  forceActive?: boolean;
+  /**
+   * Активность считается не по `to` (дом активен и на «/», и на своём столе).
+   * Функция пути, а не готовый флаг: модель одна на приложение и от адреса не
+   * зависит — иначе каждый переход пересобирал бы её и перерисовывал всё меню.
+   */
+  activeOn?: (pathname: string) => boolean;
   /** Точное совпадение пути, без вложенных. */
   end?: boolean;
-  /** Закрыть drawer/лист после перехода. */
-  onNavigate?: () => void;
   /** Подпункты — закреплённые и недавние столы под «Столами». */
   children?: NavChild[];
 }
@@ -36,7 +40,6 @@ export interface NavChild {
   label: string;
   icon: LucideIcon;
   color?: string;
-  onNavigate?: () => void;
 }
 
 /**
@@ -87,4 +90,9 @@ export function pathMatches(pathname: string, to: string, end?: boolean) {
 export function pathOnly(to: string) {
   const cut = to.search(/[?#]/);
   return cut === -1 ? to : to.slice(0, cut);
+}
+
+/** Горит ли пункт на этом пути — одно правило для меню, листа «Ещё» и панели. */
+export function isNavItemActive(item: Pick<NavItem, "to" | "end" | "activeOn">, pathname: string) {
+  return item.activeOn ? item.activeOn(pathname) : pathMatches(pathname, item.to, item.end);
 }

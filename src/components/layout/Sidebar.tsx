@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FocusEvent, type PointerEvent } from "react";
+import { memo, useEffect, useRef, useState, type FocusEvent, type PointerEvent } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import {
   ChevronDown,
@@ -29,7 +29,8 @@ import { cn } from "@/utils/cn";
 import { useUiStore } from "@/store/uiStore";
 import { useCanHover } from "@/hooks/useMediaQuery";
 import { useAccountMenu, useNavModel } from "@/hooks/useNavModel";
-import { NAV_SECTIONS_KEY, pathMatches, type NavChild, type NavSection } from "@/config/nav";
+import { NAV_SECTIONS_KEY, isNavItemActive, pathMatches, type NavChild, type NavSection } from "@/config/nav";
+import { preloadRoute } from "@/config/pageLoaders";
 
 /** Сколько ждать мышь на рейке, прежде чем раскрыть панель поверх стола. */
 const PEEK_OPEN_MS = 220;
@@ -75,7 +76,7 @@ function AppNavLink({
   icon: Icon,
   label,
   onNavigate,
-  forceActive,
+  activeOn,
   badge,
   collapsed,
   alert,
@@ -85,18 +86,23 @@ function AppNavLink({
   icon: LucideIcon;
   label: string;
   onNavigate?: () => void;
-  forceActive?: boolean;
+  activeOn?: (pathname: string) => boolean;
   badge?: number;
   collapsed?: boolean;
   /** Зелёная подсветка «сюда приехал заказ». */
   alert?: boolean;
 }) {
   const { pathname } = useLocation();
-  const active = forceActive ?? pathMatches(pathname, to, end);
+  const active = isNavItemActive({ to, end, activeOn }, pathname);
+  const preload = () => preloadRoute(to);
   return (
     <NavLink
       to={to}
       end={end}
+      // Chunk страницы начинает качаться, пока мышь ещё над пунктом (или
+      // фокус пришёл с клавиатуры) — к клику он обычно уже в кэше.
+      onPointerEnter={preload}
+      onFocus={preload}
       // В рейке подписи нет, но `title` не ставим: при наведении панель и так
       // раскрывается с подписями, а всплывашка браузера легла бы поверх неё.
       aria-label={collapsed ? label : undefined}
@@ -142,13 +148,16 @@ function readSectionState(): Record<string, boolean> {
 }
 
 /** Подпункт-стол под «Столами»: иконка в цвете обложки + имя, с отступом под текст родителя. */
-function DeskSubLink({ child, pathname }: { child: NavChild; pathname: string }) {
+function DeskSubLink({ child, pathname, onNavigate }: { child: NavChild; pathname: string; onNavigate?: () => void }) {
   const Icon = child.icon;
   const active = pathMatches(pathname, child.to);
+  const preload = () => preloadRoute(child.to);
   return (
     <NavLink
       to={child.to}
-      onClick={() => child.onNavigate?.()}
+      onClick={() => onNavigate?.()}
+      onPointerEnter={preload}
+      onFocus={preload}
       data-nav-active={active ? "true" : undefined}
       className={cn(
         "flex min-h-10 w-full items-center gap-2.5 rounded-lg py-1 pl-[38px] pr-3 text-left text-[13px] transition-colors duration-200 lg:min-h-8",
@@ -165,10 +174,13 @@ function NavSections({
   sections,
   collapsed,
   pathname,
+  onNavigate,
 }: {
   sections: NavSection[];
   collapsed: boolean;
   pathname: string;
+  /** Drawer планшета закрывает себя после перехода; меню в потоке — нет. */
+  onNavigate?: () => void;
 }) {
   const [openState, setOpenState] = useState<Record<string, boolean>>(readSectionState);
   function toggle(key: string, fallback: boolean) {
@@ -186,7 +198,7 @@ function NavSections({
   return (
     <nav className={cn("relative mb-4 flex shrink-0 flex-col", collapsed ? "gap-1" : "gap-2")} aria-label="Разделы">
       {sections.map((section, index) => {
-        const hasActive = section.items.some((i) => i.forceActive ?? pathMatches(pathname, i.to, i.end));
+        const hasActive = section.items.some((i) => isNavItemActive(i, pathname));
         // Секцию с активным пунктом не прячем: человек должен видеть, где он.
         const open = !section.collapsible || hasActive || (openState[section.key] ?? section.defaultOpen ?? true);
         if (collapsed) {
@@ -202,10 +214,10 @@ function NavSections({
                   end={item.end}
                   icon={item.icon}
                   label={item.label}
-                  forceActive={item.forceActive}
+                  activeOn={item.activeOn}
                   alert={item.alert}
                   badge={item.badge}
-                  onNavigate={item.onNavigate}
+                  onNavigate={onNavigate}
                 />
               ))}
             </div>
@@ -235,15 +247,15 @@ function NavSections({
                     end={item.end}
                     icon={item.icon}
                     label={item.label}
-                    forceActive={item.forceActive}
+                    activeOn={item.activeOn}
                     alert={item.alert}
                     badge={item.badge}
-                    onNavigate={item.onNavigate}
+                    onNavigate={onNavigate}
                   />
                   {/* Закреплённые/недавние столы — подпунктами под «Столами».
                       В рейке их нет: пять безымянных иконок там не читаются. */}
                   {item.children?.map((child) => (
-                    <DeskSubLink key={child.key} child={child} pathname={pathname} />
+                    <DeskSubLink key={child.key} child={child} pathname={pathname} onNavigate={onNavigate} />
                   ))}
                 </div>
               ))}
@@ -254,7 +266,12 @@ function NavSections({
   );
 }
 
-export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?: () => void }) {
+/**
+ * `memo`: AppLayout перерисовывается на каждую смену адреса, клавиатуру и
+ * флаги полноэкранного стола — меню от этого не меняется. Своё оно ловит само:
+ * адрес (useLocation), модель навигации и меню аккаунта (контекст).
+ */
+export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?: () => void }) {
   const { profile } = useAuth();
   const permissions = usePermissions();
   const location = useLocation();
@@ -357,7 +374,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
   // Секции, гейты по ролям, бейджи и «где дом» — в модели (`useNavModel`);
   // здесь только отрисовка. Пункты аккаунта — оттуда же (`useAccountMenu`),
   // одним списком с листом «Ещё» на телефоне.
-  const nav = useNavModel({ onNavigate });
+  const nav = useNavModel();
   const account = useAccountMenu({
     openCreatePage: () => setCreatePageOpen(true),
     openCreateWorkspace: () => setCreateWsOpen(true),
@@ -379,10 +396,10 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
     <div
       className={cn(
         // z-[45], а не z-40: фейды прокрутки стола (DataTable, absolute z-40)
-        // стоят в DOM позже и при равном z ложились поверх раскрытой панели —
-        // видно при reduced-motion/таче, где PageShell без GSAP-transform не
-        // создаёт свой stacking context. RowCardSheet z-50 и полосы z-[60]
-        // остаются выше. `isolate` на main не ставим — это меняло бы наложение
+        // стоят в DOM позже и при равном z ложились поверх раскрытой панели.
+        // PageShell постоянного stacking context больше не создаёт (GSAP с
+        // его остаточным transform убран): на 150 мс CSS-появления opacity<1
+        // даёт свой stacking context, containing block не создаётся. RowCardSheet z-50 и полосы z-[60] остаются выше. `isolate` на main не ставим — это меняло бы наложение
         // всего контента разом ради одного фейда.
         "relative z-[45] shrink-0",
         mobile
@@ -449,7 +466,7 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
         )}
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-thin">
-          <NavSections sections={sections} collapsed={collapsed} pathname={location.pathname} />
+          <NavSections sections={sections} collapsed={collapsed} pathname={location.pathname} onNavigate={onNavigate} />
           {mobile && permissions.canCreatePages && (
             <button
               type="button"
@@ -575,4 +592,4 @@ export function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?:
       </div>
     </div>
   );
-}
+});

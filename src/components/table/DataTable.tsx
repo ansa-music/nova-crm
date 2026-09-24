@@ -1,6 +1,5 @@
 import type { CellActionView } from "@/components/table/CellActionButton";
 import {
-  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -36,7 +35,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { ColumnHeaderCell } from "@/components/table/ColumnHeaderCell";
-import { TableRow } from "@/components/table/TableRow";
+import { TableRow, createCellActionPulse } from "@/components/table/TableRow";
 import { GroupHeaderRow } from "@/components/table/GroupHeaderRow";
 import { TableToolbar } from "@/components/table/TableToolbar";
 import { QuickOrderDialog } from "@/components/table/QuickOrderDialog";
@@ -83,6 +82,9 @@ import {
   duplicateColumn as duplicateColumnServiceBase,
   deleteColumn as deleteColumnServiceBase,
   clearRowHighlights,
+  applyColumnLayout,
+  schedulePageColumnsLayout,
+  type ColumnLayoutPatch,
 } from "@/services/pageService";
 import {
   addSubPageRow,
@@ -165,6 +167,64 @@ const DENSITY_ROW_HEIGHT: Record<"compact" | "default" | "comfortable", number> 
 };
 
 type CellValue = string | number | null | undefined;
+
+// Настройки датчика перетаскивания — константа модуля. Объект прямо в
+// useSensor(...) был новым на каждый рендер: dnd-kit пересобирал датчики,
+// а за ними контекст DndContext, и КАЖДАЯ строка (useSortable) и шапка
+// столбца перерисовывались на любой рендер таблицы мимо memo.
+const POINTER_SENSOR_OPTIONS = { activationConstraint: { distance: 4 } };
+
+/** Высота заголовка группы до замера (GroupHeaderRow: 44 на узком экране, ~30 на ПК). */
+const GROUP_HEADER_ESTIMATE_PX = 30;
+const GROUP_HEADER_ESTIMATE_NARROW_PX = 44;
+
+/** Виртуализируем, когда элементов тела (строк + заголовков групп) больше этого. */
+const VIRTUALIZE_AFTER = 80;
+
+/**
+ * Тело таблицы — плоский список: заголовок группы | строка. Один список и
+ * при группировке, и без неё: виртуализатор режет его одинаково, а `index`
+ * строки — её место в visibleRows (номер, зебра, клавиатура, заливка).
+ */
+type BodyItem =
+  | {
+      kind: "group";
+      label: string;
+      count: number;
+      collapsed: boolean;
+      color?: string;
+      sumText: string | null;
+      doneText: string | null;
+    }
+  | { kind: "row"; row: PageRow; index: number };
+
+function bodyItemKey(item: BodyItem): string {
+  return item.kind === "group" ? `group:${item.label}` : item.row.id;
+}
+
+/** Деньги группы для её заголовка: сумма по денежному столбцу и доля «Готово». */
+function groupSumsOf(
+  groupRows: PageRow[],
+  currencyCol: PageColumn | null,
+  statusCol: PageColumn | null,
+  statusOptions: StatusOption[]
+): { sumText: string | null; doneText: string | null } {
+  if (!currencyCol) return { sumText: null, doneText: null };
+  let sum = 0;
+  let done = 0;
+  for (const row of groupRows) {
+    const n = parseLooseNumber(String(row.cells[currencyCol.key] ?? ""));
+    if (n === null) continue;
+    sum += n;
+    if (statusCol) {
+      const rawStatus = String(row.cells[statusCol.key] ?? "");
+      const label = statusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
+      if (isDoneStatusLabel(label)) done += n;
+    }
+  }
+  if (sum === 0 && done === 0) return { sumText: null, doneText: null };
+  return { sumText: formatCurrency(sum), doneText: statusCol && done > 0 ? formatCurrency(done) : null };
+}
 
 const NO_OPTIONS: StatusOption[] = [];
 const NO_CUSTOM_FIELDS: CustomFieldDef[] = [];
@@ -365,6 +425,12 @@ interface DataTableProps {
     colKey: string;
     get: (row: PageRow) => CellActionView | null;
     run: (row: PageRow) => void;
+    /**
+     * Метка зависит от времени (стол ОС: «статус не совпал» — через 8 с
+     * после правки): пересчитывать её раз в столько мс. Пересчитывает сама
+     * ячейка, таблица и страница при этом не перерисовываются.
+     */
+    tickMs?: number;
   };
   /**
    * Добавка слева внутри ячеек `keys` (стол ОС: способ оплаты у «Цены» и
@@ -424,6 +490,28 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const row = rowsRef.current.find((r) => r.id === rowId);
     if (row) cellActionRef.current?.run(row);
   }, []);
+  // Метку поверх ячейки считает сама ячейка (TableRow → LiveCellAction) по
+  // СОХРАНЁННОЙ строке, как и раньше, а не по строке с ещё летящей правкой.
+  const rowsById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
+  const rowsByIdRef = useRef(rowsById);
+  rowsByIdRef.current = rowsById;
+  const getCellActionView = useCallback((rowId: string) => {
+    const row = rowsByIdRef.current.get(rowId);
+    return row ? (cellActionRef.current?.get(row) ?? null) : null;
+  }, []);
+  const [cellActionPulse] = useState(createCellActionPulse);
+  const hasCellAction = Boolean(cellAction);
+  // После каждого рендера таблицы метки сверяют себя (данные для них могли
+  // смениться у страницы), а по таймеру — метки, зависящие от времени.
+  useEffect(() => {
+    if (hasCellAction) cellActionPulse.emit();
+  });
+  const cellActionTickMs = cellAction?.tickMs;
+  useEffect(() => {
+    if (!cellActionTickMs) return;
+    const timer = window.setInterval(() => cellActionPulse.emit(), cellActionTickMs);
+    return () => window.clearInterval(timer);
+  }, [cellActionTickMs, cellActionPulse]);
   // Режим «заказы ведёт ОС» — один объект на всю таблицу, чтобы правило
   // замка считалось в одном месте (см. utils/managedRow.ts).
   const lockCtx = useMemo(() => ({ osManaged: ordersFromOsOnly }), [ordersFromOsOnly]);
@@ -434,14 +522,29 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       lockedKeys?.[colKey] ?? (viewer ? cellLockReason(row, colKey, viewer, lockCtx) : null),
     [viewer, lockCtx, lockedKeys]
   );
-  const columns = useMemo(
-    () =>
-      page.columns
-        .map((column, index) => ({ column, index }))
-        .sort((a, b) => compareColumnsBySchema(a.column, b.column, a.index, b.index))
-        .map(({ column }) => column),
-    [page.columns]
-  );
+  // Ширина/порядок столбцов «Основной», которые ещё ждут записи в документ
+  // стола (schedulePageColumnsLayout): до записи раскладка держится здесь.
+  const [layoutOverlay, setLayoutOverlay] = useState<{
+    pageId: string;
+    token: number;
+    patch: Record<string, ColumnLayoutPatch>;
+  } | null>(null);
+  const layoutTokenRef = useRef(0);
+  // Свежие столбцы «Основной» для отложенной записи. Только главной вкладки и
+  // только своего стола: во вкладке месяца `page.columns` — столбцы ВКЛАДКИ, и
+  // отложенная запись положила бы их в документ стола.
+  const mainColumnsRef = useRef<{ pageId: string; columns: PageColumn[] } | null>(null);
+  if (!subPageId) mainColumnsRef.current = { pageId: page.id, columns: page.columns };
+  const columns = useMemo(() => {
+    const source =
+      layoutOverlay && !subPageId && layoutOverlay.pageId === page.id
+        ? applyColumnLayout(page.columns, layoutOverlay.patch)
+        : page.columns;
+    return source
+      .map((column, index) => ({ column, index }))
+      .sort((a, b) => compareColumnsBySchema(a.column, b.column, a.index, b.index))
+      .map(({ column }) => column);
+  }, [page.columns, page.id, subPageId, layoutOverlay]);
   // Для эффекта сброса при смене вкладки: ему нужны столбцы, но перечитывать
   // фильтры при каждой правке столбца нельзя.
   const columnsRef = useRef(columns);
@@ -1021,13 +1124,37 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const canEditColumns = subPageId ? canEdit : canEditStructure;
 
   // ---- Grouping ----
+  // Столбец ищем по ВСЕМ столбцам, а варианты резолвим сами: пока эффект
+  // ниже не сбросил группировку по скрытому столбцу, один рендер шёл бы с
+  // сырыми `in_progress`/`done` без цветов.
+  const groupCol = useMemo(
+    () => (groupByKey ? columns.find((c) => c.key === groupByKey) : undefined),
+    [groupByKey, columns]
+  );
+  // Варианты столбца группировки зависят только от СВОЕГО списка (статусы,
+  // ответственные, ники, кастомные поля), а не от всего документа workspace:
+  // иначе любой его снимок (reloadEpoch, настройки) пересобирал группы.
+  const groupOptionsSource: unknown =
+    !groupCol || !isOptionColumn(groupCol.type)
+      ? null
+      : groupCol.type === "status"
+        ? activeWorkspace?.statusOptions
+        : groupCol.type === "responsible"
+          ? activeWorkspace?.responsibleOptions
+          : groupCol.type === "technician"
+            ? activeWorkspace?.techNickOptions
+            : groupCol.type === "custom"
+              ? activeWorkspace?.customFields
+              : groupCol.statusOptions;
+  const groupOptions = useMemo(
+    () => (groupCol && isOptionColumn(groupCol.type) ? getColumnOptions(groupCol, activeWorkspace) : NO_OPTIONS),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [groupCol, groupOptionsSource]
+  );
   const groups = useMemo(() => {
     if (!groupByKey) return null;
-    // Столбец ищем по ВСЕМ столбцам, а варианты резолвим сами: пока эффект
-    // ниже не сбросил группировку по скрытому столбцу, один рендер шёл бы с
-    // сырыми `in_progress`/`done` без цветов.
-    const col = columns.find((c) => c.key === groupByKey);
-    const options = col && isOptionColumn(col.type) ? getColumnOptions(col, activeWorkspace) : NO_OPTIONS;
+    const col = groupCol;
+    const options = groupOptions;
     const map = new Map<string, PageRow[]>();
     processedRows.forEach((row) => {
       const raw = String(row.cells[groupByKey] ?? "");
@@ -1060,7 +1187,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       return ra < rb ? -1 : 1;
     });
     return { col, options, entries };
-  }, [groupByKey, processedRows, columns, activeWorkspace]);
+  }, [groupByKey, processedRows, groupCol, groupOptions]);
 
   // ---- Видимые строки в порядке отрисовки ----
   // ОДИН массив для всего, что ходит по строкам индексом: клавиатура,
@@ -1078,10 +1205,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     return processedRows.slice(start, start + pageSize);
   }, [processedRows, pageIndex, pageSize, groups, collapsedGroups]);
 
-  const rowIds = useMemo(() => visibleRows.map((r) => r.id), [visibleRows]);
-  // id → сквозной индекс: заголовки групп рисуют строки со своего смещения,
-  // а не с нуля, иначе номера и зебра расходились бы с rowIds.
-  const visibleIndexById = useMemo(() => new Map(rowIds.map((id, i) => [id, i])), [rowIds]);
+  // rowIds меняется, только когда правда сменились id или их порядок: правка
+  // ячейки даёт новый visibleRows, но тот же rowIds — и выделение, диапазон,
+  // SortableContext от этого не дёргаются (иначе перерисовывался весь стол).
+  const rowIdsKey = useMemo(() => visibleRows.map((r) => r.id).join("\n"), [visibleRows]);
+  const rowIds = useMemo(() => (rowIdsKey ? rowIdsKey.split("\n") : []), [rowIdsKey]);
   const visibleRowsRef = useRef(visibleRows);
   visibleRowsRef.current = visibleRows;
   // Row-card prev/next/"N of total" must walk the full filtered+sorted view,
@@ -1091,12 +1219,80 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // RowCardSheet render below), so its nav index has to match that.
   const processedRowIds = useMemo(() => processedRows.map((r) => r.id), [processedRows]);
 
-  // ---- Virtualized rendering (flat, non-grouped view only) ----
-  const shouldVirtualize = !groups && visibleRows.length > 80;
+  // Суммы групп (деньги и «Готово» в заголовке) — один раз на смену групп,
+  // а не в каждом рендере таблицы для каждой группы.
+  const groupSummaries = useMemo(() => {
+    if (!groups) return null;
+    const currencyCol = columns.find((c) => c.type === "currency" && !c.hidden) ?? null;
+    const statusCol = columns.find((c) => c.type === "status") ?? null;
+    const map = new Map<string, { sumText: string | null; doneText: string | null }>();
+    for (const [label, groupRows] of groups.entries) {
+      map.set(label, groupSumsOf(groupRows, currencyCol, statusCol, sharedStatusOptions));
+    }
+    return map;
+  }, [groups, columns, sharedStatusOptions]);
+
+  // ---- Тело таблицы: плоский список [заголовок группы | строка] ----
+  const bodyItems = useMemo<BodyItem[]>(() => {
+    if (!groups) return visibleRows.map((row, index) => ({ kind: "row" as const, row, index }));
+    const items: BodyItem[] = [];
+    let index = 0;
+    for (const [label, groupRows] of groups.entries) {
+      const collapsed = collapsedGroups.has(label);
+      const sums = groupSummaries?.get(label);
+      items.push({
+        kind: "group",
+        label,
+        count: groupRows.length,
+        collapsed,
+        color: groups.options.find((o) => o.label === label)?.color,
+        sumText: sums?.sumText ?? null,
+        doneText: sums?.doneText ?? null,
+      });
+      if (collapsed) continue;
+      // Сквозной индекс по visibleRows: номер строки и зебра обязаны
+      // совпадать с rowIds, по которым ходит клавиатура и заливка.
+      for (const row of groupRows) items.push({ kind: "row", row, index: index++ });
+    }
+    return items;
+  }, [groups, visibleRows, collapsedGroups, groupSummaries]);
+  // Индекс строки в visibleRows → индекс элемента тела (для прокрутки к строке).
+  const bodyIndexByRow = useMemo(() => {
+    const out: number[] = [];
+    bodyItems.forEach((item, i) => {
+      if (item.kind === "row") out[item.index] = i;
+    });
+    return out;
+  }, [bodyItems]);
+
+  // ---- Виртуализация: и без групп, и с группами ----
+  // Раньше при группировке (а это умолчание стола) рисовались ВСЕ строки —
+  // тысячи ячеек и 0,5–1,2 с первой отрисовки на телефоне.
+  const shouldVirtualize = bodyItems.length > VIRTUALIZE_AFTER;
+  const getBodyItemKey = useCallback(
+    (index: number) => {
+      const item = bodyItems[index];
+      return item ? bodyItemKey(item) : index;
+    },
+    // rowHeight — нарочно: новая функция ключа — единственный способ
+    // заставить виртуализатор пересчитать оценки высот (смена плотности).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bodyItems, rowHeight]
+  );
   const rowVirtualizer = useVirtualizer({
-    count: visibleRows.length,
+    count: bodyItems.length,
     getScrollElement: () => containerRef.current,
-    estimateSize: (index) => visibleRows[index]?.height ?? rowHeight,
+    estimateSize: (index) => {
+      const item = bodyItems[index];
+      if (!item) return rowHeight;
+      if (item.kind === "group") {
+        return typeof window !== "undefined" && window.innerWidth < 640
+          ? GROUP_HEADER_ESTIMATE_NARROW_PX
+          : GROUP_HEADER_ESTIMATE_PX;
+      }
+      return item.row.height ?? rowHeight;
+    },
+    getItemKey: getBodyItemKey,
     overscan: 10,
     enabled: shouldVirtualize,
   });
@@ -1107,13 +1303,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const idx = visibleRows.findIndex((r) => r.id === id);
     if (idx < 0) return;
     pendingScrollRowIdRef.current = null;
-    rowVirtualizer.scrollToIndex(idx, { align: "end" });
+    rowVirtualizer.scrollToIndex(bodyIndexByRow[idx] ?? idx, { align: "end" });
     requestAnimationFrame(() => {
       containerRef.current
         ?.querySelector(`tr[data-row-id="${id}"]`)
         ?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
     });
-  }, [visibleRows, rowVirtualizer]);
+  }, [visibleRows, rowVirtualizer, bodyIndexByRow]);
 
   useEffect(() => {
     if (!focusRowId) return;
@@ -1160,17 +1356,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     }
     return set;
   }, [getSelectionBounds, rowIds, displayColumns]);
-
-  const isRowFullySelected = useCallback(
-    (rowId: string) => {
-      const bounds = getSelectionBounds();
-      if (!bounds) return false;
-      if (bounds.colStart !== 0 || bounds.colEnd !== displayColumns.length - 1) return false;
-      const idx = rowIds.indexOf(rowId);
-      return idx >= bounds.rowStart && idx <= bounds.rowEnd;
-    },
-    [getSelectionBounds, rowIds, displayColumns.length]
-  );
 
   // ---- Undo/redo: pushes into the GLOBAL stack (src/utils/undoStore.ts),
   // not a local one — so undoing survives navigating away from this exact
@@ -1976,7 +2161,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
 
   // ---- Keyboard navigation ----
   function revealCell(rowId: string, colKey: string, rowIndex: number) {
-    if (!groupByKey) rowVirtualizer.scrollToIndex(Math.max(0, rowIndex), { align: "auto" });
+    // С группами строки тоже виртуализированы: прокручиваем к элементу тела,
+    // а не к номеру строки (между строками стоят заголовки групп).
+    const bodyIndex = bodyIndexByRow[Math.max(0, rowIndex)] ?? rowIndex;
+    rowVirtualizer.scrollToIndex(Math.max(0, bodyIndex), { align: "auto" });
     requestAnimationFrame(() => {
       const cell = containerRef.current?.querySelector(
         `tr[data-row-id="${rowId}"] td[data-col="${colKey}"]`
@@ -2477,6 +2665,51 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     return () => window.removeEventListener("keydown", dispatch, true);
   }, []);
 
+  /**
+   * Ширина и порядок столбцов. На «Основной» это запись в ДОКУМЕНТ СТОЛА, а
+   * коллекцию pages слушают все (~28 человек): каждая такая запись — чтение у
+   * каждого. Поэтому пишем только то, что правда изменилось, и с паузой
+   * (schedulePageColumnsLayout склеивает серию подгонов в одну запись), а до
+   * записи раскладка держится на экране здесь (layoutOverlay). Во вкладке —
+   * как раньше, сразу: документ вкладки слушают только те, кто её открыл.
+   */
+  function saveColumnLayout(patch: Record<string, ColumnLayoutPatch>): Promise<void> {
+    const changed: Record<string, ColumnLayoutPatch> = {};
+    for (const col of columns) {
+      const p = patch[col.key];
+      if (!p) continue;
+      const diff: ColumnLayoutPatch = {};
+      if (p.width !== undefined && p.width !== col.width) diff.width = p.width;
+      if (p.order !== undefined && p.order !== col.order) diff.order = p.order;
+      if (diff.width !== undefined || diff.order !== undefined) changed[col.key] = diff;
+    }
+    if (Object.keys(changed).length === 0) return Promise.resolve();
+    if (subPageId) return updatePageColumns(workspaceId, page.id, applyColumnLayout(columns, changed));
+    const pageId = page.id;
+    const scheduledFrom = page.columns;
+    const token = ++layoutTokenRef.current;
+    setLayoutOverlay((prev) => ({
+      pageId,
+      token,
+      patch: { ...(prev && prev.pageId === pageId ? prev.patch : {}), ...changed },
+    }));
+    const freshColumns = () => {
+      const main = mainColumnsRef.current;
+      return main && main.pageId === pageId ? main.columns : scheduledFrom;
+    };
+    return schedulePageColumnsLayout(workspaceId, pageId, changed, freshColumns)
+      .catch((error) => {
+        toast.error("Не удалось сохранить ширину или порядок столбцов", {
+          description: error instanceof Error ? error.message : undefined,
+        });
+      })
+      .finally(() => {
+        // Снимаем раскладку, только если после неё ничего не добавили: иначе
+        // более поздняя правка на миг откатилась бы до своей записи.
+        setLayoutOverlay((prev) => (prev && prev.token === token ? null : prev));
+      });
+  }
+
   // ---- Resize ----
   // Dragging only updates local state (resizePreview) for instant visual
   // feedback — Firestore is written exactly once, on mouseup. Writing on
@@ -2530,8 +2763,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       // со стартовой: у столбца без ширины (или вне пределов) стартовая уже
       // поправлена clampColumnWidth, и такая запись остаётся, как была.
       if (columns.find((c) => c.key === state.colKey)?.width === state.lastValue) return;
-      const newColumns = columns.map((c) => (c.key === state.colKey ? { ...c, width: state.lastValue } : c));
-      updatePageColumns(workspaceId, page.id, newColumns);
+      void saveColumnLayout({ [state.colKey]: { width: state.lastValue } });
     } else {
       // То же для высоты строки: без движения — без записи.
       if (rows.find((r) => r.id === state.rowId)?.height === state.lastValue) return;
@@ -2551,21 +2783,21 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       maxPx = Math.max(maxPx, Math.min(420, 28 + text.length * 7.4));
     }
     const width = clampColumnWidth(col.type, maxPx);
-    const newColumns = columns.map((c) => (c.key === colKey ? { ...c, width } : c));
-    void updatePageColumns(workspaceId, page.id, newColumns);
+    void saveColumnLayout({ [colKey]: { width } });
   }
 
   function handleAutoSizeAll() {
-    const next = columns.map((col) => {
-      if (col.hidden) return col;
+    const patch: Record<string, ColumnLayoutPatch> = {};
+    for (const col of columns) {
+      if (col.hidden) continue;
       let maxPx = col.label.length * 9 + 64;
       for (const row of rows) {
         const text = cellDisplayText(row, col);
         maxPx = Math.max(maxPx, Math.min(420, 28 + text.length * 7.4));
       }
-      return { ...col, width: clampColumnWidth(col.type, maxPx) };
-    });
-    void updatePageColumns(workspaceId, page.id, next);
+      patch[col.key] = { width: clampColumnWidth(col.type, maxPx) };
+    }
+    void saveColumnLayout(patch);
     toast.success("Ширина столбцов подогнана");
   }
 
@@ -2753,7 +2985,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   // ---- DnD (columns + rows) ----
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const sensors = useSensors(useSensor(PointerSensor, POINTER_SENSOR_OPTIONS));
 
   async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -2764,8 +2996,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       if (!canEditColumns) return;
       const oldIndex = columns.findIndex((c) => c.id === active.id);
       const newIndex = columns.findIndex((c) => c.id === over.id);
-      const reordered = arrayMove(columns, oldIndex, newIndex).map((c, i) => ({ ...c, order: i }));
-      await updatePageColumns(workspaceId, page.id, reordered);
+      const patch: Record<string, ColumnLayoutPatch> = {};
+      arrayMove(columns, oldIndex, newIndex).forEach((c, i) => {
+        patch[c.key] = { order: i };
+      });
+      await saveColumnLayout(patch);
       return;
     }
 
@@ -3024,13 +3259,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       () => toast.success("Ссылка на Диск скопирована"),
       () => toast.error("Не удалось скопировать ссылку")
     );
-  }
-
-  function rowDiskUrl(rowId: string): string | null {
-    const row = rows.find((r) => r.id === rowId);
-    const diskCol = displayColumns.find((c) => c.type === "url");
-    if (!row || !diskCol) return null;
-    return parseHttpUrl(String(row.cells[diskCol.key] ?? ""))?.href ?? null;
   }
 
   async function handleDeleteRow() {
@@ -3387,11 +3615,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const tmp = swapped[index];
     swapped[index] = swapped[nextIndex];
     swapped[nextIndex] = tmp;
-    await updatePageColumns(
-      workspaceId,
-      page.id,
-      swapped.map((c, i) => ({ ...c, order: i }))
-    );
+    const patch: Record<string, ColumnLayoutPatch> = {};
+    swapped.forEach((c, i) => {
+      patch[c.key] = { order: i };
+    });
+    await saveColumnLayout(patch);
   }
 
   async function handleDuplicateColumn(colKey: string) {
@@ -3585,26 +3813,6 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     []
   );
 
-  // Money total per group for grouped views (shown on the group header).
-  const groupCurrencyCol = columns.find((c) => c.type === "currency" && !c.hidden) ?? null;
-  function groupSums(groupRows: PageRow[]): { sumText: string | null; doneText: string | null } {
-    if (!groupCurrencyCol) return { sumText: null, doneText: null };
-    let sum = 0;
-    let done = 0;
-    for (const row of groupRows) {
-      const n = parseLooseNumber(String(row.cells[groupCurrencyCol.key] ?? ""));
-      if (n === null) continue;
-      sum += n;
-      if (footerStatusColumn) {
-        const rawStatus = String(row.cells[footerStatusColumn.key] ?? "");
-        const label = sharedStatusOptions.find((o) => o.value === rawStatus)?.label ?? rawStatus;
-        if (isDoneStatusLabel(label)) done += n;
-      }
-    }
-    if (sum === 0 && done === 0) return { sumText: null, doneText: null };
-    return { sumText: formatCurrency(sum), doneText: footerStatusColumn && done > 0 ? formatCurrency(done) : null };
-  }
-
   // Row card navigation follows the current view order.
   const expandedRowIndex = expandedRowId ? processedRowIds.indexOf(expandedRowId) : -1;
   function openRowAt(index: number) {
@@ -3759,6 +3967,67 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const fillHandleRowId = selBoundsForHandle && !editingCell && viewMode === "table" ? rowIds[selBoundsForHandle.rowEnd] : null;
   const fillHandleColKey = selBoundsForHandle ? displayColumns[selBoundsForHandle.colEnd]?.key ?? null : null;
 
+  // Строка выделена целиком (клик по номеру, Shift+Space) — по границам
+  // выделения один раз на рендер, а не indexOf по rowIds для каждой строки.
+  const fullRowSelection =
+    selBoundsForHandle && selBoundsForHandle.colStart === 0 && selBoundsForHandle.colEnd === displayColumns.length - 1
+      ? selBoundsForHandle
+      : null;
+  const diskColumn = displayColumns.find((c) => c.type === "url") ?? null;
+
+  // Обработчики строк — СТАБИЛЬНЫЕ обёртки над свежими функциями этого
+  // рендера. TableRow сравнивает пропсы (memo) и колбэки не сравнивает: без
+  // обёрток строка, которую не перерисовали, держала бы замыкание со старыми
+  // rows/activeCell. Раньше это маскировалось тем, что каждая правка
+  // перерисовывала ВСЕ строки; теперь перерисовывается одна.
+  const rowHandlerImpl = {
+    toggleChecked: toggleRowChecked,
+    cellMouseDown: handleCellMouseDown,
+    cellClick: handleCellClick,
+    cellMouseEnter: handleCellMouseEnter,
+    startEdit: (rowId: string, colKey: string) => startEditing(rowId, colKey),
+    commitEdit: handleCommitEdit,
+    statusChange: handleStatusChange,
+    rowNumberMouseDown: (rowId: string, e: React.MouseEvent) => handleRowNumberMouseDown(rowId, e),
+    rowResizeStart: handleRowResizeStart,
+    duplicateRow: (id: string) => void handleDuplicateRowById(id),
+    deleteRow: (id: string) => void handleDeleteRowById(id),
+    copyDiskUrl: (id: string) => handleCopyDiskUrl(id),
+    markDone: markRowDone,
+    insertAbove: (id: string) => void insertRowRelative(id, "above"),
+    insertBelow: (id: string) => void insertRowRelative(id, "below"),
+    copyRow: (id: string) => handleCopyRow(id),
+    fillStart: handleFillStart,
+    findDuplicates: handleFindDuplicates,
+  };
+  const rowHandlersRef = useRef(rowHandlerImpl);
+  rowHandlersRef.current = rowHandlerImpl;
+  const rowHandlers = useMemo(() => {
+    const h = () => rowHandlersRef.current;
+    return {
+      onToggleChecked: (rowId: string, shiftKey?: boolean) => h().toggleChecked(rowId, shiftKey),
+      onCellMouseDown: (rowId: string, colKey: string, e: React.MouseEvent) => h().cellMouseDown(rowId, colKey, e),
+      onCellClick: (rowId: string, colKey: string) => h().cellClick(rowId, colKey),
+      onCellMouseEnter: (rowId: string, colKey: string) => h().cellMouseEnter(rowId, colKey),
+      onCellStartEdit: (rowId: string, colKey: string) => h().startEdit(rowId, colKey),
+      onCommitEdit: (direction?: "down" | "right" | "left" | "none") => h().commitEdit(direction),
+      onCancelEdit: () => setEditingCell(null),
+      onStatusChange: (rowId: string, colKey: string, value: string) => h().statusChange(rowId, colKey, value),
+      onRowNumberMouseDown: (rowId: string, e: React.MouseEvent) => h().rowNumberMouseDown(rowId, e),
+      onRowResizeStart: (rowId: string, e: React.MouseEvent) => h().rowResizeStart(rowId, e),
+      onDuplicateRow: (id: string) => h().duplicateRow(id),
+      onDeleteRow: (id: string) => h().deleteRow(id),
+      onCopyDiskUrl: (id: string) => h().copyDiskUrl(id),
+      onUndoLast: () => void undoLastCommand(),
+      onMarkDone: (id: string) => h().markDone(id),
+      onInsertRowAbove: (id: string) => h().insertAbove(id),
+      onInsertRowBelow: (id: string) => h().insertBelow(id),
+      onCopyRow: (id: string) => h().copyRow(id),
+      onFillStart: (rowId: string, colKey: string, e: React.PointerEvent) => h().fillStart(rowId, colKey, e),
+      onFindDuplicates: (rowId: string, colKey: string) => h().findDuplicates(rowId, colKey),
+    };
+  }, []);
+
   function renderRow(row: PageRow, index: number) {
     const effectiveRowHeight =
       resizePreview?.type === "row" && resizePreview.rowId === row.id
@@ -3791,54 +4060,93 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         cellAddonVersion={cellAddon?.version}
         renderCellAddon={cellAddon ? renderCellAddon : undefined}
         cellActionKey={cellAction?.colKey ?? null}
-        cellAction={cellAction ? cellAction.get(row) : null}
+        getCellAction={cellAction ? getCellActionView : undefined}
+        cellActionPulse={cellAction ? cellActionPulse : undefined}
         onCellAction={cellAction ? runCellAction : undefined}
         canReorder={canReorderRows}
-        isRowFullySelected={isRowFullySelected(row.id)}
+        isRowFullySelected={fullRowSelection ? index >= fullRowSelection.rowStart && index <= fullRowSelection.rowEnd : false}
         isChecked={selectedRowIds.has(row.id)}
         pinnedKeys={stickyKeys}
         gutterWidth={gutterWidth}
-        onToggleChecked={toggleRowChecked}
-        onCellMouseDown={handleCellMouseDown}
-        onCellClick={handleCellClick}
-        onCellMouseEnter={handleCellMouseEnter}
-        onCellStartEdit={(rowId, colKey) => startEditing(rowId, colKey)}
+        onToggleChecked={rowHandlers.onToggleChecked}
+        onCellMouseDown={rowHandlers.onCellMouseDown}
+        onCellClick={rowHandlers.onCellClick}
+        onCellMouseEnter={rowHandlers.onCellMouseEnter}
+        onCellStartEdit={rowHandlers.onCellStartEdit}
         onEditValueChange={setEditValue}
-        onCommitEdit={handleCommitEdit}
-        onCancelEdit={() => setEditingCell(null)}
-        onStatusChange={handleStatusChange}
-        onRowNumberMouseDown={(rowId, e) => handleRowNumberMouseDown(rowId, e)}
-        onRowResizeStart={handleRowResizeStart}
+        onCommitEdit={rowHandlers.onCommitEdit}
+        onCancelEdit={rowHandlers.onCancelEdit}
+        onStatusChange={rowHandlers.onStatusChange}
+        onRowNumberMouseDown={rowHandlers.onRowNumberMouseDown}
+        onRowResizeStart={rowHandlers.onRowResizeStart}
         onContextMenuOpen={handleContextMenuOpen}
         onExpandRow={setExpandedRowId}
-        onDuplicateRow={(id) => void handleDuplicateRowById(id)}
-        onDeleteRow={(id) => void handleDeleteRowById(id)}
-        onCopyDiskUrl={(id) => handleCopyDiskUrl(id)}
-        diskUrl={rowDiskUrl(row.id)}
-        onUndoLast={() => void undoLastCommand()}
+        onDuplicateRow={rowHandlers.onDuplicateRow}
+        onDeleteRow={rowHandlers.onDeleteRow}
+        onCopyDiskUrl={rowHandlers.onCopyDiskUrl}
+        diskUrl={diskColumn ? (parseHttpUrl(String(row.cells[diskColumn.key] ?? ""))?.href ?? null) : null}
+        onUndoLast={rowHandlers.onUndoLast}
         isExpanded={expandedRowId === row.id}
         coarsePointer={coarsePointer}
         extrasHintKey={extrasHintKey}
         onOpenClientCard={setClientCardRowId}
         anyChecked={selectedRowIds.size > 0}
         zebra={index % 2 === 1}
-        onMarkDone={() => markRowDone(row.id)}
-        onInsertRowAbove={(id) => void insertRowRelative(id, "above")}
-        onInsertRowBelow={(id) => void insertRowRelative(id, "below")}
-        onCopyRow={(id) => handleCopyRow(id)}
+        onMarkDone={rowHandlers.onMarkDone}
+        onInsertRowAbove={rowHandlers.onInsertRowAbove}
+        onInsertRowBelow={rowHandlers.onInsertRowBelow}
+        onCopyRow={rowHandlers.onCopyRow}
         expandedColKey={expandedTextCell?.rowId === row.id ? expandedTextCell.colKey : null}
         searchQuery={searchQuery}
         openRequest={openRequest}
         accentColor={rowAccentColor(row)}
         fillHandleColKey={fillHandleRowId === row.id ? fillHandleColKey : null}
-        onFillStart={canEdit ? handleFillStart : undefined}
+        onFillStart={canEdit ? rowHandlers.onFillStart : undefined}
         fillColKeys={fillPreview && index >= fillPreview.rowStart && index <= fillPreview.rowEnd ? fillPreview.colKeys : null}
         duplicateColKeys={duplicateContactKeys.get(row.id) ?? null}
-        onFindDuplicates={handleFindDuplicates}
+        onFindDuplicates={rowHandlers.onFindDuplicates}
         blank={isBlankRow(displayRow)}
       />
     );
   }
+
+  // Тот же массив id столбцов между рендерами — иначе SortableContext шапки
+  // перерисовывал все заголовки столбцов на каждую правку ячейки.
+  const columnIds = useMemo(() => displayColumns.map((c) => c.id), [displayColumns]);
+  const toggleGroupCollapsed = useCallback((label: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  }, []);
+  const groupColSpan = displayColumns.length + (canEditStructure ? 1 : 0);
+  // Строки в SortableContext — только когда строку правда можно тащить
+  // (ручной порядок без групп, фильтров и сортировки, мышью). Иначе контекст
+  // лишь перерисовывал бы все строки на каждую смену списка id.
+  const rowsSortable = canReorderRows && !coarsePointer;
+  const bodyIndexes = shouldVirtualize ? virtualItems.map((v) => v.index) : bodyItems.map((_, i) => i);
+  const bodyRows = bodyIndexes.map((i) => {
+    const item = bodyItems[i];
+    if (!item) return null;
+    if (item.kind === "row") return renderRow(item.row, item.index);
+    return (
+      <GroupHeaderRow
+        key={bodyItemKey(item)}
+        label={item.label}
+        count={item.count}
+        colSpan={groupColSpan}
+        collapsed={item.collapsed}
+        color={item.color}
+        sumText={item.sumText}
+        doneText={item.doneText}
+        onToggle={toggleGroupCollapsed}
+        measureRef={shouldVirtualize ? rowVirtualizer.measureElement : undefined}
+        dataIndex={shouldVirtualize ? i : undefined}
+      />
+    );
+  });
 
   useEffect(() => {
     const el = containerRef.current;
@@ -4028,7 +4336,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                     />
                   </div>
                 </th>
-                <SortableContext items={displayColumns.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
+                <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
                   {displayColumns.map((column) => (
                     <ColumnHeaderCell
                       key={column.id}
@@ -4099,55 +4407,22 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
             <ContextMenu>
               <ContextMenuTrigger asChild>
                 <tbody>
-                  {groups ? (
-                    groups.entries.map(([label, groupRows]) => {
-                      const collapsed = collapsedGroups.has(label);
-                      const sums = groupSums(groupRows);
-                      // Сквозной индекс по visibleRows: номер строки и зебра
-                      // обязаны совпадать с rowIds, по которым ходит клавиатура
-                      // и заливка. Свёрнутые группы в visibleRows не входят.
-                      const firstIndex = collapsed ? -1 : visibleIndexById.get(groupRows[0]?.id ?? "") ?? -1;
-                      return (
-                        <Fragment key={label}>
-                          <GroupHeaderRow
-                            label={label}
-                            count={groupRows.length}
-                            colSpan={displayColumns.length + (canEditStructure ? 1 : 0)}
-                            collapsed={collapsed}
-                            color={groups.options.find((o) => o.label === label)?.color}
-                            sumText={sums.sumText}
-                            doneText={sums.doneText}
-                            onToggle={() =>
-                              setCollapsedGroups((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(label)) next.delete(label);
-                                else next.add(label);
-                                return next;
-                              })
-                            }
-                          />
-                          {!collapsed && firstIndex >= 0 && groupRows.map((row, i) => renderRow(row, firstIndex + i))}
-                        </Fragment>
-                      );
-                    })
-                  ) : (
+                  {paddingTop > 0 && (
+                    <tr>
+                      <td colSpan={displayColumns.length + 1 + (canEditStructure ? 1 : 0)} style={{ height: paddingTop }} />
+                    </tr>
+                  )}
+                  {rowsSortable ? (
                     <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
-                      {paddingTop > 0 && (
-                        <tr>
-                          <td colSpan={displayColumns.length + 1 + (canEditStructure ? 1 : 0)} style={{ height: paddingTop }} />
-                        </tr>
-                      )}
-                      {(shouldVirtualize ? virtualItems.map((virtualRow) => virtualRow.index) : visibleRows.map((_, i) => i)).map((index) => {
-                        const row = visibleRows[index];
-                        if (!row) return null;
-                        return renderRow(row, index);
-                      })}
-                      {paddingBottom > 0 && (
-                        <tr>
-                          <td colSpan={displayColumns.length + 1 + (canEditStructure ? 1 : 0)} style={{ height: paddingBottom }} />
-                        </tr>
-                      )}
+                      {bodyRows}
                     </SortableContext>
+                  ) : (
+                    bodyRows
+                  )}
+                  {paddingBottom > 0 && (
+                    <tr>
+                      <td colSpan={displayColumns.length + 1 + (canEditStructure ? 1 : 0)} style={{ height: paddingBottom }} />
+                    </tr>
                   )}
                   {processedRows.length === 0 && (
                     <tr>

@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/utils/cn";
 
@@ -6,12 +7,20 @@ interface GroupHeaderRowProps {
   count: number;
   colSpan: number;
   collapsed: boolean;
-  onToggle: () => void;
+  /** Получает `label` — колбэк один на все группы, и memo заголовка работает. */
+  onToggle: (label: string) => void;
   color?: string;
   /** Pre-formatted currency total for the group, if the table has a money column. */
   sumText?: string | null;
   /** Pre-formatted «Готово» share of that total. */
   doneText?: string | null;
+  /**
+   * Виртуализация стола: заголовок — такой же элемент списка, как строка, но
+   * его высота зависит от ширины экрана (44 на телефоне, ~30 на ПК), поэтому
+   * виртуализатор меряет его сам (measureElement + data-index).
+   */
+  measureRef?: (el: HTMLTableRowElement | null) => void;
+  dataIndex?: number;
 }
 
 /**
@@ -26,17 +35,29 @@ interface GroupHeaderRowProps {
  * (`.table-group-cell` в index.css), и переменная на дочерней кнопке до него
  * не доходила. Формат — HSL-триплет «h s% l%», как у statusOptions.color.
  */
-export function GroupHeaderRow({ label, count, colSpan, collapsed, onToggle, color, sumText }: GroupHeaderRowProps) {
+function GroupHeaderRowInner({
+  label,
+  count,
+  colSpan,
+  collapsed,
+  onToggle,
+  color,
+  sumText,
+  measureRef,
+  dataIndex,
+}: GroupHeaderRowProps) {
   const tone = color ? { color: `hsl(${color})` } : undefined;
   return (
     <tr
+      ref={measureRef}
+      data-index={dataIndex}
       className={cn("table-group-row", color && "table-group-row-colored")}
       style={color ? ({ "--group-color": color } as React.CSSProperties) : undefined}
     >
       <td colSpan={colSpan + 1} className="table-group-cell border-b border-border p-0">
         <button
           type="button"
-          onClick={onToggle}
+          onClick={() => onToggle(label)}
           className="table-group-toggle flex min-h-11 items-center gap-2 px-3 py-1 text-left text-[12.5px] sm:min-h-0"
           aria-expanded={!collapsed}
         >
@@ -60,3 +81,7 @@ export function GroupHeaderRow({ label, count, colSpan, collapsed, onToggle, col
     </tr>
   );
 }
+
+// Правка ячейки меняет строки, а не заголовки: без memo каждая правка
+// перерисовывала и все заголовки групп.
+export const GroupHeaderRow = memo(GroupHeaderRowInner);

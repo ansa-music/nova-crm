@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState, type BaseSyntheticEvent } from "react";
+import { useEffect, useState, type BaseSyntheticEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { deskEase, gsap, useGSAP } from "@/lib/gsap";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -159,15 +158,10 @@ export function LoginForm() {
     }
   }
 
-  const rootRef = useRef<HTMLDivElement>(null);
-  useGSAP(() => {
-    if (!rootRef.current) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    gsap.fromTo(rootRef.current, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.36, ease: deskEase });
-  }, { scope: rootRef });
-
+  // Появление — CSS (`.nova-fade-in` в index.css, только opacity), не GSAP:
+  // ради одного fade весь GSAP лежал в стартовом chunk у каждого.
   return (
-    <div ref={rootRef} className="w-full">
+    <div className="nova-fade-in w-full">
       <h1 className="display text-[1.85rem] leading-[1.2] sm:text-[2rem]">
         {mode === "login" ? "Вход в архив" : "Создать аккаунт"}
       </h1>

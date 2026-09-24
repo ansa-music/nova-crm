@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { ClipboardList, Eye, Moon, Pin, Search, Sun, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -54,24 +54,15 @@ function matches(q: string, ...fields: Array<string | undefined>) {
  * имени ответственного. `hideTrigger` оставлен для совместимости: кнопку
  * теперь рисует Sidebar (подсказка ⌘K в широкой панели), а AppLayout держит
  * только сам диалог.
+ *
+ * Снаружи — только состояние «открыта» и слушатели клавиш. Всё тяжёлое
+ * (модель, меню аккаунта, столы, люди) — в `PaletteBody` внутри
+ * `DialogContent`, который Radix монтирует лишь пока палитра открыта. Раньше
+ * закрытая палитра считала списки столов и людей на каждое сообщение в чате.
  */
-export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean }) {
+export const GlobalSearch = memo(function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean }) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [activeIndex, setActiveIndex] = useState(0);
-  /** Вложенный список «Смотреть как…» — роли вместо всего остального. */
-  const [roleMode, setRoleMode] = useState(false);
   const [createPageOpen, setCreatePageOpen] = useState(false);
-  const { pages, members } = useWorkspace();
-  const permissions = usePermissions();
-  const { profile } = useAuth();
-  const { selectPerson, peopleGroups } = usePeopleDesks();
-  const { recentIds, pinnedIds } = useUserPageNav(profile?.uid);
-  const nav = useNavModel();
-  const account = useAccountMenu({ openCreatePage: () => setCreatePageOpen(true) });
-  const navigate = useNavigate();
-  // Owner or Тимлид: may open every desk.
-  const isOwner = permissions.hasFullDeskAccess;
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -92,6 +83,61 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
       window.removeEventListener("nova:command-palette", onPalette);
     };
   }, []);
+
+  return (
+    <>
+      {!hideTrigger && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="flex h-8 w-full max-w-xl items-center gap-2 rounded-md border border-border bg-background px-3 text-[13px] text-muted-foreground transition-colors duration-200 hover:text-foreground"
+        >
+          <Search className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1 truncate text-left">Перейти…</span>
+          <kbd className="hidden rounded-sm border border-border px-1.5 py-0.5 font-mono text-[10px] tracking-wide sm:inline">
+            Ctrl K
+          </kbd>
+        </button>
+      )}
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        {/* На телефоне — во весь экран: клавиатура съедает половину высоты, и
+            центрированное окно с 22rem списка не оставляло места результатам. */}
+        <DialogContent
+          className={cn(
+            "top-[18%] flex max-w-xl translate-y-0 flex-col gap-0 overflow-hidden rounded-md p-0",
+            "max-sm:left-0 max-sm:top-0 max-sm:h-[100dvh] max-sm:max-h-none max-sm:w-screen max-sm:max-w-none max-sm:translate-x-0 max-sm:rounded-none"
+          )}
+        >
+          <PaletteBody onClose={() => setOpen(false)} onCreatePage={() => setCreatePageOpen(true)} />
+        </DialogContent>
+      </Dialog>
+
+      <CreatePageDialog open={createPageOpen} onOpenChange={setCreatePageOpen} />
+    </>
+  );
+});
+
+/**
+ * Содержимое открытой палитры. Запрос, «Смотреть как…» и выделенный пункт
+ * живут здесь: закрытие размонтирует тело, и следующее открытие начинается с
+ * чистого листа без ручного сброса.
+ */
+function PaletteBody({ onClose, onCreatePage }: { onClose: () => void; onCreatePage: () => void }) {
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  /** Вложенный список «Смотреть как…» — роли вместо всего остального. */
+  const [roleMode, setRoleMode] = useState(false);
+  const { pages, members } = useWorkspace();
+  const permissions = usePermissions();
+  const { profile } = useAuth();
+  const { selectPerson, peopleGroups } = usePeopleDesks();
+  const { recentIds, pinnedIds } = useUserPageNav(profile?.uid);
+  const nav = useNavModel();
+  const account = useAccountMenu({ openCreatePage: onCreatePage });
+  const navigate = useNavigate();
+  // Owner or Тимлид: may open every desk.
+  const isOwner = permissions.hasFullDeskAccess;
 
   const q = query.trim().toLowerCase();
 
@@ -264,13 +310,7 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
 
   useEffect(() => {
     setActiveIndex(0);
-  }, [query, open, roleMode]);
-
-  function close() {
-    setOpen(false);
-    setQuery("");
-    setRoleMode(false);
-  }
+  }, [query, roleMode]);
 
   function goItem(item: CommandItem) {
     if (item.run) item.run();
@@ -279,7 +319,7 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
       setQuery("");
       return;
     }
-    close();
+    onClose();
   }
 
   const groups = GROUP_ORDER.map((kind) => ({ kind, title: GROUP_TITLES[kind], items: items.filter((i) => i.kind === kind) })).filter(
@@ -288,121 +328,88 @@ export function GlobalSearch({ hideTrigger = false }: { hideTrigger?: boolean })
 
   return (
     <>
-      {!hideTrigger && (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="flex h-8 w-full max-w-xl items-center gap-2 rounded-md border border-border bg-background px-3 text-[13px] text-muted-foreground transition-colors duration-200 hover:text-foreground"
-        >
-          <Search className="h-3.5 w-3.5 shrink-0" />
-          <span className="flex-1 truncate text-left">Перейти…</span>
-          <kbd className="hidden rounded-sm border border-border px-1.5 py-0.5 font-mono text-[10px] tracking-wide sm:inline">
-            Ctrl K
-          </kbd>
-        </button>
-      )}
-
-      <Dialog
-        open={open}
-        onOpenChange={(v) => {
-          if (v) setOpen(true);
-          else close();
-        }}
-      >
-        {/* На телефоне — во весь экран: клавиатура съедает половину высоты, и
-            центрированное окно с 22rem списка не оставляло места результатам. */}
-        <DialogContent
-          className={cn(
-            "top-[18%] flex max-w-xl translate-y-0 flex-col gap-0 overflow-hidden rounded-md p-0",
-            "max-sm:left-0 max-sm:top-0 max-sm:h-[100dvh] max-sm:max-h-none max-sm:w-screen max-sm:max-w-none max-sm:translate-x-0 max-sm:rounded-none"
+      <DialogTitle className="sr-only">Командный центр</DialogTitle>
+      <div className="shrink-0 border-b border-border px-3 py-3 max-sm:pr-14">
+        <div className="flex items-center gap-2">
+          {roleMode ? (
+            <button
+              type="button"
+              onClick={() => setRoleMode(false)}
+              className="rounded-sm px-1 font-mono text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              ← назад
+            </button>
+          ) : (
+            <Search className="h-4 w-4 text-muted-foreground" />
           )}
-        >
-          <DialogTitle className="sr-only">Командный центр</DialogTitle>
-          <div className="shrink-0 border-b border-border px-3 py-3 max-sm:pr-14">
-            <div className="flex items-center gap-2">
-              {roleMode ? (
+          {/* 15px перебивал правило 16px из index.css — на таче iOS снова
+              зумил страницу при фокусе; под пальцем возвращаем 16px. */}
+          <Input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={roleMode ? "Роль…" : "Стол, человек, раздел, действие…"}
+            className="h-10 border-0 bg-transparent px-1 text-[15px] shadow-none focus-visible:ring-0 [@media(pointer:coarse)]:text-base"
+            onKeyDown={(e) => {
+              if (e.code === "ArrowDown") {
+                e.preventDefault();
+                setActiveIndex((i) => (total === 0 ? 0 : (i + 1) % total));
+              } else if (e.code === "ArrowUp") {
+                e.preventDefault();
+                setActiveIndex((i) => (total === 0 ? 0 : (i - 1 + total) % total));
+              } else if (e.code === "Enter" && items[activeIndex]) {
+                e.preventDefault();
+                goItem(items[activeIndex]);
+              } else if (e.code === "Backspace" && roleMode && !query) {
+                setRoleMode(false);
+              }
+            }}
+          />
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-2 scrollbar-thin sm:max-h-[22rem]">
+        {groups.map((group) => (
+          <div key={group.kind} className="mb-1">
+            <p className="eyebrow px-2 py-1.5">{group.title}</p>
+            {group.items.map((item) => {
+              const i = items.indexOf(item);
+              const Icon = item.icon;
+              return (
                 <button
+                  key={item.id}
                   type="button"
-                  onClick={() => setRoleMode(false)}
-                  className="rounded-sm px-1 font-mono text-[10px] text-muted-foreground hover:text-foreground"
+                  onClick={() => goItem(item)}
+                  className={cn(
+                    "command-item min-h-11 sm:min-h-0",
+                    i === activeIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
+                    item.alert && "text-success"
+                  )}
                 >
-                  ← назад
+                  <Icon
+                    className={cn("h-3.5 w-3.5 shrink-0", !item.color && !item.alert && "text-muted-foreground")}
+                    style={{ color: item.color ? `hsl(${item.color})` : undefined }}
+                  />
+                  <span className="flex-1 truncate">{item.label}</span>
+                  {item.badge ? (
+                    <span className="rounded-full bg-primary px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none text-primary-foreground">
+                      {item.badge > 9 ? "9+" : item.badge}
+                    </span>
+                  ) : null}
+                  {item.hint && <span className="truncate font-mono text-[10px] text-muted-foreground">{item.hint}</span>}
                 </button>
-              ) : (
-                <Search className="h-4 w-4 text-muted-foreground" />
-              )}
-              {/* 15px перебивал правило 16px из index.css — на таче iOS снова
-                  зумил страницу при фокусе; под пальцем возвращаем 16px. */}
-              <Input
-                autoFocus
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={roleMode ? "Роль…" : "Стол, человек, раздел, действие…"}
-                className="h-10 border-0 bg-transparent px-1 text-[15px] shadow-none focus-visible:ring-0 [@media(pointer:coarse)]:text-base"
-                onKeyDown={(e) => {
-                  if (e.code === "ArrowDown") {
-                    e.preventDefault();
-                    setActiveIndex((i) => (total === 0 ? 0 : (i + 1) % total));
-                  } else if (e.code === "ArrowUp") {
-                    e.preventDefault();
-                    setActiveIndex((i) => (total === 0 ? 0 : (i - 1 + total) % total));
-                  } else if (e.code === "Enter" && items[activeIndex]) {
-                    e.preventDefault();
-                    goItem(items[activeIndex]);
-                  } else if (e.code === "Backspace" && roleMode && !query) {
-                    setRoleMode(false);
-                  }
-                }}
-              />
-            </div>
+              );
+            })}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-2 scrollbar-thin sm:max-h-[22rem]">
-            {groups.map((group) => (
-              <div key={group.kind} className="mb-1">
-                <p className="eyebrow px-2 py-1.5">{group.title}</p>
-                {group.items.map((item) => {
-                  const i = items.indexOf(item);
-                  const Icon = item.icon;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => goItem(item)}
-                      className={cn(
-                        "command-item min-h-11 sm:min-h-0",
-                        i === activeIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
-                        item.alert && "text-success"
-                      )}
-                    >
-                      <Icon
-                        className={cn("h-3.5 w-3.5 shrink-0", !item.color && !item.alert && "text-muted-foreground")}
-                        style={{ color: item.color ? `hsl(${item.color})` : undefined }}
-                      />
-                      <span className="flex-1 truncate">{item.label}</span>
-                      {item.badge ? (
-                        <span className="rounded-full bg-primary px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none text-primary-foreground">
-                          {item.badge > 9 ? "9+" : item.badge}
-                        </span>
-                      ) : null}
-                      {item.hint && <span className="truncate font-mono text-[10px] text-muted-foreground">{item.hint}</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
-            {query && items.length === 0 && (
-              <p className="px-2 py-10 text-center text-sm text-muted-foreground">Ничего не найдено</p>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-3 border-t border-border px-3 py-2 font-mono text-[10px] text-muted-foreground max-sm:pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-            <span>↑↓ двигать</span>
-            <span>Enter открыть</span>
-            <span>Esc закрыть</span>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <CreatePageDialog open={createPageOpen} onOpenChange={setCreatePageOpen} />
+        ))}
+        {query && items.length === 0 && (
+          <p className="px-2 py-10 text-center text-sm text-muted-foreground">Ничего не найдено</p>
+        )}
+      </div>
+      <div className="flex shrink-0 items-center gap-3 border-t border-border px-3 py-2 font-mono text-[10px] text-muted-foreground max-sm:pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        <span>↑↓ двигать</span>
+        <span>Enter открыть</span>
+        <span>Esc закрыть</span>
+      </div>
     </>
   );
 }
