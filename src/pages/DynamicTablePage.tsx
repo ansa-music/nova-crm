@@ -860,25 +860,51 @@ export default function DynamicTablePage() {
   // Просьбы технарей к этому ОС («поставьте „Готово“», «удалите») — та же
   // подписка, что счётчик на «Стол ОС» в меню. На строке — метка «Просит: …»
   // в ячейке статуса, решение — в окне (OsRequestDecisionDialog).
+  // Owner и Тимлид на ЧУЖОМ столе ОС тоже видят просьбы к этому ОС и решают
+  // их (жалоба Nurba 25.09.2026: «зашёл на стол ОС — ничего не вижу»):
+  // правило orderRequests пускает руководство читать и решать.
+  const leaderSeesOsRequests = Boolean(
+    page?.osDesk &&
+      !isMyOsDesk &&
+      page.responsibleUserId &&
+      permissions.canManageUsers,
+  );
+  const osRequestsUid = isMyOsDesk
+    ? permissions.uid
+    : leaderSeesOsRequests
+      ? (page?.responsibleUserId ?? null)
+      : null;
   const osRequests = useOsPendingOrderRequests(
     activeWorkspaceId,
-    permissions.uid,
-    isMyOsDesk,
+    osRequestsUid,
+    isMyOsDesk || leaderSeesOsRequests,
   );
+  // Заказы этого ОС у технарей — для руководства отдельным чтением (свой
+  // список `myOrders` у хозяина стола держит проход выдачи, его не трогаем).
+  const viewedOsOrders = useMyOrderRows(
+    activeWorkspaceId,
+    leaderSeesOsRequests ? (page?.responsibleUserId ?? null) : null,
+    leaderSeesOsRequests,
+  );
+  const requestMirrors = isMyOsDesk ? myOrders.rows : viewedOsOrders.rows;
+  const refreshRequestMirrors = isMyOsDesk
+    ? myOrders.refresh
+    : viewedOsOrders.refresh;
   const osRequestByRow = useMemo(() => {
     const map = new Map<string, OrderRequest>();
+    if (!osRequestsUid) return map;
     for (const request of osRequests.requests) {
-      // Строку ОС ищем через СВОЮ строку-заказ у технаря; запрос пишет технарь.
+      // Строку ОС ищем через строку-заказ ОС у технаря; запрос пишет технарь.
       const mirror = findRequestMirror(
         request,
-        myOrders.rows,
-        permissions.uid,
+        requestMirrors,
+        osRequestsUid,
       );
       const rowId = mirror?.srcRowId || request.srcRowId;
       if (rowId && !map.has(rowId)) map.set(rowId, request);
     }
     return map;
-  }, [osRequests.requests, myOrders.rows, permissions.uid]);
+  }, [osRequests.requests, requestMirrors, osRequestsUid]);
   const [decideRequestId, setDecideRequestId] = useState<string | null>(null);
   const [pickOrderId, setPickOrderId] = useState<string | null>(null);
   const pickOrder = pickOrderId
@@ -2337,14 +2363,14 @@ export default function DynamicTablePage() {
           ) : null}
 
           {/* Стол ОС: запросы технарей «удалить заказ» / «поставить статус». */}
-          {isMyOsDesk ? (
+          {(isMyOsDesk || leaderSeesOsRequests) && osRequestsUid ? (
             <OsOrderRequestsPanel
-              osUid={permissions.uid}
+              osUid={osRequestsUid}
               requests={osRequests.requests}
               statusKey={osKeys.status}
-              mirrors={myOrders.rows}
+              mirrors={requestMirrors}
               sourceRows={rows}
-              onChanged={myOrders.refresh}
+              onChanged={refreshRequestMirrors}
             />
           ) : null}
 
@@ -2452,6 +2478,15 @@ export default function DynamicTablePage() {
                         },
                         tickMs: OS_CELL_ACTION_TICK_MS,
                       }
+                    : leaderSeesOsRequests
+                      ? {
+                          colKey: osKeys.status,
+                          get: osRequestCellView,
+                          run: (row) => {
+                            const request = osRequestByRow.get(row.id);
+                            if (request) setDecideRequestId(request.id);
+                          },
+                        }
                     : askOsEnabled && askStatusColumn
                       ? {
                           colKey: askStatusColumn.key,
@@ -2556,7 +2591,7 @@ export default function DynamicTablePage() {
         </>
       )}
 
-      {decideRequestId && isMyOsDesk ? (
+      {decideRequestId && osRequestsUid ? (
         <OsRequestDecisionDialog
           request={
             osRequests.requests.find((r) => r.id === decideRequestId) ?? null
@@ -2567,13 +2602,13 @@ export default function DynamicTablePage() {
                 osRequestByRow.get(r.id)?.id === decideRequestId,
             ) ?? null
           }
-          osUid={permissions.uid}
-          mirrors={myOrders.rows}
+          osUid={osRequestsUid}
+          mirrors={requestMirrors}
           statusKey={osKeys.status}
           statusOptions={osStatusOptions}
           clientKey={osKeys.client}
           onClose={() => setDecideRequestId(null)}
-          onChanged={myOrders.refresh}
+          onChanged={refreshRequestMirrors}
         />
       ) : null}
 
