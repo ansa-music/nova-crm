@@ -111,7 +111,9 @@ import {
   DEFAULT_STATUS_OPTIONS,
   ensureApprovalStatus,
   ensureDoneStatus,
+  findDoneStatusOption,
   findInProgressStatusOption,
+  getColumnOptions,
   isApprovalOption,
   isApprovalStatusValue,
 } from "@/utils/columnOptions";
@@ -153,6 +155,9 @@ import {
   storeDeskTab,
 } from "@/utils/deskLinks";
 import { TechOrderPanel } from "@/components/os/TechOrderPanel";
+import { OrderStatusRequestDialog } from "@/components/os/OrderStatusRequestDialog";
+import { useMyPendingOrderRequests } from "@/hooks/useMyPendingOrderRequests";
+import { orderRequestId } from "@/services/orderRequestService";
 import { isMonthlyDesk } from "@/services/monthTabService";
 import type { PageRow, PaymentMethod, SubPage, WorkspacePage } from "@/types";
 import type { DeskSummary, DeskTableActions } from "@/types/deskSummary";
@@ -1549,6 +1554,87 @@ export default function DynamicTablePage() {
     [page, activeSubColumns],
   );
 
+  // Просьба к ОС сменить статус заказа, который он ведёт (просьба Nurba
+  // 25.09.2026): кнопка «Готово?» в ячейке статуса у того, за чьим столом
+  // заказ, — технаря и Owner за своим столом. «Готово» — первым.
+  const askOsEnabled = Boolean(
+    page &&
+      !page.osDesk &&
+      activeWorkspaceId &&
+      permissions.uid &&
+      page.responsibleUserId === permissions.uid,
+  );
+  const myOrderRequests = useMyPendingOrderRequests(
+    activeWorkspaceId,
+    permissions.uid,
+    askOsEnabled,
+  );
+  const askStatusColumn = useMemo(
+    () => tablePage?.columns?.find((c) => c.type === "status") ?? null,
+    [tablePage],
+  );
+  const askStatusOptions = useMemo(
+    () =>
+      askStatusColumn
+        ? getColumnOptions(askStatusColumn, activeWorkspace)
+        : [],
+    [askStatusColumn, activeWorkspace],
+  );
+  const [statusRequestRowId, setStatusRequestRowId] = useState<string | null>(
+    null,
+  );
+  const askDoneValue = findDoneStatusOption(askStatusOptions)?.value ?? null;
+  function canAskOs(row: PageRow): boolean {
+    return Boolean(
+      askOsEnabled &&
+        row.osUid &&
+        row.osUid !== permissions.uid &&
+        row.srcPageId &&
+        row.srcRowId,
+    );
+  }
+  function pendingRequestOf(row: PageRow) {
+    if (!page) return null;
+    return (
+      myOrderRequests.get(orderRequestId(row.deskPageId || page.id, row.id)) ??
+      null
+    );
+  }
+  function askOsCellView(row: PageRow): CellActionView | null {
+    if (!canAskOs(row) || !askStatusColumn) return null;
+    const current = String(
+      row.cells[row.statusKey || askStatusColumn.key] ?? "",
+    );
+    const pending = pendingRequestOf(row);
+    // ОС уже поставил то, о чём просили, — метка своё отжила.
+    if (pending && pending.kind === "status" && pending.status !== current) {
+      return {
+        kind: "req-pending",
+        label: `Просит: ${pending.statusLabel ?? pending.status}`,
+        title: `Вы попросили ОС поставить «${pending.statusLabel ?? pending.status}». Нажмите, чтобы отозвать`,
+        tone: "warning",
+        icon: "hand",
+      };
+    }
+    if (pending && pending.kind === "delete") {
+      return {
+        kind: "req-pending",
+        label: "Просит: удалить",
+        title: "Вы попросили ОС удалить заказ",
+        tone: "warning",
+        icon: "hand",
+      };
+    }
+    if (askDoneValue && current === askDoneValue) return null;
+    return {
+      kind: "req",
+      label: "Готово?",
+      title: "Заказ ведёт ОС. Попросить его поставить «Готово» или другой статус",
+      tone: "neutral",
+      icon: "hand",
+    };
+  }
+
   // 1. Still resolving user -> role -> workspace -> pages. Never render a
   //    verdict here: this is precisely the window where the old code could
   //    flash "Страница не найдена" / "Access denied" and needed an F5.
@@ -2314,7 +2400,13 @@ export default function DynamicTablePage() {
                         run: (row) => void runOsCellAction(row),
                         tickMs: OS_CELL_ACTION_TICK_MS,
                       }
-                    : undefined
+                    : askOsEnabled && askStatusColumn
+                      ? {
+                          colKey: askStatusColumn.key,
+                          get: askOsCellView,
+                          run: (row) => setStatusRequestRowId(row.id),
+                        }
+                      : undefined
                 }
                 onOpenCellPicker={
                   isMyOsDesk ? (row) => openOsTechCell(row) : undefined
@@ -2389,6 +2481,12 @@ export default function DynamicTablePage() {
                       subPageId={activeSubPageId}
                       me={permissions.uid}
                       canWrite={page.responsibleUserId === permissions.uid}
+                      pendingRequest={pendingRequestOf(row)}
+                      onAskStatus={
+                        canAskOs(row)
+                          ? () => setStatusRequestRowId(row.id)
+                          : undefined
+                      }
                     />
                   );
                 }}
@@ -2405,6 +2503,28 @@ export default function DynamicTablePage() {
           </div>
         </>
       )}
+
+      {statusRequestRowId && page && activeWorkspaceId ? (
+        <OrderStatusRequestDialog
+          row={rows.find((r) => r.id === statusRequestRowId) ?? null}
+          workspaceId={activeWorkspaceId}
+          deskPageId={page.id}
+          deskTabId={activeSubPageId}
+          deskName={page.name}
+          columns={tablePage?.columns ?? page.columns}
+          statusKey={
+            rows.find((r) => r.id === statusRequestRowId)?.statusKey ||
+            askStatusColumn?.key ||
+            null
+          }
+          statusOptions={askStatusOptions}
+          pending={(() => {
+            const row = rows.find((r) => r.id === statusRequestRowId);
+            return row ? pendingRequestOf(row) : null;
+          })()}
+          onClose={() => setStatusRequestRowId(null)}
+        />
+      ) : null}
 
       {settingsOpen && (
         <DeskAccessDialog

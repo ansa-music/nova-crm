@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Send, Trash2, Undo2, Workflow } from "lucide-react";
+import { CheckCircle2, Loader2, Send, Trash2, Undo2, Workflow } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -49,6 +49,8 @@ export function TechOrderPanel({
   subPageId,
   me,
   canWrite,
+  pendingRequest,
+  onAskStatus,
 }: {
   row: PageRow;
   workspaceId: string;
@@ -58,6 +60,14 @@ export function TechOrderPanel({
   me: string;
   /** Ответственный за этот стол (иначе поля только на просмотр). */
   canWrite: boolean;
+  /** Живая ожидающая просьба по строке (`useMyPendingOrderRequests`). */
+  pendingRequest?: OrderRequest | null;
+  /**
+   * Открыть «Попросить ОС сменить статус» («Готово» — первой кнопкой). Есть —
+   * просьба о статусе идёт через это окно, то же, что кнопка «Готово?» в
+   * ячейке статуса.
+   */
+  onAskStatus?: () => void;
 }) {
   const { members, allPages, activeWorkspace } = useWorkspace();
   const { profile } = useAuth();
@@ -220,7 +230,14 @@ export function TechOrderPanel({
     }
   }
 
-  const pending = request?.state === "pending" ? request : null;
+  // Живой список сильнее разового чтения: просьбу могли отозвать или решить
+  // в окне из ячейки статуса, пока карточка открыта.
+  const pending =
+    onAskStatus !== undefined
+      ? (pendingRequest ?? null)
+      : request?.state === "pending"
+        ? request
+        : null;
   const requestText = (r: OrderRequest) => (r.kind === "delete" ? "удалить заказ" : `статус «${r.statusLabel ?? r.status}»`);
 
   /** Имя клиента из строки — чтобы в уведомлении было видно, о каком заказе речь. */
@@ -234,7 +251,9 @@ export function TechOrderPanel({
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted/30 p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-medium">Заказ ведёт ОС</span>
-        {requested ? (
+        {/* С живым списком просьб состояние видно ниже («Запрос у ОС»), а
+            старая отметка на строке после «Отозвать» остаётся и врала бы. */}
+        {requested && !(onAskStatus && canRequest) ? (
           <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">просьба отправлена</span>
         ) : null}
       </div>
@@ -268,22 +287,33 @@ export function TechOrderPanel({
 
       {canWrite && (
         <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="min-h-9"
-            onClick={() => void askSuccess()}
-            disabled={busy || requested}
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {requested ? "Просьба отправлена" : "Попросить «Успешку»"}
-          </Button>
+          {onAskStatus && canRequest ? (
+            !pending ? (
+              <Button size="sm" className="min-h-11 gap-1.5 sm:min-h-9" disabled={busy} onClick={onAskStatus}>
+                <CheckCircle2 className="h-4 w-4" />
+                Попросить «Готово» или статус…
+              </Button>
+            ) : null
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="min-h-9"
+              onClick={() => void askSuccess()}
+              disabled={busy || requested}
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {requested ? "Просьба отправлена" : "Попросить «Успешку»"}
+            </Button>
+          )}
           {canRequest && !pending && !draftKind ? (
             <>
-              <Button size="sm" variant="outline" className="min-h-9" disabled={busy} onClick={() => setDraftKind("status")}>
-                <Workflow className="h-4 w-4" />
-                Попросить статус…
-              </Button>
+              {onAskStatus ? null : (
+                <Button size="sm" variant="outline" className="min-h-9" disabled={busy} onClick={() => setDraftKind("status")}>
+                  <Workflow className="h-4 w-4" />
+                  Попросить статус…
+                </Button>
+              )}
               <Button size="sm" variant="outline" className="min-h-9" disabled={busy} onClick={() => setDraftKind("delete")}>
                 <Trash2 className="h-4 w-4" />
                 Попросить удалить

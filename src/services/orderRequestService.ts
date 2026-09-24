@@ -150,3 +150,18 @@ export function subscribePendingOrderRequests(
     onError
   );
 }
+
+/**
+ * Мои ожидающие просьбы (я — технарь, в том числе Owner за своим столом):
+ * метка «Просит: Готово» в ячейке статуса. Два равенства — индекс не нужен,
+ * а правило чтения (`techUid == я`) запрос проходит целиком.
+ */
+export function subscribeMyPendingOrderRequests(
+  workspaceId: string,
+  techUid: string,
+  onData: (requests: OrderRequest[]) => void,
+  onError: (error: Error) => void
+): () => void {
+  const q = query(requestsCol(workspaceId), where("techUid", "==", techUid), where("state", "==", "pending"));
+  return onSnapshot(q, (snap) => onData(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as OrderRequest)), onError);
+}
