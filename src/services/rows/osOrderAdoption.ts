@@ -6,7 +6,7 @@ import { computeOsFieldKeys, sameOsFieldKeys } from "@/utils/osFieldKeys";
 import { sbFetchAllPageRows, sbFetchRows, sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { buildMirrorCells, mirrorSyncHash } from "@/services/rows/osOrderMirror";
-import { OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
+import { OS_ISSUED_AT_KEY, OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
 import { isBlankRow } from "@/utils/blankRow";
 import { personLabel } from "@/utils/peopleDesks";
 import type { OsFieldKeys, PageRow, WorkspaceMember, WorkspacePage } from "@/types";
@@ -234,6 +234,8 @@ export async function adoptOrdersToOsDesks(input: {
       put("note", String(row.extras?.note ?? ""));
       const techColumn = OS_DESK_COLUMNS.find((c) => c.type === "technician");
       if (techColumn && techNick) srcCells[techColumn.key] = techNick;
+      // Заказ лежал у технаря с самого начала — «выдан» тогда же (столбец «Даты»).
+      if (orderAt > 0) srcCells[OS_ISSUED_AT_KEY] = String(orderAt);
 
       // Подпись — ТА ЖЕ, что считает проход стола ОС (только поля, без
       // статуса и даты): иначе первый же проход счёл бы перенесённый заказ

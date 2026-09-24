@@ -12,7 +12,12 @@ export interface OsDeskKeys {
   technician: string;
   /** «Итого» — касса строки (utils/payment.ts). */
   total: string;
+  /** «Даты» — получен / выдан (utils/osDates.ts), только для показа. */
+  dates: string;
 }
+
+/** Ключ столбца «Даты» стола ОС. Камелкейс: из названия столбца такой slug не получится. */
+export const OS_DATES_COLUMN_KEY = "osDates";
 
 /** Ключи нового стола ОС — от `OS_DESK_COLUMNS`. */
 export const OS_DESK_KEYS: OsDeskKeys = {
@@ -25,6 +30,7 @@ export const OS_DESK_KEYS: OsDeskKeys = {
   status: "status",
   technician: "technician",
   total: "total",
+  dates: OS_DATES_COLUMN_KEY,
 };
 
 /**
@@ -51,5 +57,6 @@ export function resolveOsDeskKeys(columns: readonly PageColumn[] | null | undefi
     status: byType("status") ?? OS_DESK_KEYS.status,
     technician: byType("technician") ?? OS_DESK_KEYS.technician,
     total: byKey("total") ?? byLabel(/^итог/i) ?? OS_DESK_KEYS.total,
+    dates: OS_DATES_COLUMN_KEY,
   };
 }

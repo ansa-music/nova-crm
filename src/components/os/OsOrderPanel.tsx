@@ -24,6 +24,8 @@ import { PaymentChip } from "@/components/cashbox/PaymentChip";
 import { osRowFees, osRowTotal } from "@/utils/payment";
 import { formatCurrency } from "@/utils/format";
 import { parseLooseNumber } from "@/utils/numberInput";
+import { formatFullMoment, formatShortMoment, formatWaited, upsellMadeAt } from "@/utils/osDates";
+import type { OsDatesInfo } from "@/components/os/OsDatesCell";
 
 /** Сумма из ячейки как число (для показа рядом со способом оплаты). */
 function cellAmount(value: unknown): number {
@@ -53,6 +55,7 @@ export function OsOrderPanel({
   onPickFromExchange,
   keys = OS_DESK_KEYS,
   payment,
+  dates,
 }: {
   row: PageRow;
   pageId: string;
@@ -72,6 +75,8 @@ export function OsOrderPanel({
   onPickFromExchange?: (order: WorkOrder) => void;
   /** Ключи ячеек открытой таблицы стола ОС. */
   keys?: OsDeskKeys;
+  /** Когда заказ получен и выдан — то же, что в столбце «Даты». */
+  dates?: OsDatesInfo;
   /** Касса: способы оплаты у цены и апсейла (на телефоне — только отсюда). */
   payment?: {
     methods: readonly PaymentMethod[];
@@ -181,6 +186,30 @@ export function OsOrderPanel({
         )}
       </div>
 
+      {dates ? (
+        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+          <span className="text-muted-foreground">Получен</span>
+          <span className="font-mono tabular-nums" title={dates.receivedAt ? formatFullMoment(dates.receivedAt) : undefined}>
+            {dates.receivedAt ? formatShortMoment(dates.receivedAt) : "—"}
+          </span>
+          <span className="text-muted-foreground">Выдан</span>
+          <span className="font-mono tabular-nums" title={dates.issuedAt ? formatFullMoment(dates.issuedAt) : undefined}>
+            {dates.issuedAt ? (
+              <>
+                {formatShortMoment(dates.issuedAt)}
+                {dates.receivedAt && dates.issuedAt >= dates.receivedAt ? (
+                  <span className="font-sans text-muted-foreground"> · через {formatWaited(dates.receivedAt, dates.issuedAt)}</span>
+                ) : null}
+              </>
+            ) : dates.exchange ? (
+              <span className="font-sans text-primary">{dates.exchange.status === "assigned" ? "отдан с «Заказов», едет" : "на «Заказах», ждёт откликов"}</span>
+            ) : (
+              <span className="font-sans text-muted-foreground">ещё не выдан</span>
+            )}
+          </span>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-muted-foreground">Технарь:</span>
         <span className="font-medium">{techName || "не выбран"}</span>
@@ -209,6 +238,11 @@ export function OsOrderPanel({
                 onPick={(m) => payment.onPick(f.key, m)}
                 onConfigure={payment.onConfigure}
               />
+              {f.key === keys.upsell && upsellMadeAt(row, keys.upsell) ? (
+                <span className="font-mono text-[11px] tabular-nums text-muted-foreground" title={formatFullMoment(upsellMadeAt(row, keys.upsell) as number)}>
+                  сделан {formatShortMoment(upsellMadeAt(row, keys.upsell) as number)}
+                </span>
+              ) : null}
             </div>
           ))}
           {(() => {

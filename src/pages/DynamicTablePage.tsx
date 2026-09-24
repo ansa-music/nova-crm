@@ -122,6 +122,14 @@ import type { PageRow, PaymentMethod, SubPage, WorkspacePage } from "@/types";
 import type { DeskSummary, DeskTableActions } from "@/types/deskSummary";
 import { formatNumber } from "@/utils/format";
 import { PaymentChip } from "@/components/cashbox/PaymentChip";
+import { OsDatesCell, OsDatesInline, type OsDatesInfo } from "@/components/os/OsDatesCell";
+import {
+  formatDayMonth,
+  formatFullMoment,
+  osIssuedAt,
+  osReceivedAt,
+  upsellMadeAt,
+} from "@/utils/osDates";
 import { PaymentMethodsDialog } from "@/components/cashbox/PaymentMethodsDialog";
 import { useOsTotalsKeeper } from "@/hooks/useOsTotalsKeeper";
 import { osRowTotal, paymentMethodsOf, paymentPatch } from "@/utils/payment";
@@ -810,9 +818,11 @@ export default function DynamicTablePage() {
   );
   // Касса ОС: способ оплаты у «Цены» и «Апсейла», «Итого» только для чтения.
   const isOsDeskPage = Boolean(page?.osDesk);
-  const osPayKeys = useMemo(
-    () => [osKeys.price, osKeys.upsell],
-    [osKeys.price, osKeys.upsell],
+  // Добавки в ячейках стола ОС: способ оплаты у «Цены» и «Апсейла» (у
+  // апсейла ещё и его дата) и столбец «Даты» — получен / выдан.
+  const osAddonKeys = useMemo(
+    () => [osKeys.price, osKeys.upsell, osKeys.dates],
+    [osKeys.price, osKeys.upsell, osKeys.dates],
   );
   const osLockedKeys = useMemo(
     () =>
@@ -820,15 +830,48 @@ export default function DynamicTablePage() {
         ? {
             [osKeys.total]:
               "«Итого» считает стол сам: цена и апсейл за вычетом комиссии способа оплаты",
+            [osKeys.dates]:
+              "Даты ставит стол сам: «получен» — когда строку заполнили, «выдан» — когда заказ ушёл технарю",
           }
         : undefined,
-    [isOsDeskPage, osKeys.total],
+    [isOsDeskPage, osKeys.total, osKeys.dates],
   );
   const paymentMethods = useMemo(
     () => paymentMethodsOf(activeWorkspace),
     [activeWorkspace],
   );
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  /**
+   * Даты заказа для столбца «Даты» и карточки строки: получен — дата строки,
+   * выдан — `osIssuedAt` (у выданных раньше — когда завели копию у технаря),
+   * а пока заказ на «Заказах» — «ждёт откликов» / «едет».
+   */
+  function osDatesOf(row: PageRow): OsDatesInfo {
+    const onExchange = row.orderId ? exchange.byRow.get(row.id) : undefined;
+    const mirror = myOrders.bySource.get(row.id);
+    const techNick = osKeys.technician ? row.cells[osKeys.technician] : null;
+    return {
+      receivedAt: osReceivedAt(row),
+      issuedAt: osIssuedAt(row, mirror?.createdAt ?? null),
+      techName: techNick ? String(techNick) : undefined,
+      exchange:
+        onExchange &&
+        (onExchange.status === "open" || onExchange.status === "assigned")
+          ? { status: onExchange.status, since: onExchange.createdAt ?? null }
+          : null,
+    };
+  }
+  // Что ещё, кроме самой строки, меняет «Даты»: копии у технарей (дата
+  // заведения — запасная «выдан») и заказы на «Заказах». Строки таблицы
+  // перерисовываются только при смене этой подписи (TableRow сравнивает пропсы).
+  const osDatesVersion = isOsDeskPage
+    ? [
+        ...[...exchange.byRow].map(([id, o]) => `${id}:${o.status}`),
+        ...[...myOrders.bySource].map(([id, m]) => `${id}@${m.createdAt ?? 0}`),
+      ]
+        .sort()
+        .join("|")
+    : "";
 
   // Стол ОС выдаёт заказы сам: заполнил строку, выбрал технаря — заказ у
   // него. Тот же проход везёт статус в обе стороны (см. хук).
@@ -986,13 +1029,15 @@ export default function DynamicTablePage() {
           "Заказ на «Заказах» — отдайте его, когда технари откликнутся. Нажмите, чтобы открыть",
       };
     }
+    // Технаря не выбрали: выдать прямо отсюда, не заходя на «Заказы». Слева в
+    // той же ячейке — «Выбрать…» (отдать конкретному технарю).
     return {
-      label: "В работу",
+      label: "На «Заказы»",
       tone: "primary",
       icon: "send",
       busy,
       title:
-        "Отдать в работу: заказ уйдёт на «Заказы» со всеми данными строки, технари получат уведомление",
+        "Выдать заказ: он уйдёт на «Заказы» со всеми данными строки, технари получат уведомление, отклики появятся здесь же. Отдать конкретному — «Выбрать…» слева",
     };
   }
   /** Выбор способа оплаты у цены или апсейла: id, снимок комиссии и новое «Итого» — одной записью. */
@@ -1797,25 +1842,50 @@ export default function DynamicTablePage() {
                 techFills={techFills}
                 cellPickerKeys={isMyOsDesk ? osTechPickerKeys : undefined}
                 lockedKeys={osLockedKeys}
+                cardMeta={
+                  isOsDeskPage
+                    ? (row) => <OsDatesInline info={osDatesOf(row)} />
+                    : undefined
+                }
                 cellAddon={
                   isOsDeskPage
                     ? {
-                        keys: osPayKeys,
-                        version: `${paymentMethods.map((m) => `${m.id}:${m.label}:${m.commissionPct}:${m.color ?? ""}:${m.inactive ? 1 : 0}`).join("|")}#${canEditData ? 1 : 0}`,
-                        render: (row, colKey) => (
-                          <PaymentChip
-                            row={row}
-                            colKey={colKey}
-                            methods={paymentMethods}
-                            canEdit={canEditData}
-                            canConfigure={isRealOwner}
-                            compact
-                            onPick={(method) =>
-                              void pickPayment(row, colKey, method)
-                            }
-                            onConfigure={() => setPaymentDialogOpen(true)}
-                          />
-                        ),
+                        keys: osAddonKeys,
+                        version: `${paymentMethods.map((m) => `${m.id}:${m.label}:${m.commissionPct}:${m.color ?? ""}:${m.inactive ? 1 : 0}`).join("|")}#${canEditData ? 1 : 0}#${osDatesVersion}`,
+                        render: (row, colKey) => {
+                          if (colKey === osKeys.dates)
+                            return <OsDatesCell info={osDatesOf(row)} />;
+                          const chip = (
+                            <PaymentChip
+                              row={row}
+                              colKey={colKey}
+                              methods={paymentMethods}
+                              canEdit={canEditData}
+                              canConfigure={isRealOwner}
+                              compact
+                              onPick={(method) =>
+                                void pickPayment(row, colKey, method)
+                              }
+                              onConfigure={() => setPaymentDialogOpen(true)}
+                            />
+                          );
+                          const upsellAt =
+                            colKey === osKeys.upsell
+                              ? upsellMadeAt(row, osKeys.upsell)
+                              : null;
+                          if (!upsellAt) return chip;
+                          return (
+                            <span className="flex min-w-0 items-center gap-1">
+                              {chip}
+                              <span
+                                className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground"
+                                title={`Апсейл сделан ${formatFullMoment(upsellAt)}`}
+                              >
+                                {formatDayMonth(upsellAt)}
+                              </span>
+                            </span>
+                          );
+                        },
                       }
                     : undefined
                 }
@@ -1850,6 +1920,7 @@ export default function DynamicTablePage() {
                         exchangeOrder={exchange.byRow.get(row.id) ?? null}
                         onPickFromExchange={(order) => setPickOrderId(order.id)}
                         keys={osKeys}
+                        dates={osDatesOf(row)}
                         payment={{
                           methods: paymentMethods,
                           canConfigure: isRealOwner,

@@ -13,7 +13,7 @@ import { sbDeleteRow, sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { OS_DESK_KEYS, resolveOsDeskKeys, type OsDeskKeys } from "@/services/osDeskService";
 import { findInProgressStatusOption, isApprovalStatusValue } from "@/utils/columnOptions";
 import { osRowTotal } from "@/utils/payment";
-import type { PageRow, StatusOption, WorkOrder, WorkspaceMember, WorkspacePage } from "@/types";
+import type { PageRow, StatusOption, WorkOrder, WorkOrderUrgency, WorkspaceMember, WorkspacePage } from "@/types";
 
 /**
  * «Общий» заказ со стола ОС — через биржу «Заказы».
@@ -55,6 +55,8 @@ export interface SendToExchangeInput {
   statusOptions: readonly StatusOption[];
   /** Ключи ячеек открытой таблицы (resolveOsDeskKeys); нет — ключи по умолчанию. */
   keys?: OsDeskKeys;
+  /** Срочность на «Заказах» (выдача со страницы «Заказы»); нет — «Нейтральный». */
+  urgency?: WorkOrderUrgency;
 }
 
 /** «Общий»: заказ со стола ОС уходит на биржу «Заказы». */
@@ -69,7 +71,7 @@ export async function sendOsRowToExchange(input: SendToExchangeInput): Promise<W
     phone: cell(row, k.phone),
     link: cell(row, k.link) || row.extras?.link || "",
     deadline: row.extras?.deadline ?? null,
-    urgency: "normal",
+    urgency: input.urgency ?? "normal",
     price: total > 0 ? total : null,
     persons: row.extras?.persons ?? null,
     minutes: row.extras?.minutes ?? null,

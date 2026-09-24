@@ -1,6 +1,6 @@
 import { buildMirrorCells, mirrorSyncHash } from "@/services/rows/osOrderMirror";
 import type { MirrorInput } from "@/services/rows/osOrderMirror";
-import { OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
+import { OS_ISSUED_AT_KEY, OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
 import type { OsFieldKeys, PageRow } from "@/types";
 
 /**
@@ -154,7 +154,7 @@ export function planOsDispatch(input: OsDispatchInput): OsDispatchPlan {
   // Технаря стёрли — заказ уходит с его стола: держать у человека работу,
   // которую у него забрали, нельзя.
   if (!input.techNick) {
-    if (at) return keep("unassign", { removeAt: at, sourceCells: { [OS_STATUS_SENT_KEY]: "" } });
+    if (at) return keep("unassign", { removeAt: at, sourceCells: { [OS_STATUS_SENT_KEY]: "", [OS_ISSUED_AT_KEY]: "" } });
     return keep("wait");
   }
   // Ещё не заказ: без имени клиента отправлять нечего.
@@ -199,7 +199,7 @@ export function planOsDispatch(input: OsDispatchInput): OsDispatchPlan {
     if (!input.ordersLoaded) return keep("wait");
     return keep("lost", {
       removeAt: at,
-      sourceCells: { [OS_LOST_FOR_KEY]: input.techNick, [OS_STATUS_SENT_KEY]: "" },
+      sourceCells: { [OS_LOST_FOR_KEY]: input.techNick, [OS_STATUS_SENT_KEY]: "", [OS_ISSUED_AT_KEY]: "" },
     });
   }
 

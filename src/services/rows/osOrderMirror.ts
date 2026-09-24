@@ -1,6 +1,7 @@
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { currentMonthKey, currentMonthSubPageId } from "@/services/monthTabService";
 import { osRowTotal } from "@/utils/payment";
+import { OS_ISSUED_AT_KEY } from "@/utils/reservedCellKeys";
 import type { OsFieldKeys, PageRow, WorkspaceMember, WorkspacePage } from "@/types";
 
 /**
@@ -194,6 +195,8 @@ export interface PushOrderInput {
   withStatus?: boolean;
   /** Служебные ячейки для строки-источника (osStatusSent, osLostFor, статус). */
   sourceCells?: Record<string, string>;
+  /** Когда заказ отдан (для «Даты» стола ОС); нет — сейчас. Только при заведении копии. */
+  issuedAt?: number;
 }
 
 /**
@@ -249,7 +252,9 @@ export async function pushOrderToTech(input: PushOrderInput): Promise<{ rowId: s
   // На строке-источнике — адрес копии (по нему ОС потом её обновляет) и
   // служебные ячейки: последний синхронизированный статус и прочее.
   await sbPatchRow(input.workspaceId, input.srcPageId, input.srcTabId, input.source.id, {
-    cells: input.sourceCells ?? {},
+    // Копию завели — заказ отдан этому технарю сейчас (столбец «Даты» у ОС).
+    // Правка существующей копии дату не трогает.
+    cells: { ...(creating ? { [OS_ISSUED_AT_KEY]: String(input.issuedAt ?? Date.now()) } : {}), ...(input.sourceCells ?? {}) },
     syncHash,
     mirrorPageId: input.target.page.id,
     mirrorTabId: tabId,

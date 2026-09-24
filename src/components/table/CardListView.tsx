@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { CalendarDays, ChevronRight, Phone, Plus } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { StatusBadge } from "@/components/table/StatusBadge";
@@ -20,6 +20,8 @@ interface CardListViewProps {
   canEdit: boolean;
   onOpenRow: (rowId: string) => void;
   onAddOrder?: () => void;
+  /** Своя добавка в строку мета-данных карточки (стол ОС: «получен / выдан»). */
+  renderMeta?: (row: PageRow) => ReactNode;
 }
 
 /**
@@ -34,7 +36,7 @@ interface CardListViewProps {
  * На телефоне карточки идут одной колонкой, на широком экране — сеткой:
  * иначе на десктопе это была бы одна колонка во всю ширину стола.
  */
-export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder }: CardListViewProps) {
+export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder, renderMeta }: CardListViewProps) {
   const fields = useMemo(() => pickRowCardColumns(columns), [columns]);
   const [limit, setLimit] = useState(PAGE_SIZE);
 
@@ -121,6 +123,7 @@ export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder }: 
                     {fields.status && statusValue && (
                       <StatusBadge value={statusValue} options={fields.status.statusOptions ?? []} />
                     )}
+                    {renderMeta?.(row)}
                     {dateValue > 0 && (
                       <span className="inline-flex items-center gap-1 tabular">
                         <CalendarDays className="h-3 w-3" /> {formatOrderDate(dateValue)}

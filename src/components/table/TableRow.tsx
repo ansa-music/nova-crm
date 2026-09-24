@@ -527,6 +527,9 @@ function sameRowContent(a: PageRow, b: PageRow): boolean {
     a.statusKey === b.statusKey &&
     a.successRequestedAt === b.successRequestedAt &&
     a.createdAt === b.createdAt &&
+    // Дата получения заказа (столбец «Даты» стола ОС) и адрес копии у технаря.
+    a.filledAt === b.filledAt &&
+    a.mirrorRowId === b.mirrorRowId &&
     sameExtras(a.extras, b.extras)
   );
 }

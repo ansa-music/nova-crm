@@ -21,7 +21,7 @@ import {
 import { logOsDispatch } from "@/services/osDispatchLogService";
 import { isExchangeHandoffRow } from "@/services/rows/osExchange";
 import { firestoreErrorText } from "@/utils/dbError";
-import { OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
+import { OS_ISSUED_AT_KEY, OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
 import { personLabel } from "@/utils/peopleDesks";
 import { osRowTotal } from "@/utils/payment";
 import type { PageColumn, PageRow } from "@/types";
@@ -323,7 +323,7 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
           try {
             if (mirror) await sbDeleteRow(cur.workspaceId, at.pageId, at.tabId, at.rowId);
             await sbPatchRow(cur.workspaceId, cur.pageId, cur.subPageId, row.id, {
-              cells: { [OS_STATUS_SENT_KEY]: "", [OS_LOST_FOR_KEY]: "" },
+              cells: { [OS_STATUS_SENT_KEY]: "", [OS_LOST_FOR_KEY]: "", [OS_ISSUED_AT_KEY]: "" },
               clearMirror: true,
             });
             changed = true;

@@ -449,6 +449,8 @@ interface DataTableProps {
   };
   /** Ячейки только для чтения: ключ столбца → почему (стол ОС: «Итого» считает сам). */
   lockedKeys?: Readonly<Record<string, string>>;
+  /** Добавка в мета-строку вида «Карточки» (стол ОС: даты получен / выдан). */
+  cardMeta?: (row: PageRow) => React.ReactNode;
   canEditStructure: boolean;
   userId: string;
   userName: string;
@@ -475,7 +477,7 @@ function normalizeContact(raw: string, type: "phone" | "email" | string): string
   return v.toLowerCase();
 }
 
-export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, techFills = false, onSummaryChange, onActionsChange, cellPickerKeys, onOpenCellPicker, cellAction, cellAddon, lockedKeys }: DataTableProps) {
+export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, techFills = false, onSummaryChange, onActionsChange, cellPickerKeys, onOpenCellPicker, cellAction, cellAddon, lockedKeys, cardMeta }: DataTableProps) {
   // Внешний выбор ячейки: колбэк стабилен (через ref), иначе каждый рендер
   // стола перерисовывал бы все строки — TableRow сравнивает пропсы.
   const cellPickerRef = useRef(onOpenCellPicker);
@@ -1436,6 +1438,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
    * Без `viewer` (личная зона) замка нет.
    */
   function lockOf(rowId: string, colKey: string): string | null {
+    // Столбцы только для чтения («Итого», «Даты» стола ОС): вставка, маркер
+    // заполнения и очистка диапазона их тоже не пишут.
+    const fixed = lockedKeys?.[colKey];
+    if (fixed) return fixed;
     if (!viewer) return null;
     return cellLockReason(rows.find((r) => r.id === rowId), colKey, viewer, lockCtx);
   }
@@ -4038,12 +4044,18 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       resizePreview?.type === "row" && resizePreview.rowId === row.id
         ? resizePreview.height
         : row.height ?? rowHeight;
+    // Поверх ячеек строки, а не вместо: служебные ключи, которых нет среди
+    // столбцов (способ оплаты `__pay`, дата апсейла `__at`, «выдан»
+    // `osIssuedAt`), иначе пропадали, пока хоть одна ячейка строки сохранялась.
     const displayRow = columns.some((c) => pendingWrites.state(row.id, c.key) !== "idle")
       ? {
           ...row,
-          cells: Object.fromEntries(
-            columns.map((c) => [c.key, pendingWrites.resolve(row.id, c.key, row.cells[c.key] ?? null)])
-          ),
+          cells: {
+            ...row.cells,
+            ...Object.fromEntries(
+              columns.map((c) => [c.key, pendingWrites.resolve(row.id, c.key, row.cells[c.key] ?? null)])
+            ),
+          },
         }
       : row;
     return (
@@ -4277,6 +4289,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           rows={filledProcessedRows}
           canEdit={canEdit}
           onOpenRow={setExpandedRowId}
+          renderMeta={cardMeta}
           onAddOrder={
             canEdit && !ordersFromOsOnly
               ? () => {
@@ -4779,7 +4792,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       <RowCardSheet
         open={Boolean(expandedRowId)}
         onOpenChange={(o) => !o && setExpandedRowId(null)}
-        columns={displayColumns}
+        // Столбцы только для показа (закрыты и целиком нарисованы добавкой —
+        // «Даты» стола ОС) в списке полей были бы пустым «—»: их показывает
+        // панель строки.
+        columns={
+          lockedKeys && cellAddon
+            ? displayColumns.filter((c) => !(lockedKeys[c.key] && cellAddon.keys.includes(c.key)))
+            : displayColumns
+        }
         row={rows.find((r) => r.id === expandedRowId) ?? null}
         canEdit={canEdit}
         // Карточка — тот же замок, что и таблица: иначе статус в ней

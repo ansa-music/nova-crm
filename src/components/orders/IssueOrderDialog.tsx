@@ -47,10 +47,15 @@ interface IssueOrderDialogProps {
   myOs: StatusOption | null;
   osOptions: StatusOption[];
   onSubmit: (form: IssueOrderForm) => Promise<void>;
+  /**
+   * Заказ со СВОЕГО стола ОС («Новый заказ» у ОС на «Заказах»): ник ОС —
+   * только свой, выбора нет; заказ сначала ложится строкой на стол.
+   */
+  fromDesk?: boolean;
 }
 
 /** «Выдать заказ» — те же поля, что попадут в строку стола технаря. */
-export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit }: IssueOrderDialogProps) {
+export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit, fromDesk = false }: IssueOrderDialogProps) {
   // Свой ник первым, остальные — как в общем списке «Ответственный».
   const orderedOs = myOs
     ? [myOs, ...osOptions.filter((o) => o.value !== myOs.value)]
@@ -80,7 +85,7 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
   const priceBad = form.price.trim() !== "" && priceNum == null;
   // Без схемы браузер считает адрес относительным и уводит внутрь CRM.
   const linkBad = form.link.trim() !== "" && !isHttpUrl(form.link);
-  const needsOs = orderedOs.length > 0;
+  const needsOs = !fromDesk && orderedOs.length > 0;
   const canSave = Boolean(form.client.trim()) && !personsBad && !minutesBad && !priceBad && (!needsOs || Boolean(form.osValue)) && !saving;
 
   async function handleSubmit() {
@@ -104,8 +109,12 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Выдать заказ</DialogTitle>
-          <DialogDescription>Технари увидят заказ на «Заказах» и смогут откликнуться.</DialogDescription>
+          <DialogTitle>{fromDesk ? "Новый заказ" : "Выдать заказ"}</DialogTitle>
+          <DialogDescription>
+            {fromDesk
+              ? "Заказ ляжет строкой на ваш стол ОС и сразу уйдёт на «Заказы» — технари смогут откликнуться."
+              : "Технари увидят заказ на «Заказах» и смогут откликнуться."}
+          </DialogDescription>
         </DialogHeader>
         <form
           className="flex flex-col gap-4"
@@ -127,7 +136,9 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="io-os">ОС</Label>
-              {orderedOs.length > 0 ? (
+              {fromDesk ? (
+                <Input id="io-os" value={myOs ? `${myOs.label} · вы` : "вы"} disabled />
+              ) : orderedOs.length > 0 ? (
                 <Select value={form.osValue || undefined} onValueChange={(v) => set("osValue", v)}>
                   <SelectTrigger id="io-os">
                     <SelectValue placeholder="Кто ведёт клиента" />
@@ -256,7 +267,7 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
           <DialogFooter>
             <Button type="submit" disabled={!canSave}>
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-              Выдать заказ
+              {fromDesk ? "Выдать с моего стола" : "Выдать заказ"}
             </Button>
           </DialogFooter>
         </form>

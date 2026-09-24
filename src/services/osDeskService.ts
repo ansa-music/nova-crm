@@ -5,6 +5,7 @@ import { generateId } from "@/utils/id";
 import { ensureNewDeskAcl, stripUndefined, updatePageColumns, updatePageMainTab } from "@/services/pageService";
 import { currentMonthKey, ensureMonthTab } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
+import { OS_DATES_COLUMN_KEY } from "@/utils/osDeskKeys";
 import type { PageColumn, WorkspacePage } from "@/types";
 
 /**
@@ -24,6 +25,11 @@ import type { PageColumn, WorkspacePage } from "@/types";
 /** Столбцы стола ОС — ровно те, что просил Nurba, в его порядке. */
 export const OS_DESK_COLUMNS: Array<Pick<PageColumn, "key" | "label" | "type" | "width">> = [
   { key: "client", label: "Имя", type: "text", width: 200 },
+  // Когда заказ получен и когда выдан технарю (просьба Nurba 24.09.2026):
+  // две крошечные строки, сразу за именем — видно всегда, места почти не
+  // занимает. Ячейка пустая и только для чтения: рисует её стол сам
+  // (utils/osDates.ts, `OsDatesCell`) по дате строки и `osIssuedAt`.
+  { key: OS_DATES_COLUMN_KEY, label: "Даты", type: "text", width: 112 },
   { key: "phone", label: "Номер", type: "phone", width: 150 },
   { key: "price", label: "Цена", type: "currency", width: 180 },
   { key: "upsell", label: "Апсейл", type: "currency", width: 180 },
@@ -59,7 +65,8 @@ export function isOsDeskId(pageId: string): boolean {
 
 /**
  * Столбцы, которых нет у столов ОС, заведённых раньше: «Статус» (ставится
- * перед «Примечанием») и «Итого» (сразу после «Апсейла»). Ячейки не
+ * перед «Примечанием»), «Итого» (сразу после «Апсейла») и «Даты» (сразу за
+ * именем; нет «Имени» — первым). Ячейки не
  * трогаются — у старых строк статус пустой, а «Итого» досчитает сам стол.
  * Возвращает null, если добавлять нечего (писать документ не нужно).
  */
@@ -76,6 +83,13 @@ export function missingOsDeskColumns(existingColumns: PageColumn[]): PageColumn[
     const after = cols.findIndex((c) => c.key === "upsell");
     const total: PageColumn = { id: generateId("col"), key: "total", label: "Итого", type: "currency", width: 140, order: 0 };
     cols = after === -1 ? [...cols, total] : [...cols.slice(0, after + 1), total, ...cols.slice(after + 1)];
+    changed = true;
+  }
+  // «Даты» (получен / выдан) — сразу за именем клиента.
+  if (!cols.some((c) => c.key === OS_DATES_COLUMN_KEY)) {
+    const after = cols.findIndex((c) => c.key === "client");
+    const dates: PageColumn = { id: generateId("col"), key: OS_DATES_COLUMN_KEY, label: "Даты", type: "text", width: 112, order: 0 };
+    cols = [...cols.slice(0, after + 1), dates, ...cols.slice(after + 1)];
     changed = true;
   }
   // «Цена» и «Апсейл» шире: в ячейке теперь ещё и способ оплаты («Lavatop

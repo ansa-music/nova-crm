@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import type { QueryDocumentSnapshot } from "firebase/firestore";
 import { CalendarClock, Clock3, ExternalLink, Hand, Inbox, Link2, Phone, Plus, Shuffle, Trash2, Undo2, UserCheck, Users, XCircle } from "lucide-react";
@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/common/EmptyState";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { IssueOrderDialog, type IssueOrderForm } from "@/components/orders/IssueOrderDialog";
+import { OsDeskIssueDialog } from "@/components/orders/OsDeskIssueDialog";
+import { useSendOsRowToExchange } from "@/hooks/useSendOsRowToExchange";
+import { osNickLabel } from "@/services/memberService";
+import { addOsDeskOrderRow, fetchOsDeskTabRows, openOsDeskCurrentTab } from "@/services/rows/osDeskIssue";
+import { DEFAULT_STATUS_OPTIONS, ensureApprovalStatus, ensureDoneStatus } from "@/utils/columnOptions";
 import { AssignOrderDialog } from "@/components/orders/AssignOrderDialog";
 import { RandomWheelDialog, type WheelCandidate } from "@/components/orders/RandomWheelDialog";
 import { toast } from "@/components/ui/sonner";
@@ -124,7 +129,7 @@ const STATUS_TONE: Record<WorkOrderStatus, string> = {
 export default function OrdersPage() {
   const { profile } = useAuth();
   const permissions = usePermissions();
-  const { activeWorkspace, activeWorkspaceId, members, pages } = useWorkspace();
+  const { activeWorkspace, activeWorkspaceId, members, pages, osDesks } = useWorkspace();
   const monthKey = useCurrentMonthKey();
   const [orders, setOrders] = useState<WorkOrder[] | null>(null);
   // Вкладка — в адресе (`?status=taken`): F5 и ссылка коллеге открывают ту же.
@@ -161,15 +166,23 @@ export default function OrdersPage() {
   const uid = profile?.uid ?? "";
   const myName = myDisplayName(profile, members);
   const canIssue = permissions.isResolved && (hasFullAccess(permissions.role) || permissions.hasRole("os"));
+  // ОС выдаёт ТОЛЬКО со своего стола (просьба Nurba 24.09.2026): «Выдать
+  // заказ» у него — выбор строки стола ОС, а заказ, которого на столе нет,
+  // сначала ложится на стол («Новый заказ»). Руководство без роли ОС выдаёт
+  // по-старому; Owner/Тимлид + ОС — со стола, а «Выдать без стола» — ссылкой.
+  const deskIssuer = canIssue && permissions.hasRole("os");
+  const [deskIssueOpen, setDeskIssueOpen] = useState(false);
+  const [deskNewOpen, setDeskNewOpen] = useState(false);
+  const openIssue = useCallback(() => (deskIssuer ? setDeskIssueOpen(true) : setIssueOpen(true)), [deskIssuer]);
   // Палитра Ctrl+K и нижняя панель шлют «Новый заказ» на /orders#new: открываем
   // диалог выдачи и стираем хэш, чтобы F5 не открывал его снова.
   const location = useLocation();
   const navigate = useNavigate();
   useEffect(() => {
     if (location.hash !== "#new" || !canIssue) return;
-    setIssueOpen(true);
+    openIssue();
     navigate({ pathname: location.pathname, search: location.search }, { replace: true });
-  }, [location.hash, location.pathname, location.search, canIssue, navigate]);
+  }, [location.hash, location.pathname, location.search, canIssue, navigate, openIssue]);
   const canClaim = permissions.isResolved && permissions.hasRole("manager");
   const fullAccess = permissions.isResolved && hasFullAccess(permissions.role);
   const myMembership = useMemo(() => members.find((m) => m.uid === uid) ?? null, [members, uid]);
@@ -456,6 +469,60 @@ export default function OrdersPage() {
     }
   }
 
+  const sendOsRowToExchange = useSendOsRowToExchange();
+  /** Заказы, открытые или отданные сейчас: строка стола с таким `orderId` уже на «Заказах». */
+  const liveOrderIds = useMemo(
+    () => new Set((orders ?? []).filter((o) => o.status === "open" || o.status === "assigned").map((o) => o.id)),
+    [orders]
+  );
+
+  /** «Новый заказ» у ОС: строкой на свой стол ОС, оттуда — на «Заказы». */
+  async function handleDeskNewOrder(form: IssueOrderForm) {
+    if (!activeWorkspaceId || !profile) return;
+    let placed = false;
+    try {
+      const tab = await openOsDeskCurrentTab({
+        workspaceId: activeWorkspaceId,
+        uid: profile.uid,
+        name: osNickLabel(myMembership ?? undefined, osOptions) ?? myName,
+        osDesks,
+        createIfMissing: true,
+      });
+      if (!tab) throw new Error("Стол ОС не открылся");
+      const rows = await fetchOsDeskTabRows(tab);
+      const row = await addOsDeskOrderRow({
+        tab,
+        rows,
+        order: {
+          client: form.client,
+          phone: form.phone,
+          price: form.price,
+          link: form.link,
+          note: form.note,
+          persons: parseOptionalNumber(form.persons),
+          minutes: parseOptionalNumber(form.minutes),
+          deadline: deadlineMillis(form.deadline),
+        },
+        statusOptions: ensureApprovalStatus(ensureDoneStatus(activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS)),
+      });
+      placed = true;
+      await sendOsRowToExchange({ row, pageId: tab.page.id, tabId: tab.tabId, keys: tab.keys, urgency: form.urgency });
+      setTab("open");
+      setDeskIssueOpen(false);
+      toast.success(`${form.client.trim() || "Заказ"} — на «Заказах»`, {
+        description: "Заказ лёг и на ваш стол ОС. Технари получили уведомление.",
+      });
+    } catch (error) {
+      toast.error(
+        placed
+          ? "Заказ лёг на ваш стол ОС, но на «Заказы» не ушёл — выдайте его со стола или отсюда"
+          : firestoreErrorText(error, error instanceof Error ? error.message : "Не удалось завести заказ"),
+        placed ? { description: firestoreErrorText(error, error instanceof Error ? error.message : "") } : undefined
+      );
+      throw error;
+    }
+  }
+
   async function handleAssign(order: WorkOrder, candidate: OrderCandidate, opts: { silent?: boolean } = {}) {
     if (!activeWorkspaceId || !profile) return;
     await assignOrder({ workspaceId: activeWorkspaceId, order, technician: { uid: candidate.uid, name: candidate.name }, actorUid: profile.uid, actorName: myName });
@@ -501,7 +568,7 @@ export default function OrdersPage() {
         }
         actions={
           canIssue ? (
-            <Button className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => setIssueOpen(true)}>
+            <Button className="min-h-11 gap-1.5 sm:min-h-0" onClick={openIssue}>
               <Plus className="h-4 w-4" /> Выдать заказ
             </Button>
           ) : undefined
@@ -928,6 +995,33 @@ export default function OrdersPage() {
       )}
 
       <IssueOrderDialog open={issueOpen} onOpenChange={setIssueOpen} myOs={myOs} osOptions={osOptions} onSubmit={handleIssue} />
+      {deskIssuer ? (
+        <>
+          <OsDeskIssueDialog
+            open={deskIssueOpen}
+            onOpenChange={setDeskIssueOpen}
+            liveOrderIds={liveOrderIds}
+            onNewOrder={() => setDeskNewOpen(true)}
+            onWithoutDesk={
+              fullAccess
+                ? () => {
+                    setDeskIssueOpen(false);
+                    setIssueOpen(true);
+                  }
+                : undefined
+            }
+            onIssued={() => setTab("open")}
+          />
+          <IssueOrderDialog
+            open={deskNewOpen}
+            onOpenChange={setDeskNewOpen}
+            myOs={myOs}
+            osOptions={osOptions}
+            onSubmit={handleDeskNewOrder}
+            fromDesk
+          />
+        </>
+      ) : null}
       <AssignOrderDialog
         order={assignFor}
         onOpenChange={(open) => !open && setAssignForId(null)}

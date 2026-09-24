@@ -25,8 +25,14 @@ export const TECH_NOTE_KEY = "techNote";
  */
 export const OS_STATUS_SENT_KEY = "osStatusSent";
 export const OS_LOST_FOR_KEY = "osLostFor";
+/**
+ * Когда заказ отдан НЫНЕШНЕМУ технарю (мс строкой) — ставит `pushOrderToTech`
+ * при заведении копии, снимают проход (технаря стёрли, копию удалили) и
+ * «Вернуть» на «Правке столов». Показывает столбец «Даты» стола ОС.
+ */
+export const OS_ISSUED_AT_KEY = "osIssuedAt";
 
-export const RESERVED_CELL_KEYS: readonly string[] = [TECH_LINK_KEY, TECH_NOTE_KEY, OS_STATUS_SENT_KEY, OS_LOST_FOR_KEY];
+export const RESERVED_CELL_KEYS: readonly string[] = [TECH_LINK_KEY, TECH_NOTE_KEY, OS_STATUS_SENT_KEY, OS_LOST_FOR_KEY, OS_ISSUED_AT_KEY];
 
 const RESERVED_LOWER = new Set(RESERVED_CELL_KEYS.map((k) => k.toLowerCase()));
 
