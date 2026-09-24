@@ -277,6 +277,14 @@ export interface PageRow {
      * «Дедлайн» есть не у каждого стола, а срок терять нельзя.
      */
     deadline?: number | null;
+    /** Озвучка: true — есть, false — нет, null/нет поля — не отмечали. */
+    voice?: boolean | null;
+    /** Язык озвучки: «ru» / «kz» / «en» или свой текст. */
+    voiceLang?: string | null;
+    /** Стиль: обычно «Pixar», или свой текст. */
+    style?: string | null;
+    /** Уровень заказа: «База» / «Premium» / «Ultima» или свой текст. */
+    tier?: string | null;
   };
   /**
    * Заказ с «Заказов», из которого выросла строка. Метка постоянная, в

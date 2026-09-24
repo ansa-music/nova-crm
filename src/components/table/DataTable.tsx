@@ -107,7 +107,7 @@ import { ManageOptionsDialog } from "@/components/table/ManageOptionsDialog";
 import { TableSchemaEditor } from "@/components/table/TableSchemaEditor";
 import { RowCommentsPanel } from "@/components/chat/RowCommentsPanel";
 import { RowCardSheet } from "@/components/table/RowCardSheet";
-import { hasRowExtras, type RowExtras } from "@/utils/rowExtras";
+import { hasRowExtras, rowExtrasWithNulls, type RowExtras } from "@/utils/rowExtras";
 import { BulkActionBar } from "@/components/table/BulkActionBar";
 import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
 import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
@@ -3222,6 +3222,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       note: row.extras?.note ?? null,
       link: row.extras?.link ?? linkCell(row, quickOrderCols.link?.key),
       deadline: row.extras?.deadline ?? null,
+      voice: row.extras?.voice ?? null,
+      voiceLang: row.extras?.voiceLang ?? null,
+      style: row.extras?.style ?? null,
+      tier: row.extras?.tier ?? null,
     };
   }
 
@@ -3234,28 +3238,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   async function saveClientCard(rowId: string, next: RowExtras | null) {
     const row = rows.find((r) => r.id === rowId);
     if (!row || !canEdit) return;
-    const before: RowExtras | null = hasRowExtras(row.extras)
-      ? {
-          persons: row.extras?.persons ?? null,
-          minutes: row.extras?.minutes ?? null,
-          note: row.extras?.note ?? null,
-          link: row.extras?.link ?? null,
-          deadline: row.extras?.deadline ?? null,
-        }
-      : null;
-    // Whole map with explicit nulls: a merge write would otherwise keep a
-    // field the person just cleared.
-    const written: RowExtras | null = next
-      // Явные null по КАЖДОМУ полю визитки, включая ссылку: merge иначе
-      // вернул бы только что стёртое значение обратно.
-      ? {
-          persons: next.persons ?? null,
-          minutes: next.minutes ?? null,
-          note: next.note ?? null,
-          link: next.link ?? null,
-          deadline: next.deadline ?? null,
-        }
-      : null;
+    const before: RowExtras | null = hasRowExtras(row.extras) ? rowExtrasWithNulls(row.extras ?? null) : null;
+    // Whole map with explicit nulls (rowExtrasWithNulls) — по КАЖДОМУ полю
+    // визитки: merge иначе вернул бы только что стёртое значение обратно.
+    const written: RowExtras | null = next ? rowExtrasWithNulls(next) : null;
     const patch: Record<string, string | number | null> = {};
     const oldPatch: Record<string, string | number | null> = {};
     for (const [col, value] of [

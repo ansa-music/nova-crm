@@ -11,6 +11,7 @@ import {
   EyeOff,
   Filter,
   History,
+  IdCard,
   Keyboard,
   KeyRound,
   Layers,
@@ -33,6 +34,7 @@ import { AvatarUpload } from "@/components/common/AvatarUpload";
 import { RowsStoragePanel } from "@/components/settings/RowsStoragePanel";
 import { SupabaseCollectionsPanel } from "@/components/settings/SupabaseCollectionsPanel";
 import { CashboxSettingsPanel } from "@/components/cashbox/CashboxSettingsPanel";
+import { ClientCardSettingsPanel } from "@/components/settings/ClientCardSettingsPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -158,6 +160,7 @@ const SETTINGS_NAV = [
   { value: "backup", label: "Бэкап", icon: Download, owner: true },
   { value: "rows", label: "Строки таблиц", icon: Database, owner: true },
   { value: "cashbox", label: "Касса", icon: Wallet, owner: true },
+  { value: "clientcard", label: "Визитка", icon: IdCard, owner: true },
   { value: "members", label: "Роли и доступ", icon: Users },
 ] as const;
 
@@ -414,7 +417,9 @@ export default function SettingsPage() {
               // Хранилище строк переключает только Owner по настоящей роли.
               (item.value !== "rows" || permissions.realRole === "owner") &&
               // Способы оплаты и премии — только Owner по настоящей роли.
-              (item.value !== "cashbox" || permissions.realRole === "owner")
+              (item.value !== "cashbox" || permissions.realRole === "owner") &&
+              // Варианты визитки клиента — тоже только Owner.
+              (item.value !== "clientcard" || permissions.realRole === "owner")
           ).map((item) => (
             <TabsTrigger
               key={item.value}
@@ -845,6 +850,12 @@ export default function SettingsPage() {
         {permissions.realRole === "owner" && (
           <TabsContent value="cashbox" className="mt-0 flex flex-col gap-4">
             <CashboxSettingsPanel />
+          </TabsContent>
+        )}
+
+        {permissions.realRole === "owner" && (
+          <TabsContent value="clientcard" className="mt-0 flex flex-col gap-4">
+            <ClientCardSettingsPanel />
           </TabsContent>
         )}
 

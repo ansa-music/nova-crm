@@ -3,6 +3,7 @@ import type { StatusOption } from "@/types/page";
 import type { TechLoadKind } from "@/types/deskLoad";
 import type { OsPaySettings, PaymentMethod } from "@/types/payment";
 import type { ScheduleSettings } from "@/types/scheduleSettings";
+import type { ClientCardOptions } from "@/types/clientCardOptions";
 
 /**
  * An Owner-defined custom option field — the same idea as the built-in
@@ -116,6 +117,12 @@ export interface Workspace {
    * на смене, кого не показывать. Тимлиду поле закрыто правилом workspace.
    */
   scheduleSettings?: ScheduleSettings;
+  /**
+   * Варианты «Визитки клиента» (языки озвучки, стили, уровни заказа) —
+   * «Настройки → Визитка», правит только Owner (Тимлиду поле закрыто правилом
+   * workspace). Нет поля — `DEFAULT_CLIENT_CARD_OPTIONS`.
+   */
+  clientCardOptions?: ClientCardOptions;
   /**
    * Идёт перенос строк: пока стоит флаг, строки нигде не правятся — иначе
    * правка, сделанная во время копирования, осталась бы в старом хранилище.

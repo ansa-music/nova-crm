@@ -1,12 +1,16 @@
-import { useEffect, useRef, useState } from "react";
-import { CalendarClock, Clock3, ExternalLink, IdCard, Link2, Loader2, NotebookPen, Users } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
+import { CalendarClock, Clock3, ExternalLink, IdCard, Layers, Link2, Loader2, Mic, NotebookPen, Palette, Settings2, Users } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { usePermissions } from "@/hooks/usePermissions";
+import { useWorkspace } from "@/hooks/useWorkspace";
 import { parseOptionalNumber } from "@/utils/quickOrder";
 import { normalizeRowExtras, type RowExtras } from "@/utils/rowExtras";
 import { parseHttpUrl } from "@/utils/httpUrl";
 import { almatyNoonMillis, formatOrderDate, ymdInTimeZone } from "@/utils/date";
 import { cn } from "@/utils/cn";
+import { clientCardOptionsOf } from "@/types";
 
 const PERSON_PICKS = [1, 2, 3, 4, 5, 6];
 const MINUTE_PICKS = [1, 2, 3, 5, 10];
@@ -34,7 +38,97 @@ function sameExtras(a: RowExtras | null, b: RowExtras | null): boolean {
     (a?.minutes ?? null) === (b?.minutes ?? null) &&
     (a?.note ?? "") === (b?.note ?? "") &&
     (a?.link ?? "") === (b?.link ?? "") &&
-    (a?.deadline ?? null) === (b?.deadline ?? null)
+    (a?.deadline ?? null) === (b?.deadline ?? null) &&
+    (a?.voice ?? null) === (b?.voice ?? null) &&
+    (a?.voiceLang ?? "") === (b?.voiceLang ?? "") &&
+    (a?.style ?? "") === (b?.style ?? "") &&
+    (a?.tier ?? "") === (b?.tier ?? "")
+  );
+}
+
+function pickChip(active: boolean, disabled = false) {
+  return cn(
+    "h-8 min-w-8 rounded-md border px-2.5 text-xs font-medium tabular-nums transition-colors",
+    active ? "border-primary/30 bg-primary/[0.12] text-primary" : "border-border bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+    disabled && "opacity-60"
+  );
+}
+
+/**
+ * Чипы вариантов + «свой» с полем ввода. Значение «» — не отмечено; значение
+ * не из списка — «свой», поле показано с ним. Чип пишется сразу (родитель
+ * следит за `value`), свой текст — по паузе/уходу с поля (`onTyping`).
+ */
+function ChoiceField({
+  id,
+  options,
+  value,
+  onChange,
+  onTyping,
+  fieldProps,
+  placeholder,
+}: {
+  id: string;
+  options: string[];
+  value: string;
+  onChange: (next: string) => void;
+  onTyping: () => void;
+  fieldProps: { onFocus: () => void; onBlur: () => void };
+  placeholder: string;
+}) {
+  const inList = options.some((o) => o.toLowerCase() === value.trim().toLowerCase());
+  const [customOpen, setCustomOpen] = useState(() => value.trim() !== "" && !inList);
+  const custom = customOpen || (value.trim() !== "" && !inList);
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {options.map((option) => {
+        const on = option.toLowerCase() === value.trim().toLowerCase();
+        return (
+          <button
+            key={option}
+            type="button"
+            className={pickChip(on)}
+            onClick={() => {
+              setCustomOpen(false);
+              onChange(on ? "" : option);
+            }}
+          >
+            {option}
+          </button>
+        );
+      })}
+      <button
+        type="button"
+        className={pickChip(custom)}
+        onClick={() => {
+          if (custom) {
+            setCustomOpen(false);
+            onChange("");
+          } else {
+            setCustomOpen(true);
+            if (inList) onChange("");
+          }
+        }}
+      >
+        свой
+      </button>
+      {custom && (
+        <Input
+          id={id}
+          value={inList ? "" : value}
+          onChange={(e) => {
+            onChange(e.target.value);
+            onTyping();
+          }}
+          {...fieldProps}
+          autoFocus={value.trim() === ""}
+          autoComplete="off"
+          placeholder={placeholder}
+          aria-label="Свой вариант"
+          className="h-8 w-36 text-sm"
+        />
+      )}
+    </div>
   );
 }
 
@@ -43,9 +137,12 @@ function sameExtras(a: RowExtras | null, b: RowExtras | null): boolean {
  * «объедини карточку клиента с визиткой, сделай основой, чтобы удобно было
  * заполнять клиента, и технарь видел фулл инфу; один клик — открывает»).
  * Раньше это было отдельное окно с «Сохранить»; теперь — верхняя секция
- * карточки, и всё пишется само: чипы — сразу, дата, ссылка и пожелания —
- * через паузу после печати или по уходу с поля. Без права правки — те же
- * поля текстом.
+ * карточки, и всё пишется само: чипы — сразу, дата, ссылка, пожелания и
+ * «свой» текст — через паузу после печати или по уходу с поля. Без права
+ * правки — те же поля текстом.
+ *
+ * Озвучка (есть/нет + язык), стиль и уровень заказа — добавлены 25.09.2026;
+ * варианты чипов задаёт Owner в «Настройки → Визитка» (`clientCardOptions`).
  */
 export function ClientCardSection({
   rowId,
@@ -58,11 +155,18 @@ export function ClientCardSection({
   canEdit: boolean;
   onSave: (next: RowExtras | null) => Promise<void>;
 }) {
+  const { activeWorkspace } = useWorkspace();
+  const { realRole } = usePermissions();
+  const options = useMemo(() => clientCardOptionsOf(activeWorkspace), [activeWorkspace]);
   const [persons, setPersons] = useState(() => numberText(initial.persons));
   const [minutes, setMinutes] = useState(() => numberText(initial.minutes));
   const [note, setNote] = useState(() => initial.note ?? "");
   const [link, setLink] = useState(() => initial.link ?? "");
   const [deadline, setDeadline] = useState(() => (initial.deadline != null ? ymdInTimeZone(initial.deadline) : ""));
+  const [voice, setVoice] = useState<"" | "yes" | "no">(() => (initial.voice === true ? "yes" : initial.voice === false ? "no" : ""));
+  const [voiceLang, setVoiceLang] = useState(() => initial.voiceLang ?? "");
+  const [style, setStyle] = useState(() => initial.style ?? "");
+  const [tier, setTier] = useState(() => initial.tier ?? "");
   const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
   // Что уже лежит в базе (по нашим данным): с этим сравнивается черновик,
   // чтобы не писать одно и то же и не откатывать ввод живым снимком строки.
@@ -71,14 +175,22 @@ export function ClientCardSection({
   const focusedRef = useRef(false);
   const draftRef = useRef<RowExtras | null>(null);
 
+  function applyExtras(live: RowExtras | null) {
+    setPersons(numberText(live?.persons));
+    setMinutes(numberText(live?.minutes));
+    setNote(live?.note ?? "");
+    setLink(live?.link ?? "");
+    setDeadline(live?.deadline != null ? ymdInTimeZone(live.deadline) : "");
+    setVoice(live?.voice === true ? "yes" : live?.voice === false ? "no" : "");
+    setVoiceLang(live?.voiceLang ?? "");
+    setStyle(live?.style ?? "");
+    setTier(live?.tier ?? "");
+  }
+
   // Другая строка — новый черновик. Живые правки той же строки (кто-то
   // сохранил с другого устройства) черновик не трогают, пока человек печатает.
   useEffect(() => {
-    setPersons(numberText(initial.persons));
-    setMinutes(numberText(initial.minutes));
-    setNote(initial.note ?? "");
-    setLink(initial.link ?? "");
-    setDeadline(initial.deadline != null ? ymdInTimeZone(initial.deadline) : "");
+    applyExtras(normalizeRowExtras(initial));
     savedRef.current = normalizeRowExtras(initial);
     setState("idle");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -88,20 +200,27 @@ export function ClientCardSection({
     const live = normalizeRowExtras(initial);
     if (sameExtras(live, savedRef.current)) return;
     savedRef.current = live;
-    setPersons(numberText(live?.persons));
-    setMinutes(numberText(live?.minutes));
-    setNote(live?.note ?? "");
-    setLink(live?.link ?? "");
-    setDeadline(live?.deadline != null ? ymdInTimeZone(live.deadline) : "");
+    applyExtras(live);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initial.persons, initial.minutes, initial.note, initial.link, initial.deadline]);
+  }, [initial.persons, initial.minutes, initial.note, initial.link, initial.deadline, initial.voice, initial.voiceLang, initial.style, initial.tier]);
 
   const personsNum = parseOptionalNumber(persons);
   const minutesNum = parseOptionalNumber(minutes);
   const personsBad = persons.trim() !== "" && personsNum == null;
   const minutesBad = minutes.trim() !== "" && minutesNum == null;
   const deadlineMs = deadlineToMillis(deadline);
-  const draft = normalizeRowExtras({ persons: personsNum, minutes: minutesNum, note, link, deadline: deadlineMs });
+  const draft = normalizeRowExtras({
+    persons: personsNum,
+    minutes: minutesNum,
+    note,
+    link,
+    deadline: deadlineMs,
+    voice: voice === "yes" ? true : voice === "no" ? false : null,
+    // Язык без озвучки не имеет смысла — не пишем.
+    voiceLang: voice === "yes" ? voiceLang : "",
+    style,
+    tier,
+  });
   draftRef.current = draft;
 
   async function flush() {
@@ -126,6 +245,7 @@ export function ClientCardSection({
     timerRef.current = window.setTimeout(() => void flush(), TEXT_SAVE_DELAY_MS);
   }
   // Чипы пишутся сразу: значение уже полное, ждать нечего.
+  const chipKey = `${personsNum}|${minutesNum}|${voice}|${voiceLang}|${style}|${tier}`;
   useEffect(() => {
     if (!canEdit) return;
     if (sameExtras(draft, savedRef.current)) return;
@@ -133,7 +253,7 @@ export function ClientCardSection({
     if (focusedRef.current) return; // печать в поле — по паузе/уходу с поля
     void flush();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [personsNum, minutesNum]);
+  }, [chipKey]);
   useEffect(
     () => () => {
       if (timerRef.current != null) window.clearTimeout(timerRef.current);
@@ -142,13 +262,6 @@ export function ClientCardSection({
   );
 
   const href = parseHttpUrl(link);
-
-  function pickChip(active: boolean) {
-    return cn(
-      "h-8 min-w-8 rounded-md border px-2.5 text-xs font-medium tabular-nums transition-colors disabled:opacity-60",
-      active ? "border-primary/30 bg-primary/[0.12] text-primary" : "border-border bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
-    );
-  }
   const fieldProps = {
     onFocus: () => {
       focusedRef.current = true;
@@ -160,17 +273,36 @@ export function ClientCardSection({
   };
 
   const statusText = state === "saving" ? "сохраняю…" : state === "saved" ? "сохранено" : canEdit ? "пишется само" : "только просмотр";
+  const settingsLink =
+    realRole === "owner" ? (
+      <Link
+        to="/settings?tab=clientcard"
+        className="inline-flex items-center gap-1 font-sans text-[11px] normal-case tracking-normal text-muted-foreground hover:text-primary"
+        title="Какие варианты подсказывать: языки, стили, уровни"
+      >
+        <Settings2 className="h-3 w-3" /> варианты
+      </Link>
+    ) : null;
 
   if (!canEdit) {
     const items: Array<{ icon: React.ReactNode; label: string; value: React.ReactNode }> = [];
     if (initial.deadline != null) items.push({ icon: <CalendarClock className="h-3.5 w-3.5" />, label: "Дедлайн", value: `до ${formatOrderDate(initial.deadline)}` });
     if (initial.persons != null) items.push({ icon: <Users className="h-3.5 w-3.5" />, label: "Персонажи", value: initial.persons });
     if (initial.minutes != null) items.push({ icon: <Clock3 className="h-3.5 w-3.5" />, label: "Минуты", value: initial.minutes });
+    if (initial.voice != null) {
+      items.push({
+        icon: <Mic className="h-3.5 w-3.5" />,
+        label: "Озвучка",
+        value: initial.voice ? `есть${initial.voiceLang?.trim() ? ` · ${initial.voiceLang.trim()}` : ""}` : "нет",
+      });
+    }
+    if (initial.style?.trim()) items.push({ icon: <Palette className="h-3.5 w-3.5" />, label: "Стиль", value: initial.style.trim() });
+    if (initial.tier?.trim()) items.push({ icon: <Layers className="h-3.5 w-3.5" />, label: "Уровень", value: initial.tier.trim() });
     if (initial.link?.trim()) {
       const url = parseHttpUrl(initial.link);
       items.push({
         icon: <Link2 className="h-3.5 w-3.5" />,
-        label: "Ссылка",
+        label: "AmoCRM",
         value: url ? (
           <a href={url.toString()} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-primary hover:underline">
             {initial.link} <ExternalLink className="h-3 w-3" />
@@ -187,7 +319,7 @@ export function ClientCardSection({
           <span className="ml-auto font-sans text-[11px] normal-case tracking-normal text-muted-foreground">{statusText}</span>
         </p>
         {items.length === 0 && !initial.note?.trim() ? (
-          <p className="text-sm text-muted-foreground">Пусто — персы, минуты, дедлайн и пожелания заполняет тот, кто ведёт заказ.</p>
+          <p className="text-sm text-muted-foreground">Пусто — персы, минуты, озвучку, стиль и пожелания заполняет тот, кто ведёт заказ.</p>
         ) : (
           <div className="flex flex-col gap-1.5">
             {items.length > 0 && (
@@ -212,9 +344,12 @@ export function ClientCardSection({
     <section className="rounded-xl border border-primary/30 bg-primary/[0.05] p-3 sm:p-4">
       <p className="eyebrow mb-3 flex items-center gap-1.5 text-primary">
         <IdCard className="h-3.5 w-3.5" /> Визитка клиента
-        <span className="ml-auto inline-flex items-center gap-1 font-sans text-[11px] normal-case tracking-normal text-muted-foreground">
-          {state === "saving" && <Loader2 className="h-3 w-3 animate-spin" />}
-          {statusText}
+        <span className="ml-auto inline-flex items-center gap-2">
+          {settingsLink}
+          <span className="inline-flex items-center gap-1 font-sans text-[11px] normal-case tracking-normal text-muted-foreground">
+            {state === "saving" && <Loader2 className="h-3 w-3 animate-spin" />}
+            {statusText}
+          </span>
         </span>
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -268,6 +403,60 @@ export function ClientCardSection({
             />
           </div>
         </div>
+
+        <div className="grid gap-1.5 sm:col-span-2">
+          <span className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+            <Mic className="h-3.5 w-3.5" /> Озвучка
+          </span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex rounded-md border border-border p-0.5">
+              <button
+                type="button"
+                aria-pressed={voice === "yes"}
+                className={cn("h-7 rounded-[5px] px-2.5 text-xs font-medium", voice === "yes" ? "bg-primary/[0.12] text-primary" : "text-muted-foreground hover:text-foreground")}
+                onClick={() => setVoice(voice === "yes" ? "" : "yes")}
+              >
+                есть
+              </button>
+              <button
+                type="button"
+                aria-pressed={voice === "no"}
+                className={cn("h-7 rounded-[5px] px-2.5 text-xs font-medium", voice === "no" ? "bg-primary/[0.12] text-primary" : "text-muted-foreground hover:text-foreground")}
+                onClick={() => setVoice(voice === "no" ? "" : "no")}
+              >
+                нет
+              </button>
+            </span>
+            {voice === "yes" && (
+              <>
+                <span className="text-[11px] text-muted-foreground">язык</span>
+                <ChoiceField
+                  id={`cc-lang-${rowId}`}
+                  options={options.languages}
+                  value={voiceLang}
+                  onChange={setVoiceLang}
+                  onTyping={scheduleSave}
+                  fieldProps={fieldProps}
+                  placeholder="какой язык"
+                />
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="grid gap-1.5">
+          <span className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+            <Palette className="h-3.5 w-3.5" /> Стиль
+          </span>
+          <ChoiceField id={`cc-style-${rowId}`} options={options.styles} value={style} onChange={setStyle} onTyping={scheduleSave} fieldProps={fieldProps} placeholder="какой стиль" />
+        </div>
+        <div className="grid gap-1.5">
+          <span className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+            <Layers className="h-3.5 w-3.5" /> Уровень заказа
+          </span>
+          <ChoiceField id={`cc-tier-${rowId}`} options={options.tiers} value={tier} onChange={setTier} onTyping={scheduleSave} fieldProps={fieldProps} placeholder="какой уровень" />
+        </div>
+
         <div className="grid gap-1.5">
           <label htmlFor={`cc-deadline-${rowId}`} className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
             <CalendarClock className="h-3.5 w-3.5" /> Дедлайн сдачи
@@ -288,7 +477,7 @@ export function ClientCardSection({
         </div>
         <div className="grid gap-1.5">
           <label htmlFor={`cc-link-${rowId}`} className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-            <Link2 className="h-3.5 w-3.5" /> Ссылка на клиента
+            <Link2 className="h-3.5 w-3.5" /> AmoCRM ссылка
           </label>
           <div className="flex items-center gap-2">
             <Input
@@ -299,12 +488,12 @@ export function ClientCardSection({
                 scheduleSave();
               }}
               {...fieldProps}
-              placeholder="https://instagram.com/…"
+              placeholder="Ссылка на клиента из AmoCRM"
               inputMode="url"
               autoComplete="off"
               className="h-9 min-w-0 flex-1"
             />
-            {/* Только настоящий http(s)-адрес: «instagram.com/x» без схемы браузер увёл бы на страницу CRM. */}
+            {/* Только настоящий http(s)-адрес: «amocrm.ru/…» без схемы браузер увёл бы на страницу CRM. */}
             {href ? (
               <a
                 href={href.toString()}
