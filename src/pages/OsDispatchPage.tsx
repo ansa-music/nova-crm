@@ -6,7 +6,9 @@ import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { describeOsDispatch, useCanSeeOsDispatchLog } from "@/hooks/useOsDispatchLogWatch";
 import { useUrlState } from "@/hooks/useUrlState";
 import { deskNavState, deskRowHref } from "@/utils/deskLinks";
+import { toast } from "@/components/ui/sonner";
 import {
+  loadMoreOsDispatchLog,
   markOsDispatchLogSeen,
   osDispatchLogState,
   subscribeOsDispatchLogState,
@@ -52,6 +54,13 @@ export default function OsDispatchPage() {
   }, [canSee, log.loaded, log.unseen]);
 
   const todayStart = startOfTodayAlmaty(Date.now());
+  // Сразу загружено только живое окно (последние 25), старее — по «Показать
+  // ещё». Поэтому при `hasMore` счётчики — «не меньше»: «Сегодня» точен, только
+  // если самая старая загруженная выдача уже вчерашняя. Список из кэша (сервер
+  // ещё не ответил) — тоже «не меньше»: за время перерыва могли быть выдачи.
+  const incomplete = log.hasMore || log.fromCache;
+  const oldestLoaded = log.entries.length ? log.entries[log.entries.length - 1].createdAt : 0;
+  const todayComplete = !incomplete || (!log.fromCache && oldestLoaded < todayStart);
   const counts = useMemo(() => {
     const c = { all: log.entries.length, today: 0, assign: 0, move: 0, unassign: 0 };
     for (const e of log.entries) {
@@ -73,13 +82,19 @@ export default function OsDispatchPage() {
     return <AccessDenied title="Выдачи ОС" reason="Этот раздел — для Тимлида и Owner." backTo={{ to: "/orders", label: "Заказы" }} />;
   }
 
-  const chips: Array<{ id: Filter; label: string; count: number }> = [
-    { id: "all", label: "Все", count: counts.all },
-    { id: "today", label: "Сегодня", count: counts.today },
-    { id: "assign", label: "Выдал", count: counts.assign },
-    { id: "move", label: "Передал", count: counts.move },
-    { id: "unassign", label: "Забрал", count: counts.unassign },
+  const chips: Array<{ id: Filter; label: string; count: number; partial: boolean }> = [
+    { id: "all", label: "Все", count: counts.all, partial: incomplete },
+    { id: "today", label: "Сегодня", count: counts.today, partial: !todayComplete },
+    { id: "assign", label: "Выдал", count: counts.assign, partial: incomplete },
+    { id: "move", label: "Передал", count: counts.move, partial: incomplete },
+    { id: "unassign", label: "Забрал", count: counts.unassign, partial: incomplete },
   ];
+
+  const loadMore = () => {
+    loadMoreOsDispatchLog().catch((error: { code?: string; message?: string }) =>
+      toast.error("Не удалось дочитать журнал", { description: error.code || error.message })
+    );
+  };
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-4xl p-4 sm:p-8">
@@ -92,7 +107,10 @@ export default function OsDispatchPage() {
             {chips.map((chip) => (
               <button key={chip.id} type="button" className={pageChipClass(filter === chip.id)} onClick={() => setFilter(chip.id)}>
                 {chip.label}
-                <span className="tabular-nums opacity-70">{chip.count}</span>
+                <span className="tabular-nums opacity-70">
+                  {chip.count}
+                  {chip.partial ? "+" : ""}
+                </span>
               </button>
             ))}
           </div>
@@ -107,7 +125,13 @@ export default function OsDispatchPage() {
         <p className="text-sm text-muted-foreground">Загружаю…</p>
       ) : shown.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-          {filter === "all" ? "Выборочных выдач пока не было." : "Здесь пусто."}
+          {filter === "all"
+            ? log.fromCache
+              ? "Загружаю…"
+              : "Выборочных выдач пока не было."
+            : (filter === "today" ? !todayComplete : incomplete)
+              ? "Среди загруженных выдач таких нет."
+              : "Здесь пусто."}
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
@@ -116,8 +140,17 @@ export default function OsDispatchPage() {
           ))}
         </ul>
       )}
-      {log.entries.length >= 100 && (
-        <p className="mt-4 text-center text-xs text-muted-foreground">Показаны последние 100 выдач.</p>
+      {log.loaded && log.hasMore && (
+        <div className="mt-4 flex justify-center">
+          <button
+            type="button"
+            onClick={loadMore}
+            disabled={log.loadingMore}
+            className="min-h-11 rounded-full border border-border px-4 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60 sm:min-h-0 sm:py-1.5"
+          >
+            {log.loadingMore ? "Загружаю…" : "Показать ещё"}
+          </button>
+        </div>
       )}
     </div>
   );

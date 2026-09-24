@@ -180,7 +180,10 @@ export function useSyncedTableRows(
         if (accessTimer === null) checkAccess();
         return;
       }
-      if (backend === "supabase" && data.length > 0) {
+      // Право читать подтверждают только строки С СЕРВЕРА: снимок на
+      // устройстве (fromServer=false) рисуется до ответа и ничего не доказывает —
+      // иначе после отзыва прав следующая пустая выборка сошла бы за «строк нет».
+      if (backend === "supabase" && data.length > 0 && fromServer) {
         accessConfirmed = true;
         confirmedKey.current = key;
         setAccessPending(false);

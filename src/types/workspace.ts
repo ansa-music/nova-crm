@@ -20,6 +20,14 @@ export interface CustomFieldDef {
 
 export type RowsBackend = "firestore" | "supabase";
 /**
+ * Коллекции, которые могут жить в Supabase вместо Firestore (см.
+ * services/sb/sbCollections.ts). Имена — по смыслу, а не по коллекциям
+ * Firestore: одна «коллекция» здесь может быть парой (deskLoad + архив).
+ */
+export type SbCollectionKey = "deskLoads" | "presence" | "notifications" | "osOrders" | "chat" | "history";
+/** Ручной выбор Owner; ключа нет — «авто». */
+export type SbCollectionOverride = "firestore" | "supabase";
+/**
  * Начало переноса строк — СЕРВЕРНОЕ время (serverTimestamp): по нему правила
  * Firestore держат 15-минутный замок записи, и часы Owner тут не годятся.
  * Старые значения могли быть числом. Читать — `migrationStartMillis()`.
@@ -67,6 +75,16 @@ export interface Workspace {
    * (`rowsMigrationService`). Нет поля = Firestore.
    */
   rowsBackend?: RowsBackend;
+  /**
+   * Где живут переносимые коллекции (счётчики столов и др.). Ключа нет —
+   * АВТО: Supabase, если строки таблиц уже там (`rowsBackend: "supabase"` —
+   * только тогда ведётся копия прав rows_*) и SQL коллекции накатан, иначе
+   * Firestore. `"firestore"` — выключатель Owner (откат), `"supabase"` —
+   * принудительно, без памяти «SQL не накатан». Правит только Owner
+   * («Настройки → Строки таблиц → Хранилища Supabase»); Тимлиду закрыто
+   * правилом workspace, как rowsBackend.
+   */
+  sbCollections?: Partial<Record<SbCollectionKey, SbCollectionOverride>>;
   /**
    * Заказы заводит ТОЛЬКО ОС со своего стола (просьба Nurba 23.09.2026):
    * у технаря в его столе пропадают «Быстрый заказ» и «Добавить строку», а

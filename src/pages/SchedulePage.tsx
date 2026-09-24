@@ -59,7 +59,7 @@ import {
   requestScheduleMark,
   resolveScheduleRequest,
   subscribePendingScheduleRequests,
-  subscribeScheduleRequests,
+  subscribeMyScheduleRequests,
 } from "@/services/scheduleRequestService";
 import { cn } from "@/utils/cn";
 import { personLabel, worksAsTechnician } from "@/utils/peopleDesks";
@@ -234,11 +234,11 @@ export default function SchedulePage() {
   useEffect(() => {
     setRequests([]);
     // Руководство запросы видит через pendingAll ниже; месячная выборка нужна
-    // только тем, кто подаёт запрос сам (свой запрос за открытый месяц).
-    // Лишний постоянный слушатель на Spark нам ни к чему.
-    if (!activeWorkspaceId || canEdit) return;
-    return subscribeScheduleRequests(activeWorkspaceId, monthKey, setRequests, () => setRequests([]));
-  }, [activeWorkspaceId, monthKey, canEdit]);
+    // только тем, кто подаёт запрос сам, и только СВОИ запросы за открытый
+    // месяц (`uid == я`): чужие здесь не показываются, а читать их — квота Spark.
+    if (!activeWorkspaceId || canEdit || !uid) return;
+    return subscribeMyScheduleRequests(activeWorkspaceId, uid, monthKey, setRequests, () => setRequests([]));
+  }, [activeWorkspaceId, monthKey, canEdit, uid]);
 
   // Руководству — все ожидающие запросы, какого бы месяца они ни были. Второй
   // слушатель только у Owner/Тимлида и только пока открыт «График».

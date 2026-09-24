@@ -1,6 +1,6 @@
-import { onSnapshot, query, setDoc, where } from "firebase/firestore";
+import { limit, onSnapshot, orderBy, query, setDoc, where, type Query } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { getDocsResumable, paths } from "@/firebase/firestore";
+import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { normalizeTimestamp } from "@/utils/date";
 import { pingInboxChanged } from "@/utils/inboxEvents";
@@ -21,15 +21,121 @@ function mapRequests(docs: { id: string; data: () => import("firebase/firestore"
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export async function fetchMyViewRequests(workspaceId: string, uid: string): Promise<ViewRequest[]> {
-  // Опрашивается на нескольких экранах — подписка с resume-токеном дешевле getDocs.
-  const [fromSnap, toSnap] = await Promise.all([
-    getDocsResumable(query(paths.viewRequests(workspaceId), where("fromUid", "==", uid))),
-    getDocsResumable(query(paths.viewRequests(workspaceId), where("toUid", "==", uid))),
-  ]);
-  const byId = new Map<string, ViewRequest>();
-  for (const row of mapRequests([...fromSnap.docs, ...toSnap.docs])) byId.set(row.id, row);
-  return Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
+/**
+ * Окно запросов на просмотр: последние 20 в каждую сторону и не старше 30
+ * дней. Раньше подписка брала ВСЕ запросы человека за всё время (от меня и
+ * ко мне), и выборка только росла. Рассмотренный запрос старше месяца уже
+ * никому не нужен; ОЖИДАЮЩИЕ видны всегда, любого возраста (см. `watchSide`).
+ */
+const VIEW_REQUESTS_LIMIT = 20;
+const VIEW_REQUESTS_WINDOW_DAYS = 30;
+const DAY_MS = 86_400_000;
+
+/**
+ * Граница окна — начало суток (UTC) 30 дней назад, а не `Date.now() − 30 дней`.
+ * Хук `useViewRequests` смонтирован в семи местах сразу; одинаковые запросы
+ * SDK объединяет в одну цель, а граница «до миллисекунды» делала бы каждый
+ * монтаж новым запросом — со своим чтением с сервера. Так цель меняется раз
+ * в сутки.
+ */
+function viewRequestsSince(now = Date.now()): number {
+  return Math.floor(now / DAY_MS) * DAY_MS - VIEW_REQUESTS_WINDOW_DAYS * DAY_MS;
+}
+
+let indexFallbackLogged = false;
+
+/**
+ * Две выборки об одном запросе могут прийти в разное время (окно уже знает
+ * «одобрен», выборка ожидающих ещё нет) — верим более свежей правке.
+ */
+function newer(a: ViewRequest, b: ViewRequest): ViewRequest {
+  return (b.updatedAt || 0) > (a.updatedAt || 0) ? b : a;
+}
+
+/**
+ * Живая выборка одной стороны (`fromUid`/`toUid` == я). Равенство по своему
+ * uid — то, что доказывает правилу list-запрос (читать можно только свои).
+ * Окно требует составного индекса поле + createdAt (firestore.indexes.json);
+ * пока он строится после деплоя, запрос падает с failed-precondition — тогда,
+ * как у уведомлений, откатываемся на прежний полный запрос, иначе запросы
+ * молча пропали бы из колокольчика и «Столов».
+ *
+ * Рядом с окном — узкая выборка ОЖИДАЮЩИХ (`status == pending`, без срока и
+ * limit). Окно «20 последних» само по себе выталкивает старый, но ещё не
+ * рассмотренный запрос: у ответственного он пропал бы из очереди и
+ * колокольчика, а у просителя остался бы `pending`, и `requestDeskView`
+ * не дал бы послать новый — доступа нет, пока запрос не выйдет из окна.
+ * Ожидающих всегда единицы (повтор к тому же столу возвращает прежний), так
+ * что выборка почти ничего не стоит. Два равенства сервер собирает без
+ * составного индекса, а правило доказывается тем же равенством по uid.
+ */
+function watchSide(
+  workspaceId: string,
+  field: "fromUid" | "toUid",
+  uid: string,
+  onRows: (rows: ViewRequest[]) => void
+): () => void {
+  const base = paths.viewRequests(workspaceId);
+  const bounded: Query = query(
+    base,
+    where(field, "==", uid),
+    where("createdAt", ">=", viewRequestsSince()),
+    orderBy("createdAt", "desc"),
+    limit(VIEW_REQUESTS_LIMIT)
+  );
+  let windowRows: ViewRequest[] = [];
+  let pendingRows: ViewRequest[] = [];
+  const emit = () => {
+    const byId = new Map<string, ViewRequest>();
+    for (const row of [...windowRows, ...pendingRows]) {
+      const prev = byId.get(row.id);
+      byId.set(row.id, prev ? newer(prev, row) : row);
+    }
+    onRows(Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt));
+  };
+  const onWindow = (snap: { docs: { id: string; data: () => import("firebase/firestore").DocumentData }[] }) => {
+    windowRows = mapRequests(snap.docs);
+    emit();
+  };
+  let stopped = false;
+  const unsubscribePending = onSnapshot(
+    query(base, where(field, "==", uid), where("status", "==", "pending")),
+    (snap) => {
+      pendingRows = mapRequests(snap.docs);
+      emit();
+    },
+    (error) => {
+      // Без неё остаётся окно — как было до этой выборки.
+      if (!stopped) console.error(`Подписка на ожидающие запросы просмотра (${field}) отклонена:`, error.code, error.message);
+    }
+  );
+  let unsubscribe = onSnapshot(
+    bounded,
+    onWindow,
+    (error) => {
+      if (stopped) return;
+      if (error.code !== "failed-precondition") {
+        // Отказ — это «не знаем», а не «запросов нет»: список на экране остаётся.
+        console.error(`Подписка на запросы просмотра (${field}) отклонена:`, error.code, error.message);
+        return;
+      }
+      if (!indexFallbackLogged) {
+        indexFallbackLogged = true;
+        console.warn("Индекс запросов на просмотр ещё строится — пока читаем их целиком:", error.message);
+      }
+      unsubscribe = onSnapshot(
+        query(base, where(field, "==", uid)),
+        onWindow,
+        (fallbackError) =>
+          console.error(`Подписка на запросы просмотра (${field}) отклонена:`, fallbackError.code, fallbackError.message)
+      );
+    }
+  );
+  return () => {
+    stopped = true;
+    unsubscribe();
+    unsubscribePending();
+  };
 }
 
 export function subscribeToMyViewRequests(
@@ -37,8 +143,6 @@ export function subscribeToMyViewRequests(
   uid: string,
   cb: (rows: ViewRequest[]) => void
 ) {
-  const fromQ = query(paths.viewRequests(workspaceId), where("fromUid", "==", uid));
-  const toQ = query(paths.viewRequests(workspaceId), where("toUid", "==", uid));
   let fromRows: ViewRequest[] = [];
   let toRows: ViewRequest[] = [];
   const emit = () => {
@@ -46,12 +150,12 @@ export function subscribeToMyViewRequests(
     for (const row of [...fromRows, ...toRows]) byId.set(row.id, row);
     cb(Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt));
   };
-  const unsubFrom = onSnapshot(fromQ, (snap) => {
-    fromRows = mapRequests(snap.docs);
+  const unsubFrom = watchSide(workspaceId, "fromUid", uid, (rows) => {
+    fromRows = rows;
     emit();
   });
-  const unsubTo = onSnapshot(toQ, (snap) => {
-    toRows = mapRequests(snap.docs);
+  const unsubTo = watchSide(workspaceId, "toUid", uid, (rows) => {
+    toRows = rows;
     emit();
   });
   return () => {

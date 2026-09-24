@@ -17,8 +17,10 @@ import {
   persistentMultipleTabManager,
   terminate,
 } from "firebase/firestore";
-import { type FirebaseStorage, getStorage } from "firebase/storage";
-import { getAnalytics, isSupported, type Analytics } from "firebase/analytics";
+// firebase/storage и firebase/analytics больше не подключаются: хранилище
+// Firebase сайт не использует (аватарки и файлы строк лежат в Supabase Storage,
+// avatarService.ts), а analytics только тянул внешний gtag.js и вместе
+// с storage давал ≈48 КБ стартового firebase-chunk. Не возвращать без нужды.
 
 /**
  * Google OAuth authorized redirect is
@@ -161,17 +163,25 @@ function createLocalCache(): FirestoreLocalCache {
  */
 export const FIRESTORE_WIPE_KEY = "nova:firestore-wipe";
 
-function wipeCacheIfAsked() {
+function wipeCacheIfAsked(): boolean {
   try {
-    if (typeof indexedDB === "undefined" || window.localStorage.getItem(FIRESTORE_WIPE_KEY) !== "1") return;
+    if (typeof indexedDB === "undefined" || window.localStorage.getItem(FIRESTORE_WIPE_KEY) !== "1") return false;
     window.localStorage.removeItem(FIRESTORE_WIPE_KEY);
     indexedDB.deleteDatabase(`firestore/${app.name}/${firebaseConfig.projectId}/main`);
+    return true;
   } catch {
     /* нет хранилища — и кэша на диске тоже нет */
+    return false;
   }
 }
 
-wipeCacheIfAsked();
+/**
+ * Эта загрузка стёрла кэш по метке выхода. Метку снимает `wipeCacheIfAsked`
+ * при загрузке модуля — раньше всех остальных, — поэтому свои локальные
+ * снимки (Supabase-кэши в localStorage/IndexedDB) проверяют этот флаг, а не
+ * саму метку: к их первому чтению метки уже нет.
+ */
+export const firestoreCacheWipedAtLoad: boolean = wipeCacheIfAsked();
 const localCache = createLocalCache();
 
 // Две настройки long polling взаимоисключающие: вместе initializeFirestore бросает.
@@ -181,8 +191,6 @@ export const db: Firestore = initializeFirestore(
     ? { localCache, experimentalForceLongPolling: true }
     : { localCache, experimentalAutoDetectLongPolling: true }
 );
-
-export const storage: FirebaseStorage = getStorage(app);
 
 /**
  * Стереть кэш Firestore этого браузера — при выходе из аккаунта: метка для
@@ -206,15 +214,4 @@ export async function clearFirestoreCache() {
   } catch (error) {
     console.warn("[firestore] кэш не стёрт при выходе", error);
   }
-}
-
-export let analytics: Analytics | null = null;
-if (typeof window !== "undefined") {
-  isSupported()
-    .then((supported) => {
-      if (supported) analytics = getAnalytics(app);
-    })
-    .catch(() => {
-      /* analytics unsupported */
-    });
 }

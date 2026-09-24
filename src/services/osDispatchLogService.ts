@@ -1,4 +1,14 @@
-import { addDoc, collection, limit, onSnapshot, orderBy, query } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  startAfter,
+  type QueryDocumentSnapshot,
+} from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 
 /**
@@ -56,24 +66,86 @@ export async function logOsDispatch(workspaceId: string, entry: Omit<OsDispatchL
 // Живой список — одна подписка на приложение (её ставит AppLayout).
 // ---------------------------------------------------------------------------
 
-const LIVE_LIMIT = 100;
+/**
+ * Живое окно — последние 25 выдач. Было 100: подписка стоит у каждой вкладки
+ * Owner/Тимлида на всё приложение, и каждый холодный вход (перерыв больше
+ * 30 минут, автообновление после деплоя) читал 100 документов ради счётчика в
+ * меню и тоста. Старее — на самой вкладке по «Показать ещё» (`loadMoreOsDispatchLog`).
+ */
+export const OS_DISPATCH_LIVE_LIMIT = 25;
+/** «Показать ещё» дочитывает столько за раз — разовой выборкой, без подписки. */
+export const OS_DISPATCH_PAGE_SIZE = 25;
 
 export interface OsDispatchLogState {
   workspaceId: string | null;
+  /**
+   * Всё, что вкладка уже знает, новые сверху: живое окно, дочитанные страницы
+   * и записи, которые за время сессии выехали из окна (их не выбрасываем —
+   * иначе между окном и дочитанной страницей образовалась бы дыра).
+   */
   entries: OsDispatchLogEntry[];
   loaded: boolean;
   error: string | null;
   /** Сколько записей новее, чем человек последний раз открывал вкладку. */
   unseen: number;
+  /** Есть ли на сервере записи старее самой старой из `entries`. */
+  hasMore: boolean;
+  loadingMore: boolean;
+  /**
+   * Список — из кэша на диске, сервер ещё не ответил. Рисовать можно, но
+   * сколько выдач «на самом деле», неизвестно: счётчики — «не меньше».
+   */
+  fromCache: boolean;
 }
 
-let state: OsDispatchLogState = { workspaceId: null, entries: [], loaded: false, error: null, unseen: 0 };
+const EMPTY: OsDispatchLogState = {
+  workspaceId: null,
+  entries: [],
+  loaded: false,
+  error: null,
+  unseen: 0,
+  hasMore: false,
+  loadingMore: false,
+  fromCache: false,
+};
+
+let state: OsDispatchLogState = EMPTY;
 const listeners = new Set<() => void>();
 let current: { workspaceId: string; uid: string; unsubscribe: () => void } | null = null;
+/** Снимки документов — курсор `startAfter` для «Показать ещё». */
+const known = new Map<string, { entry: OsDispatchLogEntry; snap: QueryDocumentSnapshot }>();
+/** Поколение подписки: страница, дочитанная для прежней, в новую не попадёт. */
+let generation = 0;
+/** null — страниц ещё не дочитывали; true — дочитали до самой первой выдачи. */
+let pagedToEnd: boolean | null = null;
+/**
+ * Последний применённый снимок окна пришёл из кэша на диске (`fromCache`).
+ * Пока так, «Показать ещё» не работает: курсор из кэша — это решение по
+ * снимку из кэша (правило CLAUDE.md), а окно из кэша может быть утренним.
+ */
+let windowFromCache = true;
 
 function emit(next: Partial<OsDispatchLogState>) {
   state = { ...state, ...next };
   listeners.forEach((fn) => fn());
+}
+
+function sortedEntries(): OsDispatchLogEntry[] {
+  return Array.from(known.values(), (k) => k.entry).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+function oldestSnap(): QueryDocumentSnapshot | null {
+  let oldest: { entry: OsDispatchLogEntry; snap: QueryDocumentSnapshot } | null = null;
+  for (const k of known.values()) if (!oldest || k.entry.createdAt < oldest.entry.createdAt) oldest = k;
+  return oldest?.snap ?? null;
+}
+
+function reset() {
+  known.clear();
+  generation += 1;
+  pagedToEnd = null;
+  windowFromCache = true;
+  emit(EMPTY);
 }
 
 function seenKey(workspaceId: string, uid: string) {
@@ -128,20 +200,63 @@ export function watchOsDispatchLog(
   if (current && (current.workspaceId !== workspaceId || current.uid !== uid)) {
     current.unsubscribe();
     current = null;
-    emit({ workspaceId: null, entries: [], loaded: false, error: null, unseen: 0 });
+    reset();
   }
   if (!db || !workspaceId || !uid || current) return () => undefined;
-  const known = new Set<string>();
-  let first = true;
-  const q = query(collection(db, "workspaces", workspaceId, "osDispatchLog"), orderBy("createdAt", "desc"), limit(LIVE_LIMIT));
+  const seenIds = new Set<string>();
+  /** Первый снимок С СЕРВЕРА ещё не приходил — тост молчит. */
+  let serverSeen = false;
+  pagedToEnd = null;
+  windowFromCache = true;
+  const q = query(
+    collection(db, "workspaces", workspaceId, "osDispatchLog"),
+    orderBy("createdAt", "desc"),
+    limit(OS_DISPATCH_LIVE_LIMIT)
+  );
+  // includeMetadataChanges — чтобы переход «кэш → сервер» пришёл, даже если
+  // документы окна не изменились (иначе вкладка так и осталась бы на кэше).
   const unsubscribe = onSnapshot(
     q,
+    { includeMetadataChanges: true },
     (snap) => {
-      const entries = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as OsDispatchLogEntry);
-      const fresh = first ? [] : entries.filter((e) => !known.has(e.id));
-      entries.forEach((e) => known.add(e.id));
-      first = false;
-      emit({ workspaceId, entries, loaded: true, error: null, unseen: countUnseen(entries, readSeen(workspaceId, uid)) });
+      const fromCache = snap.metadata.fromCache;
+      // Окно из кэша может быть утренним (#1..#25), а следом придёт серверное
+      // (#61..#85): сложи их в known — и между ними дыра #26..#60, которую
+      // «Показать ещё» уже не закроет (курсор возьмёт самую старую, #1).
+      // Поэтому копить выехавшие из окна записи можно только между ДВУМЯ
+      // серверными снимками подряд: они смежные. Снимок из кэша и первый
+      // серверный после кэша начинают known заново (и дочитанные страницы
+      // тоже — их курсор мог стоять за дырой).
+      if (fromCache || windowFromCache) {
+        known.clear();
+        generation += 1;
+        pagedToEnd = null;
+      }
+      windowFromCache = fromCache;
+      const live = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as OsDispatchLogEntry);
+      snap.docs.forEach((d, index) => known.set(d.id, { entry: live[index], snap: d }));
+      // Тост — только о том, что сервер прислал после своего первого снимка:
+      // иначе холодный вход с утренним кэшем «поздравил» бы 25 старыми выдачами.
+      const fresh = !fromCache && serverSeen ? live.filter((e) => !seenIds.has(e.id)) : [];
+      if (!fromCache) {
+        live.forEach((e) => seenIds.add(e.id));
+        serverSeen = true;
+      }
+      const entries = sortedEntries();
+      emit({
+        workspaceId,
+        entries,
+        // Рисовать по кэшу можно — решать («есть ли старее») нельзя.
+        loaded: true,
+        error: null,
+        unseen: countUnseen(entries, readSeen(workspaceId, uid)),
+        // Пока «Показать ещё» не нажимали, «есть старее» — если окно полное;
+        // после — решает последняя дочитанная страница. Окно из кэша — «не
+        // знаем»: кнопка появится с серверным снимком.
+        hasMore: fromCache ? false : pagedToEnd === null ? snap.size >= OS_DISPATCH_LIVE_LIMIT : !pagedToEnd,
+        loadingMore: fromCache ? false : state.loadingMore,
+        fromCache,
+      });
       if (fresh.length && onFresh) onFresh(fresh);
     },
     (error) => {
@@ -155,7 +270,42 @@ export function watchOsDispatchLog(
     if (current?.unsubscribe === unsubscribe) {
       unsubscribe();
       current = null;
-      emit({ workspaceId: null, entries: [], loaded: false, error: null, unseen: 0 });
+      reset();
     }
   };
+}
+
+/**
+ * «Показать ещё» на вкладке: следующие `OS_DISPATCH_PAGE_SIZE` записей старее
+ * самой старой из уже известных. Разовая выборка (`getDocs`), не подписка:
+ * старые выдачи не меняются, а живой слушатель на всю историю читал бы её
+ * заново при каждом холодном входе. Правило журнала (читают Owner и Тимлид)
+ * от фильтров запроса не зависит — выборка проходит его так же, как окно.
+ */
+export async function loadMoreOsDispatchLog(): Promise<void> {
+  // Окно из кэша — курсор из него может стоять за дырой (см. watchOsDispatchLog).
+  if (!db || !current || windowFromCache || state.loadingMore || !state.hasMore) return;
+  const cursor = oldestSnap();
+  if (!cursor) return;
+  const gen = generation;
+  const { workspaceId } = current;
+  emit({ loadingMore: true });
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, "workspaces", workspaceId, "osDispatchLog"),
+        orderBy("createdAt", "desc"),
+        startAfter(cursor),
+        limit(OS_DISPATCH_PAGE_SIZE)
+      )
+    );
+    if (gen !== generation) return;
+    snap.docs.forEach((d) => known.set(d.id, { entry: { id: d.id, ...d.data() } as OsDispatchLogEntry, snap: d }));
+    pagedToEnd = snap.size < OS_DISPATCH_PAGE_SIZE;
+    emit({ entries: sortedEntries(), hasMore: !pagedToEnd, loadingMore: false });
+  } catch (error) {
+    if (gen !== generation) return;
+    emit({ loadingMore: false });
+    throw error;
+  }
 }

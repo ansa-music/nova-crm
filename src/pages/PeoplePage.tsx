@@ -10,6 +10,7 @@ import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { usePeopleDesks } from "@/hooks/usePeopleDesks";
 import { usePermissions } from "@/hooks/usePermissions";
+import { usePresenceMap } from "@/hooks/usePresenceMap";
 import { useUrlState } from "@/hooks/useUrlState";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -64,6 +65,8 @@ export default function PeoplePage() {
   const permissions = usePermissions();
   const { activeWorkspaceId, members } = useWorkspace();
   const { requestView, latestForPage, reload } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
+  // «В сети» — max(Firestore, Supabase): см. usePresenceMap.
+  const presenceAt = usePresenceMap(activeWorkspaceId);
   const [query, setQuery] = useState("");
   // Фильтр роли — в адресе (`?role=os`): F5 не сбрасывает, ссылку можно отдать.
   const [roleParam, setRoleParam] = useUrlState<Role | "">("role", "", { values: ROLE_PARAMS });
@@ -185,7 +188,7 @@ export default function PeoplePage() {
                     <span
                       className={cn(
                         "absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card",
-                        PRESENCE_DOT_COLOR[getPresenceStatus(group.member.lastActiveAt)]
+                        PRESENCE_DOT_COLOR[getPresenceStatus(presenceAt(group.member))]
                       )}
                     />
                   </div>

@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { AvatarUpload } from "@/components/common/AvatarUpload";
 import { RowsStoragePanel } from "@/components/settings/RowsStoragePanel";
+import { SupabaseCollectionsPanel } from "@/components/settings/SupabaseCollectionsPanel";
 import { CashboxSettingsPanel } from "@/components/cashbox/CashboxSettingsPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -850,6 +851,7 @@ export default function SettingsPage() {
         {permissions.realRole === "owner" && (
           <TabsContent value="rows" className="mt-0 flex flex-col gap-4">
             <RowsStoragePanel />
+            <SupabaseCollectionsPanel />
           </TabsContent>
         )}
 

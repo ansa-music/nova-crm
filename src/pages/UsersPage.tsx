@@ -50,6 +50,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useMembersRefresh } from "@/hooks/useMembersRefresh";
+import { usePresenceMap } from "@/hooks/usePresenceMap";
 import { EXTRA_ROLES, memberHasRole, ROLE_LABELS, rolesOf, type JoinRequest, type PageIconName, type Role, type WorkspaceMember } from "@/types";
 import { confirmDialog } from "@/utils/appDialog";
 
@@ -103,9 +104,23 @@ export default function UsersPage() {
       return hay.includes(q);
     });
   }, [roster, query, roleChip]);
+  // «В сети» и «давно не заходили» — max(Firestore, Supabase): пульс живёт в
+  // Supabase, а lastActiveAt в member-документах больше не освежается.
+  // Смёрженные копии — только для показа, в Firestore они не пишутся.
+  // Список «давно не заходили» — повод убрать человека, поэтому строится
+  // только по ПОДТВЕРЖДЁННЫМ данным: пока карта Supabase не пришла с сервера
+  // (снимок, пустота после выхода, отказ выборки), замёрзший `lastActiveAt`
+  // в Firestore выдал бы почти всю команду. Точки «в сети» рисуются и так.
+  const presenceAt = usePresenceMap(activeWorkspaceId);
   const quiet = useMemo(
-    () => quietActiveMembers(Array.isArray(members) ? members : [], profile?.uid),
-    [members, profile?.uid]
+    () =>
+      presenceAt.confirmed
+        ? quietActiveMembers(
+            (Array.isArray(members) ? members : []).map((m) => ({ ...m, lastActiveAt: presenceAt(m) })),
+            profile?.uid
+          )
+        : [],
+    [members, profile?.uid, presenceAt]
   );
 
   useEffect(() => {
@@ -496,9 +511,9 @@ export default function UsersPage() {
                     <span
                       className={cn(
                         "absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card",
-                        PRESENCE_DOT_COLOR[getPresenceStatus(member.lastActiveAt)]
+                        PRESENCE_DOT_COLOR[getPresenceStatus(presenceAt(member))]
                       )}
-                      title={PRESENCE_LABEL[getPresenceStatus(member.lastActiveAt)]}
+                      title={PRESENCE_LABEL[getPresenceStatus(presenceAt(member))]}
                     />
                   )}
                 </div>

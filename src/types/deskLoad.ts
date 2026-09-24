@@ -56,6 +56,19 @@ export interface DeskLoad {
   daySums?: Record<string, number>;
   updatedAt: number;
   updatedBy: string;
+  /**
+   * Firestore при счётчиках в Supabase: когда syncDeskLoadRatingFields
+   * последний раз писал поля оценок. `updatedAt` при этом НЕ освежается —
+   * цифры документа верны на момент `updatedAt`, а не синхронизации.
+   */
+  ratingSyncedAt?: number;
+  /**
+   * Только в памяти читателей Supabase: стола в desk_loads ещё нет, и
+   * счётчики подмешаны из Firestore (пока SQL только вставили, стол никто не
+   * открывал). Пересчёт Owner считает такой стол устаревшим — он и заполняет
+   * Supabase.
+   */
+  sbFallback?: boolean;
 }
 
 /**

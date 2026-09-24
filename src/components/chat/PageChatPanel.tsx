@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { paths } from "@/firebase/firestore";
-import { subscribeToChat, sendChatMessage, editChatMessage, deleteChatMessage } from "@/services/chatService";
+import { subscribeToRecentThread, sendChatMessage, editChatMessage, deleteChatMessage } from "@/services/chatService";
+import { CHAT_PAGE_STEP, CHAT_PAGE_WINDOW } from "@/hooks/useWorkspaceChat";
 import { notifyMentions } from "@/services/notificationService";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -21,6 +22,14 @@ export function PageChatPanel({ open, onOpenChange, workspaceId, pageId, pageNam
   const { profile } = useAuth();
   const { members } = useWorkspace();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [hasEarlier, setHasEarlier] = useState(false);
+  // Окно последних сообщений, как в общем чате: вся история стола читалась
+  // при каждом открытии панели. «Показать ранние» расширяет окно порцией.
+  // Размер окна привязан к нити: у другого стола — снова 60, без лишней
+  // подписки на прежнее расширенное окно.
+  const threadKey = `${workspaceId}/${pageId}`;
+  const [expanded, setExpanded] = useState({ key: threadKey, size: CHAT_PAGE_WINDOW });
+  const windowSize = expanded.key === threadKey ? expanded.size : CHAT_PAGE_WINDOW;
   const chatRef = paths.pageChat(workspaceId, pageId);
   const mentionableUsers = useMemo(
     () => members.filter((m) => m.status === "active").map((m) => ({ uid: m.uid, name: displayNameOf(m) })),
@@ -35,12 +44,22 @@ export function PageChatPanel({ open, onOpenChange, workspaceId, pageId, pageNam
     // `pageId` changes, which otherwise left the PREVIOUS desk's chat
     // messages on screen under the new desk's title.
     setMessages([]);
+    setHasEarlier(false);
+  }, [open, workspaceId, pageId]);
+
+  useEffect(() => {
     if (!open) return;
-    return subscribeToChat(chatRef, setMessages, (error) =>
-      console.error("subscribeToChat(pageChat) denied:", error.code, error.message)
+    return subscribeToRecentThread(
+      chatRef,
+      windowSize,
+      (items, more) => {
+        setMessages(items);
+        setHasEarlier(more);
+      },
+      (error) => console.error("subscribeToChat(pageChat) denied:", error.code, error.message)
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, workspaceId, pageId]);
+  }, [open, workspaceId, pageId, windowSize]);
 
   if (!profile) return null;
 
@@ -68,6 +87,8 @@ export function PageChatPanel({ open, onOpenChange, workspaceId, pageId, pageNam
             onDelete={(id) => deleteChatMessage(chatRef, id)}
             emptyMessage="Обсудите эту страницу прямо здесь"
             mentionableUsers={mentionableUsers}
+            hasEarlier={hasEarlier}
+            onLoadEarlier={() => setExpanded({ key: threadKey, size: windowSize + CHAT_PAGE_STEP })}
           />
         </div>
       </SheetContent>

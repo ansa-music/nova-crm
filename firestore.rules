@@ -383,10 +383,12 @@ service cloud.firestore {
       allow update: if isOwner(workspaceId);
       // Тимлид: every workspace setting, never the ownership itself — и не
       // хранилище строк (rowsBackend/rowsMigrationAt): переключить его без
-      // переноса строк значит показать всем пустые столы. И не касса:
+      // переноса строк значит показать всем пустые столы. И не хранилища
+      // коллекций (sbCollections — счётчики столов и др. в Supabase): это
+      // тот же переключатель и тот же откат, что у строк. И не касса:
       // способы оплаты с комиссией и премии технарям настраивает только Owner.
       allow update: if isTeamLead(workspaceId)
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['ownerId', 'rowsBackend', 'rowsMigrationAt', 'paymentMethods', 'techBonuses', 'osPay', 'scheduleSettings']);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['ownerId', 'rowsBackend', 'rowsMigrationAt', 'sbCollections', 'paymentMethods', 'techBonuses', 'osPay', 'scheduleSettings']);
       // Deleting the workspace stays Owner-only — no Тимлид branch.
       allow delete: if isOwner(workspaceId);
 

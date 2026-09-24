@@ -21,3 +21,6 @@ alter table public.row_records enable row level security;
 drop policy if exists open_all on public.row_records;
 create policy open_all on public.row_records for all to anon using (true) with check (true);
 grant all on public.row_records to anon, authenticated;
+-- Как в Supabase: новые последовательности схемы public по умолчанию открыты
+-- ролям API. Без этого тест не видел, что nova_rev_seq надо закрывать явно.
+alter default privileges in schema public grant all on sequences to anon, authenticated;

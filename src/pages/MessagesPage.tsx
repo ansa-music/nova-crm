@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { usePresenceMap } from "@/hooks/usePresenceMap";
 import { useAuth } from "@/hooks/useAuth";
 import { usePrivateChat } from "@/hooks/usePrivateChat";
 import { useInboxSummary } from "@/hooks/useInboxSummary";
@@ -29,6 +30,8 @@ export default function MessagesPage() {
   const { peerUid } = useParams<{ peerUid: string }>();
   const navigate = useNavigate();
   const { activeWorkspaceId, members } = useWorkspace();
+  // «В сети» — max(Firestore, Supabase): см. usePresenceMap.
+  const presenceAt = usePresenceMap(activeWorkspaceId);
   const { profile } = useAuth();
   const [search, setSearch] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -203,7 +206,7 @@ export default function MessagesPage() {
                     <span
                       className={cn(
                         "absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-card",
-                        PRESENCE_DOT_COLOR[getPresenceStatus(c.otherMember.lastActiveAt)]
+                        PRESENCE_DOT_COLOR[getPresenceStatus(presenceAt(c.otherMember))]
                       )}
                     />
                   )}
@@ -289,7 +292,7 @@ export default function MessagesPage() {
                   {selectedMember ? displayNameOf(selectedMember) : "Диалог"}
                 </p>
                 <p className="text-xs leading-tight text-muted-foreground">
-                  {selectedMember ? PRESENCE_LABEL[getPresenceStatus(selectedMember.lastActiveAt)] : "Открыт по ссылке"}
+                  {selectedMember ? PRESENCE_LABEL[getPresenceStatus(presenceAt(selectedMember))] : "Открыт по ссылке"}
                 </p>
               </div>
               {threadUnread && chatId && (

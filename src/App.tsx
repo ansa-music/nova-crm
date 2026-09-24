@@ -1,5 +1,5 @@
 // PATH: src/App.tsx  (REPLACES EXISTING)
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { Navigate, Route, BrowserRouter, Routes, useLocation } from "react-router";
 import { ThemeProvider } from "@/contexts/ThemeProvider";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
@@ -14,32 +14,170 @@ import { wasGoogleRedirectPending } from "@/firebase/auth";
 import { joinPathAfterLogin, rememberJoinIntentFromPath } from "@/utils/joinIntent";
 import { DISPATCH_ENABLED } from "@/config/features";
 import { SiteStatusBanner } from "@/components/common/SiteStatusBanner";
+import { useBootstrapStore } from "@/store/bootstrapStore";
+import { useAuthStore } from "@/store/authStore";
+// «/» — только редирект на дом человека (0,5 КБ): отдельный chunk стоил ещё
+// одного запроса ПОСЛЕ загрузки workspace, прямо перед первым экраном.
+import HomePage from "@/pages/HomePage";
+
+// Загрузчики страниц вынесены, чтобы предзагрузка ниже звала РОВНО тот же
+// import(), что и lazy: браузер держит модуль один, и второй вызов берёт готовый.
+const loadDynamicTablePage = () => import("@/pages/DynamicTablePage");
+const loadDashboardPage = () => import("@/pages/DashboardPage");
+const loadSettingsPage = () => import("@/pages/SettingsPage");
+const loadUsersPage = () => import("@/pages/UsersPage");
+const loadTeamPage = () => import("@/pages/TeamPage");
+const loadPeoplePage = () => import("@/pages/PeoplePage");
+const loadDesksPage = () => import("@/pages/DesksPage");
+const loadAnnouncementsPage = () => import("@/pages/AnnouncementsPage");
+const loadGrokLimitPage = () => import("@/pages/GrokLimitPage");
+const loadTechniciansPage = () => import("@/pages/TechniciansPage");
+const loadOrdersPage = () => import("@/pages/OrdersPage");
+const loadOsDeskPage = () => import("@/pages/OsDeskPage");
+const loadOsDesksPage = () => import("@/pages/OsDesksPage");
+const loadAbsPage = () => import("@/pages/AbsPage");
+const loadOsDispatchPage = () => import("@/pages/OsDispatchPage");
+const loadSchedulePage = () => import("@/pages/SchedulePage");
+const loadWorkspaceChatPage = () => import("@/pages/WorkspaceChatPage");
+const loadMessagesPage = () => import("@/pages/MessagesPage");
 
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
-const HomePage = lazy(() => import("@/pages/HomePage"));
-const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
-const DynamicTablePage = lazy(() => import("@/pages/DynamicTablePage"));
-const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
-const UsersPage = lazy(() => import("@/pages/UsersPage"));
-const TeamPage = lazy(() => import("@/pages/TeamPage"));
-const PeoplePage = lazy(() => import("@/pages/PeoplePage"));
-const DesksPage = lazy(() => import("@/pages/DesksPage"));
-const AnnouncementsPage = lazy(() => import("@/pages/AnnouncementsPage"));
-const GrokLimitPage = lazy(() => import("@/pages/GrokLimitPage"));
+const DashboardPage = lazy(loadDashboardPage);
+const DynamicTablePage = lazy(loadDynamicTablePage);
+const SettingsPage = lazy(loadSettingsPage);
+const UsersPage = lazy(loadUsersPage);
+const TeamPage = lazy(loadTeamPage);
+const PeoplePage = lazy(loadPeoplePage);
+const DesksPage = lazy(loadDesksPage);
+const AnnouncementsPage = lazy(loadAnnouncementsPage);
+const GrokLimitPage = lazy(loadGrokLimitPage);
 const DispatchPage = lazy(() => import("@/pages/DispatchPage"));
-const TechniciansPage = lazy(() => import("@/pages/TechniciansPage"));
-const OrdersPage = lazy(() => import("@/pages/OrdersPage"));
-const OsDeskPage = lazy(() => import("@/pages/OsDeskPage"));
-const OsDesksPage = lazy(() => import("@/pages/OsDesksPage"));
-const AbsPage = lazy(() => import("@/pages/AbsPage"));
-const OsDispatchPage = lazy(() => import("@/pages/OsDispatchPage"));
+const TechniciansPage = lazy(loadTechniciansPage);
+const OrdersPage = lazy(loadOrdersPage);
+const OsDeskPage = lazy(loadOsDeskPage);
+const OsDesksPage = lazy(loadOsDesksPage);
+const AbsPage = lazy(loadAbsPage);
+const OsDispatchPage = lazy(loadOsDispatchPage);
 // Скрытая страница Owner: в меню и поиске её нет, только прямой адрес.
 const DeskObserversPage = lazy(() => import("@/pages/DeskObserversPage"));
-const SchedulePage = lazy(() => import("@/pages/SchedulePage"));
-const WorkspaceChatPage = lazy(() => import("@/pages/WorkspaceChatPage"));
-const MessagesPage = lazy(() => import("@/pages/MessagesPage"));
+const SchedulePage = lazy(loadSchedulePage);
+const WorkspaceChatPage = lazy(loadWorkspaceChatPage);
+const MessagesPage = lazy(loadMessagesPage);
 const JoinWorkspacePage = lazy(() => import("@/pages/JoinWorkspacePage"));
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
+
+/**
+ * Страницы меню в порядке предзагрузки: частые и лёгкие — первыми, дашборд и
+ * ABS (они тянут recharts) — последними. Клик по пункту меню иначе «висел»
+ * 0,1–0,6 с, пока качался chunk страницы.
+ */
+const MENU_PAGE_LOADERS: Array<() => Promise<unknown>> = [
+  loadOrdersPage,
+  loadDesksPage,
+  loadSchedulePage,
+  loadMessagesPage,
+  loadWorkspaceChatPage,
+  loadPeoplePage,
+  loadTechniciansPage,
+  loadOsDeskPage,
+  loadOsDesksPage,
+  loadOsDispatchPage,
+  loadTeamPage,
+  loadUsersPage,
+  loadAnnouncementsPage,
+  loadGrokLimitPage,
+  loadSettingsPage,
+  loadDashboardPage,
+  loadAbsPage,
+];
+
+/** Тот же ключ, что пишет `DynamicTablePage` при открытии стола. */
+const LAST_DESK_KEY = "nova-crm:last-page-id";
+
+function wantsDeskChunk(): boolean {
+  try {
+    if (/^\/(page|os-desk)(\/|$)/.test(window.location.pathname)) return true;
+    return Boolean(window.localStorage.getItem(LAST_DESK_KEY));
+  } catch {
+    return false;
+  }
+}
+
+/** Сеть «берегите трафик» или 2G — фоновые загрузки не нужны. */
+function saveDataMode(): boolean {
+  const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } })
+    .connection;
+  return Boolean(connection?.saveData) || /(^|-)2g$/.test(connection?.effectiveType ?? "");
+}
+
+type IdleWindow = Window & {
+  requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+  cancelIdleCallback?: (id: number) => void;
+};
+
+/**
+ * Параллельная загрузка кода, пока идёт загрузка данных.
+ *
+ * (1) Стол. Раньше цепочка шла строго подряд: вход → профиль → workspace →
+ * участники и столы → и только потом chunk стола (≈106 КБ gzip) → строки.
+ * Теперь chunk качается сразу, как только известно, что человек вошёл, —
+ * если он сейчас на столе или последний раз открывал стол (у технаря «дом» —
+ * свой стол). Модуль стола ничего не делает при загрузке, только определяет
+ * компоненты, так что ранний import() безопасен.
+ *
+ * (2) Страницы меню — по одной в простое браузера (requestIdleCallback), когда
+ * первый экран уже готов. Одна за раз, чтобы разбор модуля не вставал длинной
+ * задачей поперёк ввода; в режиме экономии трафика — не качаем.
+ */
+function StartupPreloader() {
+  const firebaseUser = useAuthStore((s) => s.firebaseUser);
+  const signedIn = useBootstrapStore((s) => s.authResolved) && Boolean(firebaseUser);
+  const profileResolved = useBootstrapStore((s) => s.profileResolved);
+  const dataReady = useBootstrapStore((s) => Boolean(s.resolvedDataWorkspaceId));
+
+  useEffect(() => {
+    if (!signedIn || !wantsDeskChunk()) return;
+    void loadDynamicTablePage().catch(() => {
+      /* не вышло — лениво загрузит сам маршрут (и разберёт vite:preloadError) */
+    });
+  }, [signedIn]);
+
+  useEffect(() => {
+    if (!signedIn || !profileResolved || !dataReady || saveDataMode()) return;
+    const w = window as IdleWindow;
+    let cancelled = false;
+    // Номера простоя и таймеров — разные счётчики: гасить каждый своим вызовом.
+    let idleHandle: number | null = null;
+    let timerHandle: number | null = null;
+    let index = 0;
+    const schedule = () => {
+      if (cancelled || index >= MENU_PAGE_LOADERS.length) return;
+      if (w.requestIdleCallback) idleHandle = w.requestIdleCallback(step, { timeout: 5000 });
+      else timerHandle = window.setTimeout(step, 400);
+    };
+    const step = () => {
+      idleHandle = null;
+      timerHandle = null;
+      if (cancelled) return;
+      const load = MENU_PAGE_LOADERS[index++];
+      void load()
+        .catch(() => {
+          /* сеть моргнула — страница загрузится по клику, как раньше */
+        })
+        .finally(schedule);
+    };
+    // Первые секунды после готовности — строкам стола и подпискам, не коду меню.
+    const start = window.setTimeout(schedule, 2500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(start);
+      if (idleHandle !== null) w.cancelIdleCallback?.(idleHandle);
+      if (timerHandle !== null) window.clearTimeout(timerHandle);
+    };
+  }, [signedIn, profileResolved, dataReady]);
+
+  return null;
+}
 
 /**
  * Route guard. Branches on the bootstrap PHASE, never on a raw isLoading
@@ -87,6 +225,7 @@ function AppShell() {
 
   return (
     <BrowserRouter>
+      <StartupPreloader />
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route

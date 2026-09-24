@@ -1,4 +1,4 @@
-import { getDoc, getDocs, onSnapshot, runTransaction, setDoc } from "firebase/firestore";
+import { getDoc, getDocs, onSnapshot, query, runTransaction, setDoc, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, subscribeToDoc } from "@/firebase/firestore";
 import {
@@ -89,29 +89,41 @@ export function subscribeToOwnJoinRequest(
   return subscribeToDoc<JoinRequest>(paths.joinRequest(workspaceId, uid), onData);
 }
 
-/** Owner-only: list of everyone currently waiting to be let in. */
-export async function fetchJoinRequests(workspaceId: string): Promise<JoinRequest[]> {
-  const snap = await getDocs(paths.joinRequests(workspaceId));
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }) as unknown as JoinRequest)
+/**
+ * Только заявки «на рассмотрении». Раньше выборка шла по всей коллекции и
+ * отсеивала рассмотренные на клиенте: у руководства («Ждут вас» на дашборде,
+ * «Пользователи») каждый холодный вход читал все заявки за всё время, хотя
+ * показываются только ждущие. Правило чтения — `hasFullAccess` (Owner и
+ * Тимлид) — от фильтра не зависит; одно равенство составного индекса не просит.
+ */
+function pendingJoinRequestsQuery(workspaceId: string) {
+  return query(paths.joinRequests(workspaceId), where("status", "==", "pending"));
+}
+
+function mapPending(docs: { id: string; data: () => unknown }[]): JoinRequest[] {
+  return docs
+    .map((d) => ({ id: d.id, ...(d.data() as object) }) as unknown as JoinRequest)
     .filter((r) => r.status === "pending")
     .sort((a, b) => a.requestedAt - b.requestedAt);
 }
 
+/** Owner-only: list of everyone currently waiting to be let in. */
+export async function fetchJoinRequests(workspaceId: string): Promise<JoinRequest[]> {
+  const snap = await getDocs(pendingJoinRequestsQuery(workspaceId));
+  return mapPending(snap.docs);
+}
 
 export function subscribeJoinRequests(workspaceId: string, cb: (rows: JoinRequest[]) => void) {
   if (!db) {
     cb([]);
     return () => {};
   }
-  return onSnapshot(paths.joinRequests(workspaceId), (snap) => {
-    cb(
-      snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }) as unknown as JoinRequest)
-        .filter((r) => r.status === "pending")
-        .sort((a, b) => a.requestedAt - b.requestedAt)
-    );
-  });
+  return onSnapshot(
+    pendingJoinRequestsQuery(workspaceId),
+    (snap) => cb(mapPending(snap.docs)),
+    // Отказ — это «не знаем», а не «заявок нет»: последний список остаётся.
+    (error) => console.error("subscribeJoinRequests denied:", error.code, error.message)
+  );
 }
 
 /**

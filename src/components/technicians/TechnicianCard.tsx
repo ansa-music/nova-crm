@@ -3,8 +3,10 @@ import { Link } from "react-router";
 import { AtSign, ChevronRight, Loader2, MessageCircle, PackageCheck, Star, Trash2 } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { RatingScorePair } from "@/components/technicians/RatingScore";
+import { usePresenceMap } from "@/hooks/usePresenceMap";
 import { StarRating } from "@/components/technicians/StarRating";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useWorkspaceStore } from "@/store/workspaceStore";
 import { cn } from "@/utils/cn";
 import { formatOrderDate, timeAgo } from "@/utils/date";
 import { personLabel } from "@/utils/peopleDesks";
@@ -227,7 +229,12 @@ function MiniScore({ kind, average }: { kind: "overall" | "orders"; average: num
 export function TechnicianCard(props: TechnicianCardProps) {
   const [open, setOpen] = useState(false);
   const { member, isMe, desks, busy, summary, breakdown, myOrders, rating, orderRating, rater, dayOff, todayHours } = props;
-  const presence = member.lastActiveAt ? getPresenceStatus(member.lastActiveAt) : "offline";
+  // «В сети» — max(Firestore, Supabase). Выборка общая на вкладку (кэш в
+  // presenceService), десяток карточек не множит запросы.
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+  const presenceAt = usePresenceMap(workspaceId);
+  const lastActiveAt = presenceAt(member);
+  const presence = lastActiveAt ? getPresenceStatus(lastActiveAt) : "offline";
   const name = personLabel(member) || member.email || "—";
   const noDesk = desks.length === 0;
   const mineCount = myOrders?.summary.total ?? 0;
@@ -264,8 +271,8 @@ export function TechnicianCard(props: TechnicianCardProps) {
             <span
               className={cn("absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card", PRESENCE_DOT_COLOR[presence])}
               title={
-                member.lastActiveAt
-                  ? `${PRESENCE_LABEL[presence]} · заходил(а) ${timeAgo(member.lastActiveAt)}`
+                lastActiveAt
+                  ? `${PRESENCE_LABEL[presence]} · заходил(а) ${timeAgo(lastActiveAt)}`
                   : PRESENCE_LABEL[presence]
               }
             />

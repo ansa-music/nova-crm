@@ -3,7 +3,6 @@ import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
 import { scheduleRequestId, techScheduleId, type ScheduleRequest } from "@/types";
 
-/** Запросы на отметку за месяц. Читают все участники — список висит только на «Графике». */
 /**
  * Все запросы «на рассмотрении» — без привязки к месяцу. Это список
  * руководства: запрос за 30-е, поданный вечером, 1-го числа исчезал из
@@ -28,18 +27,27 @@ export function subscribePendingScheduleRequests(
   );
 }
 
-export function subscribeScheduleRequests(
+/**
+ * СВОИ запросы на отметку за месяц — для тех, кто подаёт запрос сам (технарь,
+ * ОС): «ваш запрос на рассмотрении». Раньше выборка шла по всему месяцу, и
+ * каждый открывший «График» читал запросы ВСЕХ людей, хотя показывал только
+ * свой. Два равенства сервер собирает без составного индекса; правило чтения
+ * (`isMember`) от фильтра не зависит. Руководство видит чужие запросы через
+ * `subscribePendingScheduleRequests`.
+ */
+export function subscribeMyScheduleRequests(
   workspaceId: string,
+  uid: string,
   monthKey: string,
   onData: (requests: ScheduleRequest[]) => void,
   onError?: (error: FirestoreError) => void
 ) {
-  if (!db) {
+  if (!db || !uid) {
     onData([]);
     return () => {};
   }
   return onSnapshot(
-    query(paths.scheduleRequestsAll(workspaceId), where("monthKey", "==", monthKey)),
+    query(paths.scheduleRequestsAll(workspaceId), where("uid", "==", uid), where("monthKey", "==", monthKey)),
     (snapshot) => onData(snapshot.docs.map((d) => ({ ...(d.data() as ScheduleRequest), id: d.id }))),
     withErrorReporting(onError)
   );

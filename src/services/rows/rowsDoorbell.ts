@@ -131,12 +131,18 @@ async function send(topic: string, tabs: string[]) {
       await room.channel.send({ type: "broadcast", event: RING_EVENT, payload });
       return;
     }
+    // Комната ещё подключается: realtime-js на тот же topic вернул бы ЕЁ канал,
+    // и removeChannel ниже отписал бы слушателя. Шлём через него по REST.
+    if (room) {
+      await room.channel.httpSend(RING_EVENT, payload);
+      return;
+    }
     // Стол у себя не открыт (ОС пишет заказ в стол технаря) — по REST, без подписки.
     const channel = target.channel(topic);
     try {
       await channel.httpSend(RING_EVENT, payload);
     } finally {
-      void target.removeChannel(channel);
+      if (rooms.get(topic)?.channel !== channel) void target.removeChannel(channel);
     }
   } catch {
     // Звонок не дошёл — у остальных сработает опрос отметки таблицы.

@@ -1,6 +1,7 @@
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { DESK_ROWS_CONFLICT, DESK_ROWS_TABLE, supabaseRows } from "@/lib/supabaseRows";
 import { listenRowsDoorbell, ringRowsDoorbell } from "@/services/rows/rowsDoorbell";
+import { dropRowSnapshot, readRowSnapshot, writeRowSnapshot } from "@/services/rows/rowSnapshotCache";
 import { toast } from "@/components/ui/sonner";
 import type { PageRow, RowAttachment } from "@/types";
 
@@ -43,6 +44,13 @@ interface DeskRowRecord {
   sync_hash: string | null;
   success_requested_at: number | null;
   success_requested_by: string | null;
+  /**
+   * Номер правки строки (20260929_desk_rows_rev.sql): ставит триггер базы на
+   * каждой вставке и правке. Клиент его НЕ пишет (rowToRecord его не кладёт) —
+   * только читает: по нему дочитывается дельта и узнаётся неизменная строка.
+   * Нет в записи — SQL ещё не накатан.
+   */
+  rev?: number | null;
 }
 
 /**
@@ -172,6 +180,176 @@ async function fetchTableStamp(workspaceId: string, pageId: string, tabId: strin
     throw toStoreError(error, "Не удалось сверить таблицу");
   }
   return typeof data === "string" ? data : null;
+}
+
+/**
+ * «Голова» таблицы (20260929_desk_rows_rev.sql): число строк, наибольший
+ * `rev` и md5 пар `id:rev` по порядку id. Считается под политиками
+ * спрашивающего. Содержимого строк в ней нет — `rev` и так меняется при
+ * любой правке, поэтому совпавшая голова значит «у меня ровно то же, что в
+ * базе», а разошедшаяся — удаление, обгон фиксаций или сменившиеся права.
+ */
+interface TableHead {
+  count: number;
+  rev: number;
+  ids: string;
+}
+
+interface TableDelta extends TableHead {
+  rows: DeskRowRecord[];
+  /** Изменений больше лимита — дешевле перечитать таблицу обычной выборкой. */
+  more: boolean;
+}
+
+/** Нет функции/колонки — SQL 20260929 ещё не накатан, работаем по-старому. */
+function isMissingRevSql(error: { code?: string } | null): boolean {
+  const code = error?.code ?? "";
+  return code === "PGRST202" || code === "42883" || code === "42703" || code === "PGRST204";
+}
+
+function parseHead(data: unknown): TableHead | null {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const value = data as Record<string, unknown>;
+  const count = Number(value.count);
+  const rev = Number(value.rev);
+  if (!Number.isFinite(count) || !Number.isFinite(rev) || typeof value.ids !== "string") return null;
+  return { count, rev, ids: value.ids };
+}
+
+/** Голова таблицы или null, если в базе нет функции (или ответ не того вида — тогда по-старому). */
+async function fetchTableHead(workspaceId: string, pageId: string, tabId: string): Promise<TableHead | null> {
+  const { data, error } = await supabaseRows.rpc("rows_table_head", {
+    p_workspace: workspaceId,
+    p_page: pageId,
+    p_tab: tabId,
+  });
+  if (error) {
+    if (isMissingRevSql(error)) return null;
+    throw toStoreError(error, "Не удалось сверить таблицу");
+  }
+  return parseHead(data);
+}
+
+/** Сколько изменённых строк берём дельтой; больше — полная выборка. */
+const DELTA_LIMIT = 500;
+
+/**
+ * Строки с `rev > after` и голова — одним запросом, из одного снимка базы
+ * (раздельные запросы расходились бы на правку между ними). null — функции нет.
+ */
+async function fetchTableDelta(
+  workspaceId: string,
+  pageId: string,
+  tabId: string,
+  after: number
+): Promise<TableDelta | null> {
+  const { data, error } = await supabaseRows.rpc("rows_table_delta", {
+    p_workspace: workspaceId,
+    p_page: pageId,
+    p_tab: tabId,
+    p_after: after,
+    p_limit: DELTA_LIMIT,
+  });
+  if (error) {
+    if (isMissingRevSql(error)) return null;
+    throw toStoreError(error, "Не удалось дочитать строки");
+  }
+  const head = parseHead(data);
+  const value = data as { rows?: unknown; more?: unknown } | null;
+  if (!head || !Array.isArray(value?.rows)) return null;
+  return { ...head, rows: value.rows as DeskRowRecord[], more: value.more === true };
+}
+
+/**
+ * Сравнение строк по кодовым точкам — это порядок байт UTF-8, то есть
+ * `collate "C"` в голове таблицы. Обычный `<` сравнивает единицы UTF-16 и
+ * разошёлся бы с базой на символах за пределами BMP.
+ */
+function compareCodePoints(a: string, b: string): number {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    const x = a.codePointAt(i)!;
+    const y = b.codePointAt(i)!;
+    if (x !== y) return x - y;
+    if (x > 0xffff) i++;
+  }
+  return a.length - b.length;
+}
+
+const MD5_S = [
+  7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 4, 11,
+  16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+];
+const MD5_K = Array.from({ length: 64 }, (_, i) => Math.floor(Math.abs(Math.sin(i + 1)) * 2 ** 32) >>> 0);
+
+/**
+ * md5 строки (в байтах UTF-8) — тот же, что `md5()` в Postgres: им стол
+ * сверяет свою голову с головой базы. WebCrypto md5 не умеет, а тащить ради
+ * одной функции библиотеку незачем.
+ */
+export function md5Hex(input: string): string {
+  const bytes = new TextEncoder().encode(input);
+  const length = bytes.length;
+  const blocks = ((length + 8) >>> 6) + 1;
+  const words = new Uint32Array(blocks * 16);
+  for (let i = 0; i < length; i++) words[i >> 2] |= bytes[i] << ((i % 4) * 8);
+  words[length >> 2] |= 0x80 << ((length % 4) * 8);
+  words[blocks * 16 - 2] = (length * 8) >>> 0;
+  words[blocks * 16 - 1] = Math.floor(length / 0x20000000);
+  let a0 = 0x67452301;
+  let b0 = 0xefcdab89 | 0;
+  let c0 = 0x98badcfe | 0;
+  let d0 = 0x10325476;
+  for (let block = 0; block < words.length; block += 16) {
+    let a = a0;
+    let b = b0;
+    let c = c0;
+    let d = d0;
+    for (let j = 0; j < 64; j++) {
+      let f: number;
+      let g: number;
+      if (j < 16) {
+        f = (b & c) | (~b & d);
+        g = j;
+      } else if (j < 32) {
+        f = (d & b) | (~d & c);
+        g = (5 * j + 1) % 16;
+      } else if (j < 48) {
+        f = b ^ c ^ d;
+        g = (3 * j + 5) % 16;
+      } else {
+        f = c ^ (b | ~d);
+        g = (7 * j) % 16;
+      }
+      const next = d;
+      d = c;
+      c = b;
+      const sum = (a + f + MD5_K[j] + words[block + g]) | 0;
+      b = (b + ((sum << MD5_S[j]) | (sum >>> (32 - MD5_S[j])))) | 0;
+      a = next;
+    }
+    a0 = (a0 + a) | 0;
+    b0 = (b0 + b) | 0;
+    c0 = (c0 + c) | 0;
+    d0 = (d0 + d) | 0;
+  }
+  let hex = "";
+  for (const word of [a0, b0, c0, d0]) {
+    for (let k = 0; k < 4; k++) hex += ((word >>> (8 * k)) & 0xff).toString(16).padStart(2, "0");
+  }
+  return hex;
+}
+
+/** Голова набора записей — так же, как её считает rows_table_head. */
+function headOf(records: Iterable<DeskRowRecord>): TableHead {
+  const list = [...records];
+  let rev = 0;
+  for (const record of list) rev = Math.max(rev, Number(record.rev ?? 0) || 0);
+  const parts = list
+    .map((record) => ({ id: record.id, part: `${record.id}:${Number(record.rev ?? 0) || 0}` }))
+    .sort((x, y) => compareCodePoints(x.id, y.id))
+    .map((entry) => entry.part);
+  return { count: list.length, rev, ids: parts.length > 0 ? md5Hex(parts.join(",")) : "" };
 }
 
 const PAGE_SIZE = 1000;
@@ -362,6 +540,12 @@ interface Overlay {
   remaining: Set<string> | null;
   /** Когда запись подтвердил сервер; null — ещё в пути. */
   committedAt: number | null;
+  /**
+   * Правка удаляет строки ('all' — всю таблицу). Дельта удалений не
+   * привозит, и без этой подсказки каждое своё удаление кончалось бы полной
+   * перечиткой стола; подсказку всё равно проверяет голова таблицы.
+   */
+  deletes?: string[] | "all";
 }
 
 /** Подтверждённая правка держится поверх не дольше этого — дальше верим серверу. */
@@ -477,12 +661,13 @@ async function optimistic<T>(
   tab: string | null | undefined,
   op: Op,
   rowIds: string[] | null,
-  write: () => Promise<T>
+  write: () => Promise<T>,
+  deletes?: string[] | "all"
 ): Promise<T> {
   const id = ++opSeq;
   const targets = tablesFor(workspaceId, pageId, tab);
   for (const t of targets) {
-    t.overlays.set(id, { op, remaining: rowIds ? new Set(rowIds) : null, committedAt: null });
+    t.overlays.set(id, { op, remaining: rowIds ? new Set(rowIds) : null, committedAt: null, deletes });
     t.pending += 1;
     t.refresh();
   }
@@ -592,31 +777,76 @@ function applyPatch(row: PageRow, patch: RowPatch, updatedAt: number | null): Pa
 const REQUIRED_KEYS: (keyof DeskRowRecord)[] = ["cells", "sort_order", "created_at", "updated_at"];
 
 /**
- * Живые строки таблицы: полная выборка + изменения через Realtime + свои
- * правки поверх (см. Overlay).
+ * Запас курсора дельты: номер `rev` берётся из последовательности в начале
+ * записи, а виден становится при фиксации — правка с МЕНЬШИМ номером может
+ * зафиксироваться позже большей («обгон фиксаций»). Поэтому дочитываем не
+ * от последнего увиденного номера, а от того, что был виден ≥10 с назад: за
+ * это время любая запись (миллисекунды) успевает зафиксироваться. Что всё же
+ * проскочит — поймает голова таблицы (md5 пар id:rev) и полная выборка.
+ * `updated_at` курсором не годится: это часы разных устройств.
+ */
+const REV_LAG_MS = 10_000;
+/**
+ * Звонки живы — опрос головы редкий: он лишь страховка от потерянного звонка
+ * и записей в обход клиента (SQL-редактор). Без звонков — как раньше, 15 с.
+ */
+const HEAD_POLL_WITH_DOORBELL_MS = 60_000;
+/**
+ * Столы (`ws:page:tab`), чей снимок с диска уже рисовался, а право читать
+ * сервер ещё не подтвердил (строками или rows_page_access). Живёт дольше
+ * одной подписки: страница по непустому снимку уже сочла доступ
+ * подтверждённым (usePageRows запоминает это на ключ стола), и после
+ * «Повторить» новая подписка — уже без снимка, его стёрли — отдала бы
+ * пустоту без прав как настоящую таблицу, а публикатор записал бы нули в
+ * «Технари». Пока ключ здесь, пустота с сервера сверяется с правами.
+ */
+const unverifiedSnapshots = new Set<string>();
+/**
+ * Канал Postgres Changes в проде не поднимается (токен Firebase без claim
+ * `role`): он лишь бесконечно переподключается и держит второй сокет на
+ * вкладку. Открываем его только по флагу на устройстве — для проверки, когда
+ * claim появится (задача обмена токена).
+ */
+const PG_CHANGES_FLAG = "nova:sb-pg-changes";
+
+function pgChangesEnabled(): boolean {
+  try {
+    return typeof window !== "undefined" && window.localStorage.getItem(PG_CHANGES_FLAG) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Живые строки таблицы: снимок с диска → выборка → дочитывание дельтой по
+ * `rev` + свои правки поверх (см. Overlay).
  *
- * События применяются в порядке ПРИХОДА — так их и отдаёт Postgres, в порядке
- * фиксации. Сравнивать `updated_at` нельзя: это `Date.now()` разных
- * устройств, и отстающие часы у одного человека выбрасывали бы его правки у
- * всех остальных. Событие, пришедшее, пока идёт выборка, не накладывается на
- * неё (выборка могла оказаться и новее, и старее) — выборка просто
- * повторяется.
+ * Открытие. Есть снимок стола в IndexedDB (rowSnapshotCache) — он рисуется
+ * сразу с `fromServer = false` (рисовать можно, решать нельзя: публикация
+ * счётчиков ждёт сервера), и с сервера дочитывается только `rev > курсор`
+ * снимка. Нет снимка — обычная выборка всей таблицы.
  *
- * Событие правки НАКЛАДЫВАЕТСЯ на сохранённую запись строки, а не заменяет
- * её: большое jsonb-значение (ячейки длинной строки, вложения), которое
- * правка не тронула, Postgres хранит отдельно (TOAST) и в событие НЕ кладёт —
- * замена стёрла бы у строки все ячейки до следующей выборки. Нет сохранённой
- * записи и в событии не хватает полей — выборка.
+ * Дальше таблица НЕ перечитывается целиком ни после своей правки, ни на
+ * чужой звонок: одна дельта `rows_table_delta` (изменённые строки + голова
+ * из того же снимка базы). Своя голова (число строк и md5 пар id:rev) не
+ * сошлась с головой базы — было удаление, обгон фиксаций или сменились права
+ * — тогда полная выборка. Возврат на вкладку и опрос спрашивают только
+ * голову (десятки байт) и дочитывают, лишь если она разошлась.
  *
- * Удаления слушаются ОТДЕЛЬНО и без фильтра: в Supabase фильтр по столбцу на
- * DELETE не действует, и отфильтрованная подписка удалений не получает —
- * удалённая строка возвращалась бы при следующем событии. В событии удаления
- * только первичный ключ (workspace, стол, вкладка, id) — по нему и сверяем.
+ * Нет колонки `rev` или функций (SQL 20260929 не накатан) — всё по-старому:
+ * полная выборка + отметка таблицы (`rows_table_stamp`).
  *
- * Выборка делается при каждом (пере)подключении канала, при возврате на
- * вкладку и после своих правок, если канал не подключён. Не прочиталось —
- * `onError` и повтор через 3 → 6 → … 30 с; строк прошлой таблицы при этом
- * никто не увидит — `onData` просто не зовётся.
+ * События Realtime (только с флагом PG_CHANGES_FLAG) применяются в порядке
+ * ПРИХОДА — так их и отдаёт Postgres, в порядке фиксации. Сравнивать
+ * `updated_at` нельзя: это `Date.now()` разных устройств, и отстающие часы у
+ * одного человека выбрасывали бы его правки у всех остальных. Событие,
+ * пришедшее, пока идёт выборка, не накладывается на неё — выборка
+ * повторяется. Событие правки НАКЛАДЫВАЕТСЯ на сохранённую запись строки:
+ * большое jsonb (TOAST) Postgres в событие не кладёт. Удаления слушаются
+ * ОТДЕЛЬНО и без фильтра: фильтр по столбцу на DELETE в Supabase не действует.
+ *
+ * Не прочиталось — `onError` и повтор через 3 → 6 → … 30 с; строк прошлой
+ * таблицы при этом никто не увидит — `onData` просто не зовётся.
  */
 export function sbSubscribeRows(
   workspaceId: string,
@@ -627,11 +857,20 @@ export function sbSubscribeRows(
 ): () => void {
   const tabId = tabKey(tab);
   let cancelled = false;
+  /** Строки есть (со снимка или с сервера) — можно рисовать. */
   let loaded = false;
+  /**
+   * Сервер уже ответил. До этого строки — со снимка, и `onData` получает
+   * `fromServer = false`: как `fromCache` у Firestore, по ним не решают.
+   */
+  let serverConfirmed = false;
+  /** Снимок был непустым — первая пустота с сервера требует проверки прав (см. load). */
+  let snapshotHadRows = false;
   let serverRecords = new Map<string, DeskRowRecord>();
   let serverRows: RowsMap = new Map();
   let loading = false;
-  let reloadQueued = false;
+  /** Что сделать после текущей выборки: дочитать дельту или перечитать целиком. */
+  let queued: "delta" | "full" | null = null;
   let channelHealthy = false;
   let liveWarnTimer: ReturnType<typeof setTimeout> | null = null;
   let retryDelay = 3000;
@@ -640,12 +879,25 @@ export function sbSubscribeRows(
   let sweepTimer: ReturnType<typeof setTimeout> | null = null;
   let emitTimer: ReturnType<typeof setTimeout> | null = null;
   let stampTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Отметка таблицы на момент последней выборки (см. STAMP_POLL_MS). */
+  /** Отметка таблицы на момент последней выборки (старый путь, см. STAMP_POLL_MS). */
   let lastStamp: string | null = null;
   /** В базе нет `rows_table_stamp` — страховку не зовём. */
   let stampMissing = false;
   /** Канал «звонков» поднят — чужие правки доезжают сразу и без Postgres Changes. */
   let doorbellReady = false;
+  /**
+   * Есть ли в базе `rev` и функции головы/дельты: "unknown" — ещё не ясно
+   * (пустой стол), "off" — SQL 20260929 не накатан, работаем по-старому.
+   */
+  let revMode: "unknown" | "on" | "off" = "unknown";
+  /** Наибольший `rev` таблицы и когда он был увиден — для курсора с запасом (REV_LAG_MS). */
+  let checkpoints: { at: number; rev: number }[] = [];
+  /** Своя голова по serverRecords; сбрасывается при каждом их изменении. */
+  let headMemo: TableHead | null = null;
+
+  const snapKey = `${workspaceId}:${pageId}:${tabId}`;
+  /** Пустоту с сервера отдавать, только сверив права (см. unverifiedSnapshots). */
+  const emptyNeedsAccessCheck = () => !serverConfirmed && (snapshotHadRows || unverifiedSnapshots.has(snapKey));
 
   const inScope = (record: Partial<DeskRowRecord>) =>
     record.workspace_id === workspaceId && record.page_id === pageId && (record.tab_id ?? "") === tabId;
@@ -660,10 +912,10 @@ export function sbSubscribeRows(
     refresh: () => emit(),
     settled: () => {
       scheduleSweep();
-      // Канал не подключён — события не придут, правку подтвердит выборка.
+      // Канал не подключён — события не придут, правку подтвердит дочитывание.
       if (table.pending === 0 && !channelHealthy) scheduleReload();
     },
-    reload: () => void load(),
+    reload: () => void sync(),
   };
 
   function emit() {
@@ -674,7 +926,7 @@ export function sbSubscribeRows(
     if (cancelled || !loaded) return;
     const view: RowsMap = new Map(serverRows);
     for (const id of [...table.overlays.keys()].sort((a, b) => a - b)) table.overlays.get(id)!.op(view);
-    onData([...view.values()].sort((a, b) => a.order - b.order || a.createdAt - b.createdAt), true);
+    onData([...view.values()].sort((a, b) => a.order - b.order || a.createdAt - b.createdAt), serverConfirmed);
   }
 
   function emitSoon() {
@@ -693,6 +945,61 @@ export function sbSubscribeRows(
     }
   }
 
+  /**
+   * Прежний объект строки, если `rev` не изменился: memo строк таблицы
+   * сравнивает поля по ссылке, и новые объекты на каждую выборку
+   * перерисовывали весь стол из-за правки одной ячейки.
+   */
+  function rowFor(record: DeskRowRecord): PageRow {
+    const prev = serverRecords.get(record.id);
+    const prevRow = serverRows.get(record.id);
+    if (prev && prevRow && record.rev != null && prev.rev === record.rev) return prevRow;
+    return recordToRow(record);
+  }
+
+  function replaceAll(records: DeskRowRecord[]) {
+    const nextRows: RowsMap = new Map();
+    for (const record of records) nextRows.set(record.id, rowFor(record));
+    serverRecords = new Map(records.map((record) => [record.id, record]));
+    serverRows = nextRows;
+    headMemo = null;
+  }
+
+  function localHead(): TableHead {
+    if (!headMemo) headMemo = headOf(serverRecords.values());
+    return headMemo;
+  }
+
+  /** Наибольший увиденный `rev` — отметка для курсора (см. REV_LAG_MS). */
+  function checkpoint() {
+    const now = Date.now();
+    checkpoints.push({ at: now, rev: localHead().rev });
+    // Храним свежие отметки и одну — самую новую из «отстоявшихся».
+    const settled = checkpoints.filter((c) => c.at <= now - REV_LAG_MS);
+    const fresh = checkpoints.filter((c) => c.at > now - REV_LAG_MS);
+    const best = settled.reduce<{ at: number; rev: number } | null>((acc, c) => (!acc || c.rev > acc.rev ? c : acc), null);
+    checkpoints = best ? [best, ...fresh] : fresh;
+  }
+
+  /** Курсор дельты: наибольший `rev`, увиденный ≥10 с назад (иначе самый ранний из свежих). */
+  function deltaCursor(): number {
+    const limit = Date.now() - REV_LAG_MS;
+    let best: number | null = null;
+    for (const c of checkpoints) if (c.at <= limit) best = Math.max(best ?? 0, c.rev);
+    if (best !== null) return best;
+    return checkpoints.length > 0 ? Math.min(...checkpoints.map((c) => c.rev)) : 0;
+  }
+
+  function saveSnapshot() {
+    if (revMode !== "on" || !serverConfirmed) return;
+    // Снимок собирается в момент записи (после паузы) — самый свежий. Пустой стол модуль снимков стирает.
+    writeRowSnapshot<DeskRowRecord>(workspaceId, pageId, tabId, () => ({
+      records: [...serverRecords.values()],
+      cursor: deltaCursor(),
+      savedAt: Date.now(),
+    }));
+  }
+
   function scheduleSweep() {
     // Ушли со стола — таймер ставить некому снимать: запись, начатая до ухода,
     // в своём `finally` зовёт эту функцию уже после очистки подписки.
@@ -707,12 +1014,12 @@ export function sbSubscribeRows(
           table.overlays.delete(id);
           changed = true;
           // Сервер так и не показал правку (события потерялись или их не
-          // бывает — порядок несдвинутых строк): сверяемся выборкой, а не
+          // бывает — порядок несдвинутых строк): сверяемся с базой, а не
           // откатываем экран к тому, что было до правки.
           if (overlay.remaining === null || overlay.remaining.size > 0) unconfirmed = true;
         }
       }
-      if (unconfirmed) void load();
+      if (unconfirmed) void sync();
       else if (changed) emit();
       if ([...table.overlays.values()].some((o) => o.committedAt !== null)) scheduleSweep();
     }, OVERLAY_TTL_MS);
@@ -723,8 +1030,21 @@ export function sbSubscribeRows(
     if (reloadTimer) clearTimeout(reloadTimer);
     reloadTimer = setTimeout(() => {
       reloadTimer = null;
-      if (table.pending === 0) void load();
+      if (table.pending === 0) void sync();
     }, 300);
+  }
+
+  /** Сверка с базой: дельтой, если она есть в базе, иначе полной выборкой. */
+  function sync(): Promise<void> {
+    return revMode !== "off" && loaded ? syncDelta() : load();
+  }
+
+  function runQueued() {
+    const next = queued;
+    queued = null;
+    if (cancelled || !next) return;
+    if (next === "full") void load();
+    else void syncDelta();
   }
 
   /** true — изменились строки; "reload" — события не хватает, нужна выборка. */
@@ -734,6 +1054,7 @@ export function sbSubscribeRows(
       if (!old.id) return false;
       dropConfirmed(old.id);
       serverRecords.delete(old.id);
+      headMemo = null;
       return serverRows.delete(old.id);
     }
     const next = payload.new;
@@ -741,8 +1062,9 @@ export function sbSubscribeRows(
     const defined = Object.fromEntries(Object.entries(next).filter(([, v]) => v !== undefined)) as Partial<DeskRowRecord>;
     const merged = { ...(serverRecords.get(next.id) ?? {}), ...defined } as DeskRowRecord;
     if (REQUIRED_KEYS.some((key) => merged[key] === undefined)) return "reload";
+    serverRows.set(next.id, rowFor(merged));
     serverRecords.set(next.id, merged);
-    serverRows.set(next.id, recordToRow(merged));
+    headMemo = null;
     dropConfirmed(next.id);
     return true;
   }
@@ -755,7 +1077,7 @@ export function sbSubscribeRows(
     const record = payload.eventType === "DELETE" ? payload.old : payload.new;
     if (!record || !inScope(record)) return;
     if (loading) {
-      reloadQueued = true;
+      queued = "full";
       return;
     }
     const result = apply(payload);
@@ -763,37 +1085,80 @@ export function sbSubscribeRows(
     else if (result) emitSoon();
   }
 
+  /** Полная выборка таблицы (первое открытие без снимка, расхождение головы, старый SQL). */
   async function load() {
     if (cancelled) return;
     if (loading) {
-      reloadQueued = true;
+      queued = "full";
       return;
     }
     loading = true;
-    reloadQueued = false;
+    queued = null;
     // Подтверждённые ДО начала выборки правки выборка уже содержит.
     const confirmedBefore = [...table.overlays].filter(([, o]) => o.committedAt !== null).map(([id]) => id);
-    // Отметку берём ДО выборки: правка между ними попадёт в строки, а отметка
-    // окажется старой — следующий тик лишний раз перечитает, но не пропустит.
-    // Наоборот (после выборки) правка между ними потерялась бы до следующей.
-    // При живом канале отметка не нужна (события приходят сами) — лишний запрос не делаем.
-    const stampBefore =
-      stampMissing || channelHealthy ? null : await fetchTableStamp(workspaceId, pageId, tabId).catch(() => null);
+    // Отметка таблицы нужна только старому пути (нет `rev`) и только без живого канала.
+    const wantStamp = revMode !== "on" && !stampMissing && !channelHealthy;
     try {
       // Пустой стол без прав здесь не ошибка: «права ещё не доехали» различает
       // сама страница (usePageRows → sbPageAccess), не дёргая проверку на каждом повторе.
-      const records = await fetchTableRecords();
+      let stampBefore: string | null = null;
+      let records: DeskRowRecord[];
+      if (!wantStamp) {
+        records = await fetchTableRecords();
+      } else if (!loaded) {
+        // Первое открытие: отметку — ПАРАЛЛЕЛЬНО с выборкой, а не лишним
+        // запросом перед ней (+1 RTT на каждом открытии стола). Правка между
+        // ними, если отметка окажется новее строк, догонит звонок или
+        // следующая правка; с `rev` отметка не нужна вовсе.
+        const [stamp, fetched] = await Promise.all([
+          fetchTableStamp(workspaceId, pageId, tabId).catch(() => null),
+          fetchTableRecords(),
+        ]);
+        stampBefore = stamp;
+        records = fetched;
+      } else {
+        // Отметку берём ДО выборки: правка между ними попадёт в строки, а отметка
+        // окажется старой — следующий тик лишний раз перечитает, но не пропустит.
+        stampBefore = await fetchTableStamp(workspaceId, pageId, tabId).catch(() => null);
+        records = await fetchTableRecords();
+      }
       if (cancelled) return;
-      serverRecords = new Map(records.map((record) => [record.id, record]));
-      serverRows = new Map(records.map((record) => [record.id, recordToRow(record)]));
+      if (revMode === "unknown" && records.length > 0) revMode = records.some((r) => r.rev !== undefined) ? "on" : "off";
+      // Снимок с диска показал строки (в этой подписке или в прошлой — см.
+      // unverifiedSnapshots), а сервер — пустоту. Страница по непустому
+      // снимку уже сочла право читать подтверждённым, и эта пустота ушла бы
+      // в «Технари» нулями. Пустоту отдаём, только если читать можно.
+      if (records.length === 0 && emptyNeedsAccessCheck()) {
+        const access = await sbPageAccess(workspaceId, pageId);
+        if (cancelled) return;
+        if (!access.canRead) {
+          // Ключ в unverifiedSnapshots остаётся: и «Повторить» проверит снова.
+          dropRowSnapshot(workspaceId, pageId, tabId);
+          throw new RowsStoreError(
+            access.hasAcl ? "Нет доступа к строкам этого стола" : "Права на этот стол ещё не доехали до базы строк",
+            access.hasAcl ? "permission-denied" : "unavailable"
+          );
+        }
+      }
+      // Сервер ответил строками (или rows_page_access разрешил) — право подтверждено.
+      unverifiedSnapshots.delete(snapKey);
+      replaceAll(records);
       lastStamp = stampBefore;
       for (const id of confirmedBefore) table.overlays.delete(id);
       loaded = true;
+      serverConfirmed = true;
       retryDelay = 3000;
+      if (revMode === "on") {
+        checkpoint();
+        saveSnapshot();
+      }
       emit();
     } catch (error) {
       if (cancelled) return;
       onError?.(error instanceof RowsStoreError ? error : toStoreError(null, String(error)));
+      // Повтор ниже и так перечитает целиком: отложенная сверка (звонок во
+      // время выборки) не должна обходить паузу 3 → 30 с.
+      queued = null;
       if (retryTimer) clearTimeout(retryTimer);
       retryTimer = setTimeout(() => {
         retryTimer = null;
@@ -802,7 +1167,91 @@ export function sbSubscribeRows(
       retryDelay = Math.min(retryDelay * 2, 30_000);
     } finally {
       loading = false;
-      if (reloadQueued && !cancelled) void load();
+      runQueued();
+    }
+  }
+
+  /**
+   * Дочитать изменённое: `rev > курсор` и голова одним запросом. Своя голова
+   * после слияния совпала с головой базы — таблица сверена (как полной
+   * выборкой, но за 1–2 строки); не совпала — полная выборка.
+   */
+  async function syncDelta() {
+    if (cancelled) return;
+    if (revMode === "off" || !loaded) {
+      void load();
+      return;
+    }
+    if (loading) {
+      if (queued !== "full") queued = "delta";
+      return;
+    }
+    loading = true;
+    queued = null;
+    const confirmed = [...table.overlays].filter(([, o]) => o.committedAt !== null);
+    let fallback = false;
+    try {
+      const delta = await fetchTableDelta(workspaceId, pageId, tabId, deltaCursor());
+      if (cancelled) return;
+      if (delta === null) {
+        // SQL 20260929 не накатан (или откатили) — дальше по-старому.
+        revMode = "off";
+        fallback = true;
+        return;
+      }
+      revMode = "on";
+      // Долго не были на столе — изменений много; пустота после непустого
+      // снимка — через полную выборку, там она сверяется с правами.
+      if (delta.more || (delta.count === 0 && emptyNeedsAccessCheck())) {
+        fallback = true;
+        return;
+      }
+      // Перерисовка — только если что-то поменялось: пустая дельта (звонок
+      // без изменений, опрос) не должна дёргать весь стол.
+      let changed = !serverConfirmed || confirmed.length > 0 || delta.rows.length > 0;
+      // Свои подтверждённые удаления — сразу: дельта удалений не привозит.
+      // Ошиблись — голова не сойдётся, и будет полная выборка.
+      for (const [, overlay] of confirmed) {
+        if (overlay.deletes === "all") {
+          serverRecords.clear();
+          serverRows.clear();
+          changed = true;
+        } else if (overlay.deletes) {
+          for (const id of overlay.deletes) {
+            serverRecords.delete(id);
+            if (serverRows.delete(id)) changed = true;
+          }
+        }
+      }
+      for (const record of delta.rows) {
+        if (!record?.id || !inScope(record)) continue;
+        serverRows.set(record.id, rowFor(record));
+        serverRecords.set(record.id, record);
+      }
+      headMemo = null;
+      const mine = localHead();
+      if (mine.count !== delta.count || mine.ids !== delta.ids) {
+        fallback = true;
+        return;
+      }
+      // Таблица сверена с базой — правки, подтверждённые до запроса, в ней уже есть.
+      for (const [id] of confirmed) table.overlays.delete(id);
+      serverConfirmed = true;
+      // Сюда пустота без сверки прав не доходит (см. выше) — голова со строками и есть подтверждение.
+      unverifiedSnapshots.delete(snapKey);
+      retryDelay = 3000;
+      checkpoint();
+      if (changed) {
+        saveSnapshot();
+        emit();
+      }
+    } catch {
+      // Нет связи — полная выборка сама скажет об ошибке и будет повторять.
+      fallback = true;
+    } finally {
+      loading = false;
+      if (fallback && !cancelled) queued = "full";
+      runQueued();
     }
   }
 
@@ -820,22 +1269,56 @@ export function sbSubscribeRows(
   }
 
   /**
+   * Голова базы против своей (возврат на вкладку, опрос): совпала — ничего не
+   * делаем (десятки байт вместо таблицы), разошлась — дельта.
+   */
+  async function checkHead() {
+    if (cancelled || !loaded || loading || table.pending > 0) return;
+    try {
+      const head = await fetchTableHead(workspaceId, pageId, tabId);
+      if (cancelled) return;
+      if (head === null) {
+        revMode = "off";
+        void load();
+        return;
+      }
+      revMode = "on";
+      const mine = localHead();
+      if (serverConfirmed && head.count === mine.count && head.ids === mine.ids) {
+        // Совпало — всё, что видно сейчас, отстоится в курсор через REV_LAG_MS.
+        checkpoint();
+        return;
+      }
+      void syncDelta();
+    } catch {
+      // Нет связи — следующий тик попробует снова.
+    }
+  }
+
+  /**
    * Тик страховки: только пока канал НЕ подключён, вкладка на виду, таблица
    * загружена и своих записей в пути нет (иначе отметка менялась бы от своих
-   * же правок). При живом канале события и так приходят — лишние запросы ни к чему.
+   * же правок). С `rev` — голова раз в минуту при живых звонках, без них раз в
+   * 15 с; без `rev` — отметка раз в 15 с, как раньше.
    */
   function scheduleStampCheck() {
-    if (cancelled || stampMissing) return;
+    if (cancelled) return;
     if (stampTimer) clearTimeout(stampTimer);
+    const delay = revMode === "on" && doorbellReady ? HEAD_POLL_WITH_DOORBELL_MS : STAMP_POLL_MS;
     stampTimer = setTimeout(() => {
       stampTimer = null;
       void checkStamp().finally(scheduleStampCheck);
-    }, STAMP_POLL_MS);
+    }, delay);
   }
 
   async function checkStamp() {
     if (cancelled || channelHealthy || !loaded || loading || table.pending > 0) return;
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    if (revMode !== "off") {
+      await checkHead();
+      return;
+    }
+    if (stampMissing) return;
     try {
       const stamp = await fetchTableStamp(workspaceId, pageId, tabId);
       if (cancelled) return;
@@ -851,59 +1334,80 @@ export function sbSubscribeRows(
 
   liveTables.add(table);
 
-  const channel: RealtimeChannel = supabaseRows
-    .channel(`desk_rows:${workspaceId}:${pageId}:${tabId || "main"}:${Math.random().toString(36).slice(2)}`)
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: DESK_ROWS_TABLE, filter: `page_id=eq.${pageId}` },
-      onEvent
-    )
-    .on("postgres_changes", { event: "DELETE", schema: "public", table: DESK_ROWS_TABLE }, onEvent)
-    .subscribe((status) => {
-      channelHealthy = status === "SUBSCRIBED";
-      // Первое подключение и каждое переподключение — полная выборка.
-      if (status === "SUBSCRIBED") {
-        if (liveWarnTimer) {
-          clearTimeout(liveWarnTimer);
-          liveWarnTimer = null;
-        }
-        void load();
-        return;
-      }
-      // Канал не поднялся. Молчать нельзя: свои правки видно (после них
-      // таблица перечитывается), а ЧУЖИЕ не появятся вовсе, и человек будет
-      // думать, что коллега ничего не сделал. Ждём 15 с — phoenix сам
-      // переподключается, и без выдержки предупреждение мигало бы постоянно.
-      if (cancelled || liveWarnedOnce || liveWarnTimer) return;
-      liveWarnTimer = setTimeout(() => {
-        liveWarnTimer = null;
-        // Звонки работают — чужие правки и так доезжают за секунду, пугать незачем.
-        if (cancelled || channelHealthy || doorbellReady) return;
-        liveWarnedOnce = true;
-        toast.error("Живое обновление строк не работает", {
-          description: stampMissing
+  /** Ни канала, ни звонков за 15 с — сказать человеку один раз (см. liveWarnedOnce). */
+  function armLiveWarn() {
+    if (cancelled || liveWarnedOnce || liveWarnTimer) return;
+    liveWarnTimer = setTimeout(() => {
+      liveWarnTimer = null;
+      // Звонки работают — чужие правки и так доезжают за секунду, пугать незачем.
+      if (cancelled || channelHealthy || doorbellReady || liveWarnedOnce) return;
+      liveWarnedOnce = true;
+      toast.error("Живое обновление строк не работает", {
+        description:
+          stampMissing && revMode !== "on"
             ? "Свои правки сохраняются, а чужие появятся только после обновления страницы."
             : "Свои правки сохраняются, а чужие будут подтягиваться раз в 15 секунд.",
-          duration: 8000,
-        });
-      }, LIVE_WARN_AFTER_MS);
-    });
+        duration: 8000,
+      });
+    }, LIVE_WARN_AFTER_MS);
+  }
+
+  const channel: RealtimeChannel | null = pgChangesEnabled()
+    ? supabaseRows
+        .channel(`desk_rows:${workspaceId}:${pageId}:${tabId || "main"}:${Math.random().toString(36).slice(2)}`)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: DESK_ROWS_TABLE, filter: `page_id=eq.${pageId}` },
+          onEvent
+        )
+        .on("postgres_changes", { event: "DELETE", schema: "public", table: DESK_ROWS_TABLE }, onEvent)
+        .subscribe((status) => {
+          channelHealthy = status === "SUBSCRIBED";
+          // Первое подключение и каждое переподключение — полная выборка.
+          if (status === "SUBSCRIBED") {
+            if (liveWarnTimer) {
+              clearTimeout(liveWarnTimer);
+              liveWarnTimer = null;
+            }
+            void load();
+            return;
+          }
+          // Канал не поднялся. Молчать нельзя: свои правки видно, а ЧУЖИЕ не
+          // появятся вовсе. Ждём 15 с — phoenix сам переподключается.
+          armLiveWarn();
+        })
+    : null;
+  // Без канала живость держат звонки: не поднялись и они — та же плашка.
+  if (!channel) armLiveWarn();
 
   /**
    * Кто-то записал строки этой вкладки (rowsDoorbell). Живой канал сам привёз
-   * бы событие — тогда ничего не делаем; иначе сверяем отметку таблицы и
-   * перечитываем, только если она сменилась (записавший мог и не поменять
-   * ничего, а свёрнутая вкладка перечитает при возврате).
+   * бы событие — тогда ничего не делаем; иначе дочитываем дельту (старый SQL —
+   * сверяем отметку и перечитываем, только если она сменилась). Свёрнутая
+   * вкладка сверится с головой при возврате.
    */
   async function onRing() {
-    if (cancelled || channelHealthy || !loaded) return;
+    if (cancelled || channelHealthy) return;
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-    if (loading) {
-      reloadQueued = true;
+    // Своя запись в пути — таблицу и так дочитает `settled`.
+    if (table.pending > 0) return;
+    if (!loaded) {
+      // Идёт первая выборка: правка могла зафиксироваться ПОСЛЕ снимка строк,
+      // но до отметки, взятой параллельно, — тогда отметка уже новая, и опрос
+      // разницы не увидит никогда. Звонок не теряем: после выборки — сверка
+      // (старый SQL — полная, с `rev` — дельта). Выборка ещё не началась —
+      // она и так увидит правку.
+      if (loading) queued = revMode === "off" || queued === "full" ? "full" : "delta";
       return;
     }
-    // Своя запись в пути — таблицу и так перечитает `settled`.
-    if (table.pending > 0) return;
+    if (revMode !== "off") {
+      void syncDelta();
+      return;
+    }
+    if (loading) {
+      queued = "full";
+      return;
+    }
     if (stampMissing) {
       void load();
       return;
@@ -927,13 +1431,37 @@ export function sbSubscribeRows(
     }
   );
 
-  // Выборка сразу, не дожидаясь канала: Realtime может и не подключиться
-  // (сеть, расширения), а таблица должна открыться всё равно.
-  void load();
+  /**
+   * Открытие: снимок с диска (если есть) рисуется сразу, затем дельта от его
+   * курсора; нет снимка — выборка. Не дожидаемся канала: Realtime может и не
+   * подключиться, а таблица должна открыться всё равно.
+   */
+  async function start() {
+    const snapshot = await readRowSnapshot<DeskRowRecord>(workspaceId, pageId, tabId).catch(() => null);
+    if (cancelled || loaded || loading) return;
+    const records = (snapshot?.records ?? []).filter((record) => record && typeof record.id === "string" && inScope(record));
+    if (!snapshot || records.length === 0) {
+      void load();
+      return;
+    }
+    // Снимок пишется только при `rev` в базе — значит, дельта там есть.
+    revMode = "on";
+    replaceAll(records);
+    checkpoints = [{ at: 0, rev: snapshot.cursor }];
+    snapshotHadRows = true;
+    unverifiedSnapshots.add(snapKey);
+    loaded = true;
+    emit();
+    void syncDelta();
+  }
+
+  void start();
   scheduleStampCheck();
 
   const onVisible = () => {
-    if (document.visibilityState === "visible") void load();
+    if (document.visibilityState !== "visible") return;
+    if (revMode === "off" || !loaded) void load();
+    else void checkHead();
   };
   document.addEventListener("visibilitychange", onVisible);
 
@@ -943,7 +1471,7 @@ export function sbSubscribeRows(
     for (const timer of [retryTimer, reloadTimer, sweepTimer, emitTimer, liveWarnTimer, stampTimer]) if (timer) clearTimeout(timer);
     document.removeEventListener("visibilitychange", onVisible);
     stopDoorbell();
-    void supabaseRows.removeChannel(channel);
+    if (channel) void supabaseRows.removeChannel(channel);
   };
 }
 
@@ -1103,7 +1631,8 @@ export async function sbDeleteRow(workspaceId: string, pageId: string, tab: stri
         .eq("tab_id", tabKey(tab))
         .eq("id", rowId);
       if (error) throw toStoreError(error, "Не удалось удалить строку");
-    }
+    },
+    [rowId]
   );
 }
 
@@ -1155,7 +1684,8 @@ export async function sbDeleteRows(workspaceId: string, pageId: string, tab?: st
       if (tab !== undefined) query = query.eq("tab_id", tabKey(tab));
       const { error } = await query;
       if (error) throw toStoreError(error, "Не удалось удалить строки");
-    }
+    },
+    "all"
   );
 }
 

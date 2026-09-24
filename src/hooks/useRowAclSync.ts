@@ -16,8 +16,14 @@ const DEBOUNCE_MS = 1500;
  * загрузке и потом не чаще этого (~40 чтений Firestore за раз). Мгновенные
  * изменения (роль, одобрение, «убрать», наблюдатель) действие само пишет в
  * копию; сверка — страховка, а не основной путь.
+ *
+ * 25, а не 30 минут: свежее чтение идёт через resume-токен
+ * (`getDocsResumable`), а он живёт ~30 минут. Ровно 30 почти всегда
+ * промахивались мимо него, и сервер брал за весь ростер. С пульсом
+ * присутствия в Supabase member-документы почти не меняются, и чтение в
+ * живой токен стоит единицы документов.
  */
-const MEMBERS_EVERY_MS = 30 * 60 * 1000;
+const MEMBERS_EVERY_MS = 25 * 60 * 1000;
 
 /**
  * Держит копию прав в Supabase равной Firestore, пока строки живут там.
@@ -103,7 +109,7 @@ export function useRowAclSync() {
     return () => window.clearTimeout(timer);
   }, [active, workspaceId, pageSignature]);
 
-  // Участники и наблюдатели — свежим чтением: при загрузке и раз в 30 минут.
+  // Участники и наблюдатели — свежим чтением: при загрузке и раз в 25 минут.
   useEffect(() => {
     if (!active || !workspaceId || !management) return;
     const first = window.setTimeout(() => void run.current(workspaceId, true), DEBOUNCE_MS);

@@ -6,8 +6,10 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { refreshDeskLoadFromRows, subscribeDeskLoadHistory, subscribeDeskLoads } from "@/services/deskLoadService";
 import { currentMonthSubPageId, isMonthlyDesk } from "@/services/monthTabService";
 import { subscribeMyOrderRatings, subscribeOrderRatingTotals } from "@/services/orderRatingService";
+import { useSbBackend, type SbBackend } from "@/services/sb/sbCollections";
 import { subscribeTechRatings } from "@/services/techRatingService";
 import { subscribeTechSchedules } from "@/services/techScheduleService";
+import { joinSharedSubscription } from "@/utils/sharedSubscription";
 import type {
   DeskLoad,
   DeskLoadArchive,
@@ -19,31 +21,102 @@ import type {
 } from "@/types";
 
 /**
+ * Где счётчики столов этого workspace — Firestore или Supabase (правило в
+ * services/sb/sbCollections.ts). `null` — документ workspace ещё не пришёл:
+ * ждём, иначе старт читал бы Firestore и тут же переподписывался бы.
+ */
+function useDeskLoadsBackend(workspaceId: string | null): SbBackend | null {
+  const { activeWorkspace } = useWorkspace();
+  const same = Boolean(workspaceId && activeWorkspace?.id === workspaceId);
+  const backend = useSbBackend(same ? activeWorkspace : null, "deskLoads");
+  // Чужой (не активный) workspace — его настроек у вкладки нет: как раньше, Firestore.
+  if (!activeWorkspace) return null;
+  return same ? backend : "firestore";
+}
+
+/**
+ * Из какого хранилища пришёл массив счётчиков — метка на САМОМ массиве:
+ * пересчёт Owner получает `loads` от экрана (Дашборд, Технари, ABS) и должен
+ * знать их происхождение без нового параметра у каждого вызова.
+ */
+const loadsSource = new WeakMap<DeskLoad[], SbBackend>();
+
+/**
  * Every desk's month counts, live. `loads` stays null until the first
  * snapshot; a denied read sets `failed` — it is "unknown", never "empty".
  */
 export function useDeskLoads(workspaceId: string | null, enabled: boolean) {
+  const backend = useDeskLoadsBackend(workspaceId);
   const [loads, setLoads] = useState<DeskLoad[] | null>(null);
   const [failed, setFailed] = useState(false);
-  // Снимок подтверждён сервером (а не из LRU-кэша) — только по такому можно
-  // решать, какие столы пересчитывать (useOwnerDeskRecount).
+  // Снимок подтверждён сервером (а не из кэша — Firestore или снимка
+  // Supabase в localStorage) — только по такому можно решать, какие столы
+  // пересчитывать (useOwnerDeskRecount).
   const [synced, setSynced] = useState(false);
+  // Из какого хранилища пришли `loads` — выставляется ВМЕСТЕ с ними. `backend`
+  // меняется раньше: в коммите, где хранилище сменилось, `loads` ещё от
+  // прежнего (сбросятся только в эффекте), и пересчёт Owner, решая по ним,
+  // сверил бы стол с чужими цифрами и не записал бы его в новое хранилище.
+  // И Supabase сам может уйти в Firestore (меня нет в копии прав).
+  const [loadsBackend, setLoadsBackend] = useState<SbBackend | null>(null);
   useEffect(() => {
     setLoads(null);
     setFailed(false);
     setSynced(false);
-    if (!workspaceId || !enabled) return;
+    setLoadsBackend(null);
+    if (!workspaceId || !enabled || !backend) return;
     return subscribeDeskLoads(
       workspaceId,
-      (next, fromCache) => {
+      (next, fromCache, source) => {
+        loadsSource.set(next, source);
         setLoads(next);
+        setLoadsBackend(source);
         setFailed(false);
         if (!fromCache) setSynced(true);
       },
-      () => setFailed(true)
+      () => setFailed(true),
+      backend
     );
-  }, [workspaceId, enabled]);
-  return { loads, failed, synced };
+  }, [workspaceId, enabled, backend]);
+  return { loads, failed, synced, loadsBackend };
+}
+
+/**
+ * Оценки, итоги оценок и график — общие подписки на вкладку, живут ещё
+ * 25 минут после ухода последнего экрана. Дашборд ↔ «Технари» ↔ «Заказы»
+ * иначе каждый раз заново читали бы ~60 оценок и ~80 итогов. 25 минут —
+ * меньше жизни resume-токена Firestore (~30 мин): вернувшись позже, подписка
+ * всё равно продолжит с кэша на диске и заплатит только за изменения.
+ */
+const SHARED_LINGER_MS = 25 * 60_000;
+type SharedFeed<T> = { ok: true; value: T } | { ok: false };
+/**
+ * Отказ ломает подписку Firestore навсегда (onSnapshot сам не
+ * переподключается), поэтому после отказа следующий экран получает НОВУЮ
+ * подписку, а не залипший отказ (номер поколения в ключе).
+ */
+const sharedGeneration = new Map<string, number>();
+
+function joinShared<T>(
+  baseKey: string,
+  start: (onData: (value: T) => void, onError: () => void) => () => void,
+  onData: (value: T) => void,
+  onError: () => void
+) {
+  const generation = sharedGeneration.get(baseKey) ?? 0;
+  return joinSharedSubscription<SharedFeed<T>>(
+    `${baseKey}#${generation}`,
+    (emit) =>
+      start(
+        (value) => emit({ ok: true, value }),
+        () => {
+          if ((sharedGeneration.get(baseKey) ?? 0) === generation) sharedGeneration.set(baseKey, generation + 1);
+          emit({ ok: false });
+        }
+      ),
+    (feed) => (feed.ok ? onData(feed.value) : onError()),
+    SHARED_LINGER_MS
+  );
 }
 
 /**
@@ -57,9 +130,9 @@ export function useTechRatings(workspaceId: string | null, monthKey: string, ena
     setRatings(null);
     setFailed(false);
     if (!workspaceId || !enabled) return;
-    return subscribeTechRatings(
-      workspaceId,
-      monthKey,
+    return joinShared<TechRating[]>(
+      `techRatings:${workspaceId}:${monthKey}`,
+      (onData, onError) => subscribeTechRatings(workspaceId, monthKey, onData, onError),
       (next) => {
         setRatings(next);
         setFailed(false);
@@ -83,9 +156,9 @@ export function useOrderRatingTotals(workspaceId: string | null, monthKey: strin
     setTotals(null);
     setFailed(false);
     if (!workspaceId || !enabled) return;
-    return subscribeOrderRatingTotals(
-      workspaceId,
-      monthKey,
+    return joinShared<OrderRatingTotals[]>(
+      `orderRatingTotals:${workspaceId}:${monthKey}`,
+      (onData, onError) => subscribeOrderRatingTotals(workspaceId, monthKey, onData, onError),
       (next) => {
         setTotals(next);
         setFailed(false);
@@ -115,10 +188,11 @@ export function useTechSchedules(workspaceId: string | null, monthKey: string, e
     setLoaded(false);
     setFailed(false);
     if (!workspaceId || !enabled) return;
-    return subscribeTechSchedules(
-      workspaceId,
-      monthKey,
-      (next, fromServer) => {
+    return joinShared<{ schedules: TechSchedule[]; fromServer: boolean }>(
+      `techSchedules:${workspaceId}:${monthKey}`,
+      (onData, onError) =>
+        subscribeTechSchedules(workspaceId, monthKey, (next, fromServer) => onData({ schedules: next, fromServer }), onError),
+      ({ schedules: next, fromServer }) => {
         setSchedules(next);
         // «Загружено» — только то, что подтвердил сервер. Снимок из кэша в
         // офлайне показываем, но править поверх него нельзя (см. сервис).
@@ -146,14 +220,24 @@ export function useMyOrderRatings(workspaceId: string | null, osUid: string, mon
   return ratings;
 }
 
-/** Archived months from `fromMonthKey` on. Empty (not null) on a denied read — the chart just hides. */
+/**
+ * Archived months from `fromMonthKey` on — разовое чтение при открытии (архив
+ * меняется раз в месяц). Empty (not null) on a denied read — the chart just hides.
+ */
 export function useDeskLoadHistory(workspaceId: string | null, fromMonthKey: string, enabled: boolean) {
+  const backend = useDeskLoadsBackend(workspaceId);
+  const { activeWorkspace } = useWorkspace();
+  // Счётчики в Firestore, а строки — в Supabase: это откат (или «SQL не
+  // накатан»). Месяцы, заархивированные за время работы в Supabase, лежат
+  // только там — дочитываем их (молча, если таблицы нет).
+  const withSupabase =
+    backend === "firestore" && activeWorkspace?.id === workspaceId && activeWorkspace?.rowsBackend === "supabase";
   const [history, setHistory] = useState<DeskLoadArchive[]>([]);
   useEffect(() => {
     setHistory([]);
-    if (!workspaceId || !enabled) return;
-    return subscribeDeskLoadHistory(workspaceId, fromMonthKey, setHistory, () => setHistory([]));
-  }, [workspaceId, fromMonthKey, enabled]);
+    if (!workspaceId || !enabled || !backend) return;
+    return subscribeDeskLoadHistory(workspaceId, fromMonthKey, setHistory, () => setHistory([]), backend, { withSupabase });
+  }, [workspaceId, fromMonthKey, enabled, backend, withSupabase]);
   return history;
 }
 
@@ -227,6 +311,10 @@ function saveVerified(key: string, at: number) {
  */
 export function useOwnerDeskRecount(loads: DeskLoad[] | null, synced = true) {
   const { activeWorkspace, activeWorkspaceId, members, pages } = useWorkspace();
+  // Пересчёт пишет туда же, откуда читают экраны: `loads` пришли из того же
+  // хранилища (useDeskLoads), и стол, которого там нет или он старше порога,
+  // считается устаревшим — так Supabase после включения заполняется сам.
+  const backend = useDeskLoadsBackend(activeWorkspaceId);
   const permissions = usePermissions();
   const { profile } = useAuth();
   const monthKey = useCurrentMonthKey();
@@ -241,8 +329,10 @@ export function useOwnerDeskRecount(loads: DeskLoad[] | null, synced = true) {
   const membersRef = useRef(members);
   membersRef.current = members;
   // Только по снимку с СЕРВЕРА: кэш мог быть двухчасовой давности, и тогда
-  // «устарели» оказались бы все столы разом (полный пересчёт).
-  const loadsReady = loads !== null && synced;
+  // «устарели» оказались бы все столы разом (полный пересчёт). И только по
+  // снимку ТОГО ЖЕ хранилища, куда пишем (см. loadsBackend в useDeskLoads).
+  const loadsBackend = loads ? loadsSource.get(loads) ?? null : null;
+  const loadsReady = loads !== null && synced && loadsBackend === backend;
   // Какие столы месячные и на какой они вкладке — одной строкой. Меняется,
   // только когда столов стало больше/меньше, участники догрузились или
   // автопилот перевёл стол на новую вкладку, — тогда пересчитываем сразу,
@@ -257,7 +347,7 @@ export function useOwnerDeskRecount(loads: DeskLoad[] | null, synced = true) {
   );
 
   useEffect(() => {
-    if (!isOwner || !activeWorkspaceId || !uid || !loadsReady) return;
+    if (!isOwner || !activeWorkspaceId || !uid || !loadsReady || !backend) return;
     const recount = () => {
       loadVerified();
       const startedAt = Date.now();
@@ -265,14 +355,19 @@ export function useOwnerDeskRecount(loads: DeskLoad[] | null, synced = true) {
       for (const p of pagesRef.current) {
         const subPageId = currentMonthSubPageId(p, monthKey);
         if (!subPageId || !isMonthlyDesk(p, membersRef.current)) continue;
-        const key = `${p.id}:${subPageId}`;
+        // Сверка своя у каждого хранилища: стол, сверенный с Firestore, в
+        // Supabase ещё пуст, и память Firestore не должна его там закрывать.
+        const key = backend === "supabase" ? `sb:${p.id}:${subPageId}` : `${p.id}:${subPageId}`;
         if (startedAt - (lastRefreshAt.get(key) ?? 0) < REFRESH_EVERY_MS) continue;
         // Свежие счётчики этой же вкладки — читать строки не надо. Свежесть —
         // по последней публикации ИЛИ нашей последней сверке, что позже. Нет
         // документа или он про другую вкладку (сменился месяц) — в счёт идёт
         // только сверка этой вкладки; давно не сверяли — пересчитываем.
         const published = loadsRef.current?.find((l) => l.pageId === p.id);
-        const publishedAt = published && published.subPageId === subPageId ? published.updatedAt ?? 0 : 0;
+        // Подмешанный из Firestore (в Supabase стола ещё нет) — устаревший:
+        // пересчёт и заполняет Supabase.
+        const publishedAt =
+          published && published.subPageId === subPageId && !published.sbFallback ? published.updatedAt ?? 0 : 0;
         if (startedAt - Math.max(publishedAt, verifiedAt.get(key) ?? 0) < STALE_AFTER_MS) continue;
         lastRefreshAt.set(key, startedAt);
         desks.push({ page: p, key });
@@ -289,7 +384,8 @@ export function useOwnerDeskRecount(loads: DeskLoad[] | null, synced = true) {
                   monthKey,
                   uid,
                   loadsRef.current?.find((l) => l.pageId === desk.id),
-                  optionsRef.current
+                  optionsRef.current,
+                  backend
                 );
                 // Опубликовал он или цифры и так совпали — строки на этот
                 // момент сверены. Ошибка (например, та же квота) сверкой не
@@ -317,5 +413,5 @@ export function useOwnerDeskRecount(loads: DeskLoad[] | null, synced = true) {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [isOwner, activeWorkspaceId, uid, loadsReady, monthKey, deskTabsKey]);
+  }, [isOwner, activeWorkspaceId, uid, loadsReady, monthKey, deskTabsKey, backend]);
 }

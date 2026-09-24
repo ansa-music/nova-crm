@@ -13,6 +13,7 @@ import { NickListCard } from "@/components/members/NickListCard";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useMembersRefresh } from "@/hooks/useMembersRefresh";
+import { usePresenceMap } from "@/hooks/usePresenceMap";
 import { useUrlState } from "@/hooks/useUrlState";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { nickLabelOf, nickOptionsOf, type NickKind } from "@/services/memberService";
@@ -71,6 +72,8 @@ export default function TeamPage() {
   // на вкладку (не чаще раза в 5 минут — квота Spark). Занятость ника при
   // записи всё равно проверяет сервер (`assertNickFree`).
   useMembersRefresh(activeWorkspaceId, permissions.canManageUsers);
+  // «В сети» — max(Firestore, Supabase): см. usePresenceMap.
+  const presenceAt = usePresenceMap(activeWorkspaceId);
 
   const people = useMemo(
     () => (Array.isArray(members) ? members : []).filter((m) => m.status === "active" && Boolean(m.uid)),
@@ -166,7 +169,7 @@ export default function TeamPage() {
             {byGroup[group].length > 0 && rows.length === 0 && <p className="text-[12px] text-muted-foreground">Никого не нашли.</p>}
             {rows.map((m) => {
               const locked = nickLockedFor(m, meUid, viewerIsOwner);
-              const presence = getPresenceStatus(m.lastActiveAt);
+              const presence = getPresenceStatus(presenceAt(m));
               return (
                 <div key={m.uid} className="flex min-w-0 flex-col gap-2 rounded-lg border border-border/70 px-3 py-2 sm:flex-row sm:items-center sm:gap-3">
                   <div className="flex min-w-0 flex-1 items-center gap-2.5">

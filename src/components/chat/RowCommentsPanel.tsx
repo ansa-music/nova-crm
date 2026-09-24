@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { paths } from "@/firebase/firestore";
-import { subscribeToChat, sendChatMessage, editChatMessage, deleteChatMessage } from "@/services/chatService";
+import { subscribeToRecentThread, sendChatMessage, editChatMessage, deleteChatMessage } from "@/services/chatService";
+import { CHAT_PAGE_STEP, CHAT_PAGE_WINDOW } from "@/hooks/useWorkspaceChat";
 import { notifyMentions } from "@/services/notificationService";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -21,6 +22,14 @@ export function RowCommentsPanel({ open, onOpenChange, workspaceId, pageId, rowI
   const { profile } = useAuth();
   const { members } = useWorkspace();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [hasEarlier, setHasEarlier] = useState(false);
+  // Окно последних комментариев, как в общем чате: вся нить читалась при
+  // каждом открытии. «Показать ранние» расширяет окно порцией.
+  // Размер окна привязан к нити: у другой строки — снова 60, без лишней
+  // подписки на прежнее расширенное окно.
+  const threadKey = `${workspaceId}/${pageId}/${rowId ?? ""}`;
+  const [expanded, setExpanded] = useState({ key: threadKey, size: CHAT_PAGE_WINDOW });
+  const windowSize = expanded.key === threadKey ? expanded.size : CHAT_PAGE_WINDOW;
   const mentionableUsers = useMemo(
     () => members.filter((m) => m.status === "active").map((m) => ({ uid: m.uid, name: displayNameOf(m) })),
     [members]
@@ -33,12 +42,21 @@ export function RowCommentsPanel({ open, onOpenChange, workspaceId, pageId, rowI
     // `rowId` just toggle), which otherwise briefly shows the previous
     // row's comments under the new row's title.
     setMessages([]);
-    if (!open || !rowId) return;
-    return subscribeToChat(paths.rowComments(workspaceId, pageId, rowId), setMessages, (error) =>
-      console.error("subscribeToChat(rowComments) denied:", error.code, error.message)
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setHasEarlier(false);
   }, [open, workspaceId, pageId, rowId]);
+
+  useEffect(() => {
+    if (!open || !rowId) return;
+    return subscribeToRecentThread(
+      paths.rowComments(workspaceId, pageId, rowId),
+      windowSize,
+      (items, more) => {
+        setMessages(items);
+        setHasEarlier(more);
+      },
+      (error) => console.error("subscribeToChat(rowComments) denied:", error.code, error.message)
+    );
+  }, [open, workspaceId, pageId, rowId, windowSize]);
 
   if (!profile || !rowId) return null;
   const ref = paths.rowComments(workspaceId, pageId, rowId);
@@ -74,6 +92,8 @@ export function RowCommentsPanel({ open, onOpenChange, workspaceId, pageId, rowI
             onDelete={(id) => deleteChatMessage(ref, id)}
             emptyMessage="Обсудите эту строку с коллегами"
             mentionableUsers={mentionableUsers}
+            hasEarlier={hasEarlier}
+            onLoadEarlier={() => setExpanded({ key: threadKey, size: windowSize + CHAT_PAGE_STEP })}
           />
         </div>
       </SheetContent>

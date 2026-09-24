@@ -12,6 +12,7 @@ import {
 } from "@/services/deskLoadService";
 import { sendNotification } from "@/services/notificationService";
 import { publishOsOrders } from "@/services/osOrdersService";
+import { useSbBackend } from "@/services/sb/sbCollections";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { myDisplayName } from "@/utils/displayName";
 import { collectOsOrders, countDeskLoad, deskLoadSignature, osOrdersSignature } from "@/utils/techLoad";
@@ -159,6 +160,17 @@ export function useDeskLoadPublisher({
   const monthKey = useCurrentMonthKey();
   const { members, activeWorkspace, allPages } = useWorkspace();
   const { profile } = useAuth();
+  // Куда пишутся счётчики: Firestore или Supabase (services/sb/sbCollections.ts).
+  // Пока документ workspace не пришёл (null) — не публикуем вовсе, иначе
+  // первая запись ушла бы не туда, откуда читают экраны.
+  const sameWorkspace = Boolean(page && activeWorkspace?.id === page.workspaceId);
+  const sbBackend = useSbBackend(sameWorkspace ? activeWorkspace : null, "deskLoads");
+  // Стол чужого (не активного) workspace — его настроек у вкладки нет: как раньше, Firestore.
+  const backend = !activeWorkspace ? null : sameWorkspace ? sbBackend : "firestore";
+  // Хранилище на момент ЗАПИСИ, а не постановки в очередь: за 10 с паузы
+  // Owner мог переключить его.
+  const backendRef = useRef(backend);
+  backendRef.current = backend;
   const lastSignatureRef = useRef("");
   const lastOsSignaturesRef = useRef(new Map<string, string>());
   /** All ОС lists as of the last fired publish — the notification baseline moves only then. */
@@ -174,7 +186,7 @@ export function useDeskLoadPublisher({
       page.autoMonthKey === monthKey &&
       page.autoMonthSubPageId === subPage.id
   );
-  const active = isMonthTab && canEdit && !rowsLoading && rowsFromServer && Boolean(uid);
+  const active = isMonthTab && canEdit && !rowsLoading && rowsFromServer && Boolean(uid) && backend !== null;
 
   const counts = useMemo(
     () => (active && subPage ? countDeskLoad(subPage.columns, rows, responsibleOptions, monthKey) : null),
@@ -234,6 +246,15 @@ export function useDeskLoadPublisher({
     trustDeskMemoryRef.current = true;
     trustOsMemoryRef.current = true;
   }, [pageId, subPageId]);
+  // Сменилось хранилище счётчиков — «уже записано» этой сессии относится к
+  // старому: в новом этих цифр ещё нет, первую публикацию делаем заново.
+  const lastBackendRef = useRef(backend);
+  useEffect(() => {
+    if (lastBackendRef.current === backend) return;
+    lastBackendRef.current = backend;
+    lastSignatureRef.current = "";
+    trustDeskMemoryRef.current = true;
+  }, [backend]);
 
   // С какого момента стол открыт с загруженными строками — для MIN_SETTLED_MS.
   // Объявлен раньше эффектов публикации: в одном коммите он срабатывает первым.
@@ -268,11 +289,14 @@ export function useDeskLoadPublisher({
   useEffect(() => {
     if (!counts || !pageId || !workspaceId || !responsibleUserId || !subPageId) return;
     const target = `${pageId}:${subPageId}`;
-    const memoryKey = deskLoadSignatureKey(pageId, subPageId);
     const signature = deskLoadSignature({ ...counts, subPageId, monthKey, responsibleUserId });
+    const scheduledBackend = backendRef.current ?? "firestore";
     const trustMemory = trustDeskMemoryRef.current;
     trustDeskMemoryRef.current = false;
-    if (signature === lastSignatureRef.current || (trustMemory && isPublishedSignature(memoryKey, signature))) {
+    if (
+      signature === lastSignatureRef.current ||
+      (trustMemory && isPublishedSignature(deskLoadSignatureKey(pageId, subPageId, scheduledBackend), signature))
+    ) {
       // Цифры снова такие, какие уже в базе, — промежуточное состояние этого
       // же стола писать незачем. Совпадение с памятью браузера запоминаем
       // как «последнее записанное»: иначе второй такой же расчёт (строки
@@ -303,19 +327,23 @@ export function useDeskLoadPublisher({
     schedulePending(pendingDeskRef, target, signature, liveSinceRef.current, () => {
       if (!stillMonthTab(pageId, subPageId, monthKey, pageAtSchedule)) return;
       lastSignatureRef.current = signature;
-      publishDeskLoad(load).then(
+      const runBackend = backendRef.current ?? scheduledBackend;
+      publishDeskLoad(load, runBackend).then(
         // Помним только то, что принял сервер: вкладку закрывают посреди
         // записи (pagehide), и «запомненная», но не дошедшая запись осталась
         // бы в базе старой — следующее открытие стола её бы уже не повторило.
-        () => rememberPublishedSignature(memoryKey, signature),
+        // И под ключом того хранилища, куда запись ушла НА ДЕЛЕ: просили
+        // Supabase, а SQL не вставлен — ушла в Firestore, и память Supabase
+        // закрыла бы первую настоящую запись в desk_loads после вставки SQL.
+        (result) => rememberPublishedSignature(deskLoadSignatureKey(pageId, subPageId, result.backend), signature),
         (error) => {
           lastSignatureRef.current = "";
-          forgetPublishedSignature(memoryKey, signature);
+          forgetPublishedSignature(deskLoadSignatureKey(pageId, subPageId, runBackend), signature);
           console.warn(`Не удалось обновить загрузку стола ${pageId}:`, error);
         }
       );
     });
-  }, [counts, pageId, workspaceId, responsibleUserId, subPageId, monthKey, uid]);
+  }, [counts, pageId, workspaceId, responsibleUserId, subPageId, monthKey, uid, backend]);
 
   useEffect(() => {
     if (!osOrders || !pageId || !workspaceId || !responsibleUserId || !subPageId) return;

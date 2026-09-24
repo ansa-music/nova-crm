@@ -67,24 +67,6 @@ export function subscribeMyOrderRatings(
   );
 }
 
-/** Оценки СВОИХ заказов — то, что технарь видит про себя. */
-export function subscribeOrderRatingsForTechnician(
-  workspaceId: string,
-  technicianUid: string,
-  onData: (ratings: OrderRating[]) => void,
-  onError?: (error: FirestoreError) => void
-) {
-  if (!db || !technicianUid) {
-    onData([]);
-    return () => {};
-  }
-  return onSnapshot(
-    query(paths.orderRatingsAll(workspaceId), where("technicianUid", "==", technicianUid)),
-    (snapshot) => onData(snapshot.docs.map((d) => ({ ...(d.data() as OrderRating), id: d.id }))),
-    withErrorReporting(onError)
-  );
-}
-
 /**
  * Ставит или меняет оценку заказа И правит итоги пары ОДНОЙ транзакцией.
  *
