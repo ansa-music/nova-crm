@@ -142,6 +142,9 @@ import {
 import { OsOrderPanel } from "@/components/os/OsOrderPanel";
 import { OsDispatchChoiceDialog } from "@/components/os/OsDispatchChoiceDialog";
 import { OsOrderRequestsPanel } from "@/components/os/OsOrderRequestsPanel";
+import { OsRequestDecisionDialog } from "@/components/os/OsRequestDecisionDialog";
+import { useOsPendingOrderRequests } from "@/hooks/useOsPendingOrderRequests";
+import { findRequestMirror } from "@/services/orderRequestDecision";
 import { TechPickerSheet } from "@/components/os/TechPickerSheet";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { useDeskModeSupported } from "@/services/rows/deskMode";
@@ -157,7 +160,7 @@ import {
 import { TechOrderPanel } from "@/components/os/TechOrderPanel";
 import { OrderStatusRequestDialog } from "@/components/os/OrderStatusRequestDialog";
 import { useMyPendingOrderRequests } from "@/hooks/useMyPendingOrderRequests";
-import { orderRequestId } from "@/services/orderRequestService";
+import { orderRequestId, type OrderRequest } from "@/services/orderRequestService";
 import { isMonthlyDesk } from "@/services/monthTabService";
 import type { PageRow, PaymentMethod, SubPage, WorkspacePage } from "@/types";
 import type { DeskSummary, DeskTableActions } from "@/types/deskSummary";
@@ -871,6 +874,29 @@ export default function DynamicTablePage() {
     permissions.uid,
     isMyOsDesk,
   );
+  // Просьбы технарей к этому ОС («поставьте „Готово“», «удалите») — та же
+  // подписка, что счётчик на «Стол ОС» в меню. На строке — метка «Просит: …»
+  // в ячейке статуса, решение — в окне (OsRequestDecisionDialog).
+  const osRequests = useOsPendingOrderRequests(
+    activeWorkspaceId,
+    permissions.uid,
+    isMyOsDesk,
+  );
+  const osRequestByRow = useMemo(() => {
+    const map = new Map<string, OrderRequest>();
+    for (const request of osRequests.requests) {
+      // Строку ОС ищем через СВОЮ строку-заказ у технаря; запрос пишет технарь.
+      const mirror = findRequestMirror(
+        request,
+        myOrders.rows,
+        permissions.uid,
+      );
+      const rowId = mirror?.srcRowId || request.srcRowId;
+      if (rowId && !map.has(rowId)) map.set(rowId, request);
+    }
+    return map;
+  }, [osRequests.requests, myOrders.rows, permissions.uid]);
+  const [decideRequestId, setDecideRequestId] = useState<string | null>(null);
   const [pickOrderId, setPickOrderId] = useState<string | null>(null);
   const pickOrder = pickOrderId
     ? (exchange.byId.get(pickOrderId) ?? null)
@@ -1166,6 +1192,25 @@ export default function DynamicTablePage() {
     });
   }
   /** Чип действия в ячейке — из того же состояния. */
+  /** Метка в ячейке статуса стола ОС: технарь просит сменить статус / удалить. */
+  function osRequestCellView(row: PageRow): CellActionView | null {
+    const request = osRequestByRow.get(row.id);
+    if (!request) return null;
+    const label =
+      request.kind === "delete"
+        ? "Просит: удалить"
+        : `Просит: ${request.statusLabel ?? request.status ?? ""}`;
+    return {
+      kind: `req:${request.id}`,
+      label,
+      title: `${(() => {
+        const tech = members.find((m) => m.uid === request.techUid);
+        return tech ? displayNameOf(tech) : "Технарь";
+      })()} просит ${request.kind === "delete" ? "удалить заказ" : `статус «${request.statusLabel ?? request.status}»`}. Нажмите, чтобы решить`,
+      tone: "warning",
+      icon: "hand",
+    };
+  }
   function osCellView(row: PageRow): CellActionView | null {
     const state = osTechStateOf(row);
     if (!state?.chip) return null;
@@ -2300,6 +2345,8 @@ export default function DynamicTablePage() {
           {isMyOsDesk ? (
             <OsOrderRequestsPanel
               osUid={permissions.uid}
+              requests={osRequests.requests}
+              statusKey={osKeys.status}
               mirrors={myOrders.rows}
               sourceRows={rows}
               onChanged={myOrders.refresh}
@@ -2395,9 +2442,19 @@ export default function DynamicTablePage() {
                 cellAction={
                   isMyOsDesk
                     ? {
-                        colKey: osKeys.technician,
-                        get: osCellView,
-                        run: (row) => void runOsCellAction(row),
+                        colKey: [osKeys.technician, osKeys.status],
+                        get: (row, colKey) =>
+                          colKey === osKeys.status
+                            ? osRequestCellView(row)
+                            : osCellView(row),
+                        run: (row, colKey) => {
+                          if (colKey === osKeys.status) {
+                            const request = osRequestByRow.get(row.id);
+                            if (request) setDecideRequestId(request.id);
+                            return;
+                          }
+                          void runOsCellAction(row);
+                        },
                         tickMs: OS_CELL_ACTION_TICK_MS,
                       }
                     : askOsEnabled && askStatusColumn
@@ -2503,6 +2560,27 @@ export default function DynamicTablePage() {
           </div>
         </>
       )}
+
+      {decideRequestId && isMyOsDesk ? (
+        <OsRequestDecisionDialog
+          request={
+            osRequests.requests.find((r) => r.id === decideRequestId) ?? null
+          }
+          row={
+            rows.find(
+              (r) =>
+                osRequestByRow.get(r.id)?.id === decideRequestId,
+            ) ?? null
+          }
+          osUid={permissions.uid}
+          mirrors={myOrders.rows}
+          statusKey={osKeys.status}
+          statusOptions={osStatusOptions}
+          clientKey={osKeys.client}
+          onClose={() => setDecideRequestId(null)}
+          onChanged={myOrders.refresh}
+        />
+      ) : null}
 
       {statusRequestRowId && page && activeWorkspaceId ? (
         <OrderStatusRequestDialog

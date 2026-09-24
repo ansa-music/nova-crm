@@ -107,10 +107,11 @@ interface TableRowProps {
    * `cellActionPulse`: таблица «пульсирует» после своего рендера и по таймеру,
    * а строка перерисовывается, только если метка правда сменилась.
    */
-  cellActionKey?: string | null;
-  getCellAction?: (rowId: string) => CellActionView | null;
+  /** Ключи столбцов с меткой, через «\u0001» (строка — чтобы memo сравнивал по значению). */
+  cellActionKeys?: string | null;
+  getCellAction?: (rowId: string, colKey: string) => CellActionView | null;
   cellActionPulse?: CellActionPulse;
-  onCellAction?: (rowId: string) => void;
+  onCellAction?: (rowId: string, colKey: string) => void;
   /** Добавка слева внутри ячеек этих столбцов — см. DataTable.cellAddon. */
   cellAddonKeys?: readonly string[];
   cellAddonVersion?: string;
@@ -153,6 +154,7 @@ export function createCellActionPulse(): CellActionPulse {
 
 function LiveCellAction({
   rowId,
+  colKey,
   getView,
   pulse,
   coarsePointer,
@@ -160,27 +162,28 @@ function LiveCellAction({
   onRun,
 }: {
   rowId: string;
-  getView: (rowId: string) => CellActionView | null;
+  colKey: string;
+  getView: (rowId: string, colKey: string) => CellActionView | null;
   pulse?: CellActionPulse;
   coarsePointer?: boolean;
   /** Чип в строке рядом со значением (ячейка с внешним выбором), а не поверх. */
   inline?: boolean;
-  onRun: (rowId: string) => void;
+  onRun: (rowId: string, colKey: string) => void;
 }) {
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   // Считаем метку при каждом своём рендере: строка перерисовалась — значит,
   // и данные для метки могли смениться.
-  const view = getView(rowId);
+  const view = getView(rowId, colKey);
   const shownRef = useRef(view);
   shownRef.current = view;
   useEffect(() => {
     if (!pulse) return;
     return pulse.subscribe(() => {
-      if (!sameCellAction(shownRef.current, getView(rowId))) rerender();
+      if (!sameCellAction(shownRef.current, getView(rowId, colKey))) rerender();
     });
-  }, [pulse, getView, rowId]);
+  }, [pulse, getView, rowId, colKey]);
   if (!view) return null;
-  return <CellActionButton view={view} coarsePointer={coarsePointer} inline={inline} onRun={() => onRun(rowId)} />;
+  return <CellActionButton view={view} coarsePointer={coarsePointer} inline={inline} onRun={() => onRun(rowId, colKey)} />;
 }
 
 function TableRowInner({
@@ -239,7 +242,7 @@ function TableRowInner({
   duplicateColKeys,
   onFindDuplicates,
   blank = false,
-  cellActionKey,
+  cellActionKeys,
   getCellAction,
   cellActionPulse,
   onCellAction,
@@ -482,9 +485,10 @@ function TableRowInner({
               renderCellAddon && !blank && cellAddonKeys?.includes(column.key) ? renderCellAddon(row, column.key) : undefined
             }
             trailing={
-              getCellAction && onCellAction && column.key === cellActionKey && !blank ? (
+              getCellAction && onCellAction && cellActionKeys && cellActionKeys.split("\u0001").includes(column.key) && !blank ? (
                 <LiveCellAction
                   rowId={row.id}
+                  colKey={column.key}
                   getView={getCellAction}
                   pulse={cellActionPulse}
                   coarsePointer={coarsePointer}
@@ -582,7 +586,7 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     (prev.fillColKeys?.join(",") ?? "") !== (next.fillColKeys?.join(",") ?? "") ||
     (prev.duplicateColKeys?.join(",") ?? "") !== (next.duplicateColKeys?.join(",") ?? "") ||
     prev.anyChecked !== next.anyChecked ||
-    prev.cellActionKey !== next.cellActionKey ||
+    prev.cellActionKeys !== next.cellActionKeys ||
     prev.cellAddonKeys !== next.cellAddonKeys ||
     prev.cellAddonVersion !== next.cellAddonVersion ||
     prev.renderCellAddon !== next.renderCellAddon ||

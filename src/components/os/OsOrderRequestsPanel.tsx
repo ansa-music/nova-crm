@@ -1,18 +1,14 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, Inbox, Loader2, X } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { OS_DESK_COLUMNS } from "@/services/osDeskService";
-import {
-  resolveOrderRequest,
-  subscribePendingOrderRequests,
-  type OrderRequest,
-} from "@/services/orderRequestService";
-import { sbDeleteRow, sbPatchRow } from "@/services/rows/supabaseRowStore";
+import { type OrderRequest } from "@/services/orderRequestService";
+import { decideOrderRequest } from "@/services/orderRequestDecision";
 import { firestoreErrorText } from "@/utils/dbError";
-import { myDisplayName } from "@/utils/displayName";
+import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { timeAgo } from "@/utils/date";
 import type { PageRow } from "@/types";
 
@@ -31,11 +27,17 @@ const CLIENT_KEY = OS_DESK_COLUMNS[0]?.key ?? "client";
  */
 export function OsOrderRequestsPanel({
   osUid,
+  requests,
+  statusKey = STATUS_KEY,
   mirrors,
   sourceRows,
   onChanged,
 }: {
   osUid: string;
+  /** Ожидающие просьбы — общая подписка `useOsPendingOrderRequests`. */
+  requests: OrderRequest[];
+  /** Ключ статуса на этом столе ОС. */
+  statusKey?: string;
   /** Заказы этого ОС в столах технарей (useMyOrderRows). */
   mirrors: PageRow[];
   /** Строки открытой вкладки стола ОС — имя клиента берём оттуда, а не из запроса. */
@@ -44,17 +46,8 @@ export function OsOrderRequestsPanel({
 }) {
   const { activeWorkspaceId, members } = useWorkspace();
   const { profile } = useAuth();
-  const [requests, setRequests] = useState<OrderRequest[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [open, setOpen] = useState(true);
-
-  useEffect(() => {
-    setRequests([]);
-    if (!activeWorkspaceId || !osUid) return;
-    return subscribePendingOrderRequests(activeWorkspaceId, osUid, setRequests, (error) =>
-      console.error("Запросы технарей не прочитаны:", error.message)
-    );
-  }, [activeWorkspaceId, osUid]);
 
   if (!activeWorkspaceId || requests.length === 0) return null;
 
@@ -67,35 +60,25 @@ export function OsOrderRequestsPanel({
     return typeof name === "string" && name.trim() ? name.trim() : request.client;
   }
 
+  // Имя — из участников по uid: в запросе его пишет сам просящий.
+  function techNameOf(request: OrderRequest): string {
+    const member = members.find((m) => m.uid === request.techUid);
+    return member ? displayNameOf(member) : request.techName;
+  }
+
   async function decide(request: OrderRequest, approved: boolean) {
     if (!activeWorkspaceId || !profile) return;
     setBusy(request.id);
     try {
-      if (approved) {
-        // Адреса берём из СВОЕЙ строки-заказа (её база отдаёт ОС только с его
-        // os_uid), а не из запроса: запрос пишет технарь, и подложенный
-        // srcRowId заставил бы ОС стереть или поменять не тот заказ.
-        const mirror = mirrors.find((m) => m.id === request.rowId && m.deskPageId === request.deskPageId);
-        if (!mirror || mirror.osUid !== osUid || mirror.techUid !== request.techUid || !mirror.srcPageId || !mirror.srcRowId) {
-          throw new Error("Заказ у технаря не найден среди ваших — возможно, его уже убрали или передали. Отклоните запрос.");
-        }
-        const tabId = mirror.tabId ?? "";
-        if (request.kind === "status" && request.status) {
-          await sbPatchRow(activeWorkspaceId, mirror.srcPageId, mirror.srcTabId ?? "", mirror.srcRowId, {
-            cells: { [STATUS_KEY]: request.status },
-          });
-          if (mirror.statusKey) {
-            await sbPatchRow(activeWorkspaceId, request.deskPageId, tabId, mirror.id, {
-              cells: { [mirror.statusKey]: request.status },
-            });
-          }
-        }
-        if (request.kind === "delete") {
-          await sbDeleteRow(activeWorkspaceId, request.deskPageId, tabId, mirror.id);
-          await sbDeleteRow(activeWorkspaceId, mirror.srcPageId, mirror.srcTabId ?? "", mirror.srcRowId);
-        }
-      }
-      await resolveOrderRequest(activeWorkspaceId, request, approved, { uid: profile.uid, name: myDisplayName(profile, members) });
+      await decideOrderRequest({
+        workspaceId: activeWorkspaceId,
+        request,
+        approved,
+        osUid,
+        mirrors,
+        statusKey,
+        me: { uid: profile.uid, name: myDisplayName(profile, members) },
+      });
       toast.success(approved ? (request.kind === "delete" ? "Заказ удалён и у технаря" : "Статус поставлен") : "Запрос отклонён");
       onChanged();
     } catch (error) {
@@ -123,7 +106,7 @@ export function OsOrderRequestsPanel({
             <li key={r.id} className="flex flex-col gap-2 rounded-lg border border-border bg-card px-3 py-2 sm:flex-row sm:items-center">
               <div className="min-w-0 flex-1">
                 <p className="text-sm">
-                  <span className="font-medium">{r.techName}</span>{" "}
+                  <span className="font-medium">{techNameOf(r)}</span>{" "}
                   {r.kind === "delete" ? (
                     <span className="text-destructive">просит удалить заказ</span>
                   ) : (

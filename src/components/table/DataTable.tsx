@@ -427,9 +427,10 @@ interface DataTableProps {
    * строки, `run` — что делать по нажатию.
    */
   cellAction?: {
-    colKey: string;
-    get: (row: PageRow) => CellActionView | null;
-    run: (row: PageRow) => void;
+    /** Столбец или несколько (стол ОС: «Технарь» и «Статус»). */
+    colKey: string | string[];
+    get: (row: PageRow, colKey: string) => CellActionView | null;
+    run: (row: PageRow, colKey: string) => void;
     /**
      * Метка зависит от времени (стол ОС: «статус не совпал» — через 8 с
      * после правки): пересчитывать её раз в столько мс. Пересчитывает сама
@@ -525,19 +526,23 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const renderCellDisplay = useCallback((row: PageRow, colKey: string) => cellDisplayRef.current?.render(row, colKey), []);
   const groupHintRef = useRef(groupHint);
   groupHintRef.current = groupHint;
-  const runCellAction = useCallback((rowId: string) => {
+  const runCellAction = useCallback((rowId: string, colKey: string) => {
     const row = rowsRef.current.find((r) => r.id === rowId);
-    if (row) cellActionRef.current?.run(row);
+    if (row) cellActionRef.current?.run(row, colKey);
   }, []);
   // Метку поверх ячейки считает сама ячейка (TableRow → LiveCellAction) по
   // СОХРАНЁННОЙ строке, как и раньше, а не по строке с ещё летящей правкой.
   const rowsById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
   const rowsByIdRef = useRef(rowsById);
   rowsByIdRef.current = rowsById;
-  const getCellActionView = useCallback((rowId: string) => {
+  const getCellActionView = useCallback((rowId: string, colKey: string) => {
     const row = rowsByIdRef.current.get(rowId);
-    return row ? (cellActionRef.current?.get(row) ?? null) : null;
+    return row ? (cellActionRef.current?.get(row, colKey) ?? null) : null;
   }, []);
+  // Строкой, а не массивом: TableRow сравнивает пропсы по значению.
+  const cellActionKeys = cellAction
+    ? (Array.isArray(cellAction.colKey) ? cellAction.colKey : [cellAction.colKey]).join("\u0001")
+    : null;
   const [cellActionPulse] = useState(createCellActionPulse);
   const hasCellAction = Boolean(cellAction);
   // После каждого рендера таблицы метки сверяют себя (данные для них могли
@@ -4129,7 +4134,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         cellDisplayKeys={cellDisplay?.keys}
         cellDisplayVersion={cellDisplay?.version}
         renderCellDisplay={cellDisplay ? renderCellDisplay : undefined}
-        cellActionKey={cellAction?.colKey ?? null}
+        cellActionKeys={cellActionKeys}
         getCellAction={cellAction ? getCellActionView : undefined}
         cellActionPulse={cellAction ? cellActionPulse : undefined}
         onCellAction={cellAction ? runCellAction : undefined}

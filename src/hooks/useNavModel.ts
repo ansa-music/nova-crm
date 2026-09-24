@@ -48,6 +48,7 @@ import { THEME_OPTIONS } from "@/components/layout/ThemeToggle";
 import { osDispatchLogState, subscribeOsDispatchLogState } from "@/services/osDispatchLogService";
 import { openOrdersState, subscribeOpenOrdersState } from "@/services/openOrdersPulse";
 import { useGrokPoolSignal } from "@/hooks/useGrokPoolSignal";
+import { useOsPendingOrderRequests } from "@/hooks/useOsPendingOrderRequests";
 
 /** Пути разделов страницы «Ещё» — на них в меню горит сам пункт «Ещё». */
 const MORE_PAGE_PATHS = [
@@ -153,6 +154,8 @@ export interface NavSignals {
   privateUnreadTotal: number;
   workspaceChatUnread: number;
   osDispatchUnseen: number;
+  /** Ожидающие просьбы технарей к этому ОС (счётчик на «Стол ОС»). */
+  osRequestsPending: number;
   ordersAlert: boolean;
   deskAlerts: string[];
   /** Аккаунты Грока: сколько доступно из скольких (null — ещё не читали). */
@@ -163,6 +166,7 @@ const NO_SIGNALS: NavSignals = {
   privateUnreadTotal: 0,
   workspaceChatUnread: 0,
   osDispatchUnseen: 0,
+  osRequestsPending: 0,
   ordersAlert: false,
   deskAlerts: [],
   grokPool: null,
@@ -284,7 +288,14 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
         },
         { key: "orders", to: "/orders", label: "Заказы", icon: ClipboardList, alert: sig.ordersAlert },
         // У ОС дом — «Технари» (дубль убирает фильтр ниже); стол ОС — свой пункт.
-        { key: "os-desk", to: "/os-desk", label: "Стол ОС", icon: Table2, show: g.showOsDeskNav },
+        {
+          key: "os-desk",
+          to: "/os-desk",
+          label: "Стол ОС",
+          icon: Table2,
+          show: g.showOsDeskNav,
+          badge: g.showOsDeskNav ? sig.osRequestsPending : 0,
+        },
         {
           key: DESKS_ITEM_KEY,
           to: "/desks",
@@ -511,6 +522,12 @@ export function NavModelProvider({ children }: { children: ReactNode }) {
   const osDispatchUnseen = useSyncExternalStore(subscribeOsDispatchLogState, osDispatchLogState).unseen;
   const openOrders = useSyncExternalStore(subscribeOpenOrdersState, openOrdersState);
   const ordersAlert = openOrders.loaded && openOrders.count > 0;
+  // Просьбы технарей к ОС — одна подписка на приложение (её же читает стол ОС).
+  const osRequestsPending = useOsPendingOrderRequests(
+    activeWorkspaceId,
+    uid,
+    permissions.isResolved && permissions.hasRole("os")
+  ).requests.length;
   const grokPool = useGrokPoolSignal(activeWorkspaceId, permissions.isResolved && !permissions.roles.every((r) => r === "os"));
 
   const inputs = useMemo<NavInputs>(
@@ -518,8 +535,8 @@ export function NavModelProvider({ children }: { children: ReactNode }) {
     [uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds]
   );
   const signals = useMemo<NavSignals>(
-    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, ordersAlert, deskAlerts, grokPool }),
-    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, ordersAlert, deskAlerts, grokPool]
+    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, deskAlerts, grokPool }),
+    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, deskAlerts, grokPool]
   );
   const pageMeta = useMemo(() => buildPageMeta(inputs), [inputs]);
   const model = useMemo(() => buildNavModel(inputs, signals, pageMeta), [inputs, signals, pageMeta]);
