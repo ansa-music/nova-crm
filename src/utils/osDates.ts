@@ -1,25 +1,35 @@
-import { USER_TIMEZONE, ymdInTimeZone } from "@/utils/date";
-import { OS_ISSUED_AT_KEY } from "@/utils/reservedCellKeys";
+import { almatyNoonMillis, USER_TIMEZONE, ymdInTimeZone, ymdPartsInTimeZone } from "@/utils/date";
+import { OS_ISSUED_AT_KEY, OS_ISSUED_ON_KEY, OS_RECEIVED_ON_KEY } from "@/utils/reservedCellKeys";
 import type { PageRow } from "@/types";
 
 /**
- * Даты заказа на столе ОС (просьба Nurba 24.09.2026): когда ОС ПОЛУЧИЛ заказ,
- * когда ВЫДАЛ его технарю и когда сделан апсейл.
+ * Даты заказа на столе ОС: когда ОС ПОЛУЧИЛ заказ, когда ВЫДАЛ его технарю и
+ * когда сделан апсейл. ТОЛЬКО ДАТА, без времени (просьба Nurba 24.09.2026).
+ *
+ * Дату ставит сам ОС (вторая просьба того же дня: «чтобы дату заполняли
+ * сами, но рекомендовано — по кнопке»): ячейки `osReceivedOn`, `osIssuedOn`,
+ * `{апсейл}__on` — полдень дня по Алматы, мс строкой. Пока ОС её не
+ * поставил, в ячейке пунктиром стоит РЕКОМЕНДУЕМАЯ дата — одно нажатие
+ * записывает её. Рекомендация берётся из автоматики:
  *
  * - получен — `max(createdAt, filledAt)` строки: слот могли завести заранее,
  *   заказ — момент, когда в слот впервые что-то вписали (как «Столы ОС»);
- * - выдан — ячейка `osIssuedAt` строки-источника (ставит `pushOrderToTech`
- *   при заведении копии у технаря); у заказов, выданных до этого, — дата
- *   заведения самой копии;
+ * - выдан — ячейка `osIssuedAt` (ставит `pushOrderToTech` при заведении копии
+ *   у технаря); у заказов, выданных до этого, — дата заведения самой копии;
  * - апсейл — ячейки `{апсейл}__at` / `{апсейл}__was` (ставит
  *   `useOsTotalsKeeper`, когда видит, что апсейл поменяли).
  *
- * Всё время — по Алматы, как остальные даты заказов.
+ * Все дни — по Алматы, как остальные даты заказов.
  */
 
 /** Ячейка «когда сделан апсейл» (мс строкой). */
 export function upsellAtKeyOf(colKey: string): string {
   return `${colKey}__at`;
+}
+
+/** Дата апсейла, которую поставил ОС (полдень по Алматы). */
+export function upsellOnKeyOf(colKey: string): string {
+  return `${colKey}__on`;
 }
 
 /**
@@ -48,58 +58,88 @@ export function osIssuedAt(row: Pick<PageRow, "cells">, mirrorCreatedAt?: number
   return cellMillis(row.cells[OS_ISSUED_AT_KEY]) ?? (mirrorCreatedAt && mirrorCreatedAt > 0 ? mirrorCreatedAt : null);
 }
 
-/** Когда сделан апсейл этой строки. */
+/** Когда сделан апсейл этой строки (автоматика — рекомендация). */
 export function upsellMadeAt(row: Pick<PageRow, "cells">, upsellKey: string): number | null {
   return cellMillis(row.cells[upsellAtKeyOf(upsellKey)]);
 }
 
+/** Полдень того же дня по Алматы — так хранятся даты, которые ставит человек. */
+export function almatyDay(ms: number): number {
+  const p = ymdPartsInTimeZone(ms);
+  return almatyNoonMillis(p.year, p.month, p.day);
+}
+
+/** «YYYY-MM-DD» по Алматы — для `<input type="date">`. */
+export function dateInputValue(ms: number | null): string {
+  return ms ? ymdInTimeZone(ms) : "";
+}
+
+/** Из `<input type="date">` — полдень этого дня по Алматы (или null). */
+export function parseDateInput(raw: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw.trim());
+  if (!m) return null;
+  const ms = almatyNoonMillis(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isFinite(ms) ? ms : null;
+}
+
+export type OsDateKind = "received" | "issued" | "upsell";
+
+/** Одна дата заказа: поставленная ОС и рекомендуемая (для кнопки). */
+export interface OsDateSlot {
+  kind: OsDateKind;
+  /** Ячейка, куда пишется дата. */
+  key: string;
+  /** Поставил ОС (полдень дня); null — ещё не ставил. */
+  value: number | null;
+  /** Рекомендуемая (полдень дня) — по кнопке; null — рекомендовать нечего. */
+  suggested: number | null;
+}
+
+export const OS_DATE_TITLES: Record<OsDateKind, string> = {
+  received: "Дата получения заказа",
+  issued: "Дата выдачи технарю",
+  upsell: "Дата апсейла",
+};
+
+/**
+ * Три даты строки стола ОС. `mirrorCreatedAt` — когда завели копию у
+ * технаря (запасная рекомендация для «выдан» у заказов, выданных раньше).
+ */
+export function osDateSlots(
+  row: Pick<PageRow, "cells" | "createdAt" | "filledAt">,
+  opts: { upsellKey: string; mirrorCreatedAt?: number | null }
+): Record<OsDateKind, OsDateSlot> {
+  const day = (ms: number | null) => (ms ? almatyDay(ms) : null);
+  const upsellKey = upsellOnKeyOf(opts.upsellKey);
+  return {
+    received: { kind: "received", key: OS_RECEIVED_ON_KEY, value: cellMillis(row.cells[OS_RECEIVED_ON_KEY]), suggested: day(osReceivedAt(row)) },
+    issued: {
+      kind: "issued",
+      key: OS_ISSUED_ON_KEY,
+      value: cellMillis(row.cells[OS_ISSUED_ON_KEY]),
+      suggested: day(osIssuedAt(row, opts.mirrorCreatedAt)),
+    },
+    upsell: { kind: "upsell", key: upsellKey, value: cellMillis(row.cells[upsellKey]), suggested: day(upsellMadeAt(row, opts.upsellKey)) },
+  };
+}
+
+/** Что показать: поставленная ОС, иначе рекомендуемая. */
+export function slotShown(slot: OsDateSlot): number | null {
+  return slot.value ?? slot.suggested;
+}
+
 const dayMonthFmt = new Intl.DateTimeFormat("ru-RU", { timeZone: USER_TIMEZONE, day: "2-digit", month: "2-digit" });
-const clockFmt = new Intl.DateTimeFormat("ru-RU", { timeZone: USER_TIMEZONE, hour: "2-digit", minute: "2-digit", hour12: false });
-const fullFmt = new Intl.DateTimeFormat("ru-RU", {
-  timeZone: USER_TIMEZONE,
-  day: "numeric",
-  month: "long",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
 
 /** «24.09» */
 export function formatDayMonth(ms: number): string {
   return dayMonthFmt.format(new Date(ms));
 }
 
-/** «14:05» */
-export function formatClock(ms: number): string {
-  return clockFmt.format(new Date(ms));
-}
+const fullDateFmt = new Intl.DateTimeFormat("ru-RU", { timeZone: USER_TIMEZONE, day: "numeric", month: "long", year: "numeric" });
 
-/** «24.09 14:05» — всегда с датой: стол ОС листают по месяцу, и «14:05» без дня путает. */
-export function formatShortMoment(ms: number): string {
-  return `${formatDayMonth(ms)} ${formatClock(ms)}`;
-}
-
-/** «24 сентября 2026 г., 14:05» — для подсказки. */
-export function formatFullMoment(ms: number): string {
-  return fullFmt.format(new Date(ms));
-}
-
-/** Сколько прошло между получением и выдачей: «12 мин», «3 ч 5 мин», «2 дн». */
-export function formatWaited(fromMs: number, toMs: number): string {
-  const min = Math.max(0, Math.round((toMs - fromMs) / 60_000));
-  if (min < 60) return `${min} мин`;
-  const hours = Math.floor(min / 60);
-  if (hours < 24) {
-    const rest = min % 60;
-    return rest ? `${hours} ч ${rest} мин` : `${hours} ч`;
-  }
-  return `${Math.floor(hours / 24)} дн`;
-}
-
-/** Тот же ли календарный день по Алматы. */
-export function sameAlmatyDay(a: number, b: number): boolean {
-  return ymdInTimeZone(a) === ymdInTimeZone(b);
+/** «24 сентября 2026 г.» — только дата. */
+export function formatFullDate(ms: number): string {
+  return fullDateFmt.format(new Date(ms));
 }
 
 // ---------------------------------------------------------------------
@@ -130,8 +170,11 @@ export function planUpsellStamp(input: {
   const was = norm(row.cells[upsellWasKeyOf(upsellKey)]);
   const at = norm(row.cells[upsellAtKeyOf(upsellKey)]);
   if (!value) {
-    // Апсейл стёрли — дата ему больше не нужна.
-    return was || at ? { [upsellAtKeyOf(upsellKey)]: null, [upsellWasKeyOf(upsellKey)]: null } : null;
+    // Апсейл стёрли — даты ему больше не нужны (и поставленная ОС тоже).
+    const on = norm(row.cells[upsellOnKeyOf(upsellKey)]);
+    return was || at || on
+      ? { [upsellAtKeyOf(upsellKey)]: null, [upsellWasKeyOf(upsellKey)]: null, [upsellOnKeyOf(upsellKey)]: null }
+      : null;
   }
   // Дата уже стоит ровно под это значение (её поставила другая вкладка).
   if (was === value && at) return null;

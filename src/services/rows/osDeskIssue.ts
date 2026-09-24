@@ -3,10 +3,11 @@ import { addSubPageRow, fetchSubPageFresh, fetchSubPageRows, monthTabNameForKey,
 import { currentMonthKey, ensureMonthTab } from "@/services/monthTabService";
 import { ensureOsDesk, findOsDeskOf, resolveOsDeskKeys, type OsDeskKeys } from "@/services/osDeskService";
 import { isBlankRow } from "@/utils/blankRow";
-import { findInProgressStatusOption, isDoneStatusLabel } from "@/utils/columnOptions";
+import { approvalStatusValue, isApprovalStatusValue, isDoneStatusLabel } from "@/utils/columnOptions";
 import { normalizeNumericInput } from "@/utils/numberInput";
 import { mirrorAddressOf } from "@/utils/osDispatchPlan";
-import { osReceivedAt } from "@/utils/osDates";
+import { cellMillis, osReceivedAt } from "@/utils/osDates";
+import { OS_RECEIVED_ON_KEY } from "@/utils/reservedCellKeys";
 import type { PageColumn, PageRow, StatusOption, WorkOrder, WorkspacePage } from "@/types";
 
 type RowExtras = NonNullable<PageRow["extras"]>;
@@ -81,8 +82,10 @@ function cellText(row: PageRow, key: string): string {
 }
 
 export type OsDeskRowState =
-  /** Можно выдать: имя есть, технаря нет, у технаря копии нет, на «Заказах» не висит. */
+  /** Можно выдать: на утверждении, имя есть, технаря и копии нет, на «Заказах» не висит. */
   | "issuable"
+  /** Без технаря, но уже не на утверждении («В работе», «Ждём оплату»…) — в список выдачи не идёт. */
+  | "other"
   /** Уже у технаря (ник или копия). */
   | "issued"
   /** Висит на «Заказах» (открыт или отдан, едет). */
@@ -93,30 +96,44 @@ export type OsDeskRowState =
   | "none";
 
 /**
- * Что можно сделать со строкой стола ОС на «Заказах». `liveOrderIds` — id
- * заказов, открытых или отданных СЕЙЧАС: строка с `orderId`, которого среди
- * них нет, — заказ сняли (отменили, удалили), и её можно выставить снова.
- * Взятый («В столах») заказ пишет ник технаря в строку раньше, чем станет
- * взятым (handOffExchangeOrder), так что он узнаётся как «issued».
+ * Что можно сделать со строкой стола ОС на «Заказах».
+ *
+ * Выдать можно заказ НА УТВЕРЖДЕНИИ (пустой статус — тоже он) без технаря —
+ * правило Nurba 24.09.2026 («если на утверждении и нет технаря — можно ещё
+ * раз выдать»; жалоба: «в „Заказах“ показываются все заказы со стола без
+ * технарей»). Остальные строки без технаря («В работе», «Ждём оплату»,
+ * старые) в список не идут — это `other`.
+ *
+ * `liveOrderIds` — id заказов, открытых или отданных СЕЙЧАС: строка с
+ * `orderId`, которого среди них нет, — заказ сняли (отменили, удалили), и её
+ * можно выставить снова. `null` — список ещё читается: строка с заказом
+ * считается висящей на бирже (иначе её выставили бы второй раз). Взятый
+ * («В столах») заказ пишет ник технаря в строку раньше, чем станет взятым
+ * (handOffExchangeOrder), так что он узнаётся как «issued».
  */
 export function osDeskRowState(
   row: PageRow,
   keys: OsDeskKeys,
-  liveOrderIds: ReadonlySet<string>,
+  liveOrderIds: ReadonlySet<string> | null,
   statusOptions: readonly StatusOption[]
 ): OsDeskRowState {
   if (isBlankRow(row) || !cellText(row, keys.client)) return "none";
   if (cellText(row, keys.technician) || mirrorAddressOf(row, null)) return "issued";
-  if (row.orderId && liveOrderIds.has(row.orderId)) return "exchange";
+  if (row.orderId && (liveOrderIds === null || liveOrderIds.has(row.orderId))) return "exchange";
   const status = cellText(row, keys.status);
   const label = statusOptions.find((o) => o.value === status)?.label ?? status;
   if (status && isDoneStatusLabel(label)) return "done";
-  return "issuable";
+  return isApprovalStatusValue(status, statusOptions) ? "issuable" : "other";
+}
+
+/** Когда получен: дата, поставленная ОС, иначе дата строки. */
+function receivedSortKey(row: PageRow): number {
+  return cellMillis(row.cells[OS_RECEIVED_ON_KEY]) ?? osReceivedAt(row) ?? 0;
 }
 
 /** Новые сверху: ОС ищет то, что только что продал. */
 export function sortByReceivedDesc(rows: PageRow[]): PageRow[] {
-  return [...rows].sort((a, b) => (osReceivedAt(b) ?? 0) - (osReceivedAt(a) ?? 0));
+  return [...rows].sort((a, b) => receivedSortKey(b) - receivedSortKey(a));
 }
 
 export interface NewOsOrderInput {
@@ -136,10 +153,9 @@ function rowCreatedMs(row: PageRow): number {
 
 /**
  * Новый заказ — строкой на стол ОС: в первый пустой слот (как «Добавить
- * строку» и «Быстрый заказ»), нет слотов — новой строкой внизу. Статус сразу
- * «В работе»: заказ уходит на «Заказы», и «Утверждение» ему ни к чему (иначе
- * проход стола успел бы поставить его сам). Возвращает строку, как она
- * записана, — её и отдают `sendOsRowToExchange`.
+ * строку» и «Быстрый заказ»), нет слотов — новой строкой внизу. Статус —
+ * «Утверждение» (в «В работе» его переводит выставление на биржу).
+ * Возвращает строку, как она записана, — её и отдают `sendOsRowToExchange`.
  */
 export async function addOsDeskOrderRow(input: {
   tab: OsDeskTab;
@@ -156,8 +172,10 @@ export async function addOsDeskOrderRow(input: {
   const price = order.price.trim() ? normalizeNumericInput(order.price) : "";
   if (price && has(k.price)) cells[k.price] = price;
   if (order.link.trim() && has(k.link)) cells[k.link] = order.link.trim();
-  const inProgress = findInProgressStatusOption([...input.statusOptions])?.value;
-  if (inProgress && has(k.status)) cells[k.status] = inProgress;
+  // «Утверждение»: `sendOsRowToExchange` сам переведёт в «В работе», когда
+  // заказ ляжет на биржу. Не лёг (сеть, отказ) — строка остаётся «на
+  // утверждении» и выдаётся со стола или из того же окна, как обычно.
+  if (has(k.status)) cells[k.status] = approvalStatusValue([...input.statusOptions]);
   const extras: RowExtras = {};
   if (order.persons) extras.persons = order.persons;
   if (order.minutes) extras.minutes = order.minutes;

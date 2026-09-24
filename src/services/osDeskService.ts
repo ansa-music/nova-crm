@@ -6,6 +6,10 @@ import { ensureNewDeskAcl, stripUndefined, updatePageColumns, updatePageMainTab 
 import { currentMonthKey, ensureMonthTab } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
 import { OS_DATES_COLUMN_KEY } from "@/utils/osDeskKeys";
+
+/** Ширина «Дат»: без времени хватает 92 px (первая версия со временем была 112). */
+const OS_DATES_COLUMN_WIDTH = 92;
+const OS_DATES_COLUMN_WIDTH_V1 = 112;
 import type { PageColumn, WorkspacePage } from "@/types";
 
 /**
@@ -26,10 +30,10 @@ import type { PageColumn, WorkspacePage } from "@/types";
 export const OS_DESK_COLUMNS: Array<Pick<PageColumn, "key" | "label" | "type" | "width">> = [
   { key: "client", label: "Имя", type: "text", width: 200 },
   // Когда заказ получен и когда выдан технарю (просьба Nurba 24.09.2026):
-  // две крошечные строки, сразу за именем — видно всегда, места почти не
-  // занимает. Ячейка пустая и только для чтения: рисует её стол сам
-  // (utils/osDates.ts, `OsDatesCell`) по дате строки и `osIssuedAt`.
-  { key: OS_DATES_COLUMN_KEY, label: "Даты", type: "text", width: 112 },
+  // две крошечные строки, только дата, сразу за именем — видно всегда, места
+  // почти не занимает. Сама ячейка пустая и закрыта: её рисует стол
+  // (`OsDatesCell`), а даты лежат служебными ячейками строки (utils/osDates.ts).
+  { key: OS_DATES_COLUMN_KEY, label: "Даты", type: "text", width: OS_DATES_COLUMN_WIDTH },
   { key: "phone", label: "Номер", type: "phone", width: 150 },
   { key: "price", label: "Цена", type: "currency", width: 180 },
   { key: "upsell", label: "Апсейл", type: "currency", width: 180 },
@@ -88,7 +92,7 @@ export function missingOsDeskColumns(existingColumns: PageColumn[]): PageColumn[
   // «Даты» (получен / выдан) — сразу за именем клиента.
   if (!cols.some((c) => c.key === OS_DATES_COLUMN_KEY)) {
     const after = cols.findIndex((c) => c.key === "client");
-    const dates: PageColumn = { id: generateId("col"), key: OS_DATES_COLUMN_KEY, label: "Даты", type: "text", width: 112, order: 0 };
+    const dates: PageColumn = { id: generateId("col"), key: OS_DATES_COLUMN_KEY, label: "Даты", type: "text", width: OS_DATES_COLUMN_WIDTH, order: 0 };
     cols = [...cols.slice(0, after + 1), dates, ...cols.slice(after + 1)];
     changed = true;
   }
@@ -99,6 +103,11 @@ export function missingOsDeskColumns(existingColumns: PageColumn[]): PageColumn[
     if ((c.key === "price" || c.key === "upsell") && c.width === 130) {
       changed = true;
       return { ...c, width: 180 };
+    }
+    // «Даты» стали без времени — нетронутый столбец сужаем.
+    if (c.key === OS_DATES_COLUMN_KEY && c.width === OS_DATES_COLUMN_WIDTH_V1) {
+      changed = true;
+      return { ...c, width: OS_DATES_COLUMN_WIDTH };
     }
     return c;
   });

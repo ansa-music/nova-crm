@@ -147,6 +147,8 @@ export default function OrdersPage() {
   const [wheel, setWheel] = useState<{ order: WorkOrder; pool: WheelCandidate[]; winner: OrderCandidate } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [ordersError, setOrdersError] = useState(false);
+  /** Список заказов подтверждён сервером (не снимок из кэша на диске). */
+  const [ordersSynced, setOrdersSynced] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   /** История («В столах» + «Отменённые»); null — ещё не читали. */
   const [history, setHistory] = useState<WorkOrder[] | null>(null);
@@ -270,6 +272,7 @@ export default function OrdersPage() {
   useEffect(() => {
     setOrders(null);
     setOrdersError(false);
+    setOrdersSynced(false);
     if (!activeWorkspaceId) return;
     const workspaceId = activeWorkspaceId;
     /** Последний снимок, подтверждённый сервером: по разнице с ним видно, кто ушёл с биржи и кто пришёл. */
@@ -315,6 +318,7 @@ export default function OrdersPage() {
       (rows, fromCache) => {
         setOrdersError(false);
         setOrders(rows);
+        setOrdersSynced(!fromCache);
         // Первый снимок может прийти из кэша и не знать о части заказов —
         // «ушёл с биржи» по нему было бы ложным. Считаем только по снимкам,
         // подтверждённым сервером.
@@ -470,10 +474,17 @@ export default function OrdersPage() {
   }
 
   const sendOsRowToExchange = useSendOsRowToExchange();
-  /** Заказы, открытые или отданные сейчас: строка стола с таким `orderId` уже на «Заказах». */
+  /**
+   * Заказы, открытые или отданные сейчас: строка стола с таким `orderId` уже
+   * на «Заказах». Пока список читается (или не прочитался) — null: такие
+   * строки не предлагаем, иначе заказ выставился бы второй раз.
+   */
   const liveOrderIds = useMemo(
-    () => new Set((orders ?? []).filter((o) => o.status === "open" || o.status === "assigned").map((o) => o.id)),
-    [orders]
+    () =>
+      orders === null || ordersError || !ordersSynced
+        ? null
+        : new Set(orders.filter((o) => o.status === "open" || o.status === "assigned").map((o) => o.id)),
+    [orders, ordersError, ordersSynced]
   );
 
   /** «Новый заказ» у ОС: строкой на свой стол ОС, оттуда — на «Заказы». */

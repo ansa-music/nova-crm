@@ -17,7 +17,7 @@ import { auth, db } from "@/firebase/firebase";
 import { getDocsResumable, paths, subscribeWithSource, withErrorReporting } from "@/firebase/firestore";
 import { generateDeskId, generateId } from "@/utils/id";
 import { hasRowExtras } from "@/utils/rowExtras";
-import { RESERVED_CELL_KEY_ERROR, isReservedCellKey } from "@/utils/reservedCellKeys";
+import { RESERVED_CELL_KEY_ERROR, copyableCells, isReservedCellKey } from "@/utils/reservedCellKeys";
 import { logChange } from "@/services/historyService";
 import type { PageColumn, PageIconName, PageRow, Role, StatusOption, WorkspacePage,
   OsFieldKeys,
@@ -1412,7 +1412,8 @@ export function rowCopyOf(row: PageRow, id: string, order: number): PageRow {
     id,
     pageId: row.pageId,
     order,
-    cells: { ...row.cells },
+    // Без служебных ячеек и дат заказа ОС — см. copyableCells.
+    cells: copyableCells(row.cells),
     ...(row.extras ? { extras: row.extras } : {}),
     ...(row.height ? { height: row.height } : {}),
     createdAt: now,

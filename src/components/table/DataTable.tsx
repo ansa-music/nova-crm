@@ -1388,6 +1388,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       // person happened to click some other cell. This is almost certainly
       // what made the table feel broadly "broken" rather than one glitch.
       if (!col || isOptionColumn(col.type) || col.type === "date") return;
+      // Столбцы только для чтения («Итого», «Даты» стола ОС): редактор в них
+      // прятал бы кнопки добавки и падал бы отказом при сохранении.
+      if (lockedKeys?.[colKey]) return;
       // Re-entering edit mode on the cell that's ALREADY being edited must
       // be a no-op, not a reset. A real double-click fires two mousedowns
       // plus a trailing dblclick — each one used to call startEditing()
@@ -1408,7 +1411,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       setEditingCell({ rowId, colKey });
       setEditValue(initialValue !== undefined ? initialValue : String(row.cells[colKey] ?? ""));
     },
-    [canEdit, columns, rows]
+    [canEdit, columns, rows, lockedKeys]
   );
 
   /**
@@ -1689,7 +1692,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     // Status and date stay chip/calendar — no text editor.
     if (!canEdit) return;
     const col = columns.find((c) => c.key === next.colKey);
-    if (!col || isOptionColumn(col.type) || col.type === "date") return;
+    if (!col || isOptionColumn(col.type) || col.type === "date" || lockedKeys?.[next.colKey]) return;
     const row = rows.find((r) => r.id === next.rowId);
     setEditingCell(next);
     setEditValue(String(row?.cells[next.colKey] ?? ""));

@@ -113,7 +113,12 @@ export function RowCardSheet({
     if (!open) return;
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
-      const inField = Boolean(target?.closest("input, textarea, [contenteditable=true], [role=listbox], [role=dialog] [data-radix-popper-content-wrapper]"));
+      // Попперы Radix (окно даты, выпадашки) порталятся в <body>, у них нет
+      // предка [role=dialog] — прежний селектор их не узнавал, и стрелка в окне
+      // даты листала карточку на соседнюю строку.
+      const inField = Boolean(
+        target?.closest("input, textarea, [contenteditable=true], [role=listbox], [role=menu], [data-radix-popper-content-wrapper]")
+      );
       if (e.code === "Escape") {
         // An open inline Status/Ответственный/custom-field Select (or any
         // other Radix popper) must get first crack at Escape — it closes
@@ -134,6 +139,8 @@ export function RowCardSheet({
         return;
       }
       if (inField) return;
+      // Открытый поппер владеет стрелками, как уже владеет Escape.
+      if (document.querySelector("[data-radix-popper-content-wrapper], [data-radix-select-content]")) return;
       if (e.code === "ArrowLeft" && hasPrev && onPrev) {
         e.preventDefault();
         onPrev();

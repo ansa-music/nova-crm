@@ -27,14 +27,49 @@ export const OS_STATUS_SENT_KEY = "osStatusSent";
 export const OS_LOST_FOR_KEY = "osLostFor";
 /**
  * Когда заказ отдан НЫНЕШНЕМУ технарю (мс строкой) — ставит `pushOrderToTech`
- * при заведении копии, снимают проход (технаря стёрли, копию удалили) и
- * «Вернуть» на «Правке столов». Показывает столбец «Даты» стола ОС.
+ * при заведении копии, снимает проход (технаря стёрли, копию удалили).
+ * Для столбца «Даты» стола ОС это рекомендация, а не сама дата.
  */
 export const OS_ISSUED_AT_KEY = "osIssuedAt";
+/**
+ * Даты, которые ОС ставит САМ (кнопкой «рекомендуем» или выбором дня; только
+ * дата — полдень по Алматы, мс строкой): когда получил заказ и когда выдал
+ * технарю. Автоматические `createdAt/filledAt` и `osIssuedAt` — лишь
+ * рекомендация для кнопки (utils/osDates.ts).
+ */
+export const OS_RECEIVED_ON_KEY = "osReceivedOn";
+export const OS_ISSUED_ON_KEY = "osIssuedOn";
 
-export const RESERVED_CELL_KEYS: readonly string[] = [TECH_LINK_KEY, TECH_NOTE_KEY, OS_STATUS_SENT_KEY, OS_LOST_FOR_KEY, OS_ISSUED_AT_KEY];
+export const RESERVED_CELL_KEYS: readonly string[] = [
+  TECH_LINK_KEY,
+  TECH_NOTE_KEY,
+  OS_STATUS_SENT_KEY,
+  OS_LOST_FOR_KEY,
+  OS_ISSUED_AT_KEY,
+  OS_RECEIVED_ON_KEY,
+  OS_ISSUED_ON_KEY,
+];
 
 const RESERVED_LOWER = new Set(RESERVED_CELL_KEYS.map((k) => k.toLowerCase()));
+
+/** Служебные ячейки заказа ОС — им не место в копии строки. */
+const OS_ROW_SERVICE_KEYS = new Set([OS_STATUS_SENT_KEY, OS_LOST_FOR_KEY, OS_ISSUED_AT_KEY, OS_RECEIVED_ON_KEY, OS_ISSUED_ON_KEY]);
+
+/**
+ * Ячейки КОПИИ строки («Дублировать»): содержимое без служебных меток и дат
+ * заказа ОС — `osStatusSent`, `osLostFor`, `osIssuedAt`, `osReceivedOn`,
+ * `osIssuedOn` и дат апсейла `{ключ}__at/__was/__on`. Иначе копия заказа,
+ * заведённая 24-го, показывала бы «получен 10.09, выдан 11.09» оригинала как
+ * поставленные ОС. Способ оплаты (`__pay`, `__fee`) — содержимое, остаётся.
+ */
+export function copyableCells<T>(cells: Record<string, T>): Record<string, T> {
+  const out: Record<string, T> = {};
+  for (const [key, value] of Object.entries(cells)) {
+    if (OS_ROW_SERVICE_KEYS.has(key) || /__(on|at|was)$/.test(key)) continue;
+    out[key] = value;
+  }
+  return out;
+}
 
 export function isReservedCellKey(key: string): boolean {
   return RESERVED_LOWER.has(key.trim().toLowerCase());

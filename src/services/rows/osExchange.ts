@@ -1,4 +1,4 @@
-import { updateDoc } from "firebase/firestore";
+import { getDocFromServer, updateDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { createOrder } from "@/services/orderService";
@@ -13,6 +13,7 @@ import { sbDeleteRow, sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { OS_DESK_KEYS, resolveOsDeskKeys, type OsDeskKeys } from "@/services/osDeskService";
 import { findInProgressStatusOption, isApprovalStatusValue } from "@/utils/columnOptions";
 import { osRowTotal } from "@/utils/payment";
+import { OS_ISSUED_ON_KEY } from "@/utils/reservedCellKeys";
 import type { PageRow, StatusOption, WorkOrder, WorkOrderUrgency, WorkspaceMember, WorkspacePage } from "@/types";
 
 /**
@@ -59,9 +60,23 @@ export interface SendToExchangeInput {
   urgency?: WorkOrderUrgency;
 }
 
+/** Заказ строки уже висит на бирже — второй выставлять нельзя. */
+export class AlreadyOnExchangeError extends Error {}
+
 /** «Общий»: заказ со стола ОС уходит на биржу «Заказы». */
 export async function sendOsRowToExchange(input: SendToExchangeInput): Promise<WorkOrder> {
   const { row } = input;
+  // Выставляют ЗАНОВО (у строки уже был заказ) — сверяем прежний с сервером:
+  // списки «что висит на бирже» у экрана могли ещё не дочитаться или прийти
+  // из кэша, а два заказа на одну строку — два отклика и два технаря.
+  if (row.orderId && db) {
+    const prev = await getDocFromServer(paths.order(input.workspaceId, row.orderId)).catch(() => null);
+    if (prev === null) throw new Error("Не удалось проверить прежний заказ на «Заказах» — проверьте связь и повторите");
+    const status = prev.exists() ? (prev.data() as Partial<WorkOrder>).status : undefined;
+    if (status === "open" || status === "assigned") {
+      throw new AlreadyOnExchangeError("Этот заказ уже на «Заказах» — второй раз его не выставить");
+    }
+  }
   const k = input.keys ?? OS_DESK_KEYS;
   // Касса: за вычетом комиссии способов оплаты — та же сумма, что уедет технарю.
   const total = osRowTotal(row, k) ?? 0;
@@ -139,14 +154,17 @@ export async function handOffExchangeOrder(input: HandoffInput): Promise<{ techN
 
   handoffRows.add(row.id);
   try {
-    // Ник технаря — в строку ОС: у себя в таблице ОС видит, у кого заказ, и
-    // дальше ведёт его как выданный напрямую (смена, снятие, статус).
-    await sbPatchRow(workspaceId, src.pageId, src.tabId, row.id, { cells: { [TECH_KEY]: nick, [STATUS_KEY]: status } });
-    const source: PageRow = { ...row, cells: { ...row.cells, [TECH_KEY]: nick, [STATUS_KEY]: status } };
-
     // Заказ уже лежал у другого технаря (отдавали напрямую, потом выставили
     // на биржу) — убрать оттуда, иначе он висел бы у двоих.
     const keepAt = row.mirrorPageId === target.page.id ? row : null;
+    // Дата выдачи, поставленная ОС прежнему технарю, к новому не относится.
+    const movedFrom = Boolean(row.mirrorPageId && row.mirrorRowId && !keepAt);
+    // Ник технаря — в строку ОС: у себя в таблице ОС видит, у кого заказ, и
+    // дальше ведёт его как выданный напрямую (смена, снятие, статус).
+    const cells: Record<string, string> = { [TECH_KEY]: nick, [STATUS_KEY]: status, ...(movedFrom ? { [OS_ISSUED_ON_KEY]: "" } : {}) };
+    await sbPatchRow(workspaceId, src.pageId, src.tabId, row.id, { cells });
+    const source: PageRow = { ...row, cells: { ...row.cells, ...cells } };
+
     if (row.mirrorPageId && row.mirrorRowId && !keepAt) {
       await sbDeleteRow(workspaceId, row.mirrorPageId, row.mirrorTabId || null, row.mirrorRowId);
     }

@@ -122,14 +122,13 @@ import type { PageRow, PaymentMethod, SubPage, WorkspacePage } from "@/types";
 import type { DeskSummary, DeskTableActions } from "@/types/deskSummary";
 import { formatNumber } from "@/utils/format";
 import { PaymentChip } from "@/components/cashbox/PaymentChip";
-import { OsDatesCell, OsDatesInline, type OsDatesInfo } from "@/components/os/OsDatesCell";
 import {
-  formatDayMonth,
-  formatFullMoment,
-  osIssuedAt,
-  osReceivedAt,
-  upsellMadeAt,
-} from "@/utils/osDates";
+  OsDatesCell,
+  OsDatesInline,
+  OsUpsellDate,
+  type OsDatesInfo,
+} from "@/components/os/OsDatesCell";
+import { osDateSlots, type OsDateSlot } from "@/utils/osDates";
 import { PaymentMethodsDialog } from "@/components/cashbox/PaymentMethodsDialog";
 import { useOsTotalsKeeper } from "@/hooks/useOsTotalsKeeper";
 import { osRowTotal, paymentMethodsOf, paymentPatch } from "@/utils/payment";
@@ -831,7 +830,7 @@ export default function DynamicTablePage() {
             [osKeys.total]:
               "«Итого» считает стол сам: цена и апсейл за вычетом комиссии способа оплаты",
             [osKeys.dates]:
-              "Даты ставит стол сам: «получен» — когда строку заполнили, «выдан» — когда заказ ушёл технарю",
+              "Даты ставятся кнопками в ячейке: пунктир — рекомендуемая дата, нажмите, чтобы поставить; поставленную — нажмите, чтобы поменять",
           }
         : undefined,
     [isOsDeskPage, osKeys.total, osKeys.dates],
@@ -842,25 +841,62 @@ export default function DynamicTablePage() {
   );
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   /**
-   * Даты заказа для столбца «Даты» и карточки строки: получен — дата строки,
-   * выдан — `osIssuedAt` (у выданных раньше — когда завели копию у технаря),
-   * а пока заказ на «Заказах» — «ждёт откликов» / «едет».
+   * Даты заказа (только дата) для столбца «Даты», апсейла и карточки строки:
+   * поставленные ОС (`osReceivedOn`/`osIssuedOn`/`{апсейл}__on`) и
+   * рекомендуемые для кнопки — дата строки, выдача копии технарю
+   * (`osIssuedAt`, у выданных раньше — когда завели копию), дата апсейла.
+   * Пока заказ на «Заказах» — «ждёт откликов» / «едет».
    */
-  function osDatesOf(row: PageRow): OsDatesInfo {
-    const onExchange = row.orderId ? exchange.byRow.get(row.id) : undefined;
+  function osSlotsOf(row: PageRow) {
     const mirror = myOrders.bySource.get(row.id);
+    return osDateSlots(row, {
+      upsellKey: osKeys.upsell,
+      mirrorCreatedAt: mirror?.createdAt ?? null,
+    });
+  }
+  function osDatesOf(row: PageRow): OsDatesInfo {
+    const slots = osSlotsOf(row);
+    const onExchange = row.orderId ? exchange.byRow.get(row.id) : undefined;
     const techNick = osKeys.technician ? row.cells[osKeys.technician] : null;
     return {
-      receivedAt: osReceivedAt(row),
-      issuedAt: osIssuedAt(row, mirror?.createdAt ?? null),
+      received: slots.received,
+      issued: slots.issued,
       techName: techNick ? String(techNick) : undefined,
       exchange:
         onExchange &&
         (onExchange.status === "open" || onExchange.status === "assigned")
-          ? { status: onExchange.status, since: onExchange.createdAt ?? null }
+          ? { status: onExchange.status }
           : null,
     };
   }
+  /** ОС ставит дату сам (кнопкой «рекомендуем» или выбором дня). */
+  async function setOsRowDate(
+    row: PageRow,
+    slot: OsDateSlot,
+    value: number | null,
+  ) {
+    if (!activeWorkspaceId || !page) return;
+    const patch = { [slot.key]: value === null ? null : String(value) };
+    try {
+      if (activeSubPageId)
+        await updateSubPageRowCellsBulk(
+          activeWorkspaceId,
+          page.id,
+          activeSubPageId,
+          row.id,
+          patch,
+        );
+      else await updateRowCellsBulk(activeWorkspaceId, page.id, row.id, patch);
+    } catch (error) {
+      toast.error(firestoreErrorText(error, "Не удалось поставить дату"));
+    }
+  }
+  // Здесь, а не `canEditData` ниже: тот объявлен после ранних возвратов.
+  const osDatesEditable = Boolean(page && permissions.canEditPageData(page));
+  const setOsDate = osDatesEditable
+    ? (row: PageRow) => (slot: OsDateSlot, value: number | null) =>
+        void setOsRowDate(row, slot, value)
+    : null;
   // Что ещё, кроме самой строки, меняет «Даты»: копии у технарей (дата
   // заведения — запасная «выдан») и заказы на «Заказах». Строки таблицы
   // перерисовываются только при смене этой подписи (TableRow сравнивает пропсы).
@@ -910,6 +946,7 @@ export default function DynamicTablePage() {
     osUid: permissions.uid,
     osNickValue: myOsNickValue,
     rowsFromServer,
+    exchange,
   });
 
   // «Итого» стола ОС догоняет цену, апсейл и способы оплаты — кто бы их ни
@@ -993,9 +1030,10 @@ export default function DynamicTablePage() {
       return null;
     }
     if (dispatched) return null;
-    if (row.orderId) {
-      const onExchange = exchange.byRow.get(row.id);
-      if (onExchange?.status === "assigned") {
+    // Заказ висит на «Заказах» (открыт или отдан, едет) — его состояние.
+    const onExchange = exchange.byRow.get(row.id);
+    if (onExchange) {
+      if (onExchange.status === "assigned") {
         return {
           label: `Выдан: ${onExchange.assignedName ?? "технарю"}`,
           tone: "info",
@@ -1004,23 +1042,25 @@ export default function DynamicTablePage() {
             "Заказ отдан с «Заказов» и едет в стол технаря — ник появится в строке сам",
         };
       }
-      if (onExchange) {
-        const claims = claimCount(onExchange);
-        return claims > 0
-          ? {
-              label: `Отклики · ${claims}`,
-              tone: "primary",
-              icon: "hand",
-              title: `Откликнулись: ${claims}. Нажмите — выбрать технаря (или «Рандом»)`,
-            }
-          : {
-              label: "Ждём отклики",
-              tone: "info",
-              icon: "store",
-              title:
-                "Заказ на «Заказах», технари получили уведомление. Нажмите — отдать напрямую, не дожидаясь отклика",
-            };
-      }
+      const claims = claimCount(onExchange);
+      return claims > 0
+        ? {
+            label: `Отклики · ${claims}`,
+            tone: "primary",
+            icon: "hand",
+            title: `Откликнулись: ${claims}. Нажмите — выбрать технаря (или «Рандом»)`,
+          }
+        : {
+            label: "Ждём отклики",
+            tone: "info",
+            icon: "store",
+            title:
+              "Заказ на «Заказах», технари получили уведомление. Нажмите — отдать напрямую, не дожидаясь отклика",
+          };
+    }
+    // Свои заказы на «Заказах» ещё не прочитаны — строка с заказом считается
+    // висящей там: иначе кнопка выставила бы её второй раз.
+    if (row.orderId && !exchange.loaded) {
       return {
         label: "На «Заказах»",
         tone: "info",
@@ -1029,15 +1069,19 @@ export default function DynamicTablePage() {
           "Заказ на «Заказах» — отдайте его, когда технари откликнутся. Нажмите, чтобы открыть",
       };
     }
-    // Технаря не выбрали: выдать прямо отсюда, не заходя на «Заказы». Слева в
-    // той же ячейке — «Выбрать…» (отдать конкретному технарю).
+    // Выдать можно заказ НА УТВЕРЖДЕНИИ без технаря (правило Nurba
+    // 24.09.2026) — впервые или ЗАНОВО: прежний заказ сняли с «Заказов»
+    // (отменили, удалили) или технаря потом стёрли. Раньше такая строка
+    // навсегда показывала «На «Заказах»» и уводила на пустую биржу.
+    if (!onApproval) return null;
     return {
-      label: "На «Заказы»",
+      label: row.orderId ? "Выдать заново" : "На «Заказы»",
       tone: "primary",
       icon: "send",
       busy,
-      title:
-        "Выдать заказ: он уйдёт на «Заказы» со всеми данными строки, технари получат уведомление, отклики появятся здесь же. Отдать конкретному — «Выбрать…» слева",
+      title: row.orderId
+        ? "Прежний заказ уже снят с «Заказов». Нажмите — выставить заново со всеми данными строки. Отдать конкретному — «Выбрать…» слева"
+        : "Выдать заказ: он уйдёт на «Заказы» со всеми данными строки, технари получат уведомление, отклики появятся здесь же. Отдать конкретному — «Выбрать…» слева",
     };
   }
   /** Выбор способа оплаты у цены или апсейла: id, снимок комиссии и новое «Итого» — одной записью. */
@@ -1854,7 +1898,12 @@ export default function DynamicTablePage() {
                         version: `${paymentMethods.map((m) => `${m.id}:${m.label}:${m.commissionPct}:${m.color ?? ""}:${m.inactive ? 1 : 0}`).join("|")}#${canEditData ? 1 : 0}#${osDatesVersion}`,
                         render: (row, colKey) => {
                           if (colKey === osKeys.dates)
-                            return <OsDatesCell info={osDatesOf(row)} />;
+                            return (
+                              <OsDatesCell
+                                info={osDatesOf(row)}
+                                onSet={setOsDate?.(row)}
+                              />
+                            );
                           const chip = (
                             <PaymentChip
                               row={row}
@@ -1869,20 +1918,20 @@ export default function DynamicTablePage() {
                               onConfigure={() => setPaymentDialogOpen(true)}
                             />
                           );
-                          const upsellAt =
-                            colKey === osKeys.upsell
-                              ? upsellMadeAt(row, osKeys.upsell)
-                              : null;
-                          if (!upsellAt) return chip;
+                          if (colKey !== osKeys.upsell) return chip;
+                          const upsellValue = row.cells[osKeys.upsell];
                           return (
                             <span className="flex min-w-0 items-center gap-1">
                               {chip}
-                              <span
-                                className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground"
-                                title={`Апсейл сделан ${formatFullMoment(upsellAt)}`}
-                              >
-                                {formatDayMonth(upsellAt)}
-                              </span>
+                              <OsUpsellDate
+                                slot={osSlotsOf(row).upsell}
+                                hasUpsell={
+                                  upsellValue !== null &&
+                                  upsellValue !== undefined &&
+                                  String(upsellValue).trim() !== ""
+                                }
+                                onSet={setOsDate?.(row)}
+                              />
                             </span>
                           );
                         },
@@ -1918,9 +1967,12 @@ export default function DynamicTablePage() {
                         onChoose={() => osDispatch.openChoice(row.id)}
                         onPickTech={() => setTechPickRowId(row.id)}
                         exchangeOrder={exchange.byRow.get(row.id) ?? null}
+                        exchangeLoaded={exchange.loaded}
                         onPickFromExchange={(order) => setPickOrderId(order.id)}
                         keys={osKeys}
                         dates={osDatesOf(row)}
+                        upsellDate={osSlotsOf(row).upsell}
+                        onSetDate={setOsDate?.(row)}
                         payment={{
                           methods: paymentMethods,
                           canConfigure: isRealOwner,

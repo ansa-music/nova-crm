@@ -22,7 +22,7 @@ import {
 import { DEFAULT_STATUS_OPTIONS, ensureApprovalStatus, ensureDoneStatus } from "@/utils/columnOptions";
 import { firestoreErrorText } from "@/utils/dbError";
 import { formatCurrency } from "@/utils/format";
-import { formatFullMoment, formatShortMoment, osReceivedAt } from "@/utils/osDates";
+import { formatDayMonth, formatFullDate, osDateSlots, slotShown } from "@/utils/osDates";
 import { osRowTotal } from "@/utils/payment";
 import { myDisplayName } from "@/utils/displayName";
 import { cn } from "@/utils/cn";
@@ -51,8 +51,8 @@ export function OsDeskIssueDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Заказы, открытые или отданные сейчас (живой список страницы). */
-  liveOrderIds: ReadonlySet<string>;
+  /** Заказы, открытые или отданные сейчас (живой список страницы); null — ещё читается. */
+  liveOrderIds: ReadonlySet<string> | null;
   /** «Новый заказ (нет на столе)». */
   onNewOrder: () => void;
   /** Руководство (Owner/Тимлид + ОС) может выдать и мимо стола. */
@@ -125,13 +125,14 @@ export function OsDeskIssueDialog({
   }, [open, activeWorkspaceId, profile?.uid, reload]);
 
   const grouped = useMemo(() => {
-    const out = { issuable: [] as PageRow[], exchange: 0, issued: 0 };
+    const out = { issuable: [] as PageRow[], exchange: 0, issued: 0, other: 0 };
     if (!rows || !tab) return out;
     for (const row of sortByReceivedDesc(rows)) {
       const state = sentIds.has(row.id) ? "exchange" : osDeskRowState(row, tab.keys, liveOrderIds, statusOptions);
       if (state === "issuable") out.issuable.push(row);
       else if (state === "exchange") out.exchange += 1;
       else if (state === "issued") out.issued += 1;
+      else if (state === "other") out.other += 1;
     }
     return out;
   }, [rows, tab, liveOrderIds, statusOptions, sentIds]);
@@ -166,8 +167,8 @@ export function OsDeskIssueDialog({
         <DialogHeader>
           <DialogTitle>Выдать заказ со стола</DialogTitle>
           <DialogDescription>
-            Выберите заказ со своего стола ОС — он уйдёт на «Заказы» со всеми данными строки. Заказа на столе нет —
-            «Новый заказ»: он появится и на столе.
+            Здесь заказы вашего стола ОС на утверждении и без технаря — выбранный уйдёт на «Заказы» со всеми данными
+            строки. Заказа на столе нет — «Новый заказ»: он появится и на столе.
           </DialogDescription>
         </DialogHeader>
 
@@ -211,7 +212,7 @@ export function OsDeskIssueDialog({
             </p>
           ) : visible.length === 0 ? (
             <p className="py-6 text-sm text-muted-foreground">
-              {q ? "Ничего не нашлось." : "На столе нет невыданных заказов. Новый — кнопкой ниже."}
+              {q ? "Ничего не нашлось." : "На столе нет заказов на утверждении без технаря. Новый — кнопкой ниже."}
             </p>
           ) : (
             <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
@@ -221,7 +222,8 @@ export function OsDeskIssueDialog({
                 const phone = cellText(row, k.phone);
                 const total = osRowTotal(row, k);
                 const status = cellText(row, k.status);
-                const received = osReceivedAt(row);
+                const receivedSlot = osDateSlots(row, { upsellKey: k.upsell }).received;
+                const received = slotShown(receivedSlot);
                 const busy = busyRowId === row.id;
                 return (
                   <li key={row.id} className="flex items-center gap-3 px-3 py-2">
@@ -234,8 +236,11 @@ export function OsDeskIssueDialog({
                       </div>
                       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
                         {received ? (
-                          <span className="font-mono tabular-nums" title={`Получен ${formatFullMoment(received)}`}>
-                            {formatShortMoment(received)}
+                          <span
+                            className={cn("font-mono tabular-nums", !receivedSlot.value && "opacity-70")}
+                            title={`Получен ${formatFullDate(received)}${receivedSlot.value ? "" : " (рекомендуемая дата)"}`}
+                          >
+                            {formatDayMonth(received)}
                           </span>
                         ) : null}
                         {phone ? <span className="font-mono tabular-nums">{phone}</span> : null}
@@ -251,10 +256,13 @@ export function OsDeskIssueDialog({
               })}
             </ul>
           )}
-          {rows && !error && (grouped.exchange > 0 || grouped.issued > 0) ? (
+          {rows && !error && (grouped.exchange > 0 || grouped.issued > 0 || grouped.other > 0) ? (
             <p className="mt-2 text-[11px] text-muted-foreground">
               {grouped.exchange > 0 ? `Уже на «Заказах»: ${grouped.exchange}. ` : ""}
-              {grouped.issued > 0 ? `У технарей: ${grouped.issued}.` : ""}
+              {grouped.issued > 0 ? `У технарей: ${grouped.issued}. ` : ""}
+              {grouped.other > 0
+                ? `Ещё без технаря, но не на утверждении: ${grouped.other} — чтобы выдать такой, поставьте ему «Утверждение» на столе.`
+                : ""}
             </p>
           ) : null}
         </div>

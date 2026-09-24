@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowUpRight, Hand, Loader2, RefreshCw } from "lucide-react";
+import { ArrowDownToLine, ArrowUpRight, Hand, Loader2, RefreshCw, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/table/StatusBadge";
@@ -24,8 +24,8 @@ import { PaymentChip } from "@/components/cashbox/PaymentChip";
 import { osRowFees, osRowTotal } from "@/utils/payment";
 import { formatCurrency } from "@/utils/format";
 import { parseLooseNumber } from "@/utils/numberInput";
-import { formatFullMoment, formatShortMoment, formatWaited, upsellMadeAt } from "@/utils/osDates";
-import type { OsDatesInfo } from "@/components/os/OsDatesCell";
+import type { OsDateSlot } from "@/utils/osDates";
+import { OsDateButton, type OsDateSetter, type OsDatesInfo } from "@/components/os/OsDatesCell";
 
 /** Сумма из ячейки как число (для показа рядом со способом оплаты). */
 function cellAmount(value: unknown): number {
@@ -56,6 +56,9 @@ export function OsOrderPanel({
   keys = OS_DESK_KEYS,
   payment,
   dates,
+  upsellDate,
+  onSetDate,
+  exchangeLoaded = true,
 }: {
   row: PageRow;
   pageId: string;
@@ -77,6 +80,15 @@ export function OsOrderPanel({
   keys?: OsDeskKeys;
   /** Когда заказ получен и выдан — то же, что в столбце «Даты». */
   dates?: OsDatesInfo;
+  /** Дата апсейла (поставленная ОС и рекомендуемая). */
+  upsellDate?: OsDateSlot;
+  /** Поставить дату (нет — только показ). */
+  onSetDate?: OsDateSetter;
+  /**
+   * Список своих заказов на «Заказах» прочитан. Пока нет, строка с `orderId`
+   * считается висящей там (иначе «Отдать заказ…» выставил бы её второй раз).
+   */
+  exchangeLoaded?: boolean;
   /** Касса: способы оплаты у цены и апсейла (на телефоне — только отсюда). */
   payment?: {
     methods: readonly PaymentMethod[];
@@ -104,8 +116,13 @@ export function OsOrderPanel({
   const techName = techUid ? personLabel(members.find((m) => m.uid === techUid)) : techNick;
   // На утверждении заказ технарю не уходит — ни сам, ни кнопкой.
   const onApproval = !mirror && isApprovalStatusValue(status, statusOptions);
-  // Заказ выставлен на «Заказы» и ждёт, кому его отдадут.
-  const onExchange = !mirror && !techNick && Boolean(row.orderId);
+  // Заказ выставлен на «Заказы» и ждёт, кому его отдадут. Заказ, который
+  // оттуда сняли (отменили, удалили, взяли — а технаря потом стёрли), уже не
+  // «на бирже»: его можно отдать заново.
+  const onExchange = !mirror && !techNick && Boolean(row.orderId) && (Boolean(exchangeOrder) || !exchangeLoaded);
+  // Прежний заказ сняли с биржи. Выдать заново — по тому же правилу, что в
+  // таблице и на «Заказах»: только заказ «на утверждении».
+  const staleOrder = !mirror && !techNick && Boolean(row.orderId) && !onExchange;
 
   async function handlePush() {
     if (!activeWorkspaceId || !target || !techUid) {
@@ -187,26 +204,25 @@ export function OsOrderPanel({
       </div>
 
       {dates ? (
-        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+        <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 text-xs">
           <span className="text-muted-foreground">Получен</span>
-          <span className="font-mono tabular-nums" title={dates.receivedAt ? formatFullMoment(dates.receivedAt) : undefined}>
-            {dates.receivedAt ? formatShortMoment(dates.receivedAt) : "—"}
+          <span>
+            <OsDateButton size="card" slot={dates.received} icon={<ArrowDownToLine className="h-3.5 w-3.5 opacity-70" />} empty="—" onSet={onSetDate} />
           </span>
           <span className="text-muted-foreground">Выдан</span>
-          <span className="font-mono tabular-nums" title={dates.issuedAt ? formatFullMoment(dates.issuedAt) : undefined}>
-            {dates.issuedAt ? (
-              <>
-                {formatShortMoment(dates.issuedAt)}
-                {dates.receivedAt && dates.issuedAt >= dates.receivedAt ? (
-                  <span className="font-sans text-muted-foreground"> · через {formatWaited(dates.receivedAt, dates.issuedAt)}</span>
-                ) : null}
-              </>
-            ) : dates.exchange ? (
-              <span className="font-sans text-primary">{dates.exchange.status === "assigned" ? "отдан с «Заказов», едет" : "на «Заказах», ждёт откликов"}</span>
-            ) : (
-              <span className="font-sans text-muted-foreground">ещё не выдан</span>
-            )}
+          <span>
+            <OsDateButton
+              size="card"
+              slot={dates.issued}
+              icon={<Send className="h-3.5 w-3.5 opacity-70" />}
+              empty={dates.exchange ? (dates.exchange.status === "assigned" ? "отдан с «Заказов», едет" : "на «Заказах», ждёт откликов") : "ещё не выдан"}
+              emptyClassName={dates.exchange ? "font-sans text-primary" : "font-sans"}
+              onSet={onSetDate}
+            />
           </span>
+          {onSetDate && (dates.received.value === null || dates.issued.value === null) && (dates.received.suggested || dates.issued.suggested) ? (
+            <span className="col-span-2 text-[11px] text-muted-foreground">Пунктир — рекомендуемая дата: нажмите, чтобы поставить.</span>
+          ) : null}
         </div>
       ) : null}
 
@@ -238,10 +254,8 @@ export function OsOrderPanel({
                 onPick={(m) => payment.onPick(f.key, m)}
                 onConfigure={payment.onConfigure}
               />
-              {f.key === keys.upsell && upsellMadeAt(row, keys.upsell) ? (
-                <span className="font-mono text-[11px] tabular-nums text-muted-foreground" title={formatFullMoment(upsellMadeAt(row, keys.upsell) as number)}>
-                  сделан {formatShortMoment(upsellMadeAt(row, keys.upsell) as number)}
-                </span>
+              {f.key === keys.upsell && upsellDate && String(row.cells[keys.upsell] ?? "").trim() ? (
+                <OsDateButton size="card" slot={upsellDate} icon={null} empty="дата" emptyClassName="font-sans" onSet={onSetDate} />
               ) : null}
             </div>
           ))}
@@ -298,6 +312,10 @@ export function OsOrderPanel({
               : "На «Заказах», ждём откликов. Можно отдать и напрямую, не дожидаясь."
             : "Заказ на «Заказах» — отдайте его там, когда технари откликнутся, и он приедет к технарю сам."}
         </p>
+      ) : staleOrder && !onApproval ? (
+        <p className="text-xs text-muted-foreground">
+          Прежний заказ снят с «Заказов». Чтобы выставить его заново, поставьте «Утверждение».
+        </p>
       ) : !mirror && !problem && techNick ? (
         <p className="text-xs text-muted-foreground">Заказ уедет к технарю сам через секунду.</p>
       ) : null}
@@ -315,7 +333,7 @@ export function OsOrderPanel({
               ? `Выбрать технаря · ${Object.keys(exchangeOrder.claims ?? {}).length}`
               : "Отдать напрямую…"}
           </Button>
-        ) : onChoose && !onExchange ? (
+        ) : onChoose && !onExchange && (!staleOrder || onApproval) ? (
           <Button size="sm" className="min-h-9" onClick={onChoose} disabled={busy}>
             <ArrowUpRight className="h-4 w-4" />
             Отдать заказ…

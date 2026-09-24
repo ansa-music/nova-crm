@@ -15,31 +15,42 @@ import type { WorkOrder } from "@/types";
 export function useMyExchangeOrders(workspaceId: string | null, uid: string, enabled: boolean) {
   const [open, setOpen] = useState<WorkOrder[]>([]);
   const [assigned, setAssigned] = useState<WorkOrder[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  // «Прочитано» — только когда ответили ОБА слушателя: по одному открытому
+  // списку строка с отданным (едущим) заказом выглядела бы снятой с биржи, и
+  // стол предложил бы выставить её заново.
+  const [openLoaded, setOpenLoaded] = useState(false);
+  const [assignedLoaded, setAssignedLoaded] = useState(false);
+  const loaded = openLoaded && assignedLoaded;
 
   useEffect(() => {
     setOpen([]);
     setAssigned([]);
-    setLoaded(false);
+    setOpenLoaded(false);
+    setAssignedLoaded(false);
     if (!db || !workspaceId || !uid || !enabled) return;
     // Два узких слушателя по двум равенствам, а не `status in [...]`: так
     // составной индекс не нужен, а «выданные» висят секунды — пока сессия ОС
     // не довезёт заказ до технаря (useOsExchangeHandoff).
-    const listen = (status: "open" | "assigned", set: (orders: WorkOrder[]) => void, markLoaded: boolean) =>
+    const listen = (status: "open" | "assigned", set: (orders: WorkOrder[]) => void, setLoadedFlag: (v: boolean) => void) =>
       onSnapshot(
         query(paths.orders(workspaceId), where("createdBy", "==", uid), where("status", "==", status)),
+        // Кэш на диске отдаёт первый снимок сам (без сети — пустой): рисовать
+        // по нему можно, а решать «заказа на бирже нет, выдай заново» — нет.
+        // «Прочитано» — только снимок, подтверждённый сервером; обрыв связи
+        // возвращает в «не знаем».
+        { includeMetadataChanges: true },
         (snap) => {
           set(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as WorkOrder).filter((o) => Boolean(o.osSource)));
-          if (markLoaded) setLoaded(true);
+          setLoadedFlag(!snap.metadata.fromCache);
         },
         (error) => {
           // Отказ = «не знаем»: ячейка покажет «На «Заказах»», а не «откликов нет».
           console.error(`Подписка на свои заказы на бирже (${status}) отклонена:`, error.code, error.message);
-          if (markLoaded) setLoaded(false);
+          setLoadedFlag(false);
         }
       );
-    const stopOpen = listen("open", setOpen, true);
-    const stopAssigned = listen("assigned", setAssigned, false);
+    const stopOpen = listen("open", setOpen, setOpenLoaded);
+    const stopAssigned = listen("assigned", setAssigned, setAssignedLoaded);
     return () => {
       stopOpen();
       stopAssigned();

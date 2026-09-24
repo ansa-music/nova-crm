@@ -5,6 +5,8 @@ import type { OsDeskKeys } from "@/utils/osDeskKeys";
 import { parseLooseNumber } from "@/utils/numberInput";
 import { feeKeyOf, osRowTotal } from "@/utils/payment";
 import { planUpsellStamp, upsellAtKeyOf, upsellWasKeyOf } from "@/utils/osDates";
+import { isFilledCellValue } from "@/utils/blankRow";
+import { OS_ISSUED_ON_KEY, OS_RECEIVED_ON_KEY } from "@/utils/reservedCellKeys";
 import type { PageColumn, PageRow } from "@/types";
 
 const DEBOUNCE_MS = 800;
@@ -56,7 +58,7 @@ export function useOsTotalsKeeper(input: {
     ? input.rows
         .map(
           (r) =>
-            `${r.id}:${r.cells[keys.price] ?? ""}:${r.cells[feeKeyOf(keys.price)] ?? ""}:${r.cells[keys.upsell] ?? ""}:${r.cells[feeKeyOf(keys.upsell)] ?? ""}:${r.cells[keys.total] ?? ""}:${r.cells[upsellAtKeyOf(keys.upsell)] ?? ""}:${r.cells[upsellWasKeyOf(keys.upsell)] ?? ""}`
+            `${r.id}:${r.cells[keys.price] ?? ""}:${r.cells[feeKeyOf(keys.price)] ?? ""}:${r.cells[keys.upsell] ?? ""}:${r.cells[feeKeyOf(keys.upsell)] ?? ""}:${r.cells[keys.total] ?? ""}:${r.cells[upsellAtKeyOf(keys.upsell)] ?? ""}:${r.cells[upsellWasKeyOf(keys.upsell)] ?? ""}:${r.cells[OS_RECEIVED_ON_KEY] ?? ""}:${r.cells[OS_ISSUED_ON_KEY] ?? ""}:${(input.columns ?? []).some((c) => isFilledCellValue(r.cells[c.key])) ? 1 : 0}`
         )
         .join("|")
     : "";
@@ -90,6 +92,15 @@ export function useOsTotalsKeeper(input: {
         }
         const stamp = planUpsellStamp({ row, upsellKey: cur.keys.upsell, baseline: upsellSeen.current.get(row.id), now });
         if (stamp) Object.assign(patch, stamp);
+        // Строку очистили целиком (выделили и Delete) — поставленные ОС даты
+        // «получен/выдан» ей больше не нужны. Иначе строка так и осталась бы
+        // «заказом» (isBlankRow видит любую ячейку): в счётчиках, в карточках
+        // и мимо «первого пустого слота» для нового заказа.
+        const emptied = !(cur.columns ?? []).some((c) => isFilledCellValue(row.cells[c.key]));
+        if (emptied) {
+          if (isFilledCellValue(row.cells[OS_RECEIVED_ON_KEY])) patch[OS_RECEIVED_ON_KEY] = null;
+          if (isFilledCellValue(row.cells[OS_ISSUED_ON_KEY])) patch[OS_ISSUED_ON_KEY] = null;
+        }
         if (Object.keys(patch).length === 0) continue;
         busy.current.add(row.id);
         const write = cur.subPageId

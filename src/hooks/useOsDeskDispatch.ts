@@ -21,7 +21,7 @@ import {
 import { logOsDispatch } from "@/services/osDispatchLogService";
 import { isExchangeHandoffRow } from "@/services/rows/osExchange";
 import { firestoreErrorText } from "@/utils/dbError";
-import { OS_ISSUED_AT_KEY, OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
+import { OS_ISSUED_AT_KEY, OS_ISSUED_ON_KEY, OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
 import { personLabel } from "@/utils/peopleDesks";
 import { osRowTotal } from "@/utils/payment";
 import type { PageColumn, PageRow } from "@/types";
@@ -88,6 +88,45 @@ export interface OsDeskDispatchInput {
    * технаря»: по неполному списку проход снял бы живые заказы.
    */
   rowsFromServer?: boolean;
+  /**
+   * Свои заказы на «Заказах» (useMyExchangeOrders): открытые и отданные, по
+   * id строки. `orderId` на строке ещё не значит «висит на бирже» — заказ
+   * могли снять (отменить, удалить) или взять, а технаря потом стереть.
+   * Нет или не прочитано — считаем, что висит (осторожно: без второго заказа).
+   */
+  exchange?: { loaded: boolean; byRow: ReadonlyMap<string, unknown> };
+}
+
+/** Сколько заказ строки должен НЕ находиться на бирже, чтобы считаться снятым. */
+const STALE_ORDER_GRACE_MS = 5_000;
+
+/**
+ * Заказ строки сейчас на «Заказах» (или мы этого ещё не знаем). «Снят» —
+ * только если его нет в прочитанном списке дольше `STALE_ORDER_GRACE_MS`:
+ * заказ, выставленный из другой вкладки («Заказы»), доходит до списка этой
+ * вкладки позже, чем строка с его `orderId`, и без запаса проход счёл бы его
+ * снятым (вопрос «Как отдать заказ?» у только что выставленного).
+ * `staleSince` — когда впервые увидели «нет в списке» (ключ строка:заказ).
+ */
+function orderOnExchange(
+  row: PageRow,
+  exchange: OsDeskDispatchInput["exchange"],
+  staleSince: Map<string, number>,
+  now: number
+): boolean {
+  if (!row.orderId) return false;
+  if (!exchange || !exchange.loaded) return true;
+  const key = `${row.id}:${row.orderId}`;
+  if (exchange.byRow.has(row.id)) {
+    staleSince.delete(key);
+    return true;
+  }
+  const since = staleSince.get(key);
+  if (since === undefined) {
+    staleSince.set(key, now);
+    return true;
+  }
+  return now - since < STALE_ORDER_GRACE_MS;
 }
 
 function cellText(row: PageRow, key: string | undefined): string {
@@ -109,6 +148,8 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
    * запоминает: открыть стол — не повод для вопроса.
    */
   const seenStatus = useRef(new Map<string, string>());
+  /** Когда заказ строки впервые не нашёлся на бирже (см. orderOnExchange). */
+  const staleOrderSince = useRef(new Map<string, number>());
   const seenScope = useRef("");
   /** Строка, по которой стол спрашивает «общий или выборочно». */
   const [choiceRowId, setChoiceRowId] = useState<string | null>(null);
@@ -272,8 +313,9 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
         const prevStatus = seenStatus.current.get(row.id);
         seenStatus.current.set(row.id, statusNow);
 
+        const onExchangeNow = orderOnExchange(row, cur.exchange, staleOrderSince.current, Date.now());
         // Новый заказ (имя есть, статуса нет, никому не отдан) — «Утверждение».
-        if (statusColumn && !statusNow && client && !at && !techNick && !row.orderId) {
+        if (statusColumn && !statusNow && client && !at && !techNick && !onExchangeNow) {
           busy.current.add(row.id);
           try {
             await sbPatchRow(cur.workspaceId, cur.pageId, cur.subPageId, row.id, {
@@ -297,7 +339,8 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
           !onApproval &&
           !techNick &&
           !at &&
-          !row.orderId &&
+          // Заказ, снятый с «Заказов», — снова «никому не отдан».
+          !onExchangeNow &&
           client
         ) {
           setChoiceRowId(row.id);
@@ -323,7 +366,7 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
           try {
             if (mirror) await sbDeleteRow(cur.workspaceId, at.pageId, at.tabId, at.rowId);
             await sbPatchRow(cur.workspaceId, cur.pageId, cur.subPageId, row.id, {
-              cells: { [OS_STATUS_SENT_KEY]: "", [OS_LOST_FOR_KEY]: "", [OS_ISSUED_AT_KEY]: "" },
+              cells: { [OS_STATUS_SENT_KEY]: "", [OS_LOST_FOR_KEY]: "", [OS_ISSUED_AT_KEY]: "", [OS_ISSUED_ON_KEY]: "" },
               clearMirror: true,
             });
             changed = true;
@@ -500,7 +543,9 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
               }
               // Заказ висел на бирже, а ОС отдал его сам — закрываем его там,
               // иначе технари продолжали бы откликаться на уже отданный заказ.
-              if (row.orderId && !viaExchange && db) {
+              // Только если он там ещё висит: снятый (отменённый) заказ
+              // иначе воскрес бы в «В столах».
+              if (row.orderId && onExchangeNow && !viaExchange && db) {
                 const now = Date.now();
                 void updateDoc(paths.order(cur.workspaceId, row.orderId), {
                   status: "taken",

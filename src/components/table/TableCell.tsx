@@ -593,26 +593,23 @@ export function TableCell({
               type="button"
               data-client-card
               className={cn(
-                // Чип визитки прозрачный: в макете это «15 перс · 3 мин»
-                // серым рядом с именем, без пилюли. Заливка и рамка остались
-                // только у пустой визитки-заглушки (пунктир), чтобы было
-                // видно, куда жать.
-                "ml-auto inline-flex shrink-0 items-center gap-1 rounded-md pl-1 pr-1.5 text-[10px] font-medium tabular-nums transition-colors",
+                // Визитка — ЗАМЕТНАЯ кнопка (просьба Nurba 24.09.2026: «сделай
+                // более заметную кнопку визитки клиента»): пилюля с рамкой и
+                // заливкой, видна всегда, а не только при наведении. Пустая —
+                // пунктир акцентом с подписью «визитка», чтобы было видно,
+                // куда жать.
+                "ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 text-[10.5px] font-medium tabular-nums transition-colors",
                 coarsePointer ? "h-8" : "h-6",
                 // Янтарный — «только что приехал с «Заказов», подсветку ещё не
-                // сняли»; фиолетовая иконка — постоянная метка заказа с биржи.
-                // Цвета специально не те, что у статусов и акцента.
+                // сняли»; фиолетовый — постоянная метка заказа с биржи.
+                // Цвета специально не те, что у статусов.
                 clientCard.summary && clientCard.isNewOrder
-                  ? "text-warning hover:text-foreground"
+                  ? "border-warning/50 bg-warning/15 text-warning hover:bg-warning/25"
                   : clientCard.summary && clientCard.fromOrder
-                  ? "text-muted-foreground hover:text-foreground [&>svg]:text-violet-300"
+                  ? "border-violet-400/45 bg-violet-400/12 text-violet-200 hover:bg-violet-400/20"
                   : clientCard.summary
-                  ? "text-muted-foreground hover:text-foreground"
-                  : cn(
-                      coarsePointer ? "w-8" : "w-6",
-                      "justify-center rounded-full border border-dashed border-border px-0 text-muted-foreground hover:border-primary/50 hover:text-primary",
-                      "opacity-50 group-hover/row:opacity-100 focus-visible:opacity-100"
-                    )
+                  ? "border-primary/35 bg-primary/10 text-primary hover:bg-primary/20"
+                  : "border-dashed border-primary/45 bg-transparent text-primary/85 hover:border-primary hover:bg-primary/10"
               )}
               title={
                 clientCard.fromOrder
@@ -631,7 +628,11 @@ export function TableCell({
               }}
             >
               <IdCard className="h-3.5 w-3.5 shrink-0" />
-              {clientCard.summary ? <span className="max-w-[7.5rem] truncate">{clientCard.summary}</span> : null}
+              {clientCard.summary ? (
+                <span className="max-w-[7.5rem] truncate">{clientCard.summary}</span>
+              ) : (
+                <span>визитка</span>
+              )}
             </button>
           ) : null}
         </div>
