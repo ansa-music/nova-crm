@@ -14,13 +14,25 @@ export function isGrokAccountAvailable(account: { available?: boolean }): boolea
 export type GrokAccountStatus = "available" | "resetToday" | "unavailable";
 
 /**
+ * Сброс лимита уже прошёл: аккаунт помечен недоступным, но названное время
+ * возврата позади. У Grok недельный сброс — точное время со страницы
+ * Settings → Usage, у пресетов «через 3 часа» — тоже срок. Такой аккаунт
+ * считается доступным (см. getGrokAccountStatus), ничего в базу не пишется.
+ */
+export function isGrokResetPassed(account: { available?: boolean; limitResetAt: number | null }, now: number = Date.now()): boolean {
+  return !isGrokAccountAvailable(account) && account.limitResetAt != null && account.limitResetAt <= now;
+}
+
+/**
  * Three-tier status the card's color and sort position both key off:
- * green "available" (the Доступно/Недоступно toggle), amber "resetToday"
+ * green "available" (the Доступно/Недоступно toggle, OR the named reset time
+ * is already in the past — a limit that has reset is a working account, and
+ * a row nobody clicked «Доступен» on stayed red for days), amber "resetToday"
  * (still marked unavailable, but its typed reset date is today — worth
  * checking again soon), red "unavailable" otherwise.
  */
 export function getGrokAccountStatus(account: { available?: boolean; limitResetAt: number | null }, now: number = Date.now()): GrokAccountStatus {
-  if (isGrokAccountAvailable(account)) return "available";
+  if (isGrokAccountAvailable(account) || isGrokResetPassed(account, now)) return "available";
   // Asia/Almaty, not isSameLocalDay's device-local day — this status is
   // shared across everyone viewing the same account pool, and comparing by
   // the viewer's own OS timezone let two people looking at the exact same
@@ -135,9 +147,11 @@ export interface UpdateGrokAccountInput {
   nickname?: string;
   limitResetAt?: number | null;
   available?: boolean;
+  usagePct?: number | null;
+  usageAt?: number;
 }
 
-/** Any edit — including just hitting "Актуализировать" with an empty patch — re-stamps who touched it last. */
+/** Any edit — including just re-marking usage with the same numbers — re-stamps who touched it last. */
 export async function updateGrokAccount(
   workspaceId: string,
   id: string,

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
-import { KeyRound, Plus, Search, X } from "lucide-react";
+import { KeyRound, Plus, RefreshCw, Search, X } from "lucide-react";
 import { AccessDenied } from "@/components/common/AccessDenied";
+import { pageChipClass } from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,9 +19,11 @@ import {
 } from "@/components/grok/GrokAccessPanels";
 import { GrokPoolRow, type PoolAccount, type PoolPatch } from "@/components/grok/GrokPoolRow";
 import { useAuth } from "@/hooks/useAuth";
+import { useElevenLabsUsage } from "@/hooks/useElevenLabsUsage";
 import { useGrokAccounts } from "@/hooks/useGrokAccounts";
 import { useGrokAppAccounts } from "@/hooks/useGrokAppAccounts";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useUrlState } from "@/hooks/useUrlState";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { deleteGrokAccount, getGrokAccountStatus, updateGrokAccount, type GrokAccountStatus } from "@/services/grokAccountService";
 import { backfillGrokAppRestricted, deleteGrokAppAccount, updateGrokAppAccount } from "@/services/grokAppAccountService";
@@ -52,17 +55,19 @@ import {
 import { personLabel } from "@/utils/peopleDesks";
 import { confirmDialog, promptDialog } from "@/utils/appDialog";
 import { cn } from "@/utils/cn";
-import { formatResetCountdown } from "@/utils/date";
+import { formatDate, formatResetCountdown } from "@/utils/date";
 import { myDisplayName } from "@/utils/displayName";
+import { formatChars, shownUsagePct } from "@/utils/grokUsage";
 
 type SectionId = "grok" | "higgsfield" | "elevenlabs" | "other";
 type StatusFilter = "all" | GrokAccountStatus;
+const STATUS_FILTERS: readonly StatusFilter[] = ["all", "available", "resetToday", "unavailable"];
 
-const SECTIONS: { id: SectionId; title: string; subtitle: string; provider: GrokAppProvider | null }[] = [
-  { id: "grok", title: "Грок", subtitle: "Grok", provider: null },
-  { id: "higgsfield", title: "Хикс", subtitle: "Higgsfield", provider: "higgsfield" },
-  { id: "elevenlabs", title: "11 Labs", subtitle: "ElevenLabs", provider: "elevenlabs" },
-  { id: "other", title: "Другие", subtitle: "Suno и прочие", provider: "other" },
+const SECTIONS: { id: SectionId; title: string; subtitle: string; provider: GrokAppProvider | null; usageHint: string }[] = [
+  { id: "grok", title: "Грок", subtitle: "Grok", provider: null, usageHint: "Цифры — на grok.com → Settings → Usage: процент недельной квоты и время сброса." },
+  { id: "higgsfield", title: "Хикс", subtitle: "Higgsfield", provider: "higgsfield", usageHint: "Кредиты видны в шапке higgsfield.ai; отметьте, сколько потрачено." },
+  { id: "elevenlabs", title: "11 Labs", subtitle: "ElevenLabs", provider: "elevenlabs", usageHint: "Символы — в кабинете ElevenLabs. С ключом API страница считает сама." },
+  { id: "other", title: "Другие", subtitle: "Suno и прочие", provider: "other", usageHint: "Отметьте, сколько квоты потрачено, — как в кабинете сервиса." },
 ];
 
 const STATUS_RANK: Record<GrokAccountStatus, number> = { available: 0, resetToday: 1, unavailable: 2 };
@@ -221,8 +226,11 @@ export default function GrokLimitPage() {
   }, [workspaceId, appsComplete, stubsLoaded, appAccounts, stubs, pendingRequests, isOwnerRole, managedKey, syncTick]);
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<StatusFilter>("all");
+  // Фильтр статуса — в адресе (`?f=available`): F5 и ссылка возвращают на то же место.
+  const [filter, setFilter] = useUrlState<StatusFilter>("f", "all", { values: STATUS_FILTERS });
   const [now, setNow] = useState(() => Date.now());
+  // Живое использование 11 Labs по ключу — только у аккаунтов с ключом.
+  const elevenLabs = useElevenLabsUsage(appAccounts);
   const [grokDialog, setGrokDialog] = useState<{ open: boolean; editing: GrokAccount | null }>({ open: false, editing: null });
   const [appDialog, setAppDialog] = useState<{ open: boolean; editing: GrokAppAccount | null }>({ open: false, editing: null });
   const searchRef = useRef<HTMLInputElement>(null);
@@ -249,15 +257,16 @@ export default function GrokLimitPage() {
   }, []);
 
   function selectSection(next: SectionId) {
-    setFilter("all");
     try {
       window.localStorage.setItem(SECTION_KEY, next);
     } catch {
       // per-browser convenience only
     }
+    // Раздел и сброс фильтра — одной записью адреса.
     setSearchParams((prev) => {
       const params = new URLSearchParams(prev);
       params.set("s", next);
+      params.delete("f");
       return params;
     }, { replace: true });
   }
@@ -276,6 +285,8 @@ export default function GrokLimitPage() {
       methodLabel: grokLoginMethodLabel(grokLoginMethodOf(account.loginMethod)),
       available: account.available,
       limitResetAt: account.limitResetAt,
+      usagePct: account.usagePct,
+      usageAt: account.usageAt,
       updatedByName: account.updatedByName,
       updatedAt: account.updatedAt,
       raw: { kind: "grok", account },
@@ -294,15 +305,22 @@ export default function GrokLimitPage() {
       methodLabel: grokLoginMethodLabel(grokLoginMethodOf(account.loginMethod)),
       available: account.available,
       limitResetAt: account.limitResetAt,
+      usagePct: account.usagePct,
+      usageAt: account.usageAt,
+      apiKey: account.apiKey,
       updatedByName: account.updatedByName,
       updatedAt: account.updatedAt,
       accessCount: account.restricted ? account.allowedUids?.length ?? 0 : null,
       raw: { kind: "app", account },
     }));
     const statusOf = (e: Entry) => getGrokAccountStatus({ available: e.available, limitResetAt: e.limitResetAt }, now);
+    // Среди доступных — сначала те, у кого больше запаса (меньше «использовано»);
+    // без отметки — после отмеченных: про них ничего не известно.
+    const headroom = (e: Entry) => shownUsagePct(e, now) ?? 101;
     return [...fromGrok, ...fromApps].sort(
       (a, b) =>
         STATUS_RANK[statusOf(a)] - STATUS_RANK[statusOf(b)] ||
+        (statusOf(a) === "available" ? headroom(a) - headroom(b) : 0) ||
         (a.limitResetAt ?? Number.MAX_SAFE_INTEGER) - (b.limitResetAt ?? Number.MAX_SAFE_INTEGER) ||
         (a.nickname || a.email).localeCompare(b.nickname || b.email, "ru")
     );
@@ -443,6 +461,20 @@ export default function GrokLimitPage() {
         actorUid: profile.uid,
         actorName: myDisplayName(profile, members),
       });
+      // Кого отметили прямо из «просит доступ» — их запрос закрывается той же
+      // рукой (arrayUnion в resolve идемпотентен, доступ уже записан выше).
+      const granted = pendingRequests.filter((r) => r.accountId === account.id && finalUids.includes(r.uid));
+      for (const request of granted) {
+        await resolveGrokAccessRequest({
+          workspaceId,
+          request,
+          approve: true,
+          account: { ...live, restricted: finalUids.length > 0, allowedUids: finalUids },
+          stubExists: true,
+          actorUid: profile.uid,
+          actorName: myDisplayName(profile, members),
+        }).catch((error) => console.error("Не удалось закрыть запрос на доступ:", error));
+      }
       toast.success(finalUids.length > 0 ? `Доступ открыт: ${finalUids.length}` : "Аккаунт открыт всем");
       setAccessDialog(null);
     } catch (error) {
@@ -554,11 +586,32 @@ export default function GrokLimitPage() {
   const current = SECTIONS.find((s) => s.id === section)!;
   const currentStats = stats[section];
   const filters: { id: StatusFilter; label: string; count: number; tone: string }[] = [
-    { id: "all", label: "Все", count: currentStats.total, tone: "border-primary/50 bg-primary/15 text-primary" },
-    { id: "available", label: "Доступны", count: currentStats.available, tone: "border-success/50 bg-success/15 text-success" },
-    { id: "resetToday", label: "Сегодня", count: currentStats.resetToday, tone: "border-warning/50 bg-warning/15 text-warning" },
-    { id: "unavailable", label: "Недоступны", count: currentStats.unavailable, tone: "border-destructive/50 bg-destructive/15 text-destructive" },
+    { id: "all", label: "Все", count: currentStats.total, tone: "primary" },
+    { id: "available", label: "Доступны", count: currentStats.available, tone: "success" },
+    { id: "resetToday", label: "Сегодня", count: currentStats.resetToday, tone: "warning" },
+    { id: "unavailable", label: "Недоступны", count: currentStats.unavailable, tone: "danger" },
   ];
+  // Сводка 11 Labs по ключам: сумма символов по аккаунтам, которые ответили.
+  const elevenSummary = (() => {
+    if (section !== "elevenlabs") return null;
+    let used = 0;
+    let limit = 0;
+    let answered = 0;
+    let loading = 0;
+    let resetAt: number | null = null;
+    for (const a of appAccounts) {
+      if (a.provider !== "elevenlabs" || !a.apiKey?.trim()) continue;
+      const state = elevenLabs.byId[a.id];
+      if (!state || state.kind === "loading") loading += 1;
+      else if (state.kind === "ok") {
+        answered += 1;
+        used += state.usage.used;
+        limit += state.usage.limit;
+        if (state.usage.resetAt) resetAt = resetAt == null ? state.usage.resetAt : Math.min(resetAt, state.usage.resetAt);
+      }
+    }
+    return answered + loading > 0 ? { used, limit, answered, loading, resetAt } : null;
+  })();
   const groups = (["available", "resetToday", "unavailable"] as GrokAccountStatus[])
     .map((status) => ({
       status,
@@ -590,10 +643,13 @@ export default function GrokLimitPage() {
 
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-4xl flex-col gap-4 p-4 sm:p-6">
-          <div className={cn("grid gap-2", shownSections.length > 3 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3")} role="tablist" aria-label="Разделы">
+          {/* Разделы — чипы в одну строку (на телефоне — прокрутка вбок), а не
+              четыре карточки: те съедали пол-экрана до первого аккаунта. */}
+          <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-0.5 sm:mx-0 sm:flex-wrap sm:px-0" role="tablist" aria-label="Разделы">
             {shownSections.map((s) => {
               const st = stats[s.id];
               const active = !searching && section === s.id;
+              const asking = pendingBySection(s.id).length;
               return (
                 <button
                   key={s.id}
@@ -604,51 +660,69 @@ export default function GrokLimitPage() {
                     setQuery("");
                     selectSection(s.id);
                   }}
-                  className={cn(
-                    "flex min-w-0 flex-col rounded-2xl border p-3 text-left transition-colors",
-                    active
-                      ? "border-primary/60 bg-primary/[0.08] shadow-[0_0_0_1px_hsl(var(--primary)/0.25)]"
-                      : "border-border/70 bg-card/60 hover:border-primary/35 hover:bg-card"
-                  )}
+                  className={pageChipClass(active)}
+                  title={s.subtitle}
                 >
-                  <span className="flex min-w-0 items-baseline justify-between gap-2">
-                    <span className="truncate text-[15px] font-semibold sm:text-base">{s.title}</span>
-                    {pendingBySection(s.id).length > 0 ? (
-                      <span
-                        className="shrink-0 rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground"
-                        title="Просят доступ"
-                      >
-                        {pendingBySection(s.id).length}
-                      </span>
-                    ) : (
-                      <span className="hidden truncate text-[10px] text-muted-foreground sm:inline">{s.subtitle}</span>
-                    )}
+                  {s.title}
+                  <span className={cn("font-mono text-[11px] tabular-nums", active ? "opacity-80" : st.available > 0 ? "text-success" : "opacity-60")}>
+                    {st.total === 0 ? "—" : `${st.available}/${st.total}`}
                   </span>
-                  <span className="mt-2 flex items-baseline gap-1">
-                    <span className={cn("text-2xl font-semibold leading-none", st.available > 0 ? "text-success" : "text-muted-foreground")}>
-                      {st.available}
+                  {asking > 0 && (
+                    <span className="rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground" title="Просят доступ">
+                      {asking}
                     </span>
-                    <span className="text-xs text-muted-foreground">/ {st.total}</span>
-                  </span>
-                  <span className="mt-0.5 text-[10px] text-muted-foreground">доступно</span>
-                  <span className="mt-2 flex h-1.5 w-full gap-[2px] overflow-hidden rounded-full bg-muted/50" aria-hidden>
-                    {st.available > 0 && <span className="h-full bg-success" style={{ flexGrow: st.available }} />}
-                    {st.resetToday > 0 && <span className="h-full bg-warning" style={{ flexGrow: st.resetToday }} />}
-                    {st.unavailable > 0 && <span className="h-full bg-destructive/80" style={{ flexGrow: st.unavailable }} />}
-                  </span>
-                  <span className="mt-1.5 truncate text-[10px] text-muted-foreground">
-                    {st.total === 0
-                      ? "пусто"
-                      : st.nextReset
-                        ? `ближайший ${formatResetCountdown(st.nextReset, now)}`
-                        : st.available === st.total
-                          ? "все работают"
-                          : "время не указано"}
-                  </span>
+                  )}
                 </button>
               );
             })}
           </div>
+
+          {!searching && (
+            <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-3 sm:flex-row sm:items-center sm:gap-5 sm:p-4">
+              <div className="flex items-baseline gap-2">
+                <span className={cn("font-mono text-[1.6rem] font-medium leading-none tabular-nums", currentStats.available > 0 ? "text-success" : "text-muted-foreground")}>
+                  {currentStats.available}
+                </span>
+                <span className="text-[12px] text-muted-foreground">
+                  из {currentStats.total} доступно · {current.subtitle}
+                </span>
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <span className="flex h-1.5 w-full gap-[2px] overflow-hidden rounded-full bg-muted" aria-hidden>
+                  {currentStats.available > 0 && <span className="h-full bg-success" style={{ flexGrow: currentStats.available }} />}
+                  {currentStats.resetToday > 0 && <span className="h-full bg-warning" style={{ flexGrow: currentStats.resetToday }} />}
+                  {currentStats.unavailable > 0 && <span className="h-full bg-destructive/80" style={{ flexGrow: currentStats.unavailable }} />}
+                </span>
+                <span className="truncate text-[11px] text-muted-foreground">
+                  {currentStats.total === 0
+                    ? "аккаунтов пока нет"
+                    : currentStats.nextReset
+                      ? `ближайший сброс ${formatResetCountdown(currentStats.nextReset, now)} · ${formatDate(currentStats.nextReset, "d MMM, HH:mm")}`
+                      : currentStats.available === currentStats.total
+                        ? "все работают"
+                        : "время возврата не указано"}
+                  {elevenSummary && elevenSummary.answered > 0 && (
+                    <>
+                      {" · "}символов {formatChars(elevenSummary.used)} из {formatChars(elevenSummary.limit)}
+                      {elevenSummary.resetAt ? `, сброс ${formatDate(elevenSummary.resetAt, "d MMM")}` : ""}
+                    </>
+                  )}
+                  {elevenSummary && elevenSummary.loading > 0 && " · 11 Labs проверяем…"}
+                </span>
+              </div>
+              {elevenSummary && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground"
+                  title="Спросить ElevenLabs заново"
+                  onClick={() => elevenLabs.refresh()}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" /> Обновить
+                </Button>
+              )}
+            </section>
+          )}
 
           {!searching && section !== "grok" && (
             <GrokManagersLine
@@ -693,19 +767,9 @@ export default function GrokLimitPage() {
             {!searching && (
               <div className="flex flex-wrap gap-1.5 sm:ml-auto">
                 {filters.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setFilter(item.id)}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                      filter === item.id
-                        ? item.tone
-                        : "border-border bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground"
-                    )}
-                  >
+                  <button key={item.id} type="button" onClick={() => setFilter(item.id)} className={pageChipClass(filter === item.id, item.tone)}>
                     {item.label}
-                    <span className="tabular-nums text-[10px] opacity-80">{item.count}</span>
+                    <span className="font-mono text-[11px] tabular-nums opacity-70">{item.count}</span>
                   </button>
                 ))}
               </div>
@@ -750,6 +814,9 @@ export default function GrokLimitPage() {
                       now={now}
                       showService={searching || entry.section === "other"}
                       canRename={canName}
+                      usageHint={SECTIONS.find((s) => s.id === entry.section)?.usageHint ?? ""}
+                      live={entry.apiKey?.trim() ? elevenLabs.byId[entry.id] ?? { kind: "loading" } : undefined}
+                      onRefreshLive={entry.apiKey?.trim() ? () => elevenLabs.refresh(entry.id) : undefined}
                       onPatch={(patch) => patchEntry(entry, patch)}
                       onCopy={copyText}
                       onEdit={() => editEntry(entry)}
@@ -790,6 +857,7 @@ export default function GrokLimitPage() {
           title={accessDialog.nickname?.trim() || accessDialog.email}
           members={members}
           allowedUids={accessDialog.restricted ? accessDialog.allowedUids ?? [] : []}
+          pendingRequests={pendingRequests.filter((r) => r.accountId === accessDialog.id)}
           saving={accessSaving}
           onClose={() => setAccessDialog(null)}
           onSave={(uids) => void saveAccess(accessDialog, uids)}

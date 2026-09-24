@@ -1,112 +1,69 @@
-import { useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { chipClass } from "@/components/ui/chip";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "@/components/ui/sonner";
-import { getGrokAccountStatus, isGrokAccountAvailable, type GrokAccountStatus } from "@/services/grokAccountService";
-import {
-  autoFormatManualDateTimeInput,
-  formatDateTimeManual,
-  parseDateTimeManual,
-  MANUAL_DATETIME_PLACEHOLDER,
-} from "@/utils/date";
+import { autoFormatManualDateTimeInput, formatDateTimeManual, parseDateTimeManual, MANUAL_DATETIME_PLACEHOLDER } from "@/utils/date";
+import { clampUsagePct, USAGE_PRESETS, usagePatch, type PoolPatch, type UsageAccount } from "@/utils/grokUsage";
 import { cn } from "@/utils/cn";
 
-const STATUS_LABEL: Record<GrokAccountStatus, string> = {
-  available: "Доступно",
-  resetToday: "Сегодня",
-  unavailable: "Недоступно",
-};
-
-const STATUS_DOT: Record<GrokAccountStatus, string> = {
-  available: "bg-success shadow-[0_0_8px_hsl(var(--success))]",
-  resetToday: "bg-warning shadow-[0_0_8px_hsl(var(--warning))]",
-  unavailable: "bg-destructive shadow-[0_0_8px_hsl(var(--destructive))]",
-};
-
-const STATUS_CHIP: Record<GrokAccountStatus, string> = {
-  available: "bg-success/15 text-success hover:bg-success/25",
-  resetToday: "bg-warning/15 text-warning hover:bg-warning/25",
-  unavailable: "bg-destructive/15 text-destructive hover:bg-destructive/25",
-};
-
-/** Live status: reads as a badge, still one-tap to flip. Not styled like Актуализировать. */
-export function AvailabilityToggle({
-  available,
-  limitResetAt,
-  disabled,
-  onToggle,
-}: {
-  available?: boolean;
-  limitResetAt: number | null;
-  disabled?: boolean;
-  onToggle: (nextAvailable: boolean) => Promise<void>;
-}) {
-  const [isSaving, setIsSaving] = useState(false);
-  const account = { available, limitResetAt };
-  const isAvailable = isGrokAccountAvailable(account);
-  const status = getGrokAccountStatus(account);
-
-  async function toggle() {
-    setIsSaving(true);
-    try {
-      await onToggle(!isAvailable);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось обновить");
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  return (
-    <button
-      type="button"
-      disabled={disabled || isSaving}
-      onClick={toggle}
-      title={
-        isAvailable
-          ? "Нажми — отметить как недоступный"
-          : status === "resetToday"
-            ? "Восстанавливается сегодня — нажми, чтобы отметить доступным"
-            : "Нажми — отметить как доступный"
-      }
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-50",
-        STATUS_CHIP[status]
-      )}
-    >
-      <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_DOT[status])} />
-      {STATUS_LABEL[status]}
-    </button>
-  );
-}
-
-export function ActualizePopover({
-  limitResetAt,
+/**
+ * «Использовано» — то, что человек видит на grok.com → Settings → Usage:
+ * процент недельной квоты и время сброса. Здесь он это переносит в две
+ * отметки: чип процента (0/25/50/75/90/100 или своё число) и дата сброса.
+ * 100 % = лимит кончился, аккаунт уходит в недоступные; меньше — аккаунт
+ * работает (человек только что это видел), и прошедшая дата сброса
+ * стирается. Одна дата без процента меняет только дату.
+ */
+export function UsagePopover({
+  account,
+  now,
+  hint,
   onSave,
+  children,
+  align = "start",
 }: {
-  limitResetAt: number | null;
-  onSave: (next: number | null) => Promise<void>;
+  account: UsageAccount;
+  now: number;
+  /** Где взять цифры: у Грока — Settings → Usage, у других сервисов — свой кабинет. */
+  hint: string;
+  onSave: (patch: PoolPatch) => Promise<void>;
+  /** Кнопка-триггер (asChild). */
+  children: ReactNode;
+  align?: "start" | "end";
 }) {
   const [open, setOpen] = useState(false);
-  const [value, setValue] = useState(() => formatDateTimeManual(limitResetAt));
+  const [pct, setPct] = useState<string>("");
+  const [resetAt, setResetAt] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   function onOpenChange(next: boolean) {
     setOpen(next);
-    if (next) setValue(formatDateTimeManual(limitResetAt));
+    if (next) {
+      setPct(account.usagePct == null ? "" : String(clampUsagePct(account.usagePct) ?? ""));
+      setResetAt(formatDateTimeManual(account.limitResetAt));
+    }
   }
 
-  const parsed = parseDateTimeManual(value);
-  const invalid = parsed === undefined;
+  const parsedReset = parseDateTimeManual(resetAt);
+  const resetInvalid = parsedReset === undefined;
+  const pctValue = pct.trim() === "" ? null : clampUsagePct(pct);
+  const pctInvalid = pct.trim() !== "" && pctValue == null;
+  const resetChanged = (parsedReset ?? null) !== (account.limitResetAt ?? null);
+  const pctChanged = pctValue !== (clampUsagePct(account.usagePct) ?? null);
+  const canSave = !resetInvalid && !pctInvalid && (resetChanged || pctChanged);
 
   async function save() {
-    if (invalid) return;
+    if (!canSave) return;
     setIsSaving(true);
     try {
-      await onSave(parsed ?? null);
-      toast.success("Актуализировано");
+      const patch: PoolPatch = pctValue == null ? { usagePct: null, usageAt: Date.now() } : { ...usagePatch(account, pctValue, Date.now()) };
+      // Дата из поля сильнее автоматики патча: человек её только что видел.
+      if (resetChanged) patch.limitResetAt = parsedReset ?? null;
+      await onSave(patch);
+      toast.success(pctValue == null ? "Отметка снята" : pctValue >= 100 ? "Лимит кончился" : `Использовано ${pctValue} %`);
       setOpen(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось обновить");
@@ -117,30 +74,58 @@ export function ActualizePopover({
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground" title="Указать время восстановления лимита">
-          <RefreshCw className="h-3 w-3" />
-          Актуализировать
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-72" align="start">
-        <p className="mb-2 text-sm font-medium">Когда восстановится лимит?</p>
-        <Input
-          value={value}
-          onChange={(e) => setValue(autoFormatManualDateTimeInput(e.target.value))}
-          inputMode="numeric"
-          placeholder={MANUAL_DATETIME_PLACEHOLDER}
-          autoFocus
-          className={cn("tabular-nums", invalid && "border-destructive focus-visible:ring-destructive")}
-          onKeyDown={(e) => {
-            if (e.code === "Enter" && !invalid) save();
-          }}
-        />
-        <p className={cn("mt-1.5 text-xs text-muted-foreground", invalid && "text-destructive")}>
-          Формат: {MANUAL_DATETIME_PLACEHOLDER} — оставьте пустым, если неизвестно
-        </p>
-        <div className="mt-3 flex justify-end">
-          <Button size="sm" className="h-7 gap-1.5" onClick={save} disabled={isSaving || invalid}>
+      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverContent className="w-80" align={align}>
+        <p className="text-sm font-medium">Использовано</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {USAGE_PRESETS.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              className={chipClass({ active: pctValue === preset, tone: preset >= 100 ? "danger" : preset >= 90 ? "warning" : "primary", size: "sm" })}
+              onClick={() => setPct(String(preset))}
+            >
+              {preset} %
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 grid grid-cols-[1fr_auto] items-center gap-2">
+          <span className="text-xs text-muted-foreground">Своё число</span>
+          <Input
+            value={pct}
+            onChange={(e) => setPct(e.target.value.replace(/[^\d]/g, "").slice(0, 3))}
+            inputMode="numeric"
+            placeholder="—"
+            aria-label="Использовано, %"
+            className={cn("h-8 w-20 text-right tabular-nums", pctInvalid && "border-destructive focus-visible:ring-destructive")}
+          />
+        </div>
+        <div className="mt-3 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Сброс лимита</span>
+          <Input
+            value={resetAt}
+            onChange={(e) => setResetAt(autoFormatManualDateTimeInput(e.target.value))}
+            inputMode="numeric"
+            placeholder={MANUAL_DATETIME_PLACEHOLDER}
+            aria-label="Сброс лимита"
+            className={cn("h-8 tabular-nums", resetInvalid && "border-destructive focus-visible:ring-destructive")}
+            onKeyDown={(e) => {
+              if (e.code === "Enter" && canSave) void save();
+            }}
+          />
+          <p className={cn("text-[11px] text-muted-foreground", resetInvalid && "text-destructive")}>
+            {resetInvalid ? `Формат ${MANUAL_DATETIME_PLACEHOLDER}` : "Пусто — время неизвестно"}
+          </p>
+        </div>
+        <div className="mt-3 flex items-center justify-end gap-2">
+          {account.usagePct != null && (
+            <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" disabled={isSaving} onClick={() => setPct("")}>
+              Снять отметку
+            </Button>
+          )}
+          <Button size="sm" className="h-8 gap-1.5" onClick={() => void save()} disabled={isSaving || !canSave}>
+            {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Сохранить
           </Button>
         </div>

@@ -45,6 +45,17 @@ export interface GrokAppAccount {
   restricted?: boolean;
   /** Кому открыт аккаунт. Owner и Тимлид видят всё всегда, их тут нет. */
   allowedUids?: string[];
+  /** Использовано N % (0–100) — отметка человека; null/нет = не отмечали. */
+  usagePct?: number | null;
+  /** Когда отметили `usagePct` (мс). */
+  usageAt?: number;
+  /**
+   * Ключ API ТОЛЬКО для чтения использования (сейчас — ElevenLabs,
+   * `GET /v1/user/subscription`). Лежит рядом с паролем: та же граница —
+   * кто видит аккаунт, видит и ключ, поэтому заводить ключ с одним правом
+   * «User: Read». Пусто — использование не запрашивается.
+   */
+  apiKey?: string;
   limitResetAt: number | null;
   updatedByUid: string;
   updatedByName: string;

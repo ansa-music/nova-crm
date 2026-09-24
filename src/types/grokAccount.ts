@@ -42,8 +42,22 @@ export interface GrokAccount {
    * missing value as available (see isGrokAccountAvailable in the page).
    */
   available?: boolean;
-  /** When the account's limit refreshes — ms epoch, or null if unknown/not set. Supplementary info, shown alongside the status but doesn't drive it. */
+  /**
+   * When the account's limit refreshes — ms epoch, or null if unknown/not set.
+   * For Grok this is the WEEKLY reset shown on grok.com → Settings → Usage
+   * (since June 2026 SuperGrok has one shared weekly pool). Once it is in the
+   * past the account counts as available again (getGrokAccountStatus).
+   */
   limitResetAt: number | null;
+  /**
+   * «Использовано N %» — the number from grok.com → Settings → Usage, typed
+   * in by whoever last looked. 0–100; null/absent = nobody marked it. Only a
+   * hint for picking the account with the most headroom — `available` still
+   * decides the status.
+   */
+  usagePct?: number | null;
+  /** When `usagePct` was marked (ms). */
+  usageAt?: number;
   updatedByUid: string;
   updatedByName: string;
   updatedAt: number;

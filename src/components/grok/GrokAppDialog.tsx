@@ -44,6 +44,7 @@ export function GrokAppDialog({ open, onOpenChange, editing, accounts, defaultPr
   const [phone, setPhone] = useState(editing?.phone ?? "");
   const [note, setNote] = useState(editing?.note ?? "");
   const [nickname, setNickname] = useState(editing?.nickname ?? "");
+  const [apiKey, setApiKey] = useState(editing?.apiKey ?? "");
   const [loginMethod, setLoginMethod] = useState<GrokLoginMethod>(() => grokLoginMethodOf(editing?.loginMethod));
   const [resetAt, setResetAt] = useState(() => formatDateTimeManual(editing?.limitResetAt ?? null));
   const [isSaving, setIsSaving] = useState(false);
@@ -59,6 +60,7 @@ export function GrokAppDialog({ open, onOpenChange, editing, accounts, defaultPr
       setPhone(editing?.phone ?? "");
       setNote(editing?.note ?? "");
       setNickname(editing?.nickname ?? "");
+      setApiKey(editing?.apiKey ?? "");
       setLoginMethod(grokLoginMethodOf(editing?.loginMethod));
       setResetAt(formatDateTimeManual(editing?.limitResetAt ?? null));
     } else if (!open) {
@@ -92,6 +94,9 @@ export function GrokAppDialog({ open, onOpenChange, editing, accounts, defaultPr
     try {
       const actorName = displayNameOf(profile);
       const limitResetAt = parsedResetAt ?? null;
+      // Ключ читается только у ElevenLabs; у остальных сервисов его негде
+      // применить, и сменивший сервис аккаунт не должен тащить старый ключ.
+      const keyToSave = provider === "elevenlabs" ? apiKey.trim() : "";
       if (editing) {
         await updateGrokAppAccount(
           activeWorkspaceId,
@@ -105,6 +110,7 @@ export function GrokAppDialog({ open, onOpenChange, editing, accounts, defaultPr
             note: note.trim(),
             loginMethod,
             limitResetAt,
+            apiKey: keyToSave,
             ...(canName ? { nickname: nickname.trim() } : {}),
           },
           profile.uid,
@@ -121,6 +127,7 @@ export function GrokAppDialog({ open, onOpenChange, editing, accounts, defaultPr
           note: note.trim(),
           loginMethod,
           limitResetAt,
+          apiKey: keyToSave,
           ...(canName ? { nickname: nickname.trim() } : {}),
           actorUid: profile.uid,
           actorName,
@@ -207,6 +214,23 @@ export function GrokAppDialog({ open, onOpenChange, editing, accounts, defaultPr
             <Label>План / заметка</Label>
             <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Creator, Pro…" autoComplete="off" />
           </div>
+          {provider === "elevenlabs" && (
+            <div className="flex flex-col gap-1.5">
+              <Label>Ключ API — только чтение</Label>
+              <Input
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="sk_…"
+                autoComplete="off"
+                spellCheck={false}
+                className="font-mono text-[13px]"
+              />
+              <p className="text-xs text-muted-foreground">
+                С ключом страница сама покажет, сколько символов осталось и когда сброс. Заводится в ElevenLabs → Profile → API keys →
+                Create: снять все права, оставить «User: Read». Ключ видят те же, кто видит пароль.
+              </p>
+            </div>
+          )}
           <div className="flex flex-col gap-1.5">
             <Label>Лимит восстановится</Label>
             <Input

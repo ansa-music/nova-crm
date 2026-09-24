@@ -5,9 +5,9 @@ import { generateId } from "@/utils/id";
 import { isSameLocalDay, normalizeTimestamp } from "@/utils/date";
 import { grokLoginMethodOf, type GrokLoginMethod } from "@/types/grokAccount";
 import type { GrokAppAccount, GrokAppProvider } from "@/types/grokAppAccount";
-import { getGrokAccountStatus, isGrokAccountAvailable, type GrokAccountStatus } from "@/services/grokAccountService";
+import { getGrokAccountStatus, isGrokAccountAvailable, isGrokResetPassed, type GrokAccountStatus } from "@/services/grokAccountService";
 
-export { getGrokAccountStatus, isGrokAccountAvailable };
+export { getGrokAccountStatus, isGrokAccountAvailable, isGrokResetPassed };
 export type { GrokAccountStatus };
 
 const STATUS_RANK: Record<GrokAccountStatus, number> = { available: 0, resetToday: 1, unavailable: 2 };
@@ -159,6 +159,7 @@ export interface CreateGrokAppAccountInput {
   note: string;
   nickname?: string;
   limitResetAt: number | null;
+  apiKey?: string;
   actorUid: string;
   actorName: string;
 }
@@ -181,6 +182,7 @@ export async function createGrokAppAccount(input: CreateGrokAppAccountInput): Pr
     available: input.limitResetAt == null || input.limitResetAt <= now,
     restricted: false,
     allowedUids: [],
+    apiKey: input.apiKey?.trim() ?? "",
     limitResetAt: input.limitResetAt,
     updatedByUid: input.actorUid,
     updatedByName: input.actorName,
@@ -203,6 +205,9 @@ export interface UpdateGrokAppAccountInput {
   nickname?: string;
   limitResetAt?: number | null;
   available?: boolean;
+  usagePct?: number | null;
+  usageAt?: number;
+  apiKey?: string;
 }
 
 export async function updateGrokAppAccount(
