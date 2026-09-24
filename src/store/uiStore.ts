@@ -3,6 +3,8 @@ import { persist } from "zustand/middleware";
 
 export type ThemeMode = "light" | "dark" | "system";
 
+export type SidebarMode = "open" | "hover" | "rail";
+
 interface UiState {
   theme: ThemeMode;
   /**
@@ -18,6 +20,14 @@ interface UiState {
    * ни у кого не сработала бы — сохранённое перебивает дефолт.
    */
   sidebarPinned: boolean | null;
+  /**
+   * Вид десктопного меню (просьба Nurba 25.09.2026 — три положения):
+   * `open` — закреплено открытым, `hover` — рейка, раскрывается под мышью,
+   * `rail` — закреплено узким, не раскрывается. `null` — человек не выбирал:
+   * берётся старое `sidebarPinned` (true → open, false → hover), иначе
+   * умолчание по устройству (см. Sidebar).
+   */
+  sidebarMode: SidebarMode | null;
   shortcutsHelpOpen: boolean;
   tableFullscreen: boolean;
   tableImmersive: boolean;
@@ -38,6 +48,7 @@ interface UiState {
    * показано — эффективное значение считает Sidebar и передаёт его сюда.
    */
   setSidebarPinned: (pinned: boolean) => void;
+  setSidebarMode: (mode: SidebarMode) => void;
   setShortcutsHelpOpen: (open: boolean) => void;
   setTableFullscreen: (fullscreen: boolean) => void;
   setTableImmersive: (immersive: boolean) => void;
@@ -51,6 +62,7 @@ export const useUiStore = create<UiState>()(
     (set) => ({
       theme: "dark",
       sidebarPinned: null,
+      sidebarMode: null,
       shortcutsHelpOpen: false,
       tableFullscreen: false,
       tableImmersive: false,
@@ -58,6 +70,7 @@ export const useUiStore = create<UiState>()(
       deskAlerts: [],
       setTheme: (theme) => set({ theme }),
       setSidebarPinned: (sidebarPinned) => set({ sidebarPinned }),
+      setSidebarMode: (sidebarMode) => set({ sidebarMode }),
       setShortcutsHelpOpen: (shortcutsHelpOpen) => set({ shortcutsHelpOpen }),
       setTableFullscreen: (tableFullscreen) => set({ tableFullscreen }),
       setTableImmersive: (tableImmersive) => set({ tableImmersive }),
@@ -76,6 +89,7 @@ export const useUiStore = create<UiState>()(
       partialize: (s) => ({
         theme: s.theme,
         sidebarPinned: s.sidebarPinned,
+        sidebarMode: s.sidebarMode,
         deskAlerts: s.deskAlerts,
       }),
     }

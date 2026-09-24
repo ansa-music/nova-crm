@@ -3,8 +3,9 @@ import { NavLink, useLocation, useNavigate } from "react-router";
 import {
   ChevronDown,
   MoreVertical,
+  PanelLeft,
   PanelLeftClose,
-  PanelLeftOpen,
+  PanelLeftDashed,
   Plus,
   Search,
   User,
@@ -14,6 +15,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -26,7 +30,7 @@ import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { cn } from "@/utils/cn";
-import { useUiStore } from "@/store/uiStore";
+import { useUiStore, type SidebarMode } from "@/store/uiStore";
 import { useCanHover } from "@/hooks/useMediaQuery";
 import { useAccountMenu, useNavModel } from "@/hooks/useNavModel";
 import { MORE_SECTION_KEY, NAV_SECTIONS_KEY, isNavItemActive, pathMatches, type NavChild, type NavSection } from "@/config/nav";
@@ -70,6 +74,19 @@ function navActiveClass(active: boolean, collapsed?: boolean, alert?: boolean) {
   );
 }
 
+/** Три положения меню — одна подпись на кнопку и на пункты выбора. */
+const SIDEBAR_MODES: { mode: SidebarMode; icon: LucideIcon; label: string; short: string; hint: string }[] = [
+  { mode: "open", icon: PanelLeft, label: "Закреплено открытым", short: "открыто", hint: "Всегда с подписями" },
+  {
+    mode: "hover",
+    icon: PanelLeftDashed,
+    label: "Раскрывать при наведении",
+    short: "при наведении",
+    hint: "Узкое, открывается под мышью поверх стола",
+  },
+  { mode: "rail", icon: PanelLeftClose, label: "Закреплено узким", short: "узкое", hint: "Только значки, не раскрывается" },
+];
+
 function AppNavLink({
   to,
   end,
@@ -82,6 +99,7 @@ function AppNavLink({
   alert,
   hint,
   emphasis,
+  title,
 }: {
   to: string;
   end?: boolean;
@@ -97,6 +115,8 @@ function AppNavLink({
   hint?: string;
   /** Жирная строка — частая функция. */
   emphasis?: boolean;
+  /** Всплывашка с подписью — только у узкого закреплённого меню. */
+  title?: string;
 }) {
   const { pathname } = useLocation();
   const active = isNavItemActive({ to, end, activeOn }, pathname);
@@ -112,6 +132,7 @@ function AppNavLink({
       // В рейке подписи нет, но `title` не ставим: при наведении панель и так
       // раскрывается с подписями, а всплывашка браузера легла бы поверх неё.
       aria-label={collapsed ? label : undefined}
+      title={title}
       data-nav-active={active ? "true" : undefined}
       onClick={() => onNavigate?.()}
       className={cn(navActiveClass(active, collapsed, alert), emphasis && !active && !collapsed && "font-semibold text-foreground")}
@@ -182,11 +203,14 @@ function DeskSubLink({ child, pathname, onNavigate }: { child: NavChild; pathnam
 function NavSections({
   sections,
   collapsed,
+  titles = false,
   pathname,
   onNavigate,
 }: {
   sections: NavSection[];
   collapsed: boolean;
+  /** Узкое закреплённое меню не раскрывается — подписи только всплывашкой. */
+  titles?: boolean;
   pathname: string;
   /** Drawer планшета закрывает себя после перехода; меню в потоке — нет. */
   onNavigate?: () => void;
@@ -219,6 +243,7 @@ function NavSections({
                 <AppNavLink
                   key={item.key}
                   collapsed
+                  title={titles ? item.label : undefined}
                   to={item.to}
                   end={item.end}
                   icon={item.icon}
@@ -289,7 +314,8 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
   const location = useLocation();
   const navigate = useNavigate();
   const sidebarPinned = useUiStore((s) => s.sidebarPinned);
-  const setSidebarPinned = useUiStore((s) => s.setSidebarPinned);
+  const sidebarMode = useUiStore((s) => s.sidebarMode);
+  const setSidebarMode = useUiStore((s) => s.setSidebarMode);
   const canHover = useCanHover();
   /**
    * Три состояния десктопного меню: закреплено (248px в потоке), рейка (64px)
@@ -301,12 +327,20 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
    * от устройства: без наведения (iPad ≥1024 без мыши) рейка нераскрываема —
    * ни peek, ни `title` у пунктов — поэтому там меню закреплено сразу.
    */
-  const pinned = mobile ? false : (sidebarPinned ?? !canHover);
+  // Три положения (просьба Nurba 25.09.2026): открыто / раскрывать при
+  // наведении / узкое без раскрытия. Старое `sidebarPinned` — до первого
+  // выбора в новом переключателе.
+  const mode: SidebarMode =
+    sidebarMode ?? (sidebarPinned === true ? "open" : sidebarPinned === false ? "hover" : canHover ? "hover" : "open");
+  const pinned = mobile ? false : mode === "open";
+  /** Узкое закреплено: ни наведение, ни выпадашки панель не раскрывают. */
+  const railLocked = !mobile && mode === "rail";
   const [peek, setPeek] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
-  const holdOpen = menuOpen || bellOpen;
-  const collapsed = !mobile && !pinned && !peek && !holdOpen;
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const holdOpen = menuOpen || bellOpen || modeMenuOpen;
+  const collapsed = !mobile && !pinned && (railLocked || (!peek && !holdOpen));
   /** Панель раскрыта поверх стола (не закреплена и не рейка). */
   const peeking = !mobile && !pinned && !collapsed;
   const panelRef = useRef<HTMLDivElement>(null);
@@ -328,7 +362,7 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
   // панель раскрывалась бы на каждый тап по рейке, перекрывая стол.
   function onPanelPointerEnter(e: PointerEvent<HTMLDivElement>) {
     lastPointer.current = e.pointerType;
-    if (mobile || e.pointerType !== "mouse") return;
+    if (mobile || railLocked || e.pointerType !== "mouse") return;
     clearPeekTimers();
     openTimer.current = window.setTimeout(() => setPeek(true), PEEK_OPEN_MS);
   }
@@ -341,7 +375,7 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
   // сворачивает. `:focus-visible` отличает клавиатуру от клика/тапа по пункту:
   // тап по иконке рейки на планшете тоже ставит фокус, но раскрывать не должен.
   function onPanelFocus(e: FocusEvent<HTMLDivElement>) {
-    if (mobile || !(e.target instanceof HTMLElement) || !e.target.matches(":focus-visible")) return;
+    if (mobile || railLocked || !(e.target instanceof HTMLElement) || !e.target.matches(":focus-visible")) return;
     clearPeekTimers();
     setPeek(true);
   }
@@ -368,16 +402,12 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
       setPeek(Boolean(panelRef.current?.matches(":hover")) && lastPointer.current === "mouse");
     };
   }
-  function togglePinned() {
-    // Из закреплённого — в рейку сразу, не дожидаясь ухода мыши: человек
-    // нажал «Свернуть» и должен увидеть, что свернулось.
-    if (pinned) {
-      clearPeekTimers();
-      setPeek(false);
-    }
-    // Пишем противоположное ЭФФЕКТИВНОМУ значению, а не сохранённому: при
-    // `null` в магазине «наоборот» посчитать некому, кроме нас.
-    setSidebarPinned(!pinned);
+  function chooseMode(next: SidebarMode) {
+    // Свернуть — сразу, не дожидаясь ухода мыши: человек выбрал и должен
+    // увидеть результат.
+    clearPeekTimers();
+    setPeek(false);
+    setSidebarMode(next);
   }
 
   const [createPageOpen, setCreatePageOpen] = useState(false);
@@ -401,8 +431,9 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
     onNavigate?.();
   }
 
-  const PinIcon = pinned ? PanelLeftClose : PanelLeftOpen;
-  const pinLabel = pinned ? "Свернуть в рейку" : "Закрепить меню";
+  const modeMeta = SIDEBAR_MODES.find((m) => m.mode === mode) ?? SIDEBAR_MODES[0];
+  const ModeIcon = modeMeta.icon;
+  const modeLabel = `Меню: ${modeMeta.short}`;
 
   return (
     <div
@@ -481,6 +512,7 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
           <NavSections
             sections={sections.filter((s) => s.key !== MORE_SECTION_KEY)}
             collapsed={collapsed}
+            titles={railLocked}
             pathname={location.pathname}
             onNavigate={onNavigate}
           />
@@ -500,20 +532,37 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
           {/* Закрепление живёт пунктом внизу, а не кнопкой на ребре панели:
               в рейке ребро перекрыто столом, и круглый шеврон там терялся. */}
           {!mobile && (
-            <button
-              type="button"
-              onClick={togglePinned}
-              aria-label={pinLabel}
-              title={collapsed ? pinLabel : undefined}
-              aria-pressed={pinned}
-              className={cn(
-                "flex items-center rounded-lg text-sidebar-foreground transition-colors duration-200 hover:bg-foreground/5",
-                collapsed ? "h-10 w-10 justify-center" : "min-h-10 w-full gap-2.5 px-3 text-left text-[13px] font-medium"
-              )}
-            >
-              <PinIcon className="h-[18px] w-[18px] shrink-0" />
-              {!collapsed && <span className="min-w-0 flex-1 truncate">{pinLabel}</span>}
-            </button>
+            <DropdownMenu modal={false} onOpenChange={onHoldChange(setModeMenuOpen)}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={modeLabel}
+                  title={collapsed ? modeLabel : undefined}
+                  className={cn(
+                    "flex items-center rounded-lg text-sidebar-foreground transition-colors duration-200 hover:bg-foreground/5",
+                    collapsed ? "h-10 w-10 justify-center" : "min-h-10 w-full gap-2.5 px-3 text-left text-[13px] font-medium"
+                  )}
+                >
+                  <ModeIcon className="h-[18px] w-[18px] shrink-0" />
+                  {!collapsed && <span className="min-w-0 flex-1 truncate">{modeLabel}</span>}
+                  {!collapsed && <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="top" className="z-[330] w-64">
+                <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">Как показывать меню</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={mode} onValueChange={(v) => chooseMode(v as SidebarMode)}>
+                  {SIDEBAR_MODES.map((m) => (
+                    <DropdownMenuRadioItem key={m.mode} value={m.mode} className="items-start py-2">
+                      <m.icon className="mr-2 mt-0.5 h-4 w-4 shrink-0" />
+                      <span className="flex min-w-0 flex-col">
+                        <span className="text-[13px] font-medium">{m.label}</span>
+                        <span className="text-[11px] text-muted-foreground">{m.hint}</span>
+                      </span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
           <DropdownMenu modal={false} onOpenChange={onHoldChange(setMenuOpen)}>
             <DropdownMenuTrigger asChild>
