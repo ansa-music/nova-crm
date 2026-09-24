@@ -1,4 +1,4 @@
-import { Check, CreditCard, Settings2 } from "lucide-react";
+import { Check, ChevronDown, CreditCard, Settings2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,7 +52,13 @@ export function PaymentChip({
         compact ? "h-5 px-1.5" : "h-7 px-2.5 text-xs",
         label
           ? "border-border bg-muted/60 text-foreground"
-          : "border-dashed border-border px-1.5 text-muted-foreground opacity-50 group-hover/row:opacity-100"
+          : compact
+            ? // В ячейке таблицы пустой чип проявляется при наведении на строку.
+              "border-dashed border-border px-1.5 text-muted-foreground opacity-50 group-hover/row:opacity-100"
+            : // В карточке строки наведения на строку нет — там пустой чип
+              // был полупрозрачным всегда и «пропадал» рядом с суммой
+              // (жалоба Nurba 25.09.2026). Здесь это явная кнопка.
+              "border-primary/40 bg-primary/[0.08] text-primary hover:bg-primary/[0.14]"
       )}
       title={label ? `${label} · ${formatFee(fee)}` : "Способ оплаты"}
     >
@@ -61,11 +67,17 @@ export function PaymentChip({
           <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: method?.color ?? "hsl(var(--muted-foreground))" }} />
           <span className="truncate">{label}</span>
           {fee > 0 ? <span className="shrink-0 text-muted-foreground">−{String(fee).replace(".", ",")}%</span> : null}
+          {compact ? null : <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />}
         </>
       ) : (
         <>
           <CreditCard className="h-3 w-3 shrink-0" />
-          {compact ? null : <span>Способ оплаты</span>}
+          {compact ? null : (
+            <>
+              <span>Способ оплаты</span>
+              <ChevronDown className="h-3 w-3 shrink-0" />
+            </>
+          )}
         </>
       )}
     </span>
