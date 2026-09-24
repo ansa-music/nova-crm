@@ -24,6 +24,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { PageColumn, PageIconName } from "@/types";
+import { displayNameOf } from "@/utils/displayName";
 
 interface CreatePageDialogProps {
   open: boolean;
@@ -166,7 +167,7 @@ export function CreatePageDialog({ open, onOpenChange }: CreatePageDialogProps) 
                   {otherMembers.map((m) => (
                     <label key={m.uid} className="flex items-center gap-2 text-sm">
                       <Checkbox checked={allowedUsers.includes(m.uid)} onCheckedChange={() => toggleUser(m.uid)} />
-                      <span className="truncate">{m.name}</span>
+                      <span className="truncate">{displayNameOf(m)}</span>
                       <span className="truncate text-xs text-muted-foreground">{m.email}</span>
                     </label>
                   ))}

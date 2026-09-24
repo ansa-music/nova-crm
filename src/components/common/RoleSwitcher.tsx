@@ -13,6 +13,7 @@ import { setActiveRole } from "@/services/memberService";
 import { logChange } from "@/services/historyService";
 import { ROLE_LABELS } from "@/types";
 import { cn } from "@/utils/cn";
+import { myDisplayName } from "@/utils/displayName";
 import type { Role } from "@/types";
 
 /** Small persistent banner shown whenever a real Owner/Admin is currently simulating a different role. Include near the top of the app shell. */
@@ -45,7 +46,7 @@ export function SimulationBanner() {
 export function RoleSwitcher({ embedded = false }: { embedded?: boolean } = {}) {
   const permissions = usePermissions();
   const { profile } = useAuth();
-  const { activeWorkspaceId } = useWorkspace();
+  const { activeWorkspaceId, members } = useWorkspace();
 
   if (permissions.allowedSimulatedRoles.length === 0) return null;
 
@@ -64,7 +65,7 @@ export function RoleSwitcher({ embedded = false }: { embedded?: boolean } = {}) 
         oldValue: ROLE_LABELS[from],
         newValue: ROLE_LABELS[target],
         userId: profile.uid,
-        userName: profile.nickname || profile.name,
+        userName: myDisplayName(profile, members),
       }).catch(() => {});
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось переключить режим");

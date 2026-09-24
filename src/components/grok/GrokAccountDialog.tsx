@@ -17,7 +17,7 @@ import { createGrokAccount, findDuplicateGrokAccount, updateGrokAccount } from "
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
-import { displayNameOf } from "@/utils/displayName";
+import { myDisplayName } from "@/utils/displayName";
 import { autoFormatManualDateTimeInput, formatDateTimeManual, parseDateTimeManual, MANUAL_DATETIME_PLACEHOLDER } from "@/utils/date";
 import { grokLoginMethodOf, type GrokLoginMethod } from "@/types/grokAccount";
 import { cn } from "@/utils/cn";
@@ -32,7 +32,7 @@ interface GrokAccountDialogProps {
 
 export function GrokAccountDialog({ open, onOpenChange, editing, accounts }: GrokAccountDialogProps) {
   const { profile } = useAuth();
-  const { activeWorkspaceId } = useWorkspace();
+  const { activeWorkspaceId, members } = useWorkspace();
   const { role } = usePermissions();
   const canName = role === "owner" || role === "teamlead" || role === "admin";
   const [nickname, setNickname] = useState(editing?.nickname ?? "");
@@ -78,7 +78,7 @@ export function GrokAccountDialog({ open, onOpenChange, editing, accounts }: Gro
     }
     setIsSaving(true);
     try {
-      const actorName = displayNameOf(profile);
+      const actorName = myDisplayName(profile, members);
       const limitResetAt = parsedResetAt ?? null;
       if (editing) {
         await updateGrokAccount(

@@ -20,7 +20,7 @@ import { resolveNotificationTargets, sendNotification } from "@/services/notific
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
-import { displayNameOf } from "@/utils/displayName";
+import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import type { Announcement, AnnouncementPriority, NotificationTargetKind, Role } from "@/types";
 
 interface AnnouncementDialogProps {
@@ -104,7 +104,7 @@ export function AnnouncementDialog({ open, onOpenChange, editing }: Announcement
           priority,
           pinned,
           authorUid: profile.uid,
-          authorName: profile.nickname || profile.name,
+          authorName: myDisplayName(profile, members),
           authorPhotoURL: profile.photoURL,
         });
         announcementId = created.id;
@@ -122,7 +122,7 @@ export function AnnouncementDialog({ open, onOpenChange, editing }: Announcement
             body: body.trim(),
             priority,
             fromUid: profile.uid,
-            fromName: profile.nickname || profile.name,
+            fromName: myDisplayName(profile, members),
             relatedAnnouncementId: announcementId,
             target,
           },

@@ -119,20 +119,39 @@ export function nickLockReason(member: Pick<WorkspaceMember, "role">): string {
   return member.role === "owner" ? "Ник Owner закрепляет сам Owner" : "Свой ник закрепляет Owner или другой Тимлид";
 }
 
+/** Всё, из чего складывается рабочий ник человека. */
+export type NickHolder = {
+  techNick?: string;
+  otherNick?: string;
+  /** Ник ОС (подпись варианта «Ответственный»); в счёт только при `osNickValue`. */
+  osNick?: string;
+  osNickValue?: string;
+  role?: Role;
+  extraRoles?: readonly Role[] | null;
+};
+
 /**
- * Рабочий ник для подписи человека. Ник технаря и ник «Другие» у одного
- * человека бывают вместе (Owner держал ник технаря, пока стоял в технарях),
- * и тогда подписывает ник ЕГО раздела: иначе новый ник «Другие» ничего бы не
- * менял, пока кто-то не открепит старый. Без роли (профиль `users/{uid}`) —
- * ник технаря первым, как раньше.
+ * Рабочий ник для подписи человека — ВЕЗДЕ и у всех (просьба Nurba
+ * 25.09.2026: «сделай всегда отображение по нику везде и у всех»). Первым —
+ * ник ЕГО раздела: технарь — ник технаря, ОС — ник ОС, «Другие» — ник
+ * «Другие» (у одного человека их бывает несколько: Owner держал ник технаря,
+ * пока стоял в технарях, — без этого новый ник ничего бы не менял, пока
+ * старый не открепят). Нет ника раздела — любой другой выданный ник. Без
+ * роли (профиль `users/{uid}`) — ник технаря, «Другие», ОС по порядку.
+ *
+ * Ник ОС раньше в подпись не шёл («ключ заказов, а не подпись») — теперь
+ * идёт: ОС работает под ним. Подпись ника ОС сохранена на участнике
+ * (`osNick`) и не переименовывается; считается только при закреплённом
+ * `osNickValue`, чтобы откреплённый ник не всплывал подписью.
  */
-export function workNickOf(
-  entity: { techNick?: string; otherNick?: string; role?: Role; extraRoles?: readonly Role[] | null } | null | undefined
-): string {
+export function workNickOf(entity: NickHolder | null | undefined): string {
   const tech = entity?.techNick?.trim() || "";
   const other = entity?.otherNick?.trim() || "";
-  if (tech && other && entity?.role) {
-    return teamGroupOf({ role: entity.role, extraRoles: entity.extraRoles }) === "other" ? other : tech;
+  const os = entity?.osNickValue ? entity.osNick?.trim() || "" : "";
+  if (entity?.role) {
+    const group = teamGroupOf({ role: entity.role, extraRoles: entity.extraRoles });
+    const own = group === "tech" ? tech : group === "os" ? os : other;
+    if (own) return own;
   }
-  return tech || other;
+  return tech || other || os;
 }

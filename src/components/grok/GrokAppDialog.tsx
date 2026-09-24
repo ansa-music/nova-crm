@@ -17,7 +17,7 @@ import { createGrokAppAccount, findDuplicateGrokAppAccount, updateGrokAppAccount
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
-import { displayNameOf } from "@/utils/displayName";
+import { myDisplayName } from "@/utils/displayName";
 import { autoFormatManualDateTimeInput, formatDateTimeManual, parseDateTimeManual, MANUAL_DATETIME_PLACEHOLDER } from "@/utils/date";
 import { grokLoginMethodOf, type GrokLoginMethod } from "@/types/grokAccount";
 import { GROK_APP_PROVIDERS, type GrokAppAccount, type GrokAppProvider } from "@/types/grokAppAccount";
@@ -34,7 +34,7 @@ interface GrokAppDialogProps {
 
 export function GrokAppDialog({ open, onOpenChange, editing, accounts, defaultProvider = "elevenlabs" }: GrokAppDialogProps) {
   const { profile } = useAuth();
-  const { activeWorkspaceId } = useWorkspace();
+  const { activeWorkspaceId, members } = useWorkspace();
   const { role } = usePermissions();
   const canName = role === "owner" || role === "teamlead" || role === "admin";
   const [provider, setProvider] = useState<GrokAppProvider>(editing?.provider ?? defaultProvider);
@@ -92,7 +92,7 @@ export function GrokAppDialog({ open, onOpenChange, editing, accounts, defaultPr
     }
     setIsSaving(true);
     try {
-      const actorName = displayNameOf(profile);
+      const actorName = myDisplayName(profile, members);
       const limitResetAt = parsedResetAt ?? null;
       // Ключ читается только у ElevenLabs; у остальных сервисов его негде
       // применить, и сменивший сервис аккаунт не должен тащить старый ключ.

@@ -40,7 +40,7 @@ import { useUiStore, type ThemeMode } from "@/store/uiStore";
 import { DISPATCH_ENABLED } from "@/config/features";
 import { hasFullAccess } from "@/utils/permissions";
 import { isWorkspaceAdmin } from "@/utils/adminAccess";
-import { displayNameOf } from "@/utils/displayName";
+import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { confirmDialog } from "@/utils/appDialog";
 import { toast } from "@/components/ui/sonner";
@@ -784,7 +784,7 @@ export function useAccountMenu(opts: { openCreatePage?: () => void; openCreateWo
   };
 
   return {
-    name: profile?.nickname || profile?.name || "",
+    name: profile ? myDisplayName(profile, members) : "",
     caption,
     unread,
     workspaces: workspaces.map((ws) => ({

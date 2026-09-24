@@ -9,7 +9,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { updateRowCell } from "@/services/pageService";
 import { timeAgo } from "@/utils/date";
-import { displayNameOf } from "@/utils/displayName";
+import { myDisplayName } from "@/utils/displayName";
+import { usePersonName } from "@/hooks/usePersonName";
 import { getColumnOptions, isOptionColumn } from "@/utils/columnOptions";
 import { cn } from "@/utils/cn";
 import type { HistoryAction, HistoryEntry, PageColumn } from "@/types";
@@ -62,7 +63,8 @@ export function HistoryPanel({ open, onOpenChange, workspaceId, pageId, columns 
   const { entries } = useHistoryLog(open ? workspaceId : null, pageId);
   const permissions = usePermissions();
   const { profile } = useAuth();
-  const { activeWorkspace } = useWorkspace();
+  const { activeWorkspace, members } = useWorkspace();
+  const nameOf = usePersonName();
   // Resets to the last-10 view every time the panel is (re)opened or the
   // page changes, rather than staying expanded from a previous visit.
   const [visibleCount, setVisibleCount] = useState(PAGE_STEP);
@@ -101,7 +103,7 @@ export function HistoryPanel({ open, onOpenChange, workspaceId, pageId, columns 
       oldValue: entry.newValue,
       newValue: entry.oldValue,
       userId: profile?.uid ?? "",
-      userName: displayNameOf(profile),
+      userName: myDisplayName(profile, members),
       action: "restore",
     });
     toast.success("Значение восстановлено");
@@ -153,7 +155,7 @@ export function HistoryPanel({ open, onOpenChange, workspaceId, pageId, columns 
                   />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm">
-                      <span className="font-medium">{entry.userName}</span>{" "}
+                      <span className="font-medium">{nameOf(entry.userId, entry.userName)}</span>{" "}
                       {entry.action === "update" && (
                         <>
                           изменил(а) «{entry.fieldLabel ?? entry.field}»:{" "}

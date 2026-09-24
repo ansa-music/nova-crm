@@ -13,7 +13,8 @@ import { useViewRequests } from "@/hooks/useViewRequests";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { formatOrderDate, timeAgo } from "@/utils/date";
 import { deskHref, deskNavState, deskRowHref } from "@/utils/deskLinks";
-import { displayNameOf } from "@/utils/displayName";
+import { myDisplayName } from "@/utils/displayName";
+import { usePersonName } from "@/hooks/usePersonName";
 import { formatCurrency } from "@/utils/format";
 import { isResponsibleForPage } from "@/utils/permissions";
 import { collectTodayOrderRows, type RecentRowItem } from "@/utils/recentRows";
@@ -34,6 +35,7 @@ export function TechnicianQueue({
   const permissions = usePermissions();
   // allPages — чтобы запрос к столу ОС (его нет в `pages`) тоже находил стол.
   const { activeWorkspaceId, pages, allPages } = useWorkspace();
+  const nameOf = usePersonName();
   // App shell already subscribed (NotificationBell / useOpenApprovedDesk). Shared hook — no extra onSnapshot.
   const { requests, resolveRequest } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const navigate = useNavigate();
@@ -75,7 +77,7 @@ export function TechnicianQueue({
     try {
       const page =
         allPages.find((p) => p.id === request.pageId) ?? desks.find((d) => d.page.id === request.pageId)?.page;
-      await resolveRequest(request, page, status, displayNameOf(profile));
+      await resolveRequest(request, page, status, myDisplayName(profile, members));
       toast.success(status === "approved" ? "Доступ открыт" : "Запрос отклонён");
     } catch (error) {
       toast.error(
@@ -136,9 +138,9 @@ export function TechnicianQueue({
                 key={request.id}
                 className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center"
               >
-                <MemberAvatar id={request.fromUid} name={request.fromName} className="h-8 w-8" />
+                <MemberAvatar id={request.fromUid} name={nameOf(request.fromUid, request.fromName)} className="h-8 w-8" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{request.fromName}</p>
+                  <p className="truncate text-sm font-medium">{nameOf(request.fromUid, request.fromName)}</p>
                   <p className="truncate text-xs text-muted-foreground">
                     хочет смотреть «{request.pageName}» · {timeAgo(request.createdAt)}
                   </p>

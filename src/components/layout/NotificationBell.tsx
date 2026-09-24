@@ -15,7 +15,8 @@ import { BrowserNotifyRow } from "@/components/common/BrowserNotifySetting";
 import { useViewRequests } from "@/hooks/useViewRequests";
 import { useOwnerAccessRequests } from "@/hooks/useOwnerAccessRequests";
 import { markAllNotificationsRead, markNotificationRead } from "@/services/notificationService";
-import { displayNameOf } from "@/utils/displayName";
+import { myDisplayName } from "@/utils/displayName";
+import { usePersonName } from "@/hooks/usePersonName";
 import { timeAgo } from "@/utils/date";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/utils/cn";
@@ -48,7 +49,8 @@ export function NotificationBell({
 }) {
   const { profile } = useAuth();
   // allPages, а не pages: запросы бывают и к столам ОС, которых в `pages` нет.
-  const { activeWorkspaceId, allPages: pages } = useWorkspace();
+  const { activeWorkspaceId, allPages: pages, members } = useWorkspace();
+  const nameOf = usePersonName();
   const { notifications, unreadCount, reload, markReadLocal } = useNotifications(activeWorkspaceId, profile?.uid ?? null);
   const { requests, resolveRequest, reload: reloadRequests } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const permissions = usePermissions();
@@ -143,7 +145,7 @@ export function NotificationBell({
                         <p className="truncate text-sm font-medium">{n.title}</p>
                         <p className="line-clamp-2 text-xs text-muted-foreground">{n.body}</p>
                         <p className="mt-0.5 text-[10px] text-muted-foreground">
-                          {n.fromName} · {timeAgo(n.createdAt)}
+                          {nameOf(n.fromUid, n.fromName)} · {timeAgo(n.createdAt)}
                         </p>
                       </div>
                     ) : (
@@ -164,7 +166,7 @@ export function NotificationBell({
                         <p className="truncate text-sm font-medium">{n.title}</p>
                         <p className="line-clamp-2 text-xs text-muted-foreground">{n.body}</p>
                         <p className="mt-0.5 text-[10px] text-muted-foreground">
-                          {n.fromName} · {timeAgo(n.createdAt)}
+                          {nameOf(n.fromUid, n.fromName)} · {timeAgo(n.createdAt)}
                         </p>
                       </button>
                     )}
@@ -179,7 +181,7 @@ export function NotificationBell({
                             e.stopPropagation();
                             try {
                               const page = pages.find((p) => p.id === req.pageId);
-                              await resolveRequest(req, page, "approved", displayNameOf(profile));
+                              await resolveRequest(req, page, "approved", myDisplayName(profile, members));
                               toast.success("Доступ открыт");
                             } catch (error) {
                               toast.error(error instanceof Error ? error.message : "Не удалось принять");
@@ -198,7 +200,7 @@ export function NotificationBell({
                             e.stopPropagation();
                             try {
                               const page = pages.find((p) => p.id === req.pageId);
-                              await resolveRequest(req, page, "denied", displayNameOf(profile));
+                              await resolveRequest(req, page, "denied", myDisplayName(profile, members));
                               toast.success("Запрос отклонён");
                             } catch (error) {
                               toast.error(error instanceof Error ? error.message : "Не удалось отклонить");
@@ -237,7 +239,7 @@ export function NotificationBell({
                             e.stopPropagation();
                             if (!profile) return;
                             try {
-                              await resolveOwnerRequest(ownerReq, "denied", profile.uid, displayNameOf(profile));
+                              await resolveOwnerRequest(ownerReq, "denied", profile.uid, myDisplayName(profile, members));
                               toast.success("Запрос отклонён");
                             } catch (error) {
                               toast.error(error instanceof Error ? error.message : "Не удалось отклонить");

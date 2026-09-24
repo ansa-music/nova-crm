@@ -8,7 +8,7 @@ import { paths } from "@/firebase/firestore";
 import { deleteChatMessage, editChatMessage, sendChatMessage } from "@/services/chatService";
 import { notifyMentions } from "@/services/notificationService";
 import { markContextRead } from "@/services/inboxService";
-import { displayNameOf } from "@/utils/displayName";
+import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import type { ChatMessage } from "@/types";
 
 export default function WorkspaceChatPage() {
@@ -49,12 +49,12 @@ export default function WorkspaceChatPage() {
   async function handleSend(text: string, replyTo: ChatMessage | null, mentionedUids: string[]) {
     await sendChatMessage(chatRef, {
       authorUid: profile!.uid,
-      authorName: profile!.nickname || profile!.name,
+      authorName: myDisplayName(profile, members),
       authorPhotoURL: profile!.photoURL,
       text,
       replyTo,
     });
-    await notifyMentions(activeWorkspaceId!, profile!.uid, profile!.nickname || profile!.name, mentionedUids, text);
+    await notifyMentions(activeWorkspaceId!, profile!.uid, myDisplayName(profile, members), mentionedUids, text);
   }
 
   return (

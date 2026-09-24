@@ -52,6 +52,7 @@ import { StatsModeSwitch } from "@/components/chat/ChatModeSwitch";
 import { effectiveTechLoadKinds, techLoadKindForOption } from "@/utils/techLoad";
 import { ratingMonthKey, type StatusOption } from "@/types";
 import { techBonusesOf } from "@/utils/payment";
+import { myDisplayName } from "@/utils/displayName";
 
 const NO_OPTIONS: StatusOption[] = [];
 const MONTHS_SHOWN = 6;
@@ -230,7 +231,7 @@ export default function DashboardPage() {
   const { totals } = overview;
   const doneShare = totals.grandTotal > 0 ? totals.doneTotal / totals.grandTotal : null;
   const hour = hourInTimeZone(now);
-  const who = profile?.nickname || profile?.name || "";
+  const who = myDisplayName(profile, members);
 
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-4 p-5 sm:p-8">

@@ -21,7 +21,7 @@ import { paths } from "@/firebase/firestore";
 import { deleteChatMessage, editChatMessage, sendChatMessage } from "@/services/chatService";
 import { notifyMentions } from "@/services/notificationService";
 import { upsertPrivateChatMeta, markPrivateConversationRead } from "@/services/inboxService";
-import { displayNameOf } from "@/utils/displayName";
+import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
 import { formatMessageWrittenAt } from "@/utils/date";
 import { cn } from "@/utils/cn";
@@ -118,13 +118,14 @@ export default function MessagesPage() {
 
   const workspaceId = activeWorkspaceId;
   const me = profile;
+  const myName = myDisplayName(profile, members);
   const chatRef = chatId ? paths.privateChatMessages(workspaceId, chatId) : null;
 
   async function handleSend(text: string, replyTo: ChatMessage | null, mentioned: string[]) {
     if (!chatRef || !chatId || !selectedUid) return;
     await sendChatMessage(chatRef, {
       authorUid: me.uid,
-      authorName: me.nickname || me.name,
+      authorName: myName,
       authorPhotoURL: me.photoURL,
       text,
       replyTo,
@@ -135,12 +136,12 @@ export default function MessagesPage() {
       [me.uid, selectedUid].sort() as [string, string],
       text,
       me.uid,
-      me.nickname || me.name
+      myName
     );
     await notifyMentions(
       workspaceId,
       me.uid,
-      me.nickname || me.name,
+      myName,
       mentioned,
       text,
       `/messages/${me.uid}`

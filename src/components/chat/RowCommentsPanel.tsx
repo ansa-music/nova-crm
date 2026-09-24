@@ -7,7 +7,7 @@ import { CHAT_PAGE_STEP, CHAT_PAGE_WINDOW } from "@/hooks/useWorkspaceChat";
 import { notifyMentions } from "@/services/notificationService";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { displayNameOf } from "@/utils/displayName";
+import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import type { ChatMessage } from "@/types";
 
 interface RowCommentsPanelProps {
@@ -74,7 +74,7 @@ export function RowCommentsPanel({ open, onOpenChange, workspaceId, pageId, rowI
             onSend={async (text, replyTo, mentionedUids) => {
               await sendChatMessage(ref, {
                 authorUid: profile.uid,
-                authorName: profile.nickname || profile.name,
+                authorName: myDisplayName(profile, members),
                 authorPhotoURL: profile.photoURL,
                 text,
                 replyTo,
@@ -82,7 +82,7 @@ export function RowCommentsPanel({ open, onOpenChange, workspaceId, pageId, rowI
               await notifyMentions(
                 workspaceId,
                 profile.uid,
-                profile.nickname || profile.name,
+                myDisplayName(profile, members),
                 mentionedUids,
                 text,
                 `/page/${pageId}`

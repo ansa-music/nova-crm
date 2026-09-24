@@ -7,7 +7,7 @@ import { CHAT_PAGE_STEP, CHAT_PAGE_WINDOW } from "@/hooks/useWorkspaceChat";
 import { notifyMentions } from "@/services/notificationService";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { displayNameOf } from "@/utils/displayName";
+import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import type { ChatMessage } from "@/types";
 
 interface PageChatPanelProps {
@@ -76,12 +76,12 @@ export function PageChatPanel({ open, onOpenChange, workspaceId, pageId, pageNam
             onSend={async (text, replyTo, mentionedUids) => {
               await sendChatMessage(chatRef, {
                 authorUid: profile.uid,
-                authorName: profile.nickname || profile.name,
+                authorName: myDisplayName(profile, members),
                 authorPhotoURL: profile.photoURL,
                 text,
                 replyTo,
               });
-              await notifyMentions(workspaceId, profile.uid, profile.nickname || profile.name, mentionedUids, text, `/page/${pageId}`);
+              await notifyMentions(workspaceId, profile.uid, myDisplayName(profile, members), mentionedUids, text, `/page/${pageId}`);
             }}
             onEdit={(id, text) => editChatMessage(chatRef, id, text)}
             onDelete={(id) => deleteChatMessage(chatRef, id)}

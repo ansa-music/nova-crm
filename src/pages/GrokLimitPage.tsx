@@ -24,6 +24,7 @@ import { useGrokAccounts } from "@/hooks/useGrokAccounts";
 import { useGrokAppAccounts } from "@/hooks/useGrokAppAccounts";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useUrlState } from "@/hooks/useUrlState";
+import { usePersonName } from "@/hooks/usePersonName";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { deleteGrokAccount, getGrokAccountStatus, updateGrokAccount, type GrokAccountStatus } from "@/services/grokAccountService";
 import { backfillGrokAppRestricted, deleteGrokAppAccount, updateGrokAppAccount } from "@/services/grokAppAccountService";
@@ -231,6 +232,7 @@ export default function GrokLimitPage() {
   const [now, setNow] = useState(() => Date.now());
   // Живое использование 11 Labs по ключу — только у аккаунтов с ключом.
   const elevenLabs = useElevenLabsUsage(appAccounts);
+  const nameOf = usePersonName();
   const [grokDialog, setGrokDialog] = useState<{ open: boolean; editing: GrokAccount | null }>({ open: false, editing: null });
   const [appDialog, setAppDialog] = useState<{ open: boolean; editing: GrokAppAccount | null }>({ open: false, editing: null });
   const searchRef = useRef<HTMLInputElement>(null);
@@ -287,7 +289,7 @@ export default function GrokLimitPage() {
       limitResetAt: account.limitResetAt,
       usagePct: account.usagePct,
       usageAt: account.usageAt,
-      updatedByName: account.updatedByName,
+      updatedByName: nameOf(account.updatedByUid, account.updatedByName),
       updatedAt: account.updatedAt,
       raw: { kind: "grok", account },
     }));
@@ -308,7 +310,7 @@ export default function GrokLimitPage() {
       usagePct: account.usagePct,
       usageAt: account.usageAt,
       apiKey: account.apiKey,
-      updatedByName: account.updatedByName,
+      updatedByName: nameOf(account.updatedByUid, account.updatedByName),
       updatedAt: account.updatedAt,
       accessCount: account.restricted ? account.allowedUids?.length ?? 0 : null,
       raw: { kind: "app", account },
@@ -324,7 +326,7 @@ export default function GrokLimitPage() {
         (a.limitResetAt ?? Number.MAX_SAFE_INTEGER) - (b.limitResetAt ?? Number.MAX_SAFE_INTEGER) ||
         (a.nickname || a.email).localeCompare(b.nickname || b.email, "ru")
     );
-  }, [grokAccounts, appAccounts, now]);
+  }, [grokAccounts, appAccounts, now, nameOf]);
 
   const stats = useMemo(() => {
     const out = {} as Record<SectionId, { total: number; available: number; resetToday: number; unavailable: number; nextReset: number | null }>;

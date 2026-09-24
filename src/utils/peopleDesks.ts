@@ -8,6 +8,8 @@ export function personLabel(
     nickname?: string;
     techNick?: string;
     otherNick?: string;
+    osNick?: string;
+    osNickValue?: string;
     role?: Role;
     extraRoles?: readonly Role[] | null;
   } | null

@@ -15,6 +15,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/sonner";
 import { AnnouncementDialog } from "@/components/announcements/AnnouncementDialog";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { usePersonName } from "@/hooks/usePersonName";
 import { usePermissions } from "@/hooks/usePermissions";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnnouncements } from "@/hooks/useAnnouncements";
@@ -32,6 +33,7 @@ const PRIORITY_STYLES: Record<AnnouncementPriority, { label: string; badge: stri
 
 export default function AnnouncementsPage() {
   const { activeWorkspaceId } = useWorkspace();
+  const nameOf = usePersonName();
   const permissions = usePermissions();
   const { announcements, isLoading, reload } = useAnnouncements(activeWorkspaceId);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -152,7 +154,7 @@ export default function AnnouncementsPage() {
                   <div className="flex items-start gap-3">
                     <Avatar className="h-9 w-9 shrink-0">
                       <AvatarImage src={a.authorPhotoURL ?? undefined} />
-                      <AvatarFallback>{a.authorName[0]?.toUpperCase()}</AvatarFallback>
+                      <AvatarFallback>{nameOf(a.authorUid, a.authorName)[0]?.toUpperCase()}</AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
@@ -164,7 +166,7 @@ export default function AnnouncementsPage() {
                       </div>
                       <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{a.body}</p>
                       <p className="mt-2 text-xs text-muted-foreground">
-                        {a.authorName} · {formatDate(a.createdAt)}
+                        {nameOf(a.authorUid, a.authorName)} · {formatDate(a.createdAt)}
                       </p>
                     </div>
                     {permissions.canManageAnnouncements && (

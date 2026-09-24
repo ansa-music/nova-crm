@@ -15,7 +15,7 @@ import { fetchOsDeskMonthStats, type OsDeskMonthStats } from "@/services/osDeskS
 import { cn } from "@/utils/cn";
 import { timeAgo } from "@/utils/date";
 import { deskHref, deskNavState } from "@/utils/deskLinks";
-import { myDisplayName, realNameOf } from "@/utils/displayName";
+import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { formatCurrency } from "@/utils/format";
 import type { WorkspaceMember, WorkspacePage } from "@/types";
 
@@ -176,7 +176,7 @@ export default function OsDesksPage() {
                         {mine && <span className="ml-1.5 text-xs font-normal text-muted-foreground">(ваш)</span>}
                       </p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {owner ? (nick ? `ник ОС: ${nick}` : "ник ОС не закреплён") : "не в команде"}
+                        {owner ? (nick ? "стол ОС" : "ник ОС не закреплён") : "не в команде"}
                       </p>
                     </div>
                     {!canOpen && <Lock className="h-4 w-4 shrink-0 text-muted-foreground" />}
@@ -245,7 +245,7 @@ export default function OsDesksPage() {
 }
 
 function nameOf(owner: WorkspaceMember | null, page: WorkspacePage): string {
-  return owner ? realNameOf(owner) : page.name;
+  return owner ? displayNameOf(owner) : page.name;
 }
 
 function Tile({ label, value, hint }: { label: string; value: string; hint: string }) {

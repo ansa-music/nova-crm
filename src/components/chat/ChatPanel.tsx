@@ -14,6 +14,7 @@ import { toast } from "@/components/ui/sonner";
 import { cn } from "@/utils/cn";
 import { formatMessageWrittenAt } from "@/utils/date";
 import type { ChatMessage } from "@/types";
+import { usePersonName } from "@/hooks/usePersonName";
 import { confirmDialog } from "@/utils/appDialog";
 
 const EMOJI = ["😀", "😂", "❤️", "👍", "👎", "🎉", "🔥", "😢", "😮", "🙏", "👏", "✅"];
@@ -95,6 +96,8 @@ export function ChatPanel({
   hasEarlier = false,
   onLoadEarlier,
 }: ChatPanelProps) {
+  // Автор — по нику участника сейчас, а не строкой, записанной в сообщение.
+  const nameOf = usePersonName();
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -247,7 +250,7 @@ export function ChatPanel({
                 {showAvatar ? (
                   <Avatar className="h-8 w-8 shrink-0">
                     <AvatarImage src={m.authorPhotoURL ?? undefined} />
-                    <AvatarFallback>{m.authorName[0]?.toUpperCase()}</AvatarFallback>
+                    <AvatarFallback>{nameOf(m.authorUid, m.authorName)[0]?.toUpperCase()}</AvatarFallback>
                   </Avatar>
                 ) : (
                   <div className="h-8 w-8 shrink-0" aria-hidden />
@@ -255,7 +258,7 @@ export function ChatPanel({
                 <div className="min-w-0 flex-1">
                   {showAvatar ? (
                     <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-medium">{m.authorName}</span>
+                      <span className="text-sm font-medium">{nameOf(m.authorUid, m.authorName)}</span>
                       <span className="text-[10px] text-muted-foreground">{formatMessageWrittenAt(m.createdAt)}</span>
                       {m.editedAt && !m.deleted && (
                         <span className="text-[10px] text-muted-foreground">(изменено)</span>
@@ -418,7 +421,7 @@ export function ChatPanel({
         {replyTo && (
           <div className="mb-2 flex items-center justify-between rounded-lg bg-muted/50 px-3 py-1.5 text-xs">
             <span className="truncate text-muted-foreground">
-              Ответ <span className="font-medium">{replyTo.authorName}</span>: {replyTo.text.slice(0, 80)}
+              Ответ <span className="font-medium">{nameOf(replyTo.authorUid, replyTo.authorName)}</span>: {replyTo.text.slice(0, 80)}
             </span>
             <button onClick={() => setReplyTo(null)} className="shrink-0 text-muted-foreground hover:text-foreground">
               <X className="h-3.5 w-3.5" />

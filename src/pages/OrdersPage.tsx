@@ -43,6 +43,7 @@ import { feedOpenOrdersFromPage, releaseOpenOrdersPageFeed } from "@/services/op
 import { firestoreErrorText } from "@/utils/dbError";
 import { parseOptionalNumber } from "@/utils/quickOrder";
 import { myDisplayName } from "@/utils/displayName";
+import { usePersonName } from "@/hooks/usePersonName";
 import { formatCurrency } from "@/utils/format";
 import { almatyNoonMillis, formatOrderDate, timeAgo } from "@/utils/date";
 import { hasFullAccess } from "@/utils/permissions";
@@ -167,6 +168,8 @@ export default function OrdersPage() {
 
   const uid = profile?.uid ?? "";
   const myName = myDisplayName(profile, members);
+  // Кто выдал / кому отдан — по нику участника сейчас, а не строкой в заказе.
+  const nameOf = usePersonName();
   const canIssue = permissions.isResolved && (hasFullAccess(permissions.role) || permissions.hasRole("os"));
   // ОС выдаёт ТОЛЬКО со своего стола (просьба Nurba 24.09.2026): «Выдать
   // заказ» у него — выбор строки стола ОС, а заказ, которого на столе нет,
@@ -702,7 +705,7 @@ export default function OrdersPage() {
                     </p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {order.osLabel ? `ОС ${order.osLabel} · ` : ""}
-                      {order.createdByName} · {timeAgo(order.createdAt)}
+                      {nameOf(order.createdBy, order.createdByName)} · {timeAgo(order.createdAt)}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -755,7 +758,7 @@ export default function OrdersPage() {
                             return <MemberAvatar key={c.uid} id={c.uid} name={m?.name ?? c.name} nickname={m?.nickname} photoURL={m?.photoURL} className="h-6 w-6 ring-2 ring-background" />;
                           })}
                         </span>
-                        <span>{claimants.map((c) => c.name).join(", ")}</span>
+                        <span>{claimants.map((c) => nameOf(c.uid, c.name)).join(", ")}</span>
                       </div>
                     ) : (
                       <span className="text-xs text-muted-foreground">Откликов пока нет</span>
@@ -763,13 +766,13 @@ export default function OrdersPage() {
                   )}
                   {order.status === "assigned" && order.assignedName && (
                     <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <UserCheck className="h-3.5 w-3.5 text-amber-300" /> {order.assignedName}
+                      <UserCheck className="h-3.5 w-3.5 text-amber-300" /> {nameOf(order.assignedUid, order.assignedName)}
                       {order.assignedAt ? ` · ${timeAgo(order.assignedAt)}` : ""}
                     </span>
                   )}
                   {order.status === "taken" && (
                     <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Inbox className="h-3.5 w-3.5 text-success" /> {order.assignedName}
+                      <Inbox className="h-3.5 w-3.5 text-success" /> {nameOf(order.assignedUid, order.assignedName)}
                       {/* Ссылка только тому, кто стол реально откроет: ОС и чужой
                           технарь упирались в «нет доступа» — выглядело поломкой. */}
                       {order.takenPageId && canOpenTakenDesk(order.takenPageId) && (
@@ -836,7 +839,7 @@ export default function OrdersPage() {
                     {order.status === "assigned" && order.osSource && (
                       <span className="text-xs text-muted-foreground">
                         {isAssignee ? "Приедет в ваш стол от ОС" : "Уедет к технарю от ОС"}
-                        {order.createdByName ? ` (${order.createdByName})` : ""}, как только тот будет в сети
+                        {order.createdByName ? ` (${nameOf(order.createdBy, order.createdByName)})` : ""}, как только тот будет в сети
                       </span>
                     )}
                     {order.status === "assigned" && isAssignee && !order.osSource && (
@@ -918,7 +921,7 @@ export default function OrdersPage() {
                             order.status === "assigned" &&
                             !(await confirmDialog({
                               title: `Отменить заказ «${order.client}»?`,
-                              description: `Заказ уже выдан${order.assignedName ? ` (${order.assignedName})` : ""}. Если он успел приехать в стол, строку оттуда уберёт только сам технарь.`,
+                              description: `Заказ уже выдан${order.assignedName ? ` (${nameOf(order.assignedUid, order.assignedName)})` : ""}. Если он успел приехать в стол, строку оттуда уберёт только сам технарь.`,
                             }))
                           )
                             return;
