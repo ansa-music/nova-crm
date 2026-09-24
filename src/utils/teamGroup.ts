@@ -29,6 +29,24 @@ export function teamGroupOf(member: RoleHolder): TeamGroup {
   return "other";
 }
 
+/**
+ * Работает ли человек за столом технаря: роль Технаря (основная или вторая)
+ * или Owner — то же правило, что `worksAsTechnician` в `peopleDesks.ts`
+ * (тот модуль импортирует этот, поэтому правило повторено здесь).
+ */
+export function worksAtTechDesk(member: RoleHolder): boolean {
+  return member.role === "owner" || memberHasRole(member, "manager");
+}
+
+/**
+ * Технарь, который стоит в ДРУГОМ разделе (Owner, Admin + Технарь). Раздел
+ * у него «Другие», но он и технарь: в разделе «Технари» он тоже показан (со
+ * своим ником технаря), и ник технаря у него — не «не по роли».
+ */
+export function alsoInTechGroup(member: RoleHolder): boolean {
+  return teamGroupOf(member) !== "tech" && worksAtTechDesk(member);
+}
+
 /** Ник, который положен разделу: у каждого раздела свой список. */
 export const GROUP_NICK_KIND: Record<TeamGroup, NickKind> = {
   tech: "tech",
@@ -76,9 +94,15 @@ export function missingNickKinds(member: WorkspaceMember): NickKind[] {
   return nickKindsFor(member).filter((kind) => !hasNick(member, kind));
 }
 
-/** Живой участник, которому этот ник положен (приглашённые без uid — нет). */
+/**
+ * Живой участник, которому этот ник МОЖНО держать (приглашённые без uid —
+ * нет). Шире `nickKindsFor`: ник технаря законен у всех, кто работает за
+ * столом, даже если их раздел «Другие» (Owner, Admin + Технарь), — но
+ * «без ника» им за его отсутствие не пишем: подписывает ник их раздела.
+ */
 export function canHoldNick(kind: NickKind, member: WorkspaceMember): boolean {
   if (member.status !== "active" || !member.uid) return false;
+  if (kind === "tech" && worksAtTechDesk(member)) return true;
   return nickKindsFor(member).includes(kind);
 }
 

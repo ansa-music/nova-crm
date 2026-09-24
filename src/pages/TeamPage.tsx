@@ -21,6 +21,7 @@ import { cn } from "@/utils/cn";
 import { realNameOf } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
 import {
+  alsoInTechGroup,
   canHoldNick,
   GROUP_NICK_KIND,
   missingNickKinds,
@@ -37,7 +38,7 @@ import { rolesLabel, type WorkspaceMember } from "@/types";
 const GROUP_TEXT: Record<TeamGroup, { description: string; empty: string }> = {
   tech: {
     description:
-      "Технари и Тимлиды с ролью Технаря (Owner и Admin — в «Других»). Ник технаря — подпись человека везде: «Технари», «Заказы», «График», столы.",
+      "Технари и Тимлиды с ролью Технаря. Owner и Admin с ролью Технаря тоже работают за столом — они показаны и здесь (их основной раздел «Другие»). Ник технаря — подпись человека везде: «Технари», «Заказы», «График», столы.",
     empty: "Технарей пока нет — роль даётся на «Пользователях» или при одобрении заявки.",
   },
   os: {
@@ -81,7 +82,12 @@ export default function TeamPage() {
   );
   const byGroup = useMemo(() => {
     const map: Record<TeamGroup, WorkspaceMember[]> = { tech: [], os: [], other: [] };
-    for (const m of people) map[teamGroupOf(m)].push(m);
+    for (const m of people) {
+      map[teamGroupOf(m)].push(m);
+      // Owner и Admin + Технарь — тоже технари (работают за столом): в
+      // «Технарях» они стоят вторым разом, только с ником технаря.
+      if (alsoInTechGroup(m)) map.tech.push(m);
+    }
     for (const g of TEAM_GROUPS) map[g].sort((a, b) => realNameOf(a).localeCompare(realNameOf(b), "ru"));
     return map;
   }, [people]);
@@ -99,10 +105,15 @@ export default function TeamPage() {
   const q = query.trim().toLowerCase();
   // «Без ника» — не хватает хотя бы одного положенного ника (у Admin + ОС это
   // может быть ник ОС: он стоит в «Других», но ник ОС ему нужен для заказов).
-  const withoutNickCount = (g: TeamGroup) => byGroup[g].filter((m) => missingNickKinds(m).length > 0).length;
+  // Owner и Admin + Технарь в «Технарях» — вторым разом: там их не считаем,
+  // положенный им ник — ник раздела «Другие».
+  const withoutNickCount = (g: TeamGroup) =>
+    byGroup[g].filter((m) => !(g === "tech" && alsoInTechGroup(m)) && missingNickKinds(m).length > 0).length;
+  // Какие чипы ников рисовать в строке: у «гостя» «Технарей» — только ник технаря.
+  const chipKindsOf = (m: WorkspaceMember): NickKind[] => (group === "tech" && alsoInTechGroup(m) ? ["tech"] : nickKindsShownFor(m));
   const rows = byGroup[group].filter((m) => {
     if (!q) return true;
-    const nicks = nickKindsShownFor(m)
+    const nicks = chipKindsOf(m)
       .map((k) => nickLabelOf(m, k, nickOptionsOf(activeWorkspace, k)) ?? "")
       .join(" ");
     return `${realNameOf(m)} ${m.name} ${m.email ?? ""} ${nicks}`.toLowerCase().includes(q);
@@ -187,6 +198,7 @@ export default function TeamPage() {
                       </span>
                       <span className="block truncate text-[11px] text-muted-foreground">
                         {rolesLabel(m)}
+                        {group === "tech" && alsoInTechGroup(m) ? " · работает за столом, раздел «Другие»" : ""}
                         {m.email ? ` · ${m.email}` : ""}
                       </span>
                       {locked && (
@@ -198,7 +210,7 @@ export default function TeamPage() {
                     </span>
                   </div>
                   <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:max-w-[55%] sm:justify-end">
-                    {nickKindsShownFor(m).map((k) => (
+                    {chipKindsOf(m).map((k) => (
                       <MemberNickChip
                         key={k}
                         member={m}

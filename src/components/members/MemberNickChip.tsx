@@ -1,8 +1,7 @@
 import { AlertTriangle, Archive, AtSign, Pencil } from "lucide-react";
 import { memberNickValue, nickLabelOf, type NickKind } from "@/services/memberService";
 import { cn } from "@/utils/cn";
-import { TEAM_GROUP_LABEL, teamGroupOf } from "@/utils/teamGroup";
-import { memberHasRole, type StatusOption, type WorkspaceMember } from "@/types";
+import type { StatusOption, WorkspaceMember } from "@/types";
 
 const TONE: Record<NickKind, string> = {
   os: "border-amber-400/40 bg-amber-400/10 text-amber-300 hover:bg-amber-400/15",
@@ -46,16 +45,9 @@ export function MemberNickChip({
   const missing = Boolean(value) && !option;
   const inactive = Boolean(option?.inactive);
   const stale = Boolean(value) && !eligible;
-  // Ник технаря у Owner/Admin, которые по-прежнему работают за столом, — не
-  // «от прошлой роли»: просто их раздел теперь «Другие», и подписывает ник
-  // раздела. Честно говорим именно это.
-  const outOfSection = stale && kind === "tech" && memberHasRole(member, "manager");
-  const section = TEAM_GROUP_LABEL[teamGroupOf(member)];
   const title = locked
     ? lockReason
-    : outOfSection
-      ? `Человек в разделе «${section}» — подписывает ник этого раздела, если он есть. Ник технаря можно открепить`
-      : stale
+    : stale
         ? "Ник остался от прошлой роли — его можно открепить"
         : value
           ? `Сменить или открепить ${PREFIX[kind]}`
@@ -88,7 +80,7 @@ export function MemberNickChip({
       {label ? (
         <span className="truncate">
           {PREFIX[kind]}: <span className="font-semibold">{label}</span>
-          {missing ? " — удалён из списка" : outOfSection ? ` — вне раздела` : stale ? " — не по роли" : inactive ? " — неактуальный" : ""}
+          {missing ? " — удалён из списка" : stale ? " — не по роли" : inactive ? " — неактуальный" : ""}
         </span>
       ) : (
         <span className="truncate">{EMPTY[kind]}</span>
