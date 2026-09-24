@@ -145,3 +145,64 @@ export function sortOsAbs(rows: OsAbsRow[]): OsAbsRow[] {
       (a.member.nickname || a.member.name).localeCompare(b.member.nickname || b.member.name, "ru")
   );
 }
+
+/**
+ * Следующий порог KPI для ОС (статистика стола ОС): какой ещё не добит и
+ * сколько заказов ему нужно перевести в «Готово». Считается по тем же
+ * заказам месяца: (готово + x) / всего ≥ порог. Нет порогов выше или
+ * заказов нет — null.
+ */
+export function nextKpiTier(
+  row: Pick<OsAbsRow, "done" | "kpiPct" | "summary">,
+  settings: Pick<OsPaySettings, "kpiTiers">
+): { tier: OsKpiTier; needDone: number } | null {
+  const total = row.summary.total;
+  if (total <= 0) return null;
+  const pct = row.kpiPct ?? 0;
+  const next = [...settings.kpiTiers].sort((a, b) => a.minPct - b.minPct).find((t) => t.minPct > pct);
+  if (!next) return null;
+  const needDone = Math.max(0, Math.ceil((next.minPct / 100) * total - row.done - 1e-9));
+  // Порог выше 100 % или не хватает незакрытых заказов — не добить в этом месяце.
+  if (row.done + needDone > total) return null;
+  return { tier: next, needDone };
+}
+
+/**
+ * Процент от нескольких сумм так, чтобы строки СХОДИЛИСЬ с итогом: итог
+ * округляется один раз (как на «ABS»), а по строкам копейки раздаются
+ * методом наибольшего остатка. Иначе три апсейла по 1 010 давали в списке
+ * 81 + 81 + 81 = 243, а итог «8 % = 242».
+ */
+export function splitPercent(values: readonly number[], pct: number): { rows: number[]; total: number } {
+  const raw = values.map((v) => (v * pct) / 100);
+  const total = Math.round(raw.reduce((a, b) => a + b, 0));
+  const rows = raw.map((r) => Math.floor(r));
+  let rest = total - rows.reduce((a, b) => a + b, 0);
+  const order = raw.map((r, i) => ({ i, frac: r - Math.floor(r) })).sort((a, b) => b.frac - a.frac);
+  for (const { i } of order) {
+    if (rest <= 0) break;
+    rows[i] += 1;
+    rest -= 1;
+  }
+  return { rows, total };
+}
+
+/**
+ * Апсейл ОС за месяц по правилу «ABS» (все вкладки стола, заказы этого
+ * месяца), но с ЖИВОЙ открытой вкладкой: из сводки вычитается её прошлое
+ * значение и прибавляется посчитанное по строкам на экране. Сводки ещё нет —
+ * только открытая вкладка (`partial`).
+ */
+export function monthUpsellOverlay(input: {
+  stats: { upsellNetSum: number; upsellSum: number; upsellNetByTab?: Record<string, number>; upsellGrossByTab?: Record<string, number> } | null;
+  tabKey: string;
+  live: { net: number; gross: number };
+}): { net: number; gross: number; partial: boolean } {
+  const { stats, tabKey, live } = input;
+  if (!stats) return { net: live.net, gross: live.gross, partial: true };
+  return {
+    net: stats.upsellNetSum - (stats.upsellNetByTab?.[tabKey] ?? 0) + live.net,
+    gross: stats.upsellSum - (stats.upsellGrossByTab?.[tabKey] ?? 0) + live.gross,
+    partial: false,
+  };
+}

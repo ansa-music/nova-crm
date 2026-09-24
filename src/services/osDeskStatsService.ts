@@ -29,6 +29,12 @@ export interface OsDeskMonthStats {
   netSum: number;
   /** Апсейл за вычетом комиссии его способа оплаты — база процента ОС на «ABS». */
   upsellNetSum: number;
+  /**
+   * Те же апсейлы по вкладкам («» — «Основная», иначе id вкладки): статистика
+   * стола ОС заменяет свою открытую вкладку живыми строками, не считая её дважды.
+   */
+  upsellNetByTab: Record<string, number>;
+  upsellGrossByTab: Record<string, number>;
   /** Последняя запись или правка строки этого месяца. */
   lastActivityAt: number | null;
 }
@@ -100,21 +106,32 @@ export async function fetchOsDeskMonthStats(
     return [...byId.values()];
   };
 
-  const tables: Array<{ columns: PageColumn[]; rows: PageRow[] }> = [];
+  const tables: Array<{ tab: string; columns: PageColumn[]; rows: PageRow[] }> = [];
   if (!page.hideMainTab) {
-    tables.push({ columns: page.columns ?? [], rows: await monthRows(null, paths.rows(workspaceId, page.id)) });
+    tables.push({ tab: "", columns: page.columns ?? [], rows: await monthRows(null, paths.rows(workspaceId, page.id)) });
   }
   // Личные вкладки (Personal Space) в общую сводку не идут: это не заказы.
   const subPages = (await fetchSubPages(workspaceId, page.id)).filter((s) => !s.personalOwnerUid);
   const subTables = await Promise.all(
     subPages.map(async (s) => ({
+      tab: s.id,
       columns: s.columns ?? [],
       rows: await monthRows(s.id, paths.subPageRows(workspaceId, page.id, s.id)),
     }))
   );
   tables.push(...subTables);
 
-  const stats: OsDeskMonthStats = { todayCount: 0, monthCount: 0, priceSum: 0, upsellSum: 0, netSum: 0, upsellNetSum: 0, lastActivityAt: null };
+  const stats: OsDeskMonthStats = {
+    todayCount: 0,
+    monthCount: 0,
+    priceSum: 0,
+    upsellSum: 0,
+    netSum: 0,
+    upsellNetSum: 0,
+    upsellNetByTab: {},
+    upsellGrossByTab: {},
+    lastActivityAt: null,
+  };
   for (const table of tables) {
     const priceKey = moneyColumnKey(table.columns, "price");
     const upsellKey = moneyColumnKey(table.columns, "upsell");
@@ -128,8 +145,14 @@ export async function fetchOsDeskMonthStats(
       stats.monthCount += 1;
       if (orderAt >= todayStart) stats.todayCount += 1;
       if (priceKey) stats.priceSum += cellNumber(row.cells?.[priceKey]);
-      if (upsellKey) stats.upsellSum += cellNumber(row.cells?.[upsellKey]);
-      if (upsellKey) stats.upsellNetSum += netOf(row, upsellKey);
+      if (upsellKey) {
+        const gross = cellNumber(row.cells?.[upsellKey]);
+        const net = netOf(row, upsellKey);
+        stats.upsellSum += gross;
+        stats.upsellNetSum += net;
+        stats.upsellGrossByTab[table.tab] = (stats.upsellGrossByTab[table.tab] ?? 0) + gross;
+        stats.upsellNetByTab[table.tab] = (stats.upsellNetByTab[table.tab] ?? 0) + net;
+      }
       // Считаем по самой строке, а не по ячейке «Итого»: её дописывает стол,
       // пока открыт, и у свежей строки она может ещё не стоять.
       stats.netSum += (priceKey || upsellKey ? osRowTotal(row, { price: priceKey ?? "", upsell: upsellKey ?? "" }) : null) ?? 0;

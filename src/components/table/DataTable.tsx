@@ -4732,11 +4732,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                   <span className="table-totals-sum text-foreground">{formatNumber(part.sum)} KZT</span>
                 </p>
               ))}
-              {/* Уже lg шапка стола показывает «Готово · В работе · Ждём» сама
-                  (hidden lg:flex), а на телефоне и планшете этих чисел нет
-                  нигде — дублируем их здесь компактно, из той же сводки. */}
+              {/* С xl шапка стола показывает «Готово · В работе · Ждём» сама
+                  (hidden xl:flex; до 25.09.2026 было lg — место в шапке ушло под
+                  кнопку «Статистика»), а уже этих чисел там нет — дублируем
+                  их здесь компактно, из той же сводки. */}
               {grandTotals && deskSummary.hasStatus && (
-                <span className="flex items-baseline gap-x-4 whitespace-nowrap lg:hidden">
+                <span className="flex items-baseline gap-x-4 whitespace-nowrap xl:hidden">
                   <span className="flex items-baseline gap-1.5">
                     Готово <span className="table-totals-sum text-success">{formatNumber(deskSummary.done)}</span>
                   </span>

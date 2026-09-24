@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   useLocation,
   useNavigate,
@@ -45,6 +45,7 @@ import { DataTable } from "@/components/table/DataTable";
 import { TableChromeExit } from "@/components/table/TableChromeExit";
 import { SubPageTabs } from "@/components/table/SubPageTabs";
 import { SubPageStats } from "@/components/table/SubPageStats";
+import { OsDeskStats } from "@/components/os/OsDeskStats";
 import { DeskAccessDialog } from "@/components/pagesnav/DeskAccessDialog";
 import { DeskStudioSheet } from "@/components/pagesnav/DeskStudioSheet";
 import { HistoryPanel } from "@/components/history/HistoryPanel";
@@ -270,7 +271,7 @@ function DeskSummaryInline({ store }: { store: DeskSummaryStore }) {
   // «Общий». На узком экране блок не влезает — прячем.
   if (!summary?.hasCurrency) return null;
   return (
-    <div className="hidden shrink-0 items-center gap-4 font-mono text-[12.5px] text-muted-foreground lg:flex">
+    <div className="hidden shrink-0 items-center gap-4 font-mono text-[12.5px] text-muted-foreground xl:flex">
       <span>
         Общий{" "}
         <b className="font-medium text-foreground">
@@ -304,6 +305,9 @@ function DeskSummaryInline({ store }: { store: DeskSummaryStore }) {
     </div>
   );
 }
+
+/** Статистика стола открыта (на устройстве, для всех столов). */
+const DESK_STATS_OPEN_KEY = "nova:desk-stats-open";
 
 export default function DynamicTablePage() {
   const { pageId } = useParams<{ pageId: string }>();
@@ -364,7 +368,30 @@ export default function DynamicTablePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deskStudioOpen, setDeskStudioOpen] = useState(false);
   const [personalSpaceOpen, setPersonalSpaceOpen] = useState(false);
-  const [statsOpen, setStatsOpen] = useState(false);
+  // Статистика — кнопкой в шапке (просьба Nurba 25.09.2026: «на видном месте
+  // и подсвети»). Открыта/закрыта — помним на устройстве: кто ею пользуется,
+  // держит её открытой. Стол технаря — прежняя сводка по столбцам, стол ОС —
+  // KPI и % от апсейла (OsDeskStats).
+  const [statsOpen, setStatsOpenState] = useState(() => {
+    try {
+      // На телефоне стол открывается без статистики всегда: панель высокая, и
+      // вместе с шапкой и подсказкой она не оставляла таблице ни строки.
+      return (
+        window.matchMedia("(min-width: 768px)").matches &&
+        window.localStorage.getItem(DESK_STATS_OPEN_KEY) === "1"
+      );
+    } catch {
+      return false;
+    }
+  });
+  const setStatsOpen = useCallback((open: boolean) => {
+    setStatsOpenState(open);
+    try {
+      window.localStorage.setItem(DESK_STATS_OPEN_KEY, open ? "1" : "0");
+    } catch {
+      /* без localStorage — только на эту вкладку */
+    }
+  }, []);
   // Сводка и действия стола — их считает DataTable (у него отфильтрованные
   // строки и статусы), шапка только рисует. См. types/deskSummary.ts.
   const [summaryStore] = useState(createDeskSummaryStore);
@@ -1866,7 +1893,7 @@ export default function DynamicTablePage() {
         {/* На телефоне сегмент месяцев уходит второй строкой на всю ширину —
             иначе он давится кнопкой «+ Заказ» и обрезается. */}
         {!personalSpaceOpen && (
-          <div className="order-last min-w-0 basis-full overflow-x-auto sm:order-none sm:basis-auto sm:overflow-visible">
+          <div className="order-last min-w-0 basis-full overflow-x-auto sm:order-none sm:basis-auto sm:shrink-0 sm:overflow-visible">
             <SubPageTabs
               workspaceId={page.workspaceId}
               page={page}
@@ -1885,6 +1912,31 @@ export default function DynamicTablePage() {
         {/* Итоги по видимым строкам — свой маленький компонент на сторе:
             правка в таблице перерисовывает только его, а не всю страницу. */}
         <DeskSummaryInline store={summaryStore} />
+        {!personalSpaceOpen ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-pressed={statsOpen}
+            aria-label="Статистика"
+            title={
+              page.osDesk
+                ? "Статистика ОС: KPI, апсейл и ваш процент"
+                : "Статистика стола: «Готово», общий доход, проценты"
+            }
+            onClick={() => setStatsOpen(!statsOpen)}
+            className={cn(
+              // Подсвечена всегда (акцент + мягкое кольцо), открытая — плотнее.
+              "h-9 shrink-0 gap-1.5 rounded-lg border-primary/45 bg-primary/12 px-2.5 text-[12.5px] font-semibold text-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.12)] hover:bg-primary/20 hover:text-primary max-xl:min-w-9 max-xl:justify-center max-xl:px-0 sm:h-8",
+              statsOpen && "border-primary bg-primary/25",
+            )}
+          >
+            <BarChart3 className="h-3.5 w-3.5" />
+            {/* Подпись — с 1280 px (там же итоги в шапке): уже шапка не вмещала
+                сегмент месяцев, «⋯» и заголовок стола. Значок подсвечен всегда. */}
+            <span className="hidden xl:inline">Статистика</span>
+          </Button>
+        ) : null}
         {actions?.canQuickOrder ? (
           <Button
             size="sm"
@@ -2135,12 +2187,28 @@ export default function DynamicTablePage() {
         </div>
       ) : (
         <>
-          {statsOpen && !chromeHidden && (
-            <SubPageStats
-              columns={activeSubPage ? activeSubPage.columns : page.columns}
-              rows={rows}
-            />
-          )}
+          {statsOpen && !chromeHidden ? (
+            // На телефоне — не выше 40 % экрана со своей прокруткой: таблице
+            // под ней всегда остаются строки.
+            <div className="max-h-[40dvh] shrink-0 overflow-y-auto scrollbar-thin md:max-h-none">
+              {page.osDesk ? (
+                <OsDeskStats
+                  page={page}
+                  rows={rows}
+                  keys={osKeys}
+                  tabId={activeSubPageId}
+                  tabLabel={
+                    activeSubPage?.name ?? page.mainTabName ?? "Основная"
+                  }
+                />
+              ) : (
+                <SubPageStats
+                  columns={activeSubPage ? activeSubPage.columns : page.columns}
+                  rows={rows}
+                />
+              )}
+            </div>
+          ) : null}
 
           {/* Стол ОС: запросы технарей «удалить заказ» / «поставить статус». */}
           {isMyOsDesk ? (
