@@ -18,6 +18,7 @@ export * from "@/types/scheduleRequest";
 export * from "@/types/scheduleTemplate";
 export * from "@/types/scheduleSettings";
 export * from "@/types/clientCardOptions";
+export * from "@/types/orderSound";
 export * from "@/types/techRating";
 export * from "@/types/viewRequest";
 export * from "@/types/ownerAccessRequest";

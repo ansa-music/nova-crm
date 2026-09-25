@@ -7,6 +7,8 @@ import { addOwnWorkspaceId } from "@/services/authService";
 import { DEFAULT_STATUS_OPTIONS, FREEZE_STATUS_OPTION, isFreezeStatusLabel } from "@/utils/columnOptions";
 import {
   sanitizeClientCardOptions,
+  sanitizeOrderSound,
+  type OrderSoundSettings,
   sanitizeScheduleSettings,
   type ClientCardOptions,
   type CustomFieldDef,
@@ -100,6 +102,11 @@ export async function updateOsPay(workspaceId: string, settings: OsPaySettings) 
 /** Варианты «Визитки клиента» (языки озвучки, стили, уровни). Пишет только Owner. */
 export async function updateClientCardOptions(workspaceId: string, options: ClientCardOptions) {
   await updateWorkspace(workspaceId, { clientCardOptions: sanitizeClientCardOptions(options) });
+}
+
+/** Звук уведомления о заказе. Пишет только Owner — Тимлиду поле закрыто правилом. */
+export async function updateOrderSound(workspaceId: string, settings: OrderSoundSettings) {
+  await updateWorkspace(workspaceId, { orderSound: sanitizeOrderSound(settings) });
 }
 
 /** «Настройка графика». Пишет только Owner — Тимлиду поле закрыто правилом workspace. */

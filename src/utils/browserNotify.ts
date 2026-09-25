@@ -13,6 +13,8 @@
  */
 
 import orderSoundUrl from "@/assets/sounds/new-order.mp3";
+import { synthOrderSoundUrl } from "@/utils/orderSoundSynth";
+import { DEFAULT_ORDER_SOUND, sanitizeOrderSound, type OrderSoundSettings } from "@/types/orderSound";
 
 const PREF_KEY = "nova:browser-notify";
 /** Событие «человек кликнул по всплывашке» — навигацию делает React-слой. */
@@ -214,12 +216,47 @@ function ensureAudio(): AudioContext | null {
 let orderAudioElement: HTMLAudioElement | null = null;
 let orderAudioUnlocked = false;
 
+/**
+ * Какой звук играть на заказ — выбирает Owner («Настройки → Звук заказа»,
+ * `workspace.orderSound`), сюда его кладёт `useOrderSoundBridge` в AppLayout.
+ * Нет настройки — прежний файл, 90 %, один раз.
+ */
+let orderSoundSrc = orderSoundUrl;
+let orderSoundVolume = DEFAULT_ORDER_SOUND.volume;
+let orderSoundRepeat = DEFAULT_ORDER_SOUND.repeat;
+
+/** Откуда брать звук: свой файл, синтезированная мелодия или прежний файл. */
+export function orderSoundSource(settings: OrderSoundSettings): string {
+  if (settings.preset === "custom" && settings.customUrl) return settings.customUrl;
+  return synthOrderSoundUrl(settings.preset) ?? orderSoundUrl;
+}
+
+export function setOrderSoundConfig(input: Partial<OrderSoundSettings> | null | undefined) {
+  const settings = sanitizeOrderSound(input);
+  const src = orderSoundSource(settings);
+  orderSoundVolume = settings.volume;
+  orderSoundRepeat = settings.repeat;
+  if (orderAudioElement) orderAudioElement.volume = settings.volume;
+  if (src === orderSoundSrc) return;
+  orderSoundSrc = src;
+  orderSoundBuffer = null;
+  orderSoundLoading = null;
+  // Тот же элемент, новый файл: на iPhone «отпертым» остаётся ЭЛЕМЕНТ, и
+  // заменять его новым значило бы снова ждать касания.
+  if (orderAudioElement) {
+    orderAudioElement.src = src;
+    orderAudioElement.load();
+  }
+  const ctx = audioContext;
+  if (ctx) void loadOrderSound(ctx);
+}
+
 function orderAudio(): HTMLAudioElement | null {
   if (typeof Audio === "undefined") return null;
   if (!orderAudioElement) {
-    orderAudioElement = new Audio(orderSoundUrl);
+    orderAudioElement = new Audio(orderSoundSrc);
     orderAudioElement.preload = "auto";
-    orderAudioElement.volume = 0.9;
+    orderAudioElement.volume = orderSoundVolume;
   }
   return orderAudioElement;
 }
@@ -305,25 +342,49 @@ function decodeAudio(ctx: AudioContext, data: ArrayBuffer): Promise<AudioBuffer>
   });
 }
 
+function fetchAudioBuffer(ctx: AudioContext, src: string): Promise<AudioBuffer> {
+  return fetch(src)
+    .then((res) => {
+      if (!res.ok) throw new Error(`order sound ${res.status}`);
+      return res.arrayBuffer();
+    })
+    .then((data) => decodeAudio(ctx, data));
+}
+
 function loadOrderSound(ctx: AudioContext): Promise<AudioBuffer | null> {
   if (orderSoundBuffer) return Promise.resolve(orderSoundBuffer);
-  orderSoundLoading =
+  const src = orderSoundSrc;
+  const loading =
     orderSoundLoading ??
-    fetch(orderSoundUrl)
-      .then((res) => {
-        if (!res.ok) throw new Error(`order sound ${res.status}`);
-        return res.arrayBuffer();
-      })
-      .then((data) => decodeAudio(ctx, data))
+    fetchAudioBuffer(ctx, src)
       .then((buffer) => {
-        orderSoundBuffer = buffer;
+        // Пока грузили, Owner мог выбрать другой звук — чужой буфер не кладём.
+        if (orderSoundSrc === src) orderSoundBuffer = buffer;
         return buffer;
       })
       .catch(() => {
-        orderSoundLoading = null;
+        if (orderSoundLoading === loading) orderSoundLoading = null;
         return null;
       });
-  return orderSoundLoading;
+  orderSoundLoading = loading;
+  return loading;
+}
+
+/** Проиграть буфер `repeat` раз подряд с паузой 0,25 с. */
+function playBuffer(ctx: AudioContext, buffer: AudioBuffer, volume: number, repeat: number): AudioBufferSourceNode[] {
+  const gain = ctx.createGain();
+  gain.gain.value = volume;
+  gain.connect(ctx.destination);
+  const sources: AudioBufferSourceNode[] = [];
+  const start = ctx.currentTime + 0.02;
+  for (let i = 0; i < repeat; i += 1) {
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(gain);
+    source.start(start + i * (buffer.duration + 0.25));
+    sources.push(source);
+  }
+  return sources;
 }
 
 /**
@@ -360,7 +421,16 @@ export function playOrderSound() {
     }
     try {
       el.muted = false;
+      el.volume = orderSoundVolume;
       el.currentTime = 0;
+      // Повтор: доиграл — ещё раз, пока не наберётся `repeat`.
+      let left = orderSoundRepeat - 1;
+      el.onended = () => {
+        if (left <= 0) return;
+        left -= 1;
+        el.currentTime = 0;
+        void el.play().catch(() => undefined);
+      };
       void el.play().catch(blocked);
     } catch {
       blocked();
@@ -379,16 +449,59 @@ export function playOrderSound() {
       return;
     }
     try {
-      const source = ctx.createBufferSource();
-      const gain = ctx.createGain();
-      gain.gain.value = 0.9;
-      source.buffer = buffer;
-      source.connect(gain).connect(ctx.destination);
-      source.start();
+      playBuffer(ctx, buffer, orderSoundVolume, orderSoundRepeat);
     } catch {
       viaElement();
     }
   });
+}
+
+let previewSources: AudioBufferSourceNode[] = [];
+
+/** Остановить прослушивание в настройках (новое прослушивание гасит прежнее). */
+export function stopOrderSoundPreview() {
+  for (const source of previewSources) {
+    try {
+      source.stop();
+    } catch {
+      /* уже доиграл */
+    }
+  }
+  previewSources = [];
+}
+
+/**
+ * «Прослушать» в «Настройки → Звук заказа»: играет ВЫБРАННЫЙ, ещё не
+ * сохранённый звук с его громкостью и повтором. Зовётся по клику — это жест,
+ * контекст просыпается. Выключатель звука человека здесь не действует: он
+ * нажал «Прослушать» сам. false — файл не загрузился или не декодируется.
+ */
+export async function previewOrderSound(input: Partial<OrderSoundSettings>): Promise<boolean> {
+  const settings = sanitizeOrderSound(input);
+  const ctx = ensureAudio();
+  if (!ctx) return false;
+  stopOrderSoundPreview();
+  try {
+    await ctx.resume().catch(() => undefined);
+    const buffer = await fetchAudioBuffer(ctx, orderSoundSource(settings));
+    stopOrderSoundPreview();
+    previewSources = playBuffer(ctx, buffer, settings.volume, settings.repeat);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Длительность аудиофайла в секундах (проверка своего звука перед загрузкой); null — не аудио. */
+export async function audioFileDuration(file: Blob): Promise<number | null> {
+  const ctx = ensureAudio();
+  if (!ctx) return null;
+  try {
+    const buffer = await decodeAudio(ctx, await file.arrayBuffer());
+    return buffer.duration;
+  } catch {
+    return null;
+  }
 }
 
 /**

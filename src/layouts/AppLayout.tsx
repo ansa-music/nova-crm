@@ -40,6 +40,7 @@ import { useOsExchangeHandoff } from "@/hooks/useOsExchangeHandoff";
 import { useOsOrderClaims } from "@/hooks/useOsOrderClaims";
 import { useOsDispatchLogWatch } from "@/hooks/useOsDispatchLogWatch";
 import { useNotificationAlerts } from "@/hooks/useNotificationAlerts";
+import { useOrderSoundBridge } from "@/hooks/useOrderSoundBridge";
 import { useAppUpdateCheck } from "@/hooks/useAppUpdateCheck";
 import { useDeskObserverLoad } from "@/hooks/useDeskObserverLoad";
 import { useOpenOrdersWatch } from "@/hooks/useOpenOrdersWatch";
@@ -81,6 +82,8 @@ export function AppLayout() {
   // Звук и всплывашка браузера на новое уведомление. Здесь, а не в
   // колокольчике: в полноэкранной таблице колокольчика на экране нет.
   useNotificationAlerts();
+  // Звук заказа, выбранный Owner, — до того, как придёт первый заказ.
+  useOrderSoundBridge();
   useAppUpdateCheck();
   // Тихое право «видит все столы» — разовое чтение своего документа.
   useDeskObserverLoad();

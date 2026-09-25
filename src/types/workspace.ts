@@ -4,6 +4,7 @@ import type { TechLoadKind } from "@/types/deskLoad";
 import type { OsPaySettings, PaymentMethod } from "@/types/payment";
 import type { ScheduleSettings } from "@/types/scheduleSettings";
 import type { ClientCardOptions } from "@/types/clientCardOptions";
+import type { OrderSoundSettings } from "@/types/orderSound";
 
 /**
  * An Owner-defined custom option field — the same idea as the built-in
@@ -123,6 +124,11 @@ export interface Workspace {
    * workspace). Нет поля — `DEFAULT_CLIENT_CARD_OPTIONS`.
    */
   clientCardOptions?: ClientCardOptions;
+  /**
+   * Звук уведомления о заказе — «Настройки → Звук заказа», правит только Owner
+   * (Тимлиду поле закрыто правилом workspace). Нет поля — прежний звук.
+   */
+  orderSound?: OrderSoundSettings;
   /**
    * Идёт перенос строк: пока стоит флаг, строки нигде не правятся — иначе
    * правка, сделанная во время копирования, осталась бы в старом хранилище.

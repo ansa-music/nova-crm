@@ -12,6 +12,7 @@ import {
   Filter,
   History,
   IdCard,
+  Music,
   Keyboard,
   KeyRound,
   Layers,
@@ -35,6 +36,7 @@ import { RowsStoragePanel } from "@/components/settings/RowsStoragePanel";
 import { SupabaseCollectionsPanel } from "@/components/settings/SupabaseCollectionsPanel";
 import { CashboxSettingsPanel } from "@/components/cashbox/CashboxSettingsPanel";
 import { ClientCardSettingsPanel } from "@/components/settings/ClientCardSettingsPanel";
+import { OrderSoundSettingsPanel } from "@/components/settings/OrderSoundSettingsPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -156,6 +158,7 @@ const SETTINGS_NAV = [
   { value: "rows", label: "Строки таблиц", icon: Database, owner: true },
   { value: "cashbox", label: "Касса", icon: Wallet, owner: true },
   { value: "clientcard", label: "Визитка", icon: IdCard, owner: true },
+  { value: "sound", label: "Звук заказа", icon: Music, owner: true },
   { value: "members", label: "Роли и доступ", icon: Users },
 ] as const;
 
@@ -404,7 +407,9 @@ export default function SettingsPage() {
               // Способы оплаты и премии — только Owner по настоящей роли.
               (item.value !== "cashbox" || permissions.realRole === "owner") &&
               // Варианты визитки клиента — тоже только Owner.
-              (item.value !== "clientcard" || permissions.realRole === "owner")
+              (item.value !== "clientcard" || permissions.realRole === "owner") &&
+              // Звук заказа у всех — тоже только Owner.
+              (item.value !== "sound" || permissions.realRole === "owner")
           ).map((item) => (
             <TabsTrigger
               key={item.value}
@@ -810,6 +815,12 @@ export default function SettingsPage() {
         {permissions.realRole === "owner" && (
           <TabsContent value="clientcard" className="mt-0 flex flex-col gap-4">
             <ClientCardSettingsPanel />
+          </TabsContent>
+        )}
+
+        {permissions.realRole === "owner" && (
+          <TabsContent value="sound" className="mt-0 flex flex-col gap-4">
+            <OrderSoundSettingsPanel />
           </TabsContent>
         )}
 
