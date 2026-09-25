@@ -87,6 +87,15 @@ export function usePermissions() {
     storedActiveRole && canSimulateRole(realRole, storedActiveRole) ? storedActiveRole : null;
   const effectiveRole: Role = activeRole ?? realRole;
   const isSimulating = activeRole !== null && activeRole !== realRole;
+  // Режим роли — по-настоящему (просьба Nurba 25.09.2026: «я создатель, но
+  // работаю технарём — поставил себе Технаря, а функции Owner остались и
+  // таблицы редачатся»). Пока включён режим, создатель для ИНТЕРФЕЙСА — не
+  // создатель: замки строк, меню, страницы руководства идут по выбранной
+  // роли. Фоновое обслуживание (месячные вкладки, пересчёт столов, копия
+  // прав) по-прежнему по настоящей роли — поля `upkeep*` ниже. Правила базы
+  // режиму не верят вовсе: это только интерфейс.
+  const actsAsCreator = isOwnerOfWorkspace && !isSimulating;
+  const realOwner = isOwnerOfWorkspace || realRole === "owner";
   // Add-on roles (Технарь, ОС) count only with the real main role — a
   // simulation previews exactly one role.
   const extraRolesKey = (membership?.extraRoles ?? []).join(",");
@@ -141,9 +150,9 @@ export function usePermissions() {
       canDeleteWorkspace: isResolved && canDeleteWorkspace(effectiveRole),
       /** Full backup of every desk — the Owner only. */
       canExportWorkspace: isResolved && canExportWorkspace(effectiveRole),
-      // Users admin follows the REAL role, not RoleSwitcher preview — otherwise
-      // Owner/Тимлид can lose accept/roles UI while simulating Технарь/Viewer.
-      canManageUsers: isResolved && (isOwnerOfWorkspace || hasFullAccess(realRole)),
+      // Режим роли действует и здесь: Owner в режиме «Технарь» людьми не
+      // управляет (вернуть роль — меню аккаунта).
+      canManageUsers: isResolved && (actsAsCreator || hasFullAccess(effectiveRole)),
       canManageStatusVariants: isResolved && canManageStatusVariants(effectiveRole),
       canInviteMembers: isResolved && canInviteMembers(effectiveRole),
       canChangeRoles: isResolved && canChangeRoles(effectiveRole),
@@ -164,20 +173,34 @@ export function usePermissions() {
       /** Owner/Admin create pages freely; a plain Manager is limited to one owned page (see managerPageQuota.ts). */
       hasElevatedCreatePermission: isResolved && (deskCreatorRole === "owner" || deskCreatorRole === "admin"),
 
-      /** Workspace doc owner — true even if the members roster has a stale invite stub. */
-      isWorkspaceOwner: isOwnerOfWorkspace,
       /**
-       * Owner by REAL role — every desk opens, background upkeep (month tabs,
-       * «Технари» recounts) runs. Like isWorkspaceOwner, not narrowed by a
-       * role simulation. A Тимлид never has it: no desk tables for them.
+       * Создатель workspace (`workspace.ownerId`) — true even if the members
+       * roster has a stale invite stub. В режиме другой роли — false: это
+       * интерфейс, и он идёт по выбранной роли.
        */
-      hasFullDeskAccess: isOwnerOfWorkspace || realRole === "owner",
+      isWorkspaceOwner: actsAsCreator,
+      /** Создатель по-настоящему, без режима роли (заявки по ключу, обслуживание). */
+      isCreator: isOwnerOfWorkspace,
+      /** Owner в интерфейсе: роль Owner и режим другой роли не включён. */
+      actsAsOwner: effectiveRole === "owner",
+      /**
+       * Owner in the UI — every desk opens. Narrowed by a role simulation, as
+       * everything in the UI. A Тимлид never has it: no desk tables for them.
+       */
+      hasFullDeskAccess: effectiveRole === "owner",
+      /**
+       * Owner по НАСТОЯЩЕЙ роли — для фонового обслуживания (месячные вкладки,
+       * пересчёт «Технарей»), режим роли его не выключает.
+       */
+      upkeepOwner: realOwner,
+      /** Автопилот недели графика — руководство по настоящей роли. */
+      upkeepRetire: isResolved && (isOwnerOfWorkspace || canRetireDesks(realRole)),
 
       /**
        * Чужие столы открыты на ЧТЕНИЕ без запроса просмотра: Тимлид + Технарь
        * по роли, либо «наблюдатель» — тихое право, выданное Owner.
        */
-      seesAllDesks: isResolved && !isOwnerOfWorkspace && (seesAllDesks(roles) || isDeskObserver),
+      seesAllDesks: isResolved && !actsAsCreator && (seesAllDesks(roles) || isDeskObserver),
       /**
        * Столы ОС (`page.osDesk`) видны ВСЕМ участникам на чтение, без запроса
        * (просьба Nurba 23.09.2026). Зеркало ветки `isOsDeskPage` в
@@ -186,7 +209,7 @@ export function usePermissions() {
       seesOsDesks: isResolved,
       canAccessPage: (page: WorkspacePage) => {
         if (!isResolved || !uid) return false;
-        if (isOwnerOfWorkspace) return true;
+        if (actsAsCreator) return true;
         // Наблюдатель — ДО проверки deskBlocked: право выдаётся человеку, а не
         // роли, и Тимлиду без Технаря оно тоже должно работать.
         if (isDeskObserver) return true;
@@ -196,7 +219,7 @@ export function usePermissions() {
         if (seesAllDesks(roles)) return true;
         if (deskBlocked) return false;
         if (isResponsibleForPage(page, uid)) return true;
-        return roles.some((role) => canAccessPage(page, role, uid, activeWorkspace?.ownerId));
+        return roles.some((role) => canAccessPage(page, role, uid, isSimulating ? null : activeWorkspace?.ownerId));
       },
       // Свой стол ОС правит и Тимлид + ОС: запрет Тимлиду — про столы технарей.
       // «Свой» = создатель и ответственный (зеркало canEditPage в правилах).
@@ -212,7 +235,7 @@ export function usePermissions() {
       canDeletePage: (page: WorkspacePage) =>
         isResolved && !deskBlocked && roles.some((role) => canDeletePage(page, role, uid)),
       /** Move desks to «Неактуальные» and back — Owner and Тимлид (by real role, like users admin). */
-      canRetireDesks: isResolved && (isOwnerOfWorkspace || canRetireDesks(realRole)),
+      canRetireDesks: isResolved && (actsAsCreator || canRetireDesks(effectiveRole)),
     }),
     [effectiveRole, realRole, activeRole, isSimulating, roles, deskBlocked, deskCreatorRole, uid, isResolved, hasMembership, isOwnerOfWorkspace, isDeskObserver, activeWorkspace?.ownerId, pages]
   );

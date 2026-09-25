@@ -65,7 +65,7 @@ export function SupabaseCollectionsPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowsOnSupabase]);
 
-  if (!activeWorkspace || permissions.realRole !== "owner") return null;
+  if (!activeWorkspace || !permissions.actsAsOwner) return null;
   const workspace = activeWorkspace;
 
   function statusOf(key: CollectionKey): { text: string; tone: Tone } {

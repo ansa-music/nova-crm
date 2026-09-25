@@ -99,7 +99,7 @@ export default function TeamPage() {
   if (!activeWorkspaceId) return null;
 
   const meUid = profile?.uid ?? "";
-  const viewerIsOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  const viewerIsOwner = permissions.actsAsOwner;
   const allMembers = Array.isArray(members) ? members : [];
   const kind = GROUP_NICK_KIND[group];
   const q = query.trim().toLowerCase();

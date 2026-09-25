@@ -22,7 +22,7 @@ export function useWeekTemplateAutopilot() {
   const permissions = usePermissions();
   const monthKey = useCurrentMonthKey();
   const uid = permissions.uid;
-  const enabled = permissions.canRetireDesks && Boolean(uid && activeWorkspaceId);
+  const enabled = permissions.upkeepRetire && Boolean(uid && activeWorkspaceId);
 
   useEffect(() => {
     if (!enabled || !activeWorkspaceId || !uid) return;

@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { DESKS_ITEM_KEY, DESK_SHORTCUTS_LIMIT, EXTRA_ROUTE_META, MORE_ITEM_KEY, MORE_SECTION_KEY, pathMatches, pathOnly, type NavChild, type NavItem, type NavSection, type PageMeta } from "@/config/nav";
-import { memberHasRole, rolesLabel, type Role, type WorkspaceMember, type WorkspacePage } from "@/types";
+import { memberHasRole, rolesLabel, ROLE_LABELS, type Role, type WorkspaceMember, type WorkspacePage } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -195,7 +195,7 @@ function navGates(inp: NavInputs) {
   const showDispatchNav =
     DISPATCH_ENABLED &&
     permissions.isResolved &&
-    (permissions.hasFullDeskAccess || permissions.realRole === "admin") &&
+    (permissions.hasFullDeskAccess || permissions.role === "admin") &&
     (hasFullAccess(permissions.role) || permissions.role === "admin");
   // У ОС стола нет — его дом «Технари». Тимлид ведёт людей, а не столы — его
   // дом «Пользователи». Обоим не показываем столовые секции. Со второй ролью
@@ -216,7 +216,7 @@ function navGates(inp: NavInputs) {
   const showOsDispatchNav = permissions.isResolved && hasFullAccess(permissions.role);
   // «Правка столов» — кто заполняет столы технарей: только НАСТОЯЩИЙ Owner
   // (режим пишет база только ему — rows_set_desk_mode).
-  const showDeskEditingNav = permissions.isResolved && (permissions.isWorkspaceOwner || permissions.realRole === "owner");
+  const showDeskEditingNav = permissions.isResolved && (permissions.actsAsOwner);
 
   // «Где дом» — раньше это считали порознь HomePage и Sidebar. Без своего
   // стола дом — список столов (а не «/»: HomePage сама редиректит на home.to,
@@ -674,6 +674,8 @@ export interface AccountMenu {
   /** Имя и подпись роли (или email) в карточке аккаунта. */
   name: string;
   caption: string;
+  /** Включён режим другой роли — подпись под именем говорит «Режим: …» (вместо плашки сверху). */
+  simulating: boolean;
   /** Непрочитанные (сообщения + чат) — точка на аватаре. */
   unread: number;
   workspaces: Array<{ id: string; name: string; active: boolean; select: () => void }>;
@@ -716,8 +718,9 @@ export function useAccountMenu(opts: { openCreatePage?: () => void; openCreateWo
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
   const myMembership = members.find((m) => m.uid === profile?.uid);
 
-  const caption =
-    (myMembership &&
+  const caption = permissions.isSimulating
+    ? `Режим: ${ROLE_LABELS[permissions.role]}`
+    : (myMembership &&
       ((myMembership.extraRoles?.length ? rolesLabel(myMembership) : null) || ROLE_CAPTIONS[myMembership.role])) ||
     profile?.email ||
     "";
@@ -804,6 +807,7 @@ export function useAccountMenu(opts: { openCreatePage?: () => void; openCreateWo
   return {
     name: profile ? myDisplayName(profile, members) : "",
     caption,
+    simulating: permissions.isSimulating,
     unread,
     workspaces: workspaces.map((ws) => ({
       id: ws.id,

@@ -40,7 +40,7 @@ export function AccessDenied({ reason, title = "Доступ ограничен"
   const [restoring, setRestoring] = useState(false);
   // Только настоящий Owner: у остальных симуляции нет, а застрявший
   // `activeRole` у них клиент и так не учитывает.
-  const canRestoreRole = permissions.isSimulating && (permissions.isWorkspaceOwner || permissions.realRole === "owner");
+  const canRestoreRole = permissions.isSimulating && permissions.upkeepOwner;
 
   async function restoreRole() {
     if (!activeWorkspaceId || !profile) return;

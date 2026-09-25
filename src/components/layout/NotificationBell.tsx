@@ -61,7 +61,7 @@ export function NotificationBell({
   // кнопок «Выбрать роль… / Отклонить» не показываем (правила их и не пустят).
   const { ownerRequests, reloadOwnerRequests, resolveOwnerRequest } = useOwnerAccessRequests(
     activeWorkspaceId,
-    permissions.isWorkspaceOwner
+    permissions.isCreator
   );
   const navigate = useNavigate();
   const location = useLocation();

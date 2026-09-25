@@ -74,7 +74,7 @@ const COUNT_CONCURRENCY = 4;
 export default function DeskEditingPage() {
   const permissions = usePermissions();
   const { activeWorkspaceId, activeWorkspace, pages, members } = useWorkspace();
-  const isOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  const isOwner = permissions.actsAsOwner;
   const mode = deskModeOf(activeWorkspace);
   const onSupabase = activeWorkspaceId ? usesSupabaseRows(activeWorkspaceId) : false;
   const [busy, setBusy] = useState<string | null>(null);

@@ -220,10 +220,10 @@ export default function SettingsPage() {
   // ---- «Ключ доступа»: заявка на права Owner. Ключ ничего не открывает сам по
   // себе — он лишь позволяет отправить запрос; роль выдаёт Owner кнопкой в
   // колокольчике, и только ему это разрешают firestore.rules.
-  const isRealOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  const isRealOwner = permissions.upkeepOwner;
   // Заявки, выдачу и снятие Owner и сам ключ ведёт только создатель
   // workspace (ownerId) — выданный Owner видит здесь одну строку-пояснение.
-  const isCreator = permissions.isWorkspaceOwner;
+  const isCreator = permissions.isCreator;
   const creatorName = useMemo(() => {
     const creator = members.find((m) => m.uid && m.uid === activeWorkspace?.ownerId);
     return creator ? displayNameOf(creator) : "";
@@ -385,13 +385,13 @@ export default function SettingsPage() {
               (!("owner" in item) || permissions.canManageWorkspace) &&
               (item.value !== "backup" || permissions.canExportWorkspace) &&
               // Хранилище строк переключает только Owner по настоящей роли.
-              (item.value !== "rows" || permissions.realRole === "owner") &&
+              (item.value !== "rows" || permissions.actsAsOwner) &&
               // Способы оплаты и премии — только Owner по настоящей роли.
-              (item.value !== "cashbox" || permissions.realRole === "owner") &&
+              (item.value !== "cashbox" || permissions.actsAsOwner) &&
               // Варианты визитки клиента — тоже только Owner.
-              (item.value !== "clientcard" || permissions.realRole === "owner") &&
+              (item.value !== "clientcard" || permissions.actsAsOwner) &&
               // Звук заказа у всех — тоже только Owner.
-              (item.value !== "sound" || permissions.realRole === "owner")
+              (item.value !== "sound" || permissions.actsAsOwner)
           ).map((item) => (
             <TabsTrigger
               key={item.value}
@@ -765,25 +765,25 @@ export default function SettingsPage() {
         </TabsContent>
         )}
 
-        {permissions.realRole === "owner" && (
+        {permissions.actsAsOwner && (
           <TabsContent value="cashbox" className="mt-0 flex flex-col gap-4">
             <CashboxSettingsPanel />
           </TabsContent>
         )}
 
-        {permissions.realRole === "owner" && (
+        {permissions.actsAsOwner && (
           <TabsContent value="clientcard" className="mt-0 flex flex-col gap-4">
             <ClientCardSettingsPanel />
           </TabsContent>
         )}
 
-        {permissions.realRole === "owner" && (
+        {permissions.actsAsOwner && (
           <TabsContent value="sound" className="mt-0 flex flex-col gap-4">
             <OrderSoundSettingsPanel />
           </TabsContent>
         )}
 
-        {permissions.realRole === "owner" && (
+        {permissions.actsAsOwner && (
           <TabsContent value="rows" className="mt-0 flex flex-col gap-4">
             <RowsStoragePanel />
             <SupabaseCollectionsPanel />

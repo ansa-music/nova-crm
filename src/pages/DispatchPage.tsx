@@ -19,7 +19,7 @@ export default function DispatchPage() {
   // (permissions.role) is checked too, same as the old per-desk tab's rule.
   const canSeeDispatch =
     permissions.isResolved &&
-    (permissions.hasFullDeskAccess || permissions.realRole === "admin") &&
+    (permissions.hasFullDeskAccess || permissions.role === "admin") &&
     (hasFullAccess(permissions.role) || permissions.role === "admin");
   const canBindDispatch = permissions.hasFullDeskAccess;
 

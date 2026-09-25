@@ -181,7 +181,7 @@ function MoreSheetBody({
             )}
             <div className="min-w-0 flex-1">
               <p className="truncate text-[14px] font-medium text-foreground">{account.name}</p>
-              <p className="truncate text-[12px] text-muted-foreground">{account.caption}</p>
+              <p className={cn("truncate text-[12px]", account.simulating ? "text-warning" : "text-muted-foreground")}>{account.caption}</p>
             </div>
             {(account.workspaces.length > 1 || account.canCreateWorkspace) && (
               <DropdownMenu modal={false}>

@@ -803,7 +803,7 @@ export default function DynamicTablePage() {
   // новый на каждый рендер: от него зависит `cellLockFor`, а от неё — memo
   // каждой строки таблицы.
   const viewerIsOwner =
-    permissions.isWorkspaceOwner || permissions.realRole === "owner";
+    permissions.actsAsOwner;
   const viewerIsTeamLead = permissions.hasRole("teamlead");
   const viewer = useMemo(
     () => ({
@@ -821,7 +821,7 @@ export default function DynamicTablePage() {
     !page.osDesk &&
     // Owner разрешил технарю править этот стол самому.
     !page.techEditable &&
-    !(permissions.isWorkspaceOwner || permissions.realRole === "owner"),
+    !permissions.actsAsOwner,
   );
   // «Технари заполняют сами» (вкладка Owner «Правка столов»): всем разом
   // (`workspace.techFillsAll`) или этому столу (`page.techEditable`) —
@@ -1376,7 +1376,7 @@ export default function DynamicTablePage() {
     }
   }
   const isRealOwner =
-    permissions.isWorkspaceOwner || permissions.realRole === "owner";
+    permissions.actsAsOwner;
 
   /** «Выдать…» из ячейки или карточки — вопрос открыт кнопкой, а не статусом. */
   const [choiceFromButton, setChoiceFromButton] = useState<string | null>(

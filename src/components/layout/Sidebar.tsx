@@ -623,7 +623,8 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                aria-label={collapsed ? "Аккаунт" : undefined}
+                aria-label={collapsed ? (account.simulating ? `Аккаунт · ${account.caption}` : "Аккаунт") : undefined}
+                title={account.simulating ? `${account.caption} — сменить в меню аккаунта` : undefined}
                 className={cn(
                   "relative flex min-h-11 min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-foreground/5 lg:min-h-10",
                   collapsed && "h-10 w-10 justify-center px-0 py-0"
@@ -641,6 +642,10 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
                     {account.unread > 0 && (
                       <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-primary" />
                     )}
+                    {/* Режим другой роли — жёлтая точка вместо плашки на весь экран. */}
+                    {account.simulating && (
+                      <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-sidebar bg-warning" />
+                    )}
                   </span>
                 ) : (
                   <Avatar className="h-[34px] w-[34px]">
@@ -652,7 +657,9 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
                 {!collapsed && (
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13px] font-medium text-foreground">{account.name}</span>
-                    <span className="block truncate text-[11px] text-muted-foreground">{account.caption}</span>
+                    <span className={cn("block truncate text-[11px]", account.simulating ? "text-warning" : "text-muted-foreground")}>
+                      {account.caption}
+                    </span>
                   </span>
                 )}
                 {!collapsed && <MoreVertical className="h-4 w-4 shrink-0 text-muted-foreground" />}

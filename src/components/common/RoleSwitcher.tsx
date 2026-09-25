@@ -1,4 +1,4 @@
-import { AlertTriangle, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,32 +15,6 @@ import { ROLE_LABELS } from "@/types";
 import { cn } from "@/utils/cn";
 import { myDisplayName } from "@/utils/displayName";
 import type { Role } from "@/types";
-
-/** Small persistent banner shown whenever a real Owner/Admin is currently simulating a different role. Include near the top of the app shell. */
-export function SimulationBanner() {
-  const permissions = usePermissions();
-  const { profile } = useAuth();
-  const { activeWorkspaceId } = useWorkspace();
-
-  if (!permissions.isSimulating) return null;
-
-  async function handleReturn() {
-    if (!activeWorkspaceId || !profile) return;
-    await setActiveRole(activeWorkspaceId, profile.uid, null);
-  }
-
-  return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-warning/30 bg-warning/10 px-4 py-1.5 text-xs text-warning">
-      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-      <span>
-        Режим «{ROLE_LABELS[permissions.role]}» — ваша реальная роль {ROLE_LABELS[permissions.realRole]}.
-      </span>
-      <button onClick={handleReturn} className="ml-auto shrink-0 font-medium underline underline-offset-2">
-        Вернуть мой реальный режим
-      </button>
-    </div>
-  );
-}
 
 /** Dropdown switcher for the topbar — renders nothing for Manager/Viewer, who have nothing to switch. */
 export function RoleSwitcher({ embedded = false }: { embedded?: boolean } = {}) {

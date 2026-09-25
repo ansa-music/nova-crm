@@ -614,7 +614,7 @@ export default function TechniciansPage() {
         actions={
           <>
         {/* Owner: кто правит столы технарей — все, никто или выборочно. */}
-        {(permissions.isWorkspaceOwner || permissions.realRole === "owner") && <DeskEditAccessButton />}
+        {(permissions.actsAsOwner) && <DeskEditAccessButton />}
         {isOsViewer && myOsValue && (
           <div className="flex shrink-0 rounded-lg border border-border p-0.5" role="tablist" aria-label="Вид">
             <button

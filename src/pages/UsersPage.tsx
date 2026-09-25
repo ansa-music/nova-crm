@@ -156,7 +156,7 @@ export default function UsersPage() {
   if (!activeWorkspaceId) return null;
 
   // Real Owner (never a role preview): may edit their own add-on roles too.
-  const viewerIsOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  const viewerIsOwner = permissions.actsAsOwner;
   // Роль Owner выдаёт и забирает только создатель workspace (ownerId):
   // выданный Owner записи других Owner не трогает — так держат и правила.
   const viewerIsCreator = permissions.isWorkspaceOwner;

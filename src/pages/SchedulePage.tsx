@@ -283,7 +283,7 @@ export default function SchedulePage() {
 
   const uid = profile?.uid ?? "";
   const settings = useMemo(() => scheduleSettingsOf(activeWorkspace), [activeWorkspace]);
-  const isRealOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  const isRealOwner = permissions.actsAsOwner;
   // Правит график руководство и те, кого Owner назначил в «Настройке графика»
   // (правило `isScheduleEditor` смотрит тот же список).
   const canEdit =

@@ -156,7 +156,7 @@ export function ClientCardSection({
   onSave: (next: RowExtras | null) => Promise<void>;
 }) {
   const { activeWorkspace } = useWorkspace();
-  const { realRole } = usePermissions();
+  const { actsAsOwner } = usePermissions();
   const options = useMemo(() => clientCardOptionsOf(activeWorkspace), [activeWorkspace]);
   const [persons, setPersons] = useState(() => numberText(initial.persons));
   const [minutes, setMinutes] = useState(() => numberText(initial.minutes));
@@ -274,7 +274,7 @@ export function ClientCardSection({
 
   const statusText = state === "saving" ? "сохраняю…" : state === "saved" ? "сохранено" : canEdit ? "пишется само" : "только просмотр";
   const settingsLink =
-    realRole === "owner" ? (
+    actsAsOwner ? (
       <Link
         to="/settings?tab=clientcard"
         className="inline-flex items-center gap-1 font-sans text-[11px] normal-case tracking-normal text-muted-foreground hover:text-primary"

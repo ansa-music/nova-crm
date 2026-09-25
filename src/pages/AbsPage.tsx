@@ -120,7 +120,7 @@ export default function AbsPage() {
   );
 
   const monthName = monthTabNameForKey(monthKey);
-  const isOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  const isOwner = permissions.actsAsOwner;
   const setView = (v: View) => setParams(v === "tech" ? {} : { v }, { replace: true });
 
   if (!permissions.isResolved || (loads === null && !failed)) {

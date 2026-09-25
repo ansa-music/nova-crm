@@ -196,7 +196,7 @@ export default function DesksPage() {
               <AllDesksAccessButton workspaceId={activeWorkspaceId} pages={pages} members={members} />
             )}
             {/* Только Owner: кто правит столы технарей — все, никто или выборочно. */}
-            {(permissions.isWorkspaceOwner || permissions.realRole === "owner") && activeWorkspaceId && <DeskEditAccessButton />}
+            {(permissions.actsAsOwner) && activeWorkspaceId && <DeskEditAccessButton />}
             {inactivePages.length > 0 && (
               <Button type="button" variant="outline" className="min-h-11 gap-1.5" onClick={() => setInactiveOpen(true)}>
                 <Archive className="h-3.5 w-3.5" />

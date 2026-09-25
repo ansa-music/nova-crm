@@ -12,7 +12,6 @@ import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog
 import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialog";
 import { NicknamePrompt } from "@/components/common/NicknamePrompt";
 import { GlobalMessageToaster } from "@/components/common/GlobalMessageToaster";
-import { SimulationBanner } from "@/components/common/RoleSwitcher";
 import { AppBootScreen } from "@/components/common/AppBootScreen";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { ShortcutsHelpDialog } from "@/components/common/ShortcutsHelpDialog";
@@ -247,7 +246,6 @@ const AppChrome = memo(function AppChrome({
       {!isCompactNav && !isFullscreen && <Sidebar />}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {!isFullscreen && <Topbar />}
-        {!isFullscreen && <SimulationBanner />}
         {!isFullscreen && <SupabaseSqlBanner />}
         {isFullscreen && <TableChromeExit label="Свернуть" />}
         {/* overflow-x задан явно: один `overflow-y-auto` даёт и горизонтальный
