@@ -37,6 +37,7 @@ export function OrderStatusRequestDialog({
   columns,
   statusKey,
   statusOptions,
+  osUid,
   pending,
   onClose,
 }: {
@@ -49,6 +50,8 @@ export function OrderStatusRequestDialog({
   /** Ключ столбца статуса в этой таблице — показать, что стоит сейчас. */
   statusKey: string | null;
   statusOptions: StatusOption[];
+  /** Кого просим: ОС заказа — или, если ОС его ещё не ведёт, ОС по нику в столбце ОС. */
+  osUid?: string | null;
   /** Ожидающая просьба по этой строке (живой список `subscribeMyPendingOrderRequests`). */
   pending: OrderRequest | null;
   onClose: () => void;
@@ -98,6 +101,7 @@ export function OrderStatusRequestDialog({
         client: clientName(),
         done: option.value === done?.value,
         members,
+        osUid: osUid ?? null,
       });
       toast.success(`Попросили «${option.label}»`, {
         description: "ОС получил уведомление и решит в своём столе.",
@@ -134,7 +138,10 @@ export function OrderStatusRequestDialog({
             <Hand className="h-4 w-4" /> Попросить ОС сменить статус
           </DialogTitle>
           <DialogDescription>
-            Заказ ведёт ОС — он и ставит статус. Сейчас:{" "}
+            {row.osUid
+              ? "Заказ ведёт ОС — он и ставит статус."
+              : "Статус поставит ОС из столбца «ОС» — заказ при этом перейдёт к нему на стол."}{" "}
+            Сейчас:{" "}
             {current ? <StatusBadge value={current} options={statusOptions} variant="plain" /> : "без статуса"}
           </DialogDescription>
         </DialogHeader>

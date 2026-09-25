@@ -7,6 +7,7 @@ import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { decideOrderRequest } from "@/services/orderRequestDecision";
+import { useClaimForRequest } from "@/hooks/useOsOrderClaims";
 import type { OrderRequest } from "@/services/orderRequestService";
 import { timeAgo } from "@/utils/date";
 import { firestoreErrorText } from "@/utils/dbError";
@@ -43,6 +44,7 @@ export function OsRequestDecisionDialog({
 }) {
   const { activeWorkspaceId, members } = useWorkspace();
   const { profile } = useAuth();
+  const claimForRequest = useClaimForRequest();
   const [busy, setBusy] = useState<"yes" | "no" | null>(null);
   if (!request || !activeWorkspaceId) return null;
 
@@ -64,6 +66,7 @@ export function OsRequestDecisionDialog({
         mirrors,
         statusKey,
         me: { uid: profile.uid, name: myDisplayName(profile, members) },
+        claimUnclaimed: claimForRequest,
       });
       toast.success(
         approved ? (request.kind === "delete" ? "Заказ удалён и у технаря" : `Поставлено «${wanted}»`) : "Просьба отклонена",

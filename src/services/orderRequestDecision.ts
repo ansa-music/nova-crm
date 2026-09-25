@@ -1,6 +1,7 @@
 import { resolveOrderRequest, type OrderRequest } from "@/services/orderRequestService";
 import { sbDeleteRow, sbPatchRow } from "@/services/rows/supabaseRowStore";
 import type { PageRow } from "@/types";
+import type { ClaimedForRequest } from "@/hooks/useOsOrderClaims";
 
 /**
  * ОС решает просьбу технаря — одно место на плашку «Запросы технарей» и на
@@ -23,8 +24,36 @@ export async function decideOrderRequest(input: {
   /** Ключ статуса на столе ОС (`resolveOsDeskKeys().status`). */
   statusKey: string;
   me: { uid: string; name: string };
+  /**
+   * Просьба по заказу, который ОС ещё не ведёт (заказ с «Заказов» или
+   * вписанный технарём с ником ОС — подхват его не забрал): сначала забрать
+   * строку к себе на стол (`claimRowForRequest`). Есть только у самого ОС —
+   * забирать заказ база пускает только его.
+   */
+  claimUnclaimed?: (request: OrderRequest) => Promise<ClaimedForRequest>;
 }): Promise<void> {
   const { workspaceId, request, approved, osUid, mirrors, statusKey, me } = input;
+  if (approved && !request.srcRowId && !findRequestMirror(request, mirrors, osUid)) {
+    if (!input.claimUnclaimed) {
+      throw new Error("Этот заказ ОС ещё не взял к себе на стол — решить просьбу может только сам ОС. Отклоните или подождите его.");
+    }
+    const claimed = await input.claimUnclaimed(request);
+    const techTab = request.deskTabId ?? "";
+    if (request.kind === "status" && request.status) {
+      await sbPatchRow(workspaceId, claimed.srcPageId, claimed.srcTabId, claimed.srcRowId, {
+        cells: { [statusKey]: request.status },
+      });
+      await sbPatchRow(workspaceId, request.deskPageId, techTab, request.rowId, {
+        cells: { [claimed.techStatusKey || "status"]: request.status },
+      });
+    }
+    if (request.kind === "delete") {
+      await sbDeleteRow(workspaceId, request.deskPageId, techTab, request.rowId);
+      await sbDeleteRow(workspaceId, claimed.srcPageId, claimed.srcTabId, claimed.srcRowId);
+    }
+    await resolveOrderRequest(workspaceId, request, approved, me);
+    return;
+  }
   if (approved) {
     const mirror = findRequestMirror(request, mirrors, osUid);
     if (!mirror || !mirror.srcPageId || !mirror.srcRowId) {

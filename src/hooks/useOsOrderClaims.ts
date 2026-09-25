@@ -359,3 +359,168 @@ export function useOsOrderClaims() {
     };
   }, [ready, activeWorkspaceId, uid]);
 }
+
+/** Куда лёг заказ, забранный ради просьбы технаря. */
+export interface ClaimedForRequest {
+  srcPageId: string;
+  srcTabId: string;
+  srcRowId: string;
+  /** Ключ статуса в строке технаря (из копии карты столбцов стола). */
+  techStatusKey: string | null;
+}
+
+const SKIP_TEXT: Record<string, string> = {
+  desk: "стол технаря не годится (неактуальный или без ответственного)",
+  tab: "заказ не во вкладке текущего месяца или стол не сообщил свои столбцы — пусть технарь откроет свой стол",
+  keys: "карта столбцов стола технаря устарела — пусть технарь откроет свой стол",
+  client: "в строке нет клиента",
+  tech: "у технаря нет ника технаря на «Команде»",
+  target: "заказ лежит не на основном столе технаря",
+  returned: "Owner вернул этот заказ технарю",
+};
+
+/**
+ * Забрать ОДНУ строку технаря к себе на стол прямо сейчас — ради просьбы
+ * «поставьте статус» по заказу, который ОС ещё не вёл (заказ с «Заказов» или
+ * вписанный руками, подхват его ещё не забрал). Без «отлёживания»: строку
+ * технарь сам отдал на решение. Бросает понятную ошибку, если забрать нельзя.
+ */
+export async function claimRowForRequest(input: {
+  workspaceId: string;
+  uid: string;
+  osNickValue: string;
+  osName: string;
+  pages: readonly WorkspacePage[];
+  members: readonly WorkspaceMember[];
+  pageId: string;
+  rowId: string;
+}): Promise<ClaimedForRequest> {
+  if (!usesSupabaseRows(input.workspaceId)) throw new Error("Заказ можно взять себе только когда строки в Supabase");
+  if (!input.osNickValue) throw new Error("У вас не закреплён ник ОС — попросите Owner или Тимлида на «Команде»");
+  let candidates;
+  try {
+    candidates = (await sbFetchOsClaimable(input.workspaceId, 1000)).filter(
+      (c) => c.pageId === input.pageId && c.row.id === input.rowId
+    );
+  } catch (error) {
+    if (error instanceof ClaimUnsupportedError) {
+      throw new Error("В базе строк нет функций забора заказов — Owner должен вставить свежий SQL (плашка сверху у Owner)");
+    }
+    throw error;
+  }
+  if (candidates.length === 0) {
+    throw new Error(
+      "База не отдаёт этот заказ вам: в столбце ОС не ваш ник, заказ уже чей-то или в базе старый SQL (заказы с «Заказов» — нужен SQL 20261004)"
+    );
+  }
+  const pick = pickClaims({
+    candidates,
+    pages: input.pages,
+    members: input.members,
+    monthKey: currentPeriodKeyOf(input.workspaceId),
+    now: Date.now(),
+    seen: new Map(),
+    quietMs: 0,
+    limit: 1,
+  });
+  const p = pick.ready[0];
+  if (!p) {
+    const reason = Object.keys(pick.skipped)[0] ?? "";
+    throw new Error(`Заказ не забрать на ваш стол: ${SKIP_TEXT[reason] ?? reason}`);
+  }
+  const ctx: OsClaimContext = {
+    workspaceId: input.workspaceId,
+    uid: input.uid,
+    osNickValue: input.osNickValue,
+    osName: input.osName,
+    pages: input.pages,
+    members: input.members,
+    seen: new Map(),
+    osTabCache: { current: null },
+  };
+  const osTab = await osTabFor(ctx, currentPeriodKeyOf(input.workspaceId), Date.now());
+  const src = buildClaimSource({
+    techRow: p.candidate.row,
+    techKeys: p.techKeys,
+    osKeys: osTab.keys,
+    osNickValue: input.osNickValue,
+    techNick: p.techNick,
+  });
+  let result = await sbClaimOsOrder({
+    workspaceId: input.workspaceId,
+    pageId: p.candidate.pageId,
+    tabId: p.candidate.tabId,
+    rowId: p.candidate.row.id,
+    expectRev: p.candidate.rev,
+    srcTabId: osTab.tabId,
+    cells: src.cells,
+    extras: src.extras,
+    syncHash: src.syncHash,
+    orderAt: src.orderAt,
+    srcStatusKey: osTab.keys.status,
+  });
+  if (result.status === "no_os_desk") {
+    // Записи о своём столе ОС в копии прав ещё нет — заводим и пробуем снова.
+    await putPageAcl(input.workspaceId, osTab.page);
+    result = await sbClaimOsOrder({
+      workspaceId: input.workspaceId,
+      pageId: p.candidate.pageId,
+      tabId: p.candidate.tabId,
+      rowId: p.candidate.row.id,
+      expectRev: p.candidate.rev,
+      srcTabId: osTab.tabId,
+      cells: src.cells,
+      extras: src.extras,
+      syncHash: src.syncHash,
+      orderAt: src.orderAt,
+      srcStatusKey: osTab.keys.status,
+    });
+  }
+  if ((result.status !== "claimed" && result.status !== "already") || !result.srcPageId || !result.srcRowId) {
+    const text: Record<string, string> = {
+      stale: "строку только что поменяли — попробуйте ещё раз",
+      taken: "заказ уже ведёт другой ОС",
+      not_mine: "в столбце ОС не ваш ник",
+      no_nick: "ваш ник ОС ещё не дошёл до базы строк",
+      no_keys: "стол технаря не сообщил свои столбцы — пусть технарь откроет свой стол",
+      released: "Owner вернул этот заказ технарю",
+      exchange: "в базе старый SQL — Owner должен вставить свежий (заказы с «Заказов»)",
+    };
+    throw new Error(`Заказ не забрался на ваш стол: ${text[result.status] ?? result.status}`);
+  }
+  nudgeOpenDesk(input.workspaceId, osTab.page.id, osTab.tabId);
+  window.dispatchEvent(new CustomEvent(OS_CLAIMED_EVENT, { detail: { count: 1 } }));
+  return {
+    srcPageId: result.srcPageId,
+    srcTabId: result.srcTabId ?? "",
+    srcRowId: result.srcRowId,
+    techStatusKey: p.candidate.statusKey,
+  };
+}
+
+/**
+ * Для «Поставить» в просьбах технаря: забрать заказ на свой стол, если ОС его
+ * ещё не ведёт. undefined — это не ОС (руководство забрать за ОС не может).
+ */
+export function useClaimForRequest(): ((request: { osUid: string; deskPageId: string; rowId: string }) => Promise<ClaimedForRequest>) | undefined {
+  const permissions = usePermissions();
+  const { activeWorkspaceId, allPages, members } = useWorkspace();
+  const uid = permissions.uid ?? "";
+  if (!activeWorkspaceId || !uid || !permissions.hasRole("os")) return undefined;
+  const me = members.find((m) => m.uid === uid);
+  const osNickValue = me?.osNickValue ?? "";
+  const osName = personLabel(me) || osNickValue;
+  return async (request) => {
+    if (request.osUid !== uid) throw new Error("Этот заказ просят у другого ОС — решить может только он");
+    return claimRowForRequest({
+      workspaceId: activeWorkspaceId,
+      uid,
+      osNickValue,
+      osName,
+      pages: allPages,
+      members,
+      pageId: request.deskPageId,
+      rowId: request.rowId,
+    });
+  };
+}

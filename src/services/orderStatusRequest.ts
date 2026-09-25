@@ -30,10 +30,17 @@ export async function requestOrderStatus(input: {
   client: string;
   done: boolean;
   members: WorkspaceMember[];
+  /**
+   * ОС по нику в столбце ОС — для заказа, который ОС ещё не ведёт (нет
+   * `osUid` на строке): ОС при «Поставить» сам заберёт его на свой стол.
+   */
+  osUid?: string | null;
 }): Promise<NewOrderRequest> {
   const { row } = input;
-  if (!row.osUid || !row.srcPageId || !row.srcRowId) {
-    throw new Error("Этот заказ не ведёт ОС — просить некого");
+  const managed = Boolean(row.osUid && row.srcPageId && row.srcRowId);
+  const osUid = managed ? (row.osUid as string) : (input.osUid ?? "");
+  if (!osUid) {
+    throw new Error("У заказа нет ОС — просить некого");
   }
   const request: NewOrderRequest = {
     kind: "status",
@@ -42,14 +49,15 @@ export async function requestOrderStatus(input: {
     note: input.note,
     techUid: input.me,
     techName: input.meName,
-    osUid: row.osUid,
+    osUid,
     client: input.client,
     deskPageId: input.deskPageId,
     deskTabId: input.deskTabId,
     rowId: row.id,
-    srcPageId: row.srcPageId,
-    srcTabId: row.srcTabId || null,
-    srcRowId: row.srcRowId,
+    // Пустой адрес источника — «ОС этот заказ ещё не ведёт» (см. decideOrderRequest).
+    srcPageId: managed ? (row.srcPageId as string) : "",
+    srcTabId: managed ? row.srcTabId || null : null,
+    srcRowId: managed ? (row.srcRowId as string) : "",
   };
   await submitOrderRequest(input.workspaceId, request);
   if (input.done) {
@@ -66,7 +74,7 @@ export async function requestOrderStatus(input: {
       .filter((m) => m.status === "active" && m.uid && (memberHasRole(m, "owner") || memberHasRole(m, "teamlead")))
       .map((m) => m.uid as string)
       // ОС своё уведомление уже получил вместе с запросом.
-      .filter((uid) => uid !== row.osUid);
+      .filter((uid) => uid !== osUid);
     if (leadership.length) {
       await sendNotification(
         {

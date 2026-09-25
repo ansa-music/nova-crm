@@ -7,6 +7,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { OS_DESK_COLUMNS } from "@/services/osDeskService";
 import { type OrderRequest } from "@/services/orderRequestService";
 import { decideOrderRequest } from "@/services/orderRequestDecision";
+import { useClaimForRequest } from "@/hooks/useOsOrderClaims";
 import { firestoreErrorText } from "@/utils/dbError";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { timeAgo } from "@/utils/date";
@@ -46,6 +47,7 @@ export function OsOrderRequestsPanel({
 }) {
   const { activeWorkspaceId, members } = useWorkspace();
   const { profile } = useAuth();
+  const claimForRequest = useClaimForRequest();
   const [busy, setBusy] = useState<string | null>(null);
   const [open, setOpen] = useState(true);
 
@@ -78,6 +80,7 @@ export function OsOrderRequestsPanel({
         mirrors,
         statusKey,
         me: { uid: profile.uid, name: myDisplayName(profile, members) },
+        claimUnclaimed: claimForRequest,
       });
       toast.success(approved ? (request.kind === "delete" ? "Заказ удалён и у технаря" : "Статус поставлен") : "Запрос отклонён");
       onChanged();

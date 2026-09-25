@@ -153,6 +153,9 @@ import { TechPickerSheet } from "@/components/os/TechPickerSheet";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { useDeskModeSupported } from "@/services/rows/deskMode";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
+import { isBlankRow } from "@/utils/blankRow";
+import { osColumnsOf } from "@/utils/techLoad";
+import { memberHasRole } from "@/types";
 import { DESK_ROWS_TABLE, supabaseRows } from "@/lib/supabaseRows";
 import {
   MAIN_TAB_PARAM,
@@ -1673,14 +1676,38 @@ export default function DynamicTablePage() {
     null,
   );
   const askDoneValue = findDoneStatusOption(askStatusOptions)?.value ?? null;
+  // Заказ, который ОС ещё не ведёт (пришёл с «Заказов» или вписан с ником ОС,
+  // а подхват его не забрал), — просьба уходит ОС по нику в столбце ОС, и ОС
+  // при «Поставить» сам забирает заказ на свой стол (claimRowForRequest).
+  // Только в Supabase: забрать заказ ОС может лишь там.
+  const askOsKeys = useMemo(() => {
+    const cols = tablePage?.columns ?? [];
+    const published = page?.osFieldKeys;
+    const keys = new Set<string>();
+    if (published?.os && published.tabId === (activeSubPageId ?? "")) keys.add(published.os);
+    for (const c of osColumnsOf(cols)) keys.add(c.key);
+    return [...keys];
+  }, [tablePage, page?.osFieldKeys, activeSubPageId]);
+  function askOsTargetOf(row: PageRow): string | null {
+    if (!askOsEnabled) return null;
+    if (row.osUid) {
+      return row.osUid !== permissions.uid && row.srcPageId && row.srcRowId ? row.osUid : null;
+    }
+    if (!activeWorkspaceId || !usesSupabaseRows(activeWorkspaceId) || isBlankRow(row)) return null;
+    const options = activeWorkspace?.responsibleOptions ?? [];
+    for (const key of askOsKeys) {
+      const raw = String(row.cells[key] ?? "").trim();
+      if (!raw) continue;
+      const value = options.find((o) => o.value === raw || o.label.trim().toLowerCase() === raw.toLowerCase())?.value ?? raw;
+      const os = members.find(
+        (m) => m.status === "active" && m.uid && m.osNickValue === value && memberHasRole(m, "os"),
+      );
+      if (os?.uid && os.uid !== permissions.uid) return os.uid;
+    }
+    return null;
+  }
   function canAskOs(row: PageRow): boolean {
-    return Boolean(
-      askOsEnabled &&
-        row.osUid &&
-        row.osUid !== permissions.uid &&
-        row.srcPageId &&
-        row.srcRowId,
-    );
+    return askOsTargetOf(row) !== null;
   }
   function pendingRequestOf(row: PageRow) {
     if (!page) return null;
@@ -2693,6 +2720,10 @@ export default function DynamicTablePage() {
             null
           }
           statusOptions={askStatusOptions}
+          osUid={(() => {
+            const row = rows.find((r) => r.id === statusRequestRowId);
+            return row ? askOsTargetOf(row) : null;
+          })()}
           pending={(() => {
             const row = rows.find((r) => r.id === statusRequestRowId);
             return row ? pendingRequestOf(row) : null;
