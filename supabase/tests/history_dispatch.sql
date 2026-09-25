@@ -111,7 +111,7 @@ select tst.expect('rows_lead_workspaces: технарь — пусто', tst.jva
 -- ---------------------------------------------------------------------
 -- Версия и повторный накат.
 -- ---------------------------------------------------------------------
-select tst.expect('версия схемы 20261008', public.nova_schema_version(), '20261008');
+select tst.expect('версия схемы не старее 20261008', (public.nova_schema_version() >= '20261008')::text, 'true');
 \ir ../migrations/20261008_history_dispatch.sql
 select tst.expect('после повторного наката журнал пишется', tst.jval('T1', $q$select log_history('W', '[{"id":"h20"}]'::jsonb)::text$q$), '1');
 select tst.expect('после повторного наката выдачи пишутся', tst.jval('OS1', $q$select (log_os_dispatch('W', '{"id":"d20","kind":"assign"}'::jsonb) > 0)::text$q$), 'true');

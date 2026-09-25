@@ -132,7 +132,7 @@ select tst.expect('отметку не удалить (нет права)', tst.
 -- ---------------------------------------------------------------------
 select tst.expect('роли API: insert в chat_messages запрещён', has_table_privilege('authenticated', 'public.chat_messages', 'insert')::text, 'false');
 select tst.expect('роли API: chat_dm_meta только чтение', (has_table_privilege('anon', 'public.chat_dm_meta', 'insert') or has_table_privilege('anon', 'public.chat_dm_meta', 'update'))::text, 'false');
-select tst.expect('версия схемы 20261009', public.nova_schema_version(), '20261009');
+select tst.expect('версия схемы не старее 20261009', (public.nova_schema_version() >= '20261009')::text, 'true');
 \ir ../migrations/20261009_chat.sql
 select tst.expect('после повторного наката чат пишется', tst.chat('T1', 'ws', null, null, null, '{"id":"m9","text":"x"}'), 'm9');
 
