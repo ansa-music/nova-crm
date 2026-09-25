@@ -801,8 +801,13 @@ function startSbNotifications(
   liveFeeds.add(feed);
 
   const stopListening = listenTopic(notificationsTopic(workspaceId), onRing);
+  // Свёрнутая вкладка тоже спрашивает (браузер будит её не чаще раза в минуту): звук и
+  // всплывашку о заказе играет именно она, и если звонок не дошёл (канал
+  // Realtime отвалился, вкладку усыпили), заказ иначе молчал бы до возврата
+  // на вкладку (жалоба Nurba 25.09.2026 «звук пропал» после переезда
+  // уведомлений в Supabase). Запросы Supabase не тарифицируются.
   const pollTimer = setInterval(() => {
-    if (visible() && serverSynced) void fetchRows();
+    if (serverSynced) void fetchRows();
   }, POLL_MS);
   // Возврат на вкладку — сразу дельта: опрос на телефоне не ждать.
   const onVisibility = () => {
