@@ -8,7 +8,9 @@ import {
   PanelLeftDashed,
   Plus,
   Search,
+  Settings,
   User,
+  UserCog,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -340,7 +342,13 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
   const [bellOpen, setBellOpen] = useState(false);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const holdOpen = menuOpen || bellOpen || modeMenuOpen;
-  const collapsed = !mobile && !pinned && (railLocked || (!peek && !holdOpen));
+  /**
+   * «Закреплено узким»: панель не раскрывается ни от наведения на пункты, ни
+   * от выпадашек — но наведение на нижнюю кнопку «Меню: …» раскрывает ВСЁ меню
+   * целиком (просьба Nurba 25.09.2026), пока мышь на панели или открыт выбор.
+   */
+  const [railPeek, setRailPeek] = useState(false);
+  const collapsed = !mobile && !pinned && (railLocked ? !(railPeek || modeMenuOpen) : !peek && !holdOpen);
   /** Панель раскрыта поверх стола (не закреплена и не рейка). */
   const peeking = !mobile && !pinned && !collapsed;
   const panelRef = useRef<HTMLDivElement>(null);
@@ -369,7 +377,10 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
   function onPanelPointerLeave(e: PointerEvent<HTMLDivElement>) {
     if (mobile || e.pointerType !== "mouse") return;
     clearPeekTimers();
-    closeTimer.current = window.setTimeout(() => setPeek(false), PEEK_CLOSE_MS);
+    closeTimer.current = window.setTimeout(() => {
+      setPeek(false);
+      setRailPeek(false);
+    }, PEEK_CLOSE_MS);
   }
   // Клавиатура: Tab в рейку раскрывает подписи, уход фокуса из панели —
   // сворачивает. `:focus-visible` отличает клавиатуру от клика/тапа по пункту:
@@ -431,6 +442,10 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
   /** Наведение на кнопку или сам выбор держит его открытым; уход — закрывает с паузой. */
   function hoverModeMenu(inside: boolean) {
     clearModeMenuTimer();
+    if (inside && railLocked) {
+      clearPeekTimers();
+      setRailPeek(true);
+    }
     modeMenuTimer.current = window.setTimeout(
       () => {
         modeMenuTimer.current = null;
@@ -445,6 +460,7 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
     // увидеть результат.
     clearPeekTimers();
     setPeek(false);
+    setRailPeek(false);
     setSidebarMode(next);
   }
 
@@ -666,6 +682,24 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="z-[330] w-56">
+              {/* Настройки — первыми: за ними и идут в меню профиля (просьба Nurba 25.09.2026). */}
+              <DropdownMenuItem
+                onClick={() => {
+                  navigate("/settings?tab=profile");
+                  onNavigate?.();
+                }}
+              >
+                <UserCog className="h-4 w-4" /> Профиль и пароль
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  navigate("/settings");
+                  onNavigate?.();
+                }}
+              >
+                <Settings className="h-4 w-4" /> Настройки
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               {account.workspaces.map((ws) => (
                 <DropdownMenuItem key={ws.id} onClick={ws.select}>
                   {ws.name}
