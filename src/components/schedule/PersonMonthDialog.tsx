@@ -10,7 +10,7 @@ import {
   isWeekend,
   weekdayOf,
   type ScheduleRow,
-} from "@/components/schedule/ScheduleGrid";
+} from "@/components/schedule/scheduleShared";
 import { cn } from "@/utils/cn";
 import { planScheduleBulk, scheduleMonthStats, type ScheduleBulkAction, type ScheduleBulkPlan } from "@/utils/scheduleBulk";
 import {
@@ -307,11 +307,13 @@ export function PersonMonthDialog({
                     ? "border-destructive/45 bg-destructive/15"
                     : state === "excused"
                       ? "border-warning/45 bg-warning/15"
-                      : hours
-                        ? "border-primary/45 bg-primary/10"
-                        : isWeekend(monthKey, d)
-                          ? "border-border/60 bg-foreground/[0.05]"
-                          : "border-border/60 bg-card",
+                      : came
+                        ? "border-success/45 bg-success/10"
+                        : hours
+                          ? "border-primary/45 bg-primary/10"
+                          : isWeekend(monthKey, d)
+                            ? "border-border/60 bg-foreground/[0.05]"
+                            : "border-border/60 bg-card",
                   isToday && "ring-2 ring-primary ring-offset-1 ring-offset-background",
                   on && "outline outline-2 outline-offset-1 outline-primary",
                   past && !on && "opacity-60",
@@ -337,7 +339,7 @@ export function PersonMonthDialog({
                   <span
                     className={cn(
                       "line-clamp-2 w-full break-words text-[11px] font-semibold leading-tight sm:text-[12px]",
-                      state === "off" ? "text-destructive" : state === "excused" ? "text-warning" : hours ? "text-primary" : "text-muted-foreground/70"
+                      state === "off" ? "text-destructive" : state === "excused" ? "text-warning" : hours ? "text-primary" : came ? "text-success" : "text-muted-foreground/70"
                     )}
                   >
                     {state === "off" ? "вых" : state === "excused" ? "отпр." : hours ? formatScheduleHours(hours) : came ? "✓ вышел" : ""}

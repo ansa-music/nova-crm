@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ClipboardPaste } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { ScheduleRow } from "@/components/schedule/ScheduleGrid";
+import type { ScheduleRow } from "@/components/schedule/scheduleShared";
 import { cn } from "@/utils/cn";
 import {
   matchPastedNames,
@@ -75,8 +75,8 @@ function writeMemory(workspaceId: string, memory: Record<string, string>) {
  * Имена сопоставляются сами, но только однозначно (`matchPastedNames`);
  * спорное человек выбирает в списке. Нераспознанная клетка («отпуск»,
  * «до 15») НЕ пишется — остаётся как было и подсвечена, чтобы её было видно.
- * Результат уходит в черновик недели, а не в базу: сначала смотрят, потом
- * «Сохранить».
+ * Сначала видно, ЧТО поменяется (обведено, под клеткой — как было), и только
+ * потом «Сохранить неделю» — запись сразу, вернуть можно Ctrl+Z.
  */
 export function WeekPasteDialog({
   workspaceId,
@@ -89,7 +89,7 @@ export function WeekPasteDialog({
 }: {
   workspaceId: string;
   rows: ScheduleRow[];
-  /** Неделя человека сейчас (с черновиком) — чтобы показать, что именно поменяется. */
+  /** Неделя человека сейчас (с ещё не записанным) — чтобы показать, что именно поменяется. */
   currentOf: (personId: string) => Record<string, WeekCell>;
   initialText?: string;
   /** Можно ли заводить людей, которых в графике ещё нет (свой раздел). */
@@ -336,9 +336,9 @@ export function WeekPasteDialog({
 
         <div className="flex flex-wrap items-center gap-2">
           <Button className="min-h-11 sm:min-h-0" disabled={matched === 0} onClick={apply}>
-            Перенести в неделю{changedDays > 0 ? ` · ${changedDays} дн.` : ""}
+            Сохранить неделю{changedDays > 0 ? ` · ${changedDays} дн.` : ""}
           </Button>
-          <p className="text-[11px] text-muted-foreground">В базу уйдёт после «Сохранить».</p>
+          <p className="text-[11px] text-muted-foreground">Сразу разложится в «Месяц» с сегодняшнего дня. Вернуть — Ctrl+Z.</p>
           <Button variant="ghost" className="ml-auto min-h-11 sm:min-h-0" onClick={onClose}>
             Отмена
           </Button>

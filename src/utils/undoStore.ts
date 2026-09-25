@@ -24,15 +24,27 @@ const redoStack: UndoCommand[] = [];
 
 // Tiny external store so toolbars can render enabled/disabled Undo/Redo
 // buttons (phones have no Ctrl+Z) without every table re-implementing it.
-type UndoSnapshot = { canUndo: boolean; canRedo: boolean; undoCount: number; redoCount: number };
+// `undoTop`/`redoTop` — what the next Ctrl+Z / Ctrl+Shift+Z would run: a
+// screen with its own «Отменить» button enables it only when that command is
+// one of its own (the stack is shared, and below it lie other pages' edits).
+type UndoSnapshot = {
+  canUndo: boolean;
+  canRedo: boolean;
+  undoCount: number;
+  redoCount: number;
+  undoTop: UndoCommand | null;
+  redoTop: UndoCommand | null;
+};
 const listeners = new Set<() => void>();
-let snapshot: UndoSnapshot = { canUndo: false, canRedo: false, undoCount: 0, redoCount: 0 };
+let snapshot: UndoSnapshot = { canUndo: false, canRedo: false, undoCount: 0, redoCount: 0, undoTop: null, redoTop: null };
 function emit() {
   snapshot = {
     canUndo: undoStack.length > 0,
     canRedo: redoStack.length > 0,
     undoCount: undoStack.length,
     redoCount: redoStack.length,
+    undoTop: undoStack[undoStack.length - 1] ?? null,
+    redoTop: redoStack[redoStack.length - 1] ?? null,
   };
   listeners.forEach((l) => l());
 }

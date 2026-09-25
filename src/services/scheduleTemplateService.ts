@@ -22,6 +22,7 @@ import {
   type WeekTemplateEntry,
 } from "@/types";
 import { isEmptyLay, layWeekOnMonth } from "@/utils/weekTemplate";
+import { mergeDraftChanges } from "@/utils/scheduleEdit";
 
 /**
  * Неделя графика (см. `types/scheduleTemplate.ts`). `fromServer` — как у
@@ -46,6 +47,20 @@ export function subscribeWeekTemplate(
     },
     withErrorReporting(onError)
   );
+}
+
+/**
+ * Неделя прямо с сервера — «прошлая неделя» для раскладки. Снимок подписки
+ * не годится: пока шла прошлая запись, его могла не догнать ни она сама, ни
+ * правка другого руководителя, и раскладка сравнивала бы месяц не с той
+ * неделей (вернула бы дни, которые та уже убрала).
+ */
+export async function fetchWeekTemplateFresh(workspaceId: string): Promise<WeekTemplate | null> {
+  if (!db) return null;
+  const snap = await getDocFromServer(paths.scheduleTemplate(workspaceId, WEEK_TEMPLATE_DOC_ID));
+  if (!snap.exists()) return null;
+  const data = snap.data() as WeekTemplate;
+  return { ...data, people: data.people ?? {} };
 }
 
 /**
@@ -79,11 +94,25 @@ export interface LayWindow {
   today: number;
 }
 
-function layMonths(window: LayWindow) {
-  return [
-    { monthKey: window.currentMonth, fromDay: window.today },
-    { monthKey: nextMonthKey(window.currentMonth), fromDay: 1 },
-  ];
+/** Дальше этого неделя из сетки месяца не раскладывается: каждый месяц — чтение на человека. */
+export const LAY_MONTHS_MAX = 4;
+
+/**
+ * Месяцы раскладки: текущий (с сегодняшнего дня) и дальше подряд — до
+ * следующего или до `throughMonth`, если открыт месяц дальше. Подряд, без
+ * пропусков: `appliedThrough` — «разложено ПО этот месяц», и дыра между
+ * месяцами не заполнилась бы уже никогда.
+ */
+export function layMonths(window: LayWindow, throughMonth?: string) {
+  const next = nextMonthKey(window.currentMonth);
+  const last = throughMonth && throughMonth > next ? throughMonth : next;
+  const out = [{ monthKey: window.currentMonth, fromDay: window.today }];
+  let key = window.currentMonth;
+  while (key < last && out.length < LAY_MONTHS_MAX) {
+    key = nextMonthKey(key);
+    out.push({ monthKey: key, fromDay: 1 });
+  }
+  return out;
 }
 
 /**
@@ -101,10 +130,21 @@ export async function saveWeekTemplate(input: {
   previous: WeekTemplate | null;
   changes: Array<{ personId: string; entry: WeekTemplateEntry }>;
   window: LayWindow;
+  /**
+   * Разложить и дальше следующего месяца — по этот (открыт в сетке месяц
+   * позже следующего). Не больше `LAY_MONTHS_MAX` месяцев подряд.
+   */
+  throughMonth?: string;
+  /**
+   * Разовые правки тех же людей той же пачкой: «выходной каждую субботу»
+   * из сетки месяца пишет и неделю, и саму выбранную клетку — в том числе
+   * прошедшую, куда неделя не раскладывается. Ключи `extra` сильнее раскладки.
+   */
+  extra?: Array<{ monthKey: string; changes: ScheduleDraftChange[] }>;
 }): Promise<{ people: number; days: number }> {
   if (!db) throw new Error("Firebase не настроен");
   if (input.changes.length === 0) return { people: 0, days: 0 };
-  const months = layMonths(input.window);
+  const months = layMonths(input.window, input.throughMonth);
   const lastMonth = months[months.length - 1].monthKey;
 
   const stored = new Map<string, TechSchedule | null>();
@@ -141,6 +181,11 @@ export async function saveWeekTemplate(input: {
     people[change.personId] = entryWrite(change.entry, laterMonth(previous?.appliedThrough, lastMonth));
   }
 
+  for (const { monthKey, changes } of input.extra ?? []) {
+    if (changes.length === 0) continue;
+    byMonth.set(monthKey, mergeDraftChanges(byMonth.get(monthKey) ?? [], changes));
+  }
+
   const batch = writeBatch(db);
   batch.set(
     paths.scheduleTemplate(input.workspaceId, WEEK_TEMPLATE_DOC_ID),
@@ -148,6 +193,7 @@ export async function saveWeekTemplate(input: {
     { merge: true }
   );
   for (const [monthKey, changes] of byMonth) {
+    if (changes.length === 0) continue;
     addScheduleChangesToBatch(batch, { workspaceId: input.workspaceId, monthKey, actorUid: input.actorUid, changes });
   }
   await batch.commit();

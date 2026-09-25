@@ -3,7 +3,7 @@ import { CalendarRange, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ShiftField } from "@/components/schedule/ShiftField";
-import type { ScheduleRow } from "@/components/schedule/ScheduleGrid";
+import type { ScheduleRow } from "@/components/schedule/scheduleShared";
 import { cn } from "@/utils/cn";
 import { weekCellText } from "@/utils/weekTemplate";
 import { sameScheduleHours, WEEK_DOW_SHORT, WEEK_DOWS, type ScheduleHours, type WeekCell } from "@/types";
@@ -44,7 +44,8 @@ const KIND_LABEL: Record<Kind, string> = { work: "Работа", off: "Выхо�
  * «Как у …» копирует неделю другого человека: у технарей со сменой «2/2» или
  * одинаковыми выходными её незачем прокликивать заново.
  *
- * Результат уходит в черновик недели, как кисть и вставка — в базу по «Сохранить».
+ * «Сохранить» пишет неделю сразу (и раскладывает её в «Месяц» с сегодняшнего
+ * дня) — как любая правка в сетке; вернуть — Ctrl+Z или «Отменить» в панели.
  */
 export function PersonWeekDialog({
   row,
@@ -122,7 +123,8 @@ export function PersonWeekDialog({
             Неделя: {row.label}
           </DialogTitle>
           <DialogDescription>
-            Постоянные выходные и смены по дням недели. Уйдёт в график по «Сохранить» наверху страницы.
+            Постоянные выходные и смены по дням недели. Сохраняется сразу и раскладывается в «Месяц» с сегодняшнего дня;
+            разовые отметки месяца не трогаются.
           </DialogDescription>
         </DialogHeader>
 
@@ -207,7 +209,7 @@ export function PersonWeekDialog({
 
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
           <Button className="min-h-11 sm:min-h-0" disabled={!result} onClick={apply}>
-            Готово
+            Сохранить
           </Button>
           <span className="text-[12px] text-muted-foreground">
             выходных: <span className="font-medium tabular-nums text-foreground">{offCount}</span>

@@ -2,15 +2,14 @@ import { useEffect, useMemo, useRef } from "react";
 import type { LucideIcon } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import {
+  CELL_KIND_LOOK,
   daysOfMonth,
-  DayMenu,
   initialsName,
   isWeekend,
   weekdayOf,
   WEEKDAY_LETTERS,
-  type ScheduleDayAction,
   type ScheduleRow,
-} from "@/components/schedule/ScheduleGrid";
+} from "@/components/schedule/scheduleShared";
 import type { ScheduleDensity } from "@/components/schedule/scheduleDensity";
 import { cn } from "@/utils/cn";
 import {
@@ -60,8 +59,8 @@ export function onShiftCount(rows: ScheduleRow[], schedules: Map<string, TechSch
  * на 31 колонку его приходилось собирать глазами по столбцу. С телефона это
  * вообще единственный удобный способ посмотреть чужой день.
  *
- * Кто правит график, тапает по человеку — то же меню дня, что в сетке
- * месяца («Выходной», «Отпросился», «Часы работы…», «Весь месяц»).
+ * Кто правит график, тапает по человеку — та же палитра, что в сетке
+ * месяца («Выходной», «Отпросился», смена, «Весь месяц»).
  */
 export function ScheduleDayView({
   monthKey,
@@ -71,8 +70,9 @@ export function ScheduleDayView({
   schedules,
   canEdit,
   density,
+  selectedUid,
   onSelectDay,
-  onPickDay,
+  onPickPerson,
   onOpenPerson,
 }: {
   monthKey: string;
@@ -82,8 +82,11 @@ export function ScheduleDayView({
   schedules: Map<string, TechSchedule>;
   canEdit: boolean;
   density: ScheduleDensity;
+  /** Чей день сейчас открыт в палитре — подсветить чип. */
+  selectedUid?: string | null;
   onSelectDay: (dayKey: string) => void;
-  onPickDay: (row: ScheduleRow, dayKey: string, action: ScheduleDayAction) => void;
+  /** Тап по человеку у того, кто правит: палитра у этого чипа. */
+  onPickPerson: (row: ScheduleRow, anchor: HTMLElement) => void;
   onOpenPerson: (row: ScheduleRow) => void;
 }) {
   const days = useMemo(() => daysOfMonth(monthKey), [monthKey]);
@@ -181,61 +184,40 @@ export function ScheduleDayView({
         const working = full.length + partial.length;
         const short = section.min > 0 && working < section.min;
         const Icon = section.icon;
-        const chip = (p: PersonDay) => {
-          const button = (
-            <button
-              type="button"
-              onClick={canEdit ? undefined : () => onOpenPerson(p.row)}
-              title={`${p.row.label}${p.hours ? ` · ${formatScheduleHours(p.hours)}` : ""}`}
-              className={cn(
-                "flex min-h-11 min-w-0 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors hover:brightness-110",
-                p.state === "off"
-                  ? "border-destructive/40 bg-destructive/10"
-                  : p.state === "excused"
-                    ? "border-warning/40 bg-warning/10"
-                    : p.hours
-                      ? "border-primary/40 bg-primary/10"
-                      : "border-border/70 bg-card"
-              )}
-            >
-              <MemberAvatar
-                id={p.row.member?.uid ?? p.row.uid}
-                name={p.row.member?.name ?? initialsName(p.row.label)}
-                nickname={p.row.member?.nickname}
-                photoURL={p.row.member?.photoURL}
-                className={cn("shrink-0", big ? "h-9 w-9" : small ? "h-6 w-6" : "h-7 w-7")}
-              />
-              <span className="flex min-w-0 flex-col">
-                <span className={cn("truncate font-medium", big ? "text-[16px]" : small ? "text-[13px]" : "text-[14px]")}>
-                  {p.row.label}
-                </span>
-                {(p.hours || p.came) && (
-                  <span className={cn("font-mono tabular-nums", big ? "text-[14px]" : "text-[12px]", p.hours ? "text-primary" : "text-muted-foreground")}>
-                    {p.hours ? formatScheduleHours(p.hours) : "вышел в выходной"}
-                  </span>
-                )}
+        const chip = (p: PersonDay) => (
+          <button
+            key={p.row.uid}
+            type="button"
+            data-schedule-grid
+            onClick={(event) => (canEdit ? onPickPerson(p.row, event.currentTarget) : onOpenPerson(p.row))}
+            title={`${p.row.label}${p.hours ? ` · ${formatScheduleHours(p.hours)}` : ""}`}
+            aria-pressed={selectedUid === p.row.uid}
+            className={cn(
+              "flex min-h-11 min-w-0 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-[filter] hover:brightness-110",
+              p.came ? CELL_KIND_LOOK.came : p.state === "off" ? CELL_KIND_LOOK.off : p.state === "excused" ? CELL_KIND_LOOK.excused : p.hours ? CELL_KIND_LOOK.hours : "border-border/70 bg-card",
+              "text-foreground",
+              selectedUid === p.row.uid && "ring-2 ring-primary"
+            )}
+          >
+            <MemberAvatar
+              id={p.row.member?.uid ?? p.row.uid}
+              name={p.row.member?.name ?? initialsName(p.row.label)}
+              nickname={p.row.member?.nickname}
+              photoURL={p.row.member?.photoURL}
+              className={cn("shrink-0", big ? "h-9 w-9" : small ? "h-6 w-6" : "h-7 w-7")}
+            />
+            <span className="flex min-w-0 flex-col">
+              <span className={cn("truncate font-medium", big ? "text-[16px]" : small ? "text-[13px]" : "text-[14px]")}>
+                {p.row.label}
               </span>
-            </button>
-          );
-          return canEdit ? (
-            <DayMenu
-              key={p.row.uid}
-              row={p.row}
-              dayKey={dayKey}
-              state={p.state}
-              came={p.came}
-              hours={p.hours}
-              onPick={onPickDay}
-              onOpenPerson={onOpenPerson}
-            >
-              {button}
-            </DayMenu>
-          ) : (
-            <span key={p.row.uid} className="contents">
-              {button}
+              {(p.hours || p.came) && (
+                <span className={cn("font-mono tabular-nums", big ? "text-[14px]" : "text-[12px]", p.hours ? "text-primary" : "text-success")}>
+                  {p.hours ? formatScheduleHours(p.hours) : "вышел в выходной"}
+                </span>
+              )}
             </span>
-          );
-        };
+          </button>
+        );
         const group = (title: string, list: PersonDay[], tone?: string) =>
           list.length > 0 && (
             <div className="flex flex-col gap-1.5">
@@ -296,7 +278,7 @@ export function TodayOnShift({
     <button
       type="button"
       onClick={onOpen}
-      className="mb-4 flex w-full flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-border/70 bg-card px-3 py-2.5 text-left transition-colors hover:border-primary/40"
+      className="flex w-full flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-border/70 bg-card px-3 py-2.5 text-left transition-colors hover:border-primary/40"
     >
       <span className="text-[13px] font-medium">Сегодня на смене</span>
       {shown.map((section) => {

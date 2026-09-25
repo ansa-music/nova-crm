@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { ShiftField } from "@/components/schedule/ShiftField";
-import { initialsName, type ScheduleRow } from "@/components/schedule/ScheduleGrid";
+import { initialsName, type ScheduleRow } from "@/components/schedule/scheduleShared";
 import { updateScheduleSettings } from "@/services/workspaceService";
 import { firestoreErrorText } from "@/utils/dbError";
 import { cn } from "@/utils/cn";

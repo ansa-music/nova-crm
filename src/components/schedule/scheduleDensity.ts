@@ -32,73 +32,60 @@ export function useScheduleDensity(): [ScheduleDensity, (next: ScheduleDensity) 
   return [density, set];
 }
 
-/** Размеры сетки месяца по масштабу — одна таблица, чтобы секции не разъезжались. */
-export const MONTH_SIZES: Record<
+/**
+ * Размеры сетки по масштабу — одна таблица на месяц и неделю, чтобы разделы
+ * и виды не разъезжались. «Обычно» подобрано так, чтобы месяц целиком влезал
+ * в экран 1440 px без прокрутки вбок.
+ */
+export const SHEET_SIZES: Record<
   ScheduleDensity,
-  { cell: string; cellText: string; dayNum: string; dayNumBox: string; dow: string; name: string; nameCol: string; avatar: string; nameMax: string; nameMaxRm: string }
+  {
+    monthCell: string;
+    monthText: string;
+    weekCell: string;
+    weekText: string;
+    head: string;
+    headSub: string;
+    name: string;
+    nameCol: string;
+    avatar: string;
+    count: string;
+  }
 > = {
   compact: {
-    cell: "h-7 w-7",
-    cellText: "text-[10px]",
-    dayNum: "text-[10px]",
-    dayNumBox: "w-6",
-    dow: "text-[9px]",
+    monthCell: "h-7 w-7",
+    monthText: "text-[10px]",
+    weekCell: "h-8 min-w-[3.75rem]",
+    weekText: "text-[11px]",
+    head: "text-[11px]",
+    headSub: "text-[9px]",
     name: "text-[12px]",
-    nameCol: "w-28 min-w-[7rem] sm:w-40 sm:min-w-[10rem]",
+    nameCol: "w-28 min-w-[7rem] max-w-[7rem] sm:w-40 sm:min-w-[10rem] sm:max-w-[10rem]",
     avatar: "h-6 w-6",
-    nameMax: "max-w-[4.5rem] sm:max-w-[7.5rem]",
-    nameMaxRm: "max-w-[3.25rem] sm:max-w-[6.25rem]",
+    count: "text-[10px]",
   },
   normal: {
-    cell: "h-9 w-9",
-    cellText: "text-[12px]",
-    dayNum: "text-[12px]",
-    dayNumBox: "w-7",
-    dow: "text-[10px]",
+    monthCell: "h-[34px] w-[34px]",
+    monthText: "text-[12px]",
+    weekCell: "h-10 min-w-[4.25rem]",
+    weekText: "text-[13px]",
+    head: "text-[12px]",
+    headSub: "text-[10px]",
     name: "text-[13px]",
-    nameCol: "w-32 min-w-[8rem] sm:w-48 sm:min-w-[12rem]",
+    nameCol: "w-32 min-w-[8rem] max-w-[8rem] sm:w-44 sm:min-w-[11rem] sm:max-w-[11rem]",
     avatar: "h-7 w-7",
-    nameMax: "max-w-[5.5rem] sm:max-w-[9rem]",
-    nameMaxRm: "max-w-[4rem] sm:max-w-[7.5rem]",
+    count: "text-[11px]",
   },
   large: {
-    cell: "h-11 w-11",
-    cellText: "text-[14px]",
-    dayNum: "text-[14px]",
-    dayNumBox: "w-8",
-    dow: "text-[11px]",
+    monthCell: "h-10 w-10",
+    monthText: "text-[14px]",
+    weekCell: "h-12 min-w-[5rem]",
+    weekText: "text-[15px]",
+    head: "text-[14px]",
+    headSub: "text-[11px]",
     name: "text-[15px]",
-    nameCol: "w-36 min-w-[9rem] sm:w-56 sm:min-w-[14rem]",
+    nameCol: "w-36 min-w-[9rem] max-w-[9rem] sm:w-52 sm:min-w-[13rem] sm:max-w-[13rem]",
     avatar: "h-8 w-8",
-    nameMax: "max-w-[6.5rem] sm:max-w-[11rem]",
-    nameMaxRm: "max-w-[5rem] sm:max-w-[9.5rem]",
-  },
-};
-
-/** Размеры недели. */
-export const WEEK_SIZES: Record<ScheduleDensity, { cell: string; text: string; name: string; col: string; avatar: string; nameMax: string }> = {
-  compact: {
-    cell: "h-9 min-w-[4rem]",
-    text: "text-[11px]",
-    name: "text-[12px]",
-    col: "w-28 min-w-[7rem] sm:w-44 sm:min-w-[11rem]",
-    avatar: "h-6 w-6",
-    nameMax: "max-w-[4.5rem] sm:max-w-[8.5rem]",
-  },
-  normal: {
-    cell: "h-11 min-w-[4.5rem]",
-    text: "text-[13px]",
-    name: "text-[13px]",
-    col: "w-32 min-w-[8rem] sm:w-52 sm:min-w-[13rem]",
-    avatar: "h-7 w-7",
-    nameMax: "max-w-[5.5rem] sm:max-w-[10rem]",
-  },
-  large: {
-    cell: "h-14 min-w-[5.5rem]",
-    text: "text-[15px]",
-    name: "text-[15px]",
-    col: "w-36 min-w-[9rem] sm:w-60 sm:min-w-[15rem]",
-    avatar: "h-8 w-8",
-    nameMax: "max-w-[6.5rem] sm:max-w-[12rem]",
+    count: "text-[12px]",
   },
 };
