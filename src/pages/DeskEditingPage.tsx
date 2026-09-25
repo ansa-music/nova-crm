@@ -15,6 +15,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { deskModeOf, setDeskMode, useDeskModeSupported, type DeskMode } from "@/services/rows/deskMode";
 import { setDeskTechEditable } from "@/services/rows/osExempt";
+import { CarryOverSection } from "@/components/desks/CarryOverSection";
 import {
   adoptOrdersToOsDesks,
   countDeskOrders,
@@ -497,6 +498,15 @@ export default function DeskEditingPage() {
           удалить заказ ОС может только ОС или Owner.
         </p>
       </Section>
+
+      <CarryOverSection
+        workspaceId={workspaceId}
+        desks={desks}
+        members={members}
+        workspace={activeWorkspace}
+        uid={permissions.uid}
+        disabled={disabled}
+      />
 
       <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <PenLine className="h-3.5 w-3.5" /> Кнопка «Правка столов» на «Столах» и «Технарях» ведёт сюда.

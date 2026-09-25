@@ -47,6 +47,8 @@ interface TableCellProps {
     fromOrder?: boolean;
     /** Заказ только что приехал с биржи и подсветку ещё не сняли. */
     isNewOrder?: boolean;
+    /** Строка переехала из прошлого периода: подпись «16–30 сен» (чип «перенос»). */
+    carriedLabel?: string | null;
   } | null;
   coarsePointer?: boolean;
   /** Current table search — matching substrings get highlighted. */
@@ -621,17 +623,29 @@ export function TableCell({
           {stackedLeading && !showFull ? (
             <span className="flex max-w-full min-w-0 items-center justify-end gap-1 font-sans">{leading}</span>
           ) : null}
+          {clientCard?.carriedLabel && !showFull && !coarsePointer ? (
+            // Перенесён из прошлого периода (26.09.2026): подпись словом, не
+            // только цветом — голубой не спорит с янтарём нового и фиолетом
+            // биржи, но читается и в ч/б.
+            <span
+              className="ml-auto mr-1 inline-flex h-4 shrink-0 items-center rounded border border-sky-400/40 bg-sky-400/10 px-1 text-[9.5px] font-semibold uppercase leading-none tracking-wide text-sky-200"
+              title={`Перенесён из «${clientCard.carriedLabel}»`}
+            >
+              перенос
+            </span>
+          ) : null}
           {clientCard && !showFull && (clientCard.summary || clientCard.canEdit) ? (
             <button
               type="button"
               data-client-card
               className={cn(
+                clientCard.carriedLabel && !coarsePointer ? "ml-0" : "ml-auto",
                 // «Карточка клиента» — САМАЯ заметная кнопка строки (просьба
                 // Nurba 25.09.2026: «чтобы сразу в глаза бросалось, 1 клик
                 // открывает, сразу светится»): заливка акцентом и мягкое
                 // кольцо-свечение, как у «Статистики» в шапке; видна всегда.
                 // Один клик открывает карточку строки с визиткой наверху.
-                "ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border text-[10.5px] font-semibold tabular-nums transition-colors",
+                "inline-flex shrink-0 items-center gap-1 rounded-md border text-[10.5px] font-semibold tabular-nums transition-colors",
                 // Только значок, и на таче, и мышью (Nurba 25.09.2026: «просто
                 // кнопка без текста, чтобы имя клиента было видно»): подпись
                 // «до 15 окт · 2 перс» съедала имя; она во всплывашке и в карточке.
@@ -646,11 +660,12 @@ export function TableCell({
                   : "border-primary/45 bg-primary/12 text-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.14)] hover:bg-primary/20"
               )}
               title={
-                clientCard.fromOrder
+                (clientCard.carriedLabel ? `Перенесён из «${clientCard.carriedLabel}» · ` : "") +
+                (clientCard.fromOrder
                   ? `Заказ с «Заказов»${clientCard.summary ? ` · ${clientCard.summary}` : ""} — открыть карточку`
                   : clientCard.summary
                     ? `Карточка клиента: ${clientCard.summary}`
-                    : "Карточка клиента — персы, минуты, дедлайн, пожелания"
+                    : "Карточка клиента — персы, минуты, дедлайн, пожелания")
               }
               aria-label="Карточка клиента"
               onMouseDown={(e) => e.stopPropagation()}

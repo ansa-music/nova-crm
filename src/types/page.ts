@@ -335,6 +335,13 @@ export interface PageRow {
    */
   deskPageId?: string;
   tabId?: string;
+  /**
+   * Перенос в новый период (`rows_carry_over`, 26.09.2026): id вкладки, из
+   * которой строка переехала, и когда. Метка «перенос» в таблице; при
+   * копировании строки не тянется (rowCopyOf собирает объект явно).
+   */
+  carriedFrom?: string | null;
+  carriedAt?: number | null;
 }
 
 /**

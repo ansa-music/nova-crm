@@ -505,6 +505,94 @@ export async function refreshDeskLoadFromRows(
 }
 
 // ---------------------------------------------------------------------
+// Переархив прошлого периода после переноса незавершённых (26.09.2026).
+// ---------------------------------------------------------------------
+
+export interface DeskLoadRearchiveInput {
+  workspaceId: string;
+  pageId: string;
+  /** Ключ ПРОШЛОГО периода, чьи цифры пересчитаны по оставшимся строкам. */
+  monthKey: string;
+  subPageId: string;
+  counts: ReturnType<typeof countDeskLoad>;
+  responsibleUserId: string;
+  uid: string;
+}
+
+/**
+ * После переноса строк в новый период старый период считал бы их «в работе»
+ * и дальше — его архив (и живая строка, если стол ещё не опубликовал новый
+ * период) переписывается цифрами по ОСТАВШИМСЯ строкам. Supabase —
+ * `desk_load_rearchive` (20261007; клиент в desk_load_history напрямую не
+ * пишет); нет функции — как в Firestore: транзакция правит deskLoad, пока он
+ * за тот же период, и пишет deskLoadHistory/{page}_{period}. Отдаёт, куда
+ * записалось; null — некуда (нет Firebase).
+ */
+export async function rearchiveDeskLoad(input: DeskLoadRearchiveInput, backend: SbBackend): Promise<SbBackend | null> {
+  const load: Omit<DeskLoad, "updatedAt"> = {
+    ...input.counts,
+    pageId: input.pageId,
+    workspaceId: input.workspaceId,
+    responsibleUserId: input.responsibleUserId,
+    monthKey: input.monthKey,
+    subPageId: input.subPageId,
+    updatedBy: input.uid,
+    osCounts: input.counts.osCounts ?? {},
+    osStatusCounts: input.counts.osStatusCounts ?? {},
+    osLastOrderAt: input.counts.osLastOrderAt ?? {},
+  };
+  if (backend === "supabase") {
+    try {
+      await sbRearchiveDeskLoad(load);
+      return "supabase";
+    } catch (error) {
+      if (!isSbMissingError(error)) throw error;
+      // SQL 20261007 ещё не вставлен — архив Firestore, как до переезда.
+    }
+  }
+  return (await fsRearchiveDeskLoad(load)) ? "firestore" : null;
+}
+
+async function sbRearchiveDeskLoad(load: Omit<DeskLoad, "updatedAt">): Promise<void> {
+  const { pageId, workspaceId, responsibleUserId: _resp, monthKey, subPageId, updatedBy: _by, ...data } = load;
+  void _resp;
+  void _by;
+  const { error } = await supabaseRows.rpc("desk_load_rearchive", {
+    p_workspace: workspaceId,
+    p_page: pageId,
+    p_month_key: monthKey,
+    p_sub_page_id: subPageId,
+    p_data: data,
+  });
+  if (error) throw sbError(error);
+  ringTopic(deskLoadsTopic(workspaceId));
+}
+
+async function fsRearchiveDeskLoad(load: Omit<DeskLoad, "updatedAt">): Promise<boolean> {
+  if (!db) return false;
+  const ref = paths.deskLoad(load.workspaceId, load.pageId);
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const previous = snap.exists() ? (snap.data() as Partial<DeskLoad>) : null;
+    const now = Date.now();
+    if (previous?.monthKey && previous.monthKey < load.monthKey) {
+      throw new Error("Период новее живых счётчиков стола — переархив невозможен");
+    }
+    // Стол ещё не опубликовал новый период: правится и живая строка, её
+    // потом заархивирует первая публикация нового периода (fsPublishDeskLoad).
+    if (!previous || previous.monthKey === load.monthKey) {
+      tx.set(ref, {
+        ...load,
+        osLastOrderAt: mergeOsLastOrderAt(previous?.osLastOrderAt, load.osLastOrderAt ?? {}, now),
+        updatedAt: now,
+      });
+    }
+    tx.set(paths.deskLoadHistoryDoc(load.workspaceId, `${load.pageId}_${load.monthKey}`), { ...load, updatedAt: now, archivedAt: now });
+    return true;
+  });
+}
+
+// ---------------------------------------------------------------------
 // Архив месяцев («Дашборд» → по месяцам, «Премии за прошлый месяц»).
 // ---------------------------------------------------------------------
 

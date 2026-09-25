@@ -47,10 +47,11 @@ select tst.expect('os_orders не принимает «-3»',
     values ('W', 'P1', 'anna', 'T1', '2026-10-3', 'tab', '[]'::jsonb, 'x')$q$), 'error');
 
 -- --- Версия --------------------------------------------------------------
-select tst.expect('версия схемы 20261006', public.nova_schema_version(), '20261006');
+select tst.expect('версия схемы — последняя миграция (20261007)', public.nova_schema_version(), '20261007');
 
 -- --- Повторный накат ------------------------------------------------------
 \ir ../migrations/20261006_periods.sql
+\ir ../migrations/20261007_carry_over.sql
 select tst.expect('после повторного наката ограничение одно',
   (select count(*)::text from pg_constraint where conrelid = 'public.desk_loads'::regclass and contype = 'c' and pg_get_constraintdef(oid) like '%month_key ~%'), '1');
 select tst.expect('после повторного наката половина принимается', tst.try('T1', tst.put('P1', 'T1', '2026-12-1', '{"total":1}')), 'ok:1');

@@ -55,6 +55,9 @@ import { HistoryPanel } from "@/components/history/HistoryPanel";
 import { PageChatPanel } from "@/components/chat/PageChatPanel";
 import { PersonalSpacePanel } from "@/components/personal/PersonalSpacePanel";
 import { IncomingDispatchBanner } from "@/components/dispatch/IncomingDispatchBanner";
+import { CarryOverBanner } from "@/components/table/CarryOverBanner";
+import { CarryOverDialog } from "@/components/table/CarryOverDialog";
+import { useCarryOver } from "@/hooks/useCarryOver";
 import { DISPATCH_ENABLED } from "@/config/features";
 import { toast } from "@/components/ui/sonner";
 import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
@@ -1574,6 +1577,26 @@ export default function DynamicTablePage() {
     responsibleOptions: activeWorkspace?.responsibleOptions,
   });
 
+  // Перенос незавершённых заказов из прошлого периода — плашка над столом и
+  // окно выбора (просьба Nurba 26.09.2026).
+  const carry = useCarryOver({
+    page: hasAccess ? page : null,
+    subPages,
+    activeSubPageId,
+    monthKey,
+    periods,
+    members,
+    workspace: activeWorkspace,
+    uid: permissions.uid,
+    canEdit: Boolean(page && permissions.canEditPageData(page)),
+    toTabRows: subPageRows,
+  });
+  // Имена вкладок по id — подпись «перенесён из «16–30 сен»» у строк.
+  const tabNames = useMemo(
+    () => Object.fromEntries(subPages.map((s) => [s.id, s.name])) as Record<string, string>,
+    [subPages]
+  );
+
   // Вкладка месяца стола ОС (октябрь и дальше) — те же недостающие столбцы:
   // вкладку могли завести до «Итого», а столбцы у вкладки свои.
   const osTabColumnsRan = useRef<Set<string>>(new Set());
@@ -2405,6 +2428,31 @@ export default function DynamicTablePage() {
         />
       )}
 
+      {carry.eligible && !chromeHidden && carry.fromTab && carry.toTab && (
+        <CarryOverBanner
+          workspaceId={page.workspaceId}
+          page={page}
+          fromTab={carry.fromTab}
+          toTab={carry.toTab}
+          fromLabel={carry.fromLabel}
+          statusOptions={carry.statusOptions}
+          kinds={carry.kinds}
+          refreshKey={carry.refreshKey}
+          onOpen={carry.open}
+        />
+      )}
+      <CarryOverDialog
+        open={carry.dialogOpen}
+        onOpenChange={carry.setDialogOpen}
+        candidates={carry.candidates}
+        columns={carry.fromTab?.columns ?? page.columns ?? []}
+        statusOptions={carry.statusOptions}
+        fromLabel={carry.fromLabel}
+        toLabel={carry.toLabel}
+        busy={carry.busy}
+        onConfirm={(rows) => void carry.confirm(rows)}
+      />
+
       {personalSpaceOpen ? (
         <div className="flex-1 overflow-hidden">
           <PersonalSpacePanel
@@ -2498,6 +2546,7 @@ export default function DynamicTablePage() {
                 // «Добавить строку» и «Быстрый заказ» (Owner не ограничиваем).
                 ordersFromOsOnly={ordersFromOsOnly}
                 techFills={techFills}
+                tabNames={tabNames}
                 cellPickerKeys={isMyOsDesk ? osTechPickerKeys : undefined}
                 lockedKeys={osLockedKeys}
                 cardMeta={

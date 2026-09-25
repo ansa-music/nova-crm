@@ -1,3 +1,4 @@
+import { carriedLabel } from "@/utils/carryOver";
 import { useMemo, useState, type ReactNode } from "react";
 import { CalendarDays, ChevronRight, Phone, Plus } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
@@ -31,6 +32,8 @@ interface CardListViewProps {
   renderFooter?: (row: PageRow) => ReactNode;
   /** Текст пустого списка (стол ОС объясняет, с чего начать). */
   emptyText?: string;
+  /** Имена вкладок по id — метка «перенос» у строк из прошлого периода. */
+  tabNames?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -45,7 +48,7 @@ interface CardListViewProps {
  * На телефоне карточки идут одной колонкой, на широком экране — сеткой:
  * иначе на десктопе это была бы одна колонка во всю ширину стола.
  */
-export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder, renderMeta, renderFooter, emptyText }: CardListViewProps) {
+export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder, renderMeta, renderFooter, emptyText, tabNames }: CardListViewProps) {
   const fields = useMemo(() => pickRowCardColumns(columns), [columns]);
   const [limit, setLimit] = useState(PAGE_SIZE);
 
@@ -135,6 +138,14 @@ export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder, re
                     {row.highlight && (
                       <span className="rounded-full border border-warning/60 bg-warning/20 px-1.5 text-[10px] font-semibold uppercase leading-4 text-warning">
                         новый
+                      </span>
+                    )}
+                    {row.carriedFrom && (
+                      <span
+                        className="rounded-full border border-sky-400/50 bg-sky-400/15 px-1.5 text-[10px] font-semibold uppercase leading-4 text-sky-200"
+                        title={`Перенесён из «${carriedLabel(row, tabNames)}»`}
+                      >
+                        перенос
                       </span>
                     )}
                     {fields.status && statusValue && (

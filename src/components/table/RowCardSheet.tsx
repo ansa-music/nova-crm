@@ -77,6 +77,8 @@ interface RowCardSheetProps {
    * голая выпадашка ников без занятости.
    */
   hiddenFieldKeys?: readonly string[];
+  /** Подпись «перенесён из «16–30 сен»» у строки, переехавшей из прошлого периода. */
+  carriedLabel?: (row: PageRow) => string | null;
 }
 
 function isTitleColumn(col: PageColumn) {
@@ -102,6 +104,7 @@ export function RowCardSheet({
   clientCard,
   extraPanel,
   hiddenFieldKeys,
+  carriedLabel,
 }: RowCardSheetProps) {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -405,6 +408,11 @@ export function RowCardSheet({
                         </span>
                       )}
                     </p>
+                    {row && carriedLabel?.(row) ? (
+                      <p className="mb-1.5 inline-flex items-center gap-1.5 rounded-md border border-sky-400/40 bg-sky-400/10 px-1.5 py-0.5 text-[11px] text-sky-200">
+                        Перенесён из «{carriedLabel(row)}»
+                      </p>
+                    ) : null}
                     {editingKey === titleCol?.key && titleCol ? (
                       <div className="mt-1">{renderValue(titleCol)}</div>
                     ) : (

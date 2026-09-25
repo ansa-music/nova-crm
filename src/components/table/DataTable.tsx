@@ -1,3 +1,4 @@
+import { carriedLabel } from "@/utils/carryOver";
 import type { CellActionView } from "@/components/table/CellActionButton";
 import {
   useCallback,
@@ -469,6 +470,8 @@ interface DataTableProps {
   cardFooter?: (row: PageRow) => React.ReactNode;
   /** Столбцы, которых нет в «Полях» карточки строки (их показывает `renderRowPanel`). */
   rowCardHiddenKeys?: readonly string[];
+  /** Имена вкладок стола по id — подпись «перенесён из «16–30 сен»» у перенесённых строк. */
+  tabNames?: Readonly<Record<string, string>>;
   /**
    * Можно ли предлагать «Отметить «Готово»» в карточке строки (стол ОС: только
    * выданному заказу — невыданный «Готово» не бывает). Нет — как раньше.
@@ -504,7 +507,7 @@ function normalizeContact(raw: string, type: "phone" | "email" | string): string
   return v.toLowerCase();
 }
 
-export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, techFills = false, onSummaryChange, onActionsChange, cellPickerKeys, onOpenCellPicker, cellAction, cellAddon, lockedKeys, cardMeta, cellDisplay, cardFooter, rowCardHiddenKeys, canMarkRowDone, groupHint, emptyState }: DataTableProps) {
+export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, techFills = false, onSummaryChange, onActionsChange, cellPickerKeys, onOpenCellPicker, cellAction, cellAddon, lockedKeys, cardMeta, cellDisplay, cardFooter, rowCardHiddenKeys, tabNames, canMarkRowDone, groupHint, emptyState }: DataTableProps) {
   // Внешний выбор ячейки: колбэк стабилен (через ref), иначе каждый рендер
   // стола перерисовывал бы все строки — TableRow сравнивает пропсы.
   const cellPickerRef = useRef(onOpenCellPicker);
@@ -4154,6 +4157,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         coarsePointer={coarsePointer}
         extrasHintKey={extrasHintKey}
         onOpenClientCard={setExpandedRowId}
+        tabNames={tabNames}
         anyChecked={selectedRowIds.size > 0}
         zebra={index % 2 === 1}
         onMarkDone={rowHandlers.onMarkDone}
@@ -4339,6 +4343,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           onOpenRow={setExpandedRowId}
           renderMeta={cardMeta}
           renderFooter={cardFooter}
+          tabNames={tabNames}
           emptyText={emptyState ? [emptyState.title, emptyState.description].filter(Boolean).join(". ") : undefined}
           onAddOrder={
             canEdit && !ordersFromOsOnly
@@ -4357,6 +4362,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           canEdit={canEdit}
           onStatusChange={handleStatusChange}
           onOpenRow={setExpandedRowId}
+          tabNames={tabNames}
           onAddOrder={
             canEdit && !ordersFromOsOnly
               ? (statusValue) => {
@@ -4858,6 +4864,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
             : displayColumns
         }
         row={rows.find((r) => r.id === expandedRowId) ?? null}
+        carriedLabel={(r) => carriedLabel(r, tabNames)}
         canEdit={canEdit}
         // Карточка — тот же замок, что и таблица: иначе статус в ней
         // открывался бы, и отказ прилетал уже после выбора.

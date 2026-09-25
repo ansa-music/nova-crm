@@ -431,6 +431,7 @@ select tst.expect('…источника на столе ОС нет',
 -- Повторный накат файлов.
 \ir ../migrations/20261002_os_sync.sql
 \ir ../migrations/20261004_exchange_claim.sql
+\ir ../migrations/20261007_carry_over.sql
 select tst.expect('после повторного наката карта в копии на месте',
   tst.try('CT1', $q$select 1 from rows_page_acl where workspace_id='WC' and page_id='PC1' and os_key='os' and os_keys_tab='m9' and os_status_key='status'$q$, true), 'ok:1');
 select tst.expect('после повторного наката ровно одна rows_os_claim_order',

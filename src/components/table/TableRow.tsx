@@ -6,6 +6,7 @@ import { memo, useEffect, useReducer, useRef, useState } from "react";
 import { Copy, GripVertical, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { TableCell } from "@/components/table/TableCell";
 import { rowExtrasSummary } from "@/utils/rowExtras";
+import { carriedLabel } from "@/utils/carryOver";
 import { rowCardLayoutId } from "@/components/table/RowCardSheet";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -80,6 +81,8 @@ interface TableRowProps {
   extrasHintKey?: string | null;
   /** Кнопка «Карточка клиента» в столбце клиента — открывает карточку строки (визитка наверху). */
   onOpenClientCard?: (rowId: string) => void;
+  /** Имена вкладок стола по id — подпись у строки, переехавшей из прошлого периода. */
+  tabNames?: Readonly<Record<string, string>>;
   /** Some row is ticked — keep every checkbox visible so more can be added. */
   anyChecked?: boolean;
   searchQuery?: string;
@@ -232,6 +235,7 @@ function TableRowInner({
   gutterWidth = ROW_GUTTER_WIDTH,
   extrasHintKey,
   onOpenClientCard,
+  tabNames,
   anyChecked = false,
   searchQuery = "",
   openRequest,
@@ -477,6 +481,7 @@ function TableRowInner({
                     onOpen: () => onOpenClientCard(row.id),
                     fromOrder: Boolean(row.orderId),
                     isNewOrder: Boolean(row.highlight),
+                    carriedLabel: carriedLabel(row, tabNames),
                   }
                 : null
             }
@@ -554,6 +559,8 @@ function sameRowContent(a: PageRow, b: PageRow): boolean {
     // Дата получения заказа (столбец «Даты» стола ОС) и адрес копии у технаря.
     a.filledAt === b.filledAt &&
     a.mirrorRowId === b.mirrorRowId &&
+    // Метка «перенос» из нового периода.
+    a.carriedFrom === b.carriedFrom &&
     sameExtras(a.extras, b.extras)
   );
 }
@@ -580,6 +587,7 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     prev.expandedColKey !== next.expandedColKey ||
     prev.gutterWidth !== next.gutterWidth ||
     prev.extrasHintKey !== next.extrasHintKey ||
+    prev.tabNames !== next.tabNames ||
     prev.searchQuery !== next.searchQuery ||
     prev.accentColor !== next.accentColor ||
     prev.fillHandleColKey !== next.fillHandleColKey ||

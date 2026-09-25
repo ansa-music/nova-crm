@@ -1,3 +1,4 @@
+import { carriedLabel } from "@/utils/carryOver";
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -40,9 +41,11 @@ interface KanbanViewProps {
   onAddOrder?: (statusValue: string) => void;
   /** Open the row card (click on a card). */
   onOpenRow?: (rowId: string) => void;
+  /** Имена вкладок по id — метка «перенос» у строк из прошлого периода. */
+  tabNames?: Readonly<Record<string, string>>;
 }
 
-export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChange, onAddOrder, onOpenRow }: KanbanViewProps) {
+export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChange, onAddOrder, onOpenRow, tabNames }: KanbanViewProps) {
   const options = statusColumn.statusOptions ?? [];
   const titleColKey = columns.find((c) => !isOptionColumn(c.type) && c.type !== "date" && c.type !== "url" && c.type !== "phone" && c.type !== "email" && c.type !== "number" && c.type !== "currency")?.key ?? columns.find((c) => !isOptionColumn(c.type))?.key;
   const currencyCol = columns.find((c) => c.type === "currency");
@@ -123,6 +126,7 @@ export function KanbanView({ columns, rows, statusColumn, canEdit, onStatusChang
 
   const draggingRow = draggingRowId ? rows.find((r) => r.id === draggingRowId) ?? null : null;
   const cardFields = {
+    tabNames,
     titleColKey,
     currencyColKey: currencyCol?.key,
     responsibleCol,
@@ -344,6 +348,8 @@ function KanbanColumn({ option, rows, titleColKey, currencyColKey, responsibleCo
 }
 
 interface KanbanCardFields {
+  /** Имена вкладок по id — подсказка у метки «перенос». */
+  tabNames?: Readonly<Record<string, string>>;
   titleColKey?: string;
   currencyColKey?: string;
   responsibleCol?: PageColumn;
@@ -403,6 +409,7 @@ function KanbanCardBody({
   responsibleCol,
   dateColKey,
   phoneColKey,
+  tabNames,
   className,
 }: KanbanCardFields & { row: PageRow; className?: string }) {
   const title = titleColKey ? String(row.cells[titleColKey] ?? "").trim() : "";
@@ -434,6 +441,14 @@ function KanbanCardBody({
       {row.highlight && (
         <span className="mb-1 inline-block rounded-full border border-warning/60 bg-warning/20 px-1.5 text-[10px] font-semibold uppercase leading-4 text-warning">
           новый
+        </span>
+      )}
+      {row.carriedFrom && (
+        <span
+          className="mb-1 ml-1 inline-block rounded-full border border-sky-400/50 bg-sky-400/15 px-1.5 text-[10px] font-semibold uppercase leading-4 text-sky-200"
+          title={`Перенесён из «${carriedLabel(row, tabNames)}»`}
+        >
+          перенос
         </span>
       )}
       {title ? <p className={cn("line-clamp-2 font-medium leading-snug", responsibleOption && "pr-6")}>{title}</p> : <p className="italic text-muted-foreground">Без названия</p>}

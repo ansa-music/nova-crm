@@ -1338,6 +1338,12 @@ service cloud.firestore {
           && request.resource.data.status == 'taken'
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['status', 'takenAt', 'takenPageId', 'takenSubPageId', 'takenRowId', 'updatedAt']);
+        // Перенос строки в новый период (26.09.2026): взятый заказ помнит адрес
+        // своей строки — технарь переписывает только вкладку/строку, стол тот же.
+        allow update: if resource.data.get('assignedUid', '') == request.auth.uid
+          && resource.data.status == 'taken'
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['takenSubPageId', 'takenRowId', 'updatedAt']);
       }
 
       // «Выдачи ОС» — журнал выборочных выдач со стола ОС (просьба Nurba

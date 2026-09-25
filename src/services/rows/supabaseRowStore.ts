@@ -44,6 +44,9 @@ interface DeskRowRecord {
   sync_hash: string | null;
   success_requested_at: number | null;
   success_requested_by: string | null;
+  /** Перенос в новый период (20261007): откуда и когда переехала строка. Клиент пишет только через RPC. */
+  carried_from?: string | null;
+  carried_at?: number | null;
   /**
    * Номер правки строки (20260929_desk_rows_rev.sql): ставит триггер базы на
    * каждой вставке и правке. Клиент его НЕ пишет (rowToRecord его не кладёт) —
@@ -110,6 +113,10 @@ export function recordToRow(record: DeskRowRecord): PageRow {
   if (record.sync_hash) row.syncHash = record.sync_hash;
   if (record.success_requested_at != null) row.successRequestedAt = Number(record.success_requested_at);
   if (record.success_requested_by) row.successRequestedBy = record.success_requested_by;
+  if (record.carried_from) {
+    row.carriedFrom = record.carried_from;
+    if (record.carried_at != null) row.carriedAt = Number(record.carried_at);
+  }
   return row;
 }
 
@@ -141,6 +148,9 @@ export function rowToRecord(workspaceId: string, pageId: string, tab: string | n
     sync_hash: row.syncHash ?? null,
     success_requested_at: row.successRequestedAt ?? null,
     success_requested_by: row.successRequestedBy ?? null,
+    // Только у перенесённых строк: до наката SQL 20261007 столбцов нет, и
+    // upsert с ними падал бы PGRST204 для ВСЕХ строк.
+    ...(row.carriedFrom ? { carried_from: row.carriedFrom, carried_at: row.carriedAt ?? null } : {}),
   };
 }
 
@@ -689,6 +699,52 @@ async function optimistic<T>(
     throw error;
   } finally {
     for (const t of targets) {
+      t.pending -= 1;
+      t.settled();
+    }
+  }
+}
+
+/**
+ * Запись, затрагивающая ДВЕ вкладки одного стола (перенос строк): оверлей
+ * ложится на каждую по-своему — из старой строки убрать, в новую добавить, —
+ * а сама запись идёт очередью ТАБЛИЦЫ (ждёт все правки строк стола). Свой
+ * звонок вкладка не слышит, поэтому без оверлеев перенос был бы виден
+ * только после перечитки.
+ */
+async function optimisticMulti<T>(
+  workspaceId: string,
+  pageId: string,
+  targets: Array<{ tab: string | null; op: Op; rowIds: string[]; deletes?: string[] }>,
+  write: () => Promise<T>
+): Promise<T> {
+  const id = ++opSeq;
+  const touched: LiveTable[] = [];
+  for (const target of targets) {
+    for (const t of tablesFor(workspaceId, pageId, target.tab)) {
+      t.overlays.set(id, { op: target.op, remaining: new Set(target.rowIds), committedAt: null, deletes: target.deletes });
+      t.pending += 1;
+      t.refresh();
+      touched.push(t);
+    }
+  }
+  try {
+    const result = await sequenced(laneKey(workspaceId, pageId, undefined), null, () => writeWithRetry(write));
+    for (const t of touched) {
+      const overlay = t.overlays.get(id);
+      if (overlay) overlay.committedAt = Date.now();
+    }
+    ringRowsDoorbell(workspaceId, pageId, "*");
+    return result;
+  } catch (error) {
+    for (const t of touched) {
+      t.overlays.delete(id);
+      t.refresh();
+      t.reload();
+    }
+    throw error;
+  } finally {
+    for (const t of touched) {
       t.pending -= 1;
       t.settled();
     }
@@ -1500,9 +1556,74 @@ export async function sbPutRows(workspaceId: string, pageId: string, tab: string
     async () => {
       for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
         const slice = rows.slice(i, i + UPSERT_CHUNK).map((row) => rowToRecord(workspaceId, pageId, tab, row));
+        // PostgREST требует одинаковый набор ключей у всех записей пачки.
+        if (slice.some((r) => "carried_from" in r)) {
+          for (const r of slice) {
+            if (!("carried_from" in r)) Object.assign(r, { carried_from: null, carried_at: null });
+          }
+        }
         const { error } = await supabaseRows.from(DESK_ROWS_TABLE).upsert(slice, { onConflict: DESK_ROWS_CONFLICT });
         if (error) throw toStoreError(error, "Не удалось сохранить строки");
       }
+    }
+  );
+}
+
+export interface CarryOverResult {
+  moved: string[];
+  skipped: string[];
+}
+
+/**
+ * Перенос строк в другую вкладку того же стола — `rows_carry_over`
+ * (20261007): тот же id, все поля, адреса копий чинит база. Нет функции
+ * (SQL не вставлен) — понятная ошибка, а не «не удалось сохранить».
+ */
+export async function sbCarryOverRows(
+  workspaceId: string,
+  pageId: string,
+  fromTab: string | null,
+  toTab: string | null,
+  rows: PageRow[]
+): Promise<CarryOverResult> {
+  if (rows.length === 0) return { moved: [], skipped: [] };
+  const ids = rows.map((r) => r.id);
+  const now = Date.now();
+  const toPageRowId = toTab ?? pageId;
+  return optimisticMulti(
+    workspaceId,
+    pageId,
+    [
+      { tab: fromTab, op: (map) => ids.forEach((id) => map.delete(id)), rowIds: ids, deletes: ids },
+      {
+        tab: toTab,
+        op: (map) => {
+          for (const row of rows) {
+            map.set(row.id, { ...row, pageId: toPageRowId, tabId: tabKey(toTab), carriedFrom: tabKey(fromTab), carriedAt: now, updatedAt: now });
+          }
+        },
+        rowIds: ids,
+      },
+    ],
+    async () => {
+      const { data, error } = await supabaseRows.rpc("rows_carry_over", {
+        p_workspace: workspaceId,
+        p_page: pageId,
+        p_from_tab: tabKey(fromTab),
+        p_to_tab: tabKey(toTab),
+        p_rows: ids,
+      });
+      if (error) {
+        if (error.code === "PGRST202" || error.code === "42883") {
+          throw new RowsStoreError("В базе строк ещё нет функции переноса — вставьте SQL (Настройки → Строки таблиц)", "supabase-missing-function");
+        }
+        throw toStoreError(error, "Не удалось перенести строки");
+      }
+      const result = (data ?? {}) as { moved?: unknown; skipped?: unknown };
+      return {
+        moved: Array.isArray(result.moved) ? result.moved.map(String) : [],
+        skipped: Array.isArray(result.skipped) ? result.skipped.map(String) : [],
+      };
     }
   );
 }

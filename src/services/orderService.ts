@@ -27,6 +27,7 @@ import { addRow, deleteRow, fetchRows, markRowOrder, updateRowCellsBulk } from "
 import { addSubPageRow, deleteSubPageRow, fetchSubPageRows, fetchSubPages, updateSubPageRowCellsBulk } from "@/services/subPageService";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { sbDeleteRow, sbDropOrderRow, sbPatchRow } from "@/services/rows/supabaseRowStore";
+import { sbFindDeskRowTab } from "@/services/rows/osOrderClaim";
 import { findInProgressStatusOption, getColumnOptions } from "@/utils/columnOptions";
 import { isBlankRow, isFilledCellValue } from "@/utils/blankRow";
 import { currentMonthSubPageId, ensureMonthTab, isMonthlyDesk } from "@/services/monthTabService";
@@ -489,7 +490,10 @@ export async function removeOrderDeskRow(
     return;
   }
   if (usesSupabaseRows(workspaceId)) {
-    await sbDropOrderRow(workspaceId, pageId, tab, rowId, order.id);
+    // Строку могли перенести в новый период (rows_carry_over) до того, как
+    // заказ узнал новый адрес — ищем её по id на любой вкладке стола.
+    const actualTab = await sbFindDeskRowTab(workspaceId, pageId, rowId).catch(() => undefined);
+    await sbDropOrderRow(workspaceId, pageId, actualTab === undefined ? tab : actualTab || null, rowId, order.id);
     return;
   }
   if (tab) await deleteSubPageRow(workspaceId, pageId, tab, rowId);
