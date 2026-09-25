@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { watchOpenOrders } from "@/services/openOrdersPulse";
+import { useOrdersBackend } from "@/services/orderStore";
 
 /**
  * Один слушатель открытых заказов на приложение — зажигает «Заказы» в меню.
@@ -9,5 +10,6 @@ import { watchOpenOrders } from "@/services/openOrdersPulse";
  */
 export function useOpenOrdersWatch() {
   const { activeWorkspaceId } = useWorkspace();
-  useEffect(() => watchOpenOrders(activeWorkspaceId), [activeWorkspaceId]);
+  const backend = useOrdersBackend(activeWorkspaceId);
+  useEffect(() => (backend ? watchOpenOrders(activeWorkspaceId, backend) : undefined), [activeWorkspaceId, backend]);
 }

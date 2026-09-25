@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
+import { subscribeLiveOrdersFeed, useOrdersBackend } from "@/services/orderStore";
 import { OrderNotAssignedError, OrderOfflineError, takeOrderToDesk } from "@/services/orderService";
 import { isRowsMigratingError } from "@/utils/dbError";
 import { useAuth } from "@/hooks/useAuth";
@@ -78,17 +79,13 @@ export function useOrderAutoPickup() {
     handledRef.current = new Set();
   }, [activeWorkspaceId, uid]);
 
+  const backend = useOrdersBackend(activeWorkspaceId);
+
   useEffect(() => {
-    if (!enabled || !activeWorkspaceId || !myDesk) return;
-    const q = query(paths.orders(activeWorkspaceId), where("assignedUid", "==", uid), where("status", "==", "assigned"));
-    const unsubscribe = onSnapshot(
-      q,
-      { includeMetadataChanges: true },
-      (snap) => {
-        if (snap.metadata.fromCache) return;
-        for (const docSnap of snap.docs) {
-          const order = { id: docSnap.id, ...docSnap.data() } as WorkOrder;
-          if (order.status !== "assigned") continue;
+    if (!enabled || !activeWorkspaceId || !myDesk || !backend) return;
+    const onOrders = (orders: WorkOrder[]) => {
+        for (const order of orders) {
+          if (order.status !== "assigned" || order.assignedUid !== uid) continue;
           // Заказ со стола ОС заводит в стол сам ОС — строкой-заказом с его
           // меткой (useOsExchangeHandoff); обычная строка от технаря была бы
           // вторым, «ничьим» экземпляром того же заказа.
@@ -146,6 +143,24 @@ export function useOrderAutoPickup() {
               });
             });
         }
+    };
+    if (backend === "supabase") {
+      // Общий поток живых заказов вкладки (оба хранилища): свои выданные — отсюда.
+      return subscribeLiveOrdersFeed(
+        activeWorkspaceId,
+        (orders, fromCache) => {
+          if (!fromCache) onOrders(orders);
+        },
+        (error) => console.error("Свои заказы не прочитаны:", error)
+      );
+    }
+    const q = query(paths.orders(activeWorkspaceId), where("assignedUid", "==", uid), where("status", "==", "assigned"));
+    const unsubscribe = onSnapshot(
+      q,
+      { includeMetadataChanges: true },
+      (snap) => {
+        if (snap.metadata.fromCache) return;
+        onOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as WorkOrder));
       },
       (error) => console.error("Подписка на свои заказы отклонена:", error.code, error.message)
     );
@@ -154,5 +169,5 @@ export function useOrderAutoPickup() {
     // читается из latestRef в момент записи, поэтому пересоздавать её на
     // каждое обновление участников или смену месяца не нужно.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, activeWorkspaceId, uid, myDesk?.id]);
+  }, [enabled, activeWorkspaceId, uid, myDesk?.id, backend]);
 }

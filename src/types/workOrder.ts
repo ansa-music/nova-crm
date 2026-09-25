@@ -89,6 +89,12 @@ export interface WorkOrder {
   osSource?: WorkOrderOsSource | null;
   createdAt: number;
   updatedAt: number;
+  /**
+   * Откуда заказ прочитан — только при чтении, в базу не пишется: `sb` —
+   * Supabase (`work_orders`), `fs` — Firestore (заказ до переезда). По нему
+   * запись идёт туда, где заказ лежит; нет поля — неизвестно (orderStore).
+   */
+  source?: "sb" | "fs";
 }
 
 export function orderClaimScope(order: Pick<WorkOrder, "claimScope"> | null | undefined): WorkOrderClaimScope {

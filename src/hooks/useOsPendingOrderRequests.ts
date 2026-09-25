@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { subscribePendingOrderRequests, type OrderRequest } from "@/services/orderRequestService";
+import { subscribePendingOrderRequests, useOrderRequestsBackend, type OrderRequest } from "@/services/orderRequestService";
 import { joinSharedSubscription } from "@/utils/sharedSubscription";
 
 /**
@@ -18,11 +18,12 @@ const EMPTY: OsPendingRequests = { requests: [], loaded: false };
 
 export function useOsPendingOrderRequests(workspaceId: string | null, osUid: string | null, enabled: boolean): OsPendingRequests {
   const [state, setState] = useState<OsPendingRequests>(EMPTY);
+  const backend = useOrderRequestsBackend(workspaceId);
   useEffect(() => {
     setState(EMPTY);
-    if (!workspaceId || !osUid || !enabled) return;
+    if (!workspaceId || !osUid || !enabled || !backend) return;
     return joinSharedSubscription<OsPendingRequests>(
-      `os-order-requests:${workspaceId}:${osUid}`,
+      `os-order-requests:${workspaceId}:${osUid}:${backend}`,
       (emit) =>
         subscribePendingOrderRequests(
           workspaceId,
@@ -31,10 +32,11 @@ export function useOsPendingOrderRequests(workspaceId: string | null, osUid: str
           (error) => {
             console.error("Запросы технарей не прочитаны:", error.message);
             emit(EMPTY);
-          }
+          },
+          backend
         ),
       setState
     );
-  }, [workspaceId, osUid, enabled]);
+  }, [workspaceId, osUid, enabled, backend]);
   return state;
 }

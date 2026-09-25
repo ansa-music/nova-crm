@@ -1,7 +1,8 @@
-import { doc, updateDoc, writeBatch } from "firebase/firestore";
+import { doc, writeBatch } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { rearchiveDeskLoad, refreshDeskLoadFromRows } from "@/services/deskLoadService";
+import { retabOrder } from "@/services/orderService";
 import { findMonthTab, isMonthlyDesk } from "@/services/monthTabService";
 import { stripUndefined } from "@/services/pageService";
 import { periodSettingsOf } from "@/services/periodService";
@@ -101,13 +102,7 @@ export async function carryOverRows(input: CarryOverInput): Promise<CarryOverRes
   await Promise.all(
     input.rows
       .filter((r) => movedSet.has(r.id) && r.orderId)
-      .map((r) =>
-        db
-          ? updateDoc(paths.order(workspaceId, r.orderId as string), { takenSubPageId: toTab.id, takenRowId: r.id, updatedAt: Date.now() }).catch(
-              () => undefined
-            )
-          : Promise.resolve()
-      )
+      .map((r) => retabOrder(workspaceId, r.orderId as string, { subPageId: toTab.id, rowId: r.id }).catch(() => undefined))
   );
   dropCarryCandidates(workspaceId, page.id);
   if (movedSet.size > 0 && input.deskLoadBackend) {

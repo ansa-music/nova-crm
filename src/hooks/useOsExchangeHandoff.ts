@@ -3,6 +3,7 @@ import { onSnapshot, query, where } from "firebase/firestore";
 import { toast } from "@/components/ui/sonner";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
+import { subscribeLiveOrdersFeed, useOrdersBackend } from "@/services/orderStore";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -48,17 +49,13 @@ export function useOsExchangeHandoff() {
     told.current = new Set();
   }, [activeWorkspaceId, uid]);
 
+  const backend = useOrdersBackend(activeWorkspaceId);
+
   useEffect(() => {
-    if (!enabled || !activeWorkspaceId) return;
-    const q = query(paths.orders(activeWorkspaceId), where("createdBy", "==", uid), where("status", "==", "assigned"));
-    return onSnapshot(
-      q,
-      { includeMetadataChanges: true },
-      (snap) => {
-        // Решать по снимку из кэша нельзя: заказ мог давно уйти в «В столе».
-        if (snap.metadata.fromCache) return;
-        for (const docSnap of snap.docs) {
-          const order = { id: docSnap.id, ...docSnap.data() } as WorkOrder;
+    if (!enabled || !activeWorkspaceId || !backend) return;
+    const onOrders = (orders: WorkOrder[]) => {
+        for (const order of orders) {
+          if (order.createdBy !== uid) continue;
           if (!order.osSource || !order.assignedUid || order.status !== "assigned") continue;
           if (handled.current.has(order.id)) continue;
           handled.current.add(order.id);
@@ -88,8 +85,28 @@ export function useOsExchangeHandoff() {
               toast.error(`Заказ «${order.client}» не доехал до технаря`, { description: text });
             });
         }
+    };
+    if (backend === "supabase") {
+      // Общий поток живых заказов вкладки (оба хранилища).
+      return subscribeLiveOrdersFeed(
+        activeWorkspaceId,
+        (orders, fromCache) => {
+          // Решать по неподтверждённому снимку нельзя: заказ мог давно уйти в «В столе».
+          if (!fromCache) onOrders(orders);
+        },
+        (error) => console.error("Выданные заказы ОС не прочитаны:", error)
+      );
+    }
+    const q = query(paths.orders(activeWorkspaceId), where("createdBy", "==", uid), where("status", "==", "assigned"));
+    return onSnapshot(
+      q,
+      { includeMetadataChanges: true },
+      (snap) => {
+        // Решать по снимку из кэша нельзя: заказ мог давно уйти в «В столе».
+        if (snap.metadata.fromCache) return;
+        onOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as WorkOrder));
       },
       (error) => console.error("Подписка на выданные заказы ОС отклонена:", error.code, error.message)
     );
-  }, [enabled, activeWorkspaceId, uid]);
+  }, [enabled, activeWorkspaceId, uid, backend]);
 }

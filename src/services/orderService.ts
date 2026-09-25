@@ -1,25 +1,9 @@
-import {
-  deleteDoc,
-  deleteField,
-  getCountFromServer,
-  getDoc,
-  getDocFromServer,
-  getDocs,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-  setDoc,
-  startAfter,
-  updateDoc,
-  where,
-  type QueryDocumentSnapshot,
-} from "firebase/firestore";
+import { deleteDoc, deleteField, onSnapshot, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { deskRowHref } from "@/utils/deskLinks";
 import { generateId } from "@/utils/id";
-import { formatOrderDate, normalizeTimestamp } from "@/utils/date";
+import { formatOrderDate } from "@/utils/date";
 import { formatCurrency } from "@/utils/format";
 import { buildQuickOrderRow, mergeColumnPicks } from "@/utils/quickOrder";
 import { sendNotification } from "@/services/notificationService";
@@ -31,6 +15,22 @@ import { sbFindDeskRowTab } from "@/services/rows/osOrderClaim";
 import { findInProgressStatusOption, getColumnOptions } from "@/utils/columnOptions";
 import { isBlankRow, isFilledCellValue } from "@/utils/blankRow";
 import { currentMonthSubPageId, ensureMonthTab, isMonthlyDesk } from "@/services/monthTabService";
+import {
+  countOrdersAnywhere,
+  fetchMergedHistoryPage,
+  fetchOrderAnywhere,
+  initialHistoryCursor,
+  mapFirestoreOrder,
+  ordersBackendFor,
+  OrderNotInSupabase,
+  routeOrderWrite,
+  sbOrderWrite,
+  subscribeLiveOrdersFeed,
+  type OrderHistoryCursor,
+} from "@/services/orderStore";
+import type { SbBackend } from "@/services/sb/sbCollections";
+
+export type { OrderHistoryCursor };
 import { WORK_ORDER_URGENCY_LABELS } from "@/types";
 import type {
   PageColumn,
@@ -45,15 +45,7 @@ import type {
   WorkspacePage,
 } from "@/types";
 
-function mapOrder(data: Record<string, unknown>, id: string): WorkOrder {
-  const row = { id, ...data } as WorkOrder;
-  return {
-    ...row,
-    claims: row.claims ?? {},
-    createdAt: normalizeTimestamp(row.createdAt),
-    updatedAt: normalizeTimestamp(row.updatedAt),
-  };
-}
+const mapOrder = mapFirestoreOrder;
 
 /**
  * Статусы, которые живут на бирже и нужны вживую. «В столах» и «Отменённые» —
@@ -81,8 +73,12 @@ export function isHistoryOrderStatus(status: WorkOrderStatus): status is History
 export function subscribeOrders(
   workspaceId: string,
   cb: (orders: WorkOrder[], fromCache: boolean) => void,
-  onError?: (e: unknown) => void
+  onError?: (e: unknown) => void,
+  /** Где биржа (useOrdersBackend); нет — по стору в момент подписки. */
+  backend?: SbBackend | null
 ) {
+  // Supabase: общий поток живых заказов (оба хранилища) — см. orderStore.
+  if ((backend ?? ordersBackendFor(workspaceId)) === "supabase") return subscribeLiveOrdersFeed(workspaceId, cb, onError);
   const q = query(paths.orders(workspaceId), where("status", "in", [...LIVE_ORDER_STATUSES]));
   return onSnapshot(
     q,
@@ -101,8 +97,8 @@ export const ORDER_HISTORY_PAGE_SIZE = 60;
 
 export interface OrderHistoryPage {
   orders: WorkOrder[];
-  /** Курсор для «Показать ещё» — последний прочитанный заказ; null — не прочитано ни одного. */
-  cursor: QueryDocumentSnapshot | null;
+  /** Курсор для «Показать ещё»; null — начать сначала. */
+  cursor: OrderHistoryCursor | null;
   hasMore: boolean;
 }
 
@@ -114,16 +110,9 @@ export interface OrderHistoryPage {
  * одному полю идёт по одиночному. В странице попадутся и живые заказы — их
  * страница берёт из подписки, а отсюда отбрасывает.
  */
-export async function fetchOrderHistoryPage(workspaceId: string, after: QueryDocumentSnapshot | null): Promise<OrderHistoryPage> {
-  const q = after
-    ? query(paths.orders(workspaceId), orderBy("createdAt", "desc"), startAfter(after), limit(ORDER_HISTORY_PAGE_SIZE))
-    : query(paths.orders(workspaceId), orderBy("createdAt", "desc"), limit(ORDER_HISTORY_PAGE_SIZE));
-  const snapshot = await getDocs(q);
-  return {
-    orders: snapshot.docs.map((d) => mapOrder(d.data(), d.id)),
-    cursor: snapshot.docs[snapshot.docs.length - 1] ?? after,
-    hasMore: snapshot.size === ORDER_HISTORY_PAGE_SIZE,
-  };
+export async function fetchOrderHistoryPage(workspaceId: string, after: OrderHistoryCursor | null): Promise<OrderHistoryPage> {
+  // Оба хранилища слиянием по дате (в режиме Firestore Supabase сразу «прочитан»).
+  return fetchMergedHistoryPage(workspaceId, after ?? initialHistoryCursor(workspaceId), ORDER_HISTORY_PAGE_SIZE);
 }
 
 /**
@@ -132,14 +121,12 @@ export async function fetchOrderHistoryPage(workspaceId: string, after: QueryDoc
  * заказов, а не по чтению на заказ; одно равенство индекса не требует.
  */
 export async function countOrdersWithStatus(workspaceId: string, status: WorkOrderStatus): Promise<number> {
-  const snapshot = await getCountFromServer(query(paths.orders(workspaceId), where("status", "==", status)));
-  return snapshot.data().count;
+  return countOrdersAnywhere(workspaceId, status);
 }
 
 /** Один заказ разово: куда он ушёл с биржи (в стол, в отмену или удалён — null). */
 export async function fetchOrder(workspaceId: string, orderId: string): Promise<WorkOrder | null> {
-  const snapshot = await getDoc(paths.order(workspaceId, orderId));
-  return snapshot.exists() ? mapOrder(snapshot.data(), snapshot.id) : null;
+  return fetchOrderAnywhere(workspaceId, orderId, false);
 }
 
 export interface CreateOrderInput {
@@ -219,7 +206,18 @@ export async function createOrder(input: CreateOrderInput): Promise<WorkOrder> {
     updatedAt: now,
   };
   if (input.osSource) order.osSource = input.osSource;
-  await setDoc(paths.order(input.workspaceId, order.id), order);
+  let saved: WorkOrder = order;
+  let inFirestore = ordersBackendFor(input.workspaceId) === "firestore";
+  if (!inFirestore) {
+    try {
+      saved = await sbOrderWrite(input.workspaceId, order.id, "create", { ...order });
+    } catch (error) {
+      // SQL не накатан — молча по-старому.
+      if (!(error instanceof OrderNotInSupabase)) throw error;
+      inFirestore = true;
+    }
+  }
+  if (inFirestore) await setDoc(paths.order(input.workspaceId, order.id), order);
   await sendNotification(
     {
       workspaceId: input.workspaceId,
@@ -235,7 +233,7 @@ export async function createOrder(input: CreateOrderInput): Promise<WorkOrder> {
   ).catch(() => {
     /* заказ уже записан */
   });
-  return order;
+  return saved;
 }
 
 /** Технарь откликается (или снимает отклик). Меняется только свой ключ в `claims` — это и проверяет правило. */
@@ -244,7 +242,9 @@ export async function setOrderClaim(workspaceId: string, order: WorkOrder, me: {
   const value: WorkOrderClaim | ReturnType<typeof deleteField> = claim
     ? { uid: me.uid, name: me.name, at: Date.now() }
     : deleteField();
-  await setDoc(paths.order(workspaceId, order.id), { claims: { [me.uid]: value }, updatedAt: Date.now() }, { merge: true });
+  await routeOrderWrite(workspaceId, order, "claim", { on: claim, name: me.name }, () =>
+    setDoc(paths.order(workspaceId, order.id), { claims: { [me.uid]: value }, updatedAt: Date.now() }, { merge: true })
+  );
   if (claim && order.createdBy !== me.uid) {
     await sendNotification(
       {
@@ -361,7 +361,9 @@ export async function setOrderClaimScope(input: {
   notifyUids: string[];
 }) {
   if (!db) throw new Error("Firebase не настроен");
-  await updateDoc(paths.order(input.workspaceId, input.order.id), { claimScope: input.scope, updatedAt: Date.now() });
+  await routeOrderWrite(input.workspaceId, input.order, "scope", { scope: input.scope }, () =>
+    updateDoc(paths.order(input.workspaceId, input.order.id), { claimScope: input.scope, updatedAt: Date.now() })
+  );
   if (input.scope === "all" && input.notifyUids.length > 0) {
     await sendNotification(
       {
@@ -388,14 +390,16 @@ export async function assignOrder(input: {
 }) {
   if (!db) throw new Error("Firebase не настроен");
   const now = Date.now();
-  await updateDoc(paths.order(input.workspaceId, input.order.id), {
-    status: "assigned",
-    assignedUid: input.technician.uid,
-    assignedName: input.technician.name,
-    assignedAt: now,
-    assignedBy: input.actorUid,
-    updatedAt: now,
-  });
+  await routeOrderWrite(input.workspaceId, input.order, "assign", { uid: input.technician.uid, name: input.technician.name }, () =>
+    updateDoc(paths.order(input.workspaceId, input.order.id), {
+      status: "assigned",
+      assignedUid: input.technician.uid,
+      assignedName: input.technician.name,
+      assignedAt: now,
+      assignedBy: input.actorUid,
+      updatedAt: now,
+    })
+  );
   await sendNotification(
     {
       workspaceId: input.workspaceId,
@@ -415,14 +419,16 @@ export async function assignOrder(input: {
 export async function unassignOrder(workspaceId: string, order: WorkOrder, actor: { uid: string; name: string }) {
   if (!db) throw new Error("Firebase не настроен");
   const now = Date.now();
-  await updateDoc(paths.order(workspaceId, order.id), {
-    status: "open",
-    assignedUid: null,
-    assignedName: null,
-    assignedAt: null,
-    assignedBy: null,
-    updatedAt: now,
-  });
+  await routeOrderWrite(workspaceId, order, "unassign", {}, () =>
+    updateDoc(paths.order(workspaceId, order.id), {
+      status: "open",
+      assignedUid: null,
+      assignedName: null,
+      assignedAt: null,
+      assignedBy: null,
+      updatedAt: now,
+    })
+  );
   if (order.assignedUid && order.assignedUid !== actor.uid) {
     await sendNotification(
       {
@@ -443,20 +449,56 @@ export async function unassignOrder(workspaceId: string, order: WorkOrder, actor
 export async function setOrderCancelled(workspaceId: string, order: WorkOrder, cancelled: boolean) {
   if (!db) throw new Error("Firebase не настроен");
   const now = Date.now();
-  await updateDoc(paths.order(workspaceId, order.id), {
-    status: cancelled ? "cancelled" : "open",
-    cancelledAt: cancelled ? now : null,
-    assignedUid: null,
-    assignedName: null,
-    assignedAt: null,
-    assignedBy: null,
-    updatedAt: now,
-  });
+  await routeOrderWrite(workspaceId, order, "cancel", { cancelled }, () =>
+    updateDoc(paths.order(workspaceId, order.id), {
+      status: cancelled ? "cancelled" : "open",
+      cancelledAt: cancelled ? now : null,
+      assignedUid: null,
+      assignedName: null,
+      assignedAt: null,
+      assignedBy: null,
+      updatedAt: now,
+    })
+  );
 }
 
-export async function deleteOrder(workspaceId: string, orderId: string) {
+export async function deleteOrder(workspaceId: string, order: Pick<WorkOrder, "id" | "source"> | string) {
   if (!db) throw new Error("Firebase не настроен");
-  await deleteDoc(paths.order(workspaceId, orderId));
+  const id = typeof order === "string" ? order : order.id;
+  await routeOrderWrite(workspaceId, order, "delete", {}, () => deleteDoc(paths.order(workspaceId, id)));
+}
+
+/**
+ * Заказ ушёл в стол технаря (строка `rowId` вкладки `subPageId` стола
+ * `pageId`). Пишет назначенный технарь — или сам выдающий, когда заказ со
+ * стола ОС довозит до технаря сессия ОС.
+ */
+export async function markOrderTaken(
+  workspaceId: string,
+  order: Pick<WorkOrder, "id" | "source"> | string,
+  at: { pageId: string; subPageId: string | null; rowId: string }
+) {
+  const id = typeof order === "string" ? order : order.id;
+  const now = Date.now();
+  await routeOrderWrite(workspaceId, order, "take", { pageId: at.pageId, subPageId: at.subPageId, rowId: at.rowId }, () =>
+    db
+      ? updateDoc(paths.order(workspaceId, id), {
+          status: "taken",
+          takenAt: now,
+          takenPageId: at.pageId,
+          takenSubPageId: at.subPageId,
+          takenRowId: at.rowId,
+          updatedAt: now,
+        })
+      : Promise.resolve()
+  );
+}
+
+/** Строку взятого заказа перенесли в новый период — заказ помнит её новый адрес. */
+export async function retabOrder(workspaceId: string, orderId: string, at: { subPageId: string | null; rowId: string }) {
+  await routeOrderWrite(workspaceId, orderId, "retab", { subPageId: at.subPageId, rowId: at.rowId }, () =>
+    db ? updateDoc(paths.order(workspaceId, orderId), { takenSubPageId: at.subPageId, takenRowId: at.rowId, updatedAt: Date.now() }) : Promise.resolve()
+  );
 }
 
 /**
@@ -554,14 +596,13 @@ export async function takeOrderToDesk(input: {
   // хотя телефон технаря давно забрал его в стол или Owner передал другому.
   // По такому снимку в стол ложилась вторая строка того же заказа, а
   // `status: taken` потом отклоняли правила. Одно чтение на заезд.
-  let freshSnap;
+  let fresh: WorkOrder | null;
   try {
-    freshSnap = await getDocFromServer(paths.order(workspaceId, input.order.id));
+    fresh = await fetchOrderAnywhere(workspaceId, input.order.id, true);
   } catch (error) {
     if ((error as { code?: string } | null)?.code === "unavailable") throw new OrderOfflineError();
     throw error;
   }
-  const fresh = freshSnap.exists() ? mapOrder(freshSnap.data(), freshSnap.id) : null;
   if (!fresh || fresh.status !== "assigned" || fresh.assignedUid !== me.uid) throw new OrderNotAssignedError();
   // Заказ со стола ОС заводит в стол сам ОС (строкой-заказом с его меткой).
   if (fresh.osSource) throw new Error("Этот заказ приедет в стол от ОС — забирать его не нужно");
@@ -646,15 +687,7 @@ export async function takeOrderToDesk(input: {
       ? await addSubPageRow(workspaceId, page.id, subPageId, cells, nextOrder, extras, true, orderRowId(order.id), order.id)
       : await addRow(workspaceId, page.id, cells, nextOrder, extras, true, orderRowId(order.id), order.id);
   }
-  const now = Date.now();
-  await updateDoc(paths.order(workspaceId, order.id), {
-    status: "taken",
-    takenAt: now,
-    takenPageId: page.id,
-    takenSubPageId: subPageId,
-    takenRowId: row.id,
-    updatedAt: now,
-  });
+  await markOrderTaken(workspaceId, order, { pageId: page.id, subPageId, rowId: row.id });
   if (order.createdBy !== me.uid) {
     await sendNotification(
       {

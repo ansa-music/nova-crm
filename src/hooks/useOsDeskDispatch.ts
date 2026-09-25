@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { updateDoc } from "firebase/firestore";
-import { db } from "@/firebase/firebase";
-import { paths } from "@/firebase/firestore";
+import { markOrderTaken } from "@/services/orderService";
 import { toast } from "@/components/ui/sonner";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { resolveOsDeskKeys, type OsDeskKeys } from "@/services/osDeskService";
@@ -710,15 +708,11 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
             // иначе технари продолжали бы откликаться на уже отданный заказ.
             // Только если он там ещё висит: снятый (отменённый) заказ
             // иначе воскрес бы в «В столах».
-            if (row.orderId && onExchangeNow && !viaExchange && db) {
-              const now = Date.now();
-              void updateDoc(paths.order(cur.workspaceId, row.orderId), {
-                status: "taken",
-                takenAt: now,
-                takenPageId: target.page.id,
-                takenSubPageId: plan.mirrorTabId ?? target.tabId,
-                takenRowId: pushed.rowId,
-                updatedAt: now,
+            if (row.orderId && onExchangeNow && !viaExchange) {
+              void markOrderTaken(cur.workspaceId, row.orderId, {
+                pageId: target.page.id,
+                subPageId: plan.mirrorTabId ?? target.tabId,
+                rowId: pushed.rowId,
               }).catch(() => undefined);
             }
           }

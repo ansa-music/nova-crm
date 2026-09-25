@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import type { QueryDocumentSnapshot } from "firebase/firestore";
 import { CalendarClock, Clock3, ExternalLink, Hand, Inbox, Link2, Phone, Plus, Shuffle, Trash2, Undo2, UserCheck, Users, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -34,12 +33,14 @@ import {
   setOrderClaim,
   setOrderClaimScope,
   subscribeOrders,
+  type OrderHistoryCursor,
   takeOrderToDesk,
   unassignOrder,
   type HistoryOrderStatus,
   type OrderCandidate,
 } from "@/services/orderService";
 import { feedOpenOrdersFromPage, releaseOpenOrdersPageFeed } from "@/services/openOrdersPulse";
+import { useOrdersBackend } from "@/services/orderStore";
 import { firestoreErrorText } from "@/utils/dbError";
 import { parseOptionalNumber } from "@/utils/quickOrder";
 import { myDisplayName } from "@/utils/displayName";
@@ -162,9 +163,12 @@ export default function OrdersPage() {
   /** Для колбэков подписки: она живёт долго и иначе видела бы историю своего первого рендера. */
   const historyRef = useRef<WorkOrder[] | null>(null);
   historyRef.current = history;
-  const historyCursorRef = useRef<QueryDocumentSnapshot | null>(null);
+  const historyCursorRef = useRef<OrderHistoryCursor | null>(null);
   /** Поколение истории: после смены workspace старые ответы не должны лечь в новую историю. */
   const historyGenRef = useRef(0);
+  // Где биржа: Supabase или Firestore; сменилось (SQL накатили) — переподписка
+  // и история заново.
+  const ordersBackend = useOrdersBackend(activeWorkspaceId);
 
   const uid = profile?.uid ?? "";
   const myName = myDisplayName(profile, members);
@@ -270,13 +274,13 @@ export default function OrdersPage() {
     setHistoryLoading(false);
     setHistoryError(null);
     setHistoryCounts(UNKNOWN_HISTORY_COUNTS);
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, ordersBackend]);
 
   useEffect(() => {
     setOrders(null);
     setOrdersError(false);
     setOrdersSynced(false);
-    if (!activeWorkspaceId) return;
+    if (!activeWorkspaceId || !ordersBackend) return;
     const workspaceId = activeWorkspaceId;
     /** Последний снимок, подтверждённый сервером: по разнице с ним видно, кто ушёл с биржи и кто пришёл. */
     let baseline: Map<string, WorkOrder> | null = null;
@@ -347,18 +351,19 @@ export default function OrdersPage() {
         console.error("subscribeOrders failed:", error);
         releaseOpenOrdersPageFeed(workspaceId);
         setOrdersError(true);
-      }
+      },
+      ordersBackend
     );
     return () => {
       unsubscribe();
       releaseOpenOrdersPageFeed(workspaceId);
     };
-  }, [activeWorkspaceId, reloadKey]);
+  }, [activeWorkspaceId, reloadKey, ordersBackend]);
 
   // Числа на чипах истории — агрегатом на сервере (одно чтение на тысячу
   // заказов), а не чтением самих заказов. Дальше их двигают переходы на бирже.
   useEffect(() => {
-    if (!activeWorkspaceId) return;
+    if (!activeWorkspaceId || !ordersBackend) return;
     const workspaceId = activeWorkspaceId;
     let cancelled = false;
     for (const status of HISTORY_TABS) {
@@ -372,7 +377,7 @@ export default function OrdersPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspaceId, historyCountsTick]);
+  }, [activeWorkspaceId, historyCountsTick, ordersBackend]);
 
   const historyTab = isHistoryOrderStatus(tab);
 
@@ -975,7 +980,7 @@ export default function OrdersPage() {
                                   if (!anyway) return;
                                 }
                               }
-                              await deleteOrder(activeWorkspaceId, order.id);
+                              await deleteOrder(activeWorkspaceId, order);
                               // История не живая — убираем удалённый сами, и из счётчика чипа тоже.
                               setHistory((prev) => (prev === null ? prev : prev.filter((o) => o.id !== order.id)));
                               if (isHistoryOrderStatus(order.status)) {

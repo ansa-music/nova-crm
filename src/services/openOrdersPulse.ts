@@ -1,6 +1,8 @@
 import { onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
+import { subscribeLiveOrdersFeed } from "@/services/orderStore";
+import type { SbBackend } from "@/services/sb/sbCollections";
 
 /**
  * «Есть открытый заказ» — для зелёного пункта «Заказы» в меню.
@@ -55,6 +57,8 @@ const HIDDEN_DETACH_MS = 60_000;
 
 interface Watch {
   workspaceId: string;
+  /** Supabase — берём общий поток живых заказов вкладки (orderStore). */
+  backend: SbBackend;
   unsubscribe: (() => void) | null;
   hideTimer: ReturnType<typeof setTimeout> | null;
 }
@@ -70,6 +74,22 @@ function tabVisible(): boolean {
 
 function attach(w: Watch) {
   if (w.unsubscribe || !db || pageFeedWorkspaceId === w.workspaceId) return;
+  if (w.backend === "supabase") {
+    const unsubscribe = subscribeLiveOrdersFeed(
+      w.workspaceId,
+      (orders, fromCache) => {
+        // Снимок, не подтверждённый сервером, — «не знаем», прежнее число не трогаем.
+        if (fromCache || watch !== w || pageFeedWorkspaceId === w.workspaceId) return;
+        publish({ count: orders.filter((o) => o.status === "open").length, loaded: true });
+      },
+      () => {
+        if (w.unsubscribe === unsubscribe) w.unsubscribe = null;
+        if (watch === w && pageFeedWorkspaceId !== w.workspaceId) publish({ count: 0, loaded: false });
+      }
+    );
+    w.unsubscribe = unsubscribe;
+    return;
+  }
   const q = query(paths.orders(w.workspaceId), where("status", "==", "open"));
   const unsubscribe = onSnapshot(
     q,
@@ -112,12 +132,12 @@ function onVisibilityChange() {
   attach(w);
 }
 
-export function watchOpenOrders(workspaceId: string | null): () => void {
+export function watchOpenOrders(workspaceId: string | null, backend: SbBackend = "firestore"): () => void {
   if (!db || !workspaceId) {
     publish({ count: 0, loaded: false });
     return () => {};
   }
-  const w: Watch = { workspaceId, unsubscribe: null, hideTimer: null };
+  const w: Watch = { workspaceId, backend, unsubscribe: null, hideTimer: null };
   watch = w;
   // Вкладку открыли в фоне — слушатель встанет, когда на неё посмотрят.
   if (tabVisible()) attach(w);

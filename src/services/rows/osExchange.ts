@@ -1,7 +1,5 @@
-import { getDocFromServer, updateDoc } from "firebase/firestore";
-import { db } from "@/firebase/firebase";
-import { paths } from "@/firebase/firestore";
-import { createOrder } from "@/services/orderService";
+import { createOrder, markOrderTaken } from "@/services/orderService";
+import { fetchOrderAnywhere } from "@/services/orderStore";
 import { fetchRows, markRowOrder } from "@/services/pageService";
 import { fetchSubPageRows } from "@/services/subPageService";
 import {
@@ -71,10 +69,10 @@ export async function sendOsRowToExchange(input: SendToExchangeInput): Promise<W
   // Выставляют ЗАНОВО (у строки уже был заказ) — сверяем прежний с сервером:
   // списки «что висит на бирже» у экрана могли ещё не дочитаться или прийти
   // из кэша, а два заказа на одну строку — два отклика и два технаря.
-  if (row.orderId && db) {
-    const prev = await getDocFromServer(paths.order(input.workspaceId, row.orderId)).catch(() => null);
-    if (prev === null) throw new Error("Не удалось проверить прежний заказ на «Заказах» — проверьте связь и повторите");
-    const status = prev.exists() ? (prev.data() as Partial<WorkOrder>).status : undefined;
+  if (row.orderId) {
+    const prev = await fetchOrderAnywhere(input.workspaceId, row.orderId, true).catch(() => undefined);
+    if (prev === undefined) throw new Error("Не удалось проверить прежний заказ на «Заказах» — проверьте связь и повторите");
+    const status = prev?.status;
     if (status === "open" || status === "assigned") {
       throw new AlreadyOnExchangeError("Этот заказ уже на «Заказах» — второй раз его не выставить");
     }
@@ -199,17 +197,11 @@ export async function handOffExchangeOrder(input: HandoffInput): Promise<{ techN
       copy,
       osStatusKey: STATUS_KEY,
     });
-    if (db) {
-      const now = Date.now();
-      await updateDoc(paths.order(workspaceId, order.id), {
-        status: "taken",
-        takenAt: now,
-        takenPageId: target.page.id,
-        takenSubPageId: keepAt ? keepAt.mirrorTabId || null : target.tabId,
-        takenRowId: pushed.rowId,
-        updatedAt: now,
-      });
-    }
+    await markOrderTaken(workspaceId, order, {
+      pageId: target.page.id,
+      subPageId: keepAt ? keepAt.mirrorTabId || null : target.tabId,
+      rowId: pushed.rowId,
+    });
   } finally {
     // Проход стола может прийти чуть позже записи — даём ему увидеть метку.
     setTimeout(() => handoffRows.delete(row.id), 10_000);

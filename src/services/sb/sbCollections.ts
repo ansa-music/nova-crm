@@ -43,6 +43,8 @@ export const SB_TABLES: Record<CollectionKey, string> = {
   history: "history_log",
   ratings: "order_ratings",
   osDispatchLog: "os_dispatch_log",
+  orders: "work_orders",
+  orderRequests: "order_requests",
 };
 
 export const SB_COLLECTION_LABELS: Record<CollectionKey, string> = {
@@ -54,6 +56,8 @@ export const SB_COLLECTION_LABELS: Record<CollectionKey, string> = {
   history: "Журнал истории",
   ratings: "Оценки заказов",
   osDispatchLog: "Выдачи ОС",
+  orders: "Биржа «Заказы»",
+  orderRequests: "Запросы технарей к ОС",
 };
 
 export const SB_COLLECTION_KEYS = Object.keys(SB_TABLES) as CollectionKey[];

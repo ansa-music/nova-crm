@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
+import { subscribeLiveOrdersFeed, useOrdersBackend } from "@/services/orderStore";
 import type { WorkOrder } from "@/types";
 
 /**
@@ -21,13 +22,32 @@ export function useMyExchangeOrders(workspaceId: string | null, uid: string, ena
   const [openLoaded, setOpenLoaded] = useState(false);
   const [assignedLoaded, setAssignedLoaded] = useState(false);
   const loaded = openLoaded && assignedLoaded;
+  const backend = useOrdersBackend(workspaceId);
 
   useEffect(() => {
     setOpen([]);
     setAssigned([]);
     setOpenLoaded(false);
     setAssignedLoaded(false);
-    if (!db || !workspaceId || !uid || !enabled) return;
+    if (!db || !workspaceId || !uid || !enabled || !backend) return;
+    if (backend === "supabase") {
+      // Общий поток живых заказов вкладки: свои со стола ОС — отсюда.
+      return subscribeLiveOrdersFeed(
+        workspaceId,
+        (orders, fromCache) => {
+          const mine = orders.filter((o) => o.createdBy === uid && Boolean(o.osSource));
+          setOpen(mine.filter((o) => o.status === "open"));
+          setAssigned(mine.filter((o) => o.status === "assigned"));
+          setOpenLoaded(!fromCache);
+          setAssignedLoaded(!fromCache);
+        },
+        (error) => {
+          console.error("Свои заказы на бирже не прочитаны:", error);
+          setOpenLoaded(false);
+          setAssignedLoaded(false);
+        }
+      );
+    }
     // Два узких слушателя по двум равенствам, а не `status in [...]`: так
     // составной индекс не нужен, а «выданные» висят секунды — пока сессия ОС
     // не довезёт заказ до технаря (useOsExchangeHandoff).
@@ -55,7 +75,7 @@ export function useMyExchangeOrders(workspaceId: string | null, uid: string, ena
       stopOpen();
       stopAssigned();
     };
-  }, [workspaceId, uid, enabled]);
+  }, [workspaceId, uid, enabled, backend]);
 
   const orders = useMemo(() => [...open, ...assigned], [open, assigned]);
   const byRow = useMemo(() => {
