@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { Crown, Gift, HardHat, Medal, Settings2, Target, TrendingUp, UserRound } from "lucide-react";
+import { Crown, FileChartColumn, Gift, HardHat, Medal, Settings2, Target, TrendingUp, UserRound } from "lucide-react";
 import { EmptyState } from "@/components/common/EmptyState";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
@@ -150,15 +150,24 @@ export default function AbsPage() {
         title="ABS система"
         description={`Касса и доплаты за ${noun}: технари — по «Готово», ОС — по KPI и апсейлам. Суммы и проценты задаёт Owner.`}
         actions={
-          isOwner ? (
+          <>
             <Link
-              to="/settings?tab=cashbox"
+              to="/reports"
               className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-border px-3 text-sm hover:bg-accent sm:min-h-9"
             >
-              <Settings2 className="h-4 w-4" />
-              Настроить
+              <FileChartColumn className="h-4 w-4" />
+              Прошлые периоды
             </Link>
-          ) : undefined
+            {isOwner ? (
+              <Link
+                to="/settings?tab=cashbox"
+                className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-border px-3 text-sm hover:bg-accent sm:min-h-9"
+              >
+                <Settings2 className="h-4 w-4" />
+                Настроить
+              </Link>
+            ) : null}
+          </>
         }
         filters={
           <>

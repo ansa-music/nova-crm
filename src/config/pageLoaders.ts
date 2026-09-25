@@ -23,6 +23,7 @@ export const loadOrdersPage = () => import("@/pages/OrdersPage");
 export const loadOsDeskPage = () => import("@/pages/OsDeskPage");
 export const loadOsDesksPage = () => import("@/pages/OsDesksPage");
 export const loadAbsPage = () => import("@/pages/AbsPage");
+export const loadReportsPage = () => import("@/pages/ReportsPage");
 export const loadOsDispatchPage = () => import("@/pages/OsDispatchPage");
 export const loadDeskEditingPage = () => import("@/pages/DeskEditingPage");
 export const loadSchedulePage = () => import("@/pages/SchedulePage");

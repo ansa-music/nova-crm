@@ -26,6 +26,7 @@ import HomePage from "@/pages/HomePage";
 // держит модуль один — второй вызов берёт готовый.
 import {
   loadAbsPage,
+  loadReportsPage,
   loadAnnouncementsPage,
   loadDashboardPage,
   loadDesksPage,
@@ -66,6 +67,7 @@ const OrdersPage = lazy(loadOrdersPage);
 const OsDeskPage = lazy(loadOsDeskPage);
 const OsDesksPage = lazy(loadOsDesksPage);
 const AbsPage = lazy(loadAbsPage);
+const ReportsPage = lazy(loadReportsPage);
 const OsDispatchPage = lazy(loadOsDispatchPage);
 const DeskEditingPage = lazy(loadDeskEditingPage);
 // Скрытая страница Owner: в меню и поиске её нет, только прямой адрес.
@@ -100,6 +102,7 @@ const MENU_PAGE_LOADERS: Array<() => Promise<unknown>> = [
   loadSettingsPage,
   loadDashboardPage,
   loadAbsPage,
+  loadReportsPage,
 ];
 
 /** Тот же ключ, что пишет `DynamicTablePage` при открытии стола. */
@@ -260,6 +263,7 @@ function AppShell() {
             <Route index element={<HomePage />} />
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="abs" element={<AbsPage />} />
+            <Route path="reports" element={<ReportsPage />} />
             <Route path="desks" element={<DesksPage />} />
             <Route path="more" element={<MorePage />} />
             <Route path="people" element={<PeoplePage />} />

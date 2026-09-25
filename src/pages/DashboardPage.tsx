@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PersonalDeskSection } from "@/components/dashboard/PersonalDeskSection";
@@ -336,6 +337,12 @@ export default function DashboardPage() {
           <BonusTop monthLabel={periodLabel(prevMonthKey, periods).toLowerCase()} entries={previousBonuses} />
 
           <MonthlyRatingTop monthLabel={periodLabel(prevMonthKey, periods).toLowerCase()} entries={previousTop} />
+
+          <p className="-mt-2 text-right text-[12px]">
+            <Link to="/reports" className="text-muted-foreground hover:text-foreground">
+              Отчёты за прошлые периоды →
+            </Link>
+          </p>
 
           <LeadersRow byDone={byDone[0] ?? null} byRating={byRating[0] ?? null} byOrders={byOrders} myUid={uid} />
 

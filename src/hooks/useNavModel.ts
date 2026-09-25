@@ -28,6 +28,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { FileChartColumn } from "lucide-react";
 import { DESKS_ITEM_KEY, DESK_SHORTCUTS_LIMIT, EXTRA_ROUTE_META, MORE_ITEM_KEY, MORE_SECTION_KEY, pathMatches, pathOnly, type NavChild, type NavItem, type NavSection, type PageMeta } from "@/config/nav";
 import { memberHasRole, rolesLabel, ROLE_LABELS, type Role, type WorkspaceMember, type WorkspacePage } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
@@ -52,6 +53,7 @@ import { useOsPendingOrderRequests } from "@/hooks/useOsPendingOrderRequests";
 
 /** Пути разделов страницы «Ещё» — на них в меню горит сам пункт «Ещё». */
 const MORE_PAGE_PATHS = [
+  "/reports",
   "/os-dispatch",
   "/desk-editing",
   "/people",
@@ -367,6 +369,8 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
         // «ABS система» — вкладка пункта «Дашборд · ABS»; скрытый пункт — только
         // ради заголовка экрана «/abs» (buildPageMeta читает и скрытые).
         { key: "abs", to: "/abs", label: "ABS система", icon: Trophy, show: false },
+        // «Отчёты» — итоги прошлых периодов (касса технарей, KPI ОС), всем ролям.
+        { key: "reports", to: "/reports", label: "Отчёты", icon: FileChartColumn },
         {
           key: "os-dispatch",
           to: "/os-dispatch",
