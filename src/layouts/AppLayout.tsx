@@ -47,6 +47,7 @@ import { useRowsBackendBridge } from "@/hooks/useRowsBackendBridge";
 import { useRowAclSync } from "@/hooks/useRowAclSync";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useTableDiagWatch } from "@/hooks/useTableDiagWatch";
 import { useIsMobile, useIsTablet } from "@/hooks/useMediaQuery";
 import { useUiStore } from "@/store/uiStore";
 import { isWorkspaceAdmin } from "@/utils/adminAccess";
@@ -101,6 +102,15 @@ export function AppLayout() {
   const [createPageOpen, setCreatePageOpen] = useState(false);
 
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
+  // Диагностика `?diag=table`: экран загрузки и «вас убрали» подменяют всё
+  // приложение — мигание стола могло бы оказаться ими.
+  useTableDiagWatch("layout", {
+    phase,
+    hasActiveWorkspace,
+    isResolved: permissions.isResolved,
+    hasMembership: permissions.hasMembership,
+    role: permissions.role,
+  });
 
   // Any not-yet-resolved phase renders the shared boot screen. Crucially this
   // includes "workspace-data": members (=> role) and pages (=> access) must

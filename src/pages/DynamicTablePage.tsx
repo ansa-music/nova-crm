@@ -133,6 +133,7 @@ import { recordRecentPage } from "@/hooks/useUserPageNav";
 import { useCurrentPeriodKey, usePeriodSettings } from "@/hooks/useCurrentPeriodKey";
 import { useDeskLoadPublisher } from "@/hooks/useDeskLoadPublisher";
 import { useOsFieldKeysPublisher } from "@/hooks/useOsFieldKeysPublisher";
+import { useTableDiagWatch } from "@/hooks/useTableDiagWatch";
 import { useMyOrderRows } from "@/hooks/useMyOrderRows";
 import {
   OS_CLAIM_KICK_EVENT,
@@ -1723,6 +1724,34 @@ export default function DynamicTablePage() {
       icon: "hand",
     };
   }
+
+  // Диагностика `?diag=table` (utils/tableDiag.ts): что сменилось на рендере.
+  useTableDiagWatch("desk", {
+    pageId,
+    page,
+    tablePage,
+    subPages,
+    activeSubPageId,
+    tabParam,
+    locationKey: location.key,
+    hasAccess,
+    tabsReady,
+    rowsLoading,
+    rowsFromServer,
+    rows,
+    rowsAccessPending,
+    rowsAccessDenied,
+    rowsReadError,
+    isResolved: permissions.isResolved,
+    permissions,
+    role: permissions.role,
+    members,
+    activeWorkspace,
+    ordersFromOsOnly,
+    techFills,
+    canEditData: page ? permissions.canEditPageData(page) : null,
+    myOrderRequests,
+  });
 
   // 1. Still resolving user -> role -> workspace -> pages. Never render a
   //    verdict here: this is precisely the window where the old code could

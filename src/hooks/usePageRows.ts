@@ -3,6 +3,7 @@ import { subscribeToRows } from "@/services/pageService";
 import { subscribeToSubPageRows } from "@/services/subPageService";
 import { sbPageAccess } from "@/services/rows/supabaseRowStore";
 import { firestoreErrorText } from "@/utils/dbError";
+import { diag } from "@/utils/tableDiag";
 
 /**
  * Текст про ЧТЕНИЕ строк: общий `firestoreErrorText` написан под записи
@@ -100,6 +101,7 @@ export function useSyncedTableRows(
       return;
     }
 
+    diag("rows:subscribe", `${backend} ${pageId}/${subPageId ?? ""} #${reloadNonce}`);
     setIsLoading(true);
     setServerSynced(false);
     setAccessPending(false);
@@ -136,6 +138,7 @@ export function useSyncedTableRows(
         .then((access) => {
           if (cancelled) return;
           accessFailures = 0;
+          diag("rows:access", `read=${access.canRead} acl=${access.hasAcl}`);
           if (access.canRead) {
             accessConfirmed = true;
             confirmedKey.current = key;
@@ -168,6 +171,7 @@ export function useSyncedTableRows(
 
     const onData = (data: PageRow[], fromServer: boolean) => {
       if (cancelled) return;
+      diag("rows:data", `${data.length} ${fromServer ? "server" : "cache"}`);
       setDataKey(key);
       setRows(data);
       setIsLoading(false);
@@ -197,6 +201,7 @@ export function useSyncedTableRows(
     // молчаливый пустой скелет неотличим от «стол пустой».
     const onError = (error: unknown) => {
       if (cancelled) return;
+      diag("rows:error", String((error as { code?: unknown })?.code ?? error));
       setErrorKey(key);
       setReadError(readErrorText(error));
     };

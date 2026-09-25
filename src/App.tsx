@@ -14,6 +14,7 @@ import { wasGoogleRedirectPending } from "@/firebase/auth";
 import { joinPathAfterLogin, rememberJoinIntentFromPath } from "@/utils/joinIntent";
 import { DISPATCH_ENABLED } from "@/config/features";
 import { SiteStatusBanner } from "@/components/common/SiteStatusBanner";
+import { TableDiagPanel } from "@/components/table/TableDiagPanel";
 import { useBootstrapStore } from "@/store/bootstrapStore";
 import { useAuthStore } from "@/store/authStore";
 // «/» — только редирект на дом человека (0,5 КБ): отдельный chunk стоил ещё
@@ -229,6 +230,7 @@ function AppShell() {
   return (
     <BrowserRouter>
       <StartupPreloader />
+      <TableDiagPanel />
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route

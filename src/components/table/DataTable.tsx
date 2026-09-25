@@ -23,6 +23,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { CheckCheck, Copy, CopyPlus, Filter, FilterX, Maximize2, Plus, Trash2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { LayoutGroup } from "framer-motion";
+import { useTableDiagWatch } from "@/hooks/useTableDiagWatch";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -508,6 +509,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // стола перерисовывал бы все строки — TableRow сравнивает пропсы.
   const cellPickerRef = useRef(onOpenCellPicker);
   cellPickerRef.current = onOpenCellPicker;
+  // Диагностика `?diag=table`: какие пропсы таблицы меняются от рендера к рендеру.
+  useTableDiagWatch("table", { page, rows, canEdit, canEditStructure, viewer, subPageId, ordersFromOsOnly, techFills, cellAction, cellAddon, lockedKeys, cellDisplay });
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const openCellPicker = useCallback((rowId: string, colKey: string) => {
