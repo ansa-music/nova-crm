@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ChatPanel } from "@/components/chat/ChatPanel";
-import { paths } from "@/firebase/firestore";
 import { subscribeToRecentThread, sendChatMessage, editChatMessage, deleteChatMessage } from "@/services/chatService";
 import { CHAT_PAGE_STEP, CHAT_PAGE_WINDOW } from "@/hooks/useWorkspaceChat";
 import { notifyMentions } from "@/services/notificationService";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
-import type { ChatMessage } from "@/types";
+import type { ChatMessage, ChatThread } from "@/types";
 
 interface RowCommentsPanelProps {
   open: boolean;
@@ -48,7 +47,7 @@ export function RowCommentsPanel({ open, onOpenChange, workspaceId, pageId, rowI
   useEffect(() => {
     if (!open || !rowId) return;
     return subscribeToRecentThread(
-      paths.rowComments(workspaceId, pageId, rowId),
+      { workspaceId, kind: "row", pageId, rowId },
       windowSize,
       (items, more) => {
         setMessages(items);
@@ -59,7 +58,7 @@ export function RowCommentsPanel({ open, onOpenChange, workspaceId, pageId, rowI
   }, [open, workspaceId, pageId, rowId, windowSize]);
 
   if (!profile || !rowId) return null;
-  const ref = paths.rowComments(workspaceId, pageId, rowId);
+  const ref: ChatThread = { workspaceId, kind: "row", pageId, rowId };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>

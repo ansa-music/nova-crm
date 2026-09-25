@@ -1,5 +1,4 @@
 ﻿import { useEffect, useMemo, useState } from "react";
-import { paths } from "@/firebase/firestore";
 import { subscribeToRecentChat } from "@/services/chatService";
 import { joinSharedSubscription } from "@/utils/sharedSubscription";
 import { localReadMark, subscribeMyConversations, subscribeReadMarkers } from "@/services/inboxService";
@@ -57,7 +56,7 @@ export function useInboxSummary(
       unsubs.push(
         joinSharedSubscription<ChatMessage[]>(
           `inbox:wschat:${workspaceId}`,
-          (emit) => subscribeToRecentChat(paths.workspaceChat(workspaceId), UNREAD_WINDOW, (items) => emit(items)),
+          (emit) => subscribeToRecentChat({ workspaceId, kind: "ws" }, UNREAD_WINDOW, (items) => emit(items)),
           setWorkspaceMessages
         )
       );

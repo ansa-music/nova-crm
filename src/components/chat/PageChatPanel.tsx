@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ChatPanel } from "@/components/chat/ChatPanel";
-import { paths } from "@/firebase/firestore";
 import { subscribeToRecentThread, sendChatMessage, editChatMessage, deleteChatMessage } from "@/services/chatService";
 import { CHAT_PAGE_STEP, CHAT_PAGE_WINDOW } from "@/hooks/useWorkspaceChat";
 import { notifyMentions } from "@/services/notificationService";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
-import type { ChatMessage } from "@/types";
+import type { ChatMessage, ChatThread } from "@/types";
 
 interface PageChatPanelProps {
   open: boolean;
@@ -30,7 +29,7 @@ export function PageChatPanel({ open, onOpenChange, workspaceId, pageId, pageNam
   const threadKey = `${workspaceId}/${pageId}`;
   const [expanded, setExpanded] = useState({ key: threadKey, size: CHAT_PAGE_WINDOW });
   const windowSize = expanded.key === threadKey ? expanded.size : CHAT_PAGE_WINDOW;
-  const chatRef = paths.pageChat(workspaceId, pageId);
+  const chatRef: ChatThread = { workspaceId, kind: "page", pageId };
   const mentionableUsers = useMemo(
     () => members.filter((m) => m.status === "active").map((m) => ({ uid: m.uid, name: displayNameOf(m) })),
     [members]

@@ -4,12 +4,11 @@ import { ChatModeSwitch } from "@/components/chat/ChatModeSwitch";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspaceChat } from "@/hooks/useWorkspaceChat";
-import { paths } from "@/firebase/firestore";
 import { deleteChatMessage, editChatMessage, sendChatMessage } from "@/services/chatService";
 import { notifyMentions } from "@/services/notificationService";
 import { markContextRead } from "@/services/inboxService";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
-import type { ChatMessage } from "@/types";
+import type { ChatMessage, ChatThread } from "@/types";
 
 export default function WorkspaceChatPage() {
   const { activeWorkspaceId, members } = useWorkspace();
@@ -44,7 +43,7 @@ export default function WorkspaceChatPage() {
 
   if (!activeWorkspaceId || !profile) return null;
 
-  const chatRef = paths.workspaceChat(activeWorkspaceId);
+  const chatRef: ChatThread = { workspaceId: activeWorkspaceId, kind: "ws" };
 
   async function handleSend(text: string, replyTo: ChatMessage | null, mentionedUids: string[]) {
     await sendChatMessage(chatRef, {

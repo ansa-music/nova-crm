@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { paths } from "@/firebase/firestore";
 import { subscribeToRecentChat } from "@/services/chatService";
 import type { ChatMessage } from "@/types";
 
@@ -35,7 +34,7 @@ export function useWorkspaceChat(workspaceId: string | null) {
     const onError = (error: { code: string; message: string }) =>
       console.error("subscribeToChat(workspaceChat) denied:", error.code, error.message);
     return subscribeToRecentChat(
-      paths.workspaceChat(workspaceId),
+      { workspaceId, kind: "ws" },
       limit,
       (items, more) => {
         setMessages(items);

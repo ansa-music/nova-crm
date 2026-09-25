@@ -1,6 +1,10 @@
 import { getDocs, onSnapshot, query, setDoc, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths } from "@/firebase/firestore";
+import { getDocsResumable, paths } from "@/firebase/firestore";
+import { supabaseRows } from "@/lib/supabaseRows";
+import { chatBackendFor, chatTopic } from "@/services/chatService";
+import { isSbMissingError, markSbTableMissing, markSbTablePresent } from "@/services/sb/sbCollections";
+import { listenTopic, ringTopic } from "@/services/sb/topicDoorbell";
 import { normalizeTimestamp } from "@/utils/date";
 import type { PrivateChatMeta, ReadMarker } from "@/types";
 import { pingInboxChanged } from "@/utils/inboxEvents";
@@ -11,6 +15,10 @@ import {
 } from "@/services/notificationService";
 import { getSharedNotifications } from "@/hooks/useNotifications";
 
+/**
+ * Supabase-режим чатов (20261009): карточку личной переписки ведёт сама
+ * `send_chat_message` — клиенту писать нечего. Firestore — как раньше.
+ */
 export async function upsertPrivateChatMeta(
   workspaceId: string,
   chatId: string,
@@ -20,6 +28,7 @@ export async function upsertPrivateChatMeta(
   lastMessageFromName: string
 ) {
   if (!db) return;
+  if (chatBackendFor(workspaceId) === "supabase") return;
   const meta: PrivateChatMeta = {
     id: chatId,
     participants,
@@ -119,7 +128,7 @@ async function writeReadMarker(workspaceId: string, uid: string, context: string
   lastReadMarkWriteAt.set(key, lastReadAt);
   const marker: ReadMarker = { id, uid, context, lastReadAt };
   try {
-    await setDoc(paths.readMarker(workspaceId, id), marker, { merge: true });
+    await persistReadMarker(workspaceId, marker);
   } catch (error) {
     // Отметка не записалась — «прочитано до» у нас теперь ложное, и следующий
     // вызов решил бы, что писать нечего. Возвращаем прежнее знание.
@@ -130,6 +139,84 @@ async function writeReadMarker(workspaceId: string, uid: string, context: string
     throw error;
   }
   pingInboxChanged();
+}
+
+const CHAT_READS_TABLE = "chat_reads";
+const CHAT_DM_META_TABLE = "chat_dm_meta";
+const DM_META_COLUMNS = "chat_id,peer_a,peer_b,last_text,last_at,last_from_uid,last_from_name";
+/** Звонок своим вкладкам: отметка «прочитано» с другого устройства. */
+function readsTopic(workspaceId: string, uid: string) {
+  return `nova:${workspaceId}:chatreads:${uid}`;
+}
+const RING_SETTLE_MS = 250;
+const POLL_MS = 45_000;
+
+function sbError(error: { code?: string; message?: string }): Error {
+  return Object.assign(new Error(error.message || "Supabase"), { code: error.code });
+}
+
+/** Supabase (chat_reads) — upsert своей строки и звонок своим вкладкам; нет таблицы — Firestore. */
+async function persistReadMarker(workspaceId: string, marker: ReadMarker) {
+  if (chatBackendFor(workspaceId) === "supabase") {
+    const { error } = await supabaseRows
+      .from(CHAT_READS_TABLE)
+      .upsert(
+        { workspace_id: workspaceId, uid: marker.uid, context: marker.context, last_read_at: marker.lastReadAt },
+        { onConflict: "workspace_id,uid,context" }
+      );
+    if (!error) {
+      markSbTablePresent("chat");
+      ringTopic(readsTopic(workspaceId, marker.uid));
+      return;
+    }
+    if (!isSbMissingError(error)) throw sbError(error);
+    markSbTableMissing("chat");
+  }
+  await setDoc(paths.readMarker(workspaceId, marker.id), marker, { merge: true });
+}
+
+/**
+ * Живая выборка Supabase без данных в звонке: первая выборка, затем по
+ * звонку (склейка 250 мс), при возврате на вкладку и опросом раз в 45 с на
+ * видимой. Нет таблицы — `onMissing`.
+ */
+function sbLive(topic: string, load: () => Promise<"ok" | "missing" | "error">, onMissing: () => void): () => void {
+  let stopped = false;
+  let settle: ReturnType<typeof setTimeout> | null = null;
+  let poll: ReturnType<typeof setInterval> | null = null;
+  const run = async () => {
+    if (stopped) return;
+    const result = await load();
+    if (stopped) return;
+    if (result === "missing") {
+      stop();
+      onMissing();
+    }
+  };
+  const schedule = () => {
+    if (stopped || settle) return;
+    settle = setTimeout(() => {
+      settle = null;
+      void run();
+    }, RING_SETTLE_MS);
+  };
+  const onVisible = () => {
+    if (document.visibilityState === "visible") schedule();
+  };
+  const stopRing = listenTopic(topic, schedule);
+  document.addEventListener("visibilitychange", onVisible);
+  poll = setInterval(() => {
+    if (document.visibilityState === "visible") void run();
+  }, POLL_MS);
+  const stop = () => {
+    stopped = true;
+    stopRing();
+    document.removeEventListener("visibilitychange", onVisible);
+    if (settle) clearTimeout(settle);
+    if (poll) clearInterval(poll);
+  };
+  void run();
+  return stop;
 }
 
 /** context is "workspaceChat" or `private:${chatId}` */
@@ -261,15 +348,7 @@ export async function fetchReadMarkers(workspaceId: string, uid: string): Promis
 }
 
 
-export function subscribeMyConversations(
-  workspaceId: string,
-  uid: string,
-  cb: (rows: PrivateChatMeta[]) => void
-) {
-  if (!db) {
-    cb([]);
-    return () => {};
-  }
+function fsSubscribeMyConversations(workspaceId: string, uid: string, cb: (rows: PrivateChatMeta[]) => void) {
   const q = query(paths.privateChats(workspaceId), where("participants", "array-contains", uid));
   return onSnapshot(q, (snapshot) => {
     cb(
@@ -281,15 +360,90 @@ export function subscribeMyConversations(
   });
 }
 
-export function subscribeReadMarkers(
+/**
+ * Supabase: карточки из chat_dm_meta (мои — где я peer_a или peer_b) плюс
+ * карточки Firestore-эпохи (разовое чтение) — переписки до переезда не
+ * пропадают из списка; у одной переписки побеждает более свежая.
+ */
+function sbSubscribeMyConversations(workspaceId: string, uid: string, cb: (rows: PrivateChatMeta[]) => void) {
+  let stopped = false;
+  let fallback: (() => void) | null = null;
+  let sbRows: PrivateChatMeta[] | null = null;
+  let legacyRows: PrivateChatMeta[] = [];
+  const emit = () => {
+    if (stopped || fallback || !sbRows) return;
+    const byId = new Map<string, PrivateChatMeta>();
+    for (const c of legacyRows) byId.set(c.id, c);
+    for (const c of sbRows) {
+      const other = byId.get(c.id);
+      if (!other || c.lastMessageAt >= other.lastMessageAt) byId.set(c.id, c);
+    }
+    cb([...byId.values()].sort((a, b) => b.lastMessageAt - a.lastMessageAt));
+  };
+  const stopLive = sbLive(
+    chatTopic(workspaceId),
+    async () => {
+      const { data, error } = await supabaseRows
+        .from(CHAT_DM_META_TABLE)
+        .select(DM_META_COLUMNS)
+        .eq("workspace_id", workspaceId)
+        .or(`peer_a.eq.${uid},peer_b.eq.${uid}`);
+      if (error) {
+        if (isSbMissingError(error)) {
+          markSbTableMissing("chat");
+          return "missing";
+        }
+        console.warn("[chat] карточки переписок не прочитались", error);
+        return "error";
+      }
+      markSbTablePresent("chat");
+      sbRows = ((data ?? []) as Array<{ chat_id: string; peer_a: string; peer_b: string; last_text: string | null; last_at: number | string; last_from_uid: string; last_from_name: string | null }>).map(
+        (r) => ({
+          id: r.chat_id,
+          participants: [r.peer_a, r.peer_b] as [string, string],
+          lastMessageText: r.last_text ?? "",
+          lastMessageAt: Number(r.last_at),
+          lastMessageFromUid: r.last_from_uid,
+          lastMessageFromName: r.last_from_name ?? "",
+        })
+      );
+      emit();
+      return "ok";
+    },
+    () => {
+      fallback = fsSubscribeMyConversations(workspaceId, uid, cb);
+    }
+  );
+  void getDocsResumable(query(paths.privateChats(workspaceId), where("participants", "array-contains", uid)))
+    .then((snapshot) => {
+      if (stopped) return;
+      legacyRows = snapshot.docs
+        .map((d) => ({ id: d.id, ...d.data() }) as unknown as PrivateChatMeta)
+        .map((c) => ({ ...c, lastMessageAt: normalizeTimestamp(c.lastMessageAt) }));
+      emit();
+    })
+    .catch(() => undefined);
+  return () => {
+    stopped = true;
+    stopLive();
+    fallback?.();
+  };
+}
+
+export function subscribeMyConversations(
   workspaceId: string,
   uid: string,
-  cb: (map: Record<string, number>) => void
+  cb: (rows: PrivateChatMeta[]) => void
 ) {
   if (!db) {
-    cb({});
+    cb([]);
     return () => {};
   }
+  if (chatBackendFor(workspaceId) === "supabase") return sbSubscribeMyConversations(workspaceId, uid, cb);
+  return fsSubscribeMyConversations(workspaceId, uid, cb);
+}
+
+function fsSubscribeReadMarkers(workspaceId: string, uid: string, cb: (map: Record<string, number>) => void) {
   const q = query(paths.readMarkers(workspaceId), where("uid", "==", uid));
   return onSnapshot(q, (snapshot) => {
     rememberReadMarks(workspaceId, snapshot.docs);
@@ -300,5 +454,76 @@ export function subscribeReadMarkers(
     });
     cb(map);
   });
+}
+
+/**
+ * Supabase: свои отметки из chat_reads (по звонку своих вкладок и опросу)
+ * плюс отметки Firestore-эпохи (разовое чтение) — берётся большее.
+ */
+function sbSubscribeReadMarkers(workspaceId: string, uid: string, cb: (map: Record<string, number>) => void) {
+  let stopped = false;
+  let fallback: (() => void) | null = null;
+  let sbMap: Record<string, number> | null = null;
+  let legacyMap: Record<string, number> = {};
+  const emit = () => {
+    if (stopped || fallback || !sbMap) return;
+    const map: Record<string, number> = { ...legacyMap };
+    for (const [context, at] of Object.entries(sbMap)) map[context] = Math.max(map[context] ?? 0, at);
+    for (const [context, at] of Object.entries(map)) knownReadMarks.set(`${workspaceId}|${readMarkerId(uid, context)}`, at);
+    cb(map);
+  };
+  const stopLive = sbLive(
+    readsTopic(workspaceId, uid),
+    async () => {
+      const { data, error } = await supabaseRows.from(CHAT_READS_TABLE).select("context,last_read_at").eq("workspace_id", workspaceId).eq("uid", uid);
+      if (error) {
+        if (isSbMissingError(error)) {
+          markSbTableMissing("chat");
+          return "missing";
+        }
+        console.warn("[chat] отметки «прочитано» не прочитались", error);
+        return "error";
+      }
+      markSbTablePresent("chat");
+      const next: Record<string, number> = {};
+      for (const r of (data ?? []) as Array<{ context: string; last_read_at: number | string }>) next[r.context] = Number(r.last_read_at);
+      sbMap = next;
+      emit();
+      return "ok";
+    },
+    () => {
+      fallback = fsSubscribeReadMarkers(workspaceId, uid, cb);
+    }
+  );
+  void getDocsResumable(query(paths.readMarkers(workspaceId), where("uid", "==", uid)))
+    .then((snapshot) => {
+      if (stopped) return;
+      const next: Record<string, number> = {};
+      snapshot.docs.forEach((d) => {
+        const data = d.data() as ReadMarker;
+        next[data.context] = normalizeTimestamp(data.lastReadAt);
+      });
+      legacyMap = next;
+      emit();
+    })
+    .catch(() => undefined);
+  return () => {
+    stopped = true;
+    stopLive();
+    fallback?.();
+  };
+}
+
+export function subscribeReadMarkers(
+  workspaceId: string,
+  uid: string,
+  cb: (map: Record<string, number>) => void
+) {
+  if (!db) {
+    cb({});
+    return () => {};
+  }
+  if (chatBackendFor(workspaceId) === "supabase") return sbSubscribeReadMarkers(workspaceId, uid, cb);
+  return fsSubscribeReadMarkers(workspaceId, uid, cb);
 }
 

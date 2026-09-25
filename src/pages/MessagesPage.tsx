@@ -17,7 +17,6 @@ import { usePresenceMap } from "@/hooks/usePresenceMap";
 import { useAuth } from "@/hooks/useAuth";
 import { usePrivateChat } from "@/hooks/usePrivateChat";
 import { useInboxSummary } from "@/hooks/useInboxSummary";
-import { paths } from "@/firebase/firestore";
 import { deleteChatMessage, editChatMessage, sendChatMessage } from "@/services/chatService";
 import { notifyMentions } from "@/services/notificationService";
 import { upsertPrivateChatMeta, markPrivateConversationRead } from "@/services/inboxService";
@@ -25,7 +24,7 @@ import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
 import { formatMessageWrittenAt } from "@/utils/date";
 import { cn } from "@/utils/cn";
-import type { ChatMessage } from "@/types";
+import type { ChatMessage, ChatThread } from "@/types";
 
 export default function MessagesPage() {
   const { peerUid } = useParams<{ peerUid: string }>();
@@ -119,7 +118,7 @@ export default function MessagesPage() {
   const workspaceId = activeWorkspaceId;
   const me = profile;
   const myName = myDisplayName(profile, members);
-  const chatRef = chatId ? paths.privateChatMessages(workspaceId, chatId) : null;
+  const chatRef: ChatThread | null = chatId && selectedUid ? { workspaceId, kind: "dm", chatId, peerUid: selectedUid } : null;
 
   async function handleSend(text: string, replyTo: ChatMessage | null, mentioned: string[]) {
     if (!chatRef || !chatId || !selectedUid) return;

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { paths } from "@/firebase/firestore";
 import { subscribeToRecentChat } from "@/services/chatService";
 import { CHAT_PAGE_STEP, CHAT_PAGE_WINDOW } from "@/hooks/useWorkspaceChat";
 import type { ChatMessage } from "@/types";
@@ -35,12 +34,12 @@ export function usePrivateChat(workspaceId: string | null, myUid: string | null,
       setMessages([]);
       setHasEarlier(false);
     }
-    if (!workspaceId || !chatId) return;
+    if (!workspaceId || !chatId || !otherUid) return;
     const onError = (error: { code: string; message: string }) =>
       console.error("subscribeToChat(privateChat) denied:", error.code, error.message);
     // Сразу — последние сообщения, ранние — порциями по «Показать ранние».
     return subscribeToRecentChat(
-      paths.privateChatMessages(workspaceId, chatId),
+      { workspaceId, kind: "dm", chatId, peerUid: otherUid },
       limit,
       (items, more) => {
         setMessages(items);
