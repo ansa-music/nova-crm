@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { OS_DISPATCH_KIND_LABELS, watchOsDispatchLog, type OsDispatchLogEntry } from "@/services/osDispatchLogService";
+import { useSbBackend } from "@/services/sb/sbCollections";
 import { hasFullAccess } from "@/utils/permissions";
 
 /** Руководство может ЗНАТЬ о выдаче только когда она правда новая. */
@@ -29,14 +30,16 @@ export function describeOsDispatch(entry: OsDispatchLogEntry): string {
  * нужен: в полноэкранной таблице меню не видно).
  */
 export function useOsDispatchLogWatch() {
-  const { activeWorkspaceId } = useWorkspace();
+  const { activeWorkspaceId, activeWorkspace } = useWorkspace();
   const { profile } = useAuth();
   const canSee = useCanSeeOsDispatchLog();
   const navigate = useNavigate();
   const uid = profile?.uid ?? null;
+  // Где живёт журнал — по документу workspace; null, пока он не пришёл.
+  const backend = useSbBackend(activeWorkspace, "osDispatchLog");
 
   useEffect(() => {
-    if (!canSee || !activeWorkspaceId || !uid) return watchOsDispatchLog(null, null);
+    if (!canSee || !activeWorkspaceId || !uid || !backend) return watchOsDispatchLog(null, null);
     return watchOsDispatchLog(activeWorkspaceId, uid, (fresh) => {
       const now = Date.now();
       const recent = fresh.filter((e) => now - e.createdAt < FRESH_MS && e.osUid !== uid);
@@ -46,6 +49,6 @@ export function useOsDispatchLogWatch() {
         description: recent.length === 1 ? `${describeOsDispatch(first)} · ${first.client}` : describeOsDispatch(first),
         action: { label: "Открыть", onClick: () => navigate("/os-dispatch") },
       });
-    });
-  }, [canSee, activeWorkspaceId, uid, navigate]);
+    }, backend);
+  }, [canSee, activeWorkspaceId, uid, navigate, backend]);
 }

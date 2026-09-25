@@ -29,7 +29,7 @@ export { REQUIRED_SQL_VERSION } from "@/services/sb/sbSchemaVersion";
  * глубины настроек, а сразу: 24.09.2026 фаза 1 уехала в прод, а Firebase
  * продолжал тратить столько же — SQL никто не вставил.
  */
-const WATCHED: CollectionKey[] = ["deskLoads", "presence", "notifications", "osOrders"];
+const WATCHED: CollectionKey[] = ["deskLoads", "presence", "notifications", "osOrders", "history", "osDispatchLog"];
 const HIDE_KEY = "nova:sql-banner-hidden-until";
 const HIDE_FOR_MS = 24 * 60 * 60_000;
 

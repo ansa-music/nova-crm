@@ -18,7 +18,7 @@ import { getDocsResumable, paths, subscribeWithSource, withErrorReporting } from
 import { generateDeskId, generateId } from "@/utils/id";
 import { hasRowExtras } from "@/utils/rowExtras";
 import { RESERVED_CELL_KEY_ERROR, copyableCells, isReservedCellKey } from "@/utils/reservedCellKeys";
-import { logChange } from "@/services/historyService";
+import { deleteHistoryForPage, logChange } from "@/services/historyService";
 import type { PageColumn, PageIconName, PageRow, Role, StatusOption, WorkspacePage,
   OsFieldKeys,
 } from "@/types";
@@ -1041,6 +1041,8 @@ export async function deletePage(workspaceId: string, pageId: string) {
     refsToDelete.slice(i, i + CHUNK_SIZE).forEach((ref) => batch.delete(ref));
     await batch.commit();
   }
+  // Журнал стола в Supabase (history_log) — одним DELETE; сбой не ломает удаление.
+  await deleteHistoryForPage(workspaceId, pageId).catch((error) => console.warn("[history] журнал стола не удалился", error));
   // Строки в Supabase (все вкладки разом) и запись о правах стола — ПОСЛЕ
   // удаления самого стола: сбой здесь оставит лишь невидимые строки без стола,
   // а не живой стол без строк. Возврат через Ctrl+Z кладёт их обратно из снимка.

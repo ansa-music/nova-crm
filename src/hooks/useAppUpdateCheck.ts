@@ -111,8 +111,8 @@ async function reloadSafely() {
   try {
     // История копится пачкой в памяти — её надо поставить в очередь ДО
     // ожидания, иначе перезагрузка унесёт последние записи журнала.
-    void flushHistory();
-    const writes = Promise.all([db ? waitForPendingWrites(db) : Promise.resolve(), sbWaitForPendingWrites()]);
+    const flushed = flushHistory().catch(() => undefined);
+    const writes = Promise.all([flushed, db ? waitForPendingWrites(db) : Promise.resolve(), sbWaitForPendingWrites()]);
     await Promise.race([writes, new Promise((resolve) => setTimeout(resolve, 4000))]);
   } catch {
     /* всё равно перезагружаем */
