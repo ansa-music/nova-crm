@@ -157,6 +157,9 @@ export default function UsersPage() {
 
   // Real Owner (never a role preview): may edit their own add-on roles too.
   const viewerIsOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  // Роль Owner выдаёт и забирает только создатель workspace (ownerId):
+  // выданный Owner записи других Owner не трогает — так держат и правила.
+  const viewerIsCreator = permissions.isWorkspaceOwner;
   const deskPages = Array.isArray(pages) ? pages : [];
   const responsibleUids = new Set(deskPages.map((page) => page.responsibleUserId).filter((id): id is string => Boolean(id)));
 
@@ -516,12 +519,15 @@ export default function UsersPage() {
           const selfLocked = member.uid === profile?.uid && !viewerIsOwner;
           const extraRoles = rolesOf(member).slice(1);
           const addableRoles = EXTRA_ROLES.filter((r) => r !== member.role && !extraRoles.includes(r));
+          // Запись Owner правит создатель, а выданный Owner — только свою
+          // (ник, вторая роль), не чужую.
+          const ownerRowOpen = !isOwner || viewerIsCreator || (viewerIsOwner && member.uid === profile?.uid);
           const canEditExtraRoles =
-            member.status === "active" && Boolean(member.uid) && !selfLocked && (!isOwner || viewerIsOwner);
+            member.status === "active" && Boolean(member.uid) && !selfLocked && ownerRowOpen;
           // Ники — по разделу «Команды» (Технари / ОС / Другие), плюс ник,
           // оставшийся от прошлой роли: открепить его можно и отсюда.
           const nickKinds = member.status === "active" && member.uid ? nickKindsShownFor(member) : [];
-          const nickLocked = selfLocked || (isOwner && !viewerIsOwner);
+          const nickLocked = selfLocked || !ownerRowOpen;
           return (
             <Card key={member.uid || member.email}>
               <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:gap-3 sm:p-4">
@@ -617,7 +623,7 @@ export default function UsersPage() {
                           options={nickOptionsOf(activeWorkspace, kind)}
                           eligible={canHoldNick(kind, member)}
                           locked={nickLocked}
-                          lockReason={isOwner && !viewerIsOwner ? nickLockReason(member) : "Свой ник закрепляет Owner или другой Тимлид"}
+                          lockReason={isOwner && !ownerRowOpen ? nickLockReason(member, viewerIsOwner) : "Свой ник закрепляет Owner или другой Тимлид"}
                           onClick={() => setNickDialog({ member, kind })}
                         />
                       ))}
@@ -630,7 +636,7 @@ export default function UsersPage() {
                 <span className="hidden text-xs text-muted-foreground sm:block">
                   {member.status === "active" ? timeAgo(member.joinedAt ?? member.invitedAt) : timeAgo(member.invitedAt)}
                 </span>
-                {isOwner && viewerIsOwner && member.status === "active" && member.uid &&
+                {isOwner && viewerIsCreator && member.status === "active" && member.uid &&
                 member.uid !== activeWorkspace?.ownerId && member.uid !== profile?.uid ? (
                   // Забрать права Owner — тихо, без уведомления человеку.
                   <RoleSelect

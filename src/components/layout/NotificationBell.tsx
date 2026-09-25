@@ -54,13 +54,14 @@ export function NotificationBell({
   const { notifications, unreadCount, reload, markReadLocal } = useNotifications(activeWorkspaceId, profile?.uid ?? null);
   const { requests, resolveRequest, reload: reloadRequests } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const permissions = usePermissions();
-  // По РЕАЛЬНОЙ роли, а не по симуляции: Owner, смотрящий приложение в режиме
-  // «Технарь», всё равно должен видеть кнопки выдачи прав — иначе заявка висит
-  // до выхода из режима.
-  const isRealOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  // По РЕАЛЬНОЙ роли, а не по симуляции (isWorkspaceOwner — создатель): Owner,
+  // смотрящий приложение в режиме «Технарь», всё равно видит кнопки выдачи
+  // прав — иначе заявка висела бы до выхода из режима.
+  // Заявки по ключу решает только создатель workspace: выданному Owner
+  // кнопок «Выбрать роль… / Отклонить» не показываем (правила их и не пустят).
   const { ownerRequests, reloadOwnerRequests, resolveOwnerRequest } = useOwnerAccessRequests(
     activeWorkspaceId,
-    isRealOwner
+    permissions.isWorkspaceOwner
   );
   const navigate = useNavigate();
   const location = useLocation();

@@ -69,7 +69,6 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { DEFAULT_STATUS_OPTIONS, splitOptionsByActivity } from "@/utils/columnOptions";
 import { ACCENT_PRESETS } from "@/components/common/AccentColorSync";
 import { cn } from "@/utils/cn";
-import { memberHasRole } from "@/types";
 import type { OwnerAccessRequest, StatusOption } from "@/types";
 import { displayNameOf } from "@/utils/displayName";
 import { timeAgo } from "@/utils/date";
@@ -237,18 +236,22 @@ export default function SettingsPage() {
   // себе — он лишь позволяет отправить запрос; роль выдаёт Owner кнопкой в
   // колокольчике, и только ему это разрешают firestore.rules.
   const isRealOwner = permissions.isWorkspaceOwner || permissions.realRole === "owner";
+  // Заявки, выдачу и снятие Owner и сам ключ ведёт только создатель
+  // workspace (ownerId) — выданный Owner видит здесь одну строку-пояснение.
+  const isCreator = permissions.isWorkspaceOwner;
+  const creatorName = useMemo(() => {
+    const creator = members.find((m) => m.uid && m.uid === activeWorkspace?.ownerId);
+    return creator ? displayNameOf(creator) : "";
+  }, [members, activeWorkspace?.ownerId]);
   const [accessKey, setAccessKey] = useState("");
   const [isSendingKey, setIsSendingKey] = useState(false);
   const [ownerRequest, setOwnerRequest] = useState<OwnerAccessRequest | null>(null);
 
-  const ownerUids = useMemo(() => {
-    const ids = new Set<string>();
-    if (activeWorkspace?.ownerId) ids.add(activeWorkspace.ownerId);
-    for (const member of members) {
-      if (member.uid && member.status === "active" && memberHasRole(member, "owner")) ids.add(member.uid);
-    }
-    return Array.from(ids);
-  }, [activeWorkspace?.ownerId, members]);
+  // Заявку решает только создатель — ему одному и уведомление.
+  const ownerUids = useMemo(
+    () => (activeWorkspace?.ownerId ? [activeWorkspace.ownerId] : []),
+    [activeWorkspace?.ownerId]
+  );
 
   useEffect(() => {
     // Чистим в начале эффекта, а не только когда данных нет: экран живёт на
@@ -272,7 +275,7 @@ export default function SettingsPage() {
   // мимо, а выдача прав должна быть там же, где её ищут.
   const { ownerRequests, reloadOwnerRequests, resolveOwnerRequest } = useOwnerAccessRequests(
     activeWorkspace?.id ?? null,
-    isRealOwner
+    isCreator
   );
 
   async function handleSubmitAccessKey() {
@@ -505,8 +508,13 @@ export default function SettingsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              {isRealOwner ? (
+              {isCreator ? (
                 <OwnerAccessPanel requests={ownerRequests} resolve={resolveOwnerRequest} />
+              ) : isRealOwner ? (
+                <p className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+                  Права Owner выдаёт и забирает только создатель workspace
+                  {creatorName ? ` — ${creatorName}` : ""}. Заявки по ключу и сам ключ — у него.
+                </p>
               ) : ownerRequest?.status === "pending" ? (
                 <div className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
                   <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" />

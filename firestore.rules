@@ -462,8 +462,27 @@ service cloud.firestore {
                 request.resource.data.activeRole in ['owner', 'teamlead', 'admin', 'manager', 'os', 'viewer'])
           );
 
-        // Owner manages any membership record: invite, change role, remove.
-        allow create, update, delete: if isOwner(workspaceId);
+        // Создатель workspace (ownerId) ведёт любую запись: приглашает, меняет
+        // роль, убирает — и ТОЛЬКО он выдаёт и забирает роль Owner (просьба
+        // Nurba 25.09.2026: «только я как создатель забираю или отдаю Owner»).
+        allow create, update, delete: if isDocOwner(workspaceId);
+
+        // Выданный Owner ведёт всех, кроме записей Owner: не выдаёт роль
+        // owner, не снимает другого Owner и не трогает создателя. Себе он
+        // может менять ник, вторую роль и прочее — но не свою роль.
+        allow create: if isOwner(workspaceId)
+          && request.resource.data.get('role', '') != 'owner'
+          && memberId != get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '');
+        allow update: if isOwner(workspaceId)
+          && memberId != get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '')
+          && (
+            (resource.data.get('role', '') != 'owner' && request.resource.data.get('role', '') != 'owner')
+            || (memberId == request.auth.uid
+              && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'status', 'uid', 'email']))
+          );
+        allow delete: if isOwner(workspaceId)
+          && resource.data.get('role', '') != 'owner'
+          && memberId != get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '');
 
         // Тимлид manages membership the same way — invites, join approvals,
         // role changes, removal — except anything touching an Owner: never
@@ -910,7 +929,8 @@ service cloud.firestore {
         // Owner видит все заявки (список в колокольчике), каждый — свою
         // собственную. Второе условие не читает resource.data, поэтому get
         // несуществующей заявки отдаёт "нет документа", а не permission-denied.
-        allow read: if isOwner(workspaceId) || (signedIn() && requestId == request.auth.uid);
+        // Заявки видит и решает только создатель workspace: Owner выдаёт он один.
+        allow read: if isDocOwner(workspaceId) || (signedIn() && requestId == request.auth.uid);
         // Подать/переподать заявку может только сам участник и только на себя,
         // и только в статусе pending.
         allow create, update: if isMember(workspaceId)
@@ -919,17 +939,17 @@ service cloud.firestore {
           && request.resource.data.workspaceId == workspaceId
           && request.resource.data.status == 'pending'
           && ownerAccessKeyOk(workspaceId, request.resource.data.get('keyHash', ''));
-        // Подтвердить/отклонить/убрать — только Owner.
-        allow update: if isOwner(workspaceId);
-        allow delete: if isOwner(workspaceId);
+        // Подтвердить/отклонить/убрать — только создатель.
+        allow update: if isDocOwner(workspaceId);
+        allow delete: if isDocOwner(workspaceId);
       }
 
-      // Текущий ключ доступа (Owner меняет его в «Настройки → Ключ доступа»).
-      // Читает и пишет только Owner; заявка несёт лишь хеш
+      // Текущий ключ доступа (создатель меняет его в «Настройки → Ключ доступа»).
+      // Читает и пишет только создатель workspace; заявка несёт лишь хеш
       // sha256("{workspaceId}:{ключ}"), сверку делает ownerAccessKeyOk.
       match /ownerAccess/{docId} {
-        allow read, delete: if isOwner(workspaceId);
-        allow create, update: if isOwner(workspaceId)
+        allow read, delete: if isDocOwner(workspaceId);
+        allow create, update: if isDocOwner(workspaceId)
           && docId == 'key'
           && request.resource.data.key is string
           && request.resource.data.key.size() >= 4

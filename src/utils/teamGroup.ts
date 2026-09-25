@@ -108,15 +108,23 @@ export function canHoldNick(kind: NickKind, member: WorkspaceMember): boolean {
 
 /**
  * Тимлид не трогает ни свой ник, ни записи Owner — так держат правила
- * members. Owner правит всё.
+ * members. Создатель workspace правит всё; выданный Owner — всех, кроме
+ * ДРУГИХ Owner (роль Owner и записи Owner — только у создателя).
  */
-export function nickLockedFor(member: Pick<WorkspaceMember, "uid" | "role">, meUid: string, viewerIsOwner: boolean): boolean {
-  if (viewerIsOwner) return false;
+export function nickLockedFor(
+  member: Pick<WorkspaceMember, "uid" | "role">,
+  meUid: string,
+  viewerIsOwner: boolean,
+  viewerIsCreator = false
+): boolean {
+  if (viewerIsCreator) return false;
+  if (viewerIsOwner) return member.role === "owner" && member.uid !== meUid;
   return member.uid === meUid || member.role === "owner";
 }
 
-export function nickLockReason(member: Pick<WorkspaceMember, "role">): string {
-  return member.role === "owner" ? "Ник Owner закрепляет сам Owner" : "Свой ник закрепляет Owner или другой Тимлид";
+export function nickLockReason(member: Pick<WorkspaceMember, "role">, viewerIsOwner = false): string {
+  if (member.role !== "owner") return "Свой ник закрепляет Owner или другой Тимлид";
+  return viewerIsOwner ? "Ник другого Owner закрепляет создатель workspace" : "Ник Owner закрепляет сам Owner";
 }
 
 /** Всё, из чего складывается рабочий ник человека. */

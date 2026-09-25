@@ -2569,7 +2569,8 @@ Postgres** (`desk_rows`), где суточной квоты на операци
 ## Модель прав (кратко)
 
 Roles: `owner` > `teamlead` («Тимлид») > `admin` > `manager` («Технарь») > `os` («ОС») / `viewer`. Owner и
-Тимлид проходят `hasFullAccess()` безусловно (`isOwner()` — только Owner: удаление workspace). `canEditPage(page) = owner/тимлид || responsibleUserId == uid || (canAccessPage && uid in editableUsers)`.
+Тимлид проходят `hasFullAccess()` безусловно (`isOwner()` — только Owner: удаление workspace).
+Роль `owner` выдаёт и забирает только СОЗДАТЕЛЬ (`isDocOwner`, см. «Роль Owner выдаёт…» ниже). `canEditPage(page) = owner/тимлид || responsibleUserId == uid || (canAccessPage && uid in editableUsers)`.
 `canAccessPage(page) = owner/тимлид || isResponsiblePage || uid in allowedUsers`. `allowedUsers`
 (просмотр) и `editableUsers` (редактирование) — разные права. `responsibleUserId` даёт
 админ-права в рамках конкретной страницы + доступ на чтение даже без `allowedUsers`, но не
@@ -2636,6 +2637,27 @@ Owner, только у настоящего Owner). (3) «Ключ»: текущ
 умолчанию, смена, старый ключ — отказ, ключ не читают Тимлид и технарь, бывший Owner теряет чтение) и 23
 проверки в харнесе (неверный/верный ключ, выдача «Тимлид» и Owner, смена ключа, снятие без уведомления в
 настройках и на «Пользователях», колокольчик, телефон 375 px).
+
+**Роль Owner выдаёт и забирает ТОЛЬКО создатель workspace** (`workspace.ownerId`; просьба Nurba
+25.09.2026: «овнера не могут менять роли другого — только я как создатель»). В правилах members
+создатель (`isDocOwner`) правит любые записи, а выданный Owner (`isOwner`, роль `owner`) — как
+Тимлид по отношению к Owner: роль `owner` не выдаёт (ни правкой, ни приглашением), записи других
+Owner и создателя не меняет и не удаляет; свою запись правит (ник, вторая роль), но не свою роль,
+`status`, `uid`, `email`. Остальных людей выданный Owner ведёт как раньше. Заявки по ключу
+(`ownerAccessRequests`: читать все и решать) и сам ключ (`ownerAccess/key`) — только создатель;
+уведомление о заявке уходит одному создателю (`ownerUids = [ownerId]` в `SettingsPage`). На клиенте
+создатель — `permissions.isWorkspaceOwner`: «забрать Owner» на «Пользователях», панель «Ключ
+доступа» (выданный видит строку «Права Owner выдаёт и забирает только создатель workspace — имя»),
+кнопки заявки в колокольчике (`useOwnerAccessRequests` включён только у него), ники чужих Owner
+(`nickLockedFor(member, meUid, viewerIsOwner, viewerIsCreator)`). Копия прав в Supabase
+(`20261003_owner_members.sql`, повторяемый): `rows_members_owner` — только `rows_is_creator`,
+выданному Owner — политики как у Тимлида плюс своя строка; `planMemberSync` получил актёра
+`grantedOwner` (записи Owner и создателя пропускает), `putMemberAcl` при 42501 повторяет обычным
+update. `REQUIRED_SQL_VERSION` не поднимали — это ужесточение, без SQL ничего не ломается.
+Проверено: 28 правил эмулятором (`creatorowner.mjs`) + `ownerkey.mjs` 17, 20 SQL
+(`supabase/tests/owner_members.sql`, после `desk_rows_rls.sql`; прежние наборы без регрессий), 6
+юнит-проверок сверки и 11 проверок в браузере на стенде (заявка → уведомление только создателю,
+у выданного — без выбора роли у Owner и с пояснением на «Ключе доступа», создатель снимает Owner).
 
 В «Настройках» **нет кнопки удаления workspace** — «Опасную зону» убрали по просьбе Nurba
 (правило `allow delete` у workspace и `deleteWorkspace()` в сервисе остались, UI к ним нет).

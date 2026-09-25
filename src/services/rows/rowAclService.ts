@@ -141,7 +141,14 @@ export function safeToRemove(current: number, toRemove: number): boolean {
 export function planMemberSync(
   desired: readonly AclMemberRow[],
   current: readonly AclMemberRow[],
-  opts: { rosterComplete: boolean; actor: "owner" | "teamlead"; me: string; ownerId: string; force?: boolean }
+  opts: {
+    rosterComplete: boolean;
+    /** `grantedOwner` — Owner, но не создатель workspace: записей Owner не трогает. */
+    actor: "owner" | "grantedOwner" | "teamlead";
+    me: string;
+    ownerId: string;
+    force?: boolean;
+  }
 ): { upsert: AclMemberRow[]; remove: string[]; skipped: string[] } {
   const skipped: string[] = [];
   const currentByUid = new Map(current.map((m) => [m.uid, m]));
@@ -149,12 +156,24 @@ export function planMemberSync(
   // Тимлид не пишет себя, Owner и роль owner — как в firestore.rules.
   const teamleadMayTouch = (uid: string, role: Role | undefined) =>
     uid !== opts.me && uid !== opts.ownerId && role !== "owner";
+  // Выданный Owner — как Тимлид, но себя (оставаясь Owner) править может:
+  // роль owner выдаёт и забирает только создатель (20261003_owner_members.sql).
+  const grantedMayTouch = (uid: string, role: Role | undefined) =>
+    uid !== opts.ownerId && role !== "owner";
 
   const upsert = desired.filter((m) => {
     const cur = currentByUid.get(m.uid);
     if (cur && sameMemberRow(cur, m)) return false;
     if (opts.actor === "teamlead" && !(teamleadMayTouch(m.uid, m.role) && teamleadMayTouch(m.uid, cur?.role))) {
       skipped.push(`участник ${m.uid}: меняет только Owner`);
+      return false;
+    }
+    if (
+      opts.actor === "grantedOwner" &&
+      !(grantedMayTouch(m.uid, m.role) && grantedMayTouch(m.uid, cur?.role)) &&
+      !(m.uid === opts.me && m.role === "owner" && cur?.role === "owner")
+    ) {
+      skipped.push(`участник ${m.uid}: записи Owner меняет только создатель`);
       return false;
     }
     return true;
@@ -172,6 +191,12 @@ export function planMemberSync(
     remove = remove.filter((uid) => {
       const ok = teamleadMayTouch(uid, currentByUid.get(uid)?.role);
       if (!ok) skipped.push(`убрать ${uid}: только Owner`);
+      return ok;
+    });
+  } else if (opts.actor === "grantedOwner") {
+    remove = remove.filter((uid) => {
+      const ok = grantedMayTouch(uid, currentByUid.get(uid)?.role);
+      if (!ok) skipped.push(`убрать ${uid}: только создатель`);
       return ok;
     });
   }
@@ -498,7 +523,7 @@ export async function syncRowAcl(input: AclSyncInput): Promise<AclSyncReport> {
     const desired = desiredMemberRows(input.members).map((m) => (nickColumn === false ? withoutNick(m) : m));
     const plan = planMemberSync(desired, currentMembers, {
       rosterComplete: true,
-      actor,
+      actor: actor === "owner" && input.me !== input.ownerId ? "grantedOwner" : actor,
       me: input.me,
       ownerId: input.ownerId,
       force: input.force,
@@ -508,7 +533,7 @@ export async function syncRowAcl(input: AclSyncInput): Promise<AclSyncReport> {
       "rows_members",
       plan.upsert.map((m) => ({ workspace_id: workspaceId, ...m, updated_at: Date.now() })),
       "workspace_id,uid",
-      actor !== "owner",
+      actor !== "owner" || input.me !== input.ownerId,
       report.errors,
       (m) => `участник ${m.uid}`
     );
@@ -617,6 +642,17 @@ export async function putMemberAcl(workspaceId: string, uid: string, member: Wor
     ({ error } = await put(withoutNick(row)));
   } else if (!error && nickColumn === null) {
     nickColumn = true;
+  }
+  if (error && error.code === "42501") {
+    // upsert — это INSERT ON CONFLICT, и Postgres проверяет политику ВСТАВКИ
+    // и для существующей строки: выданный Owner не вставляет строку с ролью
+    // owner, но свою строку править вправе — повторяем обычным update.
+    const value = nickColumn === false ? withoutNick(row) : row;
+    ({ error } = await supabaseRows
+      .from("rows_members")
+      .update({ ...value, updated_at: Date.now() })
+      .eq("workspace_id", workspaceId)
+      .eq("uid", uid));
   }
   if (error) throw new Error(`участник не записан в копию прав: ${describe(error)}`);
 }

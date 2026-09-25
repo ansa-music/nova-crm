@@ -63,6 +63,7 @@ export function NickListCard({
   members,
   meUid,
   viewerIsOwner,
+  viewerIsCreator = false,
   query,
   onChanged,
 }: {
@@ -72,6 +73,8 @@ export function NickListCard({
   members: WorkspaceMember[];
   meUid: string;
   viewerIsOwner: boolean;
+  /** Создатель workspace: только он трогает записи других Owner. */
+  viewerIsCreator?: boolean;
   /** Поиск страницы — фильтрует и ники (по подписи и по держателю). */
   query: string;
   onChanged: () => Promise<void> | void;
@@ -155,7 +158,7 @@ export function NickListCard({
   function row(option: StatusOption) {
     const owner = boundBy.get(option.value);
     const wrongRole = owner ? !canHoldNick(kind, owner) : false;
-    const locked = owner ? nickLockedFor(owner, meUid, viewerIsOwner) : false;
+    const locked = owner ? nickLockedFor(owner, meUid, viewerIsOwner, viewerIsCreator) : false;
     return (
       <div
         key={option.value}
@@ -192,7 +195,7 @@ export function NickListCard({
               size="sm"
               className="min-h-11 gap-1 px-2 sm:h-7 sm:min-h-0"
               disabled={busy === option.value || locked}
-              title={locked ? nickLockReason(owner) : undefined}
+              title={locked ? nickLockReason(owner, viewerIsOwner) : undefined}
               onClick={() => void unbind(owner, option)}
             >
               <Unlink className="h-3.5 w-3.5" /> Отвязать
@@ -274,6 +277,7 @@ export function NickListCard({
           members={members}
           meUid={meUid}
           viewerIsOwner={viewerIsOwner}
+          viewerIsCreator={viewerIsCreator}
           onClose={() => setBindOption(null)}
           onSaved={onChanged}
         />
@@ -294,6 +298,7 @@ function BindMemberDialog({
   members,
   meUid,
   viewerIsOwner,
+  viewerIsCreator = false,
   onClose,
   onSaved,
 }: {
@@ -303,6 +308,8 @@ function BindMemberDialog({
   members: WorkspaceMember[];
   meUid: string;
   viewerIsOwner: boolean;
+  /** Создатель workspace: только он трогает записи других Owner. */
+  viewerIsCreator?: boolean;
   onClose: () => void;
   onSaved: () => Promise<void> | void;
 }) {
@@ -364,7 +371,7 @@ function BindMemberDialog({
             </p>
           )}
           {people.map((m) => {
-            const locked = nickLockedFor(m, meUid, viewerIsOwner);
+            const locked = nickLockedFor(m, meUid, viewerIsOwner, viewerIsCreator);
             return (
               <button
                 key={m.uid}
@@ -377,7 +384,7 @@ function BindMemberDialog({
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] font-medium">{realNameOf(m)}</span>
                   <span className="block truncate text-[11px] text-muted-foreground">
-                    {locked ? nickLockReason(m) : m.email}
+                    {locked ? nickLockReason(m, viewerIsOwner) : m.email}
                   </span>
                 </span>
                 {saving === m.uid && <Loader2 className="h-4 w-4 animate-spin" />}

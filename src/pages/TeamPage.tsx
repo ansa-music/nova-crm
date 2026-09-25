@@ -179,7 +179,7 @@ export default function TeamPage() {
             {byGroup[group].length === 0 && <p className="text-[12px] text-muted-foreground">{GROUP_TEXT[group].empty}</p>}
             {byGroup[group].length > 0 && rows.length === 0 && <p className="text-[12px] text-muted-foreground">Никого не нашли.</p>}
             {rows.map((m) => {
-              const locked = nickLockedFor(m, meUid, viewerIsOwner);
+              const locked = nickLockedFor(m, meUid, viewerIsOwner, permissions.isWorkspaceOwner);
               const presence = getPresenceStatus(presenceAt(m));
               return (
                 <div key={m.uid} className="flex min-w-0 flex-col gap-2 rounded-lg border border-border/70 px-3 py-2 sm:flex-row sm:items-center sm:gap-3">
@@ -204,7 +204,7 @@ export default function TeamPage() {
                       {locked && (
                         <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
                           <Lock className="h-3 w-3 shrink-0" />
-                          {nickLockReason(m)}
+                          {nickLockReason(m, viewerIsOwner)}
                         </span>
                       )}
                     </span>
@@ -218,7 +218,7 @@ export default function TeamPage() {
                         options={nickOptionsOf(activeWorkspace, k)}
                         eligible={canHoldNick(k, m)}
                         locked={locked}
-                        lockReason={nickLockReason(m)}
+                        lockReason={nickLockReason(m, viewerIsOwner)}
                         onClick={() => setNickDialog({ member: m, kind: k })}
                       />
                     ))}
@@ -237,6 +237,7 @@ export default function TeamPage() {
           members={allMembers}
           meUid={meUid}
           viewerIsOwner={viewerIsOwner}
+          viewerIsCreator={permissions.isWorkspaceOwner}
           query={query}
           onChanged={() => refreshWorkspaceMembers(activeWorkspaceId)}
         />
