@@ -26,7 +26,7 @@ export type RowsBackend = "firestore" | "supabase";
  * services/sb/sbCollections.ts). Имена — по смыслу, а не по коллекциям
  * Firestore: одна «коллекция» здесь может быть парой (deskLoad + архив).
  */
-export type SbCollectionKey = "deskLoads" | "presence" | "notifications" | "osOrders" | "chat" | "history";
+export type SbCollectionKey = "deskLoads" | "presence" | "notifications" | "osOrders" | "chat" | "history" | "ratings";
 /** Ручной выбор Owner; ключа нет — «авто». */
 export type SbCollectionOverride = "firestore" | "supabase";
 /**

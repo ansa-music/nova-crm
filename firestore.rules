@@ -1059,6 +1059,11 @@ service cloud.firestore {
         return stars is int && stars >= 1 && stars <= 5;
       }
 
+      // Оценка заказа — 1–10 (25.09.2026: одна система, 10 баллов).
+      function isValidScore(score) {
+        return score is int && score >= 1 && score <= 10;
+      }
+
       function hasRecentOrderFrom(workspaceId, rating) {
         let me = memberDoc(workspaceId, request.auth.uid).data;
         let load = get(/databases/$(database)/documents/workspaces/$(workspaceId)/deskLoad/$(rating.pageId)).data;
@@ -1093,9 +1098,13 @@ service cloud.firestore {
       }
 
       // -----------------------------------------------------------------
-      // Оценки ЗА ЗАКАЗ — вторая, независимая шкала рядом с общей оценкой
-      // выше. Один документ на заказ, id "<pageId>_<rowId>", ставит его тот
-      // ОС, чей ник стоит в заказе.
+      // Оценки ЗА ЗАКАЗ — с 25.09.2026 ЕДИНСТВЕННАЯ оценка технаря, 1–10
+      // (поле `score`; старые документы со `stars` 1–5 клиент читает ×2).
+      // Основное хранилище — Supabase `order_ratings` (право там проверяет
+      // сама строка заказа); здесь — откат, пока SQL не вставлен. Общая
+      // оценка techRatings выше из интерфейса убрана. Один документ на
+      // заказ, id "<pageId>_<rowId>", ставит его тот ОС, чей ник стоит в
+      // заказе.
       //
       // Проверка права та же, что у общей оценки (hasRecentOrderFrom): саму
       // строку ОС не видит вообще, так что подтвердить «этот заказ мой»
@@ -1115,15 +1124,15 @@ service cloud.firestore {
         allow create, update: if isMember(workspaceId)
           && request.resource.data.osUid == request.auth.uid
           && hasRole(workspaceId, 'os')
-          && request.resource.data.keys().hasOnly(['workspaceId', 'pageId', 'rowId', 'osUid', 'osValue',
-              'technicianUid', 'stars', 'monthKey', 'title', 'createdAt', 'updatedAt'])
+          && request.resource.data.keys().hasOnly(['workspaceId', 'pageId', 'tabId', 'rowId', 'osUid', 'osValue',
+              'technicianUid', 'score', 'monthKey', 'title', 'createdAt', 'updatedAt'])
           && request.resource.data.workspaceId == workspaceId
           && request.resource.data.rowId is string
           && request.resource.data.technicianUid is string
           && request.resource.data.technicianUid != request.auth.uid
           && ratingId == request.resource.data.pageId + '_' + request.resource.data.rowId
           && request.resource.data.monthKey is string
-          && isValidStars(request.resource.data.stars)
+          && isValidScore(request.resource.data.score)
           && hasRecentOrderFrom(workspaceId, request.resource.data);
         // Свою — сам ОС, чужую несправедливую — Owner/Тимлид.
         allow delete: if hasFullAccess(workspaceId)
@@ -1140,17 +1149,20 @@ service cloud.firestore {
       // снимает чужую) — счётчик, который правит только его владелец.
       // Арифметику правила не пересчитывают (нельзя: другой документ), но
       // держат её в осмысленных границах: count >= 0, а сумма обязана лежать
-      // между count и count*5 — то есть накрутить среднее выше пятёрки или
-      // ниже единицы нельзя при любом count.
+      // между count и count*scale — то есть накрутить среднее выше потолка
+      // шкалы или ниже единицы нельзя при любом count. `scale` — 10 у новых
+      // итогов (клиент переводит старые 5-балльные той же записью), без
+      // поля — старые 5 баллов.
       function saneRatingTotals(data) {
         return data.count is int && data.sum is int
           && data.count >= 0 && data.count <= 100000
-          && data.sum >= data.count && data.sum <= data.count * 5;
+          && data.get('scale', 5) in [5, 10]
+          && data.sum >= data.count && data.sum <= data.count * data.get('scale', 5);
       }
       match /orderRatingTotals/{totalsId} {
         allow read: if isMember(workspaceId);
         allow create, update: if isMember(workspaceId)
-          && request.resource.data.keys().hasOnly(['workspaceId', 'osUid', 'technicianUid', 'monthKey', 'count', 'sum', 'updatedAt'])
+          && request.resource.data.keys().hasOnly(['workspaceId', 'osUid', 'technicianUid', 'monthKey', 'count', 'sum', 'scale', 'updatedAt'])
           && request.resource.data.workspaceId == workspaceId
           && request.resource.data.technicianUid is string
           && request.resource.data.monthKey is string

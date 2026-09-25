@@ -62,7 +62,7 @@ export default function AbsPage() {
         members,
         pages,
         loads: loads ?? [],
-        ratings: [],
+        ratingTotals: [],
         monthKey,
         statusOptions,
         kinds,

@@ -3,13 +3,13 @@ import { Link } from "react-router";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ChevronDown, Crown, Gift, Star, Table2 } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
-import { StarRating } from "@/components/technicians/StarRating";
+import { ScoreMeter } from "@/components/technicians/ScoreRating";
 import { cn } from "@/utils/cn";
 import { formatCurrency, formatNumber } from "@/utils/format";
 import { personLabel } from "@/utils/peopleDesks";
 import { NO_STATUS_KEY } from "@/utils/techLoad";
 import type { OverviewDay, OverviewMonth, OverviewOsShare, OverviewTechnician } from "@/utils/overviewStats";
-import type { StatusOption, WorkspaceMember } from "@/types";
+import { formatScore, type StatusOption, type WorkspaceMember } from "@/types";
 import { bonusForPlace } from "@/utils/overviewStats";
 
 const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -32,7 +32,8 @@ function plural(n: number, one: string, few: string, many: string) {
   return many;
 }
 export const ordersWord = (n: number) => plural(n, "заказ", "заказа", "заказов");
-export const ratingsWord = (n: number) => plural(n, "оценка", "оценки", "оценок");
+/** Оценки — за заказы: «12 оценённых заказов». */
+export const ratingsWord = (n: number) => plural(n, "оценённый заказ", "оценённых заказа", "оценённых заказов");
 
 // ---------------------------------------------------------------- chrome
 
@@ -193,9 +194,9 @@ export function LeadersRow({
     byRating
       ? {
           key: "rating",
-          title: "Лучшая оценка",
+          title: "Лучшая оценка заказов",
           tech: byRating,
-          value: `${(byRating.ratingAvg ?? 0).toFixed(1)} ★`,
+          value: `${formatScore(byRating.ratingAvg ?? 0)} / 10`,
           full: `${byRating.ratingCount} ${ratingsWord(byRating.ratingCount)}`,
         }
       : null,
@@ -345,10 +346,10 @@ export function RatingLeaderboard({
   const [open, setOpen] = useState(false);
   const shown = open ? ranked : ranked.slice(0, LEADERBOARD_PREVIEW);
   return (
-    <Panel eyebrow="Рейтинг" title="По оценкам ОС">
+    <Panel eyebrow="Рейтинг" title="По оценкам заказов">
       {ranked.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
-          Оценок пока нет. ОС ставят их на «Технари» после своих заказов.
+          Оценок пока нет. ОС ставят оценку от 1 до 10 каждому своему заказу — в карточке заказа на своём столе или на «Технари».
         </p>
       ) : (
         <ol className="flex flex-col gap-2.5">
@@ -367,13 +368,8 @@ export function RatingLeaderboard({
                 sub={`${tech.ratingCount} ${ratingsWord(tech.ratingCount)}`}
               />
               <div className="flex shrink-0 items-center gap-2">
-                <span className="hidden sm:inline-flex">
-                  <StarRating value={tech.ratingAvg} size="sm" label="Средняя оценка" />
-                </span>
-                <span className="inline-flex items-center gap-1 text-sm font-semibold tabular-nums">
-                  <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400 sm:hidden" aria-hidden />
-                  {(tech.ratingAvg ?? 0).toFixed(1)}
-                </span>
+                <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400 sm:hidden" aria-hidden />
+                <ScoreMeter average={tech.ratingAvg} count={tech.ratingCount} size="sm" />
               </div>
             </li>
           ))}

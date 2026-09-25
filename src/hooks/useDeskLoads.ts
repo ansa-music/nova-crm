@@ -5,9 +5,8 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { refreshDeskLoadFromRows, subscribeDeskLoadHistory, subscribeDeskLoads } from "@/services/deskLoadService";
 import { currentMonthSubPageId, isMonthlyDesk } from "@/services/monthTabService";
-import { subscribeMyOrderRatings, subscribeOrderRatingTotals } from "@/services/orderRatingService";
+import { subscribeOrderRatings, subscribeOrderRatingTotals, type OrderRatingsScope } from "@/services/orderRatingService";
 import { useSbBackend, type SbBackend } from "@/services/sb/sbCollections";
-import { subscribeTechRatings } from "@/services/techRatingService";
 import { subscribeTechSchedules } from "@/services/techScheduleService";
 import { joinSharedSubscription } from "@/utils/sharedSubscription";
 import type {
@@ -15,7 +14,6 @@ import type {
   DeskLoadArchive,
   OrderRating,
   OrderRatingTotals,
-  TechRating,
   TechSchedule,
   WorkspacePage,
 } from "@/types";
@@ -120,52 +118,42 @@ function joinShared<T>(
 }
 
 /**
- * ОС-оценки технарей за `monthKey` и прошлый месяц, live — больше ни один
- * экран не показывает (см. subscribeTechRatings).
+ * Где оценки заказов этого workspace (ключ `ratings` в sbCollections):
+ * Supabase `order_ratings` или откат в Firestore. `null` — документ
+ * workspace ещё не пришёл.
  */
-export function useTechRatings(workspaceId: string | null, monthKey: string, enabled: boolean) {
-  const [ratings, setRatings] = useState<TechRating[] | null>(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    setRatings(null);
-    setFailed(false);
-    if (!workspaceId || !enabled) return;
-    return joinShared<TechRating[]>(
-      `techRatings:${workspaceId}:${monthKey}`,
-      (onData, onError) => subscribeTechRatings(workspaceId, monthKey, onData, onError),
-      (next) => {
-        setRatings(next);
-        setFailed(false);
-      },
-      () => setFailed(true)
-    );
-  }, [workspaceId, monthKey, enabled]);
-  return { ratings, failed };
+export function useRatingsBackend(workspaceId: string | null): SbBackend | null {
+  const { activeWorkspace } = useWorkspace();
+  const same = Boolean(workspaceId && activeWorkspace?.id === workspaceId);
+  const backend = useSbBackend(same ? activeWorkspace : null, "ratings");
+  if (!activeWorkspace) return null;
+  return same ? backend : "firestore";
 }
 
 /**
- * Итоги оценок за заказы по всем парам ОС↔Технарь — за `monthKey` и прошлый
+ * Итоги оценок заказов по всем парам ОС↔Технарь — за `monthKey` и прошлый
  * месяц. Отказ в чтении — это «неизвестно», а не «оценок нет»: пустой список
  * вместо отказа показал бы всем технарям нулевой рейтинг, которого на самом
  * деле никто не ставил.
  */
 export function useOrderRatingTotals(workspaceId: string | null, monthKey: string, enabled: boolean) {
+  const backend = useRatingsBackend(workspaceId);
   const [totals, setTotals] = useState<OrderRatingTotals[] | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     setTotals(null);
     setFailed(false);
-    if (!workspaceId || !enabled) return;
+    if (!workspaceId || !enabled || !backend) return;
     return joinShared<OrderRatingTotals[]>(
-      `orderRatingTotals:${workspaceId}:${monthKey}`,
-      (onData, onError) => subscribeOrderRatingTotals(workspaceId, monthKey, onData, onError),
+      `orderRatingTotals:${backend}:${workspaceId}:${monthKey}`,
+      (onData, onError) => subscribeOrderRatingTotals(workspaceId, monthKey, backend, onData, onError),
       (next) => {
         setTotals(next);
         setFailed(false);
       },
       () => setFailed(true)
     );
-  }, [workspaceId, monthKey, enabled]);
+  }, [workspaceId, monthKey, enabled, backend]);
   return { totals, failed };
 }
 
@@ -209,15 +197,36 @@ export function useTechSchedules(workspaceId: string | null, monthKey: string, e
   return { schedules, loaded, failed, retry };
 }
 
-/** Оценки заказов за `monthKey`, которые поставил САМ смотрящий ОС — чтобы показать их в «Мои заказы». */
-export function useMyOrderRatings(workspaceId: string | null, osUid: string, monthKey: string, enabled: boolean) {
-  const [ratings, setRatings] = useState<OrderRating[]>([]);
+/**
+ * Сами оценки за `monthKey` и прошлый месяц: ОС — свои (балл у заказа),
+ * Owner — все (подробности и снятие). `null` — ещё не пришли.
+ */
+export function useOrderRatings(
+  workspaceId: string | null,
+  scope: OrderRatingsScope | null,
+  monthKey: string,
+  enabled: boolean
+) {
+  const backend = useRatingsBackend(workspaceId);
+  const [ratings, setRatings] = useState<OrderRating[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const scopeKey = scope ? (scope.kind === "os" ? `os:${scope.uid}` : "all") : "";
   useEffect(() => {
-    setRatings([]);
-    if (!workspaceId || !osUid || !enabled) return;
-    return subscribeMyOrderRatings(workspaceId, osUid, monthKey, setRatings, () => setRatings([]));
-  }, [workspaceId, osUid, monthKey, enabled]);
-  return ratings;
+    setRatings(null);
+    setFailed(false);
+    if (!workspaceId || !enabled || !backend || !scopeKey) return;
+    const current: OrderRatingsScope = scopeKey === "all" ? { kind: "all" } : { kind: "os", uid: scopeKey.slice(3) };
+    return joinShared<OrderRating[]>(
+      `orderRatings:${backend}:${workspaceId}:${scopeKey}:${monthKey}`,
+      (onData, onError) => subscribeOrderRatings(workspaceId, current, monthKey, backend, onData, onError),
+      (next) => {
+        setRatings(next);
+        setFailed(false);
+      },
+      () => setFailed(true)
+    );
+  }, [workspaceId, scopeKey, monthKey, enabled, backend]);
+  return { ratings, failed, backend };
 }
 
 /**

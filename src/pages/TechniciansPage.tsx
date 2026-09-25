@@ -8,13 +8,12 @@ import { useUrlState } from "@/hooks/useUrlState";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/common/EmptyState";
 import { MonthlyRatingTop, type MonthlyTopEntry } from "@/components/technicians/MonthlyRatingTop";
-import { StarRating } from "@/components/technicians/StarRating";
+import { ScoreRateButton } from "@/components/technicians/ScoreRating";
 import { TechLoadStatusDialog } from "@/components/technicians/TechLoadStatusDialog";
 import {
   TechnicianCard,
   type TechnicianOrderItem,
   type TechnicianOsShare,
-  type TechnicianRater,
   type TechnicianRatingDetail,
 } from "@/components/technicians/TechnicianCard";
 import { Button } from "@/components/ui/button";
@@ -24,10 +23,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import {
   useDeskLoads,
-  useMyOrderRatings,
+  useOrderRatings,
   useOrderRatingTotals,
   useOwnerDeskRecount,
-  useTechRatings,
   useTechSchedules,
 } from "@/hooks/useDeskLoads";
 import { useMembersRefresh } from "@/hooks/useMembersRefresh";
@@ -38,8 +36,7 @@ import { subscribeMyOsOrders } from "@/services/osOrdersService";
 import { useSbBackend } from "@/services/sb/sbCollections";
 import { currentMonthSubPageId, previousMonthKey } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
-import { orderRatingId, rateOrder, removeOrderRating } from "@/services/orderRatingService";
-import { deleteTechRating, rateTechnician } from "@/services/techRatingService";
+import { orderRatingId, rateOrder, RatingDeniedError, removeOrderRating } from "@/services/orderRatingService";
 import { confirmDialog } from "@/utils/appDialog";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { formatOrderDate, timeAgo, ymdInTimeZone } from "@/utils/date";
@@ -49,7 +46,6 @@ import {
   addTechLoad,
   effectiveTechLoadKinds,
   EMPTY_TECH_LOAD,
-  hasRecentOsOrder,
   statusBreakdown,
   summarizeDeskLoad,
   techLoadKindForOption,
@@ -63,14 +59,13 @@ import {
   averageOfTotals,
   formatScheduleHours,
   memberHasRole,
-  ratingMonthKey,
   scheduleDayKey,
   scheduleHoursOf,
   scheduleStateOf,
+  type OrderRating,
   type OrderRatingTotals,
   type OsOrders,
   type StatusOption,
-  type TechRating,
   type TechSchedule,
   type WorkspaceMember,
   type WorkspacePage,
@@ -93,11 +88,8 @@ interface TechnicianRow {
   myOrders: { summary: TechLoadSummary; breakdown: StatusBreakdownItem[]; items: TechnicianOrderItem[] } | null;
   /** Management view: orders per ОС this month. */
   osShares: TechnicianOsShare[] | null;
-  ratings: TechRating[];
-  /** Итоги оценок за заказы ЭТОГО месяца — вторая, независимая шкала. */
+  /** Итоги оценок заказов ЭТОГО месяца (1–10) — единственная оценка технаря. */
   orderTotals: OrderRatingTotals[];
-  /** A desk of this Технарь with a recent order from the viewing ОС — proof for a first rating. */
-  rateDeskId: string | null;
 }
 
 const NO_OPTIONS: StatusOption[] = [];
@@ -110,21 +102,9 @@ function ordersWord(n: number) {
   return "заказов";
 }
 
-/**
- * Одно число для тай-брейка в сортировке: среднее по обеим шкалам, если
- * обе есть, иначе по той, что есть. Сводный балл НЕ показывается нигде в
- * интерфейсе — там шкалы живут раздельно, потому что вес между ними никто
- * не задавал; здесь он нужен только чтобы упорядочить равные по заказам.
- */
+/** Средняя оценка заказов — тай-брейк в сортировке равных по заказам. */
 function ratingScore(row: TechnicianRow): number | null {
-  const overall = row.ratings.length ? row.ratings.reduce((n, r) => n + r.stars, 0) / row.ratings.length : null;
-  const orders = averageOfTotals(row.orderTotals);
-  if (overall !== null && orders !== null) return (overall + orders) / 2;
-  return overall ?? orders;
-}
-
-function isPermissionDenied(error: unknown) {
-  return typeof error === "object" && error !== null && (error as { code?: string }).code === "permission-denied";
+  return averageOfTotals(row.orderTotals);
 }
 
 /**
@@ -143,24 +123,18 @@ export default function TechniciansPage() {
   const [view, setView] = useState<View>("techs");
   const [orderQuery, setOrderQuery] = useState("");
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
 
   const canSee = permissions.canSeeTechnicians;
   // Owner reads every desk and recounts them; the status mapping is a
   // workspace setting (Owner or Тимлид).
   const isOwner = permissions.hasFullDeskAccess;
   const canMapStatuses = permissions.canManageStatusVariants;
-  // Ratings: Owner/Тимлид see who rated and may remove a rating (rules:
-  // hasFullAccess by the REAL role, like canManageUsers); Admin only sees.
-  const canModerateRatings = permissions.canManageUsers;
-  const canSeeRatingDetails = canModerateRatings || permissions.role === "admin";
+  // Разбивка заказов по ОС — Owner/Тимлид/Admin. Сами оценки (в них названия
+  // заказов) видит и снимает только Owner: Тимлид содержимого столов не видит.
+  const canSeeRatingDetails = permissions.canManageUsers || permissions.role === "admin";
+  const canModerateRatings = permissions.actsAsOwner;
   const isOsViewer = permissions.hasRole("os");
   const uid = profile?.uid ?? "";
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   // Other members' docs aren't live — refresh so nicks, desks and "last
   // seen" are current when the screen opens. Через общий 5-минутный порог:
@@ -170,8 +144,7 @@ export default function TechniciansPage() {
   // A denied read is "unknown", not "everyone is free" — never show an
   // empty list as if it were real data (loadFailed/ratingsFailed).
   const { loads, failed: loadFailed, synced: loadsSynced } = useDeskLoads(activeWorkspaceId, canSee);
-  const { ratings, failed: ratingsFailed } = useTechRatings(activeWorkspaceId, monthKey, canSee);
-  const { totals: orderTotals } = useOrderRatingTotals(activeWorkspaceId, monthKey, canSee);
+  const { totals: orderTotals, failed: ratingsFailed } = useOrderRatingTotals(activeWorkspaceId, monthKey, canSee);
   // График нужен прямо здесь: у кого сегодня выходной, карточка гаснет — без
   // этого «Свободен» у отсутствующего читался как «можно отдать заказ».
   const { schedules, failed: schedulesFailed, retry: retrySchedules } = useTechSchedules(activeWorkspaceId, monthKey, canSee);
@@ -187,14 +160,6 @@ export default function TechniciansPage() {
   // прошлый — закрытый итог, он висит наверху, чтобы в первых числах экран
   // не выглядел так, будто технарей никто никогда не оценивал.
   const prevMonthKey = previousMonthKey(monthKey);
-  const monthRatings = useMemo(
-    () => (ratings ?? []).filter((r) => ratingMonthKey(r, monthKey) === monthKey),
-    [ratings, monthKey]
-  );
-  const prevRatings = useMemo(
-    () => (ratings ?? []).filter((r) => ratingMonthKey(r, monthKey) === prevMonthKey),
-    [ratings, monthKey, prevMonthKey]
-  );
   const monthOrderTotals = useMemo(
     () => (orderTotals ?? []).filter((t) => t.monthKey === monthKey),
     [orderTotals, monthKey]
@@ -204,13 +169,25 @@ export default function TechniciansPage() {
     [orderTotals, prevMonthKey]
   );
   // Свои оценки заказов — чтобы в «Мои заказы» было видно, что уже оценено.
-  // Только этого месяца: в «Мои заказы» лишь заказы вкладки текущего месяца.
-  const myOrderRatings = useMyOrderRatings(activeWorkspaceId, uid, monthKey, isOsViewer);
-  const myOrderRatingByOrder = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const r of myOrderRatings) map.set(orderRatingId(r.pageId, r.rowId), r.stars);
+  const { ratings: myOrderRatings, backend: ratingsBackend } = useOrderRatings(
+    activeWorkspaceId,
+    isOsViewer && uid ? { kind: "os", uid } : null,
+    monthKey,
+    canSee
+  );
+  const myRatingByOrder = useMemo(() => {
+    const map = new Map<string, OrderRating>();
+    for (const r of myOrderRatings ?? []) map.set(r.id, r);
     return map;
   }, [myOrderRatings]);
+  const scoreOf = (item: TechnicianOrderItem) => myRatingByOrder.get(orderRatingId(item.pageId, item.rowId))?.score ?? null;
+  // Owner: все оценки месяца — кто какой заказ как оценил, снять несправедливую.
+  const { ratings: allOrderRatings } = useOrderRatings(
+    activeWorkspaceId,
+    canModerateRatings ? { kind: "all" } : null,
+    monthKey,
+    canSee
+  );
 
   const responsibleOptions = activeWorkspace?.responsibleOptions ?? NO_OPTIONS;
   const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
@@ -273,7 +250,6 @@ export default function TechniciansPage() {
         let summary = EMPTY_TECH_LOAD;
         let updatedAt = 0;
         let myTotal = 0;
-        let rateDeskId: string | null = null;
         const statusCounts: Record<string, number> = {};
         const myStatusCounts: Record<string, number> = {};
         const myItems: TechnicianOrderItem[] = [];
@@ -281,11 +257,6 @@ export default function TechniciansPage() {
         for (const desk of desks) {
           const load = loadByPage.get(desk.id);
           if (!load) continue;
-          // Rating proof may come from last month's counts too: the desk
-          // keeps each ОС's last order day across the rollover.
-          if (myOsValue && !rateDeskId && load.responsibleUserId === member.uid && hasRecentOsOrder(load, myOsValue, now)) {
-            rateDeskId = desk.id;
-          }
           const subPageId = currentMonthSubPageId(desk, monthKey);
           // No month tab yet, or counts from another month/tab: nothing
           // counted for this month on this desk.
@@ -303,6 +274,7 @@ export default function TechniciansPage() {
                 const meta = statusMeta(order.status);
                 myItems.push({
                   pageId: desk.id,
+                  tabId: subPageId,
                   rowId: order.rowId,
                   title: order.title,
                   statusLabel: meta.label,
@@ -337,9 +309,7 @@ export default function TechniciansPage() {
               }
             : null,
           osShares: canSeeRatingDetails ? osShares : null,
-          ratings: monthRatings.filter((r) => r.technicianUid === member.uid),
           orderTotals: monthOrderTotals.filter((t) => t.technicianUid === member.uid),
-          rateDeskId,
         };
       })
       // Своя карточка первой — это личное удобство и к ранжированию
@@ -363,7 +333,7 @@ export default function TechniciansPage() {
           personLabel(a.member).localeCompare(personLabel(b.member), "ru")
         );
       });
-  }, [loads, monthRatings, monthOrderTotals, members, pages, monthKey, statusOptions, kinds, myOsValue, now, osOrderDocs, statusMeta, responsibleOptions, canSeeRatingDetails, uid]);
+  }, [loads, monthOrderTotals, members, pages, monthKey, statusOptions, kinds, myOsValue, osOrderDocs, statusMeta, responsibleOptions, canSeeRatingDetails, uid]);
 
   // «Мои заказы»: every order of the viewing ОС across technicians, grouped by
   // status in the shared list's order, newest first inside a group.
@@ -434,146 +404,88 @@ export default function TechniciansPage() {
     return true;
   });
 
-  // Топ прошлого месяца — по каждой шкале отдельно. Порог в одну оценку
-  // намеренный: три звезды от одного ОС это всё же оценка, а не шум, и
-  // прятать её значит показывать пустой топ там, где оценки были.
+  // Топ прошлого месяца по оценкам заказов. Порог в одну оценку намеренный:
+  // одна оценка — это всё же оценка, а не шум.
   const previousTop = useMemo(() => {
-    const byMember = (uidOf: string) => members.find((m) => m.uid === uidOf) ?? null;
-    const overallMap = new Map<string, { sum: number; count: number }>();
-    for (const r of prevRatings) {
-      const acc = overallMap.get(r.technicianUid) ?? { sum: 0, count: 0 };
-      acc.sum += r.stars;
-      acc.count += 1;
-      overallMap.set(r.technicianUid, acc);
-    }
-    const ordersMap = new Map<string, OrderRatingTotals[]>();
-    for (const t of prevOrderTotals) {
-      ordersMap.set(t.technicianUid, [...(ordersMap.get(t.technicianUid) ?? []), t]);
-    }
-    const rank = (entries: MonthlyTopEntry[]) =>
-      entries.sort((a, b) => b.average - a.average || b.count - a.count).slice(0, 3);
-    const overall: MonthlyTopEntry[] = [];
-    for (const [technicianUid, acc] of overallMap) {
-      const member = byMember(technicianUid);
-      if (member && acc.count > 0) overall.push({ member, average: acc.sum / acc.count, count: acc.count });
-    }
-    const orders: MonthlyTopEntry[] = [];
-    for (const [technicianUid, totals] of ordersMap) {
-      const member = byMember(technicianUid);
+    const byTech = new Map<string, OrderRatingTotals[]>();
+    for (const t of prevOrderTotals) byTech.set(t.technicianUid, [...(byTech.get(t.technicianUid) ?? []), t]);
+    const entries: MonthlyTopEntry[] = [];
+    for (const [technicianUid, totals] of byTech) {
+      const member = members.find((m) => m.uid === technicianUid);
       const average = averageOfTotals(totals);
-      if (member && average !== null) {
-        orders.push({ member, average, count: totals.reduce((n, t) => n + t.count, 0) });
-      }
+      if (member && average !== null) entries.push({ member, average, count: totals.reduce((n, t) => n + t.count, 0) });
     }
-    return { overall: rank(overall), orders: rank(orders) };
-  }, [prevRatings, prevOrderTotals, members]);
-
-  function raterFor(t: TechnicianRow): TechnicianRater | null {
-    if (!isOsViewer || ratings === null || ratingsFailed || t.member.uid === uid) return null;
-    const mine = t.ratings.find((r) => r.osUid === uid) ?? null;
-    if (mine) return { state: "can-rate", nick: myOsNick ?? "", mine };
-    if (!myOsValue || !myOsNick) return { state: "no-nick" };
-    if (t.rateDeskId) return { state: "can-rate", nick: myOsNick, mine: null };
-    return { state: "not-eligible", nick: myOsNick };
-  }
-
-  async function handleRate(t: TechnicianRow, stars: number) {
-    if (!activeWorkspaceId) return;
-    const mine = t.ratings.find((r) => r.osUid === uid) ?? null;
-    const osValue = mine?.osValue ?? myOsValue;
-    const pageId = mine?.pageId ?? t.rateDeskId;
-    if (!osValue || !pageId) return;
-    try {
-      await rateTechnician({
-        workspaceId: activeWorkspaceId,
-        osUid: uid,
-        technicianUid: t.member.uid,
-        stars,
-        osValue,
-        pageId,
-        monthKey,
-        existing: mine,
-      });
-      toast.success(mine ? "Оценка изменена" : "Оценка поставлена");
-    } catch (error) {
-      toast.error(
-        isPermissionDenied(error)
-          ? "Не получилось: у технаря нет недавнего заказа с вашим ником ОС"
-          : "Не удалось сохранить оценку"
-      );
-    }
-  }
+    return entries.sort((a, b) => b.average - a.average || b.count - a.count).slice(0, 3);
+  }, [prevOrderTotals, members]);
 
   /**
-   * Оценка конкретного заказа. Повторный клик по той же звезде снимает
-   * оценку — иначе поставленную по ошибке пятёрку нечем убрать, а «поставить
-   * 1, чтобы отменить» это не отмена, а другая оценка.
+   * Оценка заказа, 1–10. `null` — снять. Кто вправе, решает база: заказ
+   * должен быть этого ОС (в Supabase — по самой строке заказа).
    */
-  async function handleRateOrder(item: TechnicianOrderItem, technicianUid: string, stars: number) {
+  async function handleRateOrder(item: TechnicianOrderItem, technicianUid: string, score: number | null) {
     if (!activeWorkspaceId || !myOsValue) return;
-    const key = orderRatingId(item.pageId, item.rowId);
-    const current = myOrderRatingByOrder.get(key) ?? null;
+    const previous = myRatingByOrder.get(orderRatingId(item.pageId, item.rowId)) ?? null;
+    if (score === null && !previous) return;
     try {
-      if (current === stars) {
-        await removeOrderRating(activeWorkspaceId, key);
-        toast.success("Оценка заказа снята");
+      if (score === null && previous) {
+        await removeOrderRating(activeWorkspaceId, previous);
+        toast.success("Оценка снята");
         return;
       }
       await rateOrder({
         workspaceId: activeWorkspaceId,
+        backend: ratingsBackend ?? "firestore",
         pageId: item.pageId,
+        tabId: item.tabId,
         rowId: item.rowId,
         osUid: uid,
         osValue: myOsValue,
         technicianUid,
-        stars,
+        score,
         title: item.title,
         monthKey,
+        previous,
       });
-      toast.success(current ? "Оценка заказа изменена" : "Заказ оценён");
+      toast.success(previous ? `Оценка изменена: ${score} из 10` : `Заказ оценён: ${score} из 10`);
     } catch (error) {
-      toast.error(
-        isPermissionDenied(error)
-          ? "Не получилось: у технаря нет недавнего заказа с вашим ником ОС"
-          : "Не удалось сохранить оценку заказа"
-      );
+      toast.error(error instanceof RatingDeniedError ? error.message : "Не удалось сохранить оценку");
     }
   }
 
-  function raterLabel(rating: TechRating): string {
+  function raterLabel(rating: OrderRating): string {
     const rater = members.find((m) => m.uid === rating.osUid);
     return (
-      osNickLabel(rater, responsibleOptions) ??
-      responsibleOptions.find((o) => o.value === rating.osValue)?.label ??
       (rater ? personLabel(rater) : null) ??
-      "Бывший участник"
+      responsibleOptions.find((o) => o.value === rating.osValue)?.label ??
+      rating.osValue ??
+      "ОС"
     );
   }
 
   function ratingDetailsFor(t: TechnicianRow): TechnicianRatingDetail[] | null {
-    if (!canSeeRatingDetails) return null;
-    return t.ratings
-      .map((r) => ({ id: r.id, raterLabel: raterLabel(r), stars: r.stars, updatedAt: r.updatedAt }))
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+    if (!canModerateRatings || !allOrderRatings) return null;
+    return allOrderRatings
+      .filter((r) => r.technicianUid === t.member.uid && r.monthKey === monthKey)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .map((r) => ({ id: r.id, raterLabel: raterLabel(r), title: r.title, score: r.score, updatedAt: r.updatedAt }));
   }
 
   async function handleDeleteRating(t: TechnicianRow, ratingId: string) {
     if (!activeWorkspaceId) return;
-    const rating = t.ratings.find((r) => r.id === ratingId);
+    const rating = allOrderRatings?.find((r) => r.id === ratingId);
+    if (!rating) return;
     const ok = await confirmDialog({
-      title: "Удалить оценку?",
-      description: rating
-        ? `${raterLabel(rating)} → ${personLabel(t.member)}: ${rating.stars} из 5. ОС сможет оценить снова, если у технаря будет его недавний заказ.`
-        : undefined,
-      confirmLabel: "Удалить",
+      title: "Снять оценку?",
+      description: `${raterLabel(rating)} → ${personLabel(t.member)}: ${rating.score} из 10${rating.title ? ` за «${rating.title}»` : ""}. ОС сможет оценить заказ снова.`,
+      confirmLabel: "Снять",
       destructive: true,
     });
     if (!ok) return;
     try {
-      await deleteTechRating(activeWorkspaceId, ratingId);
-      toast.success("Оценка удалена");
-    } catch {
-      toast.error("Не удалось удалить оценку");
+      await removeOrderRating(activeWorkspaceId, rating);
+      toast.success("Оценка снята");
+    } catch (error) {
+      toast.error(error instanceof RatingDeniedError ? error.message : "Не удалось снять оценку");
     }
   }
 
@@ -725,11 +637,7 @@ export default function TechniciansPage() {
           )}
 
           {loads !== null && (
-            <MonthlyRatingTop
-              monthLabel={monthTabNameForKey(prevMonthKey).toLowerCase()}
-              overall={previousTop.overall}
-              orders={previousTop.orders}
-            />
+            <MonthlyRatingTop monthLabel={monthTabNameForKey(prevMonthKey).toLowerCase()} entries={previousTop} />
           )}
 
           {!loadFailed && loads === null && (
@@ -794,12 +702,10 @@ export default function TechniciansPage() {
                           </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
-                          <StarRating
-                            value={myOrderRatingByOrder.get(orderRatingId(item.pageId, item.rowId)) ?? null}
-                            onChange={(stars) => void handleRateOrder(item, item.member.uid, stars)}
-                            size="sm"
-                            tone="violet"
-                            label={`Оценка заказа «${item.title || "без названия"}»`}
+                          <ScoreRateButton
+                            value={scoreOf(item)}
+                            onRate={(score) => handleRateOrder(item, item.member.uid, score)}
+                            label={`Заказ «${item.title || "без названия"}»`}
                           />
                           <Link
                             to={`/messages/${item.member.uid}`}
@@ -866,19 +772,13 @@ export default function TechniciansPage() {
                   myOrders={t.myOrders}
                   osShares={t.osShares}
                   rating={{
-                    average: ratingsFailed || t.ratings.length === 0 ? null : t.ratings.reduce((n, r) => n + r.stars, 0) / t.ratings.length,
-                    count: ratingsFailed ? 0 : t.ratings.length,
+                    average: ratingsFailed ? null : averageOfTotals(t.orderTotals),
+                    count: ratingsFailed ? 0 : t.orderTotals.reduce((n, o) => n + o.count, 0),
                   }}
-                  orderRating={{
-                    average: averageOfTotals(t.orderTotals),
-                    count: t.orderTotals.reduce((n, o) => n + o.count, 0),
-                  }}
-                  rater={raterFor(t)}
-                  onRate={(stars) => handleRate(t, stars)}
-                  orderStarsOf={(item) => myOrderRatingByOrder.get(orderRatingId(item.pageId, item.rowId)) ?? null}
+                  orderScoreOf={scoreOf}
                   onRateOrder={
-                    isOsViewer && myOsValue
-                      ? (item, stars) => handleRateOrder(item, t.member.uid, stars)
+                    isOsViewer && myOsValue && t.member.uid !== uid
+                      ? (item, score) => handleRateOrder(item, t.member.uid, score)
                       : undefined
                   }
                   ratingDetails={ratingDetailsFor(t)}

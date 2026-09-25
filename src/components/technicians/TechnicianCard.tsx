@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { AtSign, ChevronRight, Loader2, MessageCircle, PackageCheck, Star, Trash2 } from "lucide-react";
+import { AtSign, ChevronRight, MessageCircle, Star, Trash2 } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
-import { RatingScorePair } from "@/components/technicians/RatingScore";
+import { ScoreChip, ScoreMeter, ScoreRateButton, SCORE_TONE } from "@/components/technicians/ScoreRating";
 import { usePresenceMap } from "@/hooks/usePresenceMap";
-import { StarRating } from "@/components/technicians/StarRating";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useWorkspaceStore } from "@/store/workspaceStore";
 import { cn } from "@/utils/cn";
@@ -12,18 +11,13 @@ import { formatOrderDate, timeAgo } from "@/utils/date";
 import { personLabel } from "@/utils/peopleDesks";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
 import type { StatusBreakdownItem, TechLoadSummary } from "@/utils/techLoad";
-import { memberHasRole, rolesLabel, type TechRating, type WorkspaceMember, type WorkspacePage } from "@/types";
-
-export type TechnicianRater =
-  | { state: "no-nick" }
-  | { state: "not-eligible"; nick: string }
-  /** `mine` set: already rated — the stars can change any time. */
-  | { state: "can-rate"; nick: string; mine: TechRating | null };
+import { memberHasRole, rolesLabel, type WorkspaceMember, type WorkspacePage } from "@/types";
 
 /** One of the viewing ОС's orders at this Технарь, with its status resolved for display. */
 export interface TechnicianOrderItem {
-  /** Стол, в котором лежит заказ — нужен, чтобы адресовать его оценку. */
+  /** Стол и вкладка, в которых лежит заказ — адрес его оценки. */
   pageId: string;
+  tabId: string;
   rowId: string;
   title: string;
   statusLabel: string;
@@ -41,10 +35,12 @@ export interface TechnicianOsShare {
   count: number;
 }
 
+/** Owner: кто какой заказ как оценил (в оценке — название заказа). */
 export interface TechnicianRatingDetail {
   id: string;
   raterLabel: string;
-  stars: number;
+  title: string;
+  score: number;
   updatedAt: number;
 }
 
@@ -65,15 +61,12 @@ export interface TechnicianCardProps {
   myOrders: { summary: TechLoadSummary; breakdown: StatusBreakdownItem[]; items: TechnicianOrderItem[] } | null;
   /** Management view: which ОС gave this month's orders. */
   osShares: TechnicianOsShare[] | null;
+  /** Средняя оценка заказов технаря за месяц (1–10) и сколько заказов оценено. */
   rating: { average: number | null; count: number };
-  /** Вторая шкала: среднее по оценкам отдельных заказов этого технаря. */
-  orderRating: { average: number | null; count: number };
-  rater: TechnicianRater | null;
-  onRate?: (stars: number) => Promise<void>;
   /** Оценка конкретного заказа этим ОС, если она уже стоит. */
-  orderStarsOf?: (item: TechnicianOrderItem) => number | null;
-  /** Поставить/снять оценку заказу. Есть только у ОС, у которого тут есть заказы. */
-  onRateOrder?: (item: TechnicianOrderItem, stars: number) => Promise<void>;
+  orderScoreOf?: (item: TechnicianOrderItem) => number | null;
+  /** Поставить/сменить (1–10) или снять (null) оценку заказа. Только у ОС с заказами здесь. */
+  onRateOrder?: (item: TechnicianOrderItem, score: number | null) => Promise<void>;
   /**
    * Сегодня по графику человек не работает: карточка гаснет и получает
    * заметную метку. Занятость по заказам тут ни при чём — «Свободен» у того,
@@ -82,7 +75,7 @@ export interface TechnicianCardProps {
   dayOff: { state: "off" | "excused"; hours?: string | null } | null;
   /** Сегодняшняя смена с/до, если она короче дня. */
   todayHours?: string | null;
-  /** Owner/Тимлид/Admin: who rated what. */
+  /** Owner: кто какой заказ как оценил. */
   ratingDetails: TechnicianRatingDetail[] | null;
   onDeleteRating?: (id: string) => void;
 }
@@ -197,25 +190,6 @@ function StatusPill({
   );
 }
 
-/** Маленькая шкала для визитки: иконка + число, без звёзд. */
-function MiniScore({ kind, average }: { kind: "overall" | "orders"; average: number | null }) {
-  const orders = kind === "orders";
-  const Icon = orders ? PackageCheck : Star;
-  if (average === null) return null;
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium leading-4",
-        orders ? "border-violet-400/35 bg-violet-400/10 text-violet-200" : "border-amber-400/35 bg-amber-400/10 text-amber-200"
-      )}
-      title={orders ? "Средняя оценка за заказы" : "Общая оценка от ОС"}
-    >
-      <Icon className="h-3 w-3 shrink-0" />
-      <span className="font-mono tabular-nums">{average.toFixed(1)}</span>
-    </span>
-  );
-}
-
 /**
  * Визитка Технаря. Ровно то, ради чего на этот экран заходят: кто это,
  * свободен ли, сколько заказов и какие у него оценки. Всё остальное —
@@ -228,7 +202,7 @@ function MiniScore({ kind, average }: { kind: "overall" | "orders"; average: num
  */
 export function TechnicianCard(props: TechnicianCardProps) {
   const [open, setOpen] = useState(false);
-  const { member, isMe, desks, busy, summary, breakdown, myOrders, rating, orderRating, rater, dayOff, todayHours } = props;
+  const { member, isMe, desks, busy, summary, breakdown, myOrders, rating, orderScoreOf, onRateOrder, dayOff, todayHours } = props;
   // «В сети» — max(Firestore, Supabase). Выборка общая на вкладку (кэш в
   // presenceService), десяток карточек не множит запросы.
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
@@ -238,9 +212,9 @@ export function TechnicianCard(props: TechnicianCardProps) {
   const name = personLabel(member) || member.email || "—";
   const noDesk = desks.length === 0;
   const mineCount = myOrders?.summary.total ?? 0;
-  // Кружок «можно оценить» — единственная подсказка на визитке о том, что
-  // за кликом есть действие, а не только цифры.
-  const canRate = rater?.state === "can-rate";
+  // «оценить N» — единственная подсказка на визитке о том, что за кликом
+  // есть действие, а не только цифры: заказы этого ОС без оценки.
+  const toRate = onRateOrder ? (myOrders?.items ?? []).filter((item) => (orderScoreOf?.(item) ?? null) === null).length : 0;
 
   return (
     <>
@@ -319,16 +293,18 @@ export function TechnicianCard(props: TechnicianCardProps) {
             <span className="font-mono text-[13px] font-semibold tabular-nums">{summary.total}</span>
             <span className="text-[10px] text-muted-foreground">{ordersWord(summary.total)}</span>
           </span>
-          <MiniScore kind="overall" average={rating.average} />
-          <MiniScore kind="orders" average={orderRating.average} />
+          <ScoreChip
+            average={rating.count > 0 ? rating.average : null}
+            title={`Средняя оценка за заказы, из 10 · оценено ${rating.count} ${ordersWord(rating.count)}`}
+          />
           {mineCount > 0 && (
             <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/35 bg-primary/10 px-2 py-0.5 text-[11px] font-medium leading-4 text-primary">
               {mineCount} ваших
             </span>
           )}
-          {canRate && !rater.mine && (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-400/35 bg-amber-400/10 px-2 py-0.5 text-[11px] font-medium leading-4 text-amber-200">
-              <Star className="h-3 w-3" /> оценить
+          {toRate > 0 && (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-dashed border-amber-400/50 px-2 py-0.5 text-[11px] font-medium leading-4 text-amber-200">
+              <Star className="h-3 w-3" /> оценить {toRate}
             </span>
           )}
           <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
@@ -354,44 +330,19 @@ function TechnicianDialog({
   myOrders,
   osShares,
   rating,
-  orderRating,
-  rater,
-  onRate,
-  orderStarsOf,
+  orderScoreOf,
   onRateOrder,
   ratingDetails,
   onDeleteRating,
   open,
   onOpenChange,
 }: TechnicianCardProps & { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const [saving, setSaving] = useState<number | null>(null);
-  const [savingOrder, setSavingOrder] = useState<string | null>(null);
   const name = personLabel(member) || member.email || "—";
   const noDesk = desks.length === 0;
   const counted = updatedAt > 0;
   const filledMetrics = METRICS.filter(
     (metric) => (showPayment || metric.key !== "payment") && summary[metric.key] > 0
   );
-
-  async function handleRate(stars: number) {
-    if (!onRate || saving !== null) return;
-    setSaving(stars);
-    try {
-      await onRate(stars);
-    } finally {
-      setSaving(null);
-    }
-  }
-
-  async function handleRateOrder(item: TechnicianOrderItem, stars: number) {
-    if (!onRateOrder || savingOrder) return;
-    setSavingOrder(item.rowId);
-    try {
-      await onRateOrder(item, stars);
-    } finally {
-      setSavingOrder(null);
-    }
-  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -432,42 +383,16 @@ function TechnicianDialog({
 
         <div className="flex flex-col gap-4">
           <section className="flex flex-col gap-2">
-            <RatingScorePair overall={rating} orders={orderRating} />
-
-            {/* Приглашение оценить — заметная плашка. Отказ («нет ника», «нет
-                свежего заказа») плашкой быть не должен: янтарная рамка зовёт
-                нажать на то, что нажать нельзя. */}
-            {rater && rater.state !== "can-rate" && (
-              <p className="text-[11px] leading-4 text-muted-foreground">
-                {rater.state === "no-nick"
-                  ? "Оценки откроются, когда Тимлид выдаст вам ник ОС."
-                  : `Оценка откроется после вашего заказа у этого технаря — ник «${rater.nick}» в столбце ОС.`}
-              </p>
-            )}
-
-            {rater && rater.state === "can-rate" && (
-              <div className="rounded-xl border border-amber-400/25 bg-amber-400/[0.05] px-3 py-2">
-                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-                  <p className="text-[11px] font-medium text-amber-300">
-                    {rater.mine ? "Ваша общая оценка" : "Оценить технаря"}
-                  </p>
-                  <div className="flex items-center gap-1">
-                    {saving !== null && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-                    <StarRating
-                      value={saving ?? rater.mine?.stars ?? null}
-                      onChange={(stars) => void handleRate(stars)}
-                      disabled={saving !== null}
-                      label={`Оценка для ${name}`}
-                    />
-                  </div>
-                </div>
-                <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-                  {rater.mine
-                    ? `Поставлена ${timeAgo(rater.mine.updatedAt)} · поменять можно до конца месяца.`
-                    : "Одна оценка от вас за месяц — поменять её можно в любое время."}
-                </p>
-              </div>
-            )}
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-background/40 px-3 py-2">
+              <Star className={cn("h-4 w-4 shrink-0", rating.count > 0 ? SCORE_TONE.text : "text-muted-foreground/60")} />
+              <span className="text-[12px] font-medium">Оценка за заказы</span>
+              <ScoreMeter average={rating.average} count={rating.count} className="ml-auto" />
+              {rating.count > 0 && (
+                <span className="w-full text-[11px] text-muted-foreground">
+                  оценено {rating.count} {ordersWord(rating.count)} в этом месяце · шкала 1–10
+                </span>
+              )}
+            </div>
           </section>
 
           <section className="flex flex-col gap-2">
@@ -521,7 +446,7 @@ function TechnicianDialog({
                 <ul className="flex flex-col divide-y divide-border/50 rounded-xl border border-border/60">
                   {myOrders.items.map((item) => (
                     <li key={item.rowId} className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-[12px]">
-                      <span className="min-w-0 flex-1 truncate" title={item.title || undefined}>
+                      <span className="min-w-0 flex-1 basis-full truncate sm:basis-0" title={item.title || undefined}>
                         {item.title || <span className="italic text-muted-foreground">Без названия</span>}
                       </span>
                       <span
@@ -547,18 +472,18 @@ function TechnicianDialog({
                         </span>
                       )}
                       {/* ml-auto, а не просто «следующий элемент»: у заказа
-                          без даты звёзды иначе съезжают влево и колонка
+                          без даты кнопка иначе съезжает влево и колонка
                           оценок перестаёт быть колонкой. */}
-                      <span className="ml-auto flex shrink-0 items-center justify-end gap-1">
-                        {savingOrder === item.rowId && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
-                        <StarRating
-                          value={orderStarsOf?.(item) ?? null}
-                          onChange={onRateOrder ? (stars) => void handleRateOrder(item, stars) : undefined}
-                          disabled={savingOrder !== null}
-                          size="sm"
-                          tone="violet"
-                          label={`Оценка заказа «${item.title || "без названия"}»`}
-                        />
+                      <span className="ml-auto flex shrink-0 items-center justify-end">
+                        {onRateOrder ? (
+                          <ScoreRateButton
+                            value={orderScoreOf?.(item) ?? null}
+                            onRate={(score) => onRateOrder(item, score)}
+                            label={`Заказ «${item.title || "без названия"}»`}
+                          />
+                        ) : (
+                          <ScoreChip average={orderScoreOf?.(item) ?? null} />
+                        )}
                       </span>
                     </li>
                   ))}
@@ -566,7 +491,7 @@ function TechnicianDialog({
               )}
               {onRateOrder && myOrders.items.length > 0 && (
                 <p className="text-[11px] text-muted-foreground">
-                  Нажмите на звёзды, чтобы оценить заказ. Клик по той же звезде снимает оценку.
+                  Оценка за каждый заказ — от 1 до 10. Нажмите «Оценить» или балл, чтобы поставить или поменять.
                 </p>
               )}
             </section>
@@ -592,13 +517,16 @@ function TechnicianDialog({
 
           {ratingDetails && ratingDetails.length > 0 && (
             <section className="flex flex-col gap-2">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Оценки от ОС</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Оценки заказов</p>
               <ul className="flex flex-col gap-1.5">
                 {ratingDetails.map((detail) => (
                   <li key={detail.id} className="flex items-center gap-2 text-xs">
                     <AtSign className="h-3 w-3 shrink-0 text-amber-300" />
-                    <span className="min-w-0 flex-1 truncate">{detail.raterLabel}</span>
-                    <StarRating value={detail.stars} size="sm" />
+                    <span className="min-w-0 flex-1 truncate" title={detail.title || undefined}>
+                      <span className="text-muted-foreground">{detail.raterLabel}</span>
+                      {detail.title ? ` · ${detail.title}` : ""}
+                    </span>
+                    <ScoreChip average={detail.score} title={`${detail.score} из 10`} />
                     <span className="w-16 shrink-0 truncate text-right text-[10px] text-muted-foreground" title={timeAgo(detail.updatedAt)}>
                       {timeAgo(detail.updatedAt)}
                     </span>

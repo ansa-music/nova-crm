@@ -12,9 +12,9 @@ import {
 import {
   type DeskLoad,
   type DeskLoadArchive,
+  type OrderRatingTotals,
   type StatusOption,
   type TechLoadKind,
-  type TechRating,
   type WorkspaceMember,
   type WorkspacePage,
 } from "@/types";
@@ -38,7 +38,9 @@ export interface OverviewTechnician {
   /** «Ждём оплату» money — statuses of kind `payment` («ABS»: касса, которая ещё не пришла). */
   paymentTotal: number;
   busy: boolean;
+  /** Средняя оценка заказов за месяц, 1–10 (null — оценок нет). */
   ratingAvg: number | null;
+  /** Сколько заказов оценено. */
   ratingCount: number;
   updatedAt: number;
 }
@@ -139,7 +141,8 @@ export function buildOverview(input: {
   members: WorkspaceMember[];
   pages: WorkspacePage[];
   loads: DeskLoad[];
-  ratings: TechRating[];
+  /** Итоги оценок заказов (сумма/число по парам ОС × технарь), любые месяцы — берётся `monthKey`. */
+  ratingTotals: OrderRatingTotals[];
   monthKey: string;
   statusOptions: StatusOption[];
   kinds: Record<string, TechLoadKind> | undefined;
@@ -150,7 +153,8 @@ export function buildOverview(input: {
   today: number;
   daysInMonth: number;
 }): OverviewData {
-  const { loads, ratings, monthKey, statusOptions, kinds } = input;
+  const { loads, monthKey, statusOptions, kinds } = input;
+  const ratingTotals = input.ratingTotals.filter((t) => t.monthKey === monthKey);
   const loadByPage = new Map(loads.map((l) => [l.pageId, l]));
   const statusCounts: Record<string, number> = {};
   const statusSums: Record<string, number> = {};
@@ -183,7 +187,13 @@ export function buildOverview(input: {
       techUpdatedAt = Math.max(techUpdatedAt, load.updatedAt ?? 0);
     }
     updatedAt = Math.max(updatedAt, techUpdatedAt);
-    const mine = ratings.filter((r) => r.technicianUid === member.uid);
+    let ratingSum = 0;
+    let ratingCount = 0;
+    for (const t of ratingTotals) {
+      if (t.technicianUid !== member.uid) continue;
+      ratingSum += t.sum;
+      ratingCount += t.count;
+    }
     return {
       member,
       desks,
@@ -193,8 +203,8 @@ export function buildOverview(input: {
       doneTotal,
       paymentTotal,
       busy: summary.busy > 0,
-      ratingAvg: mine.length ? mine.reduce((n, r) => n + r.stars, 0) / mine.length : null,
-      ratingCount: mine.length,
+      ratingAvg: ratingCount > 0 ? ratingSum / ratingCount : null,
+      ratingCount,
       updatedAt: techUpdatedAt,
     };
   });
@@ -202,8 +212,8 @@ export function buildOverview(input: {
   const summary = technicians.reduce((acc, t) => addTechLoad(acc, t.summary), EMPTY_TECH_LOAD);
   const grandTotal = technicians.reduce((n, t) => n + t.grandTotal, 0);
   const doneTotal = technicians.reduce((n, t) => n + t.doneTotal, 0);
-  const techUids = new Set(technicians.map((t) => t.member.uid));
-  const techRatings = ratings.filter((r) => techUids.has(r.technicianUid));
+  const ratingCount = technicians.reduce((n, t) => n + t.ratingCount, 0);
+  const ratingSum = technicians.reduce((n, t) => n + (t.ratingAvg ?? 0) * t.ratingCount, 0);
   const withDesk = technicians.filter((t) => t.desks.length > 0);
 
   const days: OverviewDay[] = Array.from({ length: input.daysInMonth }, (_, i) => {
@@ -228,8 +238,8 @@ export function buildOverview(input: {
       grandTotal,
       doneTotal,
       summary,
-      ratingAvg: techRatings.length ? techRatings.reduce((n, r) => n + r.stars, 0) / techRatings.length : null,
-      ratingCount: techRatings.length,
+      ratingAvg: ratingCount > 0 ? ratingSum / ratingCount : null,
+      ratingCount,
       techs: withDesk.length,
       freeTechs: withDesk.filter((t) => !t.busy).length,
       busyTechs: withDesk.filter((t) => t.busy).length,
@@ -366,7 +376,7 @@ export function rankByDone(technicians: OverviewTechnician[]): OverviewTechnicia
     );
 }
 
-/** By average stars, then how many rated — only technicians with at least one rating. */
+/** По средней оценке заказов (1–10), потом по числу оценённых — только те, у кого оценки есть. */
 export function rankByRating(technicians: OverviewTechnician[]): OverviewTechnician[] {
   return technicians
     .filter((t) => t.ratingCount > 0 && t.ratingAvg !== null)

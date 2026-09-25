@@ -14,7 +14,8 @@ import {
   type OsDeskKeys,
 } from "@/services/osDeskService";
 import { techTargetProblem, techUidByNick } from "@/services/rows/osOrderMirror";
-import { DEFAULT_STATUS_OPTIONS, ensureApprovalStatus, ensureDoneStatus } from "@/utils/columnOptions";
+import { DEFAULT_STATUS_OPTIONS, ensureApprovalStatus, ensureDoneStatus, isDoneStatusLabel } from "@/utils/columnOptions";
+import { OsOrderRating } from "@/components/os/OsOrderRating";
 import { firestoreErrorText } from "@/utils/dbError";
 import { resolveTechIdentity } from "@/utils/techIdentity";
 import { OS_DEAD_LINK_PROBLEM, type OsTechAction, type OsTechCellState } from "@/utils/osTechCell";
@@ -390,6 +391,16 @@ export function OsOrderPanel({
             <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">технарь просит «Успешку»</span>
           ) : null}
         </div>
+      ) : null}
+
+      {mirror && mirror.osUid === osUid ? (
+        <OsOrderRating
+          mirror={mirror}
+          osUid={osUid}
+          osNickValue={osNickValue}
+          title={cellText(row, keys.client)}
+          done={Boolean(theirStatus && isDoneStatusLabel(statusOptions.find((o) => o.value === theirStatus)?.label ?? theirStatus))}
+        />
       ) : null}
 
       {payment ? (
