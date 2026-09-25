@@ -1,4 +1,5 @@
 import { Minimize2 } from "lucide-react";
+import { QuickAccess } from "@/components/layout/QuickAccess";
 import { useUiStore } from "@/store/uiStore";
 
 /**
@@ -26,6 +27,8 @@ export function TableChromeExit({ label = "Свернуть" }: { label?: string
         <Minimize2 className="h-4 w-4 shrink-0" />
         {label}
       </button>
+      {/* Меню спрятано вместе со всем каркасом — главные кнопки остаются. */}
+      <QuickAccess className="ml-auto" />
     </div>
   );
 }

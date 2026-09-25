@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { RoleSwitcher } from "@/components/common/RoleSwitcher";
 import { NotificationBell } from "@/components/layout/NotificationBell";
+import { QuickAccess } from "@/components/layout/QuickAccess";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { useIsMobile, useIsTablet } from "@/hooks/useMediaQuery";
 import { usePageMeta } from "@/hooks/useNavModel";
@@ -83,8 +84,10 @@ export const Topbar = memo(function Topbar({ title }: { title?: string }) {
           <Sidebar mobile onNavigate={() => setMobileNavOpen(false)} />
         </SheetContent>
       </Sheet>
-      <h1 className="truncate text-sm font-semibold">{heading}</h1>
+      <h1 className="min-w-0 truncate text-sm font-semibold">{heading}</h1>
       <div className="flex-1" />
+      {/* Планшет: меню спрятано в «гамбургер» — главные кнопки в шапке. */}
+      <QuickAccess />
       <NotificationBell />
       <RoleSwitcher />
     </header>

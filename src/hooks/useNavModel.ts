@@ -112,6 +112,8 @@ export interface NavModel {
   chatUnread: { workspace: number; private: number };
   /** Заказы на бирже ждут — зелёный пункт «Заказы». */
   ordersAlert: boolean;
+  /** Сколько заказов открыто на бирже (0 — нет или не знаем). */
+  openOrdersCount: number;
   /** Чистый ОС (без второй роли): дом — «Технари», стол — «Стол ОС». */
   isOs: boolean;
   /** Тимлид без Технаря: столов не видит, дом — «Пользователи». */
@@ -155,6 +157,7 @@ export interface NavSignals {
   /** Ожидающие просьбы технарей к этому ОС (счётчик на «Стол ОС»). */
   osRequestsPending: number;
   ordersAlert: boolean;
+  openOrdersCount: number;
   deskAlerts: string[];
   /** Аккаунты Грока: сколько доступно из скольких (null — ещё не читали). */
   grokPool: { available: number; total: number } | null;
@@ -166,6 +169,7 @@ const NO_SIGNALS: NavSignals = {
   osDispatchUnseen: 0,
   osRequestsPending: 0,
   ordersAlert: false,
+  openOrdersCount: 0,
   deskAlerts: [],
   grokPool: null,
 };
@@ -284,7 +288,18 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
           activeOn: (pathname) => isHomeActive(pathname, { to: homeTo, myDeskId }),
           alert: deskAlert,
         },
-        { key: "orders", to: "/orders", label: "Заказы", icon: ClipboardList, alert: sig.ordersAlert },
+        // «Заказы» — главный пункт (просьба Nurba 25.09.2026: «покажи как
+        // главную с удобным доступом»): жирным, рядом — сколько открыто на
+        // бирже. Вне меню те же кнопки «Мой стол · Заказы» — QuickAccess.
+        {
+          key: "orders",
+          to: "/orders",
+          label: "Заказы",
+          icon: ClipboardList,
+          alert: sig.ordersAlert,
+          emphasis: true,
+          hint: sig.openOrdersCount > 0 ? `${sig.openOrdersCount} откр.` : undefined,
+        },
         // У ОС дом — «Технари» (дубль убирает фильтр ниже); стол ОС — свой пункт.
         {
           key: "os-desk",
@@ -292,6 +307,7 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
           label: "Стол ОС",
           icon: Table2,
           show: g.showOsDeskNav,
+          emphasis: true,
           badge: g.showOsDeskNav ? sig.osRequestsPending : 0,
         },
         {
@@ -499,6 +515,7 @@ export function buildNavModel(
     inboxUnread: sig.privateUnreadTotal + sig.workspaceChatUnread,
     chatUnread: { workspace: sig.workspaceChatUnread, private: sig.privateUnreadTotal },
     ordersAlert: sig.ordersAlert,
+    openOrdersCount: sig.ordersAlert ? sig.openOrdersCount : 0,
     isOs: g.isOs,
     isTeamlead: g.isTeamlead,
     canIssueOrders: g.canIssueOrders,
@@ -549,6 +566,7 @@ export function NavModelProvider({ children }: { children: ReactNode }) {
   const osDispatchUnseen = useSyncExternalStore(subscribeOsDispatchLogState, osDispatchLogState).unseen;
   const openOrders = useSyncExternalStore(subscribeOpenOrdersState, openOrdersState);
   const ordersAlert = openOrders.loaded && openOrders.count > 0;
+  const openOrdersCount = openOrders.loaded ? openOrders.count : 0;
   // Просьбы технарей к ОС — одна подписка на приложение (её же читает стол ОС).
   const osRequestsPending = useOsPendingOrderRequests(
     activeWorkspaceId,
@@ -562,8 +580,8 @@ export function NavModelProvider({ children }: { children: ReactNode }) {
     [uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds]
   );
   const signals = useMemo<NavSignals>(
-    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, deskAlerts, grokPool }),
-    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, deskAlerts, grokPool]
+    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool }),
+    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool]
   );
   const pageMeta = useMemo(() => buildPageMeta(inputs), [inputs]);
   const model = useMemo(() => buildNavModel(inputs, signals, pageMeta), [inputs, signals, pageMeta]);
