@@ -232,8 +232,8 @@ select tst.expect('…дальше статус ОС по этой выдаче 
 do $$ begin
   if not exists (select 1 from pg_roles where rolname = 'tst_nobody') then create role tst_nobody nologin; end if;
 end $$;
-select tst.expect('версия схемы — 20261002 (и анонимному ключу)',
-  tst.try('__anon_key__', $q$select 1 where nova_schema_version() = '20261002'$q$, true), 'ok:1');
+select tst.expect('версия схемы — не ниже 20261002 (и анонимному ключу)',
+  tst.try('__anon_key__', $q$select 1 where nova_schema_version() >= '20261002'$q$, true), 'ok:1');
 select tst.expect('триггерную функцию ролям API не вызвать',
   tst.try('PO', $q$select 1 where not has_function_privilege('anon', 'public.desk_rows_os_status_push()', 'execute')
     and not has_function_privilege('authenticated', 'public.desk_rows_os_status_push()', 'execute')$q$, true), 'ok:1');
@@ -253,6 +253,7 @@ select tst.expect('новые функции ролям API — только EXE
 grant all on function public.desk_rows_os_status_push() to anon, authenticated, public;
 grant all on function public.rows_os_claim_order(text, text, text, text, bigint, text, jsonb, jsonb, text, bigint, text) to public;
 \ir ../migrations/20261002_os_sync.sql
+\ir ../migrations/20261004_exchange_claim.sql
 select tst.expect('после повторного наката триггерная функция снова закрыта',
   tst.try('PO', $q$select 1 where not has_function_privilege('anon', 'public.desk_rows_os_status_push()', 'execute')
     and not has_function_privilege('tst_nobody', 'public.desk_rows_os_status_push()', 'execute')

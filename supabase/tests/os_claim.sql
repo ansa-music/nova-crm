@@ -57,14 +57,14 @@ select tst.expect('Тимлид карту пишет (как osFieldKeys в Fir
 select tst.run('CT1', $q$update rows_page_acl set os_keys_tab='m9', os_key='os', os_status_key='status' where workspace_id='WC' and page_id='PC1'$q$);
 
 -- --- Что можно забрать ------------------------------------------------
-select tst.expect('ОС anna видит к забору ровно свои строки вкладки с картой (c1, c7)',
-  tst.try('COS1', $q$select 1 from rows_os_claimable('WC') j where j->'row'->>'id' in ('c1','c7')$q$, true), 'ok:2');
-select tst.expect('…и ничего лишнего (биржа, клиент «anna», прошлая вкладка, стол без карты, чужой ник)',
-  tst.try('COS1', $q$select 1 from rows_os_claimable('WC')$q$, true), 'ok:2');
+select tst.expect('ОС anna видит к забору ровно свои строки вкладки с картой (c1, c3 с биржи, c7)',
+  tst.try('COS1', $q$select 1 from rows_os_claimable('WC') j where j->'row'->>'id' in ('c1','c3','c7')$q$, true), 'ok:3');
+select tst.expect('…и ничего лишнего (клиент «anna», прошлая вкладка, стол без карты, чужой ник)',
+  tst.try('COS1', $q$select 1 from rows_os_claimable('WC')$q$, true), 'ok:3');
 select tst.expect('ОС bella видит свою строку c2',
   tst.try('COS2', $q$select 1 from rows_os_claimable('WC') j where j->'row'->>'id' = 'c2'$q$, true), 'ok:1');
 select tst.expect('в ответе — ответственный стола и ключи',
-  tst.try('COS1', $q$select 1 from rows_os_claimable('WC') j where j->>'techUid' = 'CT1' and j->>'osKey' = 'os' and j->>'statusKey' = 'status' and (j->'row'->>'rev') is not null$q$, true), 'ok:2');
+  tst.try('COS1', $q$select 1 from rows_os_claimable('WC') j where j->>'techUid' = 'CT1' and j->>'osKey' = 'os' and j->>'statusKey' = 'status' and (j->'row'->>'rev') is not null$q$, true), 'ok:3');
 select tst.expect('лимит соблюдается',
   tst.try('COS1', $q$select 1 from rows_os_claimable('WC', 1)$q$, true), 'ok:1');
 select tst.expect('технарь (не ОС) ничего не видит к забору',
@@ -114,7 +114,6 @@ select tst.expect('ОС без ника → no_nick', tst.oc_claim('COS3','PC1',
 select tst.expect('ОС без стола ОС → no_os_desk', tst.oc_claim('COS4','PC1','m9','c1'), 'no_os_desk');
 select tst.expect('чужой ник в столбце ОС → not_mine', tst.oc_claim('COS1','PC1','m9','c2'), 'not_mine');
 select tst.expect('ник ОС в столбце КЛИЕНТА не даёт забрать → not_mine', tst.oc_claim('COS1','PC1','m9','c5'), 'not_mine');
-select tst.expect('строка с биржи → exchange', tst.oc_claim('COS1','PC1','m9','c3'), 'exchange');
 select tst.expect('вкладка без карты → no_keys', tst.oc_claim('COS1','PC1','m8','c6'), 'no_keys');
 select tst.expect('стол без карты → no_keys', tst.oc_claim('COS1','PC2','x1','d1'), 'no_keys');
 select tst.expect('стол ОС → not_tech_desk', tst.oc_claim('COS1','osdesk_COS2','','x'), 'not_tech_desk');
@@ -413,8 +412,25 @@ select tst.expect('неживое хранилище: список к забор
   tst.try('COS1', $q$select 1 from rows_os_claimable('WC')$q$, true), 'ok:0');
 select tst.run('CO', $q$select rows_set_state('WC', true, false)$q$);
 
--- Повторный накат файла.
+-- --- Строка с биржи (20261004): забирается, как вписанная руками ---------
+select tst.expect('строка с биржи c3 → claimed (20261004)', tst.oc_claim('COS1','PC1','m9','c3'), 'claimed');
+select tst.expect('у строки с биржи метка ОС и адрес источника, order_id на месте',
+  tst.try('CO', $q$select 1 from desk_rows where workspace_id='WC' and page_id='PC1' and tab_id='m9' and id='c3'
+    and os_uid='COS1' and src_page_id='osdesk_COS1' and src_row_id='adopt_c3' and order_id='ord-1'$q$, true), 'ok:1');
+select tst.expect('источник строки с биржи лёг на стол ОС и показывает на неё',
+  tst.try('CO', $q$select 1 from desk_rows where workspace_id='WC' and page_id='osdesk_COS1' and id='adopt_c3'
+    and mirror_page_id='PC1' and mirror_tab_id='m9' and mirror_row_id='c3'$q$, true), 'ok:1');
+select tst.expect('ОС удаляет заказ с биржи — строка технаря и источник уходят вместе',
+  tst.try('COS1', $q$select 1 where rows_drop_order_row('WC','PC1','m9','c3','ord-1')$q$, true), 'ok:1');
+select tst.run('COS1', $q$select rows_drop_order_row('WC','PC1','m9','c3','ord-1')$q$);
+select tst.expect('…строки технаря нет',
+  tst.try('CO', $q$select 1 from desk_rows where workspace_id='WC' and page_id='PC1' and id='c3'$q$, true), 'ok:0');
+select tst.expect('…источника на столе ОС нет',
+  tst.try('CO', $q$select 1 from desk_rows where workspace_id='WC' and page_id='osdesk_COS1' and id='adopt_c3'$q$, true), 'ok:0');
+
+-- Повторный накат файлов.
 \ir ../migrations/20261002_os_sync.sql
+\ir ../migrations/20261004_exchange_claim.sql
 select tst.expect('после повторного наката карта в копии на месте',
   tst.try('CT1', $q$select 1 from rows_page_acl where workspace_id='WC' and page_id='PC1' and os_key='os' and os_keys_tab='m9' and os_status_key='status'$q$, true), 'ok:1');
 select tst.expect('после повторного наката ровно одна rows_os_claim_order',

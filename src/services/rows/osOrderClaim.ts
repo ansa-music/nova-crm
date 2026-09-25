@@ -120,6 +120,7 @@ export type ClaimStatus =
   | "gone"
   | "stale"
   | "not_mine"
+  /** Строка с биржи — так отвечает только база без SQL 20261004 (там их уже забирают). */
   | "exchange"
   | "no_nick"
   | "no_keys"
