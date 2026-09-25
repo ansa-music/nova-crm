@@ -51,7 +51,15 @@ export async function uploadOrderSoundFile(workspaceId: string, file: File): Pro
     upsert: false,
     contentType: file.type || `audio/${ext === "mp3" ? "mpeg" : ext}`,
   });
-  if (uploadError) throw new Error(uploadError.message);
+  if (uploadError) {
+    // Бакет с явным списком типов, где нет аудио (см. 20261008b_storage_audio.sql).
+    if (/mime type/i.test(uploadError.message)) {
+      throw new Error(
+        "Хранилище файлов не принимает аудио. Owner: Supabase → Storage → row-files → Edit bucket → Allowed MIME types → добавить audio/*"
+      );
+    }
+    throw new Error(uploadError.message);
+  }
   const { data } = supabase.storage.from(ROW_FILES_BUCKET).getPublicUrl(path);
   return { url: data.publicUrl, path };
 }
