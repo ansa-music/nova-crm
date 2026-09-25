@@ -2,7 +2,8 @@ import { onSnapshot, query, runTransaction, where, type DocumentData, type Fires
 import { db } from "@/firebase/firebase";
 import { getDocsResumable, paths, withErrorReporting } from "@/firebase/firestore";
 import { supabaseRows } from "@/lib/supabaseRows";
-import { previousMonthKey } from "@/services/monthTabService";
+import { periodSettingsOf } from "@/services/periodService";
+import { previousPeriodKey } from "@/utils/periods";
 import { isSbMissingError, markSbTableMissing, markSbTablePresent, type SbBackend } from "@/services/sb/sbCollections";
 import { listenTopic, ringTopic } from "@/services/sb/topicDoorbell";
 import type { OrderRating, OrderRatingTotals } from "@/types";
@@ -163,8 +164,9 @@ function legacyOnce<T>(key: string, load: () => Promise<T>): Promise<T> {
   return value;
 }
 
-function monthsOf(monthKey: string) {
-  return [previousMonthKey(monthKey), monthKey];
+/** Текущий период и предыдущий (карточка «итог прошлого периода»). */
+function monthsOf(workspaceId: string, monthKey: string) {
+  return [previousPeriodKey(monthKey, periodSettingsOf(workspaceId)), monthKey];
 }
 
 // ---------------------------------------------------------------------
@@ -182,7 +184,7 @@ function subscribeTotalsFirestore(
     return () => {};
   }
   return onSnapshot(
-    query(paths.orderRatingTotalsAll(workspaceId), where("monthKey", "in", monthsOf(monthKey))),
+    query(paths.orderRatingTotalsAll(workspaceId), where("monthKey", "in", monthsOf(workspaceId, monthKey))),
     (snapshot) => onData(snapshot.docs.map((d) => fsTotalsOf(d.id, d.data()))),
     withErrorReporting(onError)
   );
@@ -192,7 +194,7 @@ function legacyTotals(workspaceId: string, monthKey: string): Promise<OrderRatin
   if (!db) return Promise.resolve([]);
   return legacyOnce(`totals:${workspaceId}:${monthKey}`, async () => {
     const snap = await getDocsResumable(
-      query(paths.orderRatingTotalsAll(workspaceId), where("monthKey", "in", monthsOf(monthKey)))
+      query(paths.orderRatingTotalsAll(workspaceId), where("monthKey", "in", monthsOf(workspaceId, monthKey)))
     );
     return snap.docs.map((d) => fsTotalsOf(d.id, d.data()));
   });
@@ -224,7 +226,7 @@ export function subscribeOrderRatingTotals(
     running = true;
     try {
       const [{ data, error }, legacy] = await Promise.all([
-        supabaseRows.rpc("order_rating_totals", { p_workspace: workspaceId, p_months: monthsOf(monthKey) }),
+        supabaseRows.rpc("order_rating_totals", { p_workspace: workspaceId, p_months: monthsOf(workspaceId, monthKey) }),
         legacyTotals(workspaceId, monthKey),
       ]);
       if (cancelled) return;
@@ -301,7 +303,7 @@ function subscribeRatingsFirestore(
     return () => {};
   }
   return onSnapshot(
-    ratingsQueryFs(workspaceId, scope, monthsOf(monthKey)),
+    ratingsQueryFs(workspaceId, scope, monthsOf(workspaceId, monthKey)),
     (snapshot) =>
       onData(snapshot.docs.map((d) => fsRatingOf(d.id, d.data())).filter((r): r is OrderRating => r !== null)),
     withErrorReporting(onError)
@@ -312,7 +314,7 @@ function legacyRatings(workspaceId: string, scope: OrderRatingsScope, monthKey: 
   if (!db) return Promise.resolve([]);
   const key = `ratings:${workspaceId}:${scope.kind === "os" ? scope.uid : "*"}:${monthKey}`;
   return legacyOnce(key, async () => {
-    const snap = await getDocsResumable(ratingsQueryFs(workspaceId, scope, monthsOf(monthKey)));
+    const snap = await getDocsResumable(ratingsQueryFs(workspaceId, scope, monthsOf(workspaceId, monthKey)));
     return snap.docs.map((d) => fsRatingOf(d.id, d.data())).filter((r): r is OrderRating => r !== null);
   });
 }
@@ -347,7 +349,7 @@ export function subscribeOrderRatings(
         .from("order_ratings")
         .select("*")
         .eq("workspace_id", workspaceId)
-        .in("month_key", monthsOf(monthKey))
+        .in("month_key", monthsOf(workspaceId, monthKey))
         .limit(2000);
       if (scope.kind === "os") request = request.eq("os_uid", scope.uid);
       const [{ data, error }, legacy] = await Promise.all([request, legacyRatings(workspaceId, scope, monthKey)]);

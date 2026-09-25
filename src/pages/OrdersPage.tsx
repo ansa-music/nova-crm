@@ -19,7 +19,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useUrlState } from "@/hooks/useUrlState";
 import { deskHref, deskNavState, deskRowHref } from "@/utils/deskLinks";
-import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useCurrentPeriodKey } from "@/hooks/useCurrentPeriodKey";
 import { useOrderAssignment } from "@/hooks/useOrderAssignment";
 import {
   assignOrder,
@@ -131,7 +131,7 @@ export default function OrdersPage() {
   const { profile } = useAuth();
   const permissions = usePermissions();
   const { activeWorkspace, activeWorkspaceId, members, pages, osDesks } = useWorkspace();
-  const monthKey = useCurrentMonthKey();
+  const monthKey = useCurrentPeriodKey();
   const [orders, setOrders] = useState<WorkOrder[] | null>(null);
   // Вкладка — в адресе (`?status=taken`): F5 и ссылка коллеге открывают ту же.
   const [tab, setTab] = useUrlState<WorkOrderStatus>("status", "open", { values: TABS });

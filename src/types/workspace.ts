@@ -5,6 +5,7 @@ import type { OsPaySettings, PaymentMethod } from "@/types/payment";
 import type { ScheduleSettings } from "@/types/scheduleSettings";
 import type { ClientCardOptions } from "@/types/clientCardOptions";
 import type { OrderSoundSettings } from "@/types/orderSound";
+import type { PeriodSettings } from "@/utils/periods";
 
 /**
  * An Owner-defined custom option field — the same idea as the built-in
@@ -129,6 +130,12 @@ export interface Workspace {
    * (Тимлиду поле закрыто правилом workspace). Нет поля — прежний звук.
    */
   orderSound?: OrderSoundSettings;
+  /**
+   * Периоды столов: целый месяц или две половины (`utils/periods.ts`) —
+   * «Настройки → Периоды», правит только Owner (Тимлиду поле закрыто
+   * правилом workspace). Нет поля — целые месяцы, как раньше.
+   */
+  periods?: PeriodSettings;
   /**
    * Идёт перенос строк: пока стоит флаг, строки нигде не правятся — иначе
    * правка, сделанная во время копирования, осталась бы в старом хранилище.

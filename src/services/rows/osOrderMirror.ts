@@ -1,6 +1,7 @@
 import { DESK_ROWS_TABLE, supabaseRows } from "@/lib/supabaseRows";
 import { recordToRow, sbPatchRow } from "@/services/rows/supabaseRowStore";
-import { currentMonthKey, currentMonthSubPageId } from "@/services/monthTabService";
+import { currentMonthSubPageId } from "@/services/monthTabService";
+import { currentPeriodKeyOf } from "@/services/periodService";
 import { osRowTotal } from "@/utils/payment";
 import { OS_ISSUED_AT_KEY } from "@/utils/reservedCellKeys";
 import type { OsFieldKeys, PageRow, WorkspaceMember, WorkspacePage } from "@/types";
@@ -45,7 +46,7 @@ function deskProblem(page: WorkspacePage): string | null {
   // Именно ТЕКУЩЕГО месяца: 1-го числа `autoMonthSubPageId` ещё показывает на
   // прошлую вкладку, и заказ уезжал бы в сентябрь, где его «Технари» и
   // дашборд уже не считают. Автопилот переведёт стол при первом заходе.
-  if (!currentMonthSubPageId(page, currentMonthKey())) {
+  if (!currentMonthSubPageId(page, currentPeriodKeyOf(page.workspaceId))) {
     return "У технаря ещё нет вкладки текущего месяца — пусть откроет свой стол";
   }
   if (!page.osFieldKeys || page.osFieldKeys.tabId !== page.autoMonthSubPageId) {

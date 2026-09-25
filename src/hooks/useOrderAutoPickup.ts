@@ -7,7 +7,7 @@ import { isRowsMigratingError } from "@/utils/dbError";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useCurrentPeriodKey } from "@/hooks/useCurrentPeriodKey";
 import { myDisplayName } from "@/utils/displayName";
 import { toast } from "@/components/ui/sonner";
 import { useUiStore } from "@/store/uiStore";
@@ -55,7 +55,7 @@ export function useOrderAutoPickup() {
   const { profile } = useAuth();
   const permissions = usePermissions();
   const { activeWorkspace, activeWorkspaceId, members, pages } = useWorkspace();
-  const monthKey = useCurrentMonthKey();
+  const monthKey = useCurrentPeriodKey();
   /** Заказы, по которым запись уже идёт или прошла — снапшот прилетает несколько раз. */
   const handledRef = useRef<Set<string>>(new Set());
   /**

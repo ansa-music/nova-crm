@@ -2,7 +2,9 @@ import { runTransaction, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { stripUndefined } from "@/services/pageService";
-import { archiveSubPage, fetchSubPages, monthTabNameForKey } from "@/services/subPageService";
+import { archiveSubPage, fetchSubPages } from "@/services/subPageService";
+import { periodSettingsOf } from "@/services/periodService";
+import { isHalfKey, periodLabel } from "@/utils/periods";
 import { ymdInTimeZone } from "@/utils/date";
 import { computeOsFieldKeys, sameOsFieldKeys } from "@/utils/osFieldKeys";
 import { worksAsTechnician } from "@/utils/peopleDesks";
@@ -19,7 +21,12 @@ import { type PageColumn, type SubPage, type WorkspaceMember, type WorkspacePage
  * desk, a Технарь's own session covers their own desk (useMonthTabAutopilot).
  */
 
-/** "YYYY-MM" of `now` in Asia/Almaty. */
+/**
+ * "YYYY-MM" of `now` in Asia/Almaty — КАЛЕНДАРНЫЙ месяц (график смен).
+ * Столы, счётчики и оценки живут по ПЕРИОДАМ (utils/periods.ts,
+ * services/periodService.ts): ключ там либо тот же «2026-09», либо половина
+ * «2026-10-1»/«2026-10-2». Для столов сюда не ходить.
+ */
 export function currentMonthKey(now: number = Date.now()): string {
   return ymdInTimeZone(now).slice(0, 7);
 }
@@ -121,6 +128,9 @@ export function findMonthTab(subPages: SubPage[], monthKey: string): SubPage | n
   if (byId) return byId;
   const byKey = ordinary.find((s) => s.monthKey === monthKey && !s.isArchived);
   if (byKey) return byKey;
+  // Половина месяца ищется только по id и monthKey: ручная «Октябрь 2026»
+  // не должна стать вкладкой «1–15 октября».
+  if (isHalfKey(monthKey)) return null;
 
   const newestFirst = ordinary
     .filter((s) => !s.isArchived)
@@ -153,7 +163,7 @@ async function createMonthTabOnce(page: WorkspacePage, subPages: SubPage[], mont
     id,
     pageId: page.id,
     workspaceId: page.workspaceId,
-    name: monthTabNameForKey(monthKey),
+    name: periodLabel(monthKey, periodSettingsOf(page.workspaceId)),
     color: source?.color ?? page.color,
     icon: source?.icon ?? page.icon,
     order: subPages.reduce((max, s) => Math.max(max, s.order ?? 0), -1) + 1,

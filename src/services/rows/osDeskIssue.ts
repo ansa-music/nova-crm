@@ -1,6 +1,8 @@
 import { addRow, fetchRows, updateRowCellsBulk, updatePageMainTab } from "@/services/pageService";
-import { addSubPageRow, fetchSubPageFresh, fetchSubPageRows, monthTabNameForKey, updateSubPageRowCellsBulk } from "@/services/subPageService";
-import { currentMonthKey, ensureMonthTab } from "@/services/monthTabService";
+import { addSubPageRow, fetchSubPageFresh, fetchSubPageRows, updateSubPageRowCellsBulk } from "@/services/subPageService";
+import { ensureMonthTab } from "@/services/monthTabService";
+import { currentPeriodKeyOf, periodSettingsOf } from "@/services/periodService";
+import { periodLabel } from "@/utils/periods";
 import { ensureOsDesk, findOsDeskOf, resolveOsDeskKeys, type OsDeskKeys } from "@/services/osDeskService";
 import { isBlankRow } from "@/utils/blankRow";
 import { approvalStatusValue, isApprovalStatusValue, isDoneStatusLabel } from "@/utils/columnOptions";
@@ -55,10 +57,10 @@ export async function openOsDeskCurrentTab(input: {
   const existing = findOsDeskOf([...input.osDesks], input.uid);
   if (!existing && !input.createIfMissing) return null;
   const page = existing ?? (await ensureOsDesk({ workspaceId: input.workspaceId, uid: input.uid, name: input.name }));
-  const monthKey = currentMonthKey();
+  const monthKey = currentPeriodKeyOf(page.workspaceId);
   let tabId: string | null = null;
   if (!page.mainTabMonthKey) {
-    await updatePageMainTab(page.workspaceId, page.id, { name: monthTabNameForKey(monthKey), monthKey });
+    await updatePageMainTab(page.workspaceId, page.id, { name: periodLabel(monthKey, periodSettingsOf(page.workspaceId)), monthKey });
   } else if (page.mainTabMonthKey !== monthKey) {
     tabId = page.autoMonthKey === monthKey && page.autoMonthSubPageId ? page.autoMonthSubPageId : await ensureMonthTab(page, monthKey, input.uid);
   }

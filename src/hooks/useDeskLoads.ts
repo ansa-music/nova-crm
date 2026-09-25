@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useCurrentPeriodKey } from "@/hooks/useCurrentPeriodKey";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { refreshDeskLoadFromRows, subscribeDeskLoadHistory, subscribeDeskLoads } from "@/services/deskLoadService";
@@ -326,7 +326,7 @@ export function useOwnerDeskRecount(loads: DeskLoad[] | null, synced = true) {
   const backend = useDeskLoadsBackend(activeWorkspaceId);
   const permissions = usePermissions();
   const { profile } = useAuth();
-  const monthKey = useCurrentMonthKey();
+  const monthKey = useCurrentPeriodKey();
   const isOwner = permissions.upkeepOwner;
   const uid = profile?.uid ?? "";
   const loadsRef = useRef(loads);

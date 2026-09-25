@@ -3,6 +3,7 @@ import { db } from "@/firebase/firebase";
 import { getDocResumable, getDocsResumable, paths, withErrorReporting } from "@/firebase/firestore";
 import { supabaseRows } from "@/lib/supabaseRows";
 import { currentMonthSubPageId } from "@/services/monthTabService";
+import { periodSettingsOf } from "@/services/periodService";
 import {
   isSbMissingError,
   markSbTableMissing,
@@ -469,7 +470,7 @@ export async function refreshDeskLoadFromRows(
   ]);
   if (!subSnap.exists()) return false;
   const columns = (subSnap.data() as SubPage).columns ?? [];
-  const counts = countDeskLoad(columns, rows, responsibleOptions, monthKey);
+  const counts = countDeskLoad(columns, rows, responsibleOptions, monthKey, periodSettingsOf(page.workspaceId));
   const next = { ...counts, subPageId, monthKey };
   // Подмешанный из Firestore счётчик (sbFallback) — не строка Supabase:
   // совпади цифры, запись в desk_loads была бы пропущена, и стола там так и

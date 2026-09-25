@@ -543,20 +543,17 @@ function MonthTooltip({ active, payload }: { active?: boolean; payload?: { paylo
   );
 }
 
-export function MonthlyChart({ months }: { months: OverviewMonth[] }) {
+/** Столбцы по периодам: целые месяцы и/или половины («1–15 окт») — подпись даёт `labelOf`. */
+export function MonthlyChart({ months, labelOf }: { months: OverviewMonth[]; labelOf: (key: string) => string }) {
   const [metric, setMetric] = useState<"doneTotal" | "orders">("doneTotal");
-  const data = months.map((m) => {
-    const [year, month] = m.monthKey.split("-").map(Number);
-    const label = new Intl.DateTimeFormat("ru-RU", { month: "short", timeZone: "UTC" })
-      .format(new Date(Date.UTC(year, month - 1, 15)))
-      .replace(".", "");
-    return { ...m, label };
-  });
+  const data = months.map((m) => ({ ...m, label: labelOf(m.monthKey) }));
+  const halves = months.some((m) => m.monthKey.length > 7);
+  const noun = halves ? "период" : "месяц";
   const pastWithData = months.filter((m) => !m.current && (m.orders > 0 || m.doneTotal > 0)).length;
   return (
     <Panel
-      eyebrow="По месяцам"
-      title={metric === "doneTotal" ? "«Готово» за месяц" : "Заказов за месяц"}
+      eyebrow={halves ? "По периодам" : "По месяцам"}
+      title={metric === "doneTotal" ? `«Готово» за ${noun}` : `Заказов за ${noun}`}
       action={
         <Segmented
           label="Показатель"
@@ -593,8 +590,8 @@ export function MonthlyChart({ months }: { months: OverviewMonth[] }) {
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">
         {pastWithData === 0
-          ? "Прошлые месяцы появятся после смены месяца: итог каждого стола сохраняется, когда начинается новый."
-          : "Ярче — текущий месяц, он ещё идёт."}
+          ? `Прошлые ${halves ? "периоды появятся после смены периода" : "месяцы появятся после смены месяца"}: итог каждого стола сохраняется, когда начинается новый.`
+          : `Ярче — текущий ${noun}, он ещё идёт.`}
       </p>
     </Panel>
   );

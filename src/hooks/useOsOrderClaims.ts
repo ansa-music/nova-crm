@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { toast } from "@/components/ui/sonner";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { currentMonthKey } from "@/services/monthTabService";
+import { currentPeriodKeyOf } from "@/services/periodService";
 import { sendNotification } from "@/services/notificationService";
 import { osDeskId } from "@/services/osDeskService";
 import { openOsDeskCurrentTab, type OsDeskTab } from "@/services/rows/osDeskIssue";
@@ -140,7 +140,7 @@ export async function runOsClaimPass(ctx: OsClaimContext): Promise<OsClaimPassRe
     ctx.seen.clear();
     return { claimed: 0, waitMs: null };
   }
-  const monthKey = currentMonthKey();
+  const monthKey = currentPeriodKeyOf(ctx.workspaceId);
   const now = Date.now();
   const base = { candidates, pages: ctx.pages, members: ctx.members, monthKey, now, seen: ctx.seen };
   let pick = pickClaims({ ...base, limit: Number.POSITIVE_INFINITY });

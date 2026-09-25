@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useCurrentPeriodKey, usePeriodSettings } from "@/hooks/useCurrentPeriodKey";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import {
   deskLoadSignatureKey,
@@ -157,7 +157,8 @@ export function useDeskLoadPublisher({
   /** Shared «Ответственный» list — resolves ОС columns to option values. */
   responsibleOptions?: StatusOption[];
 }) {
-  const monthKey = useCurrentMonthKey();
+  const monthKey = useCurrentPeriodKey();
+  const periods = usePeriodSettings();
   const { members, activeWorkspace, allPages } = useWorkspace();
   const { profile } = useAuth();
   // Куда пишутся счётчики: Firestore или Supabase (services/sb/sbCollections.ts).
@@ -189,8 +190,8 @@ export function useDeskLoadPublisher({
   const active = isMonthTab && canEdit && !rowsLoading && rowsFromServer && Boolean(uid) && backend !== null;
 
   const counts = useMemo(
-    () => (active && subPage ? countDeskLoad(subPage.columns, rows, responsibleOptions, monthKey) : null),
-    [active, subPage, rows, responsibleOptions, monthKey]
+    () => (active && subPage ? countDeskLoad(subPage.columns, rows, responsibleOptions, monthKey, periods) : null),
+    [active, subPage, rows, responsibleOptions, monthKey, periods]
   );
   const osOrders = useMemo(
     () => (active && subPage ? collectOsOrders(subPage.columns, rows, responsibleOptions) : null),

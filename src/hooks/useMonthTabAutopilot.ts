@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useCurrentPeriodKey } from "@/hooks/useCurrentPeriodKey";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { ensureMonthTab, isMonthlyDesk } from "@/services/monthTabService";
@@ -27,7 +27,7 @@ function enqueue(task: () => Promise<void>) {
 export function useMonthTabAutopilot() {
   const { activeWorkspace, activeWorkspaceId, pages, members } = useWorkspace();
   const permissions = usePermissions();
-  const monthKey = useCurrentMonthKey();
+  const monthKey = useCurrentPeriodKey();
   const uid = permissions.uid;
   // The Owner maintains every Технарь desk (a Тимлид reads no desks).
   const isOwner = permissions.upkeepOwner;

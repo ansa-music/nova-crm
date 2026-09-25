@@ -1,5 +1,6 @@
 import { deleteDoc, deleteField, DocumentData, increment, onSnapshot, runTransaction, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { sanitizeOsPay, sanitizePaymentMethods } from "@/utils/payment";
+import { sanitizePeriods, type PeriodSettings } from "@/utils/periods";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -102,6 +103,11 @@ export async function updateOsPay(workspaceId: string, settings: OsPaySettings) 
 /** Варианты «Визитки клиента» (языки озвучки, стили, уровни). Пишет только Owner. */
 export async function updateClientCardOptions(workspaceId: string, options: ClientCardOptions) {
   await updateWorkspace(workspaceId, { clientCardOptions: sanitizeClientCardOptions(options) });
+}
+
+/** Периоды столов (целый месяц / половины). Пишет только Owner — Тимлиду поле закрыто правилом. */
+export async function updatePeriods(workspaceId: string, settings: PeriodSettings) {
+  await updateWorkspace(workspaceId, { periods: sanitizePeriods(settings) });
 }
 
 /** Звук уведомления о заказе. Пишет только Owner — Тимлиду поле закрыто правилом. */

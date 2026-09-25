@@ -8,19 +8,19 @@ import { StatsModeSwitch } from "@/components/chat/ChatModeSwitch";
 import { BonusChip, formatMoneyCompact, ordersWord, Panel, StatTile } from "@/components/overview/OverviewParts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
-import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useCurrentPeriodKey, usePeriodSettings } from "@/hooks/useCurrentPeriodKey";
 import { useDeskLoads, useOwnerDeskRecount } from "@/hooks/useDeskLoads";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { currentMonthSubPageId } from "@/services/monthTabService";
 import { fetchOsDeskMonthStats, type OsDeskMonthStats } from "@/services/osDeskStatsService";
-import { monthTabNameForKey } from "@/services/subPageService";
 import { buildOsAbs, sortOsAbs, type OsAbsRow } from "@/utils/absStats";
 import { cn } from "@/utils/cn";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { formatCurrency, formatNumber } from "@/utils/format";
 import { bonusForPlace, buildOverview, rankByDone, type OverviewTechnician } from "@/utils/overviewStats";
 import { osPayOf, techBonusesOf } from "@/utils/payment";
+import { periodLabel, periodNoun, periodRange } from "@/utils/periods";
 import { personLabel } from "@/utils/peopleDesks";
 import { effectiveTechLoadKinds } from "@/utils/techLoad";
 import type { StatusOption } from "@/types";
@@ -42,7 +42,9 @@ export default function AbsPage() {
   const permissions = usePermissions();
   const { profile } = useAuth();
   const uid = profile?.uid ?? "";
-  const monthKey = useCurrentMonthKey();
+  const monthKey = useCurrentPeriodKey();
+  const periods = usePeriodSettings();
+  const range = useMemo(() => periodRange(monthKey, periods), [monthKey, periods]);
   const [params, setParams] = useSearchParams();
   const view: View = params.get("v") === "os" ? "os" : "tech";
   const enabled = permissions.isResolved;
@@ -68,10 +70,10 @@ export default function AbsPage() {
         kinds,
         responsibleOptions: activeWorkspace?.responsibleOptions ?? NO_OPTIONS,
         currentTabOf,
-        today: 1,
-        daysInMonth: 31,
+        today: range.dayTo,
+        days: range.days,
       }),
-    [members, pages, loads, monthKey, statusOptions, kinds, activeWorkspace, currentTabOf]
+    [members, pages, loads, monthKey, statusOptions, kinds, activeWorkspace, currentTabOf, range]
   );
   const techRanked = useMemo(() => rankByDone(overview.technicians), [overview]);
 
@@ -84,7 +86,7 @@ export default function AbsPage() {
     for (const desk of osDesks) {
       if (!permissions.canAccessPage(desk) || !desk.responsibleUserId) continue;
       const owner = desk.responsibleUserId;
-      void fetchOsDeskMonthStats(activeWorkspaceId, desk)
+      void fetchOsDeskMonthStats(activeWorkspaceId, desk, { range })
         .then((s) => !cancelled && setOsStats((prev) => ({ ...prev, [owner]: s })))
         .catch(() => !cancelled && setOsStats((prev) => ({ ...prev, [owner]: "error" })));
     }
@@ -92,7 +94,7 @@ export default function AbsPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspaceId, osDeskKey, view]);
+  }, [activeWorkspaceId, osDeskKey, view, range]);
 
   const osRows = useMemo(
     () =>
@@ -119,7 +121,8 @@ export default function AbsPage() {
     [members, pages, loads, monthKey, currentTabOf, statusOptions, kinds, osPay, osStats]
   );
 
-  const monthName = monthTabNameForKey(monthKey);
+  const monthName = periodLabel(monthKey, periods);
+  const noun = periodNoun(monthKey);
   const isOwner = permissions.actsAsOwner;
   const setView = (v: View) => setParams(v === "tech" ? {} : { v }, { replace: true });
 
@@ -145,7 +148,7 @@ export default function AbsPage() {
         className="mb-0"
         eyebrow={`ABS · ${monthName}`}
         title="ABS система"
-        description="Касса и доплаты месяца: технари — по «Готово», ОС — по KPI и апсейлам. Суммы и проценты задаёт Owner."
+        description={`Касса и доплаты за ${noun}: технари — по «Готово», ОС — по KPI и апсейлам. Суммы и проценты задаёт Owner.`}
         actions={
           isOwner ? (
             <Link
@@ -178,9 +181,9 @@ export default function AbsPage() {
       )}
 
       {view === "tech" ? (
-        <TechSection ranked={techRanked} bonuses={bonuses} myUid={uid} />
+        <TechSection ranked={techRanked} bonuses={bonuses} myUid={uid} noun={noun} />
       ) : (
-        <OsSection rows={osRows} settings={osPay} myUid={uid} loadingUpsell={osDesks.some((d) => d.responsibleUserId && !osStats[d.responsibleUserId])} />
+        <OsSection rows={osRows} settings={osPay} myUid={uid} noun={noun} loadingUpsell={osDesks.some((d) => d.responsibleUserId && !osStats[d.responsibleUserId])} />
       )}
     </div>
   );
@@ -216,7 +219,7 @@ function Money({ label, value, strong, tone }: { label: string; value: number; s
   );
 }
 
-function TechSection({ ranked, bonuses, myUid }: { ranked: OverviewTechnician[]; bonuses: number[]; myUid: string }) {
+function TechSection({ ranked, bonuses, myUid, noun }: { ranked: OverviewTechnician[]; bonuses: number[]; myUid: string; noun: string }) {
   const done = ranked.reduce((n, t) => n + t.doneTotal, 0);
   const dirty = ranked.reduce((n, t) => n + t.grandTotal, 0);
   const waiting = ranked.reduce((n, t) => n + t.paymentTotal, 0);
@@ -228,7 +231,7 @@ function TechSection({ ranked, bonuses, myUid }: { ranked: OverviewTechnician[];
     <>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile accent label="Касса «Готово»" value={formatMoneyCompact(done)} title={formatCurrency(done)} sub="по ней места и премии" />
-        <StatTile label="Грязная касса" value={formatMoneyCompact(dirty)} title={formatCurrency(dirty)} sub="все заказы месяца" />
+        <StatTile label="Грязная касса" value={formatMoneyCompact(dirty)} title={formatCurrency(dirty)} sub={`все заказы за ${noun}`} />
         <StatTile label="Ждём оплату" value={formatMoneyCompact(waiting)} title={formatCurrency(waiting)} sub="ещё не пришло" />
         <StatTile label="Премии топ-3" value={formatMoneyCompact(bonusSum)} title={formatCurrency(bonusSum)} sub={bonuses.map((b) => formatMoneyCompact(b)).join(" / ")} />
       </div>
@@ -287,7 +290,19 @@ function kpiTone(pct: number | null) {
   return "bg-destructive";
 }
 
-function OsSection({ rows, settings, myUid, loadingUpsell }: { rows: OsAbsRow[]; settings: ReturnType<typeof osPayOf>; myUid: string; loadingUpsell: boolean }) {
+function OsSection({
+  rows,
+  settings,
+  myUid,
+  noun,
+  loadingUpsell,
+}: {
+  rows: OsAbsRow[];
+  settings: ReturnType<typeof osPayOf>;
+  myUid: string;
+  noun: string;
+  loadingUpsell: boolean;
+}) {
   if (rows.length === 0) {
     return <EmptyState eyebrow="ABS" title="Пока нет ОС с ником" description="KPI считается по нику ОС в заказах: закрепите ник ОС на «Команде»." />;
   }
@@ -306,14 +321,14 @@ function OsSection({ rows, settings, myUid, loadingUpsell }: { rows: OsAbsRow[];
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile accent label="KPI всех ОС" value={orders ? `${Math.round((done / orders) * 100)}%` : "—"} meter={orders ? done / orders : null} sub={`${formatNumber(done)} из ${formatNumber(orders)} в «Готово»`} />
         <StatTile label="Апсейл после комиссии" value={loadingUpsell && !upsell ? "…" : formatMoneyCompact(upsell)} title={formatCurrency(upsell)} sub={`${settings.upsellPct}% идёт ОС в зарплату`} />
-        <StatTile label="Заказов ОС" value={formatNumber(orders)} sub="за месяц, по столам технарей" />
+        <StatTile label="Заказов ОС" value={formatNumber(orders)} sub={`за ${noun}, по столам технарей`} />
         <StatTile label="Доплаты ОС" value={formatMoneyCompact(pay)} title={formatCurrency(pay)} sub="% апсейла + KPI" />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel eyebrow="Топ" title="По KPI — доля «Готово»">
           {byKpi.length === 0 ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">Ни у кого ещё нет {settings.kpiMinOrders} заказов за месяц.</p>
+            <p className="py-4 text-center text-sm text-muted-foreground">Ни у кого ещё нет {settings.kpiMinOrders} заказов за {noun}.</p>
           ) : (
             <ol className="flex flex-col gap-2">
               {byKpi.map((r) => (
@@ -335,7 +350,7 @@ function OsSection({ rows, settings, myUid, loadingUpsell }: { rows: OsAbsRow[];
         </Panel>
         <Panel eyebrow="Топ" title="По апсейлам">
           {byUpsell.length === 0 ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">{loadingUpsell ? "Считаю апсейлы…" : "Апсейлов в этом месяце пока нет."}</p>
+            <p className="py-4 text-center text-sm text-muted-foreground">{loadingUpsell ? "Считаю апсейлы…" : `Апсейлов за ${noun} пока нет.`}</p>
           ) : (
             <ol className="flex flex-col gap-2">
               {byUpsell.map((r) => (
@@ -358,7 +373,7 @@ function OsSection({ rows, settings, myUid, loadingUpsell }: { rows: OsAbsRow[];
         </Panel>
       </div>
 
-      <Panel eyebrow="KPI и зарплата" title="Все ОС за месяц">
+      <Panel eyebrow="KPI и зарплата" title={`Все ОС за ${noun}`}>
         <ul className="flex flex-col gap-2">
           {rows.map((r) => {
             const me = r.member.uid === myUid;
@@ -421,7 +436,7 @@ function OsSection({ rows, settings, myUid, loadingUpsell }: { rows: OsAbsRow[];
           })}
         </ul>
         <p className="mt-3 text-[11px] text-muted-foreground">
-          KPI = заказы в «Готово» / все заказы ОС этого месяца (по столам технарей, по нику ОС). Пороги: {tiersText}.
+          KPI = заказы в «Готово» / все заказы ОС за {noun} (по столам технарей, по нику ОС). Пороги: {tiersText}.
         </p>
       </Panel>
     </>

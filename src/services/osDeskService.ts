@@ -3,8 +3,9 @@ import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { ensureNewDeskAcl, stripUndefined, updatePageColumns, updatePageMainTab } from "@/services/pageService";
-import { currentMonthKey, ensureMonthTab } from "@/services/monthTabService";
-import { monthTabNameForKey } from "@/services/subPageService";
+import { ensureMonthTab } from "@/services/monthTabService";
+import { currentPeriodKeyOf, periodSettingsOf } from "@/services/periodService";
+import { periodLabel } from "@/utils/periods";
 import { OS_DATES_COLUMN_KEY, type OsDeskKeys } from "@/utils/osDeskKeys";
 import { findInProgressStatusOption, isApprovalStatusValue } from "@/utils/columnOptions";
 import { mirrorAddressOf } from "@/utils/osDispatchPlan";
@@ -378,9 +379,9 @@ export async function ensureOsDesk({ workspaceId, uid, name }: EnsureOsDeskInput
  * Зовётся из сессии хозяина стола (и Owner), один раз за заход.
  */
 export async function ensureOsDeskMonth(page: WorkspacePage, uid: string): Promise<void> {
-  const monthKey = currentMonthKey();
+  const monthKey = currentPeriodKeyOf(page.workspaceId);
   if (!page.mainTabMonthKey) {
-    await updatePageMainTab(page.workspaceId, page.id, { name: monthTabNameForKey(monthKey), monthKey });
+    await updatePageMainTab(page.workspaceId, page.id, { name: periodLabel(monthKey, periodSettingsOf(page.workspaceId)), monthKey });
     return;
   }
   // Месяц главной вкладки или последней заведённой совпал с нынешним —

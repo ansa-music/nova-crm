@@ -19,7 +19,7 @@ import {
 } from "@/components/overview/OverviewParts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
-import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useCurrentPeriodKey, usePeriodSettings } from "@/hooks/useCurrentPeriodKey";
 import {
   useDeskLoadHistory,
   useDeskLoads,
@@ -31,8 +31,8 @@ import { useMembersRefresh } from "@/hooks/useMembersRefresh";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { osNickLabel } from "@/services/memberService";
-import { currentMonthSubPageId, previousMonthKey } from "@/services/monthTabService";
-import { monthTabNameForKey } from "@/services/subPageService";
+import { currentMonthSubPageId } from "@/services/monthTabService";
+import { periodLabel, periodRange, periodShortLabel, previousPeriodKey, recentPeriodKeys } from "@/utils/periods";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { greetingByHour, greetingGlowShadow, hourInTimeZone, timeAgo, ymdPartsInTimeZone } from "@/utils/date";
 import { formatCurrency, formatNumber } from "@/utils/format";
@@ -44,7 +44,6 @@ import {
   placeOf,
   rankByDone,
   rankByRating,
-  recentMonthKeys,
 } from "@/utils/overviewStats";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatsModeSwitch } from "@/components/chat/ChatModeSwitch";
@@ -54,7 +53,8 @@ import { techBonusesOf } from "@/utils/payment";
 import { myDisplayName } from "@/utils/displayName";
 
 const NO_OPTIONS: StatusOption[] = [];
-const MONTHS_SHOWN = 6;
+/** Столбцов в графике по периодам: 8 половин = 4 месяца, 8 целых месяцев — тоже влезают. */
+const MONTHS_SHOWN = 8;
 
 /**
  * «Дашборд» — one screen for every role. On top, what's yours: join
@@ -68,7 +68,8 @@ export default function DashboardPage() {
   const { activeWorkspace, activeWorkspaceId, members, pages } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
-  const monthKey = useCurrentMonthKey();
+  const monthKey = useCurrentPeriodKey();
+  const periods = usePeriodSettings();
   const uid = profile?.uid ?? "";
   const enabled = permissions.isResolved;
   const [now, setNow] = useState(() => Date.now());
@@ -83,7 +84,7 @@ export default function DashboardPage() {
   // список заново (~по чтению на участника, из дневной квоты Spark).
   useMembersRefresh(activeWorkspaceId, enabled, false);
 
-  const monthKeys = useMemo(() => recentMonthKeys(monthKey, MONTHS_SHOWN), [monthKey]);
+  const monthKeys = useMemo(() => recentPeriodKeys(monthKey, MONTHS_SHOWN, periods), [monthKey, periods]);
   const { loads, failed: loadsFailed, synced: loadsSynced } = useDeskLoads(activeWorkspaceId, enabled);
   const { totals: orderTotals, failed: ratingsFailed } = useOrderRatingTotals(activeWorkspaceId, monthKey, enabled);
   const history = useDeskLoadHistory(activeWorkspaceId, monthKeys[0], enabled);
@@ -93,7 +94,7 @@ export default function DashboardPage() {
   // этом экране. Прошлый месяц не исчезает: он закреплён карточкой сверху,
   // иначе первого числа дашборд показывал бы «оценок нет» и выглядел как
   // поломка, а не как начало нового месяца.
-  const prevMonthKey = previousMonthKey(monthKey);
+  const prevMonthKey = previousPeriodKey(monthKey, periods);
   const previousTop = useMemo(() => {
     const ordersAcc = new Map<string, { sum: number; count: number }>();
     for (const t of orderTotals ?? []) {
@@ -122,7 +123,7 @@ export default function DashboardPage() {
   );
 
   const { day: today, month: monthIndex, year } = ymdPartsInTimeZone(now);
-  const daysInMonth = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+  const range = useMemo(() => periodRange(monthKey, periods), [monthKey, periods]);
 
   const overview = useMemo(
     () =>
@@ -137,9 +138,9 @@ export default function DashboardPage() {
         responsibleOptions,
         currentTabOf: (desk) => currentMonthSubPageId(desk, monthKey),
         today,
-        daysInMonth,
+        days: range.days,
       }),
-    [members, pages, loads, orderTotals, monthKey, statusOptions, kinds, responsibleOptions, today, daysInMonth]
+    [members, pages, loads, orderTotals, monthKey, statusOptions, kinds, responsibleOptions, today, range]
   );
 
   const byDone = useMemo(() => rankByDone(overview.technicians), [overview]);
@@ -189,7 +190,7 @@ export default function DashboardPage() {
   const myDonePlace = placeOf(byDone, uid);
   const myBonus = myDonePlace ? bonusForPlace(bonuses, myDonePlace - 1, byDone[myDonePlace - 1]?.doneTotal ?? 0) : 0;
   const myRatingPlace = placeOf(byRating, uid);
-  const monthName = monthTabNameForKey(monthKey);
+  const monthName = periodLabel(monthKey, periods);
   const monthGenitive = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", timeZone: "UTC" })
     .format(new Date(Date.UTC(year, monthIndex, 1)))
     .replace(/^\d+\s/, "");
@@ -332,9 +333,9 @@ export default function DashboardPage() {
             />
           </div>
 
-          <BonusTop monthLabel={monthTabNameForKey(prevMonthKey).toLowerCase()} entries={previousBonuses} />
+          <BonusTop monthLabel={periodLabel(prevMonthKey, periods).toLowerCase()} entries={previousBonuses} />
 
-          <MonthlyRatingTop monthLabel={monthTabNameForKey(prevMonthKey).toLowerCase()} entries={previousTop} />
+          <MonthlyRatingTop monthLabel={periodLabel(prevMonthKey, periods).toLowerCase()} entries={previousTop} />
 
           <LeadersRow byDone={byDone[0] ?? null} byRating={byRating[0] ?? null} byOrders={byOrders} myUid={uid} />
 
@@ -361,7 +362,7 @@ export default function DashboardPage() {
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <OsBars os={overview.os} myOsValue={myOsValue} />
-            <MonthlyChart months={months} />
+            <MonthlyChart months={months} labelOf={(key) => periodShortLabel(key, periods)} />
           </div>
 
           <p className="text-center text-[11px] text-muted-foreground">

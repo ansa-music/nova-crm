@@ -1,7 +1,8 @@
 import { ensureOsDesk, findOsDeskOf, type OsDeskKeys } from "@/services/osDeskService";
 import { fetchPagesFresh, updatePageOsFieldKeys } from "@/services/pageService";
 import { fetchSubPageFresh } from "@/services/subPageService";
-import { currentMonthKey, currentMonthSubPageId, isMonthlyDesk } from "@/services/monthTabService";
+import { currentMonthSubPageId, isMonthlyDesk } from "@/services/monthTabService";
+import { currentPeriodKeyOf } from "@/services/periodService";
 import { computeOsFieldKeys, sameOsFieldKeys } from "@/utils/osFieldKeys";
 import { sbFetchAllPageRows, sbFetchRows, sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
@@ -224,7 +225,7 @@ export async function adoptOrdersToOsDesks(input: {
   // текущей (сверка с autoMonthKey). Голый autoMonthSubPageId у отставшего
   // стола указывает на прошлый месяц: Owner записал бы ему карту от старой
   // вкладки, и заказы уехали бы в её ключи.
-  const monthKey = currentMonthKey();
+  const monthKey = currentPeriodKeyOf(workspaceId);
   // Круг столов — тот же, что у автопилота месячных вкладок (`isMonthlyDesk`):
   // стол Admin или дашборд месячных вкладок не имеют вовсе, и жаловаться на
   // них в отчёте — шум, за которым не видно настоящих отставших столов.
@@ -493,7 +494,7 @@ export interface DeskOrderCounts {
  * (`osFieldKeys`), и только если она от этой же вкладки.
  */
 export async function countDeskOrders(workspaceId: string, page: WorkspacePage): Promise<DeskOrderCounts> {
-  const tabId = currentMonthSubPageId(page, currentMonthKey());
+  const tabId = currentMonthSubPageId(page, currentPeriodKeyOf(workspaceId));
   if (!tabId) return { total: 0, managed: 0, adoptable: null, noMonthTab: true };
   const rows = await sbFetchRows(workspaceId, page.id, tabId);
   const keys = page.osFieldKeys && page.osFieldKeys.tabId === tabId && page.osFieldKeys.os ? page.osFieldKeys : null;

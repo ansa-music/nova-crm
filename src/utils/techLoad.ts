@@ -3,6 +3,7 @@ import { ymdInTimeZone } from "@/utils/date";
 import { parseLooseNumber } from "@/utils/numberInput";
 import { isDoneStatusLabel, isFreezeStatusLabel } from "@/utils/columnOptions";
 import { findQuickOrderColumns } from "@/utils/quickOrder";
+import { DEFAULT_PERIODS, dayInPeriod, type PeriodSettings } from "@/utils/periods";
 import type { DeskLoad, OsOrderItem, PageColumn, PageRow, StatusOption, TechLoadKind, Workspace, WorkspacePage } from "@/types";
 
 /**
@@ -31,13 +32,19 @@ function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-/** "DD" of the order inside `monthKey` — by the order date column, else the row's creation day; null when neither falls in that month. */
-function orderDayInMonth(cells: PageRow["cells"], dateCol: PageColumn | undefined, row: PageRow, monthKey: string): string | null {
+/** "DD" of the order inside period `key` — by the order date column, else the row's creation day; null when neither falls in that period. */
+function orderDayInPeriod(
+  cells: PageRow["cells"],
+  dateCol: PageColumn | undefined,
+  row: PageRow,
+  key: string,
+  periods: PeriodSettings
+): string | null {
   const fromDate = dateCol ? Number(cells[dateCol.key]) : NaN;
   for (const ms of [fromDate, millisOf(row.createdAt)]) {
     if (!Number.isFinite(ms) || ms <= 0) continue;
-    const ymd = ymdInTimeZone(ms);
-    if (ymd.startsWith(monthKey)) return ymd.slice(8, 10);
+    const day = dayInPeriod(ymdInTimeZone(ms), key, periods);
+    if (day) return day;
   }
   return null;
 }
@@ -94,8 +101,9 @@ export function countDeskLoad(
   columns: PageColumn[],
   rows: PageRow[],
   responsibleOptions: StatusOption[] = [],
-  /** "YYYY-MM" of the tab — enables the per-day buckets. */
-  monthKey?: string
+  /** Ключ периода вкладки («2026-09» / «2026-10-2») — включает корзины по дням. */
+  monthKey?: string,
+  periods: PeriodSettings = DEFAULT_PERIODS
 ): DeskLoadCounts {
   const statusCol = columns.find((c) => c.type === "status");
   const priceCol = columns.find((c) => c.type === "currency") ?? columns.find((c) => c.key === "price");
@@ -124,7 +132,7 @@ export function countDeskLoad(
       statusSums[key] = roundMoney((statusSums[key] ?? 0) + price);
     }
     if (monthKey) {
-      const day = orderDayInMonth(cells, dateCol, row, monthKey);
+      const day = orderDayInPeriod(cells, dateCol, row, monthKey, periods);
       if (day) {
         dayCounts[day] = (dayCounts[day] ?? 0) + 1;
         if (price) daySums[day] = roundMoney((daySums[day] ?? 0) + price);

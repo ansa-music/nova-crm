@@ -149,9 +149,9 @@ export function buildOverview(input: {
   responsibleOptions: StatusOption[];
   /** This month's tab id of a desk, or null (monthTabService.currentMonthSubPageId). */
   currentTabOf: (desk: WorkspacePage) => string | null;
-  /** Day of the month today (Asia/Almaty) and the month's length. */
+  /** День месяца сегодня (по Алматы) и дни периода (1..31 или 16..31 — utils/periods.periodRange). */
   today: number;
-  daysInMonth: number;
+  days: number[];
 }): OverviewData {
   const { loads, monthKey, statusOptions, kinds } = input;
   const ratingTotals = input.ratingTotals.filter((t) => t.monthKey === monthKey);
@@ -216,12 +216,12 @@ export function buildOverview(input: {
   const ratingSum = technicians.reduce((n, t) => n + (t.ratingAvg ?? 0) * t.ratingCount, 0);
   const withDesk = technicians.filter((t) => t.desks.length > 0);
 
-  const days: OverviewDay[] = Array.from({ length: input.daysInMonth }, (_, i) => {
-    const key = String(i + 1).padStart(2, "0");
-    return { day: i + 1, count: dayCounts[key] ?? 0, sum: daySums[key] ?? 0 };
+  const days: OverviewDay[] = input.days.map((day) => {
+    const key = String(day).padStart(2, "0");
+    return { day, count: dayCounts[key] ?? 0, sum: daySums[key] ?? 0 };
   });
   const lastWeek = days.filter((d) => d.day <= input.today && d.day > input.today - 7);
-  const todayRow = days[input.today - 1];
+  const todayRow = days.find((d) => d.day === input.today);
 
   const os: OverviewOsShare[] = Object.entries(osCounts)
     .filter(([, count]) => count > 0)
@@ -256,17 +256,6 @@ export function buildOverview(input: {
     days,
     os,
   };
-}
-
-/** "YYYY-MM" keys of the last `count` months ending with `monthKey`, oldest first. */
-export function recentMonthKeys(monthKey: string, count: number): string[] {
-  const [year, month] = monthKey.split("-").map(Number);
-  const keys: string[] = [];
-  for (let i = count - 1; i >= 0; i--) {
-    const d = new Date(Date.UTC(year, month - 1 - i, 1));
-    keys.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`);
-  }
-  return keys;
 }
 
 export interface OverviewMonth {

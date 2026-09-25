@@ -11,6 +11,7 @@ import {
   EyeOff,
   Filter,
   History,
+  CalendarRange,
   IdCard,
   Music,
   Keyboard,
@@ -36,6 +37,7 @@ import { RowsStoragePanel } from "@/components/settings/RowsStoragePanel";
 import { SupabaseCollectionsPanel } from "@/components/settings/SupabaseCollectionsPanel";
 import { CashboxSettingsPanel } from "@/components/cashbox/CashboxSettingsPanel";
 import { ClientCardSettingsPanel } from "@/components/settings/ClientCardSettingsPanel";
+import { PeriodsSettingsPanel } from "@/components/settings/PeriodsSettingsPanel";
 import { OrderSoundSettingsPanel } from "@/components/settings/OrderSoundSettingsPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -159,6 +161,7 @@ const SETTINGS_NAV = [
   { value: "rows", label: "Строки таблиц", icon: Database, owner: true },
   { value: "cashbox", label: "Касса", icon: Wallet, owner: true },
   { value: "clientcard", label: "Визитка", icon: IdCard, owner: true },
+  { value: "periods", label: "Периоды", icon: CalendarRange, owner: true },
   { value: "sound", label: "Звук заказа", icon: Music, owner: true },
   { value: "members", label: "Роли и доступ", icon: Users },
 ] as const;
@@ -391,7 +394,9 @@ export default function SettingsPage() {
               // Варианты визитки клиента — тоже только Owner.
               (item.value !== "clientcard" || permissions.actsAsOwner) &&
               // Звук заказа у всех — тоже только Owner.
-              (item.value !== "sound" || permissions.actsAsOwner)
+              (item.value !== "sound" || permissions.actsAsOwner) &&
+              // Периоды столов (целый месяц / половины) — только Owner.
+              (item.value !== "periods" || permissions.actsAsOwner)
           ).map((item) => (
             <TabsTrigger
               key={item.value}
@@ -780,6 +785,12 @@ export default function SettingsPage() {
         {permissions.actsAsOwner && (
           <TabsContent value="sound" className="mt-0 flex flex-col gap-4">
             <OrderSoundSettingsPanel />
+          </TabsContent>
+        )}
+
+        {permissions.actsAsOwner && (
+          <TabsContent value="periods" className="mt-0 flex flex-col gap-4">
+            <PeriodsSettingsPanel />
           </TabsContent>
         )}
 

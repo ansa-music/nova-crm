@@ -5,6 +5,7 @@ import { pageChipClass } from "@/components/common/PageHeader";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useCurrentPeriodKey } from "@/hooks/useCurrentPeriodKey";
 import { useDeskLoads, useTechSchedules } from "@/hooks/useDeskLoads";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { currentMonthSubPageId } from "@/services/monthTabService";
@@ -130,9 +131,11 @@ export function TechPickerSheet({
   secondary?: { label: string; active?: boolean; onClick: () => void } | null;
 }) {
   const { activeWorkspaceId, activeWorkspace, members, pages } = useWorkspace();
-  const monthKey = useCurrentMonthKey();
+  // График — по календарному месяцу, счётчики столов — по периоду.
+  const scheduleMonthKey = useCurrentMonthKey();
+  const monthKey = useCurrentPeriodKey();
   const { loads } = useDeskLoads(activeWorkspaceId, open);
-  const { schedules } = useTechSchedules(activeWorkspaceId, monthKey, open);
+  const { schedules } = useTechSchedules(activeWorkspaceId, scheduleMonthKey, open);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<Sort>(readSort);

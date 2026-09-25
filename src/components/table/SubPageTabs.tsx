@@ -61,11 +61,11 @@ import {
   createSubPage,
   deleteSubPage,
   duplicateSubPage,
-  monthShortNameForKey,
   renameSubPage,
   reorderSubPages,
 } from "@/services/subPageService";
-import { ensureMonthTabForKey, findMonthTab, nextMonthKey, previousMonthKey } from "@/services/monthTabService";
+import { ensureMonthTabForKey, findMonthTab } from "@/services/monthTabService";
+import { nextPeriodKey, periodShortLabel, previousPeriodKey, type PeriodSettings } from "@/utils/periods";
 import { setDefaultSubPage } from "@/services/pageService";
 import { snapshotSubPage, restoreSubPageSnapshot } from "@/services/pageSnapshotService";
 import { pushUndoCommand, undo } from "@/utils/undoStore";
@@ -88,8 +88,10 @@ interface SubPageTabsProps {
    */
   canSetDefault: boolean;
   userId: string;
-  /** Текущий месяц по Алматы ("YYYY-MM") — центр сегмента месяцев. */
+  /** Текущий период по Алматы («2026-09» или «2026-10-2») — центр сегмента. */
   monthKey: string;
+  /** Настройка периодов workspace — соседи сегмента и подписи. */
+  periods: PeriodSettings;
   /**
    * Стол ведёт месячный автопилот (isMonthlyDesk). Немесячный стол без
    * единой месячной вкладки показывает старый ряд вкладок, а не пустой
@@ -132,6 +134,7 @@ export function SubPageTabs({
   userId,
   monthKey,
   isMonthly,
+  periods,
 }: SubPageTabsProps) {
   const [showArchived, setShowArchived] = useState(false);
   const [duplicateTarget, setDuplicateTarget] = useState<SubPage | null>(null);
@@ -326,9 +329,9 @@ export function SubPageTabs({
   // Алматы, вкладки — по id month-YYYY-MM, sub.monthKey или имени. У стола
   // ОС главная вкладка сама названа месяцем — тогда сегмент ведёт на неё.
   const segmentKeys: Array<[string, MonthSegment["slot"]]> = [
-    [previousMonthKey(monthKey), "prev"],
+    [previousPeriodKey(monthKey, periods), "prev"],
     [monthKey, "current"],
-    [nextMonthKey(monthKey), "next"],
+    [nextPeriodKey(monthKey, periods), "next"],
   ];
   const segments: MonthSegment[] = segmentKeys.map(([key, slot]) => {
     const isMain = !hideMain && page.mainTabMonthKey === key;
@@ -336,7 +339,7 @@ export function SubPageTabs({
     // живой кнопкой на скрытую вкладку. Архивные живут в списке «Архив»;
     // сегмент считает месяц пустым, и «следующий» её восстановит.
     const found = isMain ? null : findMonthTab(subPages, key);
-    return { key, slot, label: monthShortNameForKey(key), isMain, tab: found && !found.isArchived ? found : null };
+    return { key, slot, label: periodShortLabel(key, periods), isMain, tab: found && !found.isArchived ? found : null };
   });
   const segmentTabIds = new Set(segments.flatMap((s) => (s.tab ? [s.tab.id] : [])));
   const mainInSegment = segments.some((s) => s.isMain);
@@ -527,7 +530,7 @@ export function SubPageTabs({
         disabled={!canCreate || creatingMonth !== null}
         onClick={canCreate ? () => void handleCreateMonth(seg.key) : undefined}
         className={segmentButtonClass(false)}
-        title={canCreate ? `Создать вкладку «${monthShortNameForKey(seg.key)}»` : "Вкладки нет"}
+        title={canCreate ? `Создать вкладку «${periodShortLabel(seg.key, periods)}»` : "Вкладки нет"}
       >
         {creatingMonth === seg.key ? "…" : seg.label}
       </button>

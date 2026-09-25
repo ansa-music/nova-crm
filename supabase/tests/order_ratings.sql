@@ -44,6 +44,12 @@ insert into public.desk_rows (workspace_id, page_id, tab_id, id, cells, sort_ord
   ('WR', 'RP2', 'x1', 'a4', '{"client":"Без карты"}', 0, 1000, 1000, 'ROS1', 'RT2'),
   -- стол без карты, ник только в ячейке
   ('WR', 'RP2', 'x1', 'a5', '{"client":"Без карты 2","os":"anna"}', 1, 1000, 1000, null, null),
+  -- половины месяца (20261006): вкладки month-YYYY-MM-1 / -2
+  ('WR', 'RP1', 'month-2026-10-1', 'h1', '{"client":"Половина 1","os":"anna"}', 0, 1000, 1000, 'ROS1', 'RT1'),
+  ('WR', 'RP1', 'month-2026-10-2', 'h2', '{"client":"Половина 2","os":"anna"}', 0, 1000, 1000, 'ROS1', 'RT1'),
+  ('WR', 'RP2', 'x2', 'h3', '{"client":"Без вкладки 3"}', 0, 1000, 1000, 'ROS1', 'RT2'),
+  ('WR', 'RP2', 'x2', 'h4', '{"client":"Без вкладки 4"}', 1, 1000, 1000, 'ROS1', 'RT2'),
+  ('WR', 'RP2', 'x2', 'h5', '{"client":"Без вкладки 5"}', 2, 1000, 1000, 'ROS1', 'RT2'),
   -- строка самого стола ОС
   ('WR', 'osdesk_ROS1', '', 's1', '{"client":"Продажа"}', 0, 1000, 1000, 'ROS1', null),
   ('WRD', 'RP1', 'month-2026-09', 'd1', '{"client":"Неживое","os":"anna"}', 0, 1000, 1000, 'ROS1', 'RT1');
@@ -173,10 +179,51 @@ select tst.expect('Owner снимает любую',
 select tst.expect('снять несуществующую — без ошибки',
   tst.try('ROS1', $q$select rate_order('WR','RP1','month-2026-09','b1', null)$q$), 'ok:1');
 
+-- --- Периоды: половины месяца (20261006) --------------------------------
+do $$
+declare
+  g1 jsonb; g2 jsonb; g3 jsonb; g4 jsonb; g5 jsonb;
+  cur text := to_char(now() at time zone 'Asia/Almaty', 'YYYY-MM');
+  prev2 text := to_char((date_trunc('month', now() at time zone 'Asia/Almaty') - interval '32 days'), 'YYYY-MM');
+  cnt text;
+begin
+  perform set_config('request.jwt.claims', tst.claims('ROS1'), true);
+  execute 'set local role anon';
+  g1 := public.rate_order('WR','RP1','month-2026-10-1','h1', 8, 'Половина 1');
+  g2 := public.rate_order('WR','RP1','month-2026-10-2','h2', 6, 'Половина 2');
+  g3 := public.rate_order('WR','RP2','x2','h3', 7, '', cur || '-2');
+  g4 := public.rate_order('WR','RP2','x2','h4', 7, '', cur || '-3');
+  g5 := public.rate_order('WR','RP2','x2','h5', 7, '', prev2 || '-1');
+  select count(*)::text into cnt from public.order_rating_totals('WR', array['2026-10-1','2026-10-2']);
+  execute 'reset role';
+  perform set_config('request.jwt.claims', '', true);
+  perform tst.expect('месяц оценки — первая половина из id вкладки', g1 ->> 'monthKey', '2026-10-1');
+  perform tst.expect('месяц оценки — вторая половина из id вкладки', g2 ->> 'monthKey', '2026-10-2');
+  perform tst.expect('немесячная вкладка: присланная половина текущего месяца принимается', g3 ->> 'monthKey', cur || '-2');
+  perform tst.expect('немесячная вкладка: кривой ключ → текущий месяц', g4 ->> 'monthKey', cur);
+  perform tst.expect('немесячная вкладка: половина позапрошлого месяца → текущий месяц', g5 ->> 'monthKey', cur);
+  perform tst.expect('итоги по двум половинам — две пары', cnt, '2');
+  -- убрать, чтобы счётчики ниже не изменились
+  delete from public.order_ratings where workspace_id = 'WR' and row_id in ('h1','h2','h3','h4','h5');
+end;
+$$;
+do $$
+begin
+  begin
+    insert into public.order_ratings (workspace_id, page_id, tab_id, row_id, os_uid, tech_uid, score, month_key, created_at, updated_at)
+    values ('WR','RP1','x','bad','ROS1','RT1',5,'2026-10-3',1,1);
+    perform tst.expect('ключ «-3» отклонён ограничением', 'принят', 'отклонён');
+  exception when check_violation then
+    perform tst.expect('ключ «-3» отклонён ограничением', 'отклонён', 'отклонён');
+  end;
+end;
+$$;
+
 -- --- Повторный накат ---------------------------------------------------
 \ir ../migrations/20261005_order_ratings.sql
+\ir ../migrations/20261006_periods.sql
 select tst.expect('повторный накат не трогает оценки', (select count(*)::text from public.order_ratings where workspace_id = 'WR'), '3');
-select tst.expect('версия схемы', public.nova_schema_version(), '20261005');
+select tst.expect('версия схемы', public.nova_schema_version(), '20261006');
 select tst.expect('после наката права на таблицу — только чтение',
   tst.try('ROS1', $q$delete from order_ratings where workspace_id='WR'$q$), 'error');
 

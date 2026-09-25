@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useCurrentPeriodKey } from "@/hooks/useCurrentPeriodKey";
 import { useDeskLoads, useTechSchedules } from "@/hooks/useDeskLoads";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { currentMonthSubPageId } from "@/services/monthTabService";
@@ -37,13 +38,15 @@ export type RandomDraw =
  */
 export function useOrderAssignment(enabled: boolean) {
   const { activeWorkspace, activeWorkspaceId, members, pages } = useWorkspace();
-  const monthKey = useCurrentMonthKey();
+  // График — по календарному месяцу, счётчики столов — по периоду.
+  const scheduleMonthKey = useCurrentMonthKey();
+  const monthKey = useCurrentPeriodKey();
   const {
     schedules,
     loaded: schedulesLoaded,
     failed: schedulesFailed,
     retry: retrySchedules,
-  } = useTechSchedules(activeWorkspaceId, monthKey, enabled);
+  } = useTechSchedules(activeWorkspaceId, scheduleMonthKey, enabled);
   const { loads } = useDeskLoads(activeWorkspaceId, enabled);
   const todayKey = scheduleDayKey(ymdInTimeZone(Date.now()));
   const kinds = useMemo(() => effectiveTechLoadKinds(activeWorkspace), [activeWorkspace]);

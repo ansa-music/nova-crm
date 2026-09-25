@@ -2,12 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ArrowRight, Check, Crown, Target } from "lucide-react";
 import { MetricCard } from "@/components/ui/metric-card";
-import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useCurrentPeriodKey, usePeriodSettings } from "@/hooks/useCurrentPeriodKey";
 import { useDeskLoads } from "@/hooks/useDeskLoads";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { currentMonthSubPageId } from "@/services/monthTabService";
-import { almatyMonthStartMillis, fetchOsDeskMonthStats, type OsDeskMonthStats } from "@/services/osDeskStatsService";
-import { monthTabNameForKey } from "@/services/subPageService";
+import { fetchOsDeskMonthStats, type OsDeskMonthStats } from "@/services/osDeskStatsService";
+import { periodLabel, periodRange } from "@/utils/periods";
 import type { OsDeskKeys } from "@/services/osDeskService";
 import { buildOsAbs, monthUpsellOverlay, nextKpiTier, splitPercent } from "@/utils/absStats";
 import { isBlankRow } from "@/utils/blankRow";
@@ -66,7 +66,9 @@ export function OsDeskStats({
   embedded?: boolean;
 }) {
   const { activeWorkspace, activeWorkspaceId, members, pages } = useWorkspace();
-  const monthKey = useCurrentMonthKey();
+  const monthKey = useCurrentPeriodKey();
+  const periods = usePeriodSettings();
+  const range = useMemo(() => periodRange(monthKey, periods), [monthKey, periods]);
   const { loads, failed } = useDeskLoads(activeWorkspaceId, true);
   const settings = useMemo(() => osPayOf(activeWorkspace), [activeWorkspace]);
   const kinds = useMemo(() => effectiveTechLoadKinds(activeWorkspace), [activeWorkspace]);
@@ -79,7 +81,7 @@ export function OsDeskStats({
     if (!activeWorkspaceId) return;
     let cancelled = false;
     setMonthStats(null);
-    fetchOsDeskMonthStats(activeWorkspaceId, page)
+    fetchOsDeskMonthStats(activeWorkspaceId, page, { range })
       .then((s) => !cancelled && setMonthStats(s))
       .catch(() => !cancelled && setMonthStats("error"));
     return () => {
@@ -87,12 +89,11 @@ export function OsDeskStats({
     };
     // Стол читаем при открытии и смене месяца, не на каждый снимок документа стола.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspaceId, page.id, monthKey]);
+  }, [activeWorkspaceId, page.id, range]);
 
   // Открытая вкладка: живые апсейлы — все (для списка) и только этого месяца
   // (для денег месяца, по правилу «ABS»: max(createdAt, filledAt) с 1-го числа).
   const tabUpsells = useMemo(() => {
-    const monthStart = almatyMonthStartMillis();
     const list: Omit<UpsellEntry, "pay">[] = [];
     const live = { net: 0, gross: 0 };
     for (const row of rows) {
@@ -101,7 +102,8 @@ export function OsDeskStats({
       // Возврат (минус) тоже в счёт — как на «ABS».
       if (gross === 0) continue;
       const net = netOf(row, keys.upsell);
-      if (Math.max(row.createdAt ?? 0, row.filledAt ?? 0) >= monthStart) {
+      const orderAt = Math.max(row.createdAt ?? 0, row.filledAt ?? 0);
+      if (orderAt >= range.startMs && orderAt < range.endMs) {
         live.net += net;
         live.gross += gross;
       }
@@ -124,7 +126,7 @@ export function OsDeskStats({
     return { entries, listPay: split.total, tabNet, live };
     // monthKey — чтобы граница месяца сдвинулась 1-го числа без перезагрузки.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, keys.upsell, keys.client, settings.upsellPct, monthKey]);
+  }, [rows, keys.upsell, keys.client, settings.upsellPct, range]);
 
   const month = monthUpsellOverlay({
     stats: monthStats && monthStats !== "error" ? monthStats : null,
@@ -154,7 +156,7 @@ export function OsDeskStats({
   const loadsLoading = loads === null && !failed;
   const loadsFailed = loads === null && failed;
   const totalPay = mine && !loadsLoading && !loadsFailed ? mine.totalPay : upsellPay;
-  const monthName = monthTabNameForKey(monthKey);
+  const monthName = periodLabel(monthKey, periods);
   const monthLower = monthName.toLowerCase();
   const next = mine && mine.kpiEligible && !loadsFailed ? nextKpiTier(mine, settings) : null;
   const tiers = [...settings.kpiTiers].sort((a, b) => a.minPct - b.minPct);

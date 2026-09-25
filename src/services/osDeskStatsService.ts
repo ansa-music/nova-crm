@@ -73,14 +73,16 @@ function cellNumber(value: unknown): number {
 export async function fetchOsDeskMonthStats(
   workspaceId: string,
   page: WorkspacePage,
-  opts: { force?: boolean; now?: number } = {}
+  /** `range` — период (utils/periods.periodRange), иначе календарный месяц от `now` без верхней границы. */
+  opts: { force?: boolean; now?: number; range?: { startMs: number; endMs: number } } = {}
 ): Promise<OsDeskMonthStats> {
   if (!db) throw new Error("Firebase не настроен");
   const now = opts.now ?? Date.now();
-  const monthStart = almatyMonthStartMillis(now);
+  const monthStart = opts.range?.startMs ?? almatyMonthStartMillis(now);
+  const monthEnd = opts.range?.endMs ?? Number.POSITIVE_INFINITY;
   const todayStart = almatyMidnightMillis(now);
   // День — в ключе: иначе после полуночи «Сегодня» до 15 минут показывало бы вчерашнее.
-  const key = `${workspaceId}:${page.id}:${monthStart}:${todayStart}`;
+  const key = `${workspaceId}:${page.id}:${monthStart}:${monthEnd}:${todayStart}`;
   const hit = cache.get(key);
   if (!opts.force && hit && now - hit.at < CACHE_TTL_MS) return hit.stats;
 
@@ -141,7 +143,7 @@ export async function fetchOsDeskMonthStats(
       // Дата заказа — позднее из «строку завели» и «слот заполнили»: копия
       // строки несёт старый filledAt, но её createdAt новый.
       const orderAt = Math.max(row.createdAt ?? 0, row.filledAt ?? 0);
-      if (orderAt < monthStart) continue;
+      if (orderAt < monthStart || orderAt >= monthEnd) continue;
       stats.monthCount += 1;
       if (orderAt >= todayStart) stats.todayCount += 1;
       if (priceKey) stats.priceSum += cellNumber(row.cells?.[priceKey]);

@@ -130,7 +130,7 @@ import {
 import { useUiStore } from "@/store/uiStore";
 import { cn } from "@/utils/cn";
 import { recordRecentPage } from "@/hooks/useUserPageNav";
-import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useCurrentPeriodKey, usePeriodSettings } from "@/hooks/useCurrentPeriodKey";
 import { useDeskLoadPublisher } from "@/hooks/useDeskLoadPublisher";
 import { useOsFieldKeysPublisher } from "@/hooks/useOsFieldKeysPublisher";
 import { useMyOrderRows } from "@/hooks/useMyOrderRows";
@@ -482,7 +482,8 @@ export default function DynamicTablePage() {
   // choice until the page doc says it's done, so the desk opens on the new
   // month instead of last month's tab — capped, so a failed write can't
   // leave the desk loading forever.
-  const monthKey = useCurrentMonthKey();
+  const monthKey = useCurrentPeriodKey();
+  const periods = usePeriodSettings();
   const awaitingMonthTab = Boolean(
     page &&
     hasAccess &&
@@ -2078,6 +2079,7 @@ export default function DynamicTablePage() {
               canSetDefault={permissions.canManagePage(page)}
               userId={profile?.uid ?? ""}
               monthKey={monthKey}
+              periods={periods}
               isMonthly={isMonthlyDesk(page, members)}
             />
           </div>

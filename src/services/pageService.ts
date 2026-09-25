@@ -330,18 +330,20 @@ export async function ensureNewDeskAcl(workspaceId: string, page: WorkspacePage)
  * failure clear hideMainTab and hand back a desk that opens on «Основная».
  */
 export async function seedCurrentMonthDesk(page: WorkspacePage): Promise<WorkspacePage> {
-  const { createSubPage, monthTabNameForKey } = await import("@/services/subPageService");
-  const { currentMonthKey, markMonthTab, monthTabId } = await import("@/services/monthTabService");
+  const { createSubPage } = await import("@/services/subPageService");
+  const { markMonthTab, monthTabId } = await import("@/services/monthTabService");
+  const { currentPeriodKeyOf, periodSettingsOf } = await import("@/services/periodService");
+  const { periodLabel } = await import("@/utils/periods");
   try {
     // Same id/monthKey the month autopilot uses, so it recognizes this tab
     // as the month's instead of adding a second one.
-    const monthKey = currentMonthKey();
+    const monthKey = currentPeriodKeyOf(page.workspaceId);
     const sub = await createSubPage({
       workspaceId: page.workspaceId,
       pageId: page.id,
       id: monthTabId(monthKey),
       monthKey,
-      name: monthTabNameForKey(monthKey),
+      name: periodLabel(monthKey, periodSettingsOf(page.workspaceId)),
       color: page.color,
       icon: page.icon,
       columns: page.columns,

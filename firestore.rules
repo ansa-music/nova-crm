@@ -413,7 +413,7 @@ service cloud.firestore {
       // его пишет только Owner (rows_set_desk_mode), а сессия Owner сверяет
       // базу ПО Firestore — Тимлид иначе переключал бы замок через неё.
       allow update: if isTeamLead(workspaceId)
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['ownerId', 'rowsBackend', 'rowsMigrationAt', 'sbCollections', 'paymentMethods', 'techBonuses', 'osPay', 'scheduleSettings', 'osManagedDesks', 'techFillsAll', 'clientCardOptions', 'orderSound']);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['ownerId', 'rowsBackend', 'rowsMigrationAt', 'sbCollections', 'paymentMethods', 'techBonuses', 'osPay', 'scheduleSettings', 'osManagedDesks', 'techFillsAll', 'clientCardOptions', 'orderSound', 'periods']);
       // Deleting the workspace stays Owner-only — no Тимлид branch.
       allow delete: if isOwner(workspaceId);
 

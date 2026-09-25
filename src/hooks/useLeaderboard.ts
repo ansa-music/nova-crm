@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useCurrentPeriodKey } from "@/hooks/useCurrentPeriodKey";
 import { useDeskLoads } from "@/hooks/useDeskLoads";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import {
@@ -25,7 +25,7 @@ import type { LeaderboardEntry } from "@/types";
  */
 export function useLeaderboard(workspaceId: string | null) {
   const { activeWorkspace, pages, members } = useWorkspace();
-  const monthKey = useCurrentMonthKey();
+  const monthKey = useCurrentPeriodKey();
   const same = Boolean(workspaceId && activeWorkspace?.id === workspaceId);
   // null — документ workspace не пришёл: ждём, иначе старт подписался бы на
   // Firestore и тут же ушёл бы в Supabase.

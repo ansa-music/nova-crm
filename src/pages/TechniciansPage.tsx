@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useCurrentPeriodKey, usePeriodSettings } from "@/hooks/useCurrentPeriodKey";
 import {
   useDeskLoads,
   useOrderRatings,
@@ -34,8 +35,8 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { osNickLabel } from "@/services/memberService";
 import { subscribeMyOsOrders } from "@/services/osOrdersService";
 import { useSbBackend } from "@/services/sb/sbCollections";
-import { currentMonthSubPageId, previousMonthKey } from "@/services/monthTabService";
-import { monthTabNameForKey } from "@/services/subPageService";
+import { currentMonthSubPageId } from "@/services/monthTabService";
+import { periodLabel, previousPeriodKey } from "@/utils/periods";
 import { orderRatingId, rateOrder, RatingDeniedError, removeOrderRating } from "@/services/orderRatingService";
 import { confirmDialog } from "@/utils/appDialog";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
@@ -116,7 +117,10 @@ export default function TechniciansPage() {
   const { activeWorkspace, activeWorkspaceId, members, pages } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
-  const monthKey = useCurrentMonthKey();
+  // График — по календарному месяцу, всё остальное — по периоду столов.
+  const scheduleMonthKey = useCurrentMonthKey();
+  const monthKey = useCurrentPeriodKey();
+  const periods = usePeriodSettings();
   const [osOrderDocs, setOsOrderDocs] = useState<OsOrders[]>([]);
   // Фильтр — в адресе (`?f=free`): F5 не сбрасывает, ссылку можно отдать.
   const [filter, setFilter] = useUrlState<Filter>("f", "all", { values: FILTERS });
@@ -147,7 +151,7 @@ export default function TechniciansPage() {
   const { totals: orderTotals, failed: ratingsFailed } = useOrderRatingTotals(activeWorkspaceId, monthKey, canSee);
   // График нужен прямо здесь: у кого сегодня выходной, карточка гаснет — без
   // этого «Свободен» у отсутствующего читался как «можно отдать заказ».
-  const { schedules, failed: schedulesFailed, retry: retrySchedules } = useTechSchedules(activeWorkspaceId, monthKey, canSee);
+  const { schedules, failed: schedulesFailed, retry: retrySchedules } = useTechSchedules(activeWorkspaceId, scheduleMonthKey, canSee);
   const todayKey = scheduleDayKey(ymdInTimeZone(Date.now()));
   const scheduleByUid = useMemo(() => {
     const map = new Map<string, TechSchedule>();
@@ -159,7 +163,7 @@ export default function TechniciansPage() {
   // Оценки живут месяцами. Текущий месяц — то, что сейчас ставят и меняют;
   // прошлый — закрытый итог, он висит наверху, чтобы в первых числах экран
   // не выглядел так, будто технарей никто никогда не оценивал.
-  const prevMonthKey = previousMonthKey(monthKey);
+  const prevMonthKey = previousPeriodKey(monthKey, periods);
   const monthOrderTotals = useMemo(
     () => (orderTotals ?? []).filter((t) => t.monthKey === monthKey),
     [orderTotals, monthKey]
@@ -522,7 +526,7 @@ export default function TechniciansPage() {
       <PageHeader
         eyebrow="Студия"
         title="Технари"
-        description={`Кто сейчас свободен и сколько заказов за ${monthTabNameForKey(monthKey).toLowerCase()}.`}
+        description={`Кто сейчас свободен и сколько заказов за ${periodLabel(monthKey, periods).toLowerCase()}.`}
         actions={
           <>
         {/* Owner: кто правит столы технарей — все, никто или выборочно. */}
@@ -637,7 +641,7 @@ export default function TechniciansPage() {
           )}
 
           {loads !== null && (
-            <MonthlyRatingTop monthLabel={monthTabNameForKey(prevMonthKey).toLowerCase()} entries={previousTop} />
+            <MonthlyRatingTop monthLabel={periodLabel(prevMonthKey, periods).toLowerCase()} entries={previousTop} />
           )}
 
           {!loadFailed && loads === null && (
@@ -721,7 +725,7 @@ export default function TechniciansPage() {
               ))}
               {myOrderItemsCount > 0 && (
                 <p className="text-[11px] text-muted-foreground">
-                  Показаны заказы за {monthTabNameForKey(monthKey).toLowerCase()}; список каждый технарь обновляет, работая в своём столе.
+                  Показаны заказы за {periodLabel(monthKey, periods).toLowerCase()}; список каждый технарь обновляет, работая в своём столе.
                 </p>
               )}
             </div>

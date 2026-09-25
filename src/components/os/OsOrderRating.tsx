@@ -2,19 +2,14 @@ import { useState } from "react";
 import { Loader2, Star } from "lucide-react";
 import { ScorePicker, SCORE_TONE } from "@/components/technicians/ScoreRating";
 import { toast } from "@/components/ui/sonner";
-import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
+import { useCurrentPeriodKey } from "@/hooks/useCurrentPeriodKey";
 import { useOrderRatings } from "@/hooks/useDeskLoads";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { orderRatingId, rateOrder, RatingDeniedError, removeOrderRating } from "@/services/orderRatingService";
 import { cn } from "@/utils/cn";
 import { timeAgo } from "@/utils/date";
+import { periodOfTabId } from "@/utils/periods";
 import type { PageRow } from "@/types";
-
-/** Месяц заказа — из id месячной вкладки `month-YYYY-MM`, иначе текущий. */
-function monthOfTab(tabId: string | undefined, fallback: string): string {
-  const match = /^month-(\d{4}-\d{2})$/.exec(tabId ?? "");
-  return match ? match[1] : fallback;
-}
 
 /**
  * Оценка работы технаря прямо в карточке заказа на столе ОС (1–10). ОС
@@ -38,7 +33,7 @@ export function OsOrderRating({
   done: boolean;
 }) {
   const { activeWorkspaceId, pages } = useWorkspace();
-  const monthKey = useCurrentMonthKey();
+  const monthKey = useCurrentPeriodKey();
   const { ratings, backend } = useOrderRatings(activeWorkspaceId, { kind: "os", uid: osUid }, monthKey, Boolean(osUid));
   const [saving, setSaving] = useState(false);
   const pageId = mirror.deskPageId ?? mirror.pageId;
@@ -66,7 +61,7 @@ export function OsOrderRating({
           technicianUid,
           score,
           title,
-          monthKey: monthOfTab(tabId, monthKey),
+          monthKey: periodOfTabId(tabId) ?? monthKey,
           previous: current,
         });
         toast.success(current ? `Оценка изменена: ${score} из 10` : `Заказ оценён: ${score} из 10`);
