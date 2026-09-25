@@ -1,4 +1,5 @@
 import { getDoc, getDocs, onSnapshot, query, runTransaction, setDoc, where } from "firebase/firestore";
+import type { FirestoreError } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, subscribeToDoc } from "@/firebase/firestore";
 import {
@@ -84,9 +85,10 @@ export async function submitJoinRequest(
 export function subscribeToOwnJoinRequest(
   workspaceId: string,
   uid: string,
-  onData: (request: JoinRequest | null) => void
+  onData: (request: JoinRequest | null) => void,
+  onError?: (error: FirestoreError) => void
 ) {
-  return subscribeToDoc<JoinRequest>(paths.joinRequest(workspaceId, uid), onData);
+  return subscribeToDoc<JoinRequest>(paths.joinRequest(workspaceId, uid), onData, onError);
 }
 
 /**

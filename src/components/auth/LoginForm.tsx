@@ -21,6 +21,7 @@ import {
   signInWithGoogle,
   signUpWithEmail,
   wasGoogleRedirectPending,
+  sendResetPasswordEmail,
 } from "@/firebase/auth";
 import { getAuthErrorMessage, getEmailAuthErrorMessage } from "@/utils/firebaseErrors";
 import { isFirebaseConfigured } from "@/firebase/firebase";
@@ -67,6 +68,8 @@ export function LoginForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(() => wasGoogleRedirectPending());
   const [formError, setFormError] = useState<string | null>(null);
+  const [resetSending, setResetSending] = useState(false);
+  const [resetInfo, setResetInfo] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,6 +119,30 @@ export function LoginForm() {
       toast.error(message);
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  /**
+   * «Забыли пароль?» — письмо со ссылкой сброса на email из поля (просьба
+   * Nurba 25.09.2026: «сделай смену пароля рабочей»). Раньше забывшему пароль
+   * оставалось только писать Owner.
+   */
+  async function handleResetPassword() {
+    const email = String(loginForm.getValues("email") ?? "").trim();
+    setFormError(null);
+    setResetInfo(null);
+    if (!email) {
+      setFormError("Впишите email выше — пришлём на него ссылку для нового пароля");
+      return;
+    }
+    setResetSending(true);
+    try {
+      await sendResetPasswordEmail(email);
+      setResetInfo(`Если аккаунт ${email} есть, на почту ушла ссылка для нового пароля. Проверьте и «Спам».`);
+    } catch (error) {
+      setFormError(getEmailAuthErrorMessage(error));
+    } finally {
+      setResetSending(false);
     }
   }
 
@@ -183,6 +210,9 @@ export function LoginForm() {
           {formError}
         </div>
       )}
+      {resetInfo && (
+        <div className="mt-6 rounded-sm border border-success/40 bg-success/10 p-3 text-sm text-foreground">{resetInfo}</div>
+      )}
 
       <div className="mt-8 flex flex-col gap-4">
         <Button
@@ -224,9 +254,19 @@ export function LoginForm() {
               )}
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="password" className="eyebrow text-muted-foreground">
-                Пароль
-              </Label>
+              <div className="flex items-baseline justify-between gap-2">
+                <Label htmlFor="password" className="eyebrow text-muted-foreground">
+                  Пароль
+                </Label>
+                <button
+                  type="button"
+                  onClick={() => void handleResetPassword()}
+                  disabled={resetSending || !isFirebaseConfigured}
+                  className="min-h-8 text-[12px] text-primary underline-offset-2 hover:underline disabled:opacity-60"
+                >
+                  {resetSending ? "Отправляем…" : "Забыли пароль?"}
+                </button>
+              </div>
               <Input
                 id="password"
                 type="password"

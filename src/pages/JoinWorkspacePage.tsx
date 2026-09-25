@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Building2, Loader2 } from "lucide-react";
 import { JoinRequestForm } from "@/components/members/JoinRequestForm";
+import { JoinAccountBar } from "@/components/members/JoinAccountBar";
+import { firestoreErrorText } from "@/utils/dbError";
 import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -18,6 +20,13 @@ export default function JoinWorkspacePage() {
   const [workspace, setWorkspace] = useState<Workspace | null | undefined>(undefined);
   const [ownRequest, setOwnRequest] = useState<JoinRequest | null | undefined>(undefined);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Отказ отправки — прямо в карточке, а не только тостом: тост закрывали, и
+  // человек думал, что «заявка не подаётся» без причины (например, кончилась
+  // квота базы).
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  // Есть другие workspace — из заявки можно вернуться в них.
+  const otherWorkspaces = workspaces.filter((w) => w.id !== workspaceId);
+  const goBack = otherWorkspaces.length > 0 ? () => { clearJoinIntent(); navigate("/", { replace: true }); } : undefined;
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -42,6 +51,9 @@ export default function JoinWorkspacePage() {
 
   useEffect(() => {
     if (!workspaceId || !profile?.uid) return;
+    // Отказ чтения (нет сети, кончилась квота) — показываем форму, а не
+    // вечный спиннер: подать заявку человек попробует, и причину отказа
+    // увидит прямо в карточке.
     return subscribeToOwnJoinRequest(workspaceId, profile.uid, (request) => {
       setOwnRequest(request);
       if (request?.status === "approved") {
@@ -57,17 +69,23 @@ export default function JoinWorkspacePage() {
           })
           .catch((err) => console.error("Не удалось сохранить workspace в профиле:", err));
       }
+    }, (error) => {
+      setOwnRequest((prev) => (prev === undefined ? null : prev));
+      setSubmitError(firestoreErrorText(error, "Не удалось прочитать заявку"));
     });
   }, [workspaceId, profile?.uid, navigate]);
 
   async function handleRequestAccess(wish: { role: JoinRequestRole; nick: string }) {
     if (!workspaceId || !profile) return;
     setIsSubmitting(true);
+    setSubmitError(null);
     try {
       await submitJoinRequest(workspaceId, profile.uid, profile.email, profile.name, profile.photoURL, wish);
       toast.success("Заявка отправлена — Тимлид подтвердит роль и ник");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось отправить заявку");
+      const message = firestoreErrorText(error, "Не удалось отправить заявку");
+      setSubmitError(message);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -75,23 +93,33 @@ export default function JoinWorkspacePage() {
 
   if (workspace === undefined) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-screen flex-col items-center justify-center gap-6 bg-background px-4">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        {/* Даже пока workspace не прочитан (или база не отвечает) — выход есть. */}
+        <div className="w-full max-w-sm">
+          <JoinAccountBar email={profile?.email} onBack={goBack} />
+        </div>
       </div>
     );
   }
 
   if (workspace === null) {
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-2 bg-background text-center">
+      <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background px-4 text-center">
         <p className="text-lg font-semibold">Workspace не найден</p>
-        <p className="text-sm text-muted-foreground">Проверьте, что ссылка скопирована полностью и без опечаток.</p>
+        <p className="text-sm text-muted-foreground">
+          Проверьте, что ссылка скопирована полностью и без опечаток. Если база сейчас не отвечает (кончилась дневная квота) —
+          попробуйте позже.
+        </p>
+        <div className="w-full max-w-sm">
+          <JoinAccountBar email={profile?.email} onBack={goBack} />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4 py-6">
       <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-xl border border-border bg-card p-8 text-center shadow-sm">
         <span
           className="flex h-14 w-14 items-center justify-center rounded-xl"
@@ -120,6 +148,12 @@ export default function JoinWorkspacePage() {
             onSubmit={(wish) => void handleRequestAccess(wish)}
           />
         )}
+        {submitError && (
+          <p className="w-full rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-left text-[12px] text-destructive">
+            {submitError}
+          </p>
+        )}
+        <JoinAccountBar email={profile?.email} onBack={goBack} />
       </div>
     </div>
   );

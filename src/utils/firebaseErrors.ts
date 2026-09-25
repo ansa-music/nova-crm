@@ -27,6 +27,11 @@ const MESSAGES: Record<string, string> = {
   "auth/operation-not-allowed": "Этот способ входа отключён. Попробуйте другой.",
   "auth/account-exists-with-different-credential": "Этот email уже используется через Google. Нажмите «Продолжить с Google».",
   "auth/web-storage-unsupported": "Браузер заблокировал сохранение сессии. Отключите приватный режим и попробуйте снова.",
+  "auth/requires-recent-login": "Для смены пароля войдите заново — или подтвердите текущий пароль",
+  "auth/provider-already-linked": "Пароль у аккаунта уже есть — смените его через текущий пароль",
+  "auth/credential-already-in-use": "Этот email уже привязан к другому аккаунту",
+  "auth/missing-email": "Введите email",
+  "auth/user-mismatch": "Подтверждать нужно тем же аккаунтом, под которым вы вошли",
 };
 
 function errorCode(error: unknown): string | undefined {

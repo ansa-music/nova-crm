@@ -1,9 +1,14 @@
 import {
+  EmailAuthProvider,
   GoogleAuthProvider,
   browserPopupRedirectResolver,
   createUserWithEmailAndPassword,
   getRedirectResult,
+  linkWithCredential,
   onAuthStateChanged,
+  reauthenticateWithCredential,
+  reauthenticateWithPopup,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signInWithRedirect,
@@ -256,8 +261,38 @@ export async function updateUserProfile(displayName: string, photoURL?: string) 
   await updateProfile(current, { displayName, photoURL });
 }
 
-export async function updateUserPassword(newPassword: string) {
-  const current = requireAuth().currentUser;
-  if (!current) throw new Error("Не удалось определить текущего пользователя");
-  await updatePassword(current, newPassword);
+/** Есть ли у аккаунта вход по паролю (а не только Google). */
+export function hasPasswordSignIn(): boolean {
+  const current = auth?.currentUser;
+  return Boolean(current?.providerData.some((p) => p.providerId === "password"));
+}
+
+/**
+ * Смена пароля, которая правда работает. Firebase меняет пароль только после
+ * НЕДАВНЕГО входа (`auth/requires-recent-login`) — раньше кнопка просто
+ * падала этой ошибкой у всех, кто вошёл не сегодня. Поэтому сначала
+ * подтверждаем личность: текущим паролем, а у аккаунта «только Google» —
+ * окном Google, и тогда пароль ДОБАВЛЯЕТСЯ к аккаунту (`linkWithCredential`),
+ * чтобы можно было входить и по почте.
+ */
+export async function changeUserPassword(input: { currentPassword?: string; newPassword: string }) {
+  const authInstance = requireAuth();
+  const current = authInstance.currentUser;
+  if (!current || !current.email) throw new Error("Не удалось определить текущего пользователя");
+  if (hasPasswordSignIn()) {
+    if (!input.currentPassword) throw Object.assign(new Error("Введите текущий пароль"), { code: "auth/missing-password" });
+    await reauthenticateWithCredential(current, EmailAuthProvider.credential(current.email, input.currentPassword));
+    await updatePassword(current, input.newPassword);
+    return;
+  }
+  // Только Google: подтверждаем Google и добавляем вход по паролю.
+  await reauthenticateWithPopup(current, googleProvider(), browserPopupRedirectResolver);
+  await linkWithCredential(current, EmailAuthProvider.credential(current.email, input.newPassword));
+}
+
+/** Письмо со ссылкой сброса пароля (и для входа, и когда текущий пароль забыт). */
+export async function sendResetPasswordEmail(email: string) {
+  const trimmed = email.trim();
+  if (!trimmed) throw Object.assign(new Error("Введите email"), { code: "auth/missing-email" });
+  await sendPasswordResetEmail(requireAuth(), trimmed);
 }

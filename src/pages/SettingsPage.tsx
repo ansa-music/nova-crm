@@ -50,7 +50,8 @@ import { profileSchema, type ProfileFormValues } from "@/utils/validation";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { updateUserPassword, updateUserProfile } from "@/firebase/auth";
+import { updateUserProfile } from "@/firebase/auth";
+import { PasswordCard } from "@/components/settings/PasswordCard";
 import { syncNicknameToMemberships, updateUserDoc } from "@/services/authService";
 import {
   updateResponsibleOptions,
@@ -174,8 +175,6 @@ export default function SettingsPage() {
   const permissions = usePermissions();
   const { activeWorkspace, members } = useWorkspace();
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [newPassword, setNewPassword] = useState("");
-  const [isSavingPassword, setIsSavingPassword] = useState(false);
   const [workspaceName, setWorkspaceName] = useState(activeWorkspace?.name ?? "");
   const [isSavingWorkspace, setIsSavingWorkspace] = useState(false);
 
@@ -200,23 +199,6 @@ export default function SettingsPage() {
       toast.error(getAuthErrorMessage(error));
     } finally {
       setIsSavingProfile(false);
-    }
-  }
-
-  async function handlePasswordSave() {
-    if (newPassword.length < 6) {
-      toast.error("Пароль должен быть не короче 6 символов");
-      return;
-    }
-    setIsSavingPassword(true);
-    try {
-      await updateUserPassword(newPassword);
-      toast.success("Пароль обновлён");
-      setNewPassword("");
-    } catch (error) {
-      toast.error(getAuthErrorMessage(error));
-    } finally {
-      setIsSavingPassword(false);
     }
   }
 
@@ -479,30 +461,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Пароль</CardTitle>
-              <CardDescription>
-                Обновите пароль для входа по email. Если вы вошли через Google, эта опция недоступна.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex items-end gap-2">
-              <div className="flex flex-1 flex-col gap-1.5">
-                <Label htmlFor="password">Новый пароль</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="••••••••"
-                />
-              </div>
-              <Button onClick={handlePasswordSave} disabled={isSavingPassword}>
-                {isSavingPassword && <Loader2 className="h-4 w-4 animate-spin" />}
-                Обновить
-              </Button>
-            </CardContent>
-          </Card>
+          <PasswordCard email={profile?.email} />
         </TabsContent>
 
         <TabsContent value="access-key" className="mt-0 flex flex-col gap-4">
