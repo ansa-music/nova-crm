@@ -2359,9 +2359,11 @@ Nurba оставил список «что ещё в Firebase» и порядо�
 Раньше новый workspace мог завести только Nurba (правило Firestore по почте), строку компании в
 Supabase он вставлял руками, а человек без workspace попадал заявкой в компанию Nurba. Теперь:
 
-- **Администратор платформы** — проверенная почта Nurba: `isWorkspaceAdmin` (`utils/adminAccess.ts`),
-  `isPlatformAdmin()` в firestore.rules, `nova_is_platform_admin()` в Supabase (почта +
-  `email_verified` + токен своего проекта). Адрес в трёх местах — менять все три.
+- **Администратор платформы** — почта Nurba на клиенте (`isWorkspaceAdmin`, `utils/adminAccess.ts`) и в
+  firestore.rules (`isPlatformAdmin()`); в Supabase (`nova_is_platform_admin()`, с `20261026` —
+  правки только там или новее) — uid ВЛАДЕЛЬЦА основной компании `ws_zokgevudmsbfnq88` из
+  `rows_workspaces` ИЛИ проверенная почта. Только почта с `email_verified` не годилась: у входа по
+  почте и паролю Firebase ставит `email_verified = false`, и «Платформа» у Nurba в проде отвечала 42501.
 - **Коды приглашения** — одноразовые, 10 знаков без 0/O/1/I, лежат в ДВУХ местах: `platform_invites`
   (Supabase, клиенту закрыта, только функции `platform_invite_create/list/revoke`) и
   `companyInvites/{код}` (Firestore: читает/заводит/отзывает только администратор). Заводит обе записи

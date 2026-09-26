@@ -9,6 +9,7 @@ truncate tst.results;
 
 \ir ../migrations/20261023_tenants.sql
 \ir ../migrations/20261025_company_signup.sql
+\ir ../migrations/20261026_platform_admin.sql
 
 delete from public.rows_members where workspace_id like 'ws_N1_%' or workspace_id like 'ws_N2_%' or workspace_id like 'ws_PA_%';
 delete from public.rows_workspaces where workspace_id like 'ws_N1_%' or workspace_id like 'ws_N2_%' or workspace_id like 'ws_PA_%';
@@ -68,6 +69,21 @@ select tst.expect('почта другого проекта Firebase — нет'
     $q$select nova_is_platform_admin()::text$q$), 'false');
 select tst.expect('Owner компании W — не администратор платформы',
   tst.valc(tst.claims_mail('O', 'owner@example.com', true), $q$select nova_is_platform_admin()::text$q$), 'false');
+
+-- Владелец основной компании Nova — администратор и без подтверждённой почты
+-- (вход по почте и паролю: email_verified = false).
+insert into public.rows_workspaces (workspace_id, owner_id, live) values ('ws_zokgevudmsbfnq88', 'ROOT', true)
+  on conflict (workspace_id) do update set owner_id = 'ROOT';
+select tst.expect('владелец основной компании — администратор (почта не подтверждена)',
+  tst.valc(tst.claims_mail('ROOT', 'nurpro2005@gmail.com', false), $q$select nova_is_platform_admin()::text$q$), 'true');
+select tst.expect('владелец основной компании — администратор и без почты в токене',
+  tst.val('ROOT', $q$select nova_is_platform_admin()::text$q$), 'true');
+select tst.expect('почта Nurba без подтверждения у чужого uid — нет',
+  tst.valc(tst.claims_mail('X', 'nurpro2005@gmail.com', false), $q$select nova_is_platform_admin()::text$q$), 'false');
+select tst.expect('владелец основной компании видит список компаний',
+  tst.val('ROOT', $q$select (count(*) >= 1)::text from platform_tenants()$q$), 'true');
+select tst.expect('Owner W (не основной компании) — не администратор',
+  tst.val('O', $q$select nova_is_platform_admin()::text$q$), 'false');
 
 -- ---------- Коды приглашения ----------
 select tst.expect('чужой код завести нельзя',
@@ -202,9 +218,10 @@ select tst.expect('чужой Owner название не меняет',
 
 -- ---------- Повторный накат ----------
 \ir ../migrations/20261025_company_signup.sql
+\ir ../migrations/20261026_platform_admin.sql
 select tst.expect('после наката коды и компании на месте',
   (select (count(*) = 3)::text from public.platform_invites), 'true');
-select tst.expect('версия схемы не старее 20261025', (public.nova_schema_version() >= '20261025')::text, 'true');
+select tst.expect('версия схемы не старее 20261026', (public.nova_schema_version() >= '20261026')::text, 'true');
 
 select label, got from tst.results where not ok;
 select format('ПРОВЕРОК (регистрация компаний): %s, ПРОВАЛЕНО: %s', count(*), count(*) filter (where not ok)) from tst.results;
