@@ -44,6 +44,15 @@ export function TgLogin({ auth }: { auth: TgAuth }) {
     };
   }, [qrUrl]);
 
+  // «Показать QR-код» НЕ через run: вход по QR длится до самого конца, вместе
+  // с облачным паролем, и общий busy запирал бы кнопку «Войти» у пароля
+  // (жалоба Nurba 26.09.2026: «бесконечная загрузка»). Ошибки QR-входа
+  // startQrLogin кладёт в состояние сам.
+  function showQr() {
+    setError(null);
+    void startQrLogin();
+  }
+
   async function run(fn: () => Promise<void>, fallback: string) {
     setBusy(true);
     setError(null);
@@ -149,7 +158,7 @@ export function TgLogin({ auth }: { auth: TgAuth }) {
               </ol>
             </div>
           ) : (
-            <Button onClick={() => void run(startQrLogin, "Вход по QR не удался")} disabled={busy || qrActive} className="gap-1.5">
+            <Button onClick={showQr} disabled={busy || qrActive} className="gap-1.5">
               {(busy || qrActive) && <Loader2 className="h-4 w-4 animate-spin" />} Показать QR-код
             </Button>
           )}

@@ -267,8 +267,10 @@ export async function startQrLogin(): Promise<void> {
         if (qrAbort === abort) set({ auth: { kind: "qrScanned" } });
       },
       password: () => askPassword(s.client),
+      // Сразу за этим mtcute снова спрашивает пароль (askPassword): ошибку
+      // отдаём туда, иначе новый запрос стирал бы её до того, как её увидят.
       invalidPasswordCallback: () => {
-        set({ auth: { kind: "password", hint: passwordHint, error: "Неверный облачный пароль" } });
+        passwordRetryError = "Неверный облачный пароль";
       },
       abortSignal: abort.signal,
     });
@@ -287,10 +289,13 @@ export async function startQrLogin(): Promise<void> {
 }
 
 let passwordHint: string | null = null;
+let passwordRetryError: string | null = null;
 
 async function askPassword(client: TelegramClient): Promise<string> {
   passwordHint = await client.getPasswordHint().catch(() => null);
-  set({ auth: { kind: "password", hint: passwordHint, error: null } });
+  const error = passwordRetryError;
+  passwordRetryError = null;
+  set({ auth: { kind: "password", hint: passwordHint, error } });
   return new Promise<string>((resolve, reject) => {
     passwordWaiter = { resolve, reject };
   });
