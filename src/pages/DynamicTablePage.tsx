@@ -807,6 +807,20 @@ export default function DynamicTablePage() {
   const isMyOsDesk = Boolean(
     page?.osDesk && page.responsibleUserId === permissions.uid,
   );
+  // Кто сейчас ведёт выдачу заказов этого стола ОС (жалоба Nurba 26.09.2026:
+  // «у ОС ставлю заказ — не переходит к технарю, статус и смена технаря тоже»).
+  // Проход выдачи работал ТОЛЬКО в браузере самого ОС: Owner правил чужой стол
+  // ОС, а до технаря ничего не доезжало, пока этот ОС сам не откроет свой стол.
+  // Теперь проход идёт и у настоящего Owner (база пускает его писать в любой
+  // стол) — от имени ОС этого стола: метка `os_uid`, его ник, его заказы.
+  // Тимлиду нельзя: в чужих столах он пишет только статус.
+  const dispatchOsUid =
+    page?.osDesk && page.responsibleUserId && (isMyOsDesk || permissions.upkeepOwner)
+      ? page.responsibleUserId
+      : null;
+  const runsOsDispatch = Boolean(dispatchOsUid);
+  const dispatchOsNickValue =
+    members.find((m) => m.uid === dispatchOsUid)?.osNickValue ?? "";
   // Кто смотрит — для замка строк-заказов. Один объект на смену прав, а не
   // новый на каждый рендер: от него зависит `cellLockFor`, а от неё — memo
   // каждой строки таблицы.
@@ -845,8 +859,8 @@ export default function DynamicTablePage() {
   );
   const myOrders = useMyOrderRows(
     activeWorkspaceId,
-    permissions.uid,
-    isMyOsDesk,
+    dispatchOsUid ?? permissions.uid,
+    runsOsDispatch,
   );
   // Заказы технарей с ником ОС сами едут на стол (useOsOrderClaims):
   // открыли свой стол — проверить сразу, забрали заказ — перечитать свои
@@ -863,8 +877,8 @@ export default function DynamicTablePage() {
   // можно прямо в ячейке «Технарь» (OsExchangePicker), не уходя на «Заказы».
   const exchange = useMyExchangeOrders(
     activeWorkspaceId,
-    permissions.uid,
-    isMyOsDesk,
+    dispatchOsUid ?? permissions.uid,
+    runsOsDispatch,
   );
   // Просьбы технарей к этому ОС («поставьте „Готово“», «удалите») — та же
   // подписка, что счётчик на «Стол ОС» в меню. На строке — метка «Просит: …»
@@ -890,13 +904,15 @@ export default function DynamicTablePage() {
   );
   // Заказы этого ОС у технарей — для руководства отдельным чтением (свой
   // список `myOrders` у хозяина стола держит проход выдачи, его не трогаем).
+  // У Owner, который сам ведёт выдачу этого стола, тот же список уже читает
+  // `myOrders` — второй раз не читаем.
   const viewedOsOrders = useMyOrderRows(
     activeWorkspaceId,
-    leaderSeesOsRequests ? (page?.responsibleUserId ?? null) : null,
-    leaderSeesOsRequests,
+    leaderSeesOsRequests && !runsOsDispatch ? (page?.responsibleUserId ?? null) : null,
+    leaderSeesOsRequests && !runsOsDispatch,
   );
-  const requestMirrors = isMyOsDesk ? myOrders.rows : viewedOsOrders.rows;
-  const refreshRequestMirrors = isMyOsDesk
+  const requestMirrors = runsOsDispatch ? myOrders.rows : viewedOsOrders.rows;
+  const refreshRequestMirrors = runsOsDispatch
     ? myOrders.refresh
     : viewedOsOrders.refresh;
   const osRequestByRow = useMemo(() => {
@@ -1118,14 +1134,14 @@ export default function DynamicTablePage() {
   }
   const osDispatch = useOsDeskDispatch({
     workspaceId: activeWorkspaceId,
-    enabled: isMyOsDesk && hasAccess,
+    enabled: runsOsDispatch && hasAccess,
     pageId: page?.id ?? "",
     subPageId: activeSubPageId,
     rows,
     columns: osTableColumns,
     orders: myOrders,
-    osUid: permissions.uid,
-    osNickValue: myOsNickValue,
+    osUid: dispatchOsUid ?? permissions.uid,
+    osNickValue: isMyOsDesk ? myOsNickValue : dispatchOsNickValue,
     rowsFromServer,
     exchange,
   });
@@ -1265,7 +1281,7 @@ export default function DynamicTablePage() {
       );
     }
     if (colKey !== osKeys.technician) return undefined;
-    const state = isMyOsDesk ? osTechStateOf(row) : null;
+    const state = runsOsDispatch ? osTechStateOf(row) : null;
     if (state) return <OsTechLeftView left={state.left} title={state.title} />;
     const nick = cellStr(row, osKeys.technician);
     return nick ? <TechBadge identity={techIdentityOf(nick)} /> : undefined;
@@ -1276,7 +1292,7 @@ export default function DynamicTablePage() {
     ? [
         techIdentitySignature(members, techNickOptions),
         osStatusOptions.map((o) => `${o.value}:${o.label}:${o.color}`).join("|"),
-        isMyOsDesk
+        runsOsDispatch
           ? [...exchange.byRow]
               .map(
                 ([id, o]) =>
@@ -1285,7 +1301,7 @@ export default function DynamicTablePage() {
               .sort()
               .join("|")
           : "",
-        isMyOsDesk
+        runsOsDispatch
           ? // Левая часть от статуса копии не зависит (его показывает чип),
             // поэтому `myOrders.loading` сюда не входит: перечитывание своих
             // заказов после каждой выдачи перерисовывало бы все строки.
@@ -1439,6 +1455,13 @@ export default function DynamicTablePage() {
       case "none":
         return;
       case "choice":
+        // «Общий» (на «Заказы») — только у самого ОС: довозит такой заказ до
+        // технаря его сессия (useOsExchangeHandoff), а заказ, выставленный
+        // Owner, не довёз бы никто. Owner на чужом столе ОС выдаёт напрямую.
+        if (!isMyOsDesk) {
+          openTechPicker(row.id, "give");
+          return;
+        }
         openOsChoice(row.id);
         return;
       case "picker-give":
@@ -2011,13 +2034,13 @@ export default function DynamicTablePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      {isMyOsDesk ? (
+      {runsOsDispatch ? (
         <OsExchangePicker
           order={pickOrder}
           onClose={() => setPickOrderId(null)}
         />
       ) : null}
-      {isMyOsDesk
+      {runsOsDispatch
         ? (() => {
             const row = techPickRow;
             const client = row ? cellStr(row, osKeys.client) || "заказа" : "";
@@ -2547,7 +2570,7 @@ export default function DynamicTablePage() {
                 ordersFromOsOnly={ordersFromOsOnly}
                 techFills={techFills}
                 tabNames={tabNames}
-                cellPickerKeys={isMyOsDesk ? osTechPickerKeys : undefined}
+                cellPickerKeys={runsOsDispatch ? osTechPickerKeys : undefined}
                 lockedKeys={osLockedKeys}
                 cardMeta={
                   isOsDeskPage
@@ -2602,7 +2625,7 @@ export default function DynamicTablePage() {
                     : undefined
                 }
                 cellAction={
-                  isMyOsDesk
+                  runsOsDispatch
                     ? {
                         colKey: [osKeys.technician, osKeys.status],
                         get: (row, colKey) =>
@@ -2637,7 +2660,7 @@ export default function DynamicTablePage() {
                       : undefined
                 }
                 onOpenCellPicker={
-                  isMyOsDesk ? (row) => openOsTechCell(row) : undefined
+                  runsOsDispatch ? (row) => openOsTechCell(row) : undefined
                 }
                 cellDisplay={
                   isOsDeskPage
@@ -2648,10 +2671,10 @@ export default function DynamicTablePage() {
                       }
                     : undefined
                 }
-                cardFooter={isMyOsDesk ? osCardFooter : undefined}
+                cardFooter={runsOsDispatch ? osCardFooter : undefined}
                 // «Технарь» в карточке строки — в панели «Выдача» (с занятостью
                 // и выдачей), а не второй голой выпадашкой в «Полях».
-                rowCardHiddenKeys={isMyOsDesk ? osTechPickerKeys : undefined}
+                rowCardHiddenKeys={runsOsDispatch ? osTechPickerKeys : undefined}
                 // «Готово» — только выданному заказу.
                 canMarkRowDone={isOsDeskPage ? rowIssued : undefined}
                 groupHint={isOsDeskPage ? osGroupHint : undefined}
@@ -2667,14 +2690,16 @@ export default function DynamicTablePage() {
                 renderRowPanel={(row) => {
                   // Стол ОС — панель выдачи; стол технаря — его поля по заказу,
                   // который ведёт ОС (обычные строки панели не получают).
-                  if (isMyOsDesk) {
+                  if (runsOsDispatch) {
                     return (
                       <OsOrderPanel
                         row={row}
                         pageId={page.id}
                         subPageId={activeSubPageId}
-                        osUid={permissions.uid}
-                        osNickValue={myOsNickValue}
+                        osUid={dispatchOsUid ?? permissions.uid}
+                        osNickValue={isMyOsDesk ? myOsNickValue : dispatchOsNickValue}
+                        // Оценку технарю ставит только сам ОС заказа (rate_order).
+                        canRate={isMyOsDesk}
                         mirror={myOrders.bySource.get(row.id) ?? null}
                         onChanged={myOrders.refresh}
                         state={osTechStateOf(row)}

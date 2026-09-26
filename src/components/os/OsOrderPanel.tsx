@@ -179,6 +179,7 @@ export function OsOrderPanel({
   dates,
   upsellDate,
   onSetDate,
+  canRate = true,
 }: {
   row: PageRow;
   pageId: string;
@@ -206,6 +207,8 @@ export function OsOrderPanel({
   upsellDate?: OsDateSlot;
   /** Поставить дату (нет — только показ). */
   onSetDate?: OsDateSetter;
+  /** Показывать оценку технарю (ставит только сам ОС заказа; Owner на чужом столе — нет). */
+  canRate?: boolean;
   /** Касса: способы оплаты у цены и апсейла (на телефоне — только отсюда). */
   payment?: {
     methods: readonly PaymentMethod[];
@@ -393,7 +396,7 @@ export function OsOrderPanel({
         </div>
       ) : null}
 
-      {mirror && mirror.osUid === osUid ? (
+      {canRate && mirror && mirror.osUid === osUid ? (
         <OsOrderRating
           mirror={mirror}
           osUid={osUid}
