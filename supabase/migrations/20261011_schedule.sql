@@ -343,7 +343,10 @@ begin
       if v_id is null or v_id !~ '^[A-Za-z0-9_-]+$' or char_length(v_id) > 300 then continue; end if;
       if coalesce(jsonb_typeof(o -> 'data'), '') <> 'object' then continue; end if;
       d := public.nova_jstrip(o -> 'data') || jsonb_build_object('workspaceId', p_workspace);
-      if not public.schedule_keys_ok(v_kind, d) then continue; end if;
+      -- Старый документ с полем, которого правила уже не знают, — берём без
+      -- этого поля, а не пропускаем целиком (иначе у человека пропал бы месяц).
+      d := (select coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb) from jsonb_each(d) e
+            where public.schedule_keys_ok(v_kind, jsonb_build_object(e.key, e.value)));
       select * into cur from public.schedule_docs s
       where s.workspace_id = p_workspace and s.kind = v_kind and s.id = v_id
       for update;

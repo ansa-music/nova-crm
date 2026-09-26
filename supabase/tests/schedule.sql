@@ -110,6 +110,8 @@ select tst.expect('старое не затирает свежее', (select (da
 select tst.expect('до отметки — «не перенесено»', (select count(*)::text from public.schedule_docs where kind = 'meta'), '0');
 select tst.run('TL', $q$select schedule_import('W', '[{"kind":"month","id":"T2_2026-08","data":{"uid":"T2","monthKey":"2026-08","days":{"4":"off"},"updatedAt":200}}]', true)$q$);
 select tst.expect('более свежее заменяет', (select (data -> 'days')::text from public.schedule_docs where id = 'T2_2026-08'), '{"4": "off"}');
+select tst.run('TL', $q$select schedule_import('W', '[{"kind":"month","id":"T3_2026-07","data":{"uid":"T3","monthKey":"2026-07","days":{"1":"off"},"legacy":"x","updatedAt":5}}]', false)$q$);
+select tst.expect('старый документ с лишним полем — перенесён без него', (select (data ? 'legacy')::text || '|' || (data -> 'days' ->> '1') from public.schedule_docs where id = 'T3_2026-07'), 'false|off');
 select tst.expect('отметка «перенесено»', (select count(*)::text from public.schedule_docs where kind = 'meta' and id = 'imported'), '1');
 select tst.expect('отметку видят все участники', tst.try('T3', $q$select * from schedule_docs where kind = 'meta'$q$, true), 'ok:1');
 
