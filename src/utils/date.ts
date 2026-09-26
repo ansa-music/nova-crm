@@ -107,8 +107,69 @@ export function parseDateTimeManual(value: string, now: number = Date.now()): nu
 }
 
 
-/** Display/greeting clock for Nova — Asia/Almaty. */
-export const USER_TIMEZONE = "Asia/Almaty";
+/**
+ * Часовой пояс КОМПАНИИ (workspace.region.timeZone, SaaS этап 1). По
+ * умолчанию — Asia/Almaty, как было зашито. Это `let`: ES-модули отдают живую
+ * привязку, поэтому `timeZone = USER_TIMEZONE` в параметрах и
+ * `timeZone: USER_TIMEZONE` внутри функций видят смену сразу. Меняет его ТОЛЬКО
+ * `setUserTimeZone` (мост региона в AppLayout). Форматтеры на уровне модуля
+ * строить через `zonedDateFormat`, а не `new Intl.DateTimeFormat` с поясом —
+ * те запомнили бы пояс на момент загрузки.
+ */
+export const DEFAULT_TIMEZONE = "Asia/Almaty";
+export let USER_TIMEZONE = DEFAULT_TIMEZONE;
+
+/** Поменять пояс компании. Неизвестный браузеру пояс — умолчание. */
+export function setUserTimeZone(timeZone: string | null | undefined): boolean {
+  const next = timeZone && isKnownTimeZone(timeZone) ? timeZone : DEFAULT_TIMEZONE;
+  if (next === USER_TIMEZONE) return false;
+  USER_TIMEZONE = next;
+  return true;
+}
+
+export function isKnownTimeZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const zonedFormats = new Map<string, Intl.DateTimeFormat>();
+
+/** Форматтер в поясе компании; кэш по (язык, настройки, пояс). */
+export function zonedDateFormat(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = `${USER_TIMEZONE}|${locale}|${JSON.stringify(options)}`;
+  let f = zonedFormats.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, { ...options, timeZone: USER_TIMEZONE });
+    zonedFormats.set(key, f);
+  }
+  return f;
+}
+
+/**
+ * Смещение пояса от UTC в минутах в момент `ms` (для Москвы +180). Алматы —
+ * всегда +300: так было зашито (`+05:00`), и так же считают старые браузеры,
+ * у которых в базе поясов ещё Алматы +6 (до марта 2024).
+ */
+export function timeZoneOffsetMinutes(ms: number, timeZone = USER_TIMEZONE): number {
+  if (timeZone === DEFAULT_TIMEZONE) return 300;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(new Date(ms));
+  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? "0");
+  const wall = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour") % 24, get("minute"), get("second"));
+  return Math.round((wall - Math.floor(ms / 1000) * 1000) / 60_000);
+}
 
 export function hourInTimeZone(ms: number, timeZone = USER_TIMEZONE): number {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -148,15 +209,25 @@ export function ymdPartsInTimeZone(ms: number, timeZone = USER_TIMEZONE): { year
   return { year, month: month - 1, day };
 }
 
-/** Noon on that calendar day in Asia/Almaty (UTC+5, no DST). */
+/**
+ * Noon on that calendar day in the company zone (исторически — Алматы, UTC+5;
+ * имя оставлено, вызовов десятки). Для Алматы результат ровно прежний.
+ */
 export function almatyNoonMillis(year: number, monthIndex: number, day: number): number {
   const m = String(monthIndex + 1).padStart(2, "0");
   const d = String(day).padStart(2, "0");
-  return new Date(`${year}-${m}-${d}T12:00:00+05:00`).getTime();
+  const iso = `${year}-${m}-${d}T12:00:00`;
+  // Строкой, как было: кривой месяц/день даёт NaN, а не сдвиг в соседний месяц.
+  if (USER_TIMEZONE === DEFAULT_TIMEZONE) return new Date(`${iso}+05:00`).getTime();
+  const utcNoon = new Date(`${iso}Z`).getTime();
+  if (!Number.isFinite(utcNoon)) return NaN;
+  const guess = utcNoon - timeZoneOffsetMinutes(utcNoon) * 60_000;
+  // Второй проход — на случай перехода на летнее время между guess и полднем.
+  return utcNoon - timeZoneOffsetMinutes(guess) * 60_000;
 }
 
 /**
- * Midnight (00:00) on `ms`'s calendar day in Asia/Almaty — the shared day
+ * Midnight (00:00) on `ms`'s calendar day in the company zone (Asia/Almaty) — the shared day
  * boundary for anything bucketing timestamps by Almaty calendar day (daily
  * trend sparklines, "this week"/"this month" filters). Use this instead of
  * `new Date(ms).setHours(0,0,0,0)`, which reads the VIEWER's own device

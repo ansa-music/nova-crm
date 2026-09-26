@@ -27,7 +27,7 @@ export type PasteFieldKind =
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const URL_RE = /^(https?:\/\/|www\.)/i;
 const DATE_RE = /^\d{1,2}\s*[./-]\s*\d{1,2}\s*[./-]\s*\d{2,4}$|^\d{4}-\d{1,2}-\d{1,2}/;
-const MONEY_MARK_RE = /[₸$€₽]|(тг|тенге|kzt|руб|rub|usd|eur)/i;
+const MONEY_MARK_RE = /\p{Sc}|(тг|тенге|kzt|руб|rub|usd|eur)/iu;
 
 /** Марки и модели — по ним «Camry 70» отличается от имени клиента. */
 const CAR_WORDS =

@@ -1,5 +1,5 @@
 import { isBlankRow } from "@/utils/blankRow";
-import { ymdInTimeZone } from "@/utils/date";
+import { USER_TIMEZONE, ymdInTimeZone } from "@/utils/date";
 import { isDoneStatusLabel } from "@/utils/columnOptions";
 import { parseLooseNumber } from "@/utils/numberInput";
 import type { PageColumn, PageRow, StatusOption, SubPage, WorkspacePage } from "@/types";
@@ -125,7 +125,7 @@ export type MonthOrderCount = {
 function monthLabelAlmaty(yearMonth: string): string {
   const [year, month] = yearMonth.split("-").map(Number);
   const ms = Date.UTC(year, month - 1, 15);
-  return new Date(ms).toLocaleDateString("ru-RU", { month: "long", year: "numeric", timeZone: "Asia/Almaty" });
+  return new Date(ms).toLocaleDateString("ru-RU", { month: "long", year: "numeric", timeZone: USER_TIMEZONE });
 }
 
 /** Pieces per Asia/Almaty month, by order-received date. Months stay separate. */

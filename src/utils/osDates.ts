@@ -1,4 +1,4 @@
-import { almatyNoonMillis, USER_TIMEZONE, ymdInTimeZone, ymdPartsInTimeZone } from "@/utils/date";
+import { almatyNoonMillis, ymdInTimeZone, ymdPartsInTimeZone, zonedDateFormat } from "@/utils/date";
 import { OS_ISSUED_AT_KEY, OS_ISSUED_ON_KEY, OS_RECEIVED_ON_KEY } from "@/utils/reservedCellKeys";
 import type { PageRow } from "@/types";
 
@@ -128,18 +128,14 @@ export function slotShown(slot: OsDateSlot): number | null {
   return slot.value ?? slot.suggested;
 }
 
-const dayMonthFmt = new Intl.DateTimeFormat("ru-RU", { timeZone: USER_TIMEZONE, day: "2-digit", month: "2-digit" });
-
 /** «24.09» */
 export function formatDayMonth(ms: number): string {
-  return dayMonthFmt.format(new Date(ms));
+  return zonedDateFormat("ru-RU", { day: "2-digit", month: "2-digit" }).format(new Date(ms));
 }
-
-const fullDateFmt = new Intl.DateTimeFormat("ru-RU", { timeZone: USER_TIMEZONE, day: "numeric", month: "long", year: "numeric" });
 
 /** «24 сентября 2026 г.» — только дата. */
 export function formatFullDate(ms: number): string {
-  return fullDateFmt.format(new Date(ms));
+  return zonedDateFormat("ru-RU", { day: "numeric", month: "long", year: "numeric" }).format(new Date(ms));
 }
 
 // ---------------------------------------------------------------------

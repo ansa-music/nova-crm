@@ -13,6 +13,7 @@ import {
 } from "@/services/personalSpaceService";
 import { parseFinanceInput, type FinanceType } from "@/utils/financeParser";
 import { formatDate, ymdInTimeZone } from "@/utils/date";
+import { APP_CURRENCY } from "@/utils/format";
 import { cn } from "@/utils/cn";
 
 interface FinanceTabProps {
@@ -36,7 +37,7 @@ function currentMonthKey(): string {
 }
 
 function formatMinor(minor: number): string {
-  return new Intl.NumberFormat("ru-RU", { style: "currency", currency: "KZT", maximumFractionDigits: 0 }).format(
+  return new Intl.NumberFormat("ru-RU", { style: "currency", currency: APP_CURRENCY, maximumFractionDigits: 0 }).format(
     minor / 100
   );
 }

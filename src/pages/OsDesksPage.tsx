@@ -13,15 +13,13 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { osNickLabel } from "@/services/memberService";
 import { fetchOsDeskMonthStats, type OsDeskMonthStats } from "@/services/osDeskStatsService";
 import { cn } from "@/utils/cn";
-import { timeAgo } from "@/utils/date";
+import { timeAgo, zonedDateFormat } from "@/utils/date";
 import { deskHref, deskNavState } from "@/utils/deskLinks";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { formatCurrency } from "@/utils/format";
 import type { WorkspaceMember, WorkspacePage } from "@/types";
 
 type StatsState = { status: "loading" } | { status: "ok"; stats: OsDeskMonthStats } | { status: "error" };
-
-const MONTH_NAME = new Intl.DateTimeFormat("ru-RU", { month: "long", timeZone: "Asia/Almaty" });
 
 /**
  * «Столы ОС» — личные таблицы ОС (`page.osDesk`) в одном месте. Видны ВСЕМ
@@ -99,7 +97,7 @@ export default function OsDesksPage() {
     },
     { today: 0, month: 0, price: 0, upsell: 0, net: 0 }
   );
-  const monthName = MONTH_NAME.format(new Date());
+  const monthName = zonedDateFormat("ru-RU", { month: "long" }).format(new Date());
 
   async function refresh() {
     setRefreshing(true);

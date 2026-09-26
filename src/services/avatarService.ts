@@ -1,4 +1,4 @@
-import { ROW_FILES_BUCKET, supabase } from "@/lib/supabase";
+import { removeRowFiles, rowFilePublicUrl, uploadRowFile } from "@/services/storageClient";
 import { syncPhotoToMemberships, updateUserDoc } from "@/services/authService";
 
 export const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
@@ -47,14 +47,13 @@ export async function uploadUserAvatar(input: {
   if (error) throw new Error(error);
 
   const path = `${input.workspaceId}/avatars/${input.uid}/${avatarId()}.${avatarExt(input.file.type)}`;
-  const { error: uploadError } = await supabase.storage.from(ROW_FILES_BUCKET).upload(path, input.file, {
+  const { error: uploadError } = await uploadRowFile(path, input.file, {
     cacheControl: "3600",
-    upsert: false,
     contentType: input.file.type || undefined,
   });
   if (uploadError) throw new Error(uploadError.message);
 
-  const { data } = supabase.storage.from(ROW_FILES_BUCKET).getPublicUrl(path);
+  const data = { publicUrl: rowFilePublicUrl(path) };
   const photoURL = data.publicUrl;
 
   try {
@@ -62,7 +61,7 @@ export async function uploadUserAvatar(input: {
   } catch (err) {
     // Профиль не записался — файл в бакете никому не нужен. Как в
     // uploadDeskCover: за собой убираем, иначе копятся осиротевшие картинки.
-    await supabase.storage.from(ROW_FILES_BUCKET).remove([path]);
+    await removeRowFiles([path]);
     throw err;
   }
 
@@ -71,7 +70,7 @@ export async function uploadUserAvatar(input: {
   await syncPhotoToMemberships(input.uid, input.workspaceIds, photoURL);
 
   if (input.previousPath && input.previousPath !== path) {
-    void supabase.storage.from(ROW_FILES_BUCKET).remove([input.previousPath]);
+    void removeRowFiles([input.previousPath]);
   }
 
   return { photoURL, photoPath: path };
@@ -86,6 +85,6 @@ export async function removeUserAvatar(input: {
   await updateUserDoc(input.uid, { photoURL: null, photoPath: null });
   await syncPhotoToMemberships(input.uid, input.workspaceIds, null);
   if (input.photoPath) {
-    void supabase.storage.from(ROW_FILES_BUCKET).remove([input.photoPath]);
+    void removeRowFiles([input.photoPath]);
   }
 }

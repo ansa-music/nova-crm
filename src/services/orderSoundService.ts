@@ -1,4 +1,4 @@
-import { ROW_FILES_BUCKET, supabase } from "@/lib/supabase";
+import { removeRowFiles, rowFilePublicUrl, uploadRowFile } from "@/services/storageClient";
 
 export const MAX_ORDER_SOUND_BYTES = 2 * 1024 * 1024;
 /** Дольше — это уже не звук уведомления, а песня: мешает работать и съедает трафик. */
@@ -46,9 +46,8 @@ export async function uploadOrderSoundFile(workspaceId: string, file: File): Pro
   if (error) throw new Error(error);
   const ext = extOf(file)!;
   const path = `${workspaceId}/sounds/order-${soundId()}.${ext}`;
-  const { error: uploadError } = await supabase.storage.from(ROW_FILES_BUCKET).upload(path, file, {
+  const { error: uploadError } = await uploadRowFile(path, file, {
     cacheControl: "86400",
-    upsert: false,
     contentType: file.type || `audio/${ext === "mp3" ? "mpeg" : ext}`,
   });
   if (uploadError) {
@@ -60,11 +59,11 @@ export async function uploadOrderSoundFile(workspaceId: string, file: File): Pro
     }
     throw new Error(uploadError.message);
   }
-  const { data } = supabase.storage.from(ROW_FILES_BUCKET).getPublicUrl(path);
+  const data = { publicUrl: rowFilePublicUrl(path) };
   return { url: data.publicUrl, path };
 }
 
 export async function removeOrderSoundFile(path: string | null | undefined) {
   if (!path) return;
-  await supabase.storage.from(ROW_FILES_BUCKET).remove([path]);
+  await removeRowFiles([path]);
 }

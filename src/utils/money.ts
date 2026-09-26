@@ -14,6 +14,7 @@
  * number as MAJOR units, so old rows keep reading correctly with no migration.
  */
 
+import { APP_CURRENCY } from "@/utils/format";
 import { parseLooseNumber } from "@/utils/numberInput";
 
 export const MINOR_UNITS_PER_MAJOR = 100;
@@ -66,7 +67,7 @@ export function parseAmount(input: string): number {
 }
 
 /** Display: 200000 (minor) -> "2 000 ₸". Never used for storage. */
-export function formatMoney(minor: number, currency = "KZT"): string {
+export function formatMoney(minor: number, currency = APP_CURRENCY): string {
   return new Intl.NumberFormat("ru-RU", {
     style: "currency",
     currency,
@@ -75,7 +76,7 @@ export function formatMoney(minor: number, currency = "KZT"): string {
 }
 
 /** Compact signed display for the finance feed: "− 2 000 ₸" / "+ 50 000 ₸". */
-export function formatSigned(minor: number, type: "income" | "expense", currency = "KZT"): string {
+export function formatSigned(minor: number, type: "income" | "expense", currency = APP_CURRENCY): string {
   const sign = type === "income" ? "+" : "−";
   return `${sign} ${formatMoney(Math.abs(minor), currency)}`;
 }

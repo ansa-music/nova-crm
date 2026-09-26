@@ -16,7 +16,7 @@ import {
   type OsDispatchLogEntry,
 } from "@/services/osDispatchLogService";
 import { cn } from "@/utils/cn";
-import { formatDateTimeManual, timeAgo } from "@/utils/date";
+import { almatyMidnightMillis, formatDateTimeManual, timeAgo } from "@/utils/date";
 import { formatCurrency } from "@/utils/format";
 
 type Filter = "all" | "today" | OsDispatchKind;
@@ -28,12 +28,6 @@ const KIND_TONE: Record<OsDispatchKind, string> = {
   move: "bg-warning/15 text-warning",
   unassign: "bg-muted text-muted-foreground",
 };
-
-function startOfTodayAlmaty(now: number): number {
-  // Алматы — UTC+5 без перехода на летнее время.
-  const shifted = now + 5 * 3_600_000;
-  return shifted - (shifted % 86_400_000) - 5 * 3_600_000;
-}
 
 /**
  * «Выдачи ОС» — мониторинг выборочных выдач заказов для Тимлида и Owner
@@ -53,7 +47,7 @@ export default function OsDispatchPage() {
     if (canSee && log.loaded && log.unseen > 0) markOsDispatchLogSeen();
   }, [canSee, log.loaded, log.unseen]);
 
-  const todayStart = startOfTodayAlmaty(Date.now());
+  const todayStart = almatyMidnightMillis(Date.now());
   // Сразу загружено только живое окно (последние 25), старее — по «Показать
   // ещё». Поэтому при `hasMore` счётчики — «не меньше»: «Сегодня» точен, только
   // если самая старая загруженная выдача уже вчерашняя. Список из кэша (сервер

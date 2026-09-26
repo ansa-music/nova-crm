@@ -115,6 +115,14 @@ export interface Workspace {
   /** Зарплатная система ОС на «ABS»: % от апсейла, доплата за топ KPI, пороги. Правит Owner. */
   osPay?: OsPaySettings;
   /**
+   * Регион компании (SaaS этап 1): часовой пояс (IANA), валюта (ISO 4217) и
+   * язык. Нет поля — Asia/Almaty, KZT, ru-KZ, то есть всё как было. Правит
+   * только Owner (Тимлиду поле закрыто правилом workspace); копию в Supabase
+   * (`rows_workspaces.timezone/currency/locale`) сверяет сессия Owner.
+   * Сменили — полностью применится после перезагрузки вкладки.
+   */
+  region?: WorkspaceRegion;
+  /**
    * «Настройка графика» (Owner): кто ещё правит график, смены команды, норма
    * на смене, кого не показывать. Тимлиду поле закрыто правилом workspace.
    */
@@ -311,3 +319,9 @@ export interface JoinRequest {
 
 /** Роли, которые можно запросить при входе. */
 export type JoinRequestRole = "manager" | "os";
+
+export interface WorkspaceRegion {
+  timeZone?: string;
+  currency?: string;
+  locale?: string;
+}

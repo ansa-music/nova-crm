@@ -47,6 +47,7 @@ import { useAppUpdateCheck } from "@/hooks/useAppUpdateCheck";
 import { useDeskObserverLoad } from "@/hooks/useDeskObserverLoad";
 import { useOpenOrdersWatch } from "@/hooks/useOpenOrdersWatch";
 import { useRowsBackendBridge } from "@/hooks/useRowsBackendBridge";
+import { useTenantRegionBridge } from "@/hooks/useTenantRegionBridge";
 import { useRowAclSync } from "@/hooks/useRowAclSync";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -99,6 +100,8 @@ export function AppLayout() {
   const hasActiveWorkspace = useWorkspaceStore((s) => s.workspaces.some((w) => w.id === s.activeWorkspaceId));
   const { profile } = useAuth();
   const permissions = usePermissions();
+  // Пояс и валюта компании — до отрисовки страниц (нет поля — Алматы и ₸).
+  useTenantRegionBridge(permissions.upkeepOwner);
   const [createOpen, setCreateOpen] = useState(false);
   // Лист «Ещё» и его диалоги — здесь, а не в нижней панели: панель прячется
   // под клавиатурой, и диалог с набранным именем стола пропадал вместе с ней.

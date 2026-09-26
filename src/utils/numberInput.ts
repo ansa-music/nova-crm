@@ -19,7 +19,7 @@ export function parseLooseNumber(raw: string): number | null {
   s = s
     .replace(/[\s\u00a0\u202f]/g, "")
     .replace(/(руб|тг|тенге|kzt|rub|usd|eur)\.?/gi, "")
-    .replace(/[₸$€₽]/g, "");
+    .replace(/\p{Sc}/gu, "");
   // Reject anything with letters or math operators — that's not a number.
   if (/[^0-9.,+-]/.test(s)) return null;
   if (/[+]/.test(s.slice(1)) || (s.match(/-/g) ?? []).length > 1) return null;

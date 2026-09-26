@@ -5,7 +5,7 @@ import { ChevronDown, Crown, Gift, Star, Table2 } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { ScoreMeter } from "@/components/technicians/ScoreRating";
 import { cn } from "@/utils/cn";
-import { formatCurrency, formatNumber } from "@/utils/format";
+import { currencySymbol, formatCurrency, formatNumber } from "@/utils/format";
 import { personLabel } from "@/utils/peopleDesks";
 import { NO_STATUS_KEY } from "@/utils/techLoad";
 import type { OverviewDay, OverviewMonth, OverviewOsShare, OverviewTechnician } from "@/utils/overviewStats";
@@ -20,8 +20,8 @@ const compactNumber = new Intl.NumberFormat("ru-RU", { notation: "compact", maxi
 
 /** «12,4 млн ₸» — for tiles and axes; full value goes to the title/tooltip. */
 export function formatMoneyCompact(value: number): string {
-  if (!value) return "0 ₸";
-  return Math.abs(value) < 10_000 ? formatCurrency(value) : `${compactNumber.format(value).replace(/.$/, "")} ₸`;
+  if (!value) return `0 ${currencySymbol()}`;
+  return Math.abs(value) < 10_000 ? formatCurrency(value) : `${compactNumber.format(value).replace(/.$/, "")} ${currencySymbol()}`;
 }
 
 function plural(n: number, one: string, few: string, many: string) {

@@ -15,6 +15,7 @@ import {
 import { parseAmount } from "@/utils/money";
 import { formatDate } from "@/utils/date";
 import { cn } from "@/utils/cn";
+import { APP_CURRENCY } from "@/utils/format";
 import { confirmDialog } from "@/utils/appDialog";
 
 interface DebtsTabProps {
@@ -24,7 +25,7 @@ interface DebtsTabProps {
 }
 
 function formatMinor(minor: number): string {
-  return new Intl.NumberFormat("ru-RU", { style: "currency", currency: "KZT", maximumFractionDigits: 0 }).format(
+  return new Intl.NumberFormat("ru-RU", { style: "currency", currency: APP_CURRENCY, maximumFractionDigits: 0 }).format(
     minor / 100
   );
 }

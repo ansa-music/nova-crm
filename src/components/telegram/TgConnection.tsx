@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { MonitorSmartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { TgEnded, TgState } from "@/services/telegram/tgClient";
+import { zonedDateFormat } from "@/utils/date";
 import { cn } from "@/utils/cn";
 
 /**
@@ -59,12 +60,12 @@ export function TgElsewhere({ onTakeOver }: { onTakeOver: () => void }) {
   );
 }
 
-const DATE = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Almaty" });
+const DATE_OPTIONS: Intl.DateTimeFormatOptions = { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" };
 
 /** Почему закончился прошлый вход — одна строка над экраном входа. */
 export function TgEndedNote({ ended }: { ended: TgEnded | null }) {
   if (!ended || ended.reason === "button") return null;
-  const when = DATE.format(new Date(ended.at));
+  const when = zonedDateFormat("ru-RU", DATE_OPTIONS).format(new Date(ended.at));
   const text =
     ended.reason === "revoked"
       ? `Прошлый вход закрыт ${when}: Owner снял вам доступ к разделу.`

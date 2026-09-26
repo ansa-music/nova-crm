@@ -117,7 +117,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useUiStore } from "@/store/uiStore";
 import { updateResponsibleOptions, updateCustomFieldOptions, updateStatusOptions } from "@/services/workspaceService";
-import { formatCount, formatCurrency, formatCurrencyCell, formatNumber, downloadCsv } from "@/utils";
+import { APP_CURRENCY, formatCount, formatCurrency, formatCurrencyCell, formatNumber, downloadCsv } from "@/utils";
 import { formatOrderDate } from "@/utils/date";
 import { isSummableColumn, sumNumericCells } from "@/utils/tableAggregates";
 import { isBlankRow, isFilledCellValue } from "@/utils/blankRow";
@@ -4781,7 +4781,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
               {grandTotals?.parts.map((part) => (
                 <p key={part.key} className="flex min-w-0 items-baseline gap-2 whitespace-nowrap">
                   <span className="truncate">{grandTotals.parts.length === 1 ? "Общий" : part.label}</span>
-                  <span className="table-totals-sum text-foreground">{formatNumber(part.sum)} KZT</span>
+                  <span className="table-totals-sum text-foreground">{formatNumber(part.sum)} {APP_CURRENCY}</span>
                 </p>
               ))}
               {/* С xl шапка стола показывает «Готово · В работе · Ждём» сама

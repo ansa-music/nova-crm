@@ -60,7 +60,7 @@ export function parseFinanceInput(raw: string, forcedType: FinanceType = "expens
   }
   const description = raw
     .replace(/[-+]?\d[\d\s\u00a0\u202f.,]*/u, "")
-    .replace(/[₸$€₽]/g, "")
+    .replace(/\p{Sc}/gu, "")
     .trim();
   return {
     valid: true,

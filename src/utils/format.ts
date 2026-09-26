@@ -1,6 +1,50 @@
 import { parseLooseNumber } from "@/utils/numberInput";
 
-export function formatCurrency(value: number, currency = "KZT"): string {
+/**
+ * Валюта КОМПАНИИ (workspace.region.currency, SaaS этап 1), по умолчанию
+ * тенге. `let` с живой привязкой, как USER_TIMEZONE в utils/date.ts: меняет
+ * только `setAppCurrency` (мост региона в AppLayout).
+ */
+export const DEFAULT_CURRENCY = "KZT";
+export let APP_CURRENCY = DEFAULT_CURRENCY;
+
+export function setAppCurrency(currency: string | null | undefined): boolean {
+  const code = (currency ?? "").trim().toUpperCase();
+  const next = /^[A-Z]{3}$/.test(code) && isKnownCurrency(code) ? code : DEFAULT_CURRENCY;
+  if (next === APP_CURRENCY) return false;
+  APP_CURRENCY = next;
+  return true;
+}
+
+function isKnownCurrency(code: string): boolean {
+  try {
+    new Intl.NumberFormat("ru-RU", { style: "currency", currency: code }).format(0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const symbols = new Map<string, string>();
+
+/** Короткий знак валюты компании: «₸», «₽», «$» (у кого знака нет — код). */
+export function currencySymbol(currency = APP_CURRENCY): string {
+  let s = symbols.get(currency);
+  if (s === undefined) {
+    try {
+      s =
+        new Intl.NumberFormat("ru-RU", { style: "currency", currency, currencyDisplay: "narrowSymbol" })
+          .formatToParts(0)
+          .find((part) => part.type === "currency")?.value ?? currency;
+    } catch {
+      s = currency;
+    }
+    symbols.set(currency, s);
+  }
+  return s;
+}
+
+export function formatCurrency(value: number, currency = APP_CURRENCY): string {
   return new Intl.NumberFormat("ru-RU", {
     style: "currency",
     currency,

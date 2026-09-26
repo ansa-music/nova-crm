@@ -17,7 +17,7 @@ interface TierDraft {
   amount: string;
 }
 
-const num = (v: string) => parseLooseNumber(v.replace(/[\s%₸]/g, "") || "0");
+const num = (v: string) => parseLooseNumber(v.replace(/[\s%\p{Sc}]/gu, "") || "0");
 
 /**
  * Система ОС на «ABS» — только Owner: процент от апсейла после комиссии,

@@ -1,4 +1,4 @@
-import { ROW_FILES_BUCKET, supabase } from "@/lib/supabase";
+import { removeRowFiles, rowFilePublicUrl, uploadRowFile } from "@/services/storageClient";
 import { setPageCover } from "@/services/pageService";
 
 export const MAX_COVER_BYTES = 10 * 1024 * 1024;
@@ -39,25 +39,24 @@ export async function uploadDeskCover(
   const id = coverId();
   const path = `${workspaceId}/covers/${pageId}/${id}.${coverExt(file.type)}`;
 
-  const { error: uploadError } = await supabase.storage.from(ROW_FILES_BUCKET).upload(path, file, {
+  const { error: uploadError } = await uploadRowFile(path, file, {
     cacheControl: "3600",
-    upsert: false,
     contentType: file.type || undefined,
   });
   if (uploadError) throw new Error(uploadError.message);
 
-  const { data } = supabase.storage.from(ROW_FILES_BUCKET).getPublicUrl(path);
+  const data = { publicUrl: rowFilePublicUrl(path) };
   const cover = { coverUrl: data.publicUrl, coverPath: path };
 
   try {
     await setPageCover(workspaceId, pageId, cover);
   } catch (err) {
-    await supabase.storage.from(ROW_FILES_BUCKET).remove([path]);
+    await removeRowFiles([path]);
     throw err;
   }
 
   if (previousPath && previousPath !== path) {
-    void supabase.storage.from(ROW_FILES_BUCKET).remove([previousPath]);
+    void removeRowFiles([previousPath]);
   }
 
   return cover;
@@ -66,6 +65,6 @@ export async function uploadDeskCover(
 export async function removeDeskCover(workspaceId: string, pageId: string, coverPath?: string | null) {
   await setPageCover(workspaceId, pageId, null);
   if (coverPath) {
-    void supabase.storage.from(ROW_FILES_BUCKET).remove([coverPath]);
+    void removeRowFiles([coverPath]);
   }
 }

@@ -39,7 +39,7 @@ import {
   type TgUpload,
 } from "@/services/telegram/tgClient";
 import { cn } from "@/utils/cn";
-import { formatMessageWrittenAt } from "@/utils/date";
+import { formatMessageWrittenAt, zonedDateFormat } from "@/utils/date";
 import { filterDialogsByLink, TgChatFilterBar, TgOsChip, TgOsLinkButton, type TgChatFilter, type TgLinking } from "@/components/telegram/TgOsLink";
 import { TgClientButton } from "@/components/telegram/TgClientLink";
 
@@ -76,11 +76,11 @@ function formatDuration(sec: number): string {
 }
 
 function timeOf(ms: number): string {
-  return new Date(ms).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Almaty" });
+  return zonedDateFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(new Date(ms));
 }
 
 function dayOf(ms: number): string {
-  return new Date(ms).toLocaleDateString("ru-RU", { day: "numeric", month: "long", timeZone: "Asia/Almaty" });
+  return zonedDateFormat("ru-RU", { day: "numeric", month: "long" }).format(new Date(ms));
 }
 
 // ---------------------------------------------------------------------
