@@ -20,6 +20,8 @@ import { GoChordHotkeys } from "@/components/common/GoChordHotkeys";
 import { AppDialogHost } from "@/components/common/AppDialogHost";
 import { DbQuotaBanner } from "@/components/common/DbQuotaBanner";
 import { SupabaseSqlBanner } from "@/components/common/SupabaseSqlBanner";
+import { TenantBlockedScreen, TrialBanner } from "@/components/common/TenantGate";
+import { tenantActive, useTenantInfo, type TenantInfo } from "@/hooks/useTenantInfo";
 import { NotifyHelpHost } from "@/components/common/NotifyHelpDialog";
 import { OrderPopupHost } from "@/components/orders/OrderPopup";
 import { TelegramUploadPill } from "@/components/telegram/TelegramUploadPill";
@@ -55,10 +57,13 @@ import { useTableDiagWatch } from "@/hooks/useTableDiagWatch";
 import { useIsMobile, useIsTablet } from "@/hooks/useMediaQuery";
 import { useUiStore } from "@/store/uiStore";
 import { isWorkspaceAdmin } from "@/utils/adminAccess";
-import { FALLBACK_JOIN_WORKSPACE_ID, getJoinIntent } from "@/utils/joinIntent";
+import { companyStartPath, FALLBACK_JOIN_WORKSPACE_ID, getJoinIntent } from "@/utils/joinIntent";
 
 
 function NoWorkspaceJoinRedirect() {
+  // Пришёл по ссылке регистрации компании — туда, а не заявкой в чужую.
+  const company = companyStartPath();
+  if (company) return <Navigate to={company} replace />;
   const id = getJoinIntent() || FALLBACK_JOIN_WORKSPACE_ID;
   return <Navigate to={`/join/${id}`} replace />;
 }
@@ -109,6 +114,17 @@ export function AppLayout() {
   const [createPageOpen, setCreatePageOpen] = useState(false);
 
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
+  // Тариф компании (SaaS этап 2): приостановлена или пробный кончился —
+  // экран с объяснением; Owner за неделю до конца пробного видит плашку.
+  // Читается только у компаний в реестре Supabase (строки там).
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+  const tenantInSupabase = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId)?.rowsBackend === "supabase",
+  );
+  const activeWorkspaceName = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId)?.name ?? "",
+  );
+  const tenant = useTenantInfo(activeWorkspaceId, tenantInSupabase);
   // Диагностика `?diag=table`: экран загрузки и «вас убрали» подменяют всё
   // приложение — мигание стола могло бы оказаться ими.
   useTableDiagWatch("layout", {
@@ -163,6 +179,19 @@ export function AppLayout() {
     return <RemovedFromWorkspace />;
   }
 
+  // Администратор платформы проходит всегда — иначе он не смог бы посмотреть
+  // приостановленную компанию и вернуть её.
+  if (tenant && !tenantActive(tenant) && !canCreateWorkspace) {
+    return (
+      <TenantBlockedScreen
+        info={tenant}
+        workspaceName={activeWorkspaceName}
+        email={profile?.email}
+        isOwner={permissions.actsAsOwner}
+      />
+    );
+  }
+
   // Модель навигации считается здесь ОДИН раз (NavModelProvider) и
   // раздаётся меню, палитре, шапке и нижней панели контекстом.
   return (
@@ -175,6 +204,7 @@ export function AppLayout() {
         createWorkspaceOpen={createOpen}
         setCreateWorkspaceOpen={setCreateOpen}
         canCreateWorkspace={canCreateWorkspace}
+        trial={permissions.actsAsOwner ? tenant : null}
       />
     </NavModelProvider>
   );
@@ -197,6 +227,7 @@ const AppChrome = memo(function AppChrome({
   createWorkspaceOpen,
   setCreateWorkspaceOpen,
   canCreateWorkspace,
+  trial,
 }: {
   moreOpen: boolean;
   setMoreOpen: (open: boolean) => void;
@@ -205,6 +236,8 @@ const AppChrome = memo(function AppChrome({
   createWorkspaceOpen: boolean;
   setCreateWorkspaceOpen: (open: boolean) => void;
   canCreateWorkspace: boolean;
+  /** Тариф компании — для плашки «пробный кончается» у Owner. */
+  trial: TenantInfo | null;
 }) {
   const location = useLocation();
   const isCompactNav = useIsTablet();
@@ -266,6 +299,7 @@ const AppChrome = memo(function AppChrome({
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {!isFullscreen && <Topbar />}
         {!isFullscreen && <SupabaseSqlBanner />}
+        {!isFullscreen && trial ? <TrialBanner info={trial} /> : null}
         {isFullscreen && <TableChromeExit label="Свернуть" />}
         {/* overflow-x задан явно: один `overflow-y-auto` даёт и горизонтальный
             скролл, и широкие страницы ездили бы вместе с рейкой; вбок

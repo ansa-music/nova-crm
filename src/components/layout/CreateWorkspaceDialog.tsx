@@ -17,8 +17,7 @@ import { toast } from "@/components/ui/sonner";
 import { IconPicker } from "@/components/common/IconPicker";
 import { ColorPicker, COLOR_PRESETS } from "@/components/common/ColorPicker";
 import { workspaceSchema, type WorkspaceFormValues } from "@/utils/validation";
-import { createWorkspace } from "@/services/workspaceService";
-import { seedDefaultWorkspacePages } from "@/services/onboardingService";
+import { registerCompany } from "@/services/companyService";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspaceStore } from "@/store/workspaceStore";
 import type { PageIconName } from "@/types";
@@ -44,15 +43,18 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
     if (!profile) return;
     setIsSubmitting(true);
     try {
-      const workspace = await createWorkspace({
-        name: values.name,
+      // Та же регистрация, что у компаний по коду (SaaS этап 2): id
+      // `ws_{uid}_…`, строка в реестре Supabase и строки таблиц сразу там.
+      // Без кода — только администратор платформы (этот диалог есть лишь у него).
+      const { workspace } = await registerCompany({
+        uid: profile.uid,
+        email: profile.email,
+        ownerName: profile.name,
+        companyName: values.name,
         icon,
         color,
-        ownerId: profile.uid,
-        ownerEmail: profile.email,
-        ownerName: profile.name,
+        code: null,
       });
-      await seedDefaultWorkspacePages(workspace.id, profile.uid);
       setActiveWorkspaceId(workspace.id);
       toast.success(`Workspace «${workspace.name}» создан`);
       form.reset();

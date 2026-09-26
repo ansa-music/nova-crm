@@ -17,7 +17,7 @@ const GROUPS: Array<{ title: string; keys: string[] }> = [
   { title: "Работа", keys: ["reports", "os-dispatch", "desk-editing", "dispatch"] },
   { title: "Люди", keys: ["people", "team", "users"] },
   { title: "Связь", keys: ["announcements"] },
-  { title: "Настройки", keys: ["settings"] },
+  { title: "Настройки", keys: ["settings", "platform"] },
 ];
 
 const DESCRIPTIONS: Record<string, string> = {
@@ -34,6 +34,7 @@ const DESCRIPTIONS: Record<string, string> = {
   chat: "Общий чат workspace",
   announcements: "Объявления команде",
   settings: "Профиль, касса, хранилища",
+  platform: "Компании, коды приглашения, тарифы",
 };
 
 export default function MorePage() {

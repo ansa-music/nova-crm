@@ -36,6 +36,30 @@ service cloud.firestore {
       return memberDoc(workspaceId, request.auth.uid).data.role;
     }
 
+    // Администратор платформы (Nurba): заводит коды приглашения компаний и
+    // workspace без кода. Тот же адрес, что в src/utils/adminAccess.ts и в
+    // nova_is_platform_admin() (Supabase, 20261025_company_signup.sql).
+    function isPlatformAdmin() {
+      return signedIn() && request.auth.token.email == 'nurpro2005@gmail.com';
+    }
+
+    // Новая компания по коду приглашения (SaaS этап 2): в ОДНОЙ пачке с
+    // созданием workspace код помечается использованным этим человеком и этим
+    // workspace; до пачки код был свободен. Id workspace — `ws_{свой uid}_…`:
+    // по нему же Supabase (rows_register_company) узнаёт владельца.
+    function companyInviteClaimedHere(workspaceId) {
+      let code = request.resource.data.get('companyInvite', '');
+      let path = /databases/$(database)/documents/companyInvites/$(code);
+      return code is string
+        && code.matches('^[A-Z2-9]{10}$')
+        && workspaceId.matches('^ws_' + request.auth.uid + '_[a-z0-9]{6,40}$')
+        && exists(path)
+        && get(path).data.get('usedBy', null) == null
+        && get(path).data.get('revoked', false) == false
+        && getAfter(path).data.usedBy == request.auth.uid
+        && getAfter(path).data.workspaceId == workspaceId;
+    }
+
     function isDocOwner(workspaceId) {
       return signedIn() &&
         get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '') == request.auth.uid;
@@ -388,6 +412,26 @@ service cloud.firestore {
     // ---------------------------------------------------------------------
     // Workspaces
     // ---------------------------------------------------------------------
+    // Коды приглашения компаний (SaaS этап 2). Заводит, читает и отзывает
+    // только администратор платформы; копия кода лежит и в Supabase
+    // (platform_invites) — её проверяет регистрация компании там. Вошедший с
+    // кодом помечает его использованным ТОЛЬКО в одной пачке с созданием
+    // своего workspace (existsAfter + ownerId), и только свободный код.
+    match /companyInvites/{code} {
+      allow read, create, delete: if isPlatformAdmin();
+      allow update: if isPlatformAdmin()
+        || (signedIn()
+          && resource.data.get('usedBy', null) == null
+          && resource.data.get('revoked', false) == false
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedBy', 'usedAt', 'workspaceId'])
+          && request.resource.data.usedBy == request.auth.uid
+          && request.resource.data.usedAt is number
+          && request.resource.data.workspaceId is string
+          && existsAfter(/databases/$(database)/documents/workspaces/$(request.resource.data.workspaceId))
+          && getAfter(/databases/$(database)/documents/workspaces/$(request.resource.data.workspaceId)).data.ownerId == request.auth.uid
+          && getAfter(/databases/$(database)/documents/workspaces/$(request.resource.data.workspaceId)).data.get('companyInvite', '') == code);
+    }
+
     match /workspaces/{workspaceId} {
       // Any signed-in user may read the workspace's own top-level doc (name,
       // icon, color, ownerId — nothing sensitive) so the public /join/:id
@@ -395,13 +439,13 @@ service cloud.firestore {
       // Everything under it (members, pages, rows, history) stays gated by
       // isMember()/isOwner() as before.
       allow read: if signedIn();
-      // Only this one account may create new workspaces. Everyone else
-      // must be invited or approved via a /join/:workspaceId request — see
-      // the joinRequests block below. Keep in sync with
+      // Новый workspace (компанию) заводит администратор платформы или любой
+      // вошедший по одноразовому коду приглашения (SaaS этап 2) — остальные
+      // приходят по заявке /join/:workspaceId. Keep in sync with
       // src/utils/adminAccess.ts (WORKSPACE_ADMIN_EMAIL) on the client.
       allow create: if signedIn()
         && request.resource.data.ownerId == request.auth.uid
-        && request.auth.token.email == 'nurpro2005@gmail.com';
+        && (isPlatformAdmin() || companyInviteClaimedHere(workspaceId));
       allow update: if isOwner(workspaceId);
       // Тимлид: every workspace setting, never the ownership itself — и не
       // хранилище строк (rowsBackend/rowsMigrationAt): переключить его без

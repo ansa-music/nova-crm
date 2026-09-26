@@ -29,7 +29,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { FileChartColumn } from "lucide-react";
+import { Building2 as PlatformIcon, FileChartColumn } from "lucide-react";
 import { DESKS_ITEM_KEY, DESK_SHORTCUTS_LIMIT, EXTRA_ROUTE_META, MORE_ITEM_KEY, MORE_SECTION_KEY, pathMatches, pathOnly, type NavChild, type NavItem, type NavSection, type PageMeta } from "@/config/nav";
 import { memberHasRole, rolesLabel, ROLE_LABELS, type Role, type WorkspaceMember, type WorkspacePage } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
@@ -57,6 +57,7 @@ import { subscribeTgInbox, tgInboxPulse, tgUnreadTotal } from "@/services/telegr
 /** Пути разделов страницы «Ещё» — на них в меню горит сам пункт «Ещё». */
 const MORE_PAGE_PATHS = [
   "/reports",
+  "/platform",
   "/os-dispatch",
   "/desk-editing",
   "/people",
@@ -149,6 +150,8 @@ export interface NavInputs {
   myDesk: WorkspacePage | null;
   recentIds: string[];
   pinnedIds: string[];
+  /** Администратор платформы (почта Nurba) — пункт «Платформа». */
+  platformAdmin?: boolean;
 }
 
 /**
@@ -228,6 +231,9 @@ function navGates(inp: NavInputs) {
   // «Правка столов» — кто заполняет столы технарей: только НАСТОЯЩИЙ Owner
   // (режим пишет база только ему — rows_set_desk_mode).
   const showDeskEditingNav = permissions.isResolved && (permissions.actsAsOwner);
+  // «Платформа» — админка продаж (коды компаний, тарифы): только по почте
+  // администратора платформы, как и её права в базе.
+  const showPlatformNav = Boolean(inp.platformAdmin);
 
   // «Где дом» — раньше это считали порознь HomePage и Sidebar. Без своего
   // стола дом — список столов (а не «/»: HomePage сама редиректит на home.to,
@@ -262,6 +268,7 @@ function navGates(inp: NavInputs) {
     showOsDesksNav,
     showOsDispatchNav,
     showDeskEditingNav,
+    showPlatformNav,
     homeTo,
     homeLabel,
     homeIcon,
@@ -400,6 +407,7 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
           badge: g.showOsDispatchNav ? sig.osDispatchUnseen : 0,
         },
         { key: "desk-editing", to: "/desk-editing", label: "Правка столов", icon: PenLine, show: g.showDeskEditingNav },
+        { key: "platform", to: "/platform", label: "Платформа", icon: PlatformIcon, show: g.showPlatformNav },
         { key: "people", to: "/people", label: "Люди", icon: UsersRound },
         { key: "team", to: "/team", label: "Команда", icon: Contact, show: g.showUsersNav },
         { key: "users", to: "/users", label: "Пользователи", icon: Users, show: g.showUsersNav && !g.isTeamlead },
@@ -577,6 +585,7 @@ function missingProvider(): never {
 export function NavModelProvider({ children }: { children: ReactNode }) {
   const { profile } = useAuth();
   const uid = profile?.uid ?? null;
+  const platformAdmin = isWorkspaceAdmin(profile?.email);
   // `pages` из useWorkspace — кэшированный срез (один массив на снимок), так
   // что memo ниже не рвётся на каждый рендер провайдера.
   const { members, allPages, pages, activeWorkspaceId } = useWorkspace();
@@ -607,8 +616,8 @@ export function NavModelProvider({ children }: { children: ReactNode }) {
   const telegramUnread = tgUnreadTotal(useSyncExternalStore(subscribeTgInbox, tgInboxPulse));
 
   const inputs = useMemo<NavInputs>(
-    () => ({ uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds }),
-    [uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds]
+    () => ({ uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds, platformAdmin }),
+    [uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds, platformAdmin]
   );
   const signals = useMemo<NavSignals>(
     () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted, telegramUnread }),

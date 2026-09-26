@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { Building2, Loader2 } from "lucide-react";
 import { JoinRequestForm } from "@/components/members/JoinRequestForm";
 import { JoinAccountBar } from "@/components/members/JoinAccountBar";
@@ -153,6 +153,12 @@ export default function JoinWorkspacePage() {
             {submitError}
           </p>
         )}
+        <p className="text-[12px] text-muted-foreground">
+          Регистрируете свою компанию?{" "}
+          <Link to="/start" className="text-primary underline-offset-2 hover:underline">
+            У меня код приглашения
+          </Link>
+        </p>
         <JoinAccountBar email={profile?.email} onBack={goBack} />
       </div>
     </div>

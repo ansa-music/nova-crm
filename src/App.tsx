@@ -11,7 +11,7 @@ import { useAuthBootstrap } from "@/hooks/useAuth";
 import { useWorkspaceListBootstrap } from "@/hooks/useWorkspace";
 import { useAppBootstrap } from "@/hooks/useAppBootstrap";
 import { wasGoogleRedirectPending } from "@/firebase/auth";
-import { joinPathAfterLogin, rememberJoinIntentFromPath } from "@/utils/joinIntent";
+import { joinPathAfterLogin, rememberCompanyIntentFromLocation, rememberJoinIntentFromPath } from "@/utils/joinIntent";
 import { DISPATCH_ENABLED } from "@/config/features";
 import { SiteStatusBanner } from "@/components/common/SiteStatusBanner";
 import { TableDiagPanel } from "@/components/table/TableDiagPanel";
@@ -40,6 +40,7 @@ import {
   loadOsDesksPage,
   loadOsDispatchPage,
   loadDeskEditingPage,
+  loadPlatformPage,
   loadPeoplePage,
   loadSchedulePage,
   loadSettingsPage,
@@ -78,6 +79,8 @@ const SchedulePage = lazy(loadSchedulePage);
 const WorkspaceChatPage = lazy(loadWorkspaceChatPage);
 const MessagesPage = lazy(loadMessagesPage);
 const JoinWorkspacePage = lazy(() => import("@/pages/JoinWorkspacePage"));
+const StartCompanyPage = lazy(() => import("@/pages/StartCompanyPage"));
+const PlatformPage = lazy(loadPlatformPage);
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
 
 /**
@@ -206,6 +209,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
     // permission-denied and membership false are NOT unauthenticated.
     if (wasGoogleRedirectPending()) return <AppBootScreen phase="auth" />;
     rememberJoinIntentFromPath(location.pathname);
+    rememberCompanyIntentFromLocation(location.pathname, location.search);
     return <Navigate to="/login" state={{ from: location.pathname + location.search }} replace />;
   }
   return <>{children}</>;
@@ -255,6 +259,14 @@ function AppShell() {
             }
           />
           <Route
+            path="/start"
+            element={
+              <RequireAuth>
+                <StartCompanyPage />
+              </RequireAuth>
+            }
+          />
+          <Route
             path="/"
             element={
               <RequireAuth>
@@ -276,6 +288,7 @@ function AppShell() {
             <Route path="os-desks" element={<OsDesksPage />} />
             <Route path="os-dispatch" element={<OsDispatchPage />} />
             <Route path="desk-editing" element={<DeskEditingPage />} />
+            <Route path="platform" element={<PlatformPage />} />
             <Route path="observers" element={<DeskObserversPage />} />
             <Route path="schedule" element={<SchedulePage />} />
             <Route path="overview" element={<Navigate to="/dashboard" replace />} />

@@ -28,6 +28,8 @@ export const loadReportsPage = () => import("@/pages/ReportsPage");
 export const loadTelegramPage = () => import("@/pages/TelegramPage");
 export const loadOsDispatchPage = () => import("@/pages/OsDispatchPage");
 export const loadDeskEditingPage = () => import("@/pages/DeskEditingPage");
+/** «Платформа» — админка продаж, только у администратора платформы. */
+export const loadPlatformPage = () => import("@/pages/PlatformPage");
 export const loadSchedulePage = () => import("@/pages/SchedulePage");
 export const loadWorkspaceChatPage = () => import("@/pages/WorkspaceChatPage");
 export const loadMessagesPage = () => import("@/pages/MessagesPage");
@@ -55,6 +57,7 @@ const ROUTE_LOADERS: Record<string, () => Promise<unknown>> = {
   abs: loadAbsPage,
   "os-dispatch": loadOsDispatchPage,
   "desk-editing": loadDeskEditingPage,
+  platform: loadPlatformPage,
   schedule: loadSchedulePage,
   chat: loadWorkspaceChatPage,
   messages: loadMessagesPage,

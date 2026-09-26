@@ -2354,6 +2354,62 @@ Nurba оставил список «что ещё в Firebase» и порядо�
   регион RUB → ₽/RUB, снят — снова ₸, телефон 375 px). Настоящий Supabase Storage с токеном Firebase из
   сессии не проверялся — поэтому откат на анонимный ключ.
 
+### SaaS этап 2 — регистрация компаний по приглашению и «Платформа» (26.09.2026)
+
+Раньше новый workspace мог завести только Nurba (правило Firestore по почте), строку компании в
+Supabase он вставлял руками, а человек без workspace попадал заявкой в компанию Nurba. Теперь:
+
+- **Администратор платформы** — проверенная почта Nurba: `isWorkspaceAdmin` (`utils/adminAccess.ts`),
+  `isPlatformAdmin()` в firestore.rules, `nova_is_platform_admin()` в Supabase (почта +
+  `email_verified` + токен своего проекта). Адрес в трёх местах — менять все три.
+- **Коды приглашения** — одноразовые, 10 знаков без 0/O/1/I, лежат в ДВУХ местах: `platform_invites`
+  (Supabase, клиенту закрыта, только функции `platform_invite_create/list/revoke`) и
+  `companyInvites/{код}` (Firestore: читает/заводит/отзывает только администратор). Заводит обе записи
+  «Платформа» (`createCompanyInvite`: сначала Supabase — он генерирует код, потом Firestore; не
+  легло в Firestore — код тут же отзывается).
+- **Регистрация** — `/start?code=…` (`pages/StartCompanyPage.tsx`, вне AppLayout, под RequireAuth;
+  код переживает вход через Google — `rememberCompanyIntentFromLocation`/`companyStartPath` в
+  `utils/joinIntent.ts`, он сильнее заявки в чужой workspace, и `NoWorkspaceJoinRedirect` ведёт туда
+  же). `registerCompany` (`services/companyService.ts`): id `ws_{uid}_{12 знаков}` → ОДНА пачка
+  Firestore «workspace + погасить код» (правило `companyInviteClaimedHere`: код свободный и не
+  отозван ДО пачки, `getAfter` — погашен этим uid на этот workspace; `companyInvites` update пускает
+  только эти три поля и только при `existsAfter` своего workspace) → member Owner → профиль →
+  `rows_register_company(ws, code, name)` (DEFINER: id с СВОИМ uid, строки ещё нет, код свободен;
+  заводит `rows_workspaces` live, `trial`/`trial_until` из кода, `seats_limit`, `name`, и Owner в
+  `rows_members`; администратор — без кода, `internal/active`) → только после успеха
+  `rowsBackend: "supabase"` + `primeRowsBackendState` (новой компании перенос строк не нужен) →
+  стартовые столы. Не прошёл Supabase — компания работает на Firestore, как раньше. Регион — из
+  формы (`REGION_PRESETS`: KZ, RU, UZ, KG, BY, TR, AE, USD) в `workspace.region`, копию в Supabase
+  сверяет мост региона. «Создать workspace» у администратора идёт той же `registerCompany(code:
+  null)`. На заявке в workspace — ссылка «У меня код приглашения».
+- **«Платформа»** (`/platform`, `pages/PlatformPage.tsx`, пункт в «Остальном»/«Ещё → Настройки» только у
+  администратора): новый код (для кого, пробный 7/14/30/60 дн., мест) → код и ссылка с
+  «Скопировать»; список компаний (`platform_tenants`: участников / мест, валюта, пробный до,
+  статус) с действиями `platform_set_tenant`: +14/+30 дней пробного, «Оплачено — активна», тариф,
+  предел мест, приостановить / вернуть; своя (`plan: internal`) — только предел мест. Коды: свободен /
+  использован компанией / отозван, «Ссылка», «Отозвать».
+- **Ограничение держит база**: `rows_writable_workspaces()` (теперь живёт в `20261025`) = живое
+  хранилище И `nova_tenant_active(status, trial_until)` — у приостановленной компании и у той, чей
+  пробный кончился, строки столов и всё на этом наборе только читаются. На клиенте —
+  `useTenantInfo` (строка `rows_workspaces`, читает участник; при входе, раз в 30 мин и при
+  возврате) → `TenantBlockedScreen` вместо приложения («Доступ приостановлен» / «Пробный
+  закончился», другие компании человека, выход); администратор платформы проходит. Owner за 7 дней
+  до конца пробного видит `TrialBanner`. «Не знаем» (нет строки в реестре, SQL, сеть) — пускаем.
+  Firestore-записи статусом не ограничены (правилам не видно Supabase) — граница честная.
+- **Пока НЕ сделано**: предел мест не проверяется при одобрении заявки; экран региона и названий ролей
+  для Owner; оплата онлайн; Firestore у всех компаний общий (Spark 50k чтений/сутки на ВСЕХ) — для
+  нескольких платящих компаний нужен Blaze.
+- `nova_schema_version() = '20261025'`, `REQUIRED_SQL_VERSION` тоже. Проверено: SQL на PG16 —
+  `company_signup` 58 (администратор по проверенной почте, коды, регистрация, чужой id/код/повтор,
+  запись закрыта после конца пробного и при приостановке, «оплачено» открывает, W не задет,
+  повторный накат; 4 из 4 мутаций пойманы) и все 28 наборов без регрессий; правила эмулятором — 23
+  (`company.mjs`: только по свободному коду в одной пачке, чужой/использованный/отозванный код,
+  чужой uid в id, чужой ownerId, погасить код без workspace, лишнее поле, двое на один код, коды
+  читает только администратор, чужая почта); стенд nova-fake — код в «Платформе», регистрация
+  новичка по ссылке (компания, код погашен, строки в Supabase, 12 мест, стартовые столы),
+  плашка пробного у Owner, «приостановлена» у технаря, администратор проходит и возвращает,
+  телефон 375 px.
+
 ## Стол ОС — источник заказов (23.09.2026)
 
 Заказ ведёт ОС, а не технарь (просьба Nurba). Технарь свой стол руками больше не заполняет:
@@ -3190,7 +3246,7 @@ Nurba оставил список «что ещё в Firebase» и порядо�
 ## Ключевые пути и инфраструктура
 
 - Локальная копия у Nurba: `C:\Users\nurpr\Documents\Nova\crm-platform`; архивы — `Downloads`
-- GitHub: `https://github.com/ansa-music/nova-crm` (публичный)
+- GitHub: `https://github.com/ansa-music/nova-crm` (публичный; закрыть может только Nurba)
 - Деплой: `https://nurba-6e70d.web.app`, Firebase-проект `nurba-6e70d`, аккаунт `nurpro2005@gmail.com`
 - Supabase: `xoqivqqcmunavuwpsmsd.supabase.co` (URL/anon key в `src/lib/supabase.ts`, фоллбэк на env)
 - CI/CD: `.github/workflows/deploy.yml`, автодеплой на push в `main`:
