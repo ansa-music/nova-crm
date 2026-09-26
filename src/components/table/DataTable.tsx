@@ -121,6 +121,14 @@ import { formatCount, formatCurrency, formatCurrencyCell, formatNumber, download
 import { formatOrderDate } from "@/utils/date";
 import { isSummableColumn, sumNumericCells } from "@/utils/tableAggregates";
 import { isBlankRow, isFilledCellValue } from "@/utils/blankRow";
+import {
+  compareRowsByCreatedAt,
+  compareRowsByEntered,
+  DEFAULT_ROW_ORDER_MODE,
+  isRowOrderMode,
+  sortRowsByEntry,
+  type RowOrderMode,
+} from "@/utils/rowEntryOrder";
 import { clampColumnWidth } from "@/utils/tableLayout";
 import {
   getColumnOptions,
@@ -328,30 +336,31 @@ function readPersistedSortState(viewKey: string): SortState {
   return { colKey: null, direction: null };
 }
 
-/** Ledger key: row creation time. Never updatedAt, never Date.now() fallback. */
-function rowCreatedAtMs(row: PageRow): number {
-  const value = row.createdAt as unknown;
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (value && typeof value === "object") {
-    const ts = value as { toMillis?: () => number; seconds?: number };
-    if (typeof ts.toMillis === "function") {
-      const n = ts.toMillis();
-      if (Number.isFinite(n)) return n;
-    }
-    if (typeof ts.seconds === "number" && Number.isFinite(ts.seconds)) return ts.seconds * 1000;
-  }
-  if (typeof value === "string") {
-    const parsed = Date.parse(value);
-    if (!Number.isNaN(parsed)) return parsed;
-  }
-  if (typeof row.order === "number" && Number.isFinite(row.order)) return row.order;
-  return 0;
+/**
+ * Порядок строк без сортировки по столбцу (utils/rowEntryOrder.ts) — выбор
+ * человека на эту вкладку. Нет записи — «по времени внесения, новые снизу».
+ */
+function orderModeStorageKey(viewKey: string) {
+  return `nova-crm:table-order:${viewKey}`;
 }
 
-function compareRowsByCreatedAt(a: PageRow, b: PageRow): number {
-  const delta = rowCreatedAtMs(a) - rowCreatedAtMs(b);
-  if (delta !== 0) return delta;
-  return a.id.localeCompare(b.id);
+function readPersistedOrderMode(viewKey: string): RowOrderMode {
+  if (typeof window === "undefined") return DEFAULT_ROW_ORDER_MODE;
+  try {
+    const raw = window.localStorage.getItem(orderModeStorageKey(viewKey));
+    return isRowOrderMode(raw) ? raw : DEFAULT_ROW_ORDER_MODE;
+  } catch {
+    return DEFAULT_ROW_ORDER_MODE;
+  }
+}
+
+function writePersistedOrderMode(viewKey: string, mode: RowOrderMode) {
+  try {
+    if (mode === DEFAULT_ROW_ORDER_MODE) window.localStorage.removeItem(orderModeStorageKey(viewKey));
+    else window.localStorage.setItem(orderModeStorageKey(viewKey), mode);
+  } catch {
+    // без хранилища — выбор просто не запомнится
+  }
 }
 
 function rowOrderValue(row: PageRow): number {
@@ -694,6 +703,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const pendingWrites = usePendingCellWrites();
   const [editValue, setEditValue] = useState("");
   const [sortState, setSortState] = useState<SortState>(() => readPersistedSortState(tableViewKey));
+  const [orderMode, setOrderMode] = useState<RowOrderMode>(() => readPersistedOrderMode(tableViewKey));
   const [filters, setFilters] = useState<Record<string, Set<string>>>({});
   const [filterPopover, setFilterPopover] = useState<{ colKey: string; x: number; y: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -905,6 +915,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setRangeAnchor(null);
     setEditingCell(null);
     setSortState(readPersistedSortState(tableViewKey));
+    setOrderMode(readPersistedOrderMode(tableViewKey));
     setFilters({});
     setSearchQuery("");
     setStatusFilter(null);
@@ -1016,7 +1027,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         if (aEmpty && bEmpty) return compareRowsByCreatedAt(a, b);
         const cmp = compareFilledValues(av, bv, col?.type, dir);
         if (cmp !== 0) return cmp;
-        return compareRowsByCreatedAt(a, b);
+        return compareRowsByEntered(a, b);
       });
     } else if (optimisticRowOrder) {
       // Just dropped a row: show the new order until Firestore catches up.
@@ -1024,11 +1035,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       result = [...result].sort(
         (a, b) => (position.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (position.get(b.id) ?? Number.MAX_SAFE_INTEGER) || compareRowsByOrder(a, b)
       );
+    } else if (orderMode === "manual") {
+      result = [...result].sort(compareRowsByOrder);
     } else {
-      result = [...result].sort(manualRowOrder ? compareRowsByOrder : compareRowsByCreatedAt);
+      // По времени внесения в таблицу (слот, заполненный сегодня, — сегодняшний).
+      result = sortRowsByEntry(result, orderMode === "entry-desc");
     }
     return result;
-  }, [rows, columns, searchQuery, sortState, rowPassesFilters, manualRowOrder, optimisticRowOrder]);
+  }, [rows, columns, searchQuery, sortState, rowPassesFilters, orderMode, optimisticRowOrder]);
 
   // Blank rows are free slots, not orders: kept on screen to type into, left
   // out of every count, footer and the kanban board.
@@ -1083,9 +1097,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   // sorted, grouped or filtered view has no well-defined target position.
   // Switching a tab to manual writes the tab doc: subpage docs follow the
   // data right (canEdit), the page doc («Основная») needs canEditStructure.
+  // «Новые сверху» перетаскивать нельзя: место строки там решает время.
+  // «Новые снизу» можно — после броска вкладка у человека уходит в «Вручную».
   const canReorderRows =
     canEdit &&
     !sortState.colKey &&
+    orderMode !== "entry-desc" &&
     !groupByKey &&
     !hasNarrowingFilters &&
     (manualRowOrder || Boolean(subPageId) || canEditStructure);
@@ -1117,7 +1134,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   function firstBlankRow(): PageRow | null {
     const blanks = rows.filter((row) => isBlankRowNow(row) && rowPassesFilters(row, ""));
     if (blanks.length === 0) return null;
-    blanks.sort(!sortState.colKey && manualRowOrder ? compareRowsByOrder : compareRowsByCreatedAt);
+    blanks.sort(!sortState.colKey && orderMode === "manual" ? compareRowsByOrder : compareRowsByCreatedAt);
     return blanks[0];
   }
 
@@ -2471,7 +2488,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     // Position follows what's on screen in the ledger view, and needs a
     // manual order to stick. The ledger alone would have put the new row at
     // the bottom whatever "above"/"below" said.
-    const ordered = [...rows].sort(manualRowOrder ? compareRowsByOrder : compareRowsByCreatedAt);
+    // Порядок — тот, что на экране (по времени внесения или ручной); новой
+    // строке нужен ручной порядок, иначе пустой слот ушёл бы к остальным.
+    const ordered =
+      orderMode === "manual" ? [...rows].sort(compareRowsByOrder) : sortRowsByEntry(rows, orderMode === "entry-desc");
     const idx = ordered.findIndex((r) => r.id === anchorId);
     if (idx < 0 || (!manualRowOrder && !subPageId && !canEditStructure)) {
       await handleAddRow();
@@ -2479,7 +2499,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     }
     let neighbours = ordered;
     const hasDuplicateOrders = new Set(ordered.map(rowOrderValue)).size !== ordered.length;
-    if (!manualRowOrder || hasDuplicateOrders) {
+    if (orderMode !== "manual" || !manualRowOrder || hasDuplicateOrders) {
       const ids = ordered.map((r) => r.id);
       await persistManualOrder(ids);
       neighbours = ordered.map((r, i) => ({ ...r, order: i }));
@@ -2493,6 +2513,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     else order = 0;
     const cells: Record<string, string | number | null> = {};
     columns.forEach((c) => (cells[c.key] = ""));
+    if (orderMode !== "manual") changeOrderMode("manual");
     const newRow = await addRowService(workspaceId, page.id, cells, order);
     pendingScrollRowIdRef.current = newRow.id;
     pushCommand({
@@ -2932,6 +2953,19 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     });
   }
 
+  /** Порядок без столбца: по времени внесения (новые снизу/сверху) или ручной. Сбрасывает сортировку по столбцу. */
+  function changeOrderMode(mode: RowOrderMode) {
+    setOrderMode(mode);
+    writePersistedOrderMode(tableViewKey, mode);
+    setSortState({ colKey: null, direction: null });
+    try {
+      localStorage.removeItem(sortStorageKey(tableViewKey));
+    } catch {
+      // без хранилища — только в памяти
+    }
+    setPageIndex(0);
+  }
+
   function handleSortDirection(colKey: string, direction: "asc" | "desc" | null) {
     const next: SortState = direction ? { colKey, direction } : { colKey: null, direction: null };
     setSortState(next);
@@ -3075,6 +3109,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       setOptimisticRowOrder(reordered);
       try {
         await persistManualOrder(reordered);
+        // Перетащили в «Новые снизу» — дальше у человека ручной порядок.
+        if (orderMode !== "manual") changeOrderMode("manual");
         // Отмена и повтор — тоже полной перенумерацией: между ними мог
         // случиться другой порядок, и частичная запись восстановила бы его
         // лишь наполовину.
@@ -4270,6 +4306,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         focusSearchToken={focusSearchToken}
         groupByKey={groupByKey}
         onGroupByChange={changeGroupBy}
+        orderMode={orderMode}
+        onOrderModeChange={changeOrderMode}
+        canManualOrder={manualRowOrder || orderMode === "manual"}
+        sortState={sortState}
+        onSortColumn={handleSortDirection}
         onCollapseAllGroups={() => setCollapsedGroups(new Set(groups?.entries.map(([label]) => label) ?? []))}
         onExpandAllGroups={() => setCollapsedGroups(new Set())}
         density={density}

@@ -671,8 +671,11 @@ export async function takeOrderToDesk(input: {
   if (blank) {
     const patch: Record<string, string | number | null> = {};
     for (const [key, value] of Object.entries(cells)) if (isFilledCellValue(value)) patch[key] = value;
-    if (subPageId) await updateSubPageRowCellsBulk(workspaceId, page.id, subPageId, blank.id, patch, extras ?? null, true);
-    else await updateRowCellsBulk(workspaceId, page.id, blank.id, patch, extras ?? null, true);
+    // Слот заняли сейчас — время внесения (порядок «новые снизу», дата заказа)
+    // считается от этой минуты, а не от того, когда завели пустую строку.
+    const filledAt = !mine && isBlankRow(blank) ? Date.now() : undefined;
+    if (subPageId) await updateSubPageRowCellsBulk(workspaceId, page.id, subPageId, blank.id, patch, extras ?? null, true, filledAt);
+    else await updateRowCellsBulk(workspaceId, page.id, blank.id, patch, extras ?? null, true, filledAt);
     // Занятый слот тоже метим: «пришло с биржи» видно и через месяц, когда
     // подсветку давно сняли.
     await markRowOrder(workspaceId, page.id, subPageId, blank.id, order.id);

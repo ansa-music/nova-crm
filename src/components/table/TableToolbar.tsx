@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  ArrowDownUp,
+  ArrowDownNarrowWide,
+  ArrowUpNarrowWide,
   Bookmark,
   CalendarDays,
+  GripVertical,
   Check,
   ChevronDown,
   ClipboardList,
@@ -45,6 +49,8 @@ import { PAGE_SIZES, pageSizeLabel } from "@/components/table/TablePagination";
 import { useUiStore } from "@/store/uiStore";
 import { redo, undo, useUndoState } from "@/utils/undoStore";
 import type { PageColumn, StatusOption, TableViewMode } from "@/types";
+import type { SortState } from "@/types/table";
+import { ROW_ORDER_MODE_LABELS, type RowOrderMode } from "@/utils/rowEntryOrder";
 import type { SavedTableView } from "@/utils/savedTableViews";
 import { DATE_PRESET_LABELS, DATE_PRESET_ORDER, type DatePreset } from "@/utils/dateRanges";
 
@@ -58,6 +64,14 @@ interface TableToolbarProps {
   onGroupByChange: (key: string | null) => void;
   onCollapseAllGroups?: () => void;
   onExpandAllGroups?: () => void;
+  /** Порядок строк без сортировки по столбцу (по времени внесения или вручную). */
+  orderMode?: RowOrderMode;
+  onOrderModeChange?: (mode: RowOrderMode) => void;
+  /** На вкладке есть ручной порядок (перетаскивали / вставляли строки). */
+  canManualOrder?: boolean;
+  /** Сортировка по столбцу (перебивает порядок). */
+  sortState?: SortState;
+  onSortColumn?: (colKey: string, direction: "asc" | "desc" | null) => void;
   density: "compact" | "default" | "comfortable";
   onDensityChange: (density: "compact" | "default" | "comfortable") => void;
   onAddRow: () => void;
@@ -144,6 +158,11 @@ export function TableToolbar({
   onGroupByChange,
   onCollapseAllGroups,
   onExpandAllGroups,
+  orderMode,
+  onOrderModeChange,
+  canManualOrder = false,
+  sortState,
+  onSortColumn,
   density,
   onDensityChange,
   onAddRow,
@@ -198,6 +217,18 @@ export function TableToolbar({
   const groupableColumns = columns.filter((c) => !c.hidden);
   const groupColumn = groupByKey ? columns.find((c) => c.key === groupByKey) : undefined;
   const showStatusChips = hasStatusColumn && allStatusOptions.length > 0 && Boolean(onStatusFilterChange);
+  const sortColumn = sortState?.colKey && sortState.direction ? columns.find((c) => c.key === sortState.colKey) : undefined;
+  // Подпись чипа порядка: столбец со стрелкой, иначе «Новые снизу / сверху / Вручную».
+  const orderLabel = sortColumn
+    ? `${sortColumn.label} ${sortState?.direction === "asc" ? "↑" : "↓"}`
+    : orderMode
+      ? ROW_ORDER_MODE_LABELS[orderMode]
+      : "";
+  const sortDirectionHint = (col: PageColumn, dir: "asc" | "desc") => {
+    if (col.type === "date") return dir === "asc" ? "старые сверху" : "новые сверху";
+    if (col.type === "number" || col.type === "currency") return dir === "asc" ? "меньше сверху" : "больше сверху";
+    return dir === "asc" ? "А → Я" : "Я → А";
+  };
 
   const searchExpanded = searchOpen || Boolean(searchQuery);
 
@@ -384,6 +415,93 @@ export function TableToolbar({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={onCollapseAllGroups}>Свернуть все группы</DropdownMenuItem>
                 <DropdownMenuItem onClick={onExpandAllGroups}>Развернуть все группы</DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+
+      {/* Порядок строк — видимый чип (просьба Nurba 26.09.2026): по умолчанию
+          «по времени внесения, новые снизу»; можно «новые сверху», ручной
+          порядок и сортировку по любому столбцу. */}
+      {orderMode && onOrderModeChange && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className={cn(CHIP_CLASS, sortColumn || orderMode !== "entry-asc" ? CHIP_ACTIVE : CHIP_IDLE)}
+              title="Порядок строк"
+            >
+              <span className="hidden sm:inline">Порядок: </span>
+              <ArrowDownUp className="h-3.5 w-3.5 sm:hidden" />
+              <span className="max-w-[140px] truncate">{orderLabel}</span>
+              <ChevronDown className="h-3 w-3 opacity-60" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-64">
+            <DropdownMenuLabel>По времени внесения в таблицу</DropdownMenuLabel>
+            <DropdownMenuItem onClick={() => onOrderModeChange("entry-asc")}>
+              <ArrowDownNarrowWide className="h-3.5 w-3.5" />
+              <span className="flex-1">Новые снизу</span>
+              {!sortColumn && orderMode === "entry-asc" && <Check className="h-3.5 w-3.5" />}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onOrderModeChange("entry-desc")}>
+              <ArrowUpNarrowWide className="h-3.5 w-3.5" />
+              <span className="flex-1">Новые сверху</span>
+              {!sortColumn && orderMode === "entry-desc" && <Check className="h-3.5 w-3.5" />}
+            </DropdownMenuItem>
+            {canManualOrder && (
+              <DropdownMenuItem onClick={() => onOrderModeChange("manual")}>
+                <GripVertical className="h-3.5 w-3.5" />
+                <span className="flex-1">Как расставили вручную</span>
+                {!sortColumn && orderMode === "manual" && <Check className="h-3.5 w-3.5" />}
+              </DropdownMenuItem>
+            )}
+            <p className="px-2 pb-1.5 pt-0.5 text-[11px] leading-snug text-muted-foreground">
+              Время, когда строку заполнили, а не дата в столбце.
+            </p>
+            {onSortColumn && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <ListOrdered className="h-3.5 w-3.5" />
+                    <span className="flex-1">По столбцу</span>
+                    {sortColumn ? <span className="max-w-[90px] truncate text-xs text-muted-foreground">{sortColumn.label}</span> : null}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="max-h-[60vh] w-60 overflow-y-auto">
+                    {columns
+                      .filter((c) => !c.hidden)
+                      .map((c) => {
+                        const active = sortColumn?.key === c.key ? sortState?.direction : null;
+                        return (
+                          <div key={c.id} className="flex items-center gap-1 px-1 py-0.5">
+                            <span className={cn("min-w-0 flex-1 truncate px-1 text-[13px]", active && "font-medium text-primary")}>
+                              {c.label}
+                            </span>
+                            {(["asc", "desc"] as const).map((dir) => (
+                              <DropdownMenuItem
+                                key={dir}
+                                className={cn("h-7 shrink-0 justify-center px-2 text-xs", active === dir && "bg-primary/12 text-primary")}
+                                title={sortDirectionHint(c, dir)}
+                                onClick={() => onSortColumn(c.key, dir)}
+                              >
+                                {dir === "asc" ? "↑" : "↓"}
+                              </DropdownMenuItem>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    {sortColumn && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => onSortColumn(sortColumn.key, null)}>
+                          <X className="h-3.5 w-3.5" /> Без сортировки по столбцу
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
               </>
             )}
           </DropdownMenuContent>
