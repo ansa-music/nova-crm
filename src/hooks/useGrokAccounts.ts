@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { subscribeToGrokAccounts } from "@/services/grokAccountService";
+import { useGrokBackend } from "@/services/grokStore";
 import type { GrokAccount } from "@/types";
 
 /**
@@ -10,6 +11,7 @@ import type { GrokAccount } from "@/types";
 export function useGrokAccounts(workspaceId: string | null) {
   const [accounts, setAccounts] = useState<GrokAccount[]>([]);
   const [isLoading, setIsLoading] = useState(Boolean(workspaceId));
+  const backend = useGrokBackend(workspaceId);
 
   useEffect(() => {
     if (!workspaceId) {
@@ -17,13 +19,18 @@ export function useGrokAccounts(workspaceId: string | null) {
       setIsLoading(false);
       return;
     }
+    if (!backend) return;
     setIsLoading(true);
-    const unsubscribe = subscribeToGrokAccounts(workspaceId, (next) => {
-      setAccounts(next);
-      setIsLoading(false);
-    });
+    const unsubscribe = subscribeToGrokAccounts(
+      workspaceId,
+      (next) => {
+        setAccounts(next);
+        setIsLoading(false);
+      },
+      backend
+    );
     return unsubscribe;
-  }, [workspaceId]);
+  }, [workspaceId, backend]);
 
   return { accounts, isLoading };
 }

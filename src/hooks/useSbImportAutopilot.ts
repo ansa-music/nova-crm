@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { ensureAnnouncementsImported } from "@/services/announcementService";
+import { ensureGrokImported } from "@/services/grokStore";
 
 // Раз на загрузку страницы для workspace. Сбой ждёт следующей загрузки.
 const attempted = new Set<string>();
@@ -18,6 +19,7 @@ export function useSbImportAutopilot() {
   const { activeWorkspaceId, activeWorkspace } = useWorkspace();
   const permissions = usePermissions();
   const lead = permissions.upkeepRetire;
+  const owner = permissions.upkeepOwner;
   const rowsBackend = activeWorkspace?.rowsBackend ?? null;
 
   useEffect(() => {
@@ -31,4 +33,17 @@ export function useSbImportAutopilot() {
       })
       .catch((error) => console.warn("[announcements] перенос в Supabase не удался — повторим при следующей загрузке", error));
   }, [lead, activeWorkspaceId, rowsBackend]);
+
+  // Грок переносит только Owner: закрытые аккаунты целиком читает лишь он.
+  useEffect(() => {
+    if (!owner || !activeWorkspaceId || rowsBackend !== "supabase") return;
+    const key = `${activeWorkspaceId}:grok`;
+    if (attempted.has(key)) return;
+    attempted.add(key);
+    void ensureGrokImported(activeWorkspaceId)
+      .then((n) => {
+        if (n > 0) console.info(`[grok] перенесено в Supabase: ${n}`);
+      })
+      .catch((error) => console.warn("[grok] перенос в Supabase не удался — повторим при следующей загрузке", error));
+  }, [owner, activeWorkspaceId, rowsBackend]);
 }

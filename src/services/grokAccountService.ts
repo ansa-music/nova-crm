@@ -1,4 +1,6 @@
 import { deleteDoc, getDocs, onSnapshot, setDoc } from "firebase/firestore";
+import { commitGrokWrites, grokBackendFor, sbDocsAsSnapshot, watchGrok } from "@/services/grokStore";
+import type { SbBackend } from "@/services/sb/sbCollections";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -84,7 +86,26 @@ export async function fetchGrokAccounts(workspaceId: string): Promise<GrokAccoun
  * unavailable shows up for everyone else looking at the page right away,
  * instead of after up to a minute of polling.
  */
-export function subscribeToGrokAccounts(workspaceId: string, cb: (accounts: GrokAccount[]) => void) {
+export function subscribeToGrokAccounts(
+  workspaceId: string,
+  cb: (accounts: GrokAccount[]) => void,
+  backend: SbBackend = "firestore"
+): () => void {
+  if (backend === "supabase") {
+    let fallback: (() => void) | null = null;
+    const stop = watchGrok(
+      workspaceId,
+      { initial: (q) => q.eq("kind", "account"), match: (d) => d.kind === "account" },
+      (docs) => cb(mapAccounts(sbDocsAsSnapshot(docs))),
+      () => {
+        if (!fallback) fallback = subscribeToGrokAccounts(workspaceId, cb, "firestore");
+      }
+    );
+    return () => {
+      stop();
+      fallback?.();
+    };
+  }
   return onSnapshot(paths.grokAccounts(workspaceId), (snapshot) => {
     cb(mapAccounts(snapshot.docs));
   });
@@ -135,6 +156,10 @@ export async function createGrokAccount(input: CreateGrokAccountInput): Promise<
     createdAt: now,
     createdBy: input.actorUid,
   };
+  if (grokBackendFor(input.workspaceId) === "supabase") {
+    await commitGrokWrites(input.workspaceId, [{ kind: "account", id, op: "set", data: { ...account } }]);
+    return account;
+  }
   await setDoc(paths.grokAccount(input.workspaceId, id), account);
   return account;
 }
@@ -160,14 +185,19 @@ export async function updateGrokAccount(
   actorName: string
 ) {
   if (!db) return;
-  await setDoc(
-    paths.grokAccount(workspaceId, id),
-    { ...patch, updatedByUid: actorUid, updatedByName: actorName, updatedAt: Date.now() },
-    { merge: true }
-  );
+  const data = { ...patch, updatedByUid: actorUid, updatedByName: actorName, updatedAt: Date.now() };
+  if (grokBackendFor(workspaceId) === "supabase") {
+    await commitGrokWrites(workspaceId, [{ kind: "account", id, op: "merge", data }]);
+    return;
+  }
+  await setDoc(paths.grokAccount(workspaceId, id), data, { merge: true });
 }
 
 export async function deleteGrokAccount(workspaceId: string, id: string) {
   if (!db) return;
+  if (grokBackendFor(workspaceId) === "supabase") {
+    await commitGrokWrites(workspaceId, [{ kind: "account", id, op: "delete" }]);
+    return;
+  }
   await deleteDoc(paths.grokAccount(workspaceId, id));
 }

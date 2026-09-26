@@ -33,6 +33,13 @@ export interface DocFeedConfig {
   topic: string;
   /** Ключ коллекции — для памяти «таблицы нет». */
   collection: CollectionKey;
+  /**
+   * RPC «какие строки я вижу» (p_workspace → текст). Нужна, когда строка может
+   * ПРОПАСТЬ из выдачи без правки самой строки (закрыли аккаунт, сменили
+   * управляющих): дельта по rev этого не видит. Голова спрашивается с каждой
+   * дельтой; сменилась — все виды перечитываются заново.
+   */
+  headRpc?: string;
 }
 
 type Filter = (q: ReturnType<typeof baseQuery>) => ReturnType<typeof baseQuery>;
@@ -126,6 +133,8 @@ function startEngine(cfg: DocFeedConfig, workspaceId: string): Engine {
   let ringTimer: ReturnType<typeof setTimeout> | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let pollTick = 0;
+  let lastHead: string | null = null;
+  let resyncing = false;
 
   const engine: Engine = {
     key: `${cfg.table}|${workspaceId}`,
@@ -187,12 +196,50 @@ function startEngine(cfg: DocFeedConfig, workspaceId: string): Engine {
         const rows = (data ?? []) as Row[];
         cursorRev = rows.length >= HEAD_SPAN ? Math.min(...rows.map((r) => Number(r.rev) || 0)) - 1 : 0;
         noteRevs(rows);
+        if (cfg.headRpc) lastHead = await readVisibleHead();
       })();
       headReady.catch(() => {
         headReady = null;
       });
     }
     return headReady;
+  }
+
+  /** Голова видимых строк; сбой или нет функции — null («не знаем»). */
+  async function readVisibleHead(): Promise<string | null> {
+    if (!cfg.headRpc) return null;
+    try {
+      const { data, error } = await supabaseRows.rpc(cfg.headRpc, { p_workspace: workspaceId });
+      if (error) return null;
+      return typeof data === "string" ? data : data == null ? null : String(data);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Перечитать все виды заново: из выдачи могли пропасть строки. */
+  async function resync() {
+    if (resyncing || stopped) return;
+    resyncing = true;
+    try {
+      const fresh = new Map<string, SbDoc>();
+      for (const entry of [...engine.views]) {
+        if (!entry.synced) continue;
+        const { data, error } = await entry.view.initial(baseQuery(cfg.table, workspaceId).eq("deleted", false)).limit(5000);
+        if (stopped) return;
+        if (error) return;
+        for (const row of (data ?? []) as Row[]) {
+          const doc = toDoc(row);
+          fresh.set(docKey(doc.kind, doc.id), doc);
+          noteRevs([row]);
+        }
+      }
+      engine.docs.clear();
+      for (const [key, doc] of fresh) engine.docs.set(key, doc);
+      emitAll(engine);
+    } finally {
+      resyncing = false;
+    }
   }
 
   async function loadView(entry: ViewEntry, attempt = 0) {
@@ -242,6 +289,15 @@ function startEngine(cfg: DocFeedConfig, workspaceId: string): Engine {
       }
       failures = 0;
       if (changed) emitAll(engine);
+      if (cfg.headRpc) {
+        const head = await readVisibleHead();
+        if (stopped) return;
+        if (head !== null) {
+          const moved = lastHead !== null && head !== lastHead;
+          lastHead = head;
+          if (moved) await resync();
+        }
+      }
     } catch (error) {
       if (stopped) return;
       if (isSbMissingError(error)) {

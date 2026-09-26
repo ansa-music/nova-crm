@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getGrokAccountStatus, subscribeToGrokAccounts } from "@/services/grokAccountService";
 import { joinSharedSubscription } from "@/utils/sharedSubscription";
+import { useGrokBackend } from "@/services/grokStore";
 import type { GrokAccount } from "@/types";
 
 export interface GrokPoolSignal {
@@ -21,12 +22,13 @@ export interface GrokPoolSignal {
  */
 export function useGrokPoolSignal(workspaceId: string | null, enabled: boolean): GrokPoolSignal | null {
   const [pool, setPool] = useState<GrokPoolSignal | null>(null);
+  const backend = useGrokBackend(enabled ? workspaceId : null);
   useEffect(() => {
     setPool(null);
-    if (!workspaceId || !enabled) return;
+    if (!workspaceId || !enabled || !backend) return;
     return joinSharedSubscription<GrokAccount[]>(
-      `grok-accounts:${workspaceId}`,
-      (emit) => subscribeToGrokAccounts(workspaceId, emit),
+      `grok-accounts:${workspaceId}:${backend}`,
+      (emit) => subscribeToGrokAccounts(workspaceId, emit, backend),
       (accounts) => {
         const now = Date.now();
         let available = 0;
@@ -34,6 +36,6 @@ export function useGrokPoolSignal(workspaceId: string | null, enabled: boolean):
         setPool({ available, total: accounts.length });
       }
     );
-  }, [workspaceId, enabled]);
+  }, [workspaceId, enabled, backend]);
   return pool;
 }

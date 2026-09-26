@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { subscribeToGrokAppAccounts } from "@/services/grokAppAccountService";
+import { useGrokBackend } from "@/services/grokStore";
 import type { GrokAppAccount, GrokAppProvider } from "@/types/grokAppAccount";
 
 /**
@@ -20,7 +21,8 @@ export function useGrokAppAccounts(
   const [completeKey, setCompleteKey] = useState<string | null>(null);
   const { seesAll, uid } = viewer;
   const managedKey = (viewer.managedProviders ?? []).slice().sort().join(",");
-  const subscriptionKey = `${workspaceId ?? ""}|${seesAll}|${uid}|${managedKey}`;
+  const backend = useGrokBackend(workspaceId);
+  const subscriptionKey = `${workspaceId ?? ""}|${seesAll}|${uid}|${managedKey}|${backend ?? ""}`;
 
   useEffect(() => {
     setCompleteKey(null);
@@ -29,6 +31,7 @@ export function useGrokAppAccounts(
       setIsLoading(false);
       return;
     }
+    if (!backend) return;
     setIsLoading(true);
     const unsubscribe = subscribeToGrokAppAccounts(
       workspaceId,
@@ -37,12 +40,13 @@ export function useGrokAppAccounts(
         setIsLoading(false);
         setCompleteKey(done ? subscriptionKey : null);
       },
-      { seesAll, uid, managedProviders: managedKey ? (managedKey.split(",") as GrokAppProvider[]) : [] }
+      { seesAll, uid, managedProviders: managedKey ? (managedKey.split(",") as GrokAppProvider[]) : [] },
+      backend
     );
     return unsubscribe;
     // subscriptionKey собран из тех же зависимостей.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, seesAll, uid, managedKey]);
+  }, [workspaceId, seesAll, uid, managedKey, backend]);
 
   return { accounts, isLoading, complete: completeKey === subscriptionKey };
 }

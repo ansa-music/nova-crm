@@ -6,6 +6,8 @@ import { isSameLocalDay, normalizeTimestamp } from "@/utils/date";
 import { grokLoginMethodOf, type GrokLoginMethod } from "@/types/grokAccount";
 import type { GrokAppAccount, GrokAppProvider } from "@/types/grokAppAccount";
 import { getGrokAccountStatus, isGrokAccountAvailable, isGrokResetPassed, type GrokAccountStatus } from "@/services/grokAccountService";
+import { commitGrokWrites, grokBackendFor, sbDocsAsSnapshot, watchGrok } from "@/services/grokStore";
+import type { SbBackend } from "@/services/sb/sbCollections";
 
 export { getGrokAccountStatus, isGrokAccountAvailable, isGrokResetPassed };
 export type { GrokAccountStatus };
@@ -63,8 +65,26 @@ function sortAccounts(items: GrokAppAccount[]): GrokAppAccount[] {
 export function subscribeToGrokAppAccounts(
   workspaceId: string,
   cb: (accounts: GrokAppAccount[], complete: boolean) => void,
-  viewer: { seesAll: boolean; uid: string; managedProviders?: GrokAppProvider[] }
-) {
+  viewer: { seesAll: boolean; uid: string; managedProviders?: GrokAppProvider[] },
+  backend: SbBackend = "firestore"
+): () => void {
+  if (backend === "supabase") {
+    // Кому что видно, решает RLS по каждой строке: одна выборка на всех.
+    // Вид отдаёт список только после ответа сервера — он и есть «полный».
+    let fallback: (() => void) | null = null;
+    const stop = watchGrok(
+      workspaceId,
+      { initial: (q) => q.eq("kind", "app"), match: (d) => d.kind === "app" },
+      (docs) => cb(mapAccounts(sbDocsAsSnapshot(docs)), true),
+      () => {
+        if (!fallback) fallback = subscribeToGrokAppAccounts(workspaceId, cb, viewer, "firestore");
+      }
+    );
+    return () => {
+      stop();
+      fallback?.();
+    };
+  }
   if (viewer.seesAll) {
     return onSnapshot(paths.grokAppAccounts(workspaceId), { includeMetadataChanges: true }, (snapshot) => {
       cb(mapAccounts(snapshot.docs), !snapshot.metadata.fromCache);
@@ -120,6 +140,8 @@ export async function backfillGrokAppRestricted(
   actor: { uid: string; name: string }
 ) {
   if (!db) return;
+  // В Supabase поле есть у каждой строки (его ставит сама база).
+  if (grokBackendFor(workspaceId) === "supabase") return;
   const legacy = accounts.filter((a) => a.restricted === undefined);
   if (legacy.length === 0) return;
   const batch = writeBatch(db);
@@ -190,6 +212,10 @@ export async function createGrokAppAccount(input: CreateGrokAppAccountInput): Pr
     createdAt: now,
     createdBy: input.actorUid,
   };
+  if (grokBackendFor(input.workspaceId) === "supabase") {
+    await commitGrokWrites(input.workspaceId, [{ kind: "app", id, op: "set", data: { ...account } }]);
+    return account;
+  }
   await setDoc(paths.grokAppAccount(input.workspaceId, id), account);
   return account;
 }
@@ -218,11 +244,12 @@ export async function updateGrokAppAccount(
   actorName: string
 ) {
   if (!db) return;
-  await setDoc(
-    paths.grokAppAccount(workspaceId, id),
-    { ...patch, updatedByUid: actorUid, updatedByName: actorName, updatedAt: Date.now() },
-    { merge: true }
-  );
+  const data = { ...patch, updatedByUid: actorUid, updatedByName: actorName, updatedAt: Date.now() };
+  if (grokBackendFor(workspaceId) === "supabase") {
+    await commitGrokWrites(workspaceId, [{ kind: "app", id, op: "merge", data }]);
+    return;
+  }
+  await setDoc(paths.grokAppAccount(workspaceId, id), data, { merge: true });
 }
 
 /**
@@ -236,6 +263,14 @@ export async function deleteGrokAppAccount(
   cleanup?: { stub: boolean; requestIds: string[] }
 ) {
   if (!db) return;
+  if (grokBackendFor(workspaceId) === "supabase") {
+    await commitGrokWrites(workspaceId, [
+      { kind: "app", id, op: "delete" },
+      ...(cleanup?.stub ? [{ kind: "stub" as const, id, op: "delete" as const }] : []),
+      ...(cleanup?.requestIds ?? []).map((requestId) => ({ kind: "request" as const, id: requestId, op: "delete" as const })),
+    ]);
+    return;
+  }
   if (!cleanup || (!cleanup.stub && cleanup.requestIds.length === 0)) {
     await deleteDoc(paths.grokAppAccount(workspaceId, id));
     return;

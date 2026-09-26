@@ -28,6 +28,7 @@ import { usePersonName } from "@/hooks/usePersonName";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { deleteGrokAccount, getGrokAccountStatus, updateGrokAccount, type GrokAccountStatus } from "@/services/grokAccountService";
 import { backfillGrokAppRestricted, deleteGrokAppAccount, updateGrokAppAccount } from "@/services/grokAppAccountService";
+import { useGrokBackend } from "@/services/grokStore";
 import {
   deleteGrokAccessRequests,
   managedProvidersOf,
@@ -119,12 +120,13 @@ export default function GrokLimitPage() {
   // раздел: это право страницы, отдельное от ролей (types/grokAccess.ts).
   const seesAll = role === "owner" || role === "teamlead";
   const isOwnerRole = role === "owner";
+  const grokBackend = useGrokBackend(workspaceId);
   const [accessSettings, setAccessSettings] = useState<GrokAccessSettings | null>(null);
   useEffect(() => {
     setAccessSettings(null);
-    if (!workspaceId) return;
-    return subscribeGrokAccessSettings(workspaceId, setAccessSettings, () => setAccessSettings(null));
-  }, [workspaceId]);
+    if (!workspaceId || !grokBackend) return;
+    return subscribeGrokAccessSettings(workspaceId, setAccessSettings, () => setAccessSettings(null), grokBackend);
+  }, [workspaceId, grokBackend]);
   const managedProviders = useMemo(
     () => (isOwnerRole ? [] : managedProvidersOf(accessSettings, uid)),
     [isOwnerRole, accessSettings, uid]
@@ -163,29 +165,30 @@ export default function GrokLimitPage() {
   useEffect(() => {
     setStubs([]);
     setStubsFor(null);
-    if (!workspaceId) return;
+    if (!workspaceId || !grokBackend) return;
     return subscribeGrokAccessStubs(
       workspaceId,
       (next) => {
         setStubs(next);
         setStubsFor(workspaceId);
       },
-      () => setStubsFor(null)
+      () => setStubsFor(null),
+      grokBackend
     );
-  }, [workspaceId]);
+  }, [workspaceId, grokBackend]);
   const [myRequests, setMyRequests] = useState<GrokAccessRequest[]>([]);
   useEffect(() => {
     setMyRequests([]);
-    if (!workspaceId || !uid) return;
-    return subscribeMyGrokAccessRequests(workspaceId, uid, setMyRequests, () => setMyRequests([]));
-  }, [workspaceId, uid]);
+    if (!workspaceId || !uid || !grokBackend) return;
+    return subscribeMyGrokAccessRequests(workspaceId, uid, setMyRequests, () => setMyRequests([]), grokBackend);
+  }, [workspaceId, uid, grokBackend]);
   const [pendingRequests, setPendingRequests] = useState<GrokAccessRequest[]>([]);
   useEffect(() => {
     setPendingRequests([]);
-    if (!workspaceId) return;
+    if (!workspaceId || !grokBackend) return;
     const scope: GrokAppProvider[] | "all" = isOwnerRole ? "all" : managedKey ? (managedKey.split(",") as GrokAppProvider[]) : [];
-    return subscribePendingGrokAccessRequests(workspaceId, scope, setPendingRequests, () => setPendingRequests([]));
-  }, [workspaceId, isOwnerRole, managedKey]);
+    return subscribePendingGrokAccessRequests(workspaceId, scope, setPendingRequests, () => setPendingRequests([]), grokBackend);
+  }, [workspaceId, isOwnerRole, managedKey, grokBackend]);
 
   // Сверка витрины — из сессии того, кто вправе её писать, и только когда
   // список аккаунтов ПОЛНЫЙ (все запросы ответили с сервера): иначе удалилась
