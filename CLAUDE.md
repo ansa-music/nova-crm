@@ -2658,7 +2658,7 @@ Owner (`ensureCoreImported` → `ensureCoreMembersImported`), до неё всё
   `TelegramBackground`). Нет пункта «Заказы» — нижняя панель в 3 кнопки. «Главная» по ролям —
   `nav.home[role]` в `navGates`, только во включённый раздел и туда, куда роли и так можно.
 - **Бренд**: название, знак (1–3 знака для рейки), логотип (`services/brandService.ts`, путь
-  `{ws}/brand/logo-….ext`, ≤ 512 КБ; писать туда — только Owner: `20261029_brand_storage.sql`,
+  `{ws}/brand/logo-….ext`, ≤ 512 КБ; писать туда — только Owner: `20261030_brand_storage.sql`,
   копия `nova_storage_path_ok` + ветка `brand`). Прежний логотип удаляется после сохранения
   нового, несохранённые загрузки — при уходе с экрана.
 - **Шаблон нового стола** (`deskTemplate.columns`) — `CreatePageDialog` вместо `BLANK_COLUMNS`.
