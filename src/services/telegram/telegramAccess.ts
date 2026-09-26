@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { supabaseRows } from "@/lib/supabaseRows";
 import { isSbMissingError } from "@/services/sb/sbCollections";
 
@@ -28,9 +28,11 @@ export interface TelegramAccessState {
   /** SQL 20261011 ещё не накатан. */
   missingSql: boolean;
   error: string | null;
+  /** Когда база последний раз ответила (мс) — автовыход ждёт второго ответа. */
+  checkedAt: number;
 }
 
-const EMPTY: TelegramAccessState = { key: null, loading: false, granted: false, config: null, missingSql: false, error: null };
+const EMPTY: TelegramAccessState = { key: null, loading: false, granted: false, config: null, missingSql: false, error: null, checkedAt: 0 };
 const RECHECK_MS = 5 * 60_000;
 
 let state: TelegramAccessState = EMPTY;
@@ -77,6 +79,7 @@ async function load(workspaceId: string, uid: string, gen: number) {
     config: row ? { apiId: Number(row.api_id), apiHash: row.api_hash } : null,
     missingSql: false,
     error: null,
+    checkedAt: Date.now(),
   });
 }
 
@@ -223,12 +226,28 @@ export function useTelegramRevokeGuard(
       opts.resolved &&
       (!opts.canHaveAccess || (!access.loading && access.key && !access.granted && !access.missingSql && !access.error))
   );
+  // Выход из Telegram — это новый QR-код с телефона, поэтому одному ответу
+  // «доступа нет» не верим: он бывает случайным (копия прав ещё не доехала,
+  // токен не успел). Первый ответ — запоминаем и через 20 с спрашиваем базу
+  // снова; выходим, только если и второй, не раньше чем через 15 с, — «нет».
+  const firstNegativeAt = useRef<number | null>(null);
+  const checkedAt = access.checkedAt;
   useEffect(() => {
-    if (!revoked || !workspaceId || !uid) return;
+    if (!revoked || !workspaceId || !uid) {
+      firstNegativeAt.current = null;
+      return;
+    }
     const mark = readTelegramSessionMark(workspaceId, uid);
     if (!mark) return;
+    if (firstNegativeAt.current === null) firstNegativeAt.current = checkedAt;
+    const waited = checkedAt - firstNegativeAt.current;
+    if (waited < 15_000) {
+      const timer = setTimeout(refreshTelegramAccess, 20_000 - waited);
+      return () => clearTimeout(timer);
+    }
+    firstNegativeAt.current = null;
     void import("@/services/telegram/tgClient")
       .then((m) => m.logOutTelegram({ workspaceId, uid, config: mark, reason: "revoked" }))
       .catch((error) => console.warn("[telegram] автовыход не удался", error));
-  }, [revoked, workspaceId, uid]);
+  }, [revoked, workspaceId, uid, checkedAt]);
 }

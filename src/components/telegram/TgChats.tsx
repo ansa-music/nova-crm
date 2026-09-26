@@ -39,6 +39,19 @@ import {
 } from "@/services/telegram/tgClient";
 import { cn } from "@/utils/cn";
 import { formatMessageWrittenAt } from "@/utils/date";
+import { filterDialogsByLink, TgChatFilterBar, TgOsChip, TgOsLinkButton, type TgChatFilter, type TgLinking } from "@/components/telegram/TgOsLink";
+
+const FILTER_KEY = "nova:tg-chat-filter";
+
+function readFilter(): TgChatFilter {
+  try {
+    const v = window.localStorage.getItem(FILTER_KEY);
+    if (v === "all" || v === "mine" || v === "none" || (v && v.startsWith("os:"))) return v as TgChatFilter;
+  } catch {
+    /* без localStorage — «Все» */
+  }
+  return "all";
+}
 
 export function useTg() {
   return useSyncExternalStore(subscribeTg, tgState);
@@ -102,14 +115,37 @@ function TgAvatar({ dialog, size = 40 }: { dialog: Pick<TgDialog, "id" | "title"
 // Раздел целиком: список чатов слева, переписка справа.
 // ---------------------------------------------------------------------
 
-export function TgChats({ me, chatId, onOpenChat }: { me: TgMe; chatId: number | null; onOpenChat: (id: number | null) => void }) {
+export function TgChats({
+  me,
+  chatId,
+  onOpenChat,
+  linking = null,
+}: {
+  me: TgMe;
+  chatId: number | null;
+  onOpenChat: (id: number | null) => void;
+  /** Привязка чатов к нику ОС; null — SQL ещё не накатан или привязки не прочитаны. */
+  linking?: TgLinking | null;
+}) {
   const tg = useTg();
   const [query, setQuery] = useState("");
-  const dialogs = useMemo(() => {
+  const [filterRaw, setFilterRaw] = useState<TgChatFilter>(readFilter);
+  // «Мои» без своего ника ОС ничего не значат — тогда «Все».
+  const filter: TgChatFilter = !linking || (filterRaw === "mine" && !linking.myOsValue) ? "all" : filterRaw;
+  const setFilter = (next: TgChatFilter) => {
+    setFilterRaw(next);
+    try {
+      window.localStorage.setItem(FILTER_KEY, next);
+    } catch {
+      /* ничего */
+    }
+  };
+  const searched = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return tg.dialogs;
     return tg.dialogs.filter((d) => d.title.toLowerCase().includes(q) || (d.username ?? "").toLowerCase().includes(q));
   }, [tg.dialogs, query]);
+  const dialogs = useMemo(() => filterDialogsByLink(searched, filter, linking), [searched, filter, linking]);
   const open = chatId !== null ? (tg.dialogs.find((d) => d.id === chatId) ?? null) : null;
 
   useEffect(() => {
@@ -125,6 +161,11 @@ export function TgChats({ me, chatId, onOpenChat }: { me: TgMe; chatId: number |
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск чатов" className="h-9 pl-8 text-sm" />
           </div>
+          {linking && (
+            <div className="mt-2">
+              <TgChatFilterBar dialogs={searched} filter={filter} onFilter={setFilter} linking={linking} />
+            </div>
+          )}
         </div>
         <div className="flex-1 overflow-y-auto scrollbar-thin">
           {!tg.dialogsLoaded ? (
@@ -134,7 +175,9 @@ export function TgChats({ me, chatId, onOpenChat }: { me: TgMe; chatId: number |
           ) : tg.dialogsError ? (
             <p className="p-4 text-sm text-destructive">{tg.dialogsError}</p>
           ) : dialogs.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground">{query ? "Ничего не нашлось" : "Чатов пока нет"}</p>
+            <p className="p-4 text-sm text-muted-foreground">
+              {query ? "Ничего не нашлось" : filter === "all" ? "Чатов пока нет" : filter === "none" ? "Все чаты привязаны к ОС" : "Нет чатов с этим ОС"}
+            </p>
           ) : (
             dialogs.map((d) => (
               <button
@@ -146,7 +189,10 @@ export function TgChats({ me, chatId, onOpenChat }: { me: TgMe; chatId: number |
                 <TgAvatar dialog={d} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center justify-between gap-2">
-                    <span className={cn("truncate text-sm", d.unread ? "font-semibold" : "font-medium")}>{d.title}</span>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className={cn("truncate text-sm", d.unread ? "font-semibold" : "font-medium")}>{d.title}</span>
+                      {linking?.links[d.id] && <TgOsChip value={linking.links[d.id].osValue} options={linking.options} className="max-w-[6.5rem] shrink-0" />}
+                    </span>
                     <span className="shrink-0 text-[10px] text-muted-foreground">{d.lastAt ? formatMessageWrittenAt(d.lastAt, { compact: true }) : ""}</span>
                   </span>
                   <span className="flex items-center justify-between gap-2">
@@ -168,7 +214,7 @@ export function TgChats({ me, chatId, onOpenChat }: { me: TgMe; chatId: number |
       </div>
       <div className={cn("min-w-0 flex-1 flex-col", chatId === null ? "hidden md:flex" : "flex")}>
         {open ? (
-          <TgConversation key={open.id} dialog={open} me={me} onBack={() => onOpenChat(null)} />
+          <TgConversation key={open.id} dialog={open} me={me} onBack={() => onOpenChat(null)} linking={linking} />
         ) : chatId !== null && tg.dialogsLoaded ? (
           <EmptyPane text="Чат не найден среди последних" onBack={() => onOpenChat(null)} />
         ) : (
@@ -204,7 +250,7 @@ function ReadMark({ read }: { read: boolean }) {
 // Переписка.
 // ---------------------------------------------------------------------
 
-function TgConversation({ dialog, me, onBack }: { dialog: TgDialog; me: TgMe; onBack: () => void }) {
+function TgConversation({ dialog, me, onBack, linking }: { dialog: TgDialog; me: TgMe; onBack: () => void; linking: TgLinking | null }) {
   const tg = useTg();
   const cache = tg.chats[dialog.id];
   const messages = cache?.messages ?? [];
@@ -300,6 +346,7 @@ function TgConversation({ dialog, me, onBack }: { dialog: TgDialog; me: TgMe; on
           <p className="truncate text-sm font-semibold">{dialog.title}</p>
           <p className="truncate text-[11px] text-muted-foreground">{dialog.username ? `@${dialog.username}` : dialog.isUser ? "личный чат" : "группа или канал"}</p>
         </div>
+        {linking && <TgOsLinkButton dialog={dialog} linking={linking} />}
       </div>
 
       <div ref={scroller} onScroll={onScroll} className="flex-1 overflow-y-auto px-3 py-3 scrollbar-thin sm:px-6">

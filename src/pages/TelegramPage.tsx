@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, LogOut, RefreshCw, Send, ShieldCheck } from "lucide-react";
 import { AccessDenied } from "@/components/common/AccessDenied";
 import { LoadingState } from "@/components/common/LoadingState";
@@ -14,6 +14,8 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useUrlState } from "@/hooks/useUrlState";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { refreshTelegramAccess, useTelegramAccess } from "@/services/telegram/telegramAccess";
+import { setTgChatLink, useTgChatLinks } from "@/services/telegram/tgChatLinks";
+import type { TgLinking } from "@/components/telegram/TgOsLink";
 import { logOutTelegram, openTelegram } from "@/services/telegram/tgClient";
 import { confirmDialog } from "@/utils/appDialog";
 import { cn } from "@/utils/cn";
@@ -27,7 +29,7 @@ import { myDisplayName } from "@/utils/displayName";
  * говорит с серверами Telegram напрямую (services/telegram/tgClient.ts).
  */
 export default function TelegramPage() {
-  const { activeWorkspaceId, members } = useWorkspace();
+  const { activeWorkspaceId, activeWorkspace, members } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
   const uid = profile?.uid ?? null;
@@ -47,6 +49,20 @@ export default function TelegramPage() {
   const chatId = chatParam && /^-?\d+$/.test(chatParam) ? Number(chatParam) : null;
   const deviceName = `Nova · ${myDisplayName(profile, members)}`;
   const config = access.config;
+
+  // Привязка чатов к нику ОС (SQL 20261013): только пока открыт раздел.
+  const chatLinks = useTgChatLinks(activeWorkspaceId, granted);
+  const osOptions = activeWorkspace?.responsibleOptions;
+  const myOsValue = useMemo(() => members.find((m) => m.uid === uid)?.osNickValue ?? null, [members, uid]);
+  const linking = useMemo<TgLinking | null>(() => {
+    if (!activeWorkspaceId || !uid || !chatLinks.loaded || chatLinks.missingSql) return null;
+    return {
+      links: chatLinks.links,
+      options: osOptions ?? [],
+      myOsValue,
+      setLink: (dialog, osValue) => setTgChatLink(activeWorkspaceId, dialog.id, osValue, dialog.title, uid),
+    };
+  }, [activeWorkspaceId, uid, chatLinks.loaded, chatLinks.missingSql, chatLinks.links, osOptions, myOsValue]);
 
   useEffect(() => {
     if (!granted || !config || !activeWorkspaceId || !uid) return;
@@ -142,7 +158,7 @@ export default function TelegramPage() {
       </Pane>
     );
   } else if (tg.auth.kind === "ready" && me) {
-    body = <TgChats me={me} chatId={chatId} onOpenChat={(id) => setChatParam(id === null ? "" : String(id))} />;
+    body = <TgChats me={me} chatId={chatId} onOpenChat={(id) => setChatParam(id === null ? "" : String(id))} linking={linking} />;
   } else {
     body = <TgLogin auth={tg.auth} />;
   }

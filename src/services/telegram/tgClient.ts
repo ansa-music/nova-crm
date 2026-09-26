@@ -239,6 +239,9 @@ async function closeSession() {
 function onSignedIn(me: TgMe) {
   if (!session) return;
   writeTelegramSessionMark(session.workspaceId, session.uid, session.config);
+  // Ключ входа живёт в IndexedDB: просим браузер не вычищать его при нехватке
+  // места, иначе человеку пришлось бы снова сканировать QR.
+  void navigator.storage?.persist?.().catch(() => false);
   set({ auth: { kind: "ready", me } });
   void loadDialogs();
 }

@@ -14,7 +14,7 @@ import { isSbMissingError } from "@/services/sb/sbCollections";
  */
 
 /** Самый свежий SQL, без которого эта сборка работает не целиком. */
-export const REQUIRED_SQL_VERSION = "20261012";
+export const REQUIRED_SQL_VERSION = "20261013";
 
 export type SchemaVersionState = "unknown" | "ok" | "old";
 
