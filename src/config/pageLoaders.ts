@@ -24,6 +24,8 @@ export const loadOsDeskPage = () => import("@/pages/OsDeskPage");
 export const loadOsDesksPage = () => import("@/pages/OsDesksPage");
 export const loadAbsPage = () => import("@/pages/AbsPage");
 export const loadReportsPage = () => import("@/pages/ReportsPage");
+/** Раздел «Telegram» тянет библиотеку mtcute — в фоновую предзагрузку меню его не ставим. */
+export const loadTelegramPage = () => import("@/pages/TelegramPage");
 export const loadOsDispatchPage = () => import("@/pages/OsDispatchPage");
 export const loadDeskEditingPage = () => import("@/pages/DeskEditingPage");
 export const loadSchedulePage = () => import("@/pages/SchedulePage");
@@ -56,6 +58,7 @@ const ROUTE_LOADERS: Record<string, () => Promise<unknown>> = {
   schedule: loadSchedulePage,
   chat: loadWorkspaceChatPage,
   messages: loadMessagesPage,
+  telegram: loadTelegramPage,
 };
 
 /** Какие chunk'и уже просили — наведение повторяется десятки раз за минуту. */

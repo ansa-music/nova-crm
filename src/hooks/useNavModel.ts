@@ -21,6 +21,7 @@ import {
   Plus,
   RefreshCw,
   ScanEye,
+  Send,
   Settings,
   Table2,
   Trophy,
@@ -50,6 +51,7 @@ import { osDispatchLogState, subscribeOsDispatchLogState } from "@/services/osDi
 import { openOrdersState, subscribeOpenOrdersState } from "@/services/openOrdersPulse";
 import { useGrokPoolSignal } from "@/hooks/useGrokPoolSignal";
 import { useOsPendingOrderRequests } from "@/hooks/useOsPendingOrderRequests";
+import { useTelegramAccess, useTelegramRevokeGuard } from "@/services/telegram/telegramAccess";
 
 /** Пути разделов страницы «Ещё» — на них в меню горит сам пункт «Ещё». */
 const MORE_PAGE_PATHS = [
@@ -163,6 +165,8 @@ export interface NavSignals {
   deskAlerts: string[];
   /** Аккаунты Грока: сколько доступно из скольких (null — ещё не читали). */
   grokPool: { available: number; total: number } | null;
+  /** Owner открыл мне раздел «Telegram» (и я ОС). */
+  telegramGranted: boolean;
 }
 
 const NO_SIGNALS: NavSignals = {
@@ -174,6 +178,7 @@ const NO_SIGNALS: NavSignals = {
   openOrdersCount: 0,
   deskAlerts: [],
   grokPool: null,
+  telegramGranted: false,
 };
 
 function deskChild(page: WorkspacePage): NavChild {
@@ -322,6 +327,9 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
         },
         { key: "technicians", to: "/technicians", label: "Технари", icon: HardHat, show: g.showTechniciansNav },
         { key: "os-desks", to: "/os-desks", label: "Столы ОС", icon: ScanEye, show: g.showOsDesksNav },
+        // «Telegram» — рабочий аккаунт прямо в Nova (26.09.2026): пока только
+        // у ОС, которым Owner открыл раздел.
+        { key: "telegram", to: "/telegram", label: "Telegram", icon: Send, show: sig.telegramGranted },
         { key: "grok", to: "/grok-limit", label: "Грок лимит", icon: KeyRound, show: g.showGrokNav, hint: grokHint, emphasis: true },
         // Чат — ОДИН пункт (просьба Nurba 25.09.2026: «чат в быстром доступе,
         // одна страница, внутри переключиться на общий и личный»): горит и на
@@ -380,6 +388,14 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
           badge: g.showOsDispatchNav ? sig.osDispatchUnseen : 0,
         },
         { key: "desk-editing", to: "/desk-editing", label: "Правка столов", icon: PenLine, show: g.showDeskEditingNav },
+        // Owner без доступа сам — управляет им отсюда («Доступ и ключи» на странице).
+        {
+          key: "telegram-admin",
+          to: "/telegram",
+          label: "Telegram",
+          icon: Send,
+          show: inp.permissions.isResolved && inp.permissions.actsAsOwner && !sig.telegramGranted,
+        },
         { key: "people", to: "/people", label: "Люди", icon: UsersRound },
         { key: "team", to: "/team", label: "Команда", icon: Contact, show: g.showUsersNav },
         { key: "users", to: "/users", label: "Пользователи", icon: Users, show: g.showUsersNav && !g.isTeamlead },
@@ -578,14 +594,19 @@ export function NavModelProvider({ children }: { children: ReactNode }) {
     permissions.isResolved && permissions.hasRole("os")
   ).requests.length;
   const grokPool = useGrokPoolSignal(activeWorkspaceId, permissions.isResolved && !permissions.roles.every((r) => r === "os"));
+  // Раздел «Telegram»: допустить можно только ОС; Owner смотрит, чтобы управлять.
+  const canHaveTelegram = permissions.isResolved && permissions.hasRole("os");
+  const telegramAccess = useTelegramAccess(activeWorkspaceId, uid, permissions.isResolved && (canHaveTelegram || permissions.actsAsOwner));
+  useTelegramRevokeGuard(activeWorkspaceId, uid, telegramAccess, { resolved: permissions.isResolved, canHaveAccess: canHaveTelegram });
+  const telegramGranted = canHaveTelegram && telegramAccess.granted;
 
   const inputs = useMemo<NavInputs>(
     () => ({ uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds }),
     [uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds]
   );
   const signals = useMemo<NavSignals>(
-    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool }),
-    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool]
+    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted }),
+    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted]
   );
   const pageMeta = useMemo(() => buildPageMeta(inputs), [inputs]);
   const model = useMemo(() => buildNavModel(inputs, signals, pageMeta), [inputs, signals, pageMeta]);

@@ -44,6 +44,7 @@ import {
   loadSchedulePage,
   loadSettingsPage,
   loadTeamPage,
+  loadTelegramPage,
   loadTechniciansPage,
   loadUsersPage,
   loadWorkspaceChatPage,
@@ -68,6 +69,7 @@ const OsDeskPage = lazy(loadOsDeskPage);
 const OsDesksPage = lazy(loadOsDesksPage);
 const AbsPage = lazy(loadAbsPage);
 const ReportsPage = lazy(loadReportsPage);
+const TelegramPage = lazy(loadTelegramPage);
 const OsDispatchPage = lazy(loadOsDispatchPage);
 const DeskEditingPage = lazy(loadDeskEditingPage);
 // Скрытая страница Owner: в меню и поиске её нет, только прямой адрес.
@@ -264,6 +266,7 @@ function AppShell() {
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="abs" element={<AbsPage />} />
             <Route path="reports" element={<ReportsPage />} />
+            <Route path="telegram" element={<TelegramPage />} />
             <Route path="desks" element={<DesksPage />} />
             <Route path="more" element={<MorePage />} />
             <Route path="people" element={<PeoplePage />} />

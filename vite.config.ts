@@ -12,6 +12,11 @@ export default defineConfig({
   server: {
     port: 5173,
   },
+  // mtcute (раздел «Telegram») грузит свой WASM по `new URL(…, import.meta.url)`:
+  // предсборка зависимостей в dev ломает этот путь. Сборку это не трогает.
+  optimizeDeps: {
+    exclude: ["@mtcute/wasm"],
+  },
   build: {
     rollupOptions: {
       output: {
