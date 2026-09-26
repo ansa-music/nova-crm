@@ -1,7 +1,6 @@
-import { updateDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths } from "@/firebase/firestore";
 import { supabaseRows } from "@/lib/supabaseRows";
+import { writePageDoc } from "@/services/pageService";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import type { WorkspacePage } from "@/types";
 
@@ -27,7 +26,7 @@ export async function setDeskTechEditable(workspaceId: string, pageId: string, o
       throw new Error(`Supabase не сохранил: ${error.message}`);
     }
   }
-  await updateDoc(paths.page(workspaceId, pageId), { techEditable: on, updatedAt: Date.now() });
+  await writePageDoc(workspaceId, pageId, { techEditable: on, updatedAt: Date.now() });
 }
 
 /**

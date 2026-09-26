@@ -13,6 +13,7 @@ import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { DESK_ROWS_TABLE, supabaseRows } from "@/lib/supabaseRows";
 import { fetchPagesFresh, stripUndefined } from "@/services/pageService";
+import { fetchSubPages } from "@/services/subPageService";
 import { fetchDeskObserverUidsFresh } from "@/services/deskObserverService";
 import { fetchMembersFresh } from "@/services/memberService";
 import { syncRowAcl, type AclSyncReport } from "@/services/rows/rowAclService";
@@ -114,9 +115,10 @@ async function listTables(workspaceId: string, pages: readonly WorkspacePage[]):
   const tables: TableRef[] = [];
   for (const page of pages) {
     tables.push({ page, tabId: null, tabName: "Основная" });
-    const subs = await getDocsFromServer(paths.subPages(workspaceId, page.id));
-    for (const d of subs.docs) {
-      const name = typeof d.data().name === "string" ? (d.data().name as string) : d.id;
+    // Вкладки — из того хранилища, где они сейчас (Supabase после переезда ядра).
+    const subs = await fetchSubPages(workspaceId, page.id);
+    for (const d of subs) {
+      const name = typeof d.name === "string" ? d.name : d.id;
       tables.push({ page, tabId: d.id, tabName: name });
     }
   }

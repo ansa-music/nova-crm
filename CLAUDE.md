@@ -2452,6 +2452,79 @@ Supabase он вставлял руками, а человек без workspace 
   сам → компания заведена с регионом KG и код погашен; лендинг, «Настройки → Компания» (регион
   пишется, подписка «10 из 18»), «Пользователи» с полным пределом; телефон 375 px.
 
+### Ядро в Supabase, этап A — столы и вкладки (27.09.2026)
+
+Просьба Nurba: «все в супабасе» (после совета купить Blaze: Firestore у всех компаний общий).
+Этап A переносит столы (`pages`) и вкладки (`subpages`) — самые читаемые документы; участники и
+документ workspace остаются в Firestore (на них держатся все прочие правила) — этап B.
+
+- **SQL `20261029_core_docs.sql`** (накатывает деплой): таблица `core_docs(workspace_id, kind
+  page|subpage|meta, parent_id, id, data jsonb, deleted, rev, server_at)`, ключ — все четыре
+  (вкладки `month-2026-09` одинаковы у всех столов). Чтение (RLS): стол и отметку — участник (как
+  нефильтрованный список Firestore), вкладку — `rows_read_all_workspaces` или стол из
+  `rows_readable_pages` (те же наборы, что у строк; Тимлид без Технаря вкладки не видит). Прямой
+  записи нет — только `core_write(ws, ops[])` пачкой одной транзакцией (`merge|set|create|delete`,
+  `{"$del":true}` = deleteField; `create` отдаёт существующий документ вместо ошибки — так заводят
+  месячную вкладку два клиента разом): права — копия правил `pages`/`subpages` через
+  `nova_changed_keys` (affectedKeys): Owner — всё; ответственный правит свой стол, кроме
+  `responsibleUserId/createdBy/workspaceId/inactive*/osDesk/techEditable`; Тимлид — только доступ
+  и «неактуальные», стол ОС не переназначает; Admin — только переназначение (не стол ОС);
+  создание — Owner любое, ОС только свой `osdesk_{uid}`, Admin за себя, технарь за себя и **один
+  живой стол** (квота считается в базе, ошибка 42501 → «Достигнут лимит»); удаление стола — Owner,
+  вкладки помечаются удалёнными той же транзакцией и **возвращаются в ответе** (вкладка, которая
+  удаляла, убирает их сразу); вкладку правит/удаляет тот, кто правит стол (`rows_editable_pages`),
+  не-Owner не меняет `pageId/workspaceId/createdBy/personal*`. **Копию прав `rows_page_acl` ведёт
+  триггер `core_docs_30_acl`** по документу стола (ответственный, создатель, `allowedUsers`,
+  `editableUsers`, `osDesk`, карта `osFieldKeys` → `os_keys_tab/os_key/os_status_key`,
+  `personalZoneAllowedUsers`); клиентская сверка `useRowAclSync` остаётся страховкой, а
+  `mirrorPageAcl`/`ensureNewDeskAcl`/`deletePageAcl` в режиме Supabase не зовутся. Перенос —
+  `core_import(ws, docs, 'imported_page', done)` только Owner: новые ложатся, существующие
+  заменяются только более свежими по `updatedAt`, удалённые в Supabase не воскрешаются; отметка
+  `meta/imported_page` (`at` — перенос, `tailAt` — последняя дочитка). `nova_schema_version() =
+  '20261029'`, `REQUIRED_SQL_VERSION` тоже.
+- **Клиент — `services/coreStore.ts`** на общем `docStore`/`docFeed` (ключ `core` в
+  `sbCollections`, таблица `core_docs`, тема звонка `nova:{ws}:core`). `docFeed` получил
+  `withParent`: `parent_id` читается и входит в ключ памяти движка (`SbDoc.parent`) — иначе вкладки
+  разных столов с одним id затирали бы друг друга; `peekSbDoc(..., parent)`; ответ RPC несёт
+  `page` → `parent`. `docStore.watchBackend` — то же, что `useBackend`, но вне React: подписки
+  `subscribeToPages`/`subscribeToSubPages` сами переезжают, когда отметка появилась (раз в минуту
+  спрашивают её на видимой вкладке) или таблица пропала; хуки `useWorkspace`/`useSubPages` не
+  менялись. Пока отметки нет — ВСЕ читают и пишут Firestore, как раньше. Переносит сессия Owner
+  (`useSbImportAutopilot` → `ensureCoreImported`: все столы и их вкладки, чанками по 200; трое
+  суток после — дочитка правок вкладок на старом коде по `updatedAt > tailAt − 10 мин`).
+- **Записи — один путь на оба хранилища**: `writePageDoc(ws, page, patch)` /
+  `writeSubPageDoc` в `pageService`/`subPageService` (в патче `SB_DEL` вместо `deleteField()`,
+  для Firestore переводит `toFirestoreData`), `createPageDoc`, `fetchPageDoc`, `fetchSubPage`;
+  все прежние функции (rename, cover, columns, раскладка, доступ, ответственный, видимость,
+  «Доступ ко всем», неактуальные, порядок, дубликат, удаление, вкладки: create/rename/columns/
+  archive/delete/reorder/duplicate/rowOrder) идут через них; в Supabase правки оптимистичные
+  (`commit({ optimistic })`). Переведены и остальные читатели/писатели документов: `monthTabService`
+  (`create` вместо транзакции, `markMonthTab`), `managerPageQuota` (сначала `core_write set`, потом
+  тень + claim в Firestore best-effort), `osDeskService.ensureOsDesk`, `rows/osExempt`,
+  `deskLoadService` и `useMultiPageSubPages` (`fetchSubPage`), `backupService`,
+  `pageSnapshotService` (снимок и возврат стола/вкладки), `rowsMigrationService` (список вкладок),
+  `memberService` (столы технаря при смене роли), `fetchPagesFresh`, `fetchPageIfAccessible`.
+- **Тень стола в Firestore** остаётся: при создании — полный документ, при правке — только поля
+  доступа (`SHADOW_KEYS`: allowed/editable/responsible/hidden/personalZone/osDesk/createdBy/
+  inactive*/techEditable/technicianDesk/name), best-effort с предупреждением в консоль. Их читают
+  правила остальных коллекций Firestore (`canAccessPage` у запросов на просмотр, наблюдателей,
+  счётчиков в Firestore-режиме, `managerPageClaims`, `personalZones`). Столбцы, обложка, карта
+  `osFieldKeys` в тень не пишутся. Вкладки тени не имеют. **Границы**: выключатель Owner
+  `sbCollections.core = "firestore"` и откат строк в Firestore вернут чтение к тени — имена/доступ
+  верные, столбцы и вкладки — на момент переноса (обратного переноса нет, как у графика);
+  `SupabaseCollectionsPanel` показывает ключ «Столы и вкладки (ядро)». Стенд nova-fake отвечает на
+  `core_docs` PGRST205 — там всё идёт по Firestore.
+- Проверено: SQL на PG16 — `core_docs` 72 (перенос только Owner и только более свежее, копия прав
+  триггером, чтение по ролям, все ветки прав `core_write`, квота технаря, каскад удаления с ответом,
+  приостановленная компания, повторный накат) и все 30 наборов после двойного наката без регрессий;
+  55 проверок настоящего кода на стенде `p3unit/test3` (поддельные PostgREST/Realtime/Firestore):
+  Firestore-режим как раньше (в т. ч. `SB_DEL → deleteField`), «нет таблицы», перенос и дочитка,
+  Supabase: вкладки одного id у разных столов не смешиваются, merge/SB_DEL/тень/create/порядок/
+  удаление с каскадом, чужая правка по звонку, переезд подписки на лету, выключатель Owner; стенд
+  nova-fake (Firestore-режим): «Столы», стол с месячными вкладками, автопилот и «Октябрь» пишут
+  прежние документы, отказов нет. **Не сделано**: этап B (участники, workspace, joinRequests,
+  viewRequests, observers, managerPageClaims), после которого Firestore останется только входом.
+
 ## Стол ОС — источник заказов (23.09.2026)
 
 Заказ ведёт ОС, а не технарь (просьба Nurba). Технарь свой стол руками больше не заполняет:

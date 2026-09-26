@@ -1,8 +1,6 @@
-import { getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
-import { ensureNewDeskAcl, stripUndefined, updatePageColumns, updatePageMainTab } from "@/services/pageService";
+import { createPageDoc, ensureNewDeskAcl, fetchPageDoc, stripUndefined, updatePageColumns, updatePageMainTab } from "@/services/pageService";
 import { ensureMonthTab } from "@/services/monthTabService";
 import { currentPeriodKeyOf, periodSettingsOf } from "@/services/periodService";
 import { periodLabel } from "@/utils/periods";
@@ -326,9 +324,8 @@ interface EnsureOsDeskInput {
 export async function ensureOsDesk({ workspaceId, uid, name }: EnsureOsDeskInput): Promise<WorkspacePage> {
   if (!db) throw new Error("Firebase не настроен");
   const id = osDeskId(uid);
-  const ref = paths.page(workspaceId, id);
-  const existing = await getDoc(ref);
-  if (existing.exists()) return { id, ...existing.data() } as WorkspacePage;
+  const existing = await fetchPageDoc(workspaceId, id);
+  if (existing) return existing;
 
   const now = Date.now();
   const page: WorkspacePage = {
@@ -357,7 +354,7 @@ export async function ensureOsDesk({ workspaceId, uid, name }: EnsureOsDeskInput
     updatedAt: now,
     createdBy: uid,
   };
-  await setDoc(ref, stripUndefined(page));
+  await createPageDoc(workspaceId, page);
   await ensureNewDeskAcl(workspaceId, page);
   return page;
 }

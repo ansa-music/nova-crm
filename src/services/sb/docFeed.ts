@@ -25,6 +25,12 @@ export interface SbDoc {
   data: Record<string, unknown>;
   deleted: boolean;
   rev: number;
+  /**
+   * Родитель документа (`parent_id`) — у таблиц с `withParent`: вкладки столов
+   * зовутся одинаково у разных столов (`month-2026-09`), и без родителя в ключе
+   * они затирали бы друг друга в памяти движка. У остальных таблиц — нет.
+   */
+  parent?: string;
 }
 
 export interface DocFeedConfig {
@@ -40,6 +46,8 @@ export interface DocFeedConfig {
    * дельтой; сменилась — все виды перечитываются заново.
    */
   headRpc?: string;
+  /** Читать и держать в ключе `parent_id` (см. SbDoc.parent). */
+  withParent?: boolean;
 }
 
 type Filter = (q: ReturnType<typeof baseQuery>) => ReturnType<typeof baseQuery>;
@@ -72,6 +80,7 @@ interface Engine {
 }
 
 const COLUMNS = "kind,id,data,deleted,rev,server_at";
+const COLUMNS_WITH_PARENT = "kind,id,parent_id,data,deleted,rev,server_at";
 const RING_SETTLE_MS = 250;
 const POLL_MS = 30_000;
 const HIDDEN_POLL_EVERY = 4;
@@ -83,25 +92,30 @@ const LINGER_MS = 60_000;
 
 const engines = new Map<string, Engine>();
 
-function baseQuery(table: string, workspaceId: string) {
-  return supabaseRows.from(table).select(COLUMNS).eq("workspace_id", workspaceId);
+function baseQuery(table: string, workspaceId: string, withParent = false) {
+  // Один тип построителя на оба набора столбцов: строки всё равно разбираются как Row.
+  const columns = (withParent ? COLUMNS_WITH_PARENT : COLUMNS) as unknown as typeof COLUMNS;
+  return supabaseRows.from(table).select(columns).eq("workspace_id", workspaceId);
 }
 
-function docKey(kind: string, id: string) {
-  return `${kind}/${id}`;
+function docKey(kind: string, id: string, parent?: string) {
+  return `${kind}/${parent ?? ""}/${id}`;
 }
 
 interface Row {
   kind: string;
   id: string;
+  parent_id?: string | null;
   data: Record<string, unknown> | null;
   deleted: boolean;
   rev: number | string;
   server_at?: string;
 }
 
-function toDoc(row: Row): SbDoc {
-  return { kind: row.kind, id: row.id, data: row.data ?? {}, deleted: Boolean(row.deleted), rev: Number(row.rev) || 0 };
+function toDoc(row: Row, withParent = false): SbDoc {
+  const doc: SbDoc = { kind: row.kind, id: row.id, data: row.data ?? {}, deleted: Boolean(row.deleted), rev: Number(row.rev) || 0 };
+  if (withParent) doc.parent = row.parent_id ?? "";
+  return doc;
 }
 
 function sbFail(error: { code?: string; message?: string }): Error {
@@ -168,8 +182,8 @@ function startEngine(cfg: DocFeedConfig, workspaceId: string): Engine {
   }
 
   function take(row: Row): boolean {
-    const doc = toDoc(row);
-    const key = docKey(doc.kind, doc.id);
+    const doc = toDoc(row, cfg.withParent);
+    const key = docKey(doc.kind, doc.id, doc.parent);
     const known = engine.docs.get(key);
     if (known && known.rev >= doc.rev) return false;
     engine.docs.set(key, doc);
@@ -225,12 +239,12 @@ function startEngine(cfg: DocFeedConfig, workspaceId: string): Engine {
       const fresh = new Map<string, SbDoc>();
       for (const entry of [...engine.views]) {
         if (!entry.synced) continue;
-        const { data, error } = await entry.view.initial(baseQuery(cfg.table, workspaceId).eq("deleted", false)).limit(5000);
+        const { data, error } = await entry.view.initial(baseQuery(cfg.table, workspaceId, cfg.withParent).eq("deleted", false)).limit(5000);
         if (stopped) return;
         if (error) return;
         for (const row of (data ?? []) as Row[]) {
-          const doc = toDoc(row);
-          fresh.set(docKey(doc.kind, doc.id), doc);
+          const doc = toDoc(row, cfg.withParent);
+          fresh.set(docKey(doc.kind, doc.id, doc.parent), doc);
           noteRevs([row]);
         }
       }
@@ -246,7 +260,7 @@ function startEngine(cfg: DocFeedConfig, workspaceId: string): Engine {
     if (stopped || engine.missing) return;
     try {
       await ensureHead();
-      const { data, error } = await entry.view.initial(baseQuery(cfg.table, workspaceId).eq("deleted", false)).limit(5000);
+      const { data, error } = await entry.view.initial(baseQuery(cfg.table, workspaceId, cfg.withParent).eq("deleted", false)).limit(5000);
       if (stopped || !engine.views.has(entry)) return;
       if (error) throw error;
       for (const row of (data ?? []) as Row[]) take(row);
@@ -276,7 +290,7 @@ function startEngine(cfg: DocFeedConfig, workspaceId: string): Engine {
       let changed = false;
       const after = cursor();
       for (let from = 0; ; from += DELTA_PAGE) {
-        const { data, error } = await baseQuery(cfg.table, workspaceId)
+        const { data, error } = await baseQuery(cfg.table, workspaceId, cfg.withParent)
           .gt("rev", after)
           .order("rev", { ascending: true })
           .range(from, from + DELTA_PAGE - 1);
@@ -404,7 +418,7 @@ export function applySbDocs(
   if (engine) {
     let changed = false;
     for (const doc of docs) {
-      const key = docKey(doc.kind, doc.id);
+      const key = docKey(doc.kind, doc.id, cfg.withParent ? (doc.parent ?? "") : undefined);
       const known = engine.docs.get(key);
       if (!opts.force && known && known.rev >= doc.rev) continue;
       engine.docs.set(key, doc);
@@ -415,14 +429,14 @@ export function applySbDocs(
   if (opts.ring !== false) ringTopic(`nova:${workspaceId}:${cfg.topic}`);
 }
 
-/** Что сейчас лежит в памяти потока (или null). */
-export function peekSbDoc(cfg: DocFeedConfig, workspaceId: string, kind: string, id: string): SbDoc | null {
-  return engines.get(`${cfg.table}|${workspaceId}`)?.docs.get(docKey(kind, id)) ?? null;
+/** Что сейчас лежит в памяти потока (или null). `parent` — у таблиц с `withParent`. */
+export function peekSbDoc(cfg: DocFeedConfig, workspaceId: string, kind: string, id: string, parent?: string): SbDoc | null {
+  return engines.get(`${cfg.table}|${workspaceId}`)?.docs.get(docKey(kind, id, cfg.withParent ? (parent ?? "") : undefined)) ?? null;
 }
 
 /** Разовая выборка с сервера (мимо памяти движка): решения «по свежему». */
 export async function fetchSbDocs(cfg: DocFeedConfig, workspaceId: string, filter: Filter): Promise<SbDoc[] | null> {
-  const { data, error } = await filter(baseQuery(cfg.table, workspaceId).eq("deleted", false)).limit(5000);
+  const { data, error } = await filter(baseQuery(cfg.table, workspaceId, cfg.withParent).eq("deleted", false)).limit(5000);
   if (error) {
     if (isSbMissingError(error)) {
       markSbTableMissing(cfg.collection);
@@ -430,7 +444,8 @@ export async function fetchSbDocs(cfg: DocFeedConfig, workspaceId: string, filte
     }
     throw sbFail(error);
   }
-  return ((data ?? []) as Row[]).map(toDoc);
+  markSbTablePresent(cfg.collection);
+  return ((data ?? []) as Row[]).map((row) => toDoc(row, cfg.withParent));
 }
 
 /** Для проверок. */

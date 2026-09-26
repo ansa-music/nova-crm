@@ -35,6 +35,20 @@ import {
   sbSetOrder,
   sbSubscribeRows,
 } from "@/services/rows/supabaseRowStore";
+import { SB_DEL, toFirestoreData } from "@/services/sb/docStore";
+import type { SbBackend } from "@/services/sb/sbCollections";
+import {
+  PAGES_VIEW,
+  SHADOW_KEYS,
+  commitCore,
+  corePagesBackendFor,
+  docToPage,
+  fetchCorePage,
+  fetchCorePages,
+  pageWrite,
+  watchCore,
+  watchCoreBackend,
+} from "@/services/coreStore";
 
 // ---------------------------------------------------------------------------
 // Убирает поля со значением undefined перед записью в Firestore
@@ -56,6 +70,77 @@ export function stripUndefined<T>(value: T): T {
 }
 
 // ---------------------------------------------------------------------------
+// Столы и вкладки живут либо в Firestore (как раньше), либо в Supabase
+// (`core_docs`, см. coreStore.ts). Ниже — общие записи документа стола: в
+// патче маркер SB_DEL вместо deleteField() (для Firestore он переводится
+// toFirestoreData). В режиме Supabase у стола в Firestore остаётся ТЕНЬ с
+// полями доступа (SHADOW_KEYS): её читают правила остальных коллекций.
+// ---------------------------------------------------------------------------
+
+/** Столы этого workspace сейчас в Supabase (перенос сделан). */
+export function corePagesOnSupabase(workspaceId: string): boolean {
+  return corePagesBackendFor(workspaceId) === "supabase";
+}
+
+/** Тень стола в Firestore — только поля доступа, best-effort. */
+async function shadowPagePatch(workspaceId: string, pageId: string, patch: Record<string, unknown>) {
+  if (!db) return;
+  const shadow: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) if (SHADOW_KEYS.has(key)) shadow[key] = value;
+  if (Object.keys(shadow).every((key) => key === "updatedAt")) return;
+  if (shadow.updatedAt === undefined) shadow.updatedAt = Date.now();
+  try {
+    await setDoc(paths.page(workspaceId, pageId), toFirestoreData(shadow) as Record<string, unknown>, { merge: true });
+  } catch (error) {
+    console.warn("[core] тень стола в Firestore не обновлена", error);
+  }
+}
+
+/** Новый стол: полная копия в тень Firestore, best-effort. */
+async function shadowPageCreate(workspaceId: string, page: WorkspacePage) {
+  if (!db) return;
+  try {
+    await setDoc(paths.page(workspaceId, page.id), stripUndefined(page));
+  } catch (error) {
+    console.warn("[core] тень нового стола в Firestore не записана", error);
+  }
+}
+
+/** Merge-запись документа стола — туда, где столы живут сейчас. */
+export async function writePageDoc(workspaceId: string, pageId: string, patch: Record<string, unknown>) {
+  if (!db) return;
+  if (corePagesOnSupabase(workspaceId)) {
+    await commitCore(workspaceId, [pageWrite(pageId, "merge", patch)], { optimistic: true });
+    await shadowPagePatch(workspaceId, pageId, patch);
+    return;
+  }
+  await setDoc(paths.page(workspaceId, pageId), toFirestoreData(patch) as Record<string, unknown>, { merge: true });
+}
+
+/** Полный документ нового стола — туда, где столы живут сейчас (+ тень). */
+export async function createPageDoc(workspaceId: string, page: WorkspacePage) {
+  if (!db) throw new Error("Firebase не настроен");
+  if (corePagesOnSupabase(workspaceId)) {
+    await commitCore(workspaceId, [pageWrite(page.id, "set", stripUndefined(page) as unknown as Record<string, unknown>)]);
+    await shadowPageCreate(workspaceId, page);
+    return;
+  }
+  await setDoc(paths.page(workspaceId, page.id), stripUndefined(page));
+}
+
+/** Один стол — свежим с сервера, без проверки доступа (null — нет). */
+export async function fetchPageDoc(workspaceId: string, pageId: string): Promise<WorkspacePage | null> {
+  if (corePagesOnSupabase(workspaceId)) {
+    const page = await fetchCorePage(workspaceId, pageId);
+    if (page !== undefined) return page;
+  }
+  const snap = await getDoc(paths.page(workspaceId, pageId));
+  return snap.exists() ? ({ id: snap.id, ...snap.data() } as WorkspacePage) : null;
+}
+
+const byOrder = (a: WorkspacePage, b: WorkspacePage) => (a.order ?? 0) - (b.order ?? 0);
+
+// ---------------------------------------------------------------------------
 // Pages
 // ---------------------------------------------------------------------------
 
@@ -74,8 +159,56 @@ export function stripUndefined<T>(value: T): T {
  *   2) where("allowedUsers","array-contains",uid) — shared desks
  * Never keep unfiltered AND the fallbacks attached. Do not toast if the
  * fallback produces a list. Toast only if both scoped queries fail.
+ *
+ * Столы в Supabase — поток `core_docs` (RLS: участник читает все столы, как
+ * нефильтрованный список Firestore); подписка сама переезжает, когда
+ * перенос сделан (или таблица пропала).
  */
 export function subscribeToPages(
+  workspaceId: string,
+  onData: (pages: WorkspacePage[]) => void,
+  onError?: (error: FirestoreError) => void,
+  currentUserUid?: string,
+  isOwnerOfWorkspace?: boolean
+) {
+  let cancelled = false;
+  let current: SbBackend | null = null;
+  let stop: () => void = () => {};
+  const attach = (backend: SbBackend) => {
+    if (cancelled || backend === current) return;
+    stop();
+    current = backend;
+    stop =
+      backend === "supabase"
+        ? attachSbPages(workspaceId, onData, onError, () => attach("firestore"))
+        : attachFirestorePages(workspaceId, onData, onError, currentUserUid, isOwnerOfWorkspace);
+  };
+  attach(corePagesBackendFor(workspaceId));
+  const unwatch = watchCoreBackend(workspaceId, attach);
+  return () => {
+    cancelled = true;
+    unwatch();
+    stop();
+  };
+}
+
+function attachSbPages(
+  workspaceId: string,
+  onData: (pages: WorkspacePage[]) => void,
+  onError: ((error: FirestoreError) => void) | undefined,
+  onMissing: () => void
+) {
+  const report = withErrorReporting(onError);
+  return watchCore(
+    workspaceId,
+    PAGES_VIEW,
+    (docs) => onData(docs.map(docToPage).sort(byOrder)),
+    onMissing,
+    (error) => report(error as unknown as FirestoreError)
+  );
+}
+
+function attachFirestorePages(
   workspaceId: string,
   onData: (pages: WorkspacePage[]) => void,
   onError?: (error: FirestoreError) => void,
@@ -91,7 +224,7 @@ export function subscribeToPages(
   const emit = (pages: WorkspacePage[]) => {
     if (cancelled) return;
     emittedOnce = true;
-    onData([...pages].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
+    onData([...pages].sort(byOrder));
   };
 
   const handleSnapPages = (fromCache: boolean, pages: WorkspacePage[]) => {
@@ -229,9 +362,8 @@ export async function fetchPageIfAccessible(
   uid: string,
   seesAllDesks = false
 ): Promise<WorkspacePage | null> {
-  const snap = await getDoc(paths.page(workspaceId, pageId));
-  if (!snap.exists()) return null;
-  const page = { id: snap.id, ...snap.data() } as WorkspacePage;
+  const page = await fetchPageDoc(workspaceId, pageId);
+  if (!page) return null;
   if (seesAllDesks) return page;
   if (page.responsibleUserId === uid || (page.allowedUsers ?? []).includes(uid)) return page;
   return null;
@@ -277,7 +409,7 @@ export async function createPage(input: CreatePageInput): Promise<WorkspacePage>
     updatedAt: Date.now(),
     createdBy: input.createdBy,
   };
-  await setDoc(paths.page(input.workspaceId, id), stripUndefined(page));
+  await createPageDoc(input.workspaceId, page);
   await ensureNewDeskAcl(input.workspaceId, page);
   return seedCurrentMonthDesk(page);
 }
@@ -287,6 +419,7 @@ export async function createPage(input: CreatePageInput): Promise<WorkspacePage>
  * а не при сверке через полторы секунды. Иначе создатель попадал на свой стол
  * с плашкой «права не доехали», а набранные в первые секунды строки
  * отклонялись. Отказ не отменяет создание стола — запись доведёт сверка.
+ * Столы в Supabase — копию прав ведёт триггер базы, здесь делать нечего.
  */
 /**
  * Доступ к столу поменяли — довести копию прав в Supabase сразу, не дожидаясь
@@ -298,7 +431,7 @@ async function mirrorPageAcl(
   pageId: string,
   patch: { allowed_uids?: string[]; editable_uids?: string[]; responsible_uid?: string | null }
 ) {
-  if (!usesSupabaseRows(workspaceId)) return;
+  if (!usesSupabaseRows(workspaceId) || corePagesOnSupabase(workspaceId)) return;
   try {
     await patchPageAcl(workspaceId, pageId, patch);
   } catch (error) {
@@ -307,7 +440,7 @@ async function mirrorPageAcl(
 }
 
 export async function ensureNewDeskAcl(workspaceId: string, page: WorkspacePage) {
-  if (!usesSupabaseRows(workspaceId)) return;
+  if (!usesSupabaseRows(workspaceId) || corePagesOnSupabase(workspaceId)) return;
   try {
     await putPageAcl(workspaceId, page);
   } catch (error) {
@@ -360,13 +493,7 @@ export async function seedCurrentMonthDesk(page: WorkspacePage): Promise<Workspa
     // Best-effort repair only — the desk is usable either way, and the
     // creation itself must still be reported as the success it was.
     try {
-      if (db) {
-        await setDoc(
-          paths.page(page.workspaceId, page.id),
-          { hideMainTab: false, updatedAt: Date.now() },
-          { merge: true }
-        );
-      }
+      await writePageDoc(page.workspaceId, page.id, { hideMainTab: false, updatedAt: Date.now() });
     } catch (repairError) {
       console.error(`Could not clear hideMainTab on page ${page.id}:`, repairError);
     }
@@ -415,48 +542,27 @@ export async function createPageForCurrentRole(
 }
 
 export async function renamePage(workspaceId: string, pageId: string, name: string) {
-  if (!db) return;
-  await setDoc(paths.page(workspaceId, pageId), { name, updatedAt: Date.now() }, { merge: true });
+  await writePageDoc(workspaceId, pageId, { name, updatedAt: Date.now() });
 }
 
 /** Sets which tab (a subpage id, or null for "Основная") opens by default whenever anyone navigates to this page. */
 export async function setDefaultSubPage(workspaceId: string, pageId: string, subPageId: string | null) {
-  if (!db) return;
-  await setDoc(
-    paths.page(workspaceId, pageId),
-    { defaultSubPageId: (subPageId ?? deleteField()) as string, updatedAt: Date.now() },
-    { merge: true }
-  );
+  await writePageDoc(workspaceId, pageId, { defaultSubPageId: subPageId ?? SB_DEL, updatedAt: Date.now() });
 }
 
 /** Owner opts a non-Технарь desk (e.g. their own) into month tabs and «Технари» — see monthTabService.isMonthlyDesk. */
 export async function setPageTechnicianDesk(workspaceId: string, pageId: string, technicianDesk: boolean) {
-  if (!db) return;
-  await setDoc(
-    paths.page(workspaceId, pageId),
-    { technicianDesk: (technicianDesk ? true : deleteField()) as boolean, updatedAt: Date.now() },
-    { merge: true }
-  );
+  await writePageDoc(workspaceId, pageId, { technicianDesk: technicianDesk ? true : SB_DEL, updatedAt: Date.now() });
 }
 
 /** Personal monthly revenue target — purely a motivational number for the page's own responsible person. */
 export async function setPageMonthlyGoal(workspaceId: string, pageId: string, goal: number | null) {
-  if (!db) return;
-  await setDoc(
-    paths.page(workspaceId, pageId),
-    { monthlyGoal: (goal ?? deleteField()) as number, updatedAt: Date.now() },
-    { merge: true }
-  );
+  await writePageDoc(workspaceId, pageId, { monthlyGoal: goal ?? SB_DEL, updatedAt: Date.now() });
 }
 
 /** Per-page accent override, scoped only to this page's own view — see WorkspacePage.accentColor. */
 export async function setPageAccentColor(workspaceId: string, pageId: string, color: string | null) {
-  if (!db) return;
-  await setDoc(
-    paths.page(workspaceId, pageId),
-    { accentColor: (color ?? deleteField()) as string, updatedAt: Date.now() },
-    { merge: true }
-  );
+  await writePageDoc(workspaceId, pageId, { accentColor: color ?? SB_DEL, updatedAt: Date.now() });
 }
 
 /** Desk cover on the dashboard. Merge-only; never deletes the page document. Pass null to clear fields. */
@@ -465,20 +571,11 @@ export async function setPageCover(
   pageId: string,
   cover: { coverUrl: string; coverPath: string } | null
 ) {
-  if (!db) return;
   if (cover) {
-    await setDoc(
-      paths.page(workspaceId, pageId),
-      { coverUrl: cover.coverUrl, coverPath: cover.coverPath, updatedAt: Date.now() },
-      { merge: true }
-    );
+    await writePageDoc(workspaceId, pageId, { coverUrl: cover.coverUrl, coverPath: cover.coverPath, updatedAt: Date.now() });
     return;
   }
-  await setDoc(
-    paths.page(workspaceId, pageId),
-    { coverUrl: deleteField(), coverPath: deleteField(), updatedAt: Date.now() },
-    { merge: true }
-  );
+  await writePageDoc(workspaceId, pageId, { coverUrl: SB_DEL, coverPath: SB_DEL, updatedAt: Date.now() });
 }
 
 export async function updatePageAppearance(
@@ -486,8 +583,7 @@ export async function updatePageAppearance(
   pageId: string,
   patch: { icon?: PageIconName; color?: string }
 ) {
-  if (!db) return;
-  await setDoc(paths.page(workspaceId, pageId), { ...patch, updatedAt: Date.now() }, { merge: true });
+  await writePageDoc(workspaceId, pageId, { ...stripUndefined(patch), updatedAt: Date.now() });
 }
 
 /**
@@ -495,8 +591,7 @@ export async function updatePageAppearance(
  * Пишет владелец стола; правила это разрешают как обычную правку своего стола.
  */
 export async function updatePageOsFieldKeys(workspaceId: string, pageId: string, osFieldKeys: OsFieldKeys) {
-  if (!db) return;
-  await setDoc(paths.page(workspaceId, pageId), { osFieldKeys, updatedAt: Date.now() }, { merge: true });
+  await writePageDoc(workspaceId, pageId, { osFieldKeys, updatedAt: Date.now() });
 }
 
 /**
@@ -510,17 +605,12 @@ export async function updatePageMainTab(
   pageId: string,
   input: { name: string; monthKey?: string }
 ) {
-  if (!db) return;
-  await setDoc(
-    paths.page(workspaceId, pageId),
-    stripUndefined({ mainTabName: input.name, mainTabMonthKey: input.monthKey, updatedAt: Date.now() }),
-    { merge: true }
-  );
+  await writePageDoc(workspaceId, pageId, stripUndefined({ mainTabName: input.name, mainTabMonthKey: input.monthKey, updatedAt: Date.now() }));
 }
 
 export async function updatePagePermissions(workspaceId: string, pageId: string, allowedUsers: string[]) {
   if (!db) return;
-  await setDoc(paths.page(workspaceId, pageId), { allowedUsers, updatedAt: Date.now() }, { merge: true });
+  await writePageDoc(workspaceId, pageId, { allowedUsers, updatedAt: Date.now() });
   await mirrorPageAcl(workspaceId, pageId, { allowed_uids: allowedUsers });
 }
 
@@ -536,7 +626,7 @@ export async function updatePageAccess(
   patch: { allowedUsers: string[]; editableUsers: string[]; hiddenByResponsible?: boolean }
 ) {
   if (!db) return;
-  await setDoc(paths.page(workspaceId, pageId), { ...patch, updatedAt: Date.now() }, { merge: true });
+  await writePageDoc(workspaceId, pageId, { ...stripUndefined(patch), updatedAt: Date.now() });
   await mirrorPageAcl(workspaceId, pageId, {
     allowed_uids: patch.allowedUsers,
     editable_uids: patch.editableUsers,
@@ -546,7 +636,7 @@ export async function updatePageAccess(
 /** Owner/responsible: grant or revoke EDIT rights for someone who already has view access. */
 export async function updatePageEditableUsers(workspaceId: string, pageId: string, editableUsers: string[]) {
   if (!db) return;
-  await setDoc(paths.page(workspaceId, pageId), { editableUsers, updatedAt: Date.now() }, { merge: true });
+  await writePageDoc(workspaceId, pageId, { editableUsers, updatedAt: Date.now() });
   await mirrorPageAcl(workspaceId, pageId, { editable_uids: editableUsers });
 }
 
@@ -561,11 +651,7 @@ export async function setPageResponsible(
   const allowedUsers = responsibleUserId
     ? Array.from(new Set([...currentAllowedUsers, responsibleUserId]))
     : currentAllowedUsers;
-  await setDoc(
-    paths.page(workspaceId, pageId),
-    { responsibleUserId, hiddenByResponsible: false, allowedUsers, updatedAt: Date.now() },
-    { merge: true }
-  );
+  await writePageDoc(workspaceId, pageId, { responsibleUserId, hiddenByResponsible: false, allowedUsers, updatedAt: Date.now() });
   await mirrorPageAcl(workspaceId, pageId, { responsible_uid: responsibleUserId, allowed_uids: allowedUsers });
 }
 
@@ -591,11 +677,7 @@ export async function togglePageVisibility(
   const allowedUsers = show
     ? Array.from(new Set([...allActiveMemberUids, ...keep]))
     : keep;
-  await setDoc(
-    paths.page(workspaceId, pageId),
-    { allowedUsers, hiddenByResponsible: !show, updatedAt: Date.now() },
-    { merge: true }
-  );
+  await writePageDoc(workspaceId, pageId, { allowedUsers, hiddenByResponsible: !show, updatedAt: Date.now() });
   await mirrorPageAcl(workspaceId, pageId, { allowed_uids: allowedUsers });
 }
 
@@ -614,21 +696,24 @@ export async function setAllDesksVisibility(
 ): Promise<number> {
   if (!db) throw new Error("Firebase не настроен");
   const now = Date.now();
-  const mirrored: Array<{ pageId: string; allowedUsers: string[] }> = [];
-  for (let i = 0; i < desks.length; i += 400) {
+  const patches = desks.map((page) => {
+    const keep = [page.responsibleUserId].filter((id): id is string => Boolean(id));
+    const allowedUsers = open ? Array.from(new Set([...allActiveMemberUids, ...keep])) : keep;
+    return { pageId: page.id, patch: { allowedUsers, hiddenByResponsible: !open, updatedAt: now } };
+  });
+  const coreSb = corePagesOnSupabase(workspaceId);
+  for (let i = 0; i < patches.length; i += 400) {
+    const chunk = patches.slice(i, i + 400);
+    if (coreSb) await commitCore(workspaceId, chunk.map((item) => pageWrite(item.pageId, "merge", item.patch)));
     const batch = writeBatch(db);
-    for (const page of desks.slice(i, i + 400)) {
-      const keep = [page.responsibleUserId].filter((id): id is string => Boolean(id));
-      const allowedUsers = open ? Array.from(new Set([...allActiveMemberUids, ...keep])) : keep;
-      batch.set(paths.page(workspaceId, page.id), { allowedUsers, hiddenByResponsible: !open, updatedAt: now }, { merge: true });
-      mirrored.push({ pageId: page.id, allowedUsers });
-    }
-    await batch.commit();
+    for (const item of chunk) batch.set(paths.page(workspaceId, item.pageId), item.patch, { merge: true });
+    if (coreSb) await batch.commit().catch((error) => console.warn("[core] тени столов в Firestore не обновлены", error));
+    else await batch.commit();
   }
   // Копия прав — после записи в Firestore и по одному столу: закрыли доступ
   // всем разом, значит и в Supabase он должен закрыться сразу, а не после
-  // фоновой сверки.
-  for (const item of mirrored) await mirrorPageAcl(workspaceId, item.pageId, { allowed_uids: item.allowedUsers });
+  // фоновой сверки. (Столы в Supabase — копию ведёт триггер.)
+  for (const item of patches) await mirrorPageAcl(workspaceId, item.pageId, { allowed_uids: item.patch.allowedUsers });
   return desks.length;
 }
 
@@ -647,13 +732,17 @@ export async function setPageInactive(
 ) {
   if (!db) return;
   const now = Date.now();
-  const batch = writeBatch(db);
-  batch.update(paths.page(workspaceId, page.id), {
+  const patch = {
     inactive,
     inactiveAt: inactive ? now : null,
     inactiveBy: inactive ? byUid : null,
     updatedAt: now,
-  });
+  };
+  const coreSb = corePagesOnSupabase(workspaceId);
+  if (coreSb) await commitCore(workspaceId, [pageWrite(page.id, "merge", patch)], { optimistic: true });
+  const batch = writeBatch(db);
+  if (coreSb) batch.set(paths.page(workspaceId, page.id), patch, { merge: true });
+  else batch.update(paths.page(workspaceId, page.id), patch);
   const claimUid = page.responsibleUserId;
   if (claimUid && responsibleIsTechnician) {
     try {
@@ -664,7 +753,8 @@ export async function setPageInactive(
       /* the claim is upkeep; the desk still moves */
     }
   }
-  await batch.commit();
+  if (coreSb) await batch.commit().catch((error) => console.warn("[core] тень стола / claim в Firestore не обновлены", error));
+  else await batch.commit();
 }
 
 /**
@@ -696,7 +786,7 @@ export async function updatePageColumns(workspaceId: string, pageId: string, col
     return;
   }
   try {
-    await setDoc(paths.page(workspaceId, pageId), { columns: stripUndefined(next), updatedAt: Date.now() }, { merge: true });
+    await writePageDoc(workspaceId, pageId, { columns: stripUndefined(next), updatedAt: Date.now() });
     pending?.waiters.forEach((w) => w.resolve());
   } catch (error) {
     pending?.waiters.forEach((w) => w.reject(error));
@@ -775,7 +865,7 @@ async function flushLayout(workspaceId: string, pageId: string): Promise<void> {
     return;
   }
   try {
-    await setDoc(paths.page(workspaceId, pageId), { columns: stripUndefined(next), updatedAt: Date.now() }, { merge: true });
+    await writePageDoc(workspaceId, pageId, { columns: stripUndefined(next), updatedAt: Date.now() });
     pending.waiters.forEach((w) => w.resolve());
   } catch (error) {
     pending.waiters.forEach((w) => w.reject(error));
@@ -1002,6 +1092,14 @@ export async function updateColumnStatusOptions(
 
 export async function reorderPages(workspaceId: string, orderedIds: string[]) {
   if (!db) return;
+  if (corePagesOnSupabase(workspaceId)) {
+    await commitCore(
+      workspaceId,
+      orderedIds.map((id, index) => pageWrite(id, "merge", { order: index })),
+      { optimistic: true }
+    );
+    return;
+  }
   const batch = writeBatch(db);
   orderedIds.forEach((id, index) => {
     batch.set(paths.page(workspaceId, id), { order: index }, { merge: true });
@@ -1014,6 +1112,7 @@ export async function deletePage(workspaceId: string, pageId: string) {
   const database = db;
   assertRowsWritable(workspaceId);
   const onSupabase = usesSupabaseRows(workspaceId);
+  const coreSb = corePagesOnSupabase(workspaceId);
   const [rowsSnapshot, historySnapshot] = await Promise.all([
     onSupabase ? null : getDocs(paths.rows(workspaceId, pageId)),
     getDocs(query(paths.history(workspaceId), where("pageId", "==", pageId))),
@@ -1023,12 +1122,15 @@ export async function deletePage(workspaceId: string, pageId: string) {
   // with a lot of rows/history so deletion never silently fails partway.
   let claimUid: string | null = null;
   try {
-    const pageSnap = await getDoc(paths.page(workspaceId, pageId));
-    const createdBy = pageSnap.data()?.createdBy;
+    const page = await fetchPageDoc(workspaceId, pageId);
+    const createdBy = page?.createdBy;
     if (typeof createdBy === "string" && createdBy) claimUid = createdBy;
   } catch {
     /* still delete the page */
   }
+  // Столы в Supabase: сначала сам стол (с вкладками — база помечает их
+  // удалёнными сама), потом тень и остальное в Firestore.
+  if (coreSb) await commitCore(workspaceId, [pageWrite(pageId, "delete")], { optimistic: true });
   const refsToDelete = [
     ...(rowsSnapshot?.docs.map((d) => d.ref) ?? []),
     ...historySnapshot.docs.map((d) => d.ref),
@@ -1039,7 +1141,8 @@ export async function deletePage(workspaceId: string, pageId: string) {
   for (let i = 0; i < refsToDelete.length; i += CHUNK_SIZE) {
     const batch = writeBatch(database);
     refsToDelete.slice(i, i + CHUNK_SIZE).forEach((ref) => batch.delete(ref));
-    await batch.commit();
+    if (coreSb) await batch.commit().catch((error) => console.warn("[core] тень удалённого стола в Firestore осталась", error));
+    else await batch.commit();
   }
   // Журнал стола в Supabase (history_log) — одним DELETE; сбой не ломает удаление.
   await deleteHistoryForPage(workspaceId, pageId).catch((error) => console.warn("[history] журнал стола не удалился", error));
@@ -1049,7 +1152,7 @@ export async function deletePage(workspaceId: string, pageId: string) {
   if (onSupabase) {
     try {
       await sbDeleteRows(workspaceId, pageId);
-      await deletePageAcl(workspaceId, pageId);
+      if (!coreSb) await deletePageAcl(workspaceId, pageId);
     } catch (error) {
       console.warn("[rows] строки удалённого стола остались в Supabase", error);
     }
@@ -1073,6 +1176,18 @@ export async function duplicatePage(workspaceId: string, page: WorkspacePage, ne
     updatedAt: Date.now(),
   };
   assertRowsWritable(workspaceId);
+  if (corePagesOnSupabase(workspaceId)) {
+    // Сначала стол (копию прав заводит триггер), потом строки.
+    await createPageDoc(workspaceId, duplicated);
+    const source = await sbFetchRows(workspaceId, page.id, null);
+    await sbPutRows(
+      workspaceId,
+      newId,
+      null,
+      source.map((row) => ({ ...row, id: generateId("row"), pageId: newId }))
+    );
+    return duplicated;
+  }
   const batch = writeBatch(db);
   batch.set(paths.page(workspaceId, newId), duplicated);
   if (usesSupabaseRows(workspaceId)) {
@@ -1121,6 +1236,10 @@ export function subscribeToRows(
  * столов молча останется пустой в новом хранилище.
  */
 export async function fetchPagesFresh(workspaceId: string): Promise<WorkspacePage[]> {
+  if (corePagesOnSupabase(workspaceId)) {
+    const pages = await fetchCorePages(workspaceId);
+    if (pages) return pages;
+  }
   const snap = await getDocsFromServer(paths.pages(workspaceId));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as WorkspacePage);
 }

@@ -22,6 +22,7 @@ import { addOwnWorkspaceId } from "@/services/authService";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { putMemberAcl, removeMemberAcl, setObserverAcl } from "@/services/rows/rowAclService";
 import { EXTRA_ROLES, type Role, type StatusOption, type Workspace, type WorkspaceMember } from "@/types";
+import { fetchPagesFresh } from "@/services/pageService";
 
 function sortMembers(members: WorkspaceMember[]) {
   return members.sort((a, b) => a.invitedAt - b.invitedAt);
@@ -288,11 +289,7 @@ export async function changeMemberRole(workspaceId: string, uid: string, role: R
       ? { extraRoles: (currentExtraRoles.filter((r) => r !== role).length ? currentExtraRoles.filter((r) => r !== role) : deleteField()) as Role[] }
       : {};
   if (role === "manager") {
-    const pagesSnap = await getDocs(paths.pages(workspaceId));
-    const pages = pagesSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<{
-      id: string;
-      responsibleUserId?: string | null;
-    }>;
+    const pages = await fetchPagesFresh(workspaceId);
     const own = pages.filter((page) => page.responsibleUserId === uid);
     if (own.length > 1) {
       throw new Error("Сначала заберите лишние столы — у технаря может быть только один свой стол");
@@ -326,8 +323,8 @@ export async function setMemberExtraRoles(workspaceId: string, uid: string, main
   const next = EXTRA_ROLES.filter((r) => r !== mainRole && extraRoles.includes(r));
   const patch = { extraRoles: (next.length ? next : deleteField()) as Role[] };
   if (next.includes("manager") && mainRole !== "owner" && mainRole !== "admin") {
-    const pagesSnap = await getDocs(paths.pages(workspaceId));
-    const own = pagesSnap.docs.filter((d) => (d.data() as { responsibleUserId?: string | null }).responsibleUserId === uid);
+    const pages = await fetchPagesFresh(workspaceId);
+    const own = pages.filter((page) => page.responsibleUserId === uid);
     if (own.length === 1) {
       const batch = writeBatch(db);
       batch.set(paths.member(workspaceId, uid), patch, { merge: true });

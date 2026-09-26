@@ -1,8 +1,9 @@
-import { runTransaction, setDoc } from "firebase/firestore";
+import { runTransaction } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
-import { stripUndefined } from "@/services/pageService";
+import { corePagesOnSupabase, stripUndefined, writePageDoc } from "@/services/pageService";
 import { archiveSubPage, fetchSubPages } from "@/services/subPageService";
+import { commitCore, docToSubPage, subPageWrite } from "@/services/coreStore";
 import { periodSettingsOf } from "@/services/periodService";
 import { isHalfKey, periodLabel } from "@/utils/periods";
 import { ymdInTimeZone } from "@/utils/date";
@@ -174,6 +175,11 @@ async function createMonthTabOnce(page: WorkspacePage, subPages: SubPage[], mont
     updatedAt: now,
     createdBy: uid,
   };
+  if (corePagesOnSupabase(page.workspaceId)) {
+    // «create» в базе — то же «завести один раз»: есть — отдаёт существующую.
+    const [doc] = await commitCore(page.workspaceId, [subPageWrite(page.id, id, "create", stripUndefined(tab) as unknown as Record<string, unknown>)]);
+    return doc ? docToSubPage(doc, page.id) : tab;
+  }
   const ref = paths.subPage(page.workspaceId, page.id, id);
   return runTransaction(firestore, async (tx) => {
     const snap = await tx.get(ref);
@@ -208,7 +214,7 @@ export async function markMonthTab(
     updatedAt: Date.now(),
   };
   if (columns?.length) patch.osFieldKeys = computeOsFieldKeys(subPageId, columns, Date.now());
-  await setDoc(paths.page(workspaceId, pageId), patch, { merge: true });
+  await writePageDoc(workspaceId, pageId, patch);
 }
 
 /**

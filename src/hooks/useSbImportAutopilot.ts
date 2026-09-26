@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { ensureAnnouncementsImported } from "@/services/announcementService";
+import { ensureCoreImported } from "@/services/coreStore";
 import { ensureGrokImported } from "@/services/grokStore";
 
 // Раз на загрузку страницы для workspace. Сбой ждёт следующей загрузки.
@@ -33,6 +34,20 @@ export function useSbImportAutopilot() {
       })
       .catch((error) => console.warn("[announcements] перенос в Supabase не удался — повторим при следующей загрузке", error));
   }, [lead, activeWorkspaceId, rowsBackend]);
+
+  // Ядро — столы и вкладки — переносит Owner (только он читает всё и вправе
+  // писать `core_import`). После переноса все вкладки переезжают на Supabase сами.
+  useEffect(() => {
+    if (!owner || !activeWorkspaceId || rowsBackend !== "supabase") return;
+    const key = `${activeWorkspaceId}:core`;
+    if (attempted.has(key)) return;
+    attempted.add(key);
+    void ensureCoreImported(activeWorkspaceId)
+      .then((n) => {
+        if (n > 0) console.info(`[core] столов и вкладок перенесено в Supabase: ${n}`);
+      })
+      .catch((error) => console.warn("[core] перенос столов в Supabase не удался — повторим при следующей загрузке", error));
+  }, [owner, activeWorkspaceId, rowsBackend]);
 
   // Грок переносит только Owner: закрытые аккаунты целиком читает лишь он.
   useEffect(() => {

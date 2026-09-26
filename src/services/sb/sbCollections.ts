@@ -49,6 +49,7 @@ export const SB_TABLES: Record<CollectionKey, string> = {
   announcements: "announcement_docs",
   grok: "grok_docs",
   personal: "personal_docs",
+  core: "core_docs",
 };
 
 export const SB_COLLECTION_LABELS: Record<CollectionKey, string> = {
@@ -66,6 +67,7 @@ export const SB_COLLECTION_LABELS: Record<CollectionKey, string> = {
   announcements: "Объявления",
   grok: "Грок лимит",
   personal: "Личная зона столов",
+  core: "Столы и вкладки (ядро)",
 };
 
 export const SB_COLLECTION_KEYS = Object.keys(SB_TABLES) as CollectionKey[];

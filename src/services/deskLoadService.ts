@@ -1,6 +1,6 @@
 import { onSnapshot, query, runTransaction, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { getDocResumable, getDocsResumable, paths, withErrorReporting } from "@/firebase/firestore";
+import { getDocsResumable, paths, withErrorReporting } from "@/firebase/firestore";
 import { supabaseRows } from "@/lib/supabaseRows";
 import { currentMonthSubPageId } from "@/services/monthTabService";
 import { periodSettingsOf } from "@/services/periodService";
@@ -15,7 +15,7 @@ import { readSnapshot, snapshotUid, writeSnapshot } from "@/services/sb/snapshot
 import { listenTopic, ringTopic } from "@/services/sb/topicDoorbell";
 import { joinSharedSubscription } from "@/utils/sharedSubscription";
 import { withDbTimeout } from "@/utils/dbError";
-import { fetchSubPageRows } from "@/services/subPageService";
+import { fetchSubPage, fetchSubPageRows } from "@/services/subPageService";
 import { publishOsOrders } from "@/services/osOrdersService";
 import {
   collectOsOrders,
@@ -464,12 +464,12 @@ export async function refreshDeskLoadFromRows(
   const subPageId = currentMonthSubPageId(page, monthKey);
   const responsibleUserId = page.responsibleUserId;
   if (!db || !subPageId || !responsibleUserId) return false;
-  const [subSnap, rows] = await Promise.all([
-    getDocResumable(paths.subPage(page.workspaceId, page.id, subPageId)),
+  const [sub, rows] = await Promise.all([
+    fetchSubPage(page.workspaceId, page.id, subPageId),
     fetchSubPageRows(page.workspaceId, page.id, subPageId),
   ]);
-  if (!subSnap.exists()) return false;
-  const columns = (subSnap.data() as SubPage).columns ?? [];
+  if (!sub) return false;
+  const columns = sub.columns ?? [];
   const counts = countDeskLoad(columns, rows, responsibleOptions, monthKey, periodSettingsOf(page.workspaceId));
   const next = { ...counts, subPageId, monthKey };
   // Подмешанный из Firestore счётчик (sbFallback) — не строка Supabase:

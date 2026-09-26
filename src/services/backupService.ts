@@ -1,5 +1,7 @@
 import { getDoc, getDocs } from "firebase/firestore";
 import { paths } from "@/firebase/firestore";
+import { fetchPagesFresh } from "@/services/pageService";
+import { fetchSubPages } from "@/services/subPageService";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { sbFetchAllPageRows } from "@/services/rows/supabaseRowStore";
 
@@ -12,20 +14,20 @@ import { sbFetchAllPageRows } from "@/services/rows/supabaseRowStore";
  * account export.
  */
 export async function buildWorkspaceBackup(workspaceId: string) {
-  const [workspaceSnap, membersSnap, pagesSnap] = await Promise.all([
+  const [workspaceSnap, membersSnap, pageDocs] = await Promise.all([
     getDoc(paths.workspace(workspaceId)),
     getDocs(paths.members(workspaceId)),
-    getDocs(paths.pages(workspaceId)),
+    fetchPagesFresh(workspaceId),
   ]);
 
   const onSupabase = usesSupabaseRows(workspaceId);
   const pages = await Promise.all(
-    pagesSnap.docs.map(async (pageDoc) => {
+    pageDocs.map(async (pageDoc) => {
       const pageId = pageDoc.id;
-      // Строки — из того хранилища, где они сейчас живут; вкладки — всегда Firestore.
-      const [rowsByTab, subPagesSnap] = await Promise.all([
+      // Строки и вкладки — из того хранилища, где они сейчас живут.
+      const [rowsByTab, subPageDocs] = await Promise.all([
         onSupabase ? sbFetchAllPageRows(workspaceId, pageId) : null,
-        getDocs(paths.subPages(workspaceId, pageId)),
+        fetchSubPages(workspaceId, pageId),
       ]);
       const tableRows = async (subPageId: string | null) => {
         if (rowsByTab) return rowsByTab.get(subPageId ?? "") ?? [];
@@ -33,14 +35,14 @@ export async function buildWorkspaceBackup(workspaceId: string) {
         return snap.docs.map((r) => ({ ...r.data(), id: r.id }));
       };
       const subPages = await Promise.all(
-        subPagesSnap.docs.map(async (subPageDoc) => ({
-          ...subPageDoc.data(),
+        subPageDocs.map(async (subPageDoc) => ({
+          ...subPageDoc,
           id: subPageDoc.id,
           rows: await tableRows(subPageDoc.id),
         }))
       );
       return {
-        ...pageDoc.data(),
+        ...pageDoc,
         id: pageId,
         rows: await tableRows(null),
         subPages,

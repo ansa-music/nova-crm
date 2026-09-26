@@ -10,6 +10,7 @@ import {
   sbBackendOf,
   sbTableRecheckDue,
   sbTargetOf,
+  subscribeSbTables,
   useSbBackend,
   type CollectionKey,
   type SbBackend,
@@ -37,7 +38,8 @@ export const SB_DEL = Object.freeze({ $del: true as const });
 export interface DocWrite<K extends string = string> {
   kind: K;
   id: string;
-  op: "merge" | "set" | "delete";
+  /** `create` — завести, если нет (есть — база отдаёт существующий); в Firestore = set. */
+  op: "merge" | "set" | "create" | "delete";
   data?: Record<string, unknown>;
   /** Дополнительные поля операции для RPC (например, стол и зона личной зоны). */
   extra?: Record<string, unknown>;
@@ -209,6 +211,35 @@ export function createDocStore<K extends string>(cfg: DocStoreConfig<K>) {
   }
 
   /**
+   * То же, что useBackend, но вне React — для подписок сервисов, которые
+   * должны переподписаться, когда перенос сделан (или таблица пропала).
+   * Зовёт `onChange` только при смене; пока отметки нет, раз в минуту
+   * спрашивает её у базы (на видимой вкладке).
+   */
+  function watchBackend(workspaceId: string, mark: string, onChange: (backend: SbBackend) => void): () => void {
+    let current = backendFor(workspaceId, mark);
+    const recheck = () => {
+      const next = backendFor(workspaceId, mark);
+      if (next === current) return;
+      current = next;
+      onChange(next);
+    };
+    const unsubs = [subscribe(recheck), subscribeSbTables(recheck), useWorkspaceStore.subscribe(recheck)];
+    const ask = () => {
+      if (document.visibilityState !== "visible") return;
+      if (targetFor(workspaceId) === "supabase" && !readImported(workspaceId, mark)) void checkImported(workspaceId, mark).then(recheck);
+    };
+    ask();
+    const timer = window.setInterval(ask, 60_000);
+    document.addEventListener("visibilitychange", ask);
+    return () => {
+      unsubs.forEach((u) => u());
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", ask);
+    };
+  }
+
+  /**
    * То же для экрана: переподписка, когда перенос сделан (или таблица
    * пропала). Пока отметки нет, экран раз в минуту спрашивает её снова.
    */
@@ -235,8 +266,21 @@ export function createDocStore<K extends string>(cfg: DocStoreConfig<K>) {
   }
 
   function parseDocs(data: unknown): SbDoc[] {
-    const docs = ((typeof data === "string" ? JSON.parse(data) : data) ?? []) as SbDoc[];
-    return docs.map((d) => ({ ...d, data: d.data ?? {}, rev: Number(d.rev) || 0, deleted: Boolean(d.deleted) }));
+    const docs = ((typeof data === "string" ? JSON.parse(data) : data) ?? []) as Array<SbDoc & { page?: string }>;
+    return docs.map(({ page, ...d }) => ({
+      ...d,
+      data: d.data ?? {},
+      rev: Number(d.rev) || 0,
+      deleted: Boolean(d.deleted),
+      ...(cfg.feed.withParent ? { parent: d.parent ?? page ?? "" } : {}),
+    }));
+  }
+
+  /** Родитель записи для таблиц с `withParent` (вкладка → стол в `extra.page`). */
+  function parentOf(w: DocWrite<K>): string | undefined {
+    if (!cfg.feed.withParent) return undefined;
+    const page = w.extra?.page;
+    return typeof page === "string" ? page : "";
   }
 
   /**
@@ -259,13 +303,15 @@ export function createDocStore<K extends string>(cfg: DocStoreConfig<K>) {
       if (opts.optimistic) {
         const provisional: SbDoc[] = [];
         for (const w of writes) {
-          const known = peekSbDoc(cfg.feed, workspaceId, w.kind, w.id);
-          restore.push(known ?? { kind: w.kind, id: w.id, data: {}, deleted: true, rev: 0 });
+          const parent = parentOf(w);
+          const known = peekSbDoc(cfg.feed, workspaceId, w.kind, w.id, parent);
+          const at = parent === undefined ? {} : { parent };
+          restore.push(known ?? { kind: w.kind, id: w.id, data: {}, deleted: true, rev: 0, ...at });
           const rev = (known?.rev ?? 0) + 0.5;
-          if (w.op === "delete") provisional.push({ kind: w.kind, id: w.id, data: known?.data ?? {}, deleted: true, rev });
+          if (w.op === "delete") provisional.push({ kind: w.kind, id: w.id, data: known?.data ?? {}, deleted: true, rev, ...at });
           else {
             const base = w.op === "merge" && known && !known.deleted ? known.data : {};
-            provisional.push({ kind: w.kind, id: w.id, data: { ...jsonMerge(base, w.data ?? {}), ...(w.extra?.stamp as object | undefined) }, deleted: false, rev });
+            provisional.push({ kind: w.kind, id: w.id, data: { ...jsonMerge(base, w.data ?? {}), ...(w.extra?.stamp as object | undefined) }, deleted: false, rev, ...at });
           }
         }
         applySbDocs(cfg.feed, workspaceId, provisional, { ring: false, force: true });
@@ -303,14 +349,14 @@ export function createDocStore<K extends string>(cfg: DocStoreConfig<K>) {
     for (const write of writes) {
       const ref = cfg.firestoreRef(workspaceId, write);
       if (write.op === "delete") batch.delete(ref);
-      else if (write.op === "set") batch.set(ref, toFirestoreData(write.data ?? {}) as Record<string, unknown>);
+      else if (write.op === "set" || write.op === "create") batch.set(ref, toFirestoreData(write.data ?? {}) as Record<string, unknown>);
       else batch.set(ref, toFirestoreData(write.data ?? {}) as Record<string, unknown>, { merge: true });
     }
     await batch.commit();
     return null;
   }
 
-  return { readImported, setImported, readImportMeta, checkImported, targetFor, backendFor, useBackend, waitWrites, commit, parseDocs };
+  return { readImported, setImported, readImportMeta, checkImported, targetFor, backendFor, useBackend, watchBackend, waitWrites, commit, parseDocs };
 }
 
 export type DocStore<K extends string> = ReturnType<typeof createDocStore<K>>;

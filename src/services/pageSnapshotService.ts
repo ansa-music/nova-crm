@@ -1,10 +1,13 @@
-import { getDoc, getDocs, setDoc, writeBatch } from "firebase/firestore";
+import { getDocs, setDoc, writeBatch } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
+import { commitCore, pageWrite, subPageWrite } from "@/services/coreStore";
+import { corePagesOnSupabase, createPageDoc, fetchPageDoc } from "@/services/pageService";
+import { fetchSubPage, fetchSubPages } from "@/services/subPageService";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { sbFetchAllPageRows, sbFetchRows, sbPutRows } from "@/services/rows/supabaseRowStore";
 import { putPageAcl } from "@/services/rows/rowAclService";
-import type { PageRow, WorkspacePage } from "@/types";
+import type { PageRow, SubPage, WorkspacePage } from "@/types";
 
 type SnapshotRow = { id: string; data: Record<string, unknown> };
 
@@ -27,24 +30,24 @@ function fromSnapshotRows(rows: SnapshotRow[]): PageRow[] {
  */
 export async function snapshotPage(workspaceId: string, pageId: string) {
   const onSupabase = usesSupabaseRows(workspaceId);
-  const [pageSnap, rowsSnap, subPagesSnap, rowsByTab] = await Promise.all([
-    getDoc(paths.page(workspaceId, pageId)),
+  const [pageDoc, rowsSnap, subPageDocs, rowsByTab] = await Promise.all([
+    fetchPageDoc(workspaceId, pageId),
     onSupabase ? null : getDocs(paths.rows(workspaceId, pageId)),
-    getDocs(paths.subPages(workspaceId, pageId)),
+    fetchSubPages(workspaceId, pageId),
     onSupabase ? sbFetchAllPageRows(workspaceId, pageId) : null,
   ]);
 
   const subPages = await Promise.all(
-    subPagesSnap.docs.map(async (subPageDoc) => {
+    subPageDocs.map(async (subPageDoc) => {
       const rows: SnapshotRow[] = rowsByTab
         ? toSnapshotRows(rowsByTab.get(subPageDoc.id) ?? [])
         : (await getDocs(paths.subPageRows(workspaceId, pageId, subPageDoc.id))).docs.map((r) => ({ id: r.id, data: r.data() }));
-      return { id: subPageDoc.id, data: subPageDoc.data(), rows };
+      return { id: subPageDoc.id, data: subPageDoc as unknown as Record<string, unknown>, rows };
     })
   );
 
   return {
-    pageData: pageSnap.exists() ? pageSnap.data() : null,
+    pageData: pageDoc ? (pageDoc as unknown as Record<string, unknown>) : null,
     rows: rowsByTab
       ? toSnapshotRows(rowsByTab.get("") ?? [])
       : (rowsSnap?.docs.map((r) => ({ id: r.id, data: r.data() })) ?? []),
@@ -59,10 +62,20 @@ export async function restorePageSnapshot(workspaceId: string, pageId: string, s
   if (!snapshot.pageData) return;
   const CHUNK_SIZE = 450;
 
-  await setDoc(paths.page(workspaceId, pageId), snapshot.pageData);
+  const coreSb = corePagesOnSupabase(workspaceId);
+  if (coreSb) {
+    // Стол и вкладки — в Supabase одной пачкой (тень стола — внутри createPageDoc).
+    await createPageDoc(workspaceId, { ...(snapshot.pageData as unknown as WorkspacePage), id: pageId } as WorkspacePage);
+    if (snapshot.subPages.length) {
+      await commitCore(
+        workspaceId,
+        snapshot.subPages.map((sp) => subPageWrite(pageId, sp.id, "set", sp.data))
+      );
+    }
+  } else await setDoc(paths.page(workspaceId, pageId), snapshot.pageData);
 
   const onSupabase = usesSupabaseRows(workspaceId);
-  const subPageWrites = snapshot.subPages.map((sp) => ({ ref: paths.subPage(workspaceId, pageId, sp.id), data: sp.data }));
+  const subPageWrites = coreSb ? [] : snapshot.subPages.map((sp) => ({ ref: paths.subPage(workspaceId, pageId, sp.id), data: sp.data }));
   const rowWrites = onSupabase ? [] : snapshot.rows.map((r) => ({ ref: paths.row(workspaceId, pageId, r.id), data: r.data }));
   const subRowWrites = onSupabase
     ? []
@@ -81,10 +94,13 @@ export async function restorePageSnapshot(workspaceId: string, pageId: string, s
     // Вернули стол (Ctrl+Z после удаления) — вернуть и его запись в копии прав:
     // удаление стола её снесло, а без неё политика Supabase не отдаёт ни одной
     // строки, и восстановленный стол выглядел бы пустым до сверки у Owner.
-    try {
-      await putPageAcl(workspaceId, { ...(snapshot.pageData as WorkspacePage), id: pageId });
-    } catch (error) {
-      console.warn("[rows-acl] права восстановленного стола не записаны — доведёт сверка", error);
+    // (Столы в Supabase — копию заводит триггер.)
+    if (!coreSb) {
+      try {
+        await putPageAcl(workspaceId, { ...(snapshot.pageData as unknown as WorkspacePage), id: pageId });
+      } catch (error) {
+        console.warn("[rows-acl] права восстановленного стола не записаны — доведёт сверка", error);
+      }
     }
     await sbPutRows(workspaceId, pageId, null, fromSnapshotRows(snapshot.rows));
     for (const sp of snapshot.subPages) await sbPutRows(workspaceId, pageId, sp.id, fromSnapshotRows(sp.rows));
@@ -94,8 +110,8 @@ export async function restorePageSnapshot(workspaceId: string, pageId: string, s
 /** Same idea as snapshotPage, scoped to a single subpage (and its rows). */
 export async function snapshotSubPage(workspaceId: string, pageId: string, subPageId: string) {
   const onSupabase = usesSupabaseRows(workspaceId);
-  const [subPageSnap, rows] = await Promise.all([
-    getDoc(paths.subPage(workspaceId, pageId, subPageId)),
+  const [subPageDoc, rows] = await Promise.all([
+    fetchSubPage(workspaceId, pageId, subPageId),
     onSupabase
       ? sbFetchRows(workspaceId, pageId, subPageId).then(toSnapshotRows)
       : getDocs(paths.subPageRows(workspaceId, pageId, subPageId)).then((snap) =>
@@ -103,7 +119,7 @@ export async function snapshotSubPage(workspaceId: string, pageId: string, subPa
         ),
   ]);
   return {
-    subPageData: subPageSnap.exists() ? subPageSnap.data() : null,
+    subPageData: subPageDoc ? (subPageDoc as unknown as Record<string, unknown>) : null,
     rows,
   };
 }
@@ -117,7 +133,9 @@ export async function restoreSubPageSnapshot(
   snapshot: SubPageSnapshot
 ) {
   if (!snapshot.subPageData) return;
-  await setDoc(paths.subPage(workspaceId, pageId, subPageId), snapshot.subPageData);
+  if (corePagesOnSupabase(workspaceId)) {
+    await commitCore(workspaceId, [subPageWrite(pageId, subPageId, "set", { ...(snapshot.subPageData as unknown as SubPage), pageId } as unknown as Record<string, unknown>)]);
+  } else await setDoc(paths.subPage(workspaceId, pageId, subPageId), snapshot.subPageData);
   if (usesSupabaseRows(workspaceId)) {
     await sbPutRows(workspaceId, pageId, subPageId, fromSnapshotRows(snapshot.rows));
     return;

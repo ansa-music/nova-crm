@@ -8,16 +8,31 @@ import {
   query,
   setDoc,
   writeBatch,
+  type FirestoreError,
 } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { getDocsResumable, paths, subscribeWithSource, withErrorReporting } from "@/firebase/firestore";
+import { getDocResumable, getDocsResumable, paths, subscribeWithSource, withErrorReporting } from "@/firebase/firestore";
 import { RESERVED_CELL_KEY_ERROR, isReservedCellKey } from "@/utils/reservedCellKeys";
 import { generateId } from "@/utils/id";
 import { hasRowExtras } from "@/utils/rowExtras";
 import { ymdPartsInTimeZone } from "@/utils/date";
-import { ROW_REORDER_CHUNK, rowsToRenumber, stripUndefined, rowCopyOf } from "@/services/pageService";
+import { ROW_REORDER_CHUNK, corePagesOnSupabase, rowsToRenumber, stripUndefined, rowCopyOf, writePageDoc } from "@/services/pageService";
 import type { PageColumn, PageIconName, PageRow, StatusOption, SubPage } from "@/types";
 import { assertRowsWritable, usesSupabaseRows } from "@/services/rows/rowsBackend";
+import { toFirestoreData } from "@/services/sb/docStore";
+import type { SbBackend } from "@/services/sb/sbCollections";
+import {
+  commitCore,
+  corePagesBackendFor,
+  docToSubPage,
+  fetchCoreSubPage,
+  fetchCoreSubPages,
+  sortSubPages,
+  subPageWrite,
+  subPagesView,
+  watchCore,
+  watchCoreBackend,
+} from "@/services/coreStore";
 import {
   sbDeleteRow,
   sbDeleteRows,
@@ -33,11 +48,58 @@ import {
 // Subpages themselves (the tabs)
 // ---------------------------------------------------------------------------
 
+/** Merge-запись документа вкладки — туда, где вкладки живут сейчас (см. coreStore). */
+async function writeSubPageDoc(workspaceId: string, pageId: string, subPageId: string, patch: Record<string, unknown>) {
+  if (!db) return;
+  if (corePagesOnSupabase(workspaceId)) {
+    await commitCore(workspaceId, [subPageWrite(pageId, subPageId, "merge", patch)], { optimistic: true });
+    return;
+  }
+  await setDoc(paths.subPage(workspaceId, pageId, subPageId), toFirestoreData(patch) as Record<string, unknown>, { merge: true });
+}
+
+/**
+ * Вкладки стола: Firestore (как раньше) или поток `core_docs`; подписка сама
+ * переезжает, когда перенос сделан (или таблица пропала).
+ */
 export function subscribeToSubPages(
   workspaceId: string,
   pageId: string,
   onData: (subPages: SubPage[]) => void,
-  onError?: (error: import("firebase/firestore").FirestoreError) => void
+  onError?: (error: FirestoreError) => void
+) {
+  let cancelled = false;
+  let current: SbBackend | null = null;
+  let stop: () => void = () => {};
+  const attach = (backend: SbBackend) => {
+    if (cancelled || backend === current) return;
+    stop();
+    current = backend;
+    if (backend === "supabase") {
+      const report = withErrorReporting(onError);
+      stop = watchCore(
+        workspaceId,
+        subPagesView(pageId),
+        (docs) => onData(sortSubPages(docs.map((d) => docToSubPage(d, pageId)))),
+        () => attach("firestore"),
+        (error) => report(error as unknown as FirestoreError)
+      );
+    } else stop = subscribeToFirestoreSubPages(workspaceId, pageId, onData, onError);
+  };
+  attach(corePagesBackendFor(workspaceId));
+  const unwatch = watchCoreBackend(workspaceId, attach);
+  return () => {
+    cancelled = true;
+    unwatch();
+    stop();
+  };
+}
+
+function subscribeToFirestoreSubPages(
+  workspaceId: string,
+  pageId: string,
+  onData: (subPages: SubPage[]) => void,
+  onError?: (error: FirestoreError) => void
 ) {
   const q = query(paths.subPages(workspaceId, pageId), orderBy("order", "asc"));
 
@@ -128,13 +190,20 @@ export async function createSubPage(input: CreateSubPageInput): Promise<SubPage>
     updatedAt: Date.now(),
     createdBy: input.createdBy,
   };
+  if (corePagesOnSupabase(input.workspaceId)) {
+    // «create»: вкладка с таким id уже есть — база отдаёт её, как транзакция
+    // «создать один раз» (месячные вкладки заводят два клиента разом).
+    const [doc] = await commitCore(input.workspaceId, [
+      subPageWrite(input.pageId, id, "create", stripUndefined(subPage) as unknown as Record<string, unknown>),
+    ]);
+    return doc ? docToSubPage(doc, input.pageId) : subPage;
+  }
   await setDoc(paths.subPage(input.workspaceId, input.pageId, id), stripUndefined(subPage));
   return subPage;
 }
 
 export async function renameSubPage(workspaceId: string, pageId: string, subPageId: string, name: string) {
-  if (!db) return;
-  await setDoc(paths.subPage(workspaceId, pageId, subPageId), { name, updatedAt: Date.now() }, { merge: true });
+  await writeSubPageDoc(workspaceId, pageId, subPageId, { name, updatedAt: Date.now() });
 }
 
 export async function updateSubPageAppearance(
@@ -143,8 +212,7 @@ export async function updateSubPageAppearance(
   subPageId: string,
   patch: { color?: string; icon?: PageIconName }
 ) {
-  if (!db) return;
-  await setDoc(paths.subPage(workspaceId, pageId, subPageId), { ...patch, updatedAt: Date.now() }, { merge: true });
+  await writeSubPageDoc(workspaceId, pageId, subPageId, { ...stripUndefined(patch), updatedAt: Date.now() });
 }
 
 export async function updateSubPageColumns(
@@ -153,21 +221,11 @@ export async function updateSubPageColumns(
   subPageId: string,
   columns: PageColumn[]
 ) {
-  if (!db) return;
-  await setDoc(
-    paths.subPage(workspaceId, pageId, subPageId),
-    { columns: stripUndefined(columns), updatedAt: Date.now() },
-    { merge: true }
-  );
+  await writeSubPageDoc(workspaceId, pageId, subPageId, { columns: stripUndefined(columns), updatedAt: Date.now() });
 }
 
 export async function archiveSubPage(workspaceId: string, pageId: string, subPageId: string, archived: boolean) {
-  if (!db) return;
-  await setDoc(
-    paths.subPage(workspaceId, pageId, subPageId),
-    { isArchived: archived, updatedAt: Date.now() },
-    { merge: true }
-  );
+  await writeSubPageDoc(workspaceId, pageId, subPageId, { isArchived: archived, updatedAt: Date.now() });
 }
 
 /** Permanently removes the subpage and (best-effort) all of its rows. */
@@ -187,9 +245,13 @@ export async function deleteSubPage(workspaceId: string, pageId: string, subPage
     }
     // Сначала вкладка, потом её строки — см. deletePage: сбой оставит
     // невидимые строки без вкладки, а не пустую живую вкладку.
-    const batch = writeBatch(db);
-    batch.delete(paths.subPage(workspaceId, pageId, subPageId));
-    await batch.commit();
+    if (corePagesOnSupabase(workspaceId)) {
+      await commitCore(workspaceId, [subPageWrite(pageId, subPageId, "delete")], { optimistic: true });
+    } else {
+      const batch = writeBatch(db);
+      batch.delete(paths.subPage(workspaceId, pageId, subPageId));
+      await batch.commit();
+    }
     await sbDeleteRows(workspaceId, pageId, subPageId).catch((error) =>
       console.warn("[rows] строки удалённой вкладки остались в Supabase", error)
     );
@@ -204,6 +266,14 @@ export async function deleteSubPage(workspaceId: string, pageId: string, subPage
 
 export async function reorderSubPages(workspaceId: string, pageId: string, orderedIds: string[]) {
   if (!db) return;
+  if (corePagesOnSupabase(workspaceId)) {
+    await commitCore(
+      workspaceId,
+      orderedIds.map((id, index) => subPageWrite(pageId, id, "merge", { order: index })),
+      { optimistic: true }
+    );
+    return;
+  }
   const batch = writeBatch(db);
   orderedIds.forEach((id, index) => {
     batch.set(paths.subPage(workspaceId, pageId, id), { order: index }, { merge: true });
@@ -345,9 +415,23 @@ export function subscribeToSubPageRows(
 }
 
 export async function fetchSubPages(workspaceId: string, pageId: string): Promise<SubPage[]> {
+  if (corePagesOnSupabase(workspaceId)) {
+    const subs = await fetchCoreSubPages(workspaceId, pageId);
+    if (subs) return subs;
+  }
   // Подписка с resume-токеном вместо getDocs — платим только за изменившиеся вкладки.
   const snap = await getDocsResumable(query(paths.subPages(workspaceId, pageId), orderBy("order", "asc")));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as SubPage);
+}
+
+/** Одна вкладка разовым чтением (в Firestore — с resume-токеном, кэш годится). */
+export async function fetchSubPage(workspaceId: string, pageId: string, subPageId: string): Promise<SubPage | null> {
+  if (corePagesOnSupabase(workspaceId)) {
+    const sub = await fetchCoreSubPage(workspaceId, pageId, subPageId);
+    if (sub !== undefined) return sub;
+  }
+  const snap = await getDocResumable(paths.subPage(workspaceId, pageId, subPageId));
+  return snap.exists() ? ({ id: snap.id, ...snap.data() } as unknown as SubPage) : null;
 }
 
 /**
@@ -366,6 +450,10 @@ export async function fetchSubPageFresh(
   pageId: string,
   subPageId: string
 ): Promise<SubPage | null> {
+  if (corePagesOnSupabase(workspaceId)) {
+    const sub = await fetchCoreSubPage(workspaceId, pageId, subPageId);
+    if (sub !== undefined) return sub;
+  }
   const snap = await getDocFromServer(paths.subPage(workspaceId, pageId, subPageId));
   return snap.exists() ? ({ id: snap.id, ...snap.data() } as unknown as SubPage) : null;
 }
@@ -542,8 +630,9 @@ export async function reorderSubPageRows(
  */
 export async function setTabRowOrderManual(workspaceId: string, pageId: string, subPageId: string | null) {
   if (!db) return;
-  const ref = subPageId ? paths.subPage(workspaceId, pageId, subPageId) : paths.page(workspaceId, pageId);
-  await setDoc(ref, { rowOrder: "manual", updatedAt: Date.now() }, { merge: true });
+  const patch = { rowOrder: "manual", updatedAt: Date.now() };
+  if (subPageId) await writeSubPageDoc(workspaceId, pageId, subPageId, patch);
+  else await writePageDoc(workspaceId, pageId, patch);
 }
 
 // ---------------------------------------------------------------------------

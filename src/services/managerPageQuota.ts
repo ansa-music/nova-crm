@@ -2,7 +2,8 @@ import { writeBatch } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateDeskId, generateId } from "@/utils/id";
-import { ensureNewDeskAcl, seedCurrentMonthDesk, stripUndefined } from "@/services/pageService";
+import { corePagesOnSupabase, ensureNewDeskAcl, seedCurrentMonthDesk, stripUndefined } from "@/services/pageService";
+import { commitCore, pageWrite } from "@/services/coreStore";
 import type { PageColumn, PageIconName, WorkspacePage } from "@/types";
 
 export interface CreateManagerPageInput {
@@ -66,6 +67,19 @@ export async function createManagerOwnedPage(input: CreateManagerPageInput): Pro
     pageId,
     createdAt: now,
   });
+  if (corePagesOnSupabase(input.workspaceId)) {
+    // Столы в Supabase: квоту «один свой стол» держит core_write (считает
+    // живые столы технаря в базе); тень стола и claim в Firestore — следом,
+    // best-effort (claim нужен правилам Firestore и снятию/возврату стола).
+    try {
+      await commitCore(input.workspaceId, [pageWrite(pageId, "set", stripUndefined(page) as unknown as Record<string, unknown>)]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "42501") throw new Error("Достигнут лимит страниц: у технаря может быть только один свой стол");
+      throw error;
+    }
+    await batch.commit().catch((error) => console.warn("[core] тень стола технаря / claim в Firestore не записаны", error));
+    return seedCurrentMonthDesk(page);
+  }
   await batch.commit();
   await ensureNewDeskAcl(input.workspaceId, page);
   // Month tab after the atomic page+claim batch — never inside it.
