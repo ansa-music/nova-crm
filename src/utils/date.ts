@@ -27,7 +27,13 @@ export function timeAgo(timestamp: number): string {
 }
 
 export function formatDate(timestamp: number, pattern = "d MMM yyyy, HH:mm"): string {
-  return format(new Date(toMillis(timestamp)), pattern, { locale: ru });
+  const ms = toMillis(timestamp);
+  // Часы компании (USER_TIMEZONE), а не устройства: на телефоне с другим
+  // поясом карточка писала «создано 27 сент. · изменено 26 сент.» — одна дата
+  // по Алматы, другая по часам телефона. date-fns пишет «местное» время,
+  // поэтому сдвигаем момент на разницу поясов. В Алматы сдвиг — ноль.
+  const shift = Number.isFinite(ms) ? (timeZoneOffsetMinutes(ms) + new Date(ms).getTimezoneOffset()) * 60_000 : 0;
+  return format(new Date(ms + shift), pattern, { locale: ru });
 }
 
 /** Live remaining time until a Grok limit reset, e.g. "через 2ч 15м". */

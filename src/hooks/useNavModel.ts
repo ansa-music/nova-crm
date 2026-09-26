@@ -29,7 +29,9 @@ import {
   UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Building2 as PlatformIcon, FileChartColumn } from "lucide-react";
+import { Building2 as PlatformIcon, FileChartColumn, Smartphone } from "lucide-react";
+import { useInstallMode } from "@/utils/pwa";
+import { startInstall } from "@/components/common/InstallApp";
 import { DESKS_ITEM_KEY, DESK_SHORTCUTS_LIMIT, EXTRA_ROUTE_META, MORE_ITEM_KEY, MORE_SECTION_KEY, pathMatches, pathOnly, type NavChild, type NavItem, type NavSection, type PageMeta } from "@/config/nav";
 import { roleLabel, memberHasRole, rolesLabel, type Role, type WorkspaceMember, type WorkspacePage } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
@@ -798,6 +800,7 @@ export function useAccountMenu(opts: { openCreatePage?: () => void; openCreateWo
   const theme = useUiStore((s) => s.theme);
   const setTheme = useUiStore((s) => s.setTheme);
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
+  const installMode = useInstallMode();
   const myMembership = members.find((m) => m.uid === profile?.uid);
 
   const caption = permissions.isSimulating
@@ -808,6 +811,10 @@ export function useAccountMenu(opts: { openCreatePage?: () => void; openCreateWo
     "";
 
   const actions: AccountMenuItem[] = [];
+  // Приложение на экран — без магазинов (PWA). В установленном пункта нет.
+  if (installMode !== "installed" && installMode !== "unsupported") {
+    actions.push({ key: "install-app", label: "Установить приложение", icon: Smartphone, run: () => startInstall(installMode) });
+  }
   if (canCreateWorkspace && openCreateWorkspace) {
     actions.push({ key: "create-workspace", label: "Создать workspace", icon: Plus, run: openCreateWorkspace });
   }

@@ -1156,3 +1156,24 @@ html body[data-scroll-locked] {
     animation: none !important;
   }
 }
+
+/* ---- Клавиатура телефона: окна — в видимой части (utils/visualViewportVars.ts)
+   На iPhone клавиатура не сжимает страницу, и fixed-окна «по центру» и шторки
+   «снизу» уходили под неё. Пока клавиатура открыта, на <html> стоит
+   data-keyboard="open" и размеры видимой части. */
+html[data-keyboard="open"] .nova-dialog {
+  top: calc(var(--vv-top) + var(--vv-h) / 2) !important;
+  max-height: calc(var(--vv-h) - 1rem) !important;
+}
+html[data-keyboard="open"] .nova-sheet-bottom {
+  bottom: var(--vv-bottom) !important;
+  max-height: calc(var(--vv-h) - 0.5rem) !important;
+}
+html[data-keyboard="open"] .nova-vv-fit {
+  top: var(--vv-top) !important;
+  bottom: auto !important;
+  height: var(--vv-h) !important;
+}
+html[data-keyboard="open"] .nova-vv-card {
+  max-height: calc(var(--vv-h) - 1rem) !important;
+}

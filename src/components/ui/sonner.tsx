@@ -1,5 +1,6 @@
 import { Check, X } from "lucide-react";
 import { Toaster as Sonner } from "sonner";
+import { useIsMobile } from "@/hooks/useMediaQuery";
 
 /* Иконка тоста — плоский квадратик в тоне события, без свечения. */
 function HudToastIcon({ kind }: { kind: "success" | "error" }) {
@@ -20,11 +21,15 @@ function HudToastIcon({ kind }: { kind: "success" | "error" }) {
 }
 
 export function Toaster() {
+  // Телефон: сверху, как системные уведомления iPhone. Снизу тост закрывал
+  // нижнюю панель, итоги стола и кнопки карточки строки.
+  const mobile = useIsMobile();
   return (
     <Sonner
       theme="dark"
       className="toaster group"
-      position="bottom-right"
+      position={mobile ? "top-center" : "bottom-right"}
+      mobileOffset={{ top: "calc(env(safe-area-inset-top) + 8px)" }}
       icons={{
         success: <HudToastIcon kind="success" />,
         error: <HudToastIcon kind="error" />,

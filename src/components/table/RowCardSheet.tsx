@@ -232,10 +232,11 @@ export function RowCardSheet({
             if (!open) setInactiveOpenKey((prev) => (prev === col.key ? null : prev));
           }}
         >
-          <SelectTrigger className={cn("h-9 w-auto min-w-[8rem] max-w-full", opts.inline && "h-8")}>
+          <SelectTrigger className={cn("h-9 w-auto min-w-[8rem] max-w-full [@media(pointer:coarse)]:h-11", opts.inline && "h-8")}>
             <SelectValue placeholder="—">
               {stringValue ? (
-                <StatusBadge value={stringValue} options={col.statusOptions ?? []} showTick={col.type === "status"} />
+                // «● Слово» без пилюли: пилюля на таче выше самой кнопки (44 px) и вылезала за рамку.
+                <StatusBadge value={stringValue} options={col.statusOptions ?? []} showTick={col.type === "status"} variant="plain" />
               ) : (
                 <span className="text-muted-foreground">—</span>
               )}
@@ -368,7 +369,7 @@ export function RowCardSheet({
       <button
         type="button"
         onClick={() => beginEdit(col)}
-        className="row-card-editable -mx-2 -my-1 max-w-full rounded-md px-2 py-1 text-right hover:bg-primary/10"
+        className="row-card-editable -my-1 max-w-full rounded-md py-1 text-right hover:bg-primary/10 sm:-mx-2 sm:px-2"
         title="Нажмите, чтобы изменить"
       >
         {display}
@@ -390,13 +391,13 @@ export function RowCardSheet({
             exit={{ opacity: 0 }}
             onClick={() => onOpenChange(false)}
           />
-          <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+          <div className="nova-vv-fit pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
             <motion.div
               key={record.id}
               layoutId={rowCardLayoutId(record.id)}
               role="dialog"
               aria-modal="true"
-              className="hud-frame glass-float pointer-events-auto flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-md"
+              className="nova-vv-card hud-frame glass-float pointer-events-auto flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-md"
               transition={{ type: "spring", stiffness: 400, damping: 30 }}
             >
               <div className={cn("border-b border-white/10 px-5 py-5 text-left sm:px-6", headerTint)}>

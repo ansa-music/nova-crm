@@ -175,6 +175,30 @@ export interface BrowserNotifyInput {
 
 export function showBrowserNotification({ title, body, tag, href, silent }: BrowserNotifyInput): boolean {
   if (!browserNotifyActive()) return false;
+  // Через сервис-воркер (public/sw.js), если он работает: на iPhone в
+  // установленном приложении и на Android Chrome `new Notification()` не
+  // существует или бросает — всплывашку умеет показать только воркер. Нажатие
+  // на неё воркер передаёт странице, и переходит уже роутер (utils/pwa.ts).
+  const sw = typeof navigator !== "undefined" && "serviceWorker" in navigator ? navigator.serviceWorker.controller : null;
+  if (sw) {
+    void navigator.serviceWorker.ready
+      .then((reg) =>
+        reg.showNotification(title, {
+          body,
+          tag,
+          icon: "/icons/icon-192.png",
+          badge: "/icons/icon-192.png",
+          silent: Boolean(silent),
+          data: { url: href ?? "/" },
+        })
+      )
+      .catch(() => showWithConstructor({ title, body, tag, href, silent }));
+    return true;
+  }
+  return showWithConstructor({ title, body, tag, href, silent });
+}
+
+function showWithConstructor({ title, body, tag, href, silent }: BrowserNotifyInput): boolean {
   try {
     const notification = new Notification(title, { body, tag, icon: "/logo.svg", silent: Boolean(silent) });
     notification.onclick = () => {

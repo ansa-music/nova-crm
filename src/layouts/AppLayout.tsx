@@ -23,6 +23,7 @@ import { SupabaseSqlBanner } from "@/components/common/SupabaseSqlBanner";
 import { TenantBlockedScreen, TrialBanner } from "@/components/common/TenantGate";
 import { tenantActive, useTenantInfo, type TenantInfo } from "@/hooks/useTenantInfo";
 import { NotifyHelpHost } from "@/components/common/NotifyHelpDialog";
+import { InstallAppBanner, InstallAppHost } from "@/components/common/InstallApp";
 import { OrderPopupHost } from "@/components/orders/OrderPopup";
 import { TelegramUploadPill } from "@/components/telegram/TelegramUploadPill";
 import { TelegramBackground } from "@/components/telegram/TelegramBackground";
@@ -294,6 +295,7 @@ const AppChrome = memo(function AppChrome({
       <AppDialogHost />
       <DbQuotaBanner />
       <NotifyHelpHost />
+      <InstallAppHost />
       <OrderPopupHost />
       <TelegramUploadPill />
       <TelegramBackground />
@@ -303,6 +305,7 @@ const AppChrome = memo(function AppChrome({
         {!isFullscreen && <Topbar />}
         {!isFullscreen && <SupabaseSqlBanner />}
         {!isFullscreen && trial ? <TrialBanner info={trial} /> : null}
+        {!isFullscreen && <InstallAppBanner />}
         {isFullscreen && <TableChromeExit label="Свернуть" />}
         {/* overflow-x задан явно: один `overflow-y-auto` даёт и горизонтальный
             скролл, и широкие страницы ездили бы вместе с рейкой; вбок

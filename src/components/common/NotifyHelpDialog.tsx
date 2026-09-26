@@ -1,5 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { BellRing, Check, Copy, Volume2 } from "lucide-react";
+import { BellRing, Check, Copy, Smartphone, Volume2 } from "lucide-react";
+import { useInstallMode } from "@/utils/pwa";
+import { startInstall } from "@/components/common/InstallApp";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/sonner";
@@ -94,8 +96,9 @@ const STEPS: Record<NotifyBrowser, { name: string; steps: string[]; settingsUrl?
   ios: {
     name: "iPhone / iPad",
     steps: [
-      "На iPhone всплывашки сайта работают только у приложения, добавленного на экран «Домой», — в обычной вкладке Safari их нет совсем.",
-      "Пока вкладка открыта, новый заказ придёт звуком и в колокольчике — проверьте звук кнопкой ниже.",
+      "На iPhone всплывашки работают только у приложения с экрана «Домой» (iOS 16.4 и новее) — в обычной вкладке Safari их нет совсем. Нажмите «Установить приложение» ниже.",
+      "Уже установили и запретили? Настройки iPhone → «Уведомления» → приложение → «Допускать уведомления».",
+      "Пока приложение не установлено, заказ придёт звуком и в колокольчике — проверьте звук кнопкой ниже.",
     ],
   },
   other: {
@@ -117,6 +120,7 @@ export function NotifyHelpHost() {
   const [copied, setCopied] = useState(false);
   const { permission } = useSyncExternalStore(subscribeBrowserNotify, browserNotifyState);
   const browser = detectNotifyBrowser();
+  const installMode = useInstallMode();
   const info = STEPS[browser];
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const settingsUrl = info.settingsUrl?.(origin) ?? null;
@@ -202,6 +206,19 @@ export function NotifyHelpHost() {
         )}
 
         {browser !== "ios" && <p className="text-[11px] text-muted-foreground">{SYSTEM_TIP}</p>}
+
+        {browser === "ios" && installMode !== "installed" && (
+          <Button
+            variant="outline"
+            className="min-h-11 gap-1.5 sm:min-h-9"
+            onClick={() => {
+              setOpen(false);
+              void startInstall(installMode);
+            }}
+          >
+            <Smartphone className="h-4 w-4" /> Установить приложение
+          </Button>
+        )}
 
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
           <Button variant="ghost" className="min-h-11 gap-1.5 sm:min-h-9" onClick={() => playOrderSound()}>
