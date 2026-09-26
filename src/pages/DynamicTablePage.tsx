@@ -2726,6 +2726,7 @@ export default function DynamicTablePage() {
                 userId={profile?.uid ?? ""}
                 userName={myDisplayName(profile, members)}
                 focusRowId={focusRowId}
+                focusOpenCard={searchParams.get("card") === "1"}
                 onSummaryChange={summaryStore.set}
                 onActionsChange={setActions}
               />

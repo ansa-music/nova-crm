@@ -11,6 +11,7 @@ import {
   Paperclip,
   Search,
   Send,
+  UserRound,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ import {
 import { cn } from "@/utils/cn";
 import { formatMessageWrittenAt } from "@/utils/date";
 import { filterDialogsByLink, TgChatFilterBar, TgOsChip, TgOsLinkButton, type TgChatFilter, type TgLinking } from "@/components/telegram/TgOsLink";
+import { TgClientButton } from "@/components/telegram/TgClientLink";
 
 const FILTER_KEY = "nova:tg-chat-filter";
 
@@ -191,6 +193,9 @@ export function TgChats({
                   <span className="flex items-center justify-between gap-2">
                     <span className="flex min-w-0 items-center gap-1.5">
                       <span className={cn("truncate text-sm", d.unread ? "font-semibold" : "font-medium")}>{d.title}</span>
+                      {linking?.client?.clients[d.id] && (
+                        <UserRound className="h-3 w-3 shrink-0 text-primary" aria-label={`Клиент: ${linking.client.clients[d.id].label}`} />
+                      )}
                       {linking?.links[d.id] && <TgOsChip value={linking.links[d.id].osValue} options={linking.options} className="max-w-[6.5rem] shrink-0" />}
                     </span>
                     <span className="shrink-0 text-[10px] text-muted-foreground">{d.lastAt ? formatMessageWrittenAt(d.lastAt, { compact: true }) : ""}</span>
@@ -346,7 +351,12 @@ function TgConversation({ dialog, me, onBack, linking }: { dialog: TgDialog; me:
           <p className="truncate text-sm font-semibold">{dialog.title}</p>
           <p className="truncate text-[11px] text-muted-foreground">{dialog.username ? `@${dialog.username}` : dialog.isUser ? "личный чат" : "группа или канал"}</p>
         </div>
-        {linking && <TgOsLinkButton dialog={dialog} linking={linking} />}
+        {linking && (
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            {linking.client && <TgClientButton dialog={dialog} tools={linking.client} />}
+            <TgOsLinkButton dialog={dialog} linking={linking} />
+          </div>
+        )}
       </div>
 
       <div ref={scroller} onScroll={onScroll} className="flex-1 overflow-y-auto px-3 py-3 scrollbar-thin sm:px-6">

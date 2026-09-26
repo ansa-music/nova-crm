@@ -21,16 +21,32 @@ export interface TgChatLink {
   boundAt: number;
 }
 
+/** Чат ↔ клиент: строка стола (SQL 20261014, `tg_chat_clients`). */
+export interface TgChatClient {
+  chatId: number;
+  pageId: string;
+  /** '' — «Основная» таблица стола. */
+  tabId: string;
+  rowId: string;
+  /** Подпись на момент привязки: «Имя · телефон». */
+  label: string;
+  boundBy: string;
+  boundAt: number;
+}
+
 export interface TgChatLinksState {
   key: string | null;
   loaded: boolean;
   links: Record<number, TgChatLink>;
+  clients: Record<number, TgChatClient>;
+  /** SQL 20261014 ещё не накатан — привязку клиента не показываем. */
+  clientsMissingSql: boolean;
   /** SQL 20261013 ещё не накатан — привязку не показываем. */
   missingSql: boolean;
   error: string | null;
 }
 
-const EMPTY: TgChatLinksState = { key: null, loaded: false, links: {}, missingSql: false, error: null };
+const EMPTY: TgChatLinksState = { key: null, loaded: false, links: {}, clients: {}, clientsMissingSql: false, missingSql: false, error: null };
 const POLL_MS = 60_000;
 const PAGE = 1000;
 
@@ -40,6 +56,7 @@ let current: { workspaceId: string; users: number; stop: () => void } | null = n
 let generation = 0;
 /** Свои правки в пути: выборка, пришедшая раньше ответа базы, их не откатывает. */
 const pendingWrites = new Map<number, TgChatLink | null>();
+const pendingClients = new Map<number, TgChatClient | null>();
 
 function emit(next: Partial<TgChatLinksState>) {
   state = { ...state, ...next };
@@ -67,6 +84,50 @@ function toLink(row: { chat_id: number | string; os_value: string; title?: strin
   };
 }
 
+type ClientRow = { chat_id: number | string; page_id: string; tab_id?: string | null; row_id: string; label?: string | null; bound_by?: string | null; bound_at?: number | string | null };
+
+function toClient(row: ClientRow): TgChatClient {
+  return {
+    chatId: Number(row.chat_id),
+    pageId: row.page_id,
+    tabId: row.tab_id ?? "",
+    rowId: row.row_id,
+    label: row.label ?? "",
+    boundBy: row.bound_by ?? "",
+    boundAt: Number(row.bound_at ?? 0),
+  };
+}
+
+function withPendingClients(clients: Record<number, TgChatClient>): Record<number, TgChatClient> {
+  if (pendingClients.size === 0) return clients;
+  const next = { ...clients };
+  for (const [chatId, client] of pendingClients) {
+    if (client) next[chatId] = client;
+    else delete next[chatId];
+  }
+  return next;
+}
+
+async function loadClients(workspaceId: string): Promise<{ clients: Record<number, TgChatClient>; missing: boolean } | { error: string }> {
+  const clients: Record<number, TgChatClient> = {};
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabaseRows
+      .from("tg_chat_clients")
+      .select("chat_id,page_id,tab_id,row_id,label,bound_by,bound_at")
+      .eq("workspace_id", workspaceId)
+      .order("chat_id")
+      .range(from, from + PAGE - 1);
+    if (error) {
+      if (isSbMissingError(error)) return { clients: {}, missing: true };
+      return { error: error.message || "Не удалось прочитать привязки клиентов" };
+    }
+    const rows = (data ?? []) as ClientRow[];
+    for (const row of rows) clients[Number(row.chat_id)] = toClient(row);
+    if (rows.length < PAGE) break;
+  }
+  return { clients, missing: false };
+}
+
 function withPending(links: Record<number, TgChatLink>): Record<number, TgChatLink> {
   if (pendingWrites.size === 0) return links;
   const next = { ...links };
@@ -78,6 +139,7 @@ function withPending(links: Record<number, TgChatLink>): Record<number, TgChatLi
 }
 
 async function load(workspaceId: string, gen: number) {
+  const clientsPromise = loadClients(workspaceId);
   const links: Record<number, TgChatLink> = {};
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabaseRows
@@ -96,7 +158,20 @@ async function load(workspaceId: string, gen: number) {
     for (const row of rows) links[Number(row.chat_id)] = toLink(row);
     if (rows.length < PAGE) break;
   }
-  emit({ loaded: true, missingSql: false, error: null, links: withPending(links) });
+  const clientsResult = await clientsPromise;
+  if (gen !== generation) return;
+  if ("error" in clientsResult) {
+    emit({ loaded: true, missingSql: false, error: clientsResult.error, links: withPending(links) });
+    return;
+  }
+  emit({
+    loaded: true,
+    missingSql: false,
+    error: null,
+    links: withPending(links),
+    clients: withPendingClients(clientsResult.clients),
+    clientsMissingSql: clientsResult.missing,
+  });
 }
 
 function reload() {
@@ -113,6 +188,7 @@ function start(workspaceId: string) {
   stop(true);
   generation += 1;
   pendingWrites.clear();
+  pendingClients.clear();
   state = { ...EMPTY, key };
   listeners.forEach((fn) => fn());
   let ringTimer: ReturnType<typeof setTimeout> | null = null;
@@ -204,4 +280,100 @@ export async function setTgChatLink(workspaceId: string, chatId: number, osValue
     }
     throw error;
   }
+}
+
+// ---------------------------------------------------------------------
+// Клиент (строка стола).
+// ---------------------------------------------------------------------
+
+export interface TgClientTarget {
+  pageId: string;
+  tabId: string;
+  rowId: string;
+  label: string;
+}
+
+/** Привязать чат к клиенту (`null` — снять). Видно сразу, отказ откатывает. */
+export async function setTgChatClient(workspaceId: string, chatId: number, target: TgClientTarget | null, myUid: string): Promise<void> {
+  const before = state.key === workspaceId ? (state.clients[chatId] ?? null) : null;
+  const optimistic: TgChatClient | null = target ? { chatId, ...target, boundBy: myUid, boundAt: Date.now() } : null;
+  pendingClients.set(chatId, optimistic);
+  if (state.key === workspaceId) emit({ clients: withPendingClients(state.clients) });
+  try {
+    const { data, error } = await supabaseRows.rpc("tg_link_client", {
+      p_workspace: workspaceId,
+      p_chat_id: chatId,
+      p_page_id: target?.pageId ?? "",
+      p_tab_id: target?.tabId ?? "",
+      p_row_id: target?.rowId ?? "",
+      p_label: target?.label ?? "",
+    });
+    if (error) {
+      if (isSbMissingError(error)) throw new Error("Привязка к клиенту появится после обновления базы — SQL накатится со следующим деплоем");
+      throw new Error(error.message || "Не удалось привязать клиента");
+    }
+    pendingClients.delete(chatId);
+    if (state.key === workspaceId) {
+      const clients = { ...state.clients };
+      const row = Array.isArray(data) ? data[0] : data;
+      if (row && typeof row === "object" && "row_id" in (row as object)) clients[chatId] = toClient(row as ClientRow);
+      else delete clients[chatId];
+      emit({ clients: withPendingClients(clients) });
+    }
+    rowChatCache.clear();
+    ringTopic(topicOf(workspaceId));
+  } catch (error) {
+    pendingClients.delete(chatId);
+    if (state.key === workspaceId) {
+      const clients = { ...state.clients };
+      if (before) clients[chatId] = before;
+      else delete clients[chatId];
+      emit({ clients: withPendingClients(clients) });
+    }
+    throw error;
+  }
+}
+
+export interface TgClientFound {
+  pageId: string;
+  tabId: string;
+  rowId: string;
+  cells: Record<string, string>;
+  at: number;
+}
+
+/** Поиск клиента по имени или телефону — только среди строк, которые человек и так читает. */
+export async function findTgClients(workspaceId: string, query: string): Promise<TgClientFound[]> {
+  const { data, error } = await supabaseRows.rpc("tg_find_clients", { p_workspace: workspaceId, p_query: query, p_limit: 20 });
+  if (error) {
+    if (isSbMissingError(error)) throw new Error("Поиск клиентов появится после обновления базы — SQL накатится со следующим деплоем");
+    throw new Error(error.message || "Не удалось найти клиентов");
+  }
+  return ((data ?? []) as Array<{ page_id: string; tab_id: string | null; row_id: string; cells: Record<string, unknown> | null; created_at: number | null; filled_at: number | null }>).map((r) => {
+    const cells: Record<string, string> = {};
+    for (const [k, v] of Object.entries(r.cells ?? {})) if (v != null) cells[k] = String(v);
+    return { pageId: r.page_id, tabId: r.tab_id ?? "", rowId: r.row_id, cells, at: Number(r.filled_at ?? r.created_at ?? 0) };
+  });
+}
+
+/** Обратный путь для визитки: чат, привязанный к этой строке (кэш на минуту). */
+const rowChatCache = new Map<string, { at: number; value: Promise<number | null> }>();
+export function fetchTgChatForRow(workspaceId: string, pageId: string, rowId: string): Promise<number | null> {
+  const key = `${workspaceId}:${pageId}:${rowId}`;
+  const hit = rowChatCache.get(key);
+  if (hit && Date.now() - hit.at < 60_000) return hit.value;
+  const value = (async () => {
+    const { data, error } = await supabaseRows
+      .from("tg_chat_clients")
+      .select("chat_id")
+      .eq("workspace_id", workspaceId)
+      .eq("page_id", pageId)
+      .eq("row_id", rowId)
+      .order("bound_at", { ascending: false })
+      .limit(1);
+    if (error || !Array.isArray(data) || data.length === 0) return null;
+    return Number((data[0] as { chat_id: number | string }).chat_id);
+  })();
+  rowChatCache.set(key, { at: Date.now(), value });
+  return value;
 }

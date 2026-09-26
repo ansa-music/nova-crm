@@ -487,6 +487,8 @@ interface DataTableProps {
   /** When set, every row/column mutation targets this subpage's nested table instead of the page's own. */
   subPageId?: string;
   focusRowId?: string | null;
+  /** Вместе с фокусом открыть карточку строки (визитку) — переход из Telegram (`?card=1`). */
+  focusOpenCard?: boolean;
   /**
    * This tab keeps a hand-made row order (`rowOrder: "manual"` on the tab
    * doc, set the first time someone drags or inserts a row). Otherwise rows
@@ -507,7 +509,7 @@ function normalizeContact(raw: string, type: "phone" | "email" | string): string
   return v.toLowerCase();
 }
 
-export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, techFills = false, onSummaryChange, onActionsChange, cellPickerKeys, onOpenCellPicker, cellAction, cellAddon, lockedKeys, cardMeta, cellDisplay, cardFooter, rowCardHiddenKeys, tabNames, canMarkRowDone, groupHint, emptyState }: DataTableProps) {
+export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, focusOpenCard = false, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, techFills = false, onSummaryChange, onActionsChange, cellPickerKeys, onOpenCellPicker, cellAction, cellAddon, lockedKeys, cardMeta, cellDisplay, cardFooter, rowCardHiddenKeys, tabNames, canMarkRowDone, groupHint, emptyState }: DataTableProps) {
   // Внешний выбор ячейки: колбэк стабилен (через ref), иначе каждый рендер
   // стола перерисовывал бы все строки — TableRow сравнивает пропсы.
   const cellPickerRef = useRef(onOpenCellPicker);
@@ -1378,7 +1380,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       setActiveCell({ rowId: focusRowId, colKey });
       setRangeAnchor({ rowId: focusRowId, colKey });
     }
-  }, [focusRowId, processedRows, pageSize, displayColumns]);
+    if (focusOpenCard) setExpandedRowId(focusRowId);
+  }, [focusRowId, focusOpenCard, processedRows, pageSize, displayColumns]);
 
   // ---- Selection bounds ----
   const getSelectionBounds = useCallback(() => {
@@ -4901,6 +4904,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                 initialOf: clientCardInitial,
                 canEditOf: (row) => !cellLockFor(row, extrasHintKey),
                 onSave: saveClientCard,
+                pageId: page.id,
               }
             : undefined
         }

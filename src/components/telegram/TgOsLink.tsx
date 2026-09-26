@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "@/components/ui/sonner";
 import type { TgChatLink } from "@/services/telegram/tgChatLinks";
+import type { TgClientTools } from "@/components/telegram/TgClientLink";
 import type { TgDialog } from "@/services/telegram/tgClient";
 import type { StatusOption } from "@/types";
 import { cn } from "@/utils/cn";
@@ -24,6 +25,8 @@ export interface TgLinking {
   /** Мой ник ОС, если он у меня есть. */
   myOsValue: string | null;
   setLink: (dialog: TgDialog, osValue: string | null) => Promise<void>;
+  /** Чат ↔ клиент (SQL 20261014); null — SQL ещё не накатан. */
+  client: TgClientTools | null;
 }
 
 export type TgChatFilter = "all" | "mine" | "none" | `os:${string}`;

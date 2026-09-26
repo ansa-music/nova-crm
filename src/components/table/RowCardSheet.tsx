@@ -68,6 +68,8 @@ interface RowCardSheetProps {
     initialOf: (row: PageRow) => RowExtras;
     canEditOf: (row: PageRow) => boolean;
     onSave: (rowId: string, next: RowExtras | null) => Promise<void>;
+    /** Стол строки — визитке для кнопки «Чат в Telegram». */
+    pageId?: string;
   };
   /** Доп. панель над полями — сейчас это «Выдача» на столе ОС. */
   extraPanel?: React.ReactNode;
@@ -471,6 +473,7 @@ export function RowCardSheet({
                       initial={clientCard.initialOf(record)}
                       canEdit={editableRow && clientCard.canEditOf(record)}
                       onSave={(next) => clientCard.onSave(record.id, next)}
+                      pageId={clientCard.pageId}
                     />
                   </div>
                 ) : null}

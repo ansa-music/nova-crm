@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { TgRowChatButton } from "@/components/telegram/TgRowChatButton";
 import { Link } from "react-router";
 import { CalendarClock, Clock3, ExternalLink, IdCard, Layers, Link2, Loader2, Mic, NotebookPen, Palette, Settings2, Users } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -149,11 +150,14 @@ export function ClientCardSection({
   initial,
   canEdit,
   onSave,
+  pageId,
 }: {
   rowId: string;
   initial: RowExtras;
   canEdit: boolean;
   onSave: (next: RowExtras | null) => Promise<void>;
+  /** Стол строки: по нему визитка находит привязанный чат Telegram. */
+  pageId?: string;
 }) {
   const { activeWorkspace } = useWorkspace();
   const { actsAsOwner } = usePermissions();
@@ -316,6 +320,7 @@ export function ClientCardSection({
       <section className="rounded-xl border border-primary/30 bg-primary/[0.05] p-3 sm:p-4">
         <p className="eyebrow mb-2 flex items-center gap-1.5 text-primary">
           <IdCard className="h-3.5 w-3.5" /> Визитка клиента
+          {pageId && <TgRowChatButton pageId={pageId} rowId={rowId} />}
           <span className="ml-auto font-sans text-[11px] normal-case tracking-normal text-muted-foreground">{statusText}</span>
         </p>
         {items.length === 0 && !initial.note?.trim() ? (
@@ -344,6 +349,7 @@ export function ClientCardSection({
     <section className="rounded-xl border border-primary/30 bg-primary/[0.05] p-3 sm:p-4">
       <p className="eyebrow mb-3 flex items-center gap-1.5 text-primary">
         <IdCard className="h-3.5 w-3.5" /> Визитка клиента
+        {pageId && <TgRowChatButton pageId={pageId} rowId={rowId} />}
         <span className="ml-auto inline-flex items-center gap-2">
           {settingsLink}
           <span className="inline-flex items-center gap-1 font-sans text-[11px] normal-case tracking-normal text-muted-foreground">
