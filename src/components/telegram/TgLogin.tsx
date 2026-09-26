@@ -12,7 +12,9 @@ import {
   submitPhoneCode,
   tgErrorText,
   type TgAuth,
+  type TgEnded,
 } from "@/services/telegram/tgClient";
+import { TgEndedNote } from "@/components/telegram/TgConnection";
 
 /**
  * Вход в рабочий аккаунт Telegram — один раз на браузер. QR-код сканируют
@@ -20,7 +22,7 @@ import {
  * Подключить устройство), или код приходит в Telegram на тот же телефон.
  * Без телефона хозяина аккаунта войти нельзя.
  */
-export function TgLogin({ auth }: { auth: TgAuth }) {
+export function TgLogin({ auth, lastEnd = null }: { auth: TgAuth; lastEnd?: TgEnded | null }) {
   const [mode, setMode] = useState<"qr" | "phone">("qr");
   const [qrImage, setQrImage] = useState<string | null>(null);
   const [phone, setPhone] = useState("+7");
@@ -125,6 +127,7 @@ export function TgLogin({ auth }: { auth: TgAuth }) {
       icon={<QrCode className="h-5 w-5" />}
       text="Один раз на этот браузер. Нужен телефон, где рабочий аккаунт уже открыт."
     >
+      <TgEndedNote ended={lastEnd} />
       <div className="mb-4 inline-flex rounded-lg border border-border p-0.5">
         {(["qr", "phone"] as const).map((m) => (
           <button

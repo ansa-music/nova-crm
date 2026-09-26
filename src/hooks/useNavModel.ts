@@ -52,6 +52,7 @@ import { openOrdersState, subscribeOpenOrdersState } from "@/services/openOrders
 import { useGrokPoolSignal } from "@/hooks/useGrokPoolSignal";
 import { useOsPendingOrderRequests } from "@/hooks/useOsPendingOrderRequests";
 import { useTelegramAccess, useTelegramRevokeGuard } from "@/services/telegram/telegramAccess";
+import { subscribeTgInbox, tgInboxPulse, tgUnreadTotal } from "@/services/telegram/tgInboxPulse";
 
 /** Пути разделов страницы «Ещё» — на них в меню горит сам пункт «Ещё». */
 const MORE_PAGE_PATHS = [
@@ -167,6 +168,8 @@ export interface NavSignals {
   grokPool: { available: number; total: number } | null;
   /** Owner открыл мне раздел «Telegram». */
   telegramGranted: boolean;
+  /** Непрочитанные в Telegram (из вкладки с соединением). */
+  telegramUnread: number;
 }
 
 const NO_SIGNALS: NavSignals = {
@@ -179,6 +182,7 @@ const NO_SIGNALS: NavSignals = {
   deskAlerts: [],
   grokPool: null,
   telegramGranted: false,
+  telegramUnread: 0,
 };
 
 function deskChild(page: WorkspacePage): NavChild {
@@ -336,6 +340,7 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
           label: "Telegram",
           icon: Send,
           show: sig.telegramGranted || (inp.permissions.isResolved && inp.permissions.actsAsOwner),
+          badge: sig.telegramGranted ? sig.telegramUnread : 0,
         },
         { key: "grok", to: "/grok-limit", label: "Грок лимит", icon: KeyRound, show: g.showGrokNav, hint: grokHint, emphasis: true },
         // Чат — ОДИН пункт (просьба Nurba 25.09.2026: «чат в быстром доступе,
@@ -599,14 +604,15 @@ export function NavModelProvider({ children }: { children: ReactNode }) {
   const telegramAccess = useTelegramAccess(activeWorkspaceId, uid, canHaveTelegram);
   useTelegramRevokeGuard(activeWorkspaceId, uid, telegramAccess, { resolved: permissions.isResolved, canHaveAccess: canHaveTelegram });
   const telegramGranted = canHaveTelegram && telegramAccess.granted;
+  const telegramUnread = tgUnreadTotal(useSyncExternalStore(subscribeTgInbox, tgInboxPulse));
 
   const inputs = useMemo<NavInputs>(
     () => ({ uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds }),
     [uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds]
   );
   const signals = useMemo<NavSignals>(
-    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted }),
-    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted]
+    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted, telegramUnread }),
+    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted, telegramUnread]
   );
   const pageMeta = useMemo(() => buildPageMeta(inputs), [inputs]);
   const model = useMemo(() => buildNavModel(inputs, signals, pageMeta), [inputs, signals, pageMeta]);

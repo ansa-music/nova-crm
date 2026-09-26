@@ -1,5 +1,6 @@
 import { InputMedia, TelegramClient, type Dialog, type Message, type Peer } from "@mtcute/web";
 import { setTgUploadsPulse } from "@/services/telegram/tgUploadsPulse";
+import { clearTgInboxEverywhere, publishTgInbox } from "@/services/telegram/tgInboxPulse";
 import { writeTelegramSessionMark, type TelegramConfig } from "@/services/telegram/telegramAccess";
 
 /**
@@ -37,7 +38,16 @@ export type TgAuth =
   | { kind: "code"; phone: string; via: string }
   | { kind: "password"; hint: string | null; error: string | null }
   | { kind: "ready"; me: TgMe }
-  | { kind: "error"; message: string };
+  /** Telegram этого человека сейчас работает в другой вкладке Nova (одно соединение на браузер). */
+  | { kind: "elsewhere" }
+  | { kind: "error"; message: string; retryAt: number | null };
+
+/** Почему закончился прошлый вход — показываем на экране входа, чтобы было понятно, что случилось. */
+export interface TgEnded {
+  reason: "telegram" | "storage" | "revoked" | "button";
+  code: string | null;
+  at: number;
+}
 
 export interface TgMedia {
   type: string;
@@ -100,9 +110,12 @@ export interface TgState {
   dialogsError: string | null;
   chats: Record<number, TgChatCache>;
   uploads: TgUpload[];
+  /** Состояние соединения mtcute: «в сети» / «переподключаюсь». */
+  conn: "offline" | "connecting" | "updating" | "connected" | null;
+  lastEnd: TgEnded | null;
 }
 
-const INITIAL: TgState = { auth: { kind: "idle" }, dialogs: [], dialogsLoaded: false, dialogsError: null, chats: {}, uploads: [] };
+const INITIAL: TgState = { auth: { kind: "idle" }, dialogs: [], dialogsLoaded: false, dialogsError: null, chats: {}, uploads: [], conn: null, lastEnd: null };
 let state: TgState = INITIAL;
 const listeners = new Set<() => void>();
 
@@ -110,6 +123,15 @@ function set(next: Partial<TgState>) {
   state = { ...state, ...next };
   listeners.forEach((fn) => fn());
   if (next.uploads) publishPulse();
+  if (next.dialogs || next.auth) publishInbox();
+}
+
+/** Непрочитанные для пункта меню — без библиотеки Telegram в остальном сайте. */
+function publishInbox() {
+  const ready = state.auth.kind === "ready";
+  const unread: Record<number, number> = {};
+  if (ready) for (const d of state.dialogs) if (d.unread > 0) unread[d.id] = d.unread;
+  publishTgInbox({ live: ready, unread }, session ? `${session.workspaceId}:${session.uid}` : null);
 }
 
 export function tgState(): TgState {
@@ -194,46 +216,292 @@ function toMe(user: { id: number; displayName: string; username: string | null; 
   return { id: user.id, name: user.displayName, username: user.username, isPremium: user.isPremium };
 }
 
+// ---------------------------------------------------------------------
+// Почему закончился вход (жалоба Nurba 26.09.2026: «Telegram всё равно
+// вылетает»). Запись в localStorage на человека — на экране входа видно,
+// кто завершил прошлый вход: Telegram, браузер (стёрли данные), снятие
+// доступа или кнопка «Выйти».
+// ---------------------------------------------------------------------
+
+function endedKey(workspaceId: string, uid: string) {
+  return `nova:tg-ended:${workspaceId}:${uid}`;
+}
+
+function readEnded(workspaceId: string, uid: string): TgEnded | null {
+  try {
+    const raw = window.localStorage.getItem(endedKey(workspaceId, uid));
+    return raw ? (JSON.parse(raw) as TgEnded) : null;
+  } catch {
+    return null;
+  }
+}
+
+function recordEnded(workspaceId: string, uid: string, reason: TgEnded["reason"], code: string | null) {
+  const ended: TgEnded = { reason, code, at: Date.now() };
+  try {
+    window.localStorage.setItem(endedKey(workspaceId, uid), JSON.stringify(ended));
+  } catch {
+    /* без localStorage — просто без подсказки */
+  }
+  return ended;
+}
+
+function hadSessionMark(workspaceId: string, uid: string): boolean {
+  try {
+    return Boolean(window.localStorage.getItem(`nova:tg-session:${workspaceId}:${uid}`));
+  } catch {
+    return false;
+  }
+}
+
+/** Есть ли база входа в этом браузере (null — браузер не умеет сказать). */
+async function storageExists(name: string): Promise<boolean | null> {
+  try {
+    const list = await indexedDB.databases?.();
+    if (!list) return null;
+    return list.some((d) => d.name === name);
+  } catch {
+    return null;
+  }
+}
+
+const SESSION_GONE = new Set(["AUTH_KEY_UNREGISTERED", "SESSION_REVOKED", "USER_DEACTIVATED", "SESSION_EXPIRED"]);
+
+/** Вход закончился не по нашей кнопке — запомнить причину и показать экран входа. */
+function onSessionGone(s: Session, code: string, storageWasMissing: boolean) {
+  if (session !== s) return;
+  const hadMark = hadSessionMark(s.workspaceId, s.uid);
+  writeTelegramSessionMark(s.workspaceId, s.uid, null);
+  clearTgInboxEverywhere(`${s.workspaceId}:${s.uid}`);
+  const prev = readEnded(s.workspaceId, s.uid);
+  let lastEnd = prev;
+  // Метки входа не было — человек ещё не входил (или вышел сам): причину не выдумываем.
+  if (hadMark) lastEnd = recordEnded(s.workspaceId, s.uid, storageWasMissing ? "storage" : "telegram", code);
+  set({ auth: { kind: "signedOut" }, dialogs: [], dialogsLoaded: false, chats: {}, lastEnd });
+}
+
+// ---------------------------------------------------------------------
+// Одно соединение на браузер (жалоба Nurba 26.09.2026: «вылетает — должно
+// быть постоянным»). Раньше каждая вкладка Nova с разделом Telegram
+// заводила СВОЙ клиент на одной и той же базе входа в IndexedDB: вкладки
+// перезаписывали друг другу сохранённое (главный дата-центр, ключи), и
+// после перезагрузки вход мог оказаться «чужим» — Telegram отвечал «вход не
+// найден». Теперь соединение держит ровно одна вкладка — у неё блокировка
+// Web Locks `nova-tg-lock:{ws}:{uid}`. Остальные стоят в очереди и
+// подхватывают соединение сами, когда та вкладка закроется; в разделе у них
+// — «Telegram открыт в другой вкладке · Работать здесь» (как у Telegram Web и
+// WhatsApp Web). Нет Web Locks (очень старый браузер) — как раньше.
+// ---------------------------------------------------------------------
+
+type OpenInput = { workspaceId: string; uid: string; config: TelegramConfig; deviceName: string };
+
+let lastInput: OpenInput | null = null;
+let lockHeld: { name: string; release: () => void } | null = null;
+let lockWait: { name: string; abort: AbortController } | null = null;
+
+function lockName(workspaceId: string, uid: string) {
+  return `nova-tg-lock:${workspaceId}:${uid}`;
+}
+
+function hasLocks(): boolean {
+  return typeof navigator !== "undefined" && Boolean(navigator.locks?.request);
+}
+
+function holdLock(name: string, input: OpenInput): Promise<void> {
+  return new Promise<void>((release) => {
+    lockHeld = { name, release };
+    void startSession(input);
+  });
+}
+
+function onLockLost(name: string) {
+  // Блокировку забрала другая вкладка («Работать здесь»): закрываем свой
+  // клиент БЕЗ выхода из Telegram — вход тот же, работает теперь там.
+  if (lockHeld?.name === name) lockHeld = null;
+  void closeSession({ keepState: false }).then(() => {
+    set({ auth: { kind: "elsewhere" } });
+    if (lastInput && lockName(lastInput.workspaceId, lastInput.uid) === name) waitForLock(name, lastInput);
+  });
+}
+
+function waitForLock(name: string, input: OpenInput) {
+  if (lockWait?.name === name) return;
+  lockWait?.abort.abort();
+  const abort = new AbortController();
+  lockWait = { name, abort };
+  navigator.locks
+    .request(name, { signal: abort.signal }, () => {
+      if (lockWait?.abort === abort) lockWait = null;
+      return holdLock(name, input);
+    })
+    .catch((error: { name?: string }) => {
+      if (abort.signal.aborted) return;
+      if (error?.name === "AbortError") onLockLost(name);
+    });
+}
+
 /**
- * Открыть сессию этого человека в этом workspace. Тот же ключ — ничего не
- * делает (клиент уже жив). Проверяет, есть ли вход, и ставит состояние.
+ * Открыть Telegram этого человека в этом workspace. Тот же ключ — ничего
+ * не делает (клиент уже жив). `steal` — «Работать здесь»: забрать
+ * соединение у другой вкладки.
  */
-export async function openTelegram(input: { workspaceId: string; uid: string; config: TelegramConfig; deviceName: string }): Promise<void> {
+let opening: { key: string; promise: Promise<void> } | null = null;
+
+export function openTelegram(input: OpenInput, opts: { steal?: boolean } = {}): Promise<void> {
+  const key = `${input.workspaceId}:${input.uid}:${input.config.apiId}`;
+  // Раздел и фоновый запуск зовут это почти одновременно: второй вызов ждёт
+  // первый, иначе вкладка встала бы в очередь за СВОЕЙ же блокировкой.
+  if (!opts.steal && opening?.key === key) return opening.promise;
+  const promise = openTelegramInner(input, opts, key).finally(() => {
+    if (opening?.promise === promise) opening = null;
+  });
+  opening = { key, promise };
+  return promise;
+}
+
+async function openTelegramInner(input: OpenInput, opts: { steal?: boolean }, key: string): Promise<void> {
+  lastInput = input;
+  if (session?.key === key && state.auth.kind !== "error") return;
+  if (!hasLocks()) {
+    await startSession(input);
+    return;
+  }
+  const name = lockName(input.workspaceId, input.uid);
+  if (lockHeld?.name === name) {
+    await startSession(input);
+    return;
+  }
+  if (lockHeld) {
+    // Другой человек / workspace в этой вкладке — прежнее соединение отпускаем.
+    lockHeld.release();
+    lockHeld = null;
+    await closeSession({ keepState: false });
+  }
+  if (lockWait?.name === name && !opts.steal) {
+    set({ auth: { kind: "elsewhere" } });
+    return;
+  }
+  lockWait?.abort.abort();
+  lockWait = null;
+  await new Promise<void>((done) => {
+    navigator.locks
+      .request(name, opts.steal ? { steal: true } : { ifAvailable: true }, (lock) => {
+        if (!lock) {
+          set({ ...INITIAL, uploads: state.uploads, auth: { kind: "elsewhere" }, lastEnd: readEnded(input.workspaceId, input.uid) });
+          waitForLock(name, input);
+          done();
+          return undefined;
+        }
+        done();
+        return holdLock(name, input);
+      })
+      .catch((error: { name?: string }) => {
+        done();
+        if (error?.name === "AbortError") onLockLost(name);
+      });
+  });
+}
+
+/** «Работать здесь»: забрать соединение у другой вкладки Nova. */
+export function takeOverTelegram(): Promise<void> {
+  if (!lastInput) return Promise.resolve();
+  return openTelegram(lastInput, { steal: true });
+}
+
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let retryCount = 0;
+const RETRY_MS = [3_000, 10_000, 30_000, 60_000];
+/** Ошибки ключей и блокировки — повтор не поможет, ждём человека. */
+const NO_RETRY = new Set(["API_ID_INVALID", "API_ID_PUBLISHED_FLOOD", "PHONE_NUMBER_BANNED"]);
+
+async function startSession(input: OpenInput): Promise<void> {
   const key = `${input.workspaceId}:${input.uid}:${input.config.apiId}`;
   if (session?.key === key && state.auth.kind !== "error") return;
-  if (session) await closeSession();
+  if (session && session.key !== key) await closeSession({ keepState: false });
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = null;
   const storageName = tgStorageName(input.workspaceId, input.uid);
-  const client = makeClient(input.config, storageName, input.deviceName);
-  session = { key, workspaceId: input.workspaceId, uid: input.uid, config: input.config, client, storageName };
-  wireUpdates(client);
-  set({ ...INITIAL, auth: { kind: "connecting" } });
+  let s = session;
+  if (!s) {
+    const existed = await storageExists(storageName);
+    const client = makeClient(input.config, storageName, input.deviceName);
+    s = { key, workspaceId: input.workspaceId, uid: input.uid, config: input.config, client, storageName };
+    session = s;
+    storageMissingAtStart = existed === false;
+    wireUpdates(client);
+    wireHealth(s);
+    set({ ...INITIAL, uploads: state.uploads, auth: { kind: "connecting" }, lastEnd: readEnded(input.workspaceId, input.uid) });
+  } else {
+    set({ auth: { kind: "connecting" } });
+  }
+  const client = s.client;
   try {
     const me = await client.getMe();
     await client.notifyLoggedIn(me.raw);
+    retryCount = 0;
     onSignedIn(toMe(me));
   } catch (error) {
-    if (session?.client !== client) return;
+    if (session !== s) return;
     const text = rpcText(error);
     if (text === "SESSION_PASSWORD_NEEDED") {
       set({ auth: { kind: "password", hint: await client.getPasswordHint().catch(() => null), error: null } });
       return;
     }
-    if (text === "AUTH_KEY_UNREGISTERED" || text === "SESSION_REVOKED" || text === "USER_DEACTIVATED") {
-      writeTelegramSessionMark(input.workspaceId, input.uid, null);
-      set({ auth: { kind: "signedOut" } });
+    if (SESSION_GONE.has(text)) {
+      onSessionGone(s, text, storageMissingAtStart);
       return;
     }
-    set({ auth: { kind: "error", message: tgErrorText(error, "Нет связи с Telegram") } });
+    // Сеть, сервер Telegram, спящий ноутбук — пробуем сами, человеку не нужно жать «Повторить».
+    if (NO_RETRY.has(text)) {
+      set({ auth: { kind: "error", message: tgErrorText(error, "Нет связи с Telegram"), retryAt: null } });
+      return;
+    }
+    const delay = RETRY_MS[Math.min(retryCount, RETRY_MS.length - 1)];
+    retryCount += 1;
+    set({ auth: { kind: "error", message: tgErrorText(error, "Нет связи с Telegram"), retryAt: Date.now() + delay } });
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (session === s) void startSession(input);
+    }, delay);
   }
 }
 
-async function closeSession() {
+let storageMissingAtStart = false;
+
+/** Связь и «вход закончился» посреди работы — не только при открытии. */
+function wireHealth(s: Session) {
+  const client = s.client as unknown as {
+    onConnectionState?: { add: (fn: (st: TgState["conn"]) => void) => void };
+    onError?: { add: (fn: (e: unknown) => void) => void };
+  };
+  client.onConnectionState?.add((st) => {
+    if (session === s) set({ conn: st });
+  });
+  client.onError?.add((error) => {
+    if (session !== s) return;
+    const text = rpcText(error);
+    if (SESSION_GONE.has(text) && state.auth.kind === "ready") onSessionGone(s, text, false);
+  });
+}
+
+/** Повторить сразу (кнопка «Повторить» на экране ошибки). */
+export function retryTelegramNow() {
+  if (!lastInput) return;
+  retryCount = 0;
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = null;
+  void startSession(lastInput);
+}
+
+async function closeSession(opts: { keepState?: boolean } = {}) {
   const s = session;
   session = null;
   qrAbort?.abort();
   qrAbort = null;
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = null;
   if (s) await s.client.destroy().catch(() => undefined);
-  set({ ...INITIAL });
+  if (!opts.keepState) set({ ...INITIAL, uploads: state.uploads.filter((u) => u.status !== "uploading") });
 }
 
 function onSignedIn(me: TgMe) {
@@ -242,7 +510,12 @@ function onSignedIn(me: TgMe) {
   // Ключ входа живёт в IndexedDB: просим браузер не вычищать его при нехватке
   // места, иначе человеку пришлось бы снова сканировать QR.
   void navigator.storage?.persist?.().catch(() => false);
-  set({ auth: { kind: "ready", me } });
+  try {
+    window.localStorage.removeItem(endedKey(session.workspaceId, session.uid));
+  } catch {
+    /* ничего */
+  }
+  set({ auth: { kind: "ready", me }, lastEnd: null });
   void loadDialogs();
 }
 
@@ -287,7 +560,7 @@ export async function startQrLogin(): Promise<void> {
       set({ auth: { kind: "signedOut" } });
       return;
     }
-    set({ auth: { kind: "error", message: tgErrorText(error, "Вход по QR не удался") } });
+    set({ auth: { kind: "error", message: tgErrorText(error, "Вход по QR не удался"), retryAt: null } });
   }
 }
 
@@ -395,7 +668,9 @@ export async function logOutTelegram(input: { workspaceId: string; uid: string; 
     }
   });
   writeTelegramSessionMark(input.workspaceId, input.uid, null);
-  set({ ...INITIAL, auth: { kind: input.reason === "revoked" ? "idle" : "signedOut" } });
+  clearTgInboxEverywhere(`${input.workspaceId}:${input.uid}`);
+  const lastEnd = recordEnded(input.workspaceId, input.uid, input.reason === "revoked" ? "revoked" : "button", null);
+  set({ ...INITIAL, auth: { kind: input.reason === "revoked" ? "idle" : "signedOut" }, lastEnd: input.reason === "button" ? null : lastEnd });
 }
 
 // ---------------------------------------------------------------------

@@ -22,7 +22,8 @@ import { clientNameAndPhone } from "@/utils/clientLabel";
 import { deskNavState, deskRowHref } from "@/utils/deskLinks";
 import { periodLabel, periodOfTabId } from "@/utils/periods";
 import { useNavigate } from "react-router";
-import { logOutTelegram, openTelegram } from "@/services/telegram/tgClient";
+import { logOutTelegram, openTelegram, retryTelegramNow, takeOverTelegram } from "@/services/telegram/tgClient";
+import { TgConnDot, TgElsewhere, TgRetryIn } from "@/components/telegram/TgConnection";
 import { confirmDialog } from "@/utils/appDialog";
 import { cn } from "@/utils/cn";
 import { myDisplayName } from "@/utils/displayName";
@@ -178,27 +179,30 @@ export default function TelegramPage() {
     );
   } else if (tg.auth.kind === "idle" || tg.auth.kind === "connecting") {
     body = <LoadingState label="Подключаюсь к Telegram…" />;
-  } else if (tg.auth.kind === "error") {
-    const message = tg.auth.message;
+  } else if (tg.auth.kind === "elsewhere") {
     body = (
       <Pane>
-        <Alert tone="error" title="Telegram не подключился">
+        <TgElsewhere onTakeOver={() => void takeOverTelegram()} />
+      </Pane>
+    );
+  } else if (tg.auth.kind === "error") {
+    const message = tg.auth.message;
+    const retryAt = tg.auth.retryAt;
+    body = (
+      <Pane>
+        <Alert tone={retryAt ? "warning" : "error"} title={retryAt ? "Нет связи с Telegram — переподключаюсь сам" : "Telegram не подключился"}>
           {message}
+          {retryAt && <TgRetryIn at={retryAt} />}
         </Alert>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          onClick={() => activeWorkspaceId && uid && void openTelegram({ workspaceId: activeWorkspaceId, uid, config, deviceName })}
-        >
-          <RefreshCw className="h-4 w-4" /> Повторить
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={retryTelegramNow}>
+          <RefreshCw className="h-4 w-4" /> {retryAt ? "Повторить сейчас" : "Повторить"}
         </Button>
       </Pane>
     );
   } else if (tg.auth.kind === "ready" && me) {
     body = <TgChats me={me} chatId={chatId} onOpenChat={(id) => setChatParam(id === null ? "" : String(id))} linking={linking} />;
   } else {
-    body = <TgLogin auth={tg.auth} />;
+    body = <TgLogin auth={tg.auth} lastEnd={tg.lastEnd} />;
   }
 
   return (
@@ -208,7 +212,9 @@ export default function TelegramPage() {
           <Send className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <h1 className="text-sm font-semibold">Telegram</h1>
+          <h1 className="flex items-center gap-1.5 text-sm font-semibold">
+            Telegram {me && <TgConnDot conn={tg.conn} />}
+          </h1>
           <p className="truncate text-[12px] text-muted-foreground">
             {me ? `${me.name}${me.username ? ` · @${me.username}` : ""}${me.isPremium ? " · Premium" : ""}` : "Рабочий аккаунт"}
           </p>
