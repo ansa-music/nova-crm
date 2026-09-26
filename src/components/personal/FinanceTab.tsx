@@ -8,6 +8,7 @@ import {
   addPersonalFinanceEntry,
   deletePersonalFinanceEntry,
   subscribeToPersonalFinance,
+  usePersonalBackend,
   type PersonalFinanceEntry,
 } from "@/services/personalSpaceService";
 import { parseFinanceInput, type FinanceType } from "@/utils/financeParser";
@@ -46,10 +47,11 @@ export function FinanceTab({ workspaceId, pageId, uid }: FinanceTabProps) {
   const [type, setType] = useState<FinanceType>("expense");
   const month = currentMonthKey();
 
-  useEffect(
-    () => subscribeToPersonalFinance(workspaceId, pageId, uid, setEntries),
-    [workspaceId, pageId, uid]
-  );
+  const backend = usePersonalBackend(workspaceId, pageId, uid);
+  useEffect(() => {
+    if (!backend) return;
+    return subscribeToPersonalFinance(workspaceId, pageId, uid, setEntries, undefined, backend);
+  }, [workspaceId, pageId, uid, backend]);
 
   const monthEntries = useMemo(() => entries.filter((e) => e.month === month), [entries, month]);
   const { income, expense, balance } = useMemo(() => {

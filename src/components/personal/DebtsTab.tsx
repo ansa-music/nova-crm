@@ -9,6 +9,7 @@ import {
   deletePersonalDebt,
   setPersonalDebtPaid,
   subscribeToPersonalDebts,
+  usePersonalBackend,
   type PersonalDebt,
 } from "@/services/personalSpaceService";
 import { parseAmount } from "@/utils/money";
@@ -34,7 +35,11 @@ export function DebtsTab({ workspaceId, pageId, uid }: DebtsTabProps) {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
 
-  useEffect(() => subscribeToPersonalDebts(workspaceId, pageId, uid, setDebts), [workspaceId, pageId, uid]);
+  const backend = usePersonalBackend(workspaceId, pageId, uid);
+  useEffect(() => {
+    if (!backend) return;
+    return subscribeToPersonalDebts(workspaceId, pageId, uid, setDebts, undefined, backend);
+  }, [workspaceId, pageId, uid, backend]);
 
   const unpaid = useMemo(() => debts.filter((d) => !d.paid), [debts]);
   const paid = useMemo(() => debts.filter((d) => d.paid), [debts]);

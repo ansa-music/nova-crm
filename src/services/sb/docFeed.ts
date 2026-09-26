@@ -389,21 +389,35 @@ export function watchSbDocs(
   };
 }
 
-/** Своя запись легла — показать сразу во всех видах вкладки и позвонить остальным. */
-export function applySbDocs(cfg: DocFeedConfig, workspaceId: string, docs: SbDoc[]) {
+/**
+ * Своя запись легла — показать сразу во всех видах вкладки и позвонить
+ * остальным. `force` — положить мимо сравнения rev (показ правки ДО ответа
+ * базы и её откат), `ring: false` — без звонка.
+ */
+export function applySbDocs(
+  cfg: DocFeedConfig,
+  workspaceId: string,
+  docs: SbDoc[],
+  opts: { ring?: boolean; force?: boolean } = {}
+) {
   const engine = engines.get(`${cfg.table}|${workspaceId}`);
   if (engine) {
     let changed = false;
     for (const doc of docs) {
       const key = docKey(doc.kind, doc.id);
       const known = engine.docs.get(key);
-      if (known && known.rev >= doc.rev) continue;
+      if (!opts.force && known && known.rev >= doc.rev) continue;
       engine.docs.set(key, doc);
       changed = true;
     }
     if (changed) emitAll(engine);
   }
-  ringTopic(`nova:${workspaceId}:${cfg.topic}`);
+  if (opts.ring !== false) ringTopic(`nova:${workspaceId}:${cfg.topic}`);
+}
+
+/** Что сейчас лежит в памяти потока (или null). */
+export function peekSbDoc(cfg: DocFeedConfig, workspaceId: string, kind: string, id: string): SbDoc | null {
+  return engines.get(`${cfg.table}|${workspaceId}`)?.docs.get(docKey(kind, id)) ?? null;
 }
 
 /** Разовая выборка с сервера (мимо памяти движка): решения «по свежему». */

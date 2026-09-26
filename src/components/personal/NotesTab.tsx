@@ -8,6 +8,7 @@ import {
   deletePersonalNote,
   savePersonalNote,
   subscribeToPersonalNotes,
+  usePersonalBackend,
   type PersonalNote,
 } from "@/services/personalSpaceService";
 import { generateId } from "@/utils/id";
@@ -29,7 +30,11 @@ export function NotesTab({ workspaceId, pageId, uid }: NotesTabProps) {
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
 
-  useEffect(() => subscribeToPersonalNotes(workspaceId, pageId, uid, setNotes), [workspaceId, pageId, uid]);
+  const backend = usePersonalBackend(workspaceId, pageId, uid);
+  useEffect(() => {
+    if (!backend) return;
+    return subscribeToPersonalNotes(workspaceId, pageId, uid, setNotes, undefined, backend);
+  }, [workspaceId, pageId, uid, backend]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

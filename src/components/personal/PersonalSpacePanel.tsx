@@ -6,7 +6,7 @@ import { ReportsTab } from "@/components/personal/ReportsTab";
 import { FinanceTab } from "@/components/personal/FinanceTab";
 import { DebtsTab } from "@/components/personal/DebtsTab";
 import { NotesTab } from "@/components/personal/NotesTab";
-import { ensurePersonalZone } from "@/services/personalSpaceService";
+import { ensurePersonalZone, ensurePersonalZoneImported } from "@/services/personalSpaceService";
 
 interface PersonalSpacePanelProps {
   workspaceId: string;
@@ -19,7 +19,12 @@ export function PersonalSpacePanel({ workspaceId, pageId, uid, onClose }: Person
   const [tab, setTab] = useState<"reports" | "finance" | "debts" | "notes">("reports");
 
   useEffect(() => {
-    ensurePersonalZone(workspaceId, pageId, uid).catch((err) => console.error("ensurePersonalZone failed:", err));
+    // Сначала — разовый перенос зоны в Supabase (если пора), потом отметка
+    // зоны уже там, где она живёт.
+    void ensurePersonalZoneImported(workspaceId, pageId, uid)
+      .catch((err) => console.warn("[personal] перенос зоны в Supabase не удался — зона остаётся в Firestore", err))
+      .then(() => ensurePersonalZone(workspaceId, pageId, uid))
+      .catch((err) => console.error("ensurePersonalZone failed:", err));
   }, [workspaceId, pageId, uid]);
 
   return (

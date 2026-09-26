@@ -9,6 +9,7 @@ import {
   deletePersonalReport,
   subscribeToPersonalReportRows,
   subscribeToPersonalReports,
+  usePersonalBackend,
   type PersonalReportRow,
 } from "@/services/personalSpaceService";
 import { cn } from "@/utils/cn";
@@ -50,23 +51,32 @@ export function ReportsTab({ workspaceId, pageId, uid }: ReportsTabProps) {
   // desk's list loaded but nothing matched, so it showed «Выберите отчёт»
   // even though that desk has reports — and the row subscription below was
   // pointed at desk B's path with desk A's report id.
+  const backend = usePersonalBackend(workspaceId, pageId, uid);
   useEffect(() => {
     setReports([]);
     setActiveId(null);
-    return subscribeToPersonalReports(workspaceId, pageId, uid, (data) => {
-      setReports(data);
-      setActiveId((current) => current ?? data[0]?.id ?? null);
-    });
-  }, [workspaceId, pageId, uid]);
+    if (!backend) return;
+    return subscribeToPersonalReports(
+      workspaceId,
+      pageId,
+      uid,
+      (data) => {
+        setReports(data);
+        setActiveId((current) => current ?? data[0]?.id ?? null);
+      },
+      undefined,
+      backend
+    );
+  }, [workspaceId, pageId, uid, backend]);
 
   useEffect(() => {
     // Clear at the top, not only when activeId goes falsy — otherwise the
     // previous report's rows stay on screen under the new report's header
     // until the new subscription delivers.
     setRows([]);
-    if (!activeId) return;
-    return subscribeToPersonalReportRows(workspaceId, pageId, uid, activeId, setRows);
-  }, [workspaceId, pageId, uid, activeId]);
+    if (!activeId || !backend) return;
+    return subscribeToPersonalReportRows(workspaceId, pageId, uid, activeId, setRows, backend);
+  }, [workspaceId, pageId, uid, activeId, backend]);
 
   const active = reports.find((r) => r.id === activeId) ?? null;
 

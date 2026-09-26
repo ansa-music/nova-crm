@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { deleteField, writeBatch, type DocumentReference } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { supabaseRows } from "@/lib/supabaseRows";
-import { applySbDocs, type DocFeedConfig, type SbDoc } from "@/services/sb/docFeed";
+import { applySbDocs, peekSbDoc, type DocFeedConfig, type SbDoc } from "@/services/sb/docFeed";
 import {
   isSbMissingError,
   markSbTableMissing,
@@ -78,6 +78,19 @@ export function plainFirestoreData(value: unknown): unknown {
     return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, plainFirestoreData(v)]));
   }
   return value;
+}
+
+/** Слияние как у Firestore merge (и nova_jmerge в базе): карты — рекурсивно, SB_DEL — удалить. */
+export function jsonMerge(a: unknown, b: unknown): Record<string, unknown> {
+  const base: Record<string, unknown> = a && typeof a === "object" && !Array.isArray(a) ? { ...(a as Record<string, unknown>) } : {};
+  if (!b || typeof b !== "object" || Array.isArray(b)) return base;
+  for (const [key, value] of Object.entries(b as Record<string, unknown>)) {
+    const isObj = value !== null && typeof value === "object" && !Array.isArray(value);
+    if (isObj && (value as { $del?: unknown }).$del === true && Object.keys(value as object).length === 1) delete base[key];
+    else if (isObj) base[key] = jsonMerge(base[key], value);
+    else base[key] = value;
+  }
+  return base;
 }
 
 export function sbError(error: { code?: string; message?: string }): Error {
@@ -230,15 +243,50 @@ export function createDocStore<K extends string>(cfg: DocStoreConfig<K>) {
    * Пачка записей — одной транзакцией в том хранилище, где коллекция сейчас.
    * Возвращает записанные документы (Supabase) или null (Firestore).
    */
-  async function commit(workspaceId: string, writes: DocWrite<K>[], backend?: SbBackend, mark = "imported"): Promise<SbDoc[] | null> {
+  async function commit(
+    workspaceId: string,
+    writes: DocWrite<K>[],
+    backend?: SbBackend,
+    mark = "imported",
+    opts: { optimistic?: boolean } = {}
+  ): Promise<SbDoc[] | null> {
     if (writes.length === 0) return null;
     if ((backend ?? backendFor(workspaceId, mark)) === "supabase") {
+      // Показ правки до ответа базы (как делал Firestore-SDK): временный rev
+      // между известным и следующим — ответ базы его заменит, отказ вернёт
+      // прежнее.
+      const restore: SbDoc[] = [];
+      if (opts.optimistic) {
+        const provisional: SbDoc[] = [];
+        for (const w of writes) {
+          const known = peekSbDoc(cfg.feed, workspaceId, w.kind, w.id);
+          restore.push(known ?? { kind: w.kind, id: w.id, data: {}, deleted: true, rev: 0 });
+          const rev = (known?.rev ?? 0) + 0.5;
+          if (w.op === "delete") provisional.push({ kind: w.kind, id: w.id, data: known?.data ?? {}, deleted: true, rev });
+          else {
+            const base = w.op === "merge" && known && !known.deleted ? known.data : {};
+            provisional.push({ kind: w.kind, id: w.id, data: { ...jsonMerge(base, w.data ?? {}), ...(w.extra?.stamp as object | undefined) }, deleted: false, rev });
+          }
+        }
+        applySbDocs(cfg.feed, workspaceId, provisional, { ring: false, force: true });
+      }
       const run = (async () => {
-        const { data, error } = await supabaseRows.rpc(cfg.writeRpc, {
+        const { data, error } = await supabaseRows
+          .rpc(cfg.writeRpc, {
           p_workspace: workspaceId,
-          p_ops: writes.map((w) => ({ ...(w.extra ?? {}), kind: w.kind, id: w.id, op: w.op, data: w.data ?? null })),
-        });
-        if (error) throw sbError(error);
+          p_ops: writes.map((w) => {
+            const { stamp: _stamp, ...extra } = w.extra ?? {};
+            return { ...extra, kind: w.kind, id: w.id, op: w.op, data: w.data ?? null };
+          }),
+          })
+          .then(
+            (r) => r,
+            (e: unknown) => ({ data: null, error: { code: "unavailable", message: e instanceof Error ? e.message : String(e) } })
+          );
+        if (error) {
+          if (restore.length) applySbDocs(cfg.feed, workspaceId, restore, { ring: false, force: true });
+          throw sbError(error);
+        }
         const docs = parseDocs(data);
         applySbDocs(cfg.feed, workspaceId, docs);
         return docs;

@@ -51,6 +51,12 @@ export interface AclPageRow {
   os_keys_tab?: string | null;
   os_key?: string | null;
   os_status_key?: string | null;
+  /**
+   * Кому, кроме ответственного, открыта своя личная зона на этом столе
+   * (`page.personalZoneAllowedUsers`, SQL 20261022). Ходит вместе со
+   * столбцами карты столбцов: нет столбца — пишется и читается без него.
+   */
+  personal_zone_uids?: string[];
 }
 
 export interface AclSyncReport {
@@ -104,6 +110,7 @@ export function desiredPageRow(page: WorkspacePage): AclPageRow {
     os_keys_tab: keys?.tabId || null,
     os_key: keys?.os || null,
     os_status_key: keys?.status || null,
+    personal_zone_uids: sortedUnique(page.personalZoneAllowedUsers),
   };
 }
 
@@ -116,7 +123,8 @@ export function samePageRow(a: AclPageRow, b: AclPageRow): boolean {
     sameList(a.editable_uids, b.editable_uids) &&
     (a.os_keys_tab ?? null) === (b.os_keys_tab ?? null) &&
     (a.os_key ?? null) === (b.os_key ?? null) &&
-    (a.os_status_key ?? null) === (b.os_status_key ?? null)
+    (a.os_status_key ?? null) === (b.os_status_key ?? null) &&
+    sameList(a.personal_zone_uids ?? [], b.personal_zone_uids ?? [])
   );
 }
 
@@ -368,6 +376,7 @@ function withoutKeys(row: AclPageRow): AclPageRow {
   delete rest.os_keys_tab;
   delete rest.os_key;
   delete rest.os_status_key;
+  delete rest.personal_zone_uids;
   return rest;
 }
 
@@ -409,7 +418,7 @@ async function readPages(workspaceId: string): Promise<AclPageRow[]> {
   if (keysColumn !== false) {
     const { data, error } = await supabaseRows
       .from("rows_page_acl")
-      .select(`${PAGE_COLUMNS}, os_keys_tab, os_key, os_status_key`)
+      .select(`${PAGE_COLUMNS}, os_keys_tab, os_key, os_status_key, personal_zone_uids`)
       .eq("workspace_id", workspaceId);
     if (!error) {
       keysColumn = true;
@@ -418,6 +427,7 @@ async function readPages(workspaceId: string): Promise<AclPageRow[]> {
         os_keys_tab: p.os_keys_tab || null,
         os_key: p.os_key || null,
         os_status_key: p.os_status_key || null,
+        personal_zone_uids: sortedUnique(p.personal_zone_uids),
       }));
     }
     if (!isSbMissingError(error)) throw new Error(`копия прав столов не прочиталась: ${describe(error)}`);
