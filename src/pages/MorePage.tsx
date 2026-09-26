@@ -14,7 +14,7 @@ import { cn } from "@/utils/cn";
  * один, разъехаться нечему. Секция на странице: «Люди», «Связь», «Настройки».
  */
 const GROUPS: Array<{ title: string; keys: string[] }> = [
-  { title: "Работа", keys: ["reports", "os-dispatch", "desk-editing", "telegram-admin", "dispatch"] },
+  { title: "Работа", keys: ["reports", "os-dispatch", "desk-editing", "dispatch"] },
   { title: "Люди", keys: ["people", "team", "users"] },
   { title: "Связь", keys: ["announcements"] },
   { title: "Настройки", keys: ["settings"] },
@@ -25,7 +25,6 @@ const DESCRIPTIONS: Record<string, string> = {
   reports: "Касса технарей и KPI ОС за прошлые периоды",
   "os-dispatch": "Журнал выборочных выдач ОС",
   "desk-editing": "Кто заполняет столы технарей",
-  "telegram-admin": "Рабочий Telegram: кому из ОС открыт и ключи",
   dispatch: "Старая выдача",
   people: "Участники и их столы",
   team: "Технари, ОС и ники",

@@ -3,6 +3,7 @@ import { Loader2, LogOut, RefreshCw, Send, ShieldCheck } from "lucide-react";
 import { AccessDenied } from "@/components/common/AccessDenied";
 import { LoadingState } from "@/components/common/LoadingState";
 import { TelegramAccessDialog } from "@/components/telegram/TelegramAccessDialog";
+import { TelegramSetupGuide } from "@/components/telegram/TelegramSetupGuide";
 import { TgChats, useTg } from "@/components/telegram/TgChats";
 import { TgLogin } from "@/components/telegram/TgLogin";
 import { Alert } from "@/components/ui/alert";
@@ -15,6 +16,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { refreshTelegramAccess, useTelegramAccess } from "@/services/telegram/telegramAccess";
 import { logOutTelegram, openTelegram } from "@/services/telegram/tgClient";
 import { confirmDialog } from "@/utils/appDialog";
+import { cn } from "@/utils/cn";
 import { myDisplayName } from "@/utils/displayName";
 
 /**
@@ -35,6 +37,12 @@ export default function TelegramPage() {
   const granted = canHave && access.granted;
   const tg = useTg();
   const [manageOpen, setManageOpen] = useState(false);
+  // Закрыли «Доступ и ключи» — инструкция перечитает, сколько ОС отмечено.
+  const [accessRev, setAccessRev] = useState(0);
+  const onManageOpenChange = (open: boolean) => {
+    setManageOpen(open);
+    if (!open) setAccessRev((n) => n + 1);
+  };
   const [chatParam, setChatParam] = useUrlState<string>("chat", "");
   const chatId = chatParam && /^-?\d+$/.test(chatParam) ? Number(chatParam) : null;
   const deviceName = `Nova · ${myDisplayName(profile, members)}`;
@@ -67,7 +75,7 @@ export default function TelegramPage() {
 
   const dialog =
     isOwner && activeWorkspaceId ? (
-      <TelegramAccessDialog open={manageOpen} onOpenChange={setManageOpen} workspaceId={activeWorkspaceId} members={members} config={config} />
+      <TelegramAccessDialog open={manageOpen} onOpenChange={onManageOpenChange} workspaceId={activeWorkspaceId} members={members} config={config} />
     ) : null;
 
   const me = tg.auth.kind === "ready" ? tg.auth.me : null;
@@ -96,14 +104,11 @@ export default function TelegramPage() {
         </Alert>
       </Pane>
     );
-  } else if (!granted) {
+  } else if (isOwner && activeWorkspaceId && (!granted || !config)) {
+    // Owner: пошаговая инструкция «Как подключить» с отметками сделанного.
     body = (
-      <Pane>
-        <Alert tone="info" title="Вы управляете доступом">
-          Раздел открыт только ОС, которых вы отметите в «Доступ и ключи». Там же — ключи api_id и api_hash с my.telegram.org. Сам
-          вход в рабочий аккаунт делает допущенный ОС в этом разделе.
-        </Alert>
-        {!config && <p className="text-sm text-muted-foreground">Ключи приложения Telegram ещё не введены.</p>}
+      <Pane wide>
+        <TelegramSetupGuide workspaceId={activeWorkspaceId} config={config} refreshKey={accessRev} onOpenAccess={() => setManageOpen(true)} />
       </Pane>
     );
   } else if (!config) {
@@ -172,6 +177,10 @@ export default function TelegramPage() {
   );
 }
 
-function Pane({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto w-full max-w-xl space-y-3 p-4 sm:p-8">{children}</div>;
+function Pane({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className={cn("mx-auto w-full space-y-3 p-4 sm:p-8", wide ? "max-w-2xl" : "max-w-xl")}>{children}</div>
+    </div>
+  );
 }

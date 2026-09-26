@@ -327,9 +327,16 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
         },
         { key: "technicians", to: "/technicians", label: "Технари", icon: HardHat, show: g.showTechniciansNav },
         { key: "os-desks", to: "/os-desks", label: "Столы ОС", icon: ScanEye, show: g.showOsDesksNav },
-        // «Telegram» — рабочий аккаунт прямо в Nova (26.09.2026): пока только
-        // у ОС, которым Owner открыл раздел.
-        { key: "telegram", to: "/telegram", label: "Telegram", icon: Send, show: sig.telegramGranted },
+        // «Telegram» — рабочий аккаунт прямо в Nova (26.09.2026): у ОС, которым
+        // Owner открыл раздел, и у самого Owner — он там выдаёт доступ и ключи
+        // (просьба Nurba: «сделай слева как главное»).
+        {
+          key: "telegram",
+          to: "/telegram",
+          label: "Telegram",
+          icon: Send,
+          show: sig.telegramGranted || (inp.permissions.isResolved && inp.permissions.actsAsOwner),
+        },
         { key: "grok", to: "/grok-limit", label: "Грок лимит", icon: KeyRound, show: g.showGrokNav, hint: grokHint, emphasis: true },
         // Чат — ОДИН пункт (просьба Nurba 25.09.2026: «чат в быстром доступе,
         // одна страница, внутри переключиться на общий и личный»): горит и на
@@ -388,14 +395,6 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
           badge: g.showOsDispatchNav ? sig.osDispatchUnseen : 0,
         },
         { key: "desk-editing", to: "/desk-editing", label: "Правка столов", icon: PenLine, show: g.showDeskEditingNav },
-        // Owner без доступа сам — управляет им отсюда («Доступ и ключи» на странице).
-        {
-          key: "telegram-admin",
-          to: "/telegram",
-          label: "Telegram",
-          icon: Send,
-          show: inp.permissions.isResolved && inp.permissions.actsAsOwner && !sig.telegramGranted,
-        },
         { key: "people", to: "/people", label: "Люди", icon: UsersRound },
         { key: "team", to: "/team", label: "Команда", icon: Contact, show: g.showUsersNav },
         { key: "users", to: "/users", label: "Пользователи", icon: Users, show: g.showUsersNav && !g.isTeamlead },

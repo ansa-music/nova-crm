@@ -111,7 +111,13 @@ export function TelegramAccessDialog({
         </DialogHeader>
 
         <section className="space-y-2">
-          <p className="text-[12px] font-medium text-muted-foreground">Ключи приложения · my.telegram.org → API development tools</p>
+          <p className="text-[12px] font-medium text-muted-foreground">
+            Ключи приложения ·{" "}
+            <a href="https://my.telegram.org/apps" target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">
+              my.telegram.org
+            </a>{" "}
+            → API development tools
+          </p>
           <div className="grid gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]">
             <Input value={apiId} onChange={(e) => setApiId(e.target.value.replace(/\D/g, ""))} placeholder="api_id" inputMode="numeric" disabled={busy} />
             <div className="relative">
