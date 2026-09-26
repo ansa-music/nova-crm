@@ -16,6 +16,7 @@ import {
   type SbBackend,
 } from "@/services/sb/sbCollections";
 import { useWorkspaceStore } from "@/store/workspaceStore";
+import type { Workspace } from "@/types";
 
 /**
  * Общая механика коллекций, которые переезжают из Firestore в таблицу
@@ -187,18 +188,33 @@ export function createDocStore<K extends string>(cfg: DocStoreConfig<K>) {
     return run;
   }
 
-  /** Куда коллекция этого workspace смотрит по настройке (без учёта переноса). */
-  function targetFor(workspaceId: string): SbBackend {
-    const docWs = workspaceDoc(workspaceId);
-    if (!docWs) return "firestore";
+  /** Куда коллекция смотрит по ДАННОМУ документу workspace (без учёта переноса). */
+  function targetForDoc(docWs: Pick<Workspace, "rowsBackend" | "sbCollections">): SbBackend {
     let backend = sbBackendOf(docWs, cfg.collection);
     if (backend === "firestore" && sbTargetOf(docWs, cfg.collection) === "supabase" && sbTableRecheckDue(cfg.collection)) backend = "supabase";
     return backend;
   }
 
+  /** Куда коллекция этого workspace смотрит по настройке (без учёта переноса). */
+  function targetFor(workspaceId: string): SbBackend {
+    const docWs = workspaceDoc(workspaceId);
+    if (!docWs) return "firestore";
+    return targetForDoc(docWs);
+  }
+
   /** Где коллекция сейчас: Supabase — только после отметки переноса. */
   function backendFor(workspaceId: string, mark = "imported"): SbBackend {
     const backend = targetFor(workspaceId);
+    if (backend === "supabase" && !readImported(workspaceId, mark)) return "firestore";
+    return backend;
+  }
+
+  /**
+   * То же по документу workspace, которого в сторе может не быть (страница
+   * заявки на вход у постороннего читает его отдельно).
+   */
+  function backendForDoc(workspaceId: string, docWs: Pick<Workspace, "rowsBackend" | "sbCollections">, mark = "imported"): SbBackend {
+    const backend = targetForDoc(docWs);
     if (backend === "supabase" && !readImported(workspaceId, mark)) return "firestore";
     return backend;
   }
@@ -302,17 +318,30 @@ export function createDocStore<K extends string>(cfg: DocStoreConfig<K>) {
       const restore: SbDoc[] = [];
       if (opts.optimistic) {
         const provisional: SbDoc[] = [];
+        // Несколько записей одного документа в пачке идут по очереди — каждая
+        // следующая считается от предыдущей (иначе «снять карту и положить
+        // новую» показывало бы старые ключи до ответа базы).
+        const built = new Map<string, SbDoc>();
         for (const w of writes) {
           const parent = parentOf(w);
-          const known = peekSbDoc(cfg.feed, workspaceId, w.kind, w.id, parent);
+          const key = `${w.kind}/${parent ?? ""}/${w.id}`;
+          const known = built.get(key) ?? peekSbDoc(cfg.feed, workspaceId, w.kind, w.id, parent);
           const at = parent === undefined ? {} : { parent };
-          restore.push(known ?? { kind: w.kind, id: w.id, data: {}, deleted: true, rev: 0, ...at });
+          if (!built.has(key)) restore.push(known ?? { kind: w.kind, id: w.id, data: {}, deleted: true, rev: 0, ...at });
           const rev = (known?.rev ?? 0) + 0.5;
-          if (w.op === "delete") provisional.push({ kind: w.kind, id: w.id, data: known?.data ?? {}, deleted: true, rev, ...at });
-          else {
-            const base = w.op === "merge" && known && !known.deleted ? known.data : {};
-            provisional.push({ kind: w.kind, id: w.id, data: { ...jsonMerge(base, w.data ?? {}), ...(w.extra?.stamp as object | undefined) }, deleted: false, rev, ...at });
-          }
+          const next: SbDoc =
+            w.op === "delete"
+              ? { kind: w.kind, id: w.id, data: known?.data ?? {}, deleted: true, rev, ...at }
+              : {
+                  kind: w.kind,
+                  id: w.id,
+                  data: { ...jsonMerge(w.op === "merge" && known && !known.deleted ? known.data : {}, w.data ?? {}), ...(w.extra?.stamp as object | undefined) },
+                  deleted: false,
+                  rev,
+                  ...at,
+                };
+          built.set(key, next);
+          provisional.push(next);
         }
         applySbDocs(cfg.feed, workspaceId, provisional, { ring: false, force: true });
       }
@@ -356,7 +385,7 @@ export function createDocStore<K extends string>(cfg: DocStoreConfig<K>) {
     return null;
   }
 
-  return { readImported, setImported, readImportMeta, checkImported, targetFor, backendFor, useBackend, watchBackend, waitWrites, commit, parseDocs };
+  return { readImported, setImported, readImportMeta, checkImported, targetFor, backendFor, backendForDoc, useBackend, watchBackend, waitWrites, commit, parseDocs };
 }
 
 export type DocStore<K extends string> = ReturnType<typeof createDocStore<K>>;

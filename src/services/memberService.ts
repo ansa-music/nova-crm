@@ -23,6 +23,29 @@ import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { putMemberAcl, removeMemberAcl, setObserverAcl } from "@/services/rows/rowAclService";
 import { EXTRA_ROLES, type Role, type StatusOption, type Workspace, type WorkspaceMember } from "@/types";
 import { fetchPagesFresh } from "@/services/pageService";
+import { SB_DEL } from "@/services/sb/docStore";
+import {
+  commitCore,
+  coreMembersBackendFor,
+  fetchCoreInvite,
+  fetchCoreMember,
+  fetchCoreMembers,
+  inviteWrite,
+  memberWrite,
+  rpcClaimInvites,
+  rpcMemberPurge,
+  rpcNickAdd,
+  rpcNickInactive,
+  rpcNickLink,
+  shadowMemberDelete,
+  shadowMemberPatch,
+  shadowMemberSet,
+} from "@/services/coreStore";
+
+/** Участники этого workspace живут в Supabase (ядро переехало, отметка стоит). */
+function membersOnSupabase(workspaceId: string): boolean {
+  return coreMembersBackendFor(workspaceId) === "supabase";
+}
 
 function sortMembers(members: WorkspaceMember[]) {
   return members.sort((a, b) => a.invitedAt - b.invitedAt);
@@ -87,6 +110,10 @@ export function quietActiveMembers(
  * поменялся с прошлого чтения.
  */
 export async function fetchMembers(workspaceId: string): Promise<WorkspaceMember[]> {
+  if (membersOnSupabase(workspaceId)) {
+    const list = await fetchCoreMembers(workspaceId);
+    if (list) return list;
+  }
   const snapshot = await getDocsResumable(paths.members(workspaceId));
   return sortMembers(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as WorkspaceMember));
 }
@@ -239,6 +266,13 @@ export async function inviteMember(
     invitedBy,
     inviteToken: generateId("inv"),
   };
+  if (membersOnSupabase(workspaceId)) {
+    await commitCore(workspaceId, [inviteWrite(normalizedEmail, "set", member as unknown as Record<string, unknown>)], { optimistic: true });
+    // Тень-стаб в Firestore: по нему правило принятия приглашения пускает
+    // приглашённого завести свою тень участника при входе.
+    await shadowMemberSet(workspaceId, normalizedEmail, member as unknown as Record<string, unknown>);
+    return member as WorkspaceMember;
+  }
   await setDoc(paths.member(workspaceId, normalizedEmail), member);
   return member as WorkspaceMember;
 }
@@ -249,6 +283,15 @@ export async function cancelInvite(workspaceId: string, email: string) {
   if (!db) return;
   const normalized = email.trim().toLowerCase();
   if (!normalized) throw new Error("Нет email для отмены приглашения");
+  if (membersOnSupabase(workspaceId)) {
+    const invite = await fetchCoreInvite(workspaceId, normalized);
+    if (invite !== undefined) {
+      if (!invite) throw new Error("Приглашение не найдено");
+      await commitCore(workspaceId, [inviteWrite(normalized, "delete")], { optimistic: true });
+      await shadowMemberDelete(workspaceId, normalized);
+      return;
+    }
+  }
   const snap = await getDoc(paths.member(workspaceId, normalized));
   const data = snap.exists() ? (snap.data() as WorkspaceMember) : null;
   if (!data || data.status !== "invited") {
@@ -263,6 +306,14 @@ export async function deleteInvitedStubIfPresent(workspaceId: string, email: str
   const normalized = email.trim().toLowerCase();
   if (!normalized) return;
   if (keepUid && normalized === keepUid) return;
+  if (membersOnSupabase(workspaceId)) {
+    const invite = await fetchCoreInvite(workspaceId, normalized);
+    if (invite !== undefined) {
+      if (invite) await commitCore(workspaceId, [inviteWrite(normalized, "delete")]);
+      await shadowMemberDelete(workspaceId, normalized);
+      return;
+    }
+  }
   const snap = await getDoc(paths.member(workspaceId, normalized));
   if (!snap.exists()) return;
   const data = snap.data() as WorkspaceMember;
@@ -274,6 +325,12 @@ export async function resendInvite(workspaceId: string, email: string) {
   if (!db) return;
   const normalized = email.trim().toLowerCase();
   if (!normalized) return;
+  if (membersOnSupabase(workspaceId)) {
+    const patch = { invitedAt: Date.now(), inviteToken: generateId("inv") };
+    await commitCore(workspaceId, [inviteWrite(normalized, "merge", patch)], { optimistic: true });
+    await shadowMemberPatch(workspaceId, normalized, patch);
+    return;
+  }
   await setDoc(
     paths.member(workspaceId, normalized),
     { invitedAt: Date.now(), inviteToken: generateId("inv") },
@@ -284,10 +341,9 @@ export async function resendInvite(workspaceId: string, email: string) {
 export async function changeMemberRole(workspaceId: string, uid: string, role: Role, currentExtraRoles?: Role[]) {
   if (!db) return;
   // The new main role can't stay an add-on as well.
+  const extrasLeft = currentExtraRoles?.includes(role) ? currentExtraRoles.filter((r) => r !== role) : null;
   const extrasPatch: { extraRoles?: Role[] } =
-    currentExtraRoles?.includes(role)
-      ? { extraRoles: (currentExtraRoles.filter((r) => r !== role).length ? currentExtraRoles.filter((r) => r !== role) : deleteField()) as Role[] }
-      : {};
+    extrasLeft ? { extraRoles: (extrasLeft.length ? extrasLeft : deleteField()) as Role[] } : {};
   if (role === "manager") {
     const pages = await fetchPagesFresh(workspaceId);
     const own = pages.filter((page) => page.responsibleUserId === uid);
@@ -295,6 +351,10 @@ export async function changeMemberRole(workspaceId: string, uid: string, role: R
       throw new Error("Сначала заберите лишние столы — у технаря может быть только один свой стол");
     }
     const only = own.length === 1 ? own[0] : undefined;
+    if (membersOnSupabase(workspaceId)) {
+      await commitMemberRole(workspaceId, uid, role, extrasLeft, uid.includes("@") ? null : (only?.id ?? null));
+      return;
+    }
     if (only) {
       const batch = writeBatch(db);
       batch.set(paths.member(workspaceId, uid), { role, ...extrasPatch }, { merge: true });
@@ -308,8 +368,38 @@ export async function changeMemberRole(workspaceId: string, uid: string, role: R
       return;
     }
   }
+  if (membersOnSupabase(workspaceId)) {
+    await commitMemberRole(workspaceId, uid, role, extrasLeft, null);
+    return;
+  }
   await setDoc(paths.member(workspaceId, uid), { role, ...extrasPatch }, { merge: true });
   await pushMemberToRowsAcl(workspaceId, uid);
+}
+
+/**
+ * Роль/вторая роль в Supabase: одна запись документа участника (копию прав
+ * ведёт триггер), потом тень в Firestore и claim технаря — best-effort, той
+ * же пачкой, что раньше.
+ */
+async function commitMemberRole(workspaceId: string, uid: string, role: Role | null, extraRoles: Role[] | null, claimPageId: string | null) {
+  if (!db) return;
+  const patch: Record<string, unknown> = {};
+  if (role) patch.role = role;
+  if (extraRoles !== null) patch.extraRoles = extraRoles.length ? extraRoles : SB_DEL;
+  // Роль ещё не принятого приглашения (id — почта) правится у приглашения.
+  const write = uid.includes("@") ? inviteWrite(uid, "merge", patch) : memberWrite(uid, "merge", patch);
+  await commitCore(workspaceId, [write], { optimistic: true });
+  try {
+    const batch = writeBatch(db);
+    const shadow: Record<string, unknown> = {};
+    if (role) shadow.role = role;
+    if (extraRoles !== null) shadow.extraRoles = extraRoles.length ? extraRoles : deleteField();
+    batch.set(paths.member(workspaceId, uid), shadow, { merge: true });
+    if (claimPageId) batch.set(paths.managerPageClaim(workspaceId, uid), { uid, pageId: claimPageId, createdAt: Date.now() });
+    await batch.commit();
+  } catch (error) {
+    console.warn("[core] тень участника / claim в Firestore не обновлены — доведёт сверка Owner", error);
+  }
 }
 
 /**
@@ -325,6 +415,10 @@ export async function setMemberExtraRoles(workspaceId: string, uid: string, main
   if (next.includes("manager") && mainRole !== "owner" && mainRole !== "admin") {
     const pages = await fetchPagesFresh(workspaceId);
     const own = pages.filter((page) => page.responsibleUserId === uid);
+    if (membersOnSupabase(workspaceId)) {
+      await commitMemberRole(workspaceId, uid, null, next, own.length === 1 ? own[0].id : null);
+      return;
+    }
     if (own.length === 1) {
       const batch = writeBatch(db);
       batch.set(paths.member(workspaceId, uid), patch, { merge: true });
@@ -333,6 +427,10 @@ export async function setMemberExtraRoles(workspaceId: string, uid: string, main
       await pushMemberToRowsAcl(workspaceId, uid);
       return;
     }
+  }
+  if (membersOnSupabase(workspaceId)) {
+    await commitMemberRole(workspaceId, uid, null, next, null);
+    return;
   }
   await setDoc(paths.member(workspaceId, uid), patch, { merge: true });
   await pushMemberToRowsAcl(workspaceId, uid);
@@ -509,6 +607,16 @@ export async function linkMemberNick(input: {
 }): Promise<string | null> {
   if (!db) return null;
   const meta = NICK_KIND_META[input.kind];
+  if (membersOnSupabase(input.workspaceId)) {
+    // Свободен ли ник, список и поля участника — одной транзакцией в базе.
+    const result = await withDbTimeout(rpcNickLink(input.workspaceId, input.uid, input.kind, input.target), "Ник");
+    await shadowMemberPatch(
+      input.workspaceId,
+      input.uid,
+      result ? { [meta.label]: result.label, [meta.value]: result.value } : { [meta.label]: SB_DEL, [meta.value]: SB_DEL }
+    );
+    return result?.value ?? null;
+  }
   const workspaceRef = paths.workspace(input.workspaceId);
   const memberRef = paths.member(input.workspaceId, input.uid);
   const target = input.target;
@@ -565,6 +673,9 @@ export async function linkMemberOsNick(input: {
  */
 export async function addNickOption(input: { workspaceId: string; kind: NickKind; label: string }): Promise<StatusOption> {
   if (!db) throw new Error("Firebase не настроен");
+  if (membersOnSupabase(input.workspaceId)) {
+    return withDbTimeout(rpcNickAdd(input.workspaceId, input.kind, input.label), "Новый ник");
+  }
   const meta = NICK_KIND_META[input.kind];
   const workspaceRef = paths.workspace(input.workspaceId);
   return withDbTimeout(runTransaction(db, async (tx) => {
@@ -592,6 +703,10 @@ export async function setNickOptionInactive(input: {
   inactive: boolean;
 }) {
   if (!db) throw new Error("Firebase не настроен");
+  if (membersOnSupabase(input.workspaceId)) {
+    await withDbTimeout(rpcNickInactive(input.workspaceId, input.kind, input.value, input.inactive), "Неактуальный ник");
+    return;
+  }
   const meta = NICK_KIND_META[input.kind];
   const workspaceRef = paths.workspace(input.workspaceId);
   await withDbTimeout(runTransaction(db, async (tx) => {
@@ -614,6 +729,10 @@ export async function setNickOptionInactive(input: {
  */
 export async function setActiveRole(workspaceId: string, uid: string, activeRole: Role | null) {
   if (!db) return;
+  if (membersOnSupabase(workspaceId)) {
+    await commitCore(workspaceId, [memberWrite(uid, "merge", { activeRole })], { optimistic: true });
+    return;
+  }
   await setDoc(paths.member(workspaceId, uid), { activeRole }, { merge: true });
 }
 
@@ -623,11 +742,21 @@ export async function toggleHiddenPage(workspaceId: string, uid: string, pageId:
   const hiddenPageIds = hide
     ? Array.from(new Set([...currentHiddenPageIds, pageId]))
     : currentHiddenPageIds.filter((id) => id !== pageId);
+  if (membersOnSupabase(workspaceId)) {
+    await commitCore(workspaceId, [memberWrite(uid, "merge", { hiddenPageIds })], { optimistic: true });
+    return;
+  }
   await setDoc(paths.member(workspaceId, uid), { hiddenPageIds }, { merge: true });
 }
 
 export async function removeMember(workspaceId: string, uid: string) {
   if (!db) return;
+  if (membersOnSupabase(workspaceId)) {
+    // Копию прав снимает триггер — человек теряет строки сразу; тень в Firestore — следом.
+    await commitCore(workspaceId, [memberWrite(uid, "delete")], { optimistic: true });
+    await shadowMemberDelete(workspaceId, uid);
+    return;
+  }
   await deleteDoc(paths.member(workspaceId, uid));
   await dropFromRowsAcl(workspaceId, uid, false);
 }
@@ -639,6 +768,11 @@ export async function removeMember(workspaceId: string, uid: string) {
  * вернула бы права убранному и сняла бы их с только что одобренного.
  */
 export async function fetchMembersFresh(workspaceId: string): Promise<WorkspaceMember[]> {
+  if (membersOnSupabase(workspaceId)) {
+    // Выборка Supabase и есть «с сервера».
+    const list = await withDbTimeout(fetchCoreMembers(workspaceId), "Список участников");
+    if (list) return list;
+  }
   // Снимок подписки, подтверждённый сервером, — такой же свежий, как
   // getDocsFromServer, но с resume-токеном платит только за изменившихся.
   const snapshot = await withDbTimeout(getDocsResumable(paths.members(workspaceId)), "Список участников");
@@ -656,7 +790,8 @@ export async function fetchMembersFresh(workspaceId: string): Promise<WorkspaceM
  * сверка руководства.
  */
 export async function pushMemberToRowsAcl(workspaceId: string, uid: string) {
-  if (!uid || !usesSupabaseRows(workspaceId)) return;
+  // Участники в Supabase — копию прав ведёт триггер по документу.
+  if (!uid || !usesSupabaseRows(workspaceId) || membersOnSupabase(workspaceId)) return;
   try {
     const snap = await getDocFromServer(paths.member(workspaceId, uid));
     await putMemberAcl(workspaceId, uid, snap.exists() ? ({ ...snap.data(), uid } as unknown as WorkspaceMember) : null);
@@ -718,6 +853,27 @@ export async function deleteMemberCompletely(input: {
   const email = normalizeMemberEmail(input.member.email);
   if (!uid && !email) throw new Error("У записи нет ни аккаунта, ни адреса — удалять нечего");
 
+  if (membersOnSupabase(workspaceId)) {
+    // Участник, приглашение и заявки — одной функцией в базе; тени, старые
+    // заявки Firestore и «наблюдатель» — следом, best-effort и ПО ОДНОМУ:
+    // одна пачка падала бы целиком из-за документа, которого нет.
+    const purged = await withDbTimeout(rpcMemberPurge(workspaceId, uid, email), "Удаление пользователя");
+    const refs = [
+      ...(uid ? [paths.member(workspaceId, uid), paths.joinRequest(workspaceId, uid), paths.deskObserver(workspaceId, uid)] : []),
+      ...(email ? [paths.member(workspaceId, email)] : []),
+    ];
+    for (const ref of refs) {
+      try {
+        const snap = await getDoc(ref);
+        if (snap.exists()) await deleteDoc(ref);
+      } catch (error) {
+        console.warn(`[core] тень ${ref.path} не удалена`, error);
+      }
+    }
+    if (uid) await setObserverAcl(workspaceId, uid, false).catch(() => undefined);
+    return { removed: { member: purged.member, invite: purged.invite, joinRequests: purged.joinRequests, observer: Boolean(uid) } };
+  }
+
   // Заявки ищем ДО батча: запрос внутри него SDK не умеет.
   const requestDocs = new Map<string, ReturnType<typeof paths.joinRequest>>();
   if (uid) requestDocs.set(uid, paths.joinRequest(workspaceId, uid));
@@ -760,6 +916,26 @@ export async function claimPendingInvites(
 ) {
   if (!db) return;
   const normalizedEmail = email.trim().toLowerCase();
+  // Приглашения в Supabase (workspace с переехавшим ядром) — одной функцией:
+  // она заводит участника и гасит приглашение; здесь — профиль и тень.
+  try {
+    // С потолком ожидания: «висящая» база не должна закрыть приём приглашений в Firestore.
+    const claimed = await withDbTimeout(rpcClaimInvites(name, photoURL ?? null, nickname ?? null), "Приглашения");
+    for (const workspaceId of claimed) {
+      try {
+        await addOwnWorkspaceId(uid, workspaceId);
+        const me = await fetchCoreMember(workspaceId, uid).catch(() => null);
+        if (me) await shadowMemberSet(workspaceId, uid, me as unknown as Record<string, unknown>);
+        // Стаб-тень приглашения — только если он ещё «invited» (чужую запись не трогаем).
+        const stub = await getDoc(paths.member(workspaceId, normalizedEmail)).catch(() => null);
+        if (stub?.exists() && (stub.data() as WorkspaceMember).status === "invited") await deleteDoc(stub.ref).catch(() => undefined);
+      } catch (error) {
+        console.warn(`[core] приглашение в ${workspaceId} принято, но профиль/тень не доведены`, error);
+      }
+    }
+  } catch (error) {
+    console.warn("[core] приглашения в Supabase не приняты — повторим при следующем входе", error);
+  }
   const q = query(
     paths.memberGroup(),
     where("email", "==", normalizedEmail),

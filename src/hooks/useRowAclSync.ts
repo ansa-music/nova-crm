@@ -5,6 +5,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useRowsBackend } from "@/hooks/useRowsBackend";
 import { fetchDeskObserverUidsFresh } from "@/services/deskObserverService";
 import { fetchMembersFresh } from "@/services/memberService";
+import { coreMembersBackendFor, reconcileMemberShadows } from "@/services/coreStore";
 import { desiredPageRow, noteAclSync, syncRowAcl, type AclSyncInput } from "@/services/rows/rowAclService";
 import { reconcileSupabaseLive, reconcileSupabaseOsManaged } from "@/services/rows/rowsMigrationService";
 import { deskModeOf, reconcileSupabaseDeskMode } from "@/services/rows/deskMode";
@@ -76,7 +77,14 @@ export function useRowAclSync() {
       let members: AclSyncInput["members"] = null;
       let observers: string[] | null = null;
       if (withMembers && (ctx.realRole === "owner" || ctx.realRole === "teamlead")) {
-        members = await fetchMembersFresh(wsId);
+        // Участники в Supabase: копию прав ведёт триггер по документу, сверка
+        // их не трогает (иначе снимок ростера мог бы убрать только что
+        // добавленного); Owner вместо этого выравнивает тени в Firestore.
+        if (coreMembersBackendFor(wsId) !== "supabase") members = await fetchMembersFresh(wsId);
+        else if (ctx.realRole === "owner") {
+          const fixed = await reconcileMemberShadows(wsId).catch(() => null);
+          if (fixed) console.warn(`[core] тени участников в Firestore выровнены: ${fixed}`);
+        }
         if (ctx.realRole === "owner") {
           observers = await fetchDeskObserverUidsFresh(wsId);
           if (await reconcileSupabaseLive(wsId).catch(() => false)) {

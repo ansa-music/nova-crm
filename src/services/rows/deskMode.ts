@@ -1,8 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { updateDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
-import { paths } from "@/firebase/firestore";
 import { supabaseRows } from "@/lib/supabaseRows";
+import { updateWorkspace } from "@/services/workspaceService";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { setSupabaseOsManaged } from "@/services/rows/rowsMigrationService";
 import type { Workspace } from "@/types";
@@ -56,7 +55,10 @@ export async function setDeskMode(workspaceId: string, mode: DeskMode): Promise<
       await setSupabaseOsManaged(workspaceId, mode === "os");
     }
   }
-  await updateDoc(paths.workspace(workspaceId), {
+  // Документ workspace — через общий updateWorkspace: после переезда ядра
+  // эти флаги живут в настройках Supabase (их и читает интерфейс), а в
+  // rows_workspaces их доводит триггер; до переезда — Firestore, как раньше.
+  await updateWorkspace(workspaceId, {
     osManagedDesks: mode === "os",
     techFillsAll: mode === "tech",
   });

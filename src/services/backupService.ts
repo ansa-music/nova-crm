@@ -2,6 +2,8 @@ import { getDoc, getDocs } from "firebase/firestore";
 import { paths } from "@/firebase/firestore";
 import { fetchPagesFresh } from "@/services/pageService";
 import { fetchSubPages } from "@/services/subPageService";
+import { fetchMembers } from "@/services/memberService";
+import { coreMembersBackendFor, fetchCoreSettings } from "@/services/coreStore";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { sbFetchAllPageRows } from "@/services/rows/supabaseRowStore";
 
@@ -14,11 +16,13 @@ import { sbFetchAllPageRows } from "@/services/rows/supabaseRowStore";
  * account export.
  */
 export async function buildWorkspaceBackup(workspaceId: string) {
-  const [workspaceSnap, membersSnap, pageDocs] = await Promise.all([
+  const [workspaceSnap, memberDocs, pageDocs] = await Promise.all([
     getDoc(paths.workspace(workspaceId)),
-    getDocs(paths.members(workspaceId)),
+    fetchMembers(workspaceId),
     fetchPagesFresh(workspaceId),
   ]);
+  // Настройки — из Supabase, если ядро переехало (в Firestore они устарели).
+  const settings = coreMembersBackendFor(workspaceId) === "supabase" ? await fetchCoreSettings(workspaceId) : null;
 
   const onSupabase = usesSupabaseRows(workspaceId);
   const pages = await Promise.all(
@@ -52,8 +56,8 @@ export async function buildWorkspaceBackup(workspaceId: string) {
 
   return {
     exportedAt: new Date().toISOString(),
-    workspace: workspaceSnap.exists() ? { ...workspaceSnap.data(), id: workspaceSnap.id } : null,
-    members: membersSnap.docs.map((m) => ({ ...m.data(), uid: m.id })),
+    workspace: workspaceSnap.exists() ? { ...workspaceSnap.data(), ...(settings ?? {}), id: workspaceSnap.id } : null,
+    members: memberDocs.map((m) => ({ ...m, uid: m.uid || (m as unknown as { id?: string }).id || m.email })),
     pages,
   };
 }

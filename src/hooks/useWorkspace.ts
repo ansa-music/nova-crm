@@ -1,8 +1,20 @@
 // PATH: src/hooks/useWorkspace.ts  (REPLACES EXISTING)
 import { useEffect, useRef } from "react";
+import { getDoc } from "firebase/firestore";
+import { paths } from "@/firebase/firestore";
 import { subscribeToUserWorkspaces } from "@/services/workspaceService";
 import { fetchMembers, findOwnMembership, mergeOwnMember, subscribeToOwnMember } from "@/services/memberService";
 import { subscribeToPages } from "@/services/pageService";
+import {
+  MEMBERS_VIEW,
+  WORKSPACE_VIEW,
+  coreMembersBackendFor,
+  docToMember,
+  sortMembers,
+  watchCore,
+  watchCoreMembersBackend,
+} from "@/services/coreStore";
+import type { SbBackend } from "@/services/sb/sbCollections";
 import { useAuthStore } from "@/store/authStore";
 import { useBootstrapStore } from "@/store/bootstrapStore";
 import { useWorkspaceStore } from "@/store/workspaceStore";
@@ -118,6 +130,7 @@ export function useActiveWorkspaceDataBootstrap() {
   const workspaceListResolved = useBootstrapStore((s) => s.workspaceListResolved);
   const setResolvedDataWorkspaceId = useBootstrapStore((s) => s.setResolvedDataWorkspaceId);
   const setMembers = useWorkspaceStore((s) => s.setMembers);
+  const setWorkspaceSettings = useWorkspaceStore((s) => s.setWorkspaceSettings);
   const setPages = useWorkspaceStore((s) => s.setPages);
   const setLoadingWorkspaceData = useWorkspaceStore((s) => s.setLoadingWorkspaceData);
   const setMembersLoadState = useWorkspaceStore((s) => s.setMembersLoadState);
@@ -155,10 +168,14 @@ export function useActiveWorkspaceDataBootstrap() {
 
     let membersLoaded = false;
     let pagesLoaded = false;
+    // Настройки workspace (Supabase после переезда ядра) — часть той же
+    // загрузки: без них экран нарисовался бы со статусами и никами из
+    // устаревшего документа Firestore. В режиме Firestore они «готовы» сразу.
+    let settingsLoaded = false;
 
     function maybeDone() {
       if (generation !== generationRef.current) return; // superseded
-      if (membersLoaded && pagesLoaded) {
+      if (membersLoaded && pagesLoaded && settingsLoaded) {
         setLoadingWorkspaceData(false);
         // Members carry the ROLE and pages carry ACCESS — permissions are only
         // meaningful once both have landed. This is the single gate that stops
@@ -176,6 +193,7 @@ export function useActiveWorkspaceDataBootstrap() {
         membersLoaded = true;
       }
       if (!pagesLoaded) pagesLoaded = true;
+      if (!settingsLoaded) settingsLoaded = true;
       maybeDone();
     }, 10000);
 
@@ -198,56 +216,171 @@ export function useActiveWorkspaceDataBootstrap() {
       maybeDone();
     }
 
-    void fetchMembers(activeWorkspaceId)
-      .then((list) => {
-        if (generation !== generationRef.current) return;
-        membersCache.roster = list;
-        publishMembers();
-        // The roster read is independent proof of membership: its Firestore
-        // rule requires isMember(workspaceId), so a successful list that
-        // contains this uid means the account IS a member — regardless of
-        // what the own-member listener did. This is what actually resolved
-        // the role before the listener's denial path was corrected, and
-        // without it a denied own-member snapshot leaves a fully authorized
-        // Технарь with isResolved=false, i.e. no rights anywhere: can't
-        // create a desk, can't add/rename/drag columns on their own desk.
-        if (!membersConfirmed && uid && findOwnMembership(list, uid)) confirmMembers();
-      })
-      .catch((error) => {
-        if (generation !== generationRef.current) return;
-        console.error(`fetchMembers failed for workspace ${activeWorkspaceId}:`, error);
-      });
+    const wsId = activeWorkspaceId;
 
-    const unsubMembers = uid
-      ? subscribeToOwnMember(
-          activeWorkspaceId,
-          uid,
-          (own) => {
-            if (generation !== generationRef.current) return;
-            const prevOwn = membersCache.ownMember;
-            // Кэш обновляем всегда — следующая публикация (дочитанный ростер,
-            // refreshWorkspaceMembers, правка роли) возьмёт свежий lastActiveAt.
-            // А сам массив members пульс больше не пересобирает — см.
-            // differsOnlyInPresence.
-            membersCache.ownMember = own;
-            if (!differsOnlyInPresence(prevOwn, own)) publishMembers();
+    /** Участники из Firestore: ростер разово + свой документ вживую (как раньше). */
+    function attachMembersFirestore(): () => void {
+      void fetchMembers(wsId)
+        .then((list) => {
+          if (generation !== generationRef.current) return;
+          membersCache.roster = list;
+          publishMembers();
+          // The roster read is independent proof of membership: its Firestore
+          // rule requires isMember(workspaceId), so a successful list that
+          // contains this uid means the account IS a member — regardless of
+          // what the own-member listener did. This is what actually resolved
+          // the role before the listener's denial path was corrected, and
+          // without it a denied own-member snapshot leaves a fully authorized
+          // Технарь with isResolved=false, i.e. no rights anywhere: can't
+          // create a desk, can't add/rename/drag columns on their own desk.
+          if (!membersConfirmed && uid && findOwnMembership(list, uid)) confirmMembers();
+        })
+        .catch((error) => {
+          if (generation !== generationRef.current) return;
+          console.error(`fetchMembers failed for workspace ${wsId}:`, error);
+        });
+
+      return uid
+        ? subscribeToOwnMember(
+            wsId,
+            uid,
+            (own) => {
+              if (generation !== generationRef.current) return;
+              const prevOwn = membersCache.ownMember;
+              // Кэш обновляем всегда — следующая публикация (дочитанный ростер,
+              // refreshWorkspaceMembers, правка роли) возьмёт свежий lastActiveAt.
+              // А сам массив members пульс больше не пересобирает — см.
+              // differsOnlyInPresence.
+              membersCache.ownMember = own;
+              if (!differsOnlyInPresence(prevOwn, own)) publishMembers();
+              confirmMembers();
+            },
+            (error) => {
+              if (generation !== generationRef.current) return;
+              console.error(`subscribeToOwnMember denied for workspace ${wsId}:`, error.code, error.message);
+              // permission-denied ≠ signed out and ≠ "not a member". Keep boot
+              // moving, but never downgrade a membership the roster already
+              // confirmed — "unconfirmed" turns every capability off for a
+              // non-owner, so claiming it after we have proof would lock a
+              // legitimate member out of their own desk.
+              if (membersConfirmed) return;
+              setMembersLoadState("unconfirmed");
+              membersLoaded = true;
+              maybeDone();
+            }
+          )
+        : () => {};
+    }
+
+    /**
+     * Участники из Supabase (ядро переехало): один живой вид ростера —
+     * участники и приглашения по почте, как коллекция members. Своя запись
+     * — в том же списке. Пустой ответ здесь не отказ, а «не участник»; но
+     * политика могла отсечь и того, чья копия прав ещё не доехала, поэтому,
+     * прежде чем сказать «вас убрали», один раз спрашиваем тень в Firestore.
+     */
+    let shadowChecked = false;
+    function attachMembersSupabase(): () => void {
+      return watchCore(
+        wsId,
+        MEMBERS_VIEW,
+        (docs) => {
+          if (generation !== generationRef.current) return;
+          const roster = sortMembers(docs.map(docToMember));
+          membersCache.roster = roster;
+          const own = uid ? (roster.find((m) => m.uid === uid && m.status !== "invited") ?? null) : null;
+          membersCache.ownMember = own;
+          // Каждый снимок — наружу: поток шлёт его только при смене документов
+          // (по rev), а пульс присутствия в Supabase документы участников не
+          // трогает — фильтр «только lastActiveAt» здесь не нужен.
+          publishMembers();
+          if (own) {
             confirmMembers();
-          },
-          (error) => {
-            if (generation !== generationRef.current) return;
-            console.error(`subscribeToOwnMember denied for workspace ${activeWorkspaceId}:`, error.code, error.message);
-            // permission-denied ≠ signed out and ≠ "not a member". Keep boot
-            // moving, but never downgrade a membership the roster already
-            // confirmed — "unconfirmed" turns every capability off for a
-            // non-owner, so claiming it after we have proof would lock a
-            // legitimate member out of their own desk.
-            if (membersConfirmed) return;
-            setMembersLoadState("unconfirmed");
-            membersLoaded = true;
-            maybeDone();
+            return;
           }
-        )
-      : () => {};
+          if (membersConfirmed || shadowChecked || !uid || isOwnerOfWorkspace()) {
+            if (!membersConfirmed) confirmMembers();
+            return;
+          }
+          shadowChecked = true;
+          void getDoc(paths.member(wsId, uid))
+            .then((snap) => {
+              if (generation !== generationRef.current) return;
+              const data = snap.exists() ? (snap.data() as WorkspaceMember) : null;
+              if (data && data.status !== "invited") {
+                console.warn("[core] участник есть в Firestore, но ещё не в Supabase — показываем по тени, копию прав доведёт Owner");
+                membersCache.ownMember = { ...data, uid };
+                publishMembers();
+              }
+              confirmMembers();
+            })
+            .catch(() => {
+              if (generation !== generationRef.current) return;
+              confirmMembers();
+            });
+        },
+        () => switchMembers("firestore"),
+        (error) => {
+          if (generation !== generationRef.current) return;
+          console.error(`members feed failed for workspace ${wsId}:`, error);
+          if (membersConfirmed) return;
+          setMembersLoadState("unconfirmed");
+          membersLoaded = true;
+          maybeDone();
+        }
+      );
+    }
+
+    function isOwnerOfWorkspace(): boolean {
+      return Boolean(uid && useWorkspaceStore.getState().workspaces.find((w) => w.id === wsId)?.ownerId === uid);
+    }
+
+    /** Настройки workspace: Supabase — живой документ; Firestore — из управляющего документа (как раньше). */
+    function attachSettings(backend: SbBackend): () => void {
+      if (backend !== "supabase") {
+        setWorkspaceSettings(wsId, null);
+        settingsLoaded = true;
+        maybeDone();
+        return () => {};
+      }
+      return watchCore(
+        wsId,
+        WORKSPACE_VIEW,
+        (docs) => {
+          if (generation !== generationRef.current) return;
+          // Нет документа — не «настроек нет», а «не перенесено / скрыто»:
+          // остаёмся на полях документа Firestore, не стирая их пустотой.
+          if (docs[0]) setWorkspaceSettings(wsId, docs[0].data);
+          else {
+            console.warn(`[core] настройки workspace ${wsId} не прочитаны из Supabase — показываем из Firestore`);
+            setWorkspaceSettings(wsId, null);
+          }
+          settingsLoaded = true;
+          maybeDone();
+        },
+        () => switchMembers("firestore"),
+        (error) => {
+          if (generation !== generationRef.current) return;
+          console.error(`workspace settings feed failed for ${wsId}:`, error);
+          settingsLoaded = true;
+          maybeDone();
+        }
+      );
+    }
+
+    let membersBackend: SbBackend | null = null;
+    let unsubMembers: () => void = () => {};
+    let unsubSettings: () => void = () => {};
+    function switchMembers(next: SbBackend) {
+      if (generation !== generationRef.current || next === membersBackend) return;
+      membersBackend = next;
+      unsubMembers();
+      unsubSettings();
+      unsubMembers = next === "supabase" ? attachMembersSupabase() : attachMembersFirestore();
+      unsubSettings = attachSettings(next);
+    }
+    switchMembers(coreMembersBackendFor(wsId));
+    const unwatchMembers = watchCoreMembersBackend(wsId, switchMembers);
 
     const unsubPages = subscribeToPages(
       activeWorkspaceId,
@@ -270,7 +403,9 @@ export function useActiveWorkspaceDataBootstrap() {
 
     return () => {
       window.clearTimeout(hangTimer);
+      unwatchMembers();
       unsubMembers();
+      unsubSettings();
       unsubPages();
     };
   }, [
@@ -342,6 +477,8 @@ export function useWorkspace() {
 }
 
 export async function refreshWorkspaceMembers(workspaceId: string) {
+  // В Supabase список живой, но свежая выборка после своего действия не
+  // мешает: экраны зовут это сразу после записи, а поток дочитает то же.
   const list = await fetchMembers(workspaceId);
   // Feed the bootstrap's cache too, or the next own-member snapshot that
   // publishes (any change beyond the heartbeat's lastActiveAt — those no

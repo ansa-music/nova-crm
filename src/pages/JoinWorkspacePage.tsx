@@ -51,6 +51,9 @@ export default function JoinWorkspacePage() {
 
   useEffect(() => {
     if (!workspaceId || !profile?.uid) return;
+    // Документ workspace ещё читается — подписка подождёт его: по нему
+    // решается, где лежит заявка (Firestore или Supabase).
+    if (workspace === undefined) return;
     // Отказ чтения (нет сети, кончилась квота) — показываем форму, а не
     // вечный спиннер: подать заявку человек попробует, и причину отказа
     // увидит прямо в карточке.
@@ -72,15 +75,16 @@ export default function JoinWorkspacePage() {
     }, (error) => {
       setOwnRequest((prev) => (prev === undefined ? null : prev));
       setSubmitError(firestoreErrorText(error, "Не удалось прочитать заявку"));
-    });
-  }, [workspaceId, profile?.uid, navigate]);
+    }, workspace ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId, profile?.uid, navigate, workspace?.id]);
 
   async function handleRequestAccess(wish: { role: JoinRequestRole; nick: string }) {
     if (!workspaceId || !profile) return;
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      await submitJoinRequest(workspaceId, profile.uid, profile.email, profile.name, profile.photoURL, wish);
+      await submitJoinRequest(workspaceId, profile.uid, profile.email, profile.name, profile.photoURL, wish, workspace ?? null);
       toast.success("Заявка отправлена — Тимлид подтвердит роль и ник");
     } catch (error) {
       const message = firestoreErrorText(error, "Не удалось отправить заявку");

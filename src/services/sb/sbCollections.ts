@@ -67,7 +67,7 @@ export const SB_COLLECTION_LABELS: Record<CollectionKey, string> = {
   announcements: "Объявления",
   grok: "Грок лимит",
   personal: "Личная зона столов",
-  core: "Столы и вкладки (ядро)",
+  core: "Ядро: столы, вкладки, участники, настройки",
 };
 
 export const SB_COLLECTION_KEYS = Object.keys(SB_TABLES) as CollectionKey[];

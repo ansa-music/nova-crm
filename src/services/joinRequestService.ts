@@ -1,7 +1,26 @@
-import { getDoc, getDocs, onSnapshot, query, runTransaction, setDoc, where } from "firebase/firestore";
+import { getDoc, getDocs, onSnapshot, query, runTransaction, setDoc, updateDoc, where } from "firebase/firestore";
 import type { FirestoreError } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, subscribeToDoc } from "@/firebase/firestore";
+import {
+  PENDING_JOINS_VIEW,
+  checkCoreMembersImported,
+  commitCore,
+  coreMembersBackendFor,
+  docToJoin,
+  fetchCoreMember,
+  fetchCorePendingJoins,
+  fetchCoreSettings,
+  joinWrite,
+  ownJoinView,
+  rpcApproveJoin,
+  shadowMemberDelete,
+  shadowMemberSet,
+  watchCore,
+  watchCoreMembersBackend,
+} from "@/services/coreStore";
+import { sbTargetOf, type SbBackend } from "@/services/sb/sbCollections";
+import { mergeWorkspace, useWorkspaceStore } from "@/store/workspaceStore";
 import {
   assertNickFree,
   assertSameNick,
@@ -21,6 +40,21 @@ import { withDbTimeout } from "@/utils/dbError";
 export const DEFAULT_JOIN_ROLE: Role = "manager";
 
 /**
+ * Где заявки этого workspace: у постороннего документа workspace в сторе
+ * нет — он передаёт прочитанный отдельно (`/join/:id`), а отметку переноса
+ * спрашивает у базы (её читает любой вошедший).
+ */
+async function joinBackend(workspaceId: string, doc?: Workspace | null): Promise<SbBackend> {
+  const wsDoc = doc ?? useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId) ?? null;
+  if (!wsDoc || sbTargetOf(wsDoc, "core") !== "supabase") return "firestore";
+  try {
+    return (await checkCoreMembersImported(workspaceId)) ? "supabase" : "firestore";
+  } catch {
+    return coreMembersBackendFor(workspaceId);
+  }
+}
+
+/**
  * Какой ник положен роли при одобрении — ник её раздела «Команды»: Технарь —
  * ник технаря, ОС — ник ОС, Тимлид/Admin/Viewer — ник «Другие». Owner через
  * заявку не выдаётся (в `RoleSelect` его нет).
@@ -35,7 +69,15 @@ export async function getPublicWorkspaceInfo(workspaceId: string): Promise<Works
   if (!db) return null;
   try {
     const snap = await getDoc(paths.workspace(workspaceId));
-    return snap.exists() ? ({ id: snap.id, ...snap.data() } as Workspace) : null;
+    if (!snap.exists()) return null;
+    const raw = { id: snap.id, ...snap.data() } as Workspace;
+    // Настройки (списки ников для подсказок) после переезда ядра живут в
+    // Supabase — документ Firestore их больше не обновляет.
+    if ((await joinBackend(workspaceId, raw)) === "supabase") {
+      const settings = await fetchCoreSettings(workspaceId).catch(() => null);
+      if (settings && Object.keys(settings).length > 0) return mergeWorkspace(raw, settings);
+    }
+    return raw;
   } catch (error) {
     console.error("getPublicWorkspaceInfo failed:", error);
     return null;
@@ -61,7 +103,9 @@ export async function submitJoinRequest(
   email: string,
   name: string,
   photoURL?: string | null,
-  wish?: { role: JoinRequestRole; nick?: string }
+  wish?: { role: JoinRequestRole; nick?: string },
+  /** Документ workspace, прочитанный отдельно (страница заявки у постороннего). */
+  workspaceDoc?: Workspace | null
 ): Promise<JoinRequest> {
   if (!db) throw new Error("Firebase не настроен");
   const nick = wish?.nick?.trim().slice(0, NICK_MAX_LENGTH) ?? "";
@@ -77,6 +121,10 @@ export async function submitJoinRequest(
     ...(wish ? { requestedRole: wish.role } : {}),
     ...(nick ? { requestedNick: nick } : {}),
   };
+  if ((await joinBackend(workspaceId, workspaceDoc)) === "supabase") {
+    await commitCore(workspaceId, [joinWrite(uid, "set", request as unknown as Record<string, unknown>)], { optimistic: true });
+    return request;
+  }
   await setDoc(paths.joinRequest(workspaceId, uid), request);
   return request;
 }
@@ -86,9 +134,32 @@ export function subscribeToOwnJoinRequest(
   workspaceId: string,
   uid: string,
   onData: (request: JoinRequest | null) => void,
-  onError?: (error: FirestoreError) => void
+  onError?: (error: FirestoreError) => void,
+  workspaceDoc?: Workspace | null
 ) {
-  return subscribeToDoc<JoinRequest>(paths.joinRequest(workspaceId, uid), onData, onError);
+  let cancelled = false;
+  let stop: () => void = () => {};
+  void joinBackend(workspaceId, workspaceDoc).then((backend) => {
+    if (cancelled) return;
+    if (backend === "supabase") {
+      stop = watchCore(
+        workspaceId,
+        ownJoinView(uid),
+        (docs) => onData(docs[0] ? docToJoin(docs[0]) : null),
+        () => {
+          stop();
+          stop = subscribeToDoc<JoinRequest>(paths.joinRequest(workspaceId, uid), onData, onError);
+        },
+        (error) => onError?.(error as unknown as FirestoreError)
+      );
+      return;
+    }
+    stop = subscribeToDoc<JoinRequest>(paths.joinRequest(workspaceId, uid), onData, onError);
+  });
+  return () => {
+    cancelled = true;
+    stop();
+  };
 }
 
 /**
@@ -111,6 +182,10 @@ function mapPending(docs: { id: string; data: () => unknown }[]): JoinRequest[] 
 
 /** Owner-only: list of everyone currently waiting to be let in. */
 export async function fetchJoinRequests(workspaceId: string): Promise<JoinRequest[]> {
+  if (coreMembersBackendFor(workspaceId) === "supabase") {
+    const list = await fetchCorePendingJoins(workspaceId);
+    if (list) return list;
+  }
   const snap = await getDocs(pendingJoinRequestsQuery(workspaceId));
   return mapPending(snap.docs);
 }
@@ -120,12 +195,37 @@ export function subscribeJoinRequests(workspaceId: string, cb: (rows: JoinReques
     cb([]);
     return () => {};
   }
-  return onSnapshot(
-    pendingJoinRequestsQuery(workspaceId),
-    (snap) => cb(mapPending(snap.docs)),
-    // Отказ — это «не знаем», а не «заявок нет»: последний список остаётся.
-    (error) => console.error("subscribeJoinRequests denied:", error.code, error.message)
-  );
+  let cancelled = false;
+  let current: SbBackend | null = null;
+  let stop: () => void = () => {};
+  const attach = (backend: SbBackend) => {
+    if (cancelled || backend === current) return;
+    stop();
+    current = backend;
+    if (backend === "supabase") {
+      stop = watchCore(
+        workspaceId,
+        PENDING_JOINS_VIEW,
+        (docs) => cb(docs.map(docToJoin).sort((a, b) => a.requestedAt - b.requestedAt)),
+        () => attach("firestore"),
+        (error) => console.error("subscribeJoinRequests (Supabase) failed:", error)
+      );
+      return;
+    }
+    stop = onSnapshot(
+      pendingJoinRequestsQuery(workspaceId),
+      (snap) => cb(mapPending(snap.docs)),
+      // Отказ — это «не знаем», а не «заявок нет»: последний список остаётся.
+      (error) => console.error("subscribeJoinRequests denied:", error.code, error.message)
+    );
+  };
+  attach(coreMembersBackendFor(workspaceId));
+  const unwatch = watchCoreMembersBackend(workspaceId, attach);
+  return () => {
+    cancelled = true;
+    unwatch();
+    stop();
+  };
 }
 
 /**
@@ -151,6 +251,25 @@ export async function approveJoinRequest(input: {
   if (!db) throw new Error("Firebase не настроен");
   const { workspaceId, request } = input;
   const kind = nickKindForRole(input.role);
+  if (coreMembersBackendFor(workspaceId) === "supabase") {
+    // Участник, ник в список, погашенное приглашение и заявка — одной функцией
+    // в базе; тень участника в Firestore и старые документы — следом.
+    const result = await withDbTimeout(
+      rpcApproveJoin(workspaceId, request.uid, input.role, kind && input.nick ? input.nick : null),
+      "Одобрение заявки"
+    );
+    const me = await fetchCoreMember(workspaceId, request.uid).catch(() => null);
+    if (me) await shadowMemberSet(workspaceId, request.uid, me as unknown as Record<string, unknown>);
+    if (request.email) await shadowMemberDelete(workspaceId, request.email);
+    await updateDoc(paths.joinRequest(workspaceId, request.uid), {
+      status: "approved",
+      approvedRole: input.role,
+      approvedNick: result.nickLabel,
+      resolvedAt: Date.now(),
+      resolvedBy: input.approvedBy,
+    }).catch(() => undefined);
+    return { nickLabel: result.nickLabel };
+  }
   const workspaceRef = paths.workspace(workspaceId);
   const memberRef = paths.member(workspaceId, request.uid);
   const stubRef = paths.member(workspaceId, request.email);
@@ -224,6 +343,12 @@ export async function approveJoinRequest(input: {
 /** Отклонить: участник не создаётся, человек может подать заявку снова. */
 export async function rejectJoinRequest(workspaceId: string, uid: string, resolvedBy?: string) {
   if (!db) return;
+  if (coreMembersBackendFor(workspaceId) === "supabase") {
+    const patch = { status: "rejected", resolvedAt: Date.now(), ...(resolvedBy ? { resolvedBy } : {}) };
+    await commitCore(workspaceId, [joinWrite(uid, "merge", patch)], { optimistic: true });
+    await updateDoc(paths.joinRequest(workspaceId, uid), patch).catch(() => undefined);
+    return;
+  }
   await setDoc(
     paths.joinRequest(workspaceId, uid),
     { status: "rejected", resolvedAt: Date.now(), ...(resolvedBy ? { resolvedBy } : {}) },

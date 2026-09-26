@@ -37,6 +37,27 @@ export type SbCollectionOverride = "firestore" | "supabase";
  */
 export type RowsMigrationStamp = number | { toMillis(): number } | null;
 
+/**
+ * Управляющие поля документа workspace — живут в Firestore и после переезда
+ * настроек в Supabase (этап B ядра): их читают правила Firestore и
+ * выключатели хранилищ, по ним же решается, где искать остальное. Всё, чего
+ * здесь нет, — НАСТРОЙКИ (статусы, ники, касса, периоды, график, регион…):
+ * после переноса они читаются из Supabase (`core_docs` kind `workspace`).
+ */
+export const WORKSPACE_CONTROL_KEYS = [
+  "id",
+  "ownerId",
+  "createdAt",
+  "rowsBackend",
+  "rowsMigrationAt",
+  "sbCollections",
+  "reloadEpoch",
+  "companyInvite",
+  "name",
+  "icon",
+  "color",
+] as const;
+
 export interface Workspace {
   id: string;
   name: string;

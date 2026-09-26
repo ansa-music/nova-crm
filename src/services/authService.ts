@@ -2,7 +2,17 @@ import { arrayRemove, arrayUnion, doc, getDoc, onSnapshot, setDoc } from "fireba
 import type { User } from "firebase/auth";
 import { db } from "@/firebase/firebase";
 import { getDocResumable, paths } from "@/firebase/firestore";
+import { commitCore, coreMembersBackendFor, fetchCoreMember, memberWrite } from "@/services/coreStore";
 import type { AppUser } from "@/types";
+
+/** Своё поле участника (ник, фото) — туда, где участники этого workspace живут. */
+async function writeOwnMemberField(workspaceId: string, uid: string, patch: Record<string, unknown>) {
+  if (coreMembersBackendFor(workspaceId) === "supabase") {
+    await commitCore(workspaceId, [memberWrite(uid, "merge", patch)]);
+    return;
+  }
+  await setDoc(paths.member(workspaceId, uid), patch, { merge: true });
+}
 
 /** Ensures a `users/{uid}` profile document exists after sign-in. */
 export async function ensureUserProfile(user: User): Promise<AppUser> {
@@ -135,7 +145,7 @@ export async function syncNicknameToMemberships(uid: string, workspaceIds: strin
   await Promise.all(
     workspaceIds.map(async (workspaceId) => {
       try {
-        await setDoc(paths.member(workspaceId, uid), { nickname }, { merge: true });
+        await writeOwnMemberField(workspaceId, uid, { nickname });
       } catch (error) {
         console.error(`Failed to sync nickname to workspace ${workspaceId}:`, error);
       }
@@ -157,6 +167,12 @@ export async function syncNicknameIfChanged(uid: string, workspaceIds: string[],
   await Promise.all(
     workspaceIds.map(async (workspaceId) => {
       try {
+        if (coreMembersBackendFor(workspaceId) === "supabase") {
+          const me = await fetchCoreMember(workspaceId, uid);
+          if (!me || me.nickname === nickname) return;
+          await commitCore(workspaceId, [memberWrite(uid, "merge", { nickname })]);
+          return;
+        }
         const snapshot = await getDocResumable(paths.member(workspaceId, uid));
         if (!snapshot.exists()) return;
         if ((snapshot.data() as { nickname?: string | null }).nickname === nickname) return;
@@ -181,7 +197,7 @@ export async function syncPhotoToMemberships(uid: string, workspaceIds: string[]
   await Promise.all(
     workspaceIds.map(async (workspaceId) => {
       try {
-        await setDoc(paths.member(workspaceId, uid), { photoURL }, { merge: true });
+        await writeOwnMemberField(workspaceId, uid, { photoURL });
       } catch (error) {
         console.error(`Failed to sync avatar to workspace ${workspaceId}:`, error);
       }

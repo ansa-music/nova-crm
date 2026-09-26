@@ -1,4 +1,7 @@
-import { deleteDoc, deleteField, DocumentData, increment, onSnapshot, runTransaction, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { deleteDoc, DocumentData, increment, onSnapshot, runTransaction, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { commitCore, coreMembersBackendFor, rpcSeedStatus, shadowSettingsPatch, workspaceWrite } from "@/services/coreStore";
+import { SB_DEL, toFirestoreData } from "@/services/sb/docStore";
+import { WORKSPACE_CONTROL_KEYS } from "@/types";
 import { sanitizeOsPay, sanitizePaymentMethods } from "@/utils/payment";
 import { sanitizePeriods, type PeriodSettings } from "@/utils/periods";
 import { db } from "@/firebase/firebase";
@@ -62,9 +65,48 @@ export async function deleteWorkspace(workspaceId: string) {
   await deleteDoc(paths.workspace(workspaceId));
 }
 
+const CONTROL_KEYS = new Set<string>(WORKSPACE_CONTROL_KEYS);
+
+/**
+ * Firestore-маркер «удалить поле» (deleteField()) → маркер SB_DEL для базы.
+ * Маркер узнаём по `_methodName` самого SDK (класс FieldValue стенд не
+ * подменяет); другие маркеры (increment, arrayUnion) в настройки не пишут.
+ */
+function sbPatch(patch: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) {
+    const method = value && typeof value === "object" ? (value as { _methodName?: unknown })._methodName : undefined;
+    if (typeof method === "string") {
+      if (method !== "deleteField") throw new Error(`Настройка «${key}»: такая запись в Supabase не поддерживается`);
+      out[key] = SB_DEL;
+    } else out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * Документ workspace: управляющие поля (WORKSPACE_CONTROL_KEYS) — в Firestore,
+ * настройки — в Supabase, если ядро переехало (иначе всё в Firestore, как
+ * раньше). В патче можно писать и `deleteField()`, и `SB_DEL`.
+ */
 export async function updateWorkspace(workspaceId: string, patch: Partial<Workspace>) {
   if (!db) return;
-  await setDoc(paths.workspace(workspaceId), patch, { merge: true });
+  const control: Record<string, unknown> = {};
+  const settings: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    if (CONTROL_KEYS.has(key)) control[key] = value;
+    else settings[key] = value;
+  }
+  if (Object.keys(settings).length > 0 && coreMembersBackendFor(workspaceId) === "supabase") {
+    await commitCore(workspaceId, [workspaceWrite(workspaceId, "merge", sbPatch(settings))], { optimistic: true });
+    await shadowSettingsPatch(workspaceId, settings);
+    if (Object.keys(control).length > 0) {
+      await setDoc(paths.workspace(workspaceId), toFirestoreData(control) as Record<string, unknown>, { merge: true });
+    }
+    return;
+  }
+  await setDoc(paths.workspace(workspaceId), toFirestoreData(patch) as Record<string, unknown>, { merge: true });
 }
 
 /**
@@ -150,6 +192,10 @@ export async function updateStatusOptions(workspaceId: string, options: StatusOp
  */
 export async function ensureFreezeStatus(workspaceId: string) {
   if (!db) return;
+  if (coreMembersBackendFor(workspaceId) === "supabase") {
+    await rpcSeedStatus(workspaceId, FREEZE_STATUS_OPTION);
+    return;
+  }
   const firestore = db;
   const ref = paths.workspace(workspaceId);
   await runTransaction(firestore, async (tx) => {
@@ -174,11 +220,19 @@ export async function ensureFreezeStatus(workspaceId: string) {
  */
 export async function saveTechLoadStatusKinds(workspaceId: string, overrides: Record<string, TechLoadKind>) {
   if (!db) return;
+  if (coreMembersBackendFor(workspaceId) === "supabase") {
+    // Слияние карт в базе рекурсивное — сначала снять карту, потом положить новую (одна транзакция).
+    await commitCore(workspaceId, [
+      workspaceWrite(workspaceId, "merge", { techLoadStatusKinds: SB_DEL }),
+      workspaceWrite(workspaceId, "merge", { techLoadStatusKinds: overrides, techLoadStatusKindsVersion: 2 }),
+    ], { optimistic: true });
+    return;
+  }
   await updateDoc(paths.workspace(workspaceId), { techLoadStatusKinds: overrides, techLoadStatusKindsVersion: 2 });
 }
 
 export async function updateAccentColor(workspaceId: string, accentColor: string | null) {
-  await updateWorkspace(workspaceId, { accentColor: (accentColor ?? deleteField()) as string });
+  await updateWorkspace(workspaceId, { accentColor: (accentColor ?? SB_DEL) as unknown as string });
 }
 
 
@@ -188,10 +242,10 @@ export async function updateDashboardPages(
 ) {
   const patch: Partial<Workspace> = {};
   if (input.clientsPageId !== undefined) {
-    patch.dashboardClientsPageId = (input.clientsPageId ?? deleteField()) as string;
+    patch.dashboardClientsPageId = (input.clientsPageId ?? SB_DEL) as unknown as string;
   }
   if (input.projectsPageId !== undefined) {
-    patch.dashboardProjectsPageId = (input.projectsPageId ?? deleteField()) as string;
+    patch.dashboardProjectsPageId = (input.projectsPageId ?? SB_DEL) as unknown as string;
   }
   await updateWorkspace(workspaceId, patch);
 }
