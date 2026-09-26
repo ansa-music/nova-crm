@@ -3,6 +3,7 @@ import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { layWeekTemplateAhead } from "@/services/scheduleTemplateService";
+import { ensureScheduleImported } from "@/services/scheduleStore";
 import { ymdInTimeZone } from "@/utils/date";
 
 // Раз на загрузку страницы для пары workspace+месяц. Сбой ждёт следующей
@@ -34,12 +35,22 @@ export function useWeekTemplateAutopilot() {
     const key = `${activeWorkspaceId}:${currentMonth}`;
     if (attempted.has(key)) return;
     attempted.add(key);
-    void layWeekTemplateAhead({
-      workspaceId: activeWorkspaceId,
-      actorUid: uid,
-      window: { currentMonth, today: Number(ymd.slice(8, 10)) },
-    }).catch((error) => {
-      console.error("Не удалось разложить недельный график на месяц вперёд:", error);
-    });
+    // Сначала — перенос графика в Supabase (разово; трое суток после —
+    // дочитка правок старых вкладок), потом раскладка уже там, где график.
+    void ensureScheduleImported(activeWorkspaceId)
+      .then((n) => {
+        if (n > 0) console.info(`[schedule] перенесено в Supabase документов: ${n}`);
+      })
+      .catch((error) => console.warn("[schedule] перенос графика в Supabase не удался — повторим при следующей загрузке", error))
+      .then(() =>
+        layWeekTemplateAhead({
+          workspaceId: activeWorkspaceId,
+          actorUid: uid,
+          window: { currentMonth, today: Number(ymd.slice(8, 10)) },
+        })
+      )
+      .catch((error) => {
+        console.error("Не удалось разложить недельный график на месяц вперёд:", error);
+      });
   }, [enabled, activeWorkspaceId, uid, monthKey]);
 }

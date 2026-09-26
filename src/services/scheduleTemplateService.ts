@@ -1,17 +1,11 @@
-import {
-  deleteField,
-  getDocFromServer,
-  getDocsFromServer,
-  onSnapshot,
-  query,
-  where,
-  writeBatch,
-  type FirestoreError,
-} from "firebase/firestore";
+import { getDocFromServer, getDocsFromServer, onSnapshot, query, where, type FirestoreError } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
 import { nextMonthKey } from "@/services/monthTabService";
-import { addScheduleChangesToBatch, type ScheduleDraftChange } from "@/services/techScheduleService";
+import { fetchSbDocs, watchSbDocs } from "@/services/sb/docFeed";
+import type { SbBackend } from "@/services/sb/sbCollections";
+import { commitScheduleWrites, scheduleBackendFor, SCHED_DEL, SCHEDULE_FEED, type ScheduleWrite } from "@/services/scheduleStore";
+import { scheduleChangesToWrites, type ScheduleDraftChange } from "@/services/techScheduleService";
 import {
   hasWeek,
   techScheduleId,
@@ -32,11 +26,37 @@ import { mergeDraftChanges } from "@/utils/scheduleEdit";
 export function subscribeWeekTemplate(
   workspaceId: string,
   onData: (template: WeekTemplate | null, fromServer: boolean) => void,
-  onError?: (error: FirestoreError) => void
+  onError?: (error: FirestoreError) => void,
+  backend?: SbBackend | null
 ) {
   if (!db) {
     onData(null, true);
     return () => {};
+  }
+  if ((backend ?? scheduleBackendFor(workspaceId)) === "supabase") {
+    let fallback: (() => void) | null = null;
+    const stop = watchSbDocs(
+      SCHEDULE_FEED,
+      workspaceId,
+      {
+        initial: (q) => q.eq("kind", "template").eq("id", WEEK_TEMPLATE_DOC_ID),
+        match: (d) => d.kind === "template" && d.id === WEEK_TEMPLATE_DOC_ID,
+      },
+      (docs) => {
+        const data = docs[0] ? (docs[0].data as unknown as WeekTemplate) : null;
+        onData(data ? { ...data, people: data.people ?? {} } : null, true);
+      },
+      {
+        onError: (error) => onError?.(error as unknown as FirestoreError),
+        onMissing: () => {
+          fallback ??= subscribeWeekTemplate(workspaceId, onData, onError, "firestore");
+        },
+      }
+    );
+    return () => {
+      stop();
+      fallback?.();
+    };
   }
   return onSnapshot(
     paths.scheduleTemplate(workspaceId, WEEK_TEMPLATE_DOC_ID),
@@ -57,6 +77,13 @@ export function subscribeWeekTemplate(
  */
 export async function fetchWeekTemplateFresh(workspaceId: string): Promise<WeekTemplate | null> {
   if (!db) return null;
+  if (scheduleBackendFor(workspaceId) === "supabase") {
+    const docs = await fetchSbDocs(SCHEDULE_FEED, workspaceId, (q) => q.eq("kind", "template").eq("id", WEEK_TEMPLATE_DOC_ID));
+    if (docs) {
+      const data = docs[0] ? (docs[0].data as unknown as WeekTemplate) : null;
+      return data ? { ...data, people: data.people ?? {} } : null;
+    }
+  }
   const snap = await getDocFromServer(paths.scheduleTemplate(workspaceId, WEEK_TEMPLATE_DOC_ID));
   if (!snap.exists()) return null;
   const data = snap.data() as WeekTemplate;
@@ -75,11 +102,11 @@ function entryWrite(entry: WeekTemplateEntry, appliedThrough: string) {
   for (const dow of WEEK_DOWS) {
     const key = String(dow);
     const off = entry.days?.[key] === "off";
-    days[key] = off ? "off" : deleteField();
+    days[key] = off ? "off" : SCHED_DEL;
     const value = off ? null : entry.hours?.[key];
     hours[key] = value?.from
-      ? { from: value.from, to: value.to || "", label: value.label ? value.label : deleteField() }
-      : deleteField();
+      ? { from: value.from, to: value.to || "", label: value.label ? value.label : SCHED_DEL }
+      : SCHED_DEL;
   }
   return { days, hours, appliedThrough };
 }
@@ -147,16 +174,8 @@ export async function saveWeekTemplate(input: {
   const months = layMonths(input.window, input.throughMonth);
   const lastMonth = months[months.length - 1].monthKey;
 
-  const stored = new Map<string, TechSchedule | null>();
-  await Promise.all(
-    input.changes.flatMap((change) =>
-      months.map(async ({ monthKey }) => {
-        const id = techScheduleId(change.personId, monthKey);
-        const snap = await getDocFromServer(paths.techSchedule(input.workspaceId, id));
-        stored.set(id, snap.exists() ? (snap.data() as TechSchedule) : null);
-      })
-    )
-  );
+  const ids = input.changes.flatMap((change) => months.map(({ monthKey }) => techScheduleId(change.personId, monthKey)));
+  const stored = await fetchMonthDocsFresh(input.workspaceId, ids);
 
   const byMonth = new Map<string, ScheduleDraftChange[]>(months.map((m) => [m.monthKey, []]));
   const people: Record<string, unknown> = {};
@@ -186,17 +205,19 @@ export async function saveWeekTemplate(input: {
     byMonth.set(monthKey, mergeDraftChanges(byMonth.get(monthKey) ?? [], changes));
   }
 
-  const batch = writeBatch(db);
-  batch.set(
-    paths.scheduleTemplate(input.workspaceId, WEEK_TEMPLATE_DOC_ID),
-    { workspaceId: input.workspaceId, people, updatedAt: Date.now(), updatedBy: input.actorUid },
-    { merge: true }
-  );
+  const writes: ScheduleWrite[] = [
+    {
+      kind: "template",
+      id: WEEK_TEMPLATE_DOC_ID,
+      op: "merge",
+      data: { workspaceId: input.workspaceId, people, updatedAt: Date.now(), updatedBy: input.actorUid },
+    },
+  ];
   for (const [monthKey, changes] of byMonth) {
     if (changes.length === 0) continue;
-    addScheduleChangesToBatch(batch, { workspaceId: input.workspaceId, monthKey, actorUid: input.actorUid, changes });
+    writes.push(...scheduleChangesToWrites({ workspaceId: input.workspaceId, monthKey, actorUid: input.actorUid, changes }));
   }
-  await batch.commit();
+  await commitScheduleWrites(input.workspaceId, writes);
   return { people: input.changes.length, days: dayCount };
 }
 
@@ -212,10 +233,8 @@ export async function layWeekTemplateAhead(input: {
   window: LayWindow;
 }): Promise<number> {
   if (!db) return 0;
-  const ref = paths.scheduleTemplate(input.workspaceId, WEEK_TEMPLATE_DOC_ID);
-  const snap = await getDocFromServer(ref);
-  if (!snap.exists()) return 0;
-  const template = snap.data() as WeekTemplate;
+  const template = await fetchWeekTemplateFresh(input.workspaceId);
+  if (!template) return 0;
   const months = layMonths(input.window);
   const lastMonth = months[months.length - 1].monthKey;
   const due = Object.entries(template.people ?? {}).filter(
@@ -226,10 +245,8 @@ export async function layWeekTemplateAhead(input: {
   const stored = new Map<string, Map<string, TechSchedule>>();
   for (const { monthKey } of months) {
     if (!due.some(([, entry]) => !entry.appliedThrough || entry.appliedThrough < monthKey)) continue;
-    const docs = await getDocsFromServer(
-      query(paths.techSchedulesAll(input.workspaceId), where("monthKey", "==", monthKey))
-    );
-    stored.set(monthKey, new Map(docs.docs.map((d) => [(d.data() as TechSchedule).uid, d.data() as TechSchedule])));
+    const docs = await fetchMonthOfAllFresh(input.workspaceId, monthKey);
+    stored.set(monthKey, new Map(docs.map((d) => [d.uid, d])));
   }
 
   const byMonth = new Map<string, ScheduleDraftChange[]>(months.map((m) => [m.monthKey, []]));
@@ -252,11 +269,42 @@ export async function layWeekTemplateAhead(input: {
     people[personId] = { appliedThrough: lastMonth };
   }
 
-  const batch = writeBatch(db);
-  batch.set(ref, { people }, { merge: true });
+  const writes: ScheduleWrite[] = [{ kind: "template", id: WEEK_TEMPLATE_DOC_ID, op: "merge", data: { people } }];
   for (const [monthKey, changes] of byMonth) {
-    addScheduleChangesToBatch(batch, { workspaceId: input.workspaceId, monthKey, actorUid: input.actorUid, changes });
+    writes.push(...scheduleChangesToWrites({ workspaceId: input.workspaceId, monthKey, actorUid: input.actorUid, changes }));
   }
-  await batch.commit();
+  await commitScheduleWrites(input.workspaceId, writes);
   return dayCount;
+}
+
+/**
+ * Документы месяца С СЕРВЕРА (не из кэша): раскладка поверх пустоты из кэша
+ * стёрла бы «отпросился» и «пришёл». id → документ (null — нет).
+ */
+async function fetchMonthDocsFresh(workspaceId: string, ids: string[]): Promise<Map<string, TechSchedule | null>> {
+  const stored = new Map<string, TechSchedule | null>(ids.map((id) => [id, null]));
+  if (scheduleBackendFor(workspaceId) === "supabase") {
+    const docs = await fetchSbDocs(SCHEDULE_FEED, workspaceId, (q) => q.eq("kind", "month").in("id", ids));
+    if (docs) {
+      for (const doc of docs) stored.set(doc.id, doc.data as unknown as TechSchedule);
+      return stored;
+    }
+  }
+  await Promise.all(
+    ids.map(async (id) => {
+      const snap = await getDocFromServer(paths.techSchedule(workspaceId, id));
+      stored.set(id, snap.exists() ? (snap.data() as TechSchedule) : null);
+    })
+  );
+  return stored;
+}
+
+/** Все документы месяца С СЕРВЕРА. */
+async function fetchMonthOfAllFresh(workspaceId: string, monthKey: string): Promise<TechSchedule[]> {
+  if (scheduleBackendFor(workspaceId) === "supabase") {
+    const docs = await fetchSbDocs(SCHEDULE_FEED, workspaceId, (q) => q.eq("kind", "month").eq("month_key", monthKey));
+    if (docs) return docs.map((d) => d.data as unknown as TechSchedule);
+  }
+  const docs = await getDocsFromServer(query(paths.techSchedulesAll(workspaceId), where("monthKey", "==", monthKey)));
+  return docs.docs.map((d) => d.data() as TechSchedule);
 }

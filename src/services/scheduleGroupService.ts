@@ -1,6 +1,9 @@
 import { onSnapshot, runTransaction, setDoc, type FirestoreError } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
+import { fetchSbDocs, watchSbDocs } from "@/services/sb/docFeed";
+import type { SbBackend } from "@/services/sb/sbCollections";
+import { commitScheduleWrites, scheduleBackendFor, SCHEDULE_FEED } from "@/services/scheduleStore";
 import { WEEK_TEMPLATE_DOC_ID, type WeekTemplate } from "@/types/scheduleTemplate";
 import {
   CUSTOM_SCHEDULE_GROUP_ID,
@@ -13,11 +16,34 @@ import {
 export function subscribeScheduleGroup(
   workspaceId: string,
   onData: (group: ScheduleGroup | null) => void,
-  onError?: (error: FirestoreError) => void
+  onError?: (error: FirestoreError) => void,
+  backend?: SbBackend | null
 ) {
   if (!db) {
     onData(null);
     return () => {};
+  }
+  if ((backend ?? scheduleBackendFor(workspaceId)) === "supabase") {
+    let fallback: (() => void) | null = null;
+    const stop = watchSbDocs(
+      SCHEDULE_FEED,
+      workspaceId,
+      {
+        initial: (q) => q.eq("kind", "group").eq("id", CUSTOM_SCHEDULE_GROUP_ID),
+        match: (d) => d.kind === "group" && d.id === CUSTOM_SCHEDULE_GROUP_ID,
+      },
+      (docs) => onData(docs[0] ? { ...(docs[0].data as unknown as ScheduleGroup), id: docs[0].id } : null),
+      {
+        onError: (error) => onError?.(error as unknown as FirestoreError),
+        onMissing: () => {
+          fallback ??= subscribeScheduleGroup(workspaceId, onData, onError, "firestore");
+        },
+      }
+    );
+    return () => {
+      stop();
+      fallback?.();
+    };
   }
   return onSnapshot(
     paths.scheduleGroup(workspaceId, CUSTOM_SCHEDULE_GROUP_ID),
@@ -40,13 +66,12 @@ export async function saveScheduleGroup(input: {
 }) {
   if (!db) throw new Error("Firebase не настроен");
   const name = input.name.trim() || DEFAULT_CUSTOM_GROUP_NAME;
-  await setDoc(paths.scheduleGroup(input.workspaceId, CUSTOM_SCHEDULE_GROUP_ID), {
-    workspaceId: input.workspaceId,
-    name,
-    people: input.people,
-    updatedAt: Date.now(),
-    updatedBy: input.actorUid,
-  });
+  const data = { workspaceId: input.workspaceId, name, people: input.people, updatedAt: Date.now(), updatedBy: input.actorUid };
+  if (scheduleBackendFor(input.workspaceId) === "supabase") {
+    await commitScheduleWrites(input.workspaceId, [{ kind: "group", id: CUSTOM_SCHEDULE_GROUP_ID, op: "set", data }], "supabase");
+    return;
+  }
+  await setDoc(paths.scheduleGroup(input.workspaceId, CUSTOM_SCHEDULE_GROUP_ID), data);
 }
 
 /** «алия » и «Алия» — один и тот же ник; сравниваем нормализованно. */
@@ -78,6 +103,7 @@ export async function bindScheduleGroupPersonToMember(input: {
   actorUid: string;
 }): Promise<string | null> {
   if (!db) return null;
+  if (scheduleBackendFor(input.workspaceId) === "supabase") return bindInSupabase(input);
   const groupRef = paths.scheduleGroup(input.workspaceId, CUSTOM_SCHEDULE_GROUP_ID);
   const weekRef = paths.scheduleTemplate(input.workspaceId, WEEK_TEMPLATE_DOC_ID);
   return runTransaction(db, async (tx) => {
@@ -117,4 +143,59 @@ export async function bindScheduleGroupPersonToMember(input: {
     });
     return person.name;
   });
+}
+
+/**
+ * То же в Supabase: свежее чтение раздела и недели, потом ОДНА пачка записей
+ * (schedule_write — одна транзакция). Гонка двух руководителей в одну
+ * секунду над одним и тем же «ожидающим» здесь не страшнее, чем в Firestore:
+ * вторая пачка просто не найдёт человека в разделе.
+ */
+async function bindInSupabase(input: {
+  workspaceId: string;
+  memberUid: string;
+  osNickLabel: string;
+  actorUid: string;
+}): Promise<string | null> {
+  const docs = await fetchSbDocs(SCHEDULE_FEED, input.workspaceId, (q) =>
+    q.in("kind", ["group", "template"]).in("id", [CUSTOM_SCHEDULE_GROUP_ID, WEEK_TEMPLATE_DOC_ID])
+  );
+  if (!docs) return null;
+  const groupDoc = docs.find((d) => d.kind === "group" && d.id === CUSTOM_SCHEDULE_GROUP_ID);
+  if (!groupDoc) return null;
+  const group = groupDoc.data as unknown as ScheduleGroup;
+  const person = (group.people ?? []).find(
+    (p) => sameNick(p.osNick, input.osNickLabel) || sameNick(p.name, input.osNickLabel)
+  );
+  if (!person) return null;
+  const weekDoc = docs.find((d) => d.kind === "template" && d.id === WEEK_TEMPLATE_DOC_ID);
+  const week = weekDoc ? (weekDoc.data as unknown as WeekTemplate) : null;
+  const entry = week?.people?.[person.id];
+  const writes: Parameters<typeof commitScheduleWrites>[1] = [];
+  if (week && entry) {
+    const people = { ...week.people };
+    delete people[person.id];
+    const { appliedThrough: _applied, ...rest } = entry;
+    people[input.memberUid] = rest;
+    writes.push({
+      kind: "template",
+      id: WEEK_TEMPLATE_DOC_ID,
+      op: "set",
+      data: { workspaceId: input.workspaceId, people, updatedAt: Date.now(), updatedBy: input.actorUid },
+    });
+  }
+  writes.push({
+    kind: "group",
+    id: CUSTOM_SCHEDULE_GROUP_ID,
+    op: "set",
+    data: {
+      workspaceId: input.workspaceId,
+      name: group.name,
+      people: (group.people ?? []).filter((p) => p.id !== person.id),
+      updatedAt: Date.now(),
+      updatedBy: input.actorUid,
+    },
+  });
+  await commitScheduleWrites(input.workspaceId, writes, "supabase");
+  return person.name;
 }

@@ -3,6 +3,7 @@ import { waitForPendingWrites } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { fetchWeekTemplateFresh, saveWeekTemplate } from "@/services/scheduleTemplateService";
 import { saveScheduleDraft, type ScheduleDraftChange } from "@/services/techScheduleService";
+import { waitScheduleWrites } from "@/services/scheduleStore";
 import { ymdInTimeZone } from "@/utils/date";
 import { withDbTimeout } from "@/utils/dbError";
 import type { WeekPersonChange } from "@/utils/scheduleEdit";
@@ -58,6 +59,8 @@ export function useWeekTemplateWriter({ workspaceId, actorUid }: { workspaceId: 
         // (например, «отпросился»), а своей пачкой переписала бы день. Без
         // связи ожидание не кончилось бы никогда — поэтому с пределом.
         if (db) await withDbTimeout(waitForPendingWrites(db), "Постоянная неделя не сохранена");
+        // То же для графика в Supabase: записи месяца в пути — дождаться.
+        await withDbTimeout(waitScheduleWrites(), "Постоянная неделя не сохранена");
         if (input.changes.length === 0) {
           // Неделя уже такая — пишем только разовые клетки месяца.
           for (const month of input.extra ?? []) {

@@ -8,6 +8,7 @@ import { currentMonthSubPageId, isMonthlyDesk } from "@/services/monthTabService
 import { subscribeOrderRatings, subscribeOrderRatingTotals, type OrderRatingsScope } from "@/services/orderRatingService";
 import { useSbBackend, type SbBackend } from "@/services/sb/sbCollections";
 import { subscribeTechSchedules } from "@/services/techScheduleService";
+import { useScheduleBackend } from "@/services/scheduleStore";
 import { joinSharedSubscription } from "@/utils/sharedSubscription";
 import type {
   DeskLoad,
@@ -171,15 +172,16 @@ export function useTechSchedules(workspaceId: string | null, monthKey: string, e
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const backend = useScheduleBackend(workspaceId);
   useEffect(() => {
     setSchedules([]);
     setLoaded(false);
     setFailed(false);
-    if (!workspaceId || !enabled) return;
+    if (!workspaceId || !enabled || !backend) return;
     return joinShared<{ schedules: TechSchedule[]; fromServer: boolean }>(
-      `techSchedules:${workspaceId}:${monthKey}`,
+      `techSchedules:${workspaceId}:${monthKey}:${backend}`,
       (onData, onError) =>
-        subscribeTechSchedules(workspaceId, monthKey, (next, fromServer) => onData({ schedules: next, fromServer }), onError),
+        subscribeTechSchedules(workspaceId, monthKey, (next, fromServer) => onData({ schedules: next, fromServer }), onError, backend),
       ({ schedules: next, fromServer }) => {
         setSchedules(next);
         // «Загружено» — только то, что подтвердил сервер. Снимок из кэша в
@@ -192,7 +194,7 @@ export function useTechSchedules(workspaceId: string | null, monthKey: string, e
         setFailed(true);
       }
     );
-  }, [workspaceId, monthKey, enabled, attempt]);
+  }, [workspaceId, monthKey, enabled, attempt, backend]);
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
   return { schedules, loaded, failed, retry };
 }

@@ -8,6 +8,8 @@ import { fetchMembersFresh } from "@/services/memberService";
 import { desiredPageRow, noteAclSync, syncRowAcl, type AclSyncInput } from "@/services/rows/rowAclService";
 import { reconcileSupabaseLive, reconcileSupabaseOsManaged } from "@/services/rows/rowsMigrationService";
 import { deskModeOf, reconcileSupabaseDeskMode } from "@/services/rows/deskMode";
+import { reconcileScheduleEditors } from "@/services/scheduleStore";
+import { scheduleSettingsOf } from "@/types/scheduleSettings";
 import type { Role } from "@/types";
 
 /** Пауза после последнего изменения: правка доступа — это обычно серия щелчков. */
@@ -64,8 +66,9 @@ export function useRowAclSync() {
 
   const osManaged = Boolean(activeWorkspace?.osManagedDesks);
   const deskMode = deskModeOf(activeWorkspace);
-  const latest = useRef({ allPages, ownerId, realRole, me, osManaged, deskMode });
-  latest.current = { allPages, ownerId, realRole, me, osManaged, deskMode };
+  const scheduleEditors = scheduleSettingsOf(activeWorkspace).editors ?? [];
+  const latest = useRef({ allPages, ownerId, realRole, me, osManaged, deskMode, scheduleEditors });
+  latest.current = { allPages, ownerId, realRole, me, osManaged, deskMode, scheduleEditors };
 
   const run = useRef(async (wsId: string, withMembers: boolean) => {
     const ctx = latest.current;
@@ -88,6 +91,10 @@ export function useRowAclSync() {
           if (modeFixed) console.warn("[rows] режим «кто заполняет столы» в Supabase догнал Firestore");
           if (modeFixed === null && (await reconcileSupabaseOsManaged(wsId, ctx.osManaged).catch(() => false))) {
             console.warn("[rows] флаг «заказы ведёт ОС» в Supabase догнал Firestore");
+          }
+          // Редакторы графика (scheduleSettings.editors) — копия для schedule_write.
+          if (await reconcileScheduleEditors(wsId, ctx.scheduleEditors).catch(() => false)) {
+            console.warn("[rows] редакторы графика в Supabase догнали Firestore");
           }
           // Столы, где технарь правит сам (page.techEditable), — та же сверка.
           const exemptFixed = await reconcileSupabaseOsExempt(wsId, ctx.allPages).catch(() => null);

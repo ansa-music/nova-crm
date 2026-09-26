@@ -66,6 +66,7 @@ import { nextMonthKey, previousMonthKey } from "@/services/monthTabService";
 import { monthTabNameForKey } from "@/services/subPageService";
 import { saveScheduleGroup, subscribeScheduleGroup } from "@/services/scheduleGroupService";
 import { LAY_MONTHS_MAX, subscribeWeekTemplate } from "@/services/scheduleTemplateService";
+import { useScheduleBackend } from "@/services/scheduleStore";
 import { saveScheduleDraft } from "@/services/techScheduleService";
 import {
   cancelScheduleRequest,
@@ -308,26 +309,29 @@ export default function SchedulePage() {
   // заведённого человека не будет ни ника, ни фото.
   useMembersRefresh(activeWorkspaceId, true, false);
 
+  // Где график: Supabase (после переноса) или Firestore — переподписка при смене.
+  const scheduleBackend = useScheduleBackend(activeWorkspaceId);
+
   useEffect(() => {
     setGroup(null);
-    if (!activeWorkspaceId) return;
-    return subscribeScheduleGroup(activeWorkspaceId, setGroup, () => setGroup(null));
-  }, [activeWorkspaceId]);
+    if (!activeWorkspaceId || !scheduleBackend) return;
+    return subscribeScheduleGroup(activeWorkspaceId, setGroup, () => setGroup(null), scheduleBackend);
+  }, [activeWorkspaceId, scheduleBackend]);
 
   useEffect(() => {
     setRequests([]);
     // Свои запросы за открытый месяц — только у тех, кто подаёт запрос сам.
-    if (!activeWorkspaceId || canEdit || !uid) return;
-    return subscribeMyScheduleRequests(activeWorkspaceId, uid, monthKey, setRequests, () => setRequests([]));
-  }, [activeWorkspaceId, monthKey, canEdit, uid]);
+    if (!activeWorkspaceId || canEdit || !uid || !scheduleBackend) return;
+    return subscribeMyScheduleRequests(activeWorkspaceId, uid, monthKey, setRequests, () => setRequests([]), scheduleBackend);
+  }, [activeWorkspaceId, monthKey, canEdit, uid, scheduleBackend]);
 
   // Руководству — все ожидающие запросы, какого бы месяца они ни были.
   const [pendingAll, setPendingAll] = useState<ScheduleRequest[]>([]);
   useEffect(() => {
     setPendingAll([]);
-    if (!activeWorkspaceId || !canEdit) return;
-    return subscribePendingScheduleRequests(activeWorkspaceId, setPendingAll, () => setPendingAll([]));
-  }, [activeWorkspaceId, canEdit]);
+    if (!activeWorkspaceId || !canEdit || !scheduleBackend) return;
+    return subscribePendingScheduleRequests(activeWorkspaceId, setPendingAll, () => setPendingAll([]), scheduleBackend);
+  }, [activeWorkspaceId, canEdit, scheduleBackend]);
 
   // Неделю слушаем, пока она открыта, а у тех, кто правит, — и в месяце:
   // оттуда выходной можно сделать постоянным («Повторять каждую субботу»).
@@ -336,7 +340,7 @@ export default function SchedulePage() {
     setTemplate(null);
     setTemplateLoaded(false);
     setTemplateFailed(false);
-    if (!activeWorkspaceId || !needTemplate) return;
+    if (!activeWorkspaceId || !needTemplate || !scheduleBackend) return;
     return subscribeWeekTemplate(
       activeWorkspaceId,
       (next, fromServer) => {
@@ -346,9 +350,10 @@ export default function SchedulePage() {
           setTemplateFailed(false);
         }
       },
-      () => setTemplateFailed(true)
+      () => setTemplateFailed(true),
+      scheduleBackend
     );
-  }, [activeWorkspaceId, needTemplate, templateAttempt]);
+  }, [activeWorkspaceId, needTemplate, templateAttempt, scheduleBackend]);
   // Править неделю — только поверх ПРОЧИТАННОЙ с сервера: раскладка сравнивает
   // месяц с прошлой неделей, и пустая неделя из кэша сочла бы поставленные
   // руками выходные частью распорядка.

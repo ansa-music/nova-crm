@@ -5,6 +5,7 @@ import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
 import { addOwnWorkspaceId } from "@/services/authService";
+import { pushScheduleEditors } from "@/services/scheduleStore";
 import { DEFAULT_STATUS_OPTIONS, FREEZE_STATUS_OPTION, isFreezeStatusLabel } from "@/utils/columnOptions";
 import {
   sanitizeClientCardOptions,
@@ -117,7 +118,13 @@ export async function updateOrderSound(workspaceId: string, settings: OrderSound
 
 /** «Настройка графика». Пишет только Owner — Тимлиду поле закрыто правилом workspace. */
 export async function updateScheduleSettings(workspaceId: string, settings: ScheduleSettings) {
-  await updateWorkspace(workspaceId, { scheduleSettings: sanitizeScheduleSettings(settings) });
+  const clean = sanitizeScheduleSettings(settings);
+  await updateWorkspace(workspaceId, { scheduleSettings: clean });
+  // Копия списка редакторов в Supabase (график там): без неё назначенный
+  // человек правил бы график только после сверки при следующей загрузке Owner.
+  await pushScheduleEditors(workspaceId, clean.editors ?? []).catch((error) =>
+    console.warn("[schedule] редакторы графика в Supabase не записаны — догонит сверка Owner", error)
+  );
 }
 
 /** Премии технарям за 1–3 место по «Готово». Пишет только Owner. */

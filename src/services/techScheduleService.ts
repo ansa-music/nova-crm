@@ -1,7 +1,14 @@
-import { deleteField, onSnapshot, query, setDoc, where, writeBatch, type FirestoreError, type WriteBatch } from "firebase/firestore";
+import { onSnapshot, query, where, type FirestoreError } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths, withErrorReporting } from "@/firebase/firestore";
+import { watchSbDocs, type SbDoc } from "@/services/sb/docFeed";
+import type { SbBackend } from "@/services/sb/sbCollections";
+import { commitScheduleWrites, scheduleBackendFor, SCHED_DEL, SCHEDULE_FEED, type ScheduleWrite } from "@/services/scheduleStore";
 import { techScheduleId, type ScheduleDayState, type ScheduleHours, type TechSchedule } from "@/types";
+
+function monthOf(doc: SbDoc): TechSchedule {
+  return { ...(doc.data as unknown as TechSchedule), id: doc.id };
+}
 
 /**
  * График месяца по всем технарям. Читают его все участники: «Заказы»
@@ -17,11 +24,32 @@ export function subscribeTechSchedules(
    * можно, а править поверх него нельзя — шаблон недели счёл бы базу пустой.
    */
   onData: (schedules: TechSchedule[], fromServer: boolean) => void,
-  onError?: (error: FirestoreError) => void
+  onError?: (error: FirestoreError) => void,
+  /** Где график (useScheduleBackend); нет — по стору в момент подписки. */
+  backend?: SbBackend | null
 ) {
   if (!db) {
     onData([], true);
     return () => {};
+  }
+  if ((backend ?? scheduleBackendFor(workspaceId)) === "supabase") {
+    let fallback: (() => void) | null = null;
+    const stop = watchSbDocs(
+      SCHEDULE_FEED,
+      workspaceId,
+      { initial: (q) => q.eq("kind", "month").eq("month_key", monthKey), match: (d) => d.kind === "month" && d.data.monthKey === monthKey },
+      (docs) => onData(docs.map(monthOf), true),
+      {
+        onError: (error) => onError?.(error as unknown as FirestoreError),
+        onMissing: () => {
+          fallback ??= subscribeTechSchedules(workspaceId, monthKey, onData, onError, "firestore");
+        },
+      }
+    );
+    return () => {
+      stop();
+      fallback?.();
+    };
   }
   return onSnapshot(
     query(paths.techSchedulesAll(workspaceId), where("monthKey", "==", monthKey)),
@@ -47,14 +75,35 @@ export function subscribeTechSchedule(
   uid: string,
   monthKey: string,
   onData: (schedule: TechSchedule | null) => void,
-  onError?: (error: FirestoreError) => void
+  onError?: (error: FirestoreError) => void,
+  backend?: SbBackend | null
 ) {
   if (!db) {
     onData(null);
     return () => {};
   }
+  const id = techScheduleId(uid, monthKey);
+  if ((backend ?? scheduleBackendFor(workspaceId)) === "supabase") {
+    let fallback: (() => void) | null = null;
+    const stop = watchSbDocs(
+      SCHEDULE_FEED,
+      workspaceId,
+      { initial: (q) => q.eq("kind", "month").eq("id", id), match: (d) => d.kind === "month" && d.id === id },
+      (docs) => onData(docs[0] ? monthOf(docs[0]) : null),
+      {
+        onError: (error) => onError?.(error as unknown as FirestoreError),
+        onMissing: () => {
+          fallback ??= subscribeTechSchedule(workspaceId, uid, monthKey, onData, onError, "firestore");
+        },
+      }
+    );
+    return () => {
+      stop();
+      fallback?.();
+    };
+  }
   return onSnapshot(
-    paths.techSchedule(workspaceId, techScheduleId(uid, monthKey)),
+    paths.techSchedule(workspaceId, id),
     (snapshot) => onData(snapshot.exists() ? { ...(snapshot.data() as TechSchedule), id: snapshot.id } : null),
     withErrorReporting(onError)
   );
@@ -67,7 +116,11 @@ export function subscribeTechSchedule(
  * внутри тоже нельзя — `ignoreUndefinedProperties` выключен.
  */
 function hoursWrite(hours: ScheduleHours) {
-  return { from: hours.from, to: hours.to || "", label: hours.label ? hours.label : deleteField() };
+  return { from: hours.from, to: hours.to || "", label: hours.label ? hours.label : SCHED_DEL };
+}
+
+function monthWrite(workspaceId: string, uid: string, monthKey: string, data: Record<string, unknown>): ScheduleWrite {
+  return { kind: "month", id: techScheduleId(uid, monthKey), op: "merge", data: { workspaceId, uid, monthKey, ...data } };
 }
 
 /**
@@ -86,24 +139,18 @@ export async function setScheduleDay(input: {
   state: ScheduleDayState;
   actorUid: string;
 }) {
-  if (!db) throw new Error("Firebase не настроен");
-  await setDoc(
-    paths.techSchedule(input.workspaceId, techScheduleId(input.uid, input.monthKey)),
-    {
-      workspaceId: input.workspaceId,
-      uid: input.uid,
-      monthKey: input.monthKey,
-      days: { [input.dayKey]: input.state === "work" ? deleteField() : input.state },
-      selfWork: { [input.dayKey]: deleteField() },
+  await commitScheduleWrites(input.workspaceId, [
+    monthWrite(input.workspaceId, input.uid, input.monthKey, {
+      days: { [input.dayKey]: input.state === "work" ? SCHED_DEL : input.state },
+      selfWork: { [input.dayKey]: SCHED_DEL },
       // Часы бывают только у рабочего дня. Оставленные под выходным, они
       // пропадали из клетки и меню, а при возврате дня в рабочие молча
       // всплывали — смена, которую никто уже не ставил.
-      ...(input.state === "work" ? {} : { hours: { [input.dayKey]: deleteField() } }),
+      ...(input.state === "work" ? {} : { hours: { [input.dayKey]: SCHED_DEL } }),
       updatedAt: Date.now(),
       updatedBy: input.actorUid,
-    },
-    { merge: true }
-  );
+    }),
+  ]);
 }
 
 /**
@@ -129,20 +176,14 @@ export async function setCameToWorkDay(input: {
   clearHours?: boolean;
   actorUid: string;
 }) {
-  if (!db) throw new Error("Firebase не настроен");
-  await setDoc(
-    paths.techSchedule(input.workspaceId, techScheduleId(input.uid, input.monthKey)),
-    {
-      workspaceId: input.workspaceId,
-      uid: input.uid,
-      monthKey: input.monthKey,
-      selfWork: { [input.dayKey]: input.came ? true : deleteField() },
-      ...(input.clearHours ? { hours: { [input.dayKey]: deleteField() } } : {}),
+  await commitScheduleWrites(input.workspaceId, [
+    monthWrite(input.workspaceId, input.uid, input.monthKey, {
+      selfWork: { [input.dayKey]: input.came ? true : SCHED_DEL },
+      ...(input.clearHours ? { hours: { [input.dayKey]: SCHED_DEL } } : {}),
       updatedAt: Date.now(),
       updatedBy: input.actorUid,
-    },
-    { merge: true }
-  );
+    }),
+  ]);
 }
 
 /**
@@ -158,19 +199,13 @@ export async function setScheduleHours(input: {
   hours: ScheduleHours | null;
   actorUid: string;
 }) {
-  if (!db) throw new Error("Firebase не настроен");
-  await setDoc(
-    paths.techSchedule(input.workspaceId, techScheduleId(input.uid, input.monthKey)),
-    {
-      workspaceId: input.workspaceId,
-      uid: input.uid,
-      monthKey: input.monthKey,
-      hours: { [input.dayKey]: input.hours ? hoursWrite(input.hours) : deleteField() },
+  await commitScheduleWrites(input.workspaceId, [
+    monthWrite(input.workspaceId, input.uid, input.monthKey, {
+      hours: { [input.dayKey]: input.hours ? hoursWrite(input.hours) : SCHED_DEL },
       updatedAt: Date.now(),
       updatedBy: input.actorUid,
-    },
-    { merge: true }
-  );
+    }),
+  ]);
 }
 
 /**
@@ -203,43 +238,43 @@ export async function saveScheduleDraft(input: {
    */
   changes: ScheduleDraftChange[];
 }) {
-  if (!db) throw new Error("Firebase не настроен");
   if (input.changes.length === 0) return;
-  const batch = writeBatch(db);
-  addScheduleChangesToBatch(batch, input);
-  await batch.commit();
+  await commitScheduleWrites(input.workspaceId, scheduleChangesToWrites(input));
 }
 
 /**
- * Те же записи, что у `saveScheduleDraft`, но в ЧУЖОЙ batch: неделя графика
- * пишет себя и раскладку по месяцам одной пачкой, чтобы после сбоя не
- * остаться с новой неделей и старым месяцем.
+ * Те же записи, что у `saveScheduleDraft`, списком — в ЧУЖУЮ пачку: неделя
+ * графика пишет себя и раскладку по месяцам одной пачкой, чтобы после сбоя
+ * не остаться с новой неделей и старым месяцем.
  */
-export function addScheduleChangesToBatch(
-  batch: WriteBatch,
-  input: { workspaceId: string; monthKey: string; actorUid: string; changes: ScheduleDraftChange[] }
-) {
+export function scheduleChangesToWrites(input: {
+  workspaceId: string;
+  monthKey: string;
+  actorUid: string;
+  changes: ScheduleDraftChange[];
+}): ScheduleWrite[] {
+  const writes: ScheduleWrite[] = [];
   for (const change of input.changes) {
     const days: Record<string, unknown> = {};
     const selfWork: Record<string, unknown> = {};
     const hours: Record<string, unknown> = {};
     for (const [dayKey, state] of Object.entries(change.days ?? {})) {
-      days[dayKey] = state === "work" ? deleteField() : state;
+      days[dayKey] = state === "work" ? SCHED_DEL : state;
       // День снова рабочий или заново выходной — старая отметка «пришёл»
       // к нему уже не относится.
-      selfWork[dayKey] = deleteField();
+      selfWork[dayKey] = SCHED_DEL;
     }
     for (const [dayKey, came] of Object.entries(change.came ?? {})) {
-      selfWork[dayKey] = came ? true : deleteField();
+      selfWork[dayKey] = came ? true : SCHED_DEL;
     }
     for (const [dayKey, value] of Object.entries(change.hours ?? {})) {
-      hours[dayKey] = value ? hoursWrite(value) : deleteField();
+      hours[dayKey] = value ? hoursWrite(value) : SCHED_DEL;
     }
     // Выходной и «отпросился» снимают часы того же дня (см. setScheduleDay).
     // Кроме дня, который тем же действием отмечен «пришёл»: он рабочий, и его
     // часы (возврат через «Отменить») должны остаться.
     for (const [dayKey, state] of Object.entries(change.days ?? {})) {
-      if (state !== "work" && !change.came?.[dayKey]) hours[dayKey] = deleteField();
+      if (state !== "work" && !change.came?.[dayKey]) hours[dayKey] = SCHED_DEL;
     }
     // ПУСТУЮ карту отправлять нельзя. SDK кладёт пустой объект в маску
     // обновления целиком («создать пустую карту»), и при merge:true сервер
@@ -256,6 +291,7 @@ export function addScheduleChangesToBatch(
     if (Object.keys(days).length > 0) data.days = days;
     if (Object.keys(selfWork).length > 0) data.selfWork = selfWork;
     if (Object.keys(hours).length > 0) data.hours = hours;
-    batch.set(paths.techSchedule(input.workspaceId, techScheduleId(change.uid, input.monthKey)), data, { merge: true });
+    writes.push({ kind: "month", id: techScheduleId(change.uid, input.monthKey), op: "merge", data });
   }
+  return writes;
 }

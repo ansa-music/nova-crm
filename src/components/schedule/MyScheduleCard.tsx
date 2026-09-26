@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronDown } from "lucide-react";
 import { pageChipClass } from "@/components/common/PageHeader";
 import { subscribeTechSchedule } from "@/services/techScheduleService";
+import { useScheduleBackend } from "@/services/scheduleStore";
 import { cn } from "@/utils/cn";
 import { formatScheduleHours, scheduleHoursOf, scheduleStateOf, type TechSchedule } from "@/types";
 
@@ -95,10 +96,12 @@ export function MyScheduleCard({
   const [loaded, setLoaded] = useState<Record<string, boolean>>({});
   const [failed, setFailed] = useState(false);
 
+  const backend = useScheduleBackend(workspaceId);
   useEffect(() => {
     setSchedules({});
     setLoaded({});
     setFailed(false);
+    if (!backend) return;
     const stops = monthsId.split(",").map((monthKey) =>
       subscribeTechSchedule(
         workspaceId,
@@ -108,11 +111,12 @@ export function MyScheduleCard({
           setSchedules((prev) => ({ ...prev, [monthKey]: schedule }));
           setLoaded((prev) => ({ ...prev, [monthKey]: true }));
         },
-        () => setFailed(true)
+        () => setFailed(true),
+        backend
       )
     );
     return () => stops.forEach((stop) => stop());
-  }, [workspaceId, uid, monthsId]);
+  }, [workspaceId, uid, monthsId, backend]);
 
   const ready = monthKeys.every((key) => loaded[key]);
   const shown = days.slice(week * 7, week * 7 + 7);
