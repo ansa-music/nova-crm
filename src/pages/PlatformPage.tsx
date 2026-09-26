@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Ban, Building2, Check, Copy, Loader2, MoreHorizontal, Plus, RefreshCw, Ticket } from "lucide-react";
+import { Ban, Building2, Check, Copy, Inbox, Loader2, MoreHorizontal, Plus, RefreshCw, Ticket, X } from "lucide-react";
 import { AccessDenied } from "@/components/common/AccessDenied";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Alert } from "@/components/ui/alert";
@@ -17,13 +17,17 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/useAuth";
 import {
+  approveLead,
   companyInviteLink,
   createCompanyInvite,
   listCompanyInvites,
+  listLeads,
   listTenants,
+  rejectLead,
   revokeCompanyInvite,
   setTenant,
   type CompanyInvite,
+  type PlatformLead,
   type Tenant,
   type TenantPatch,
 } from "@/services/companyService";
@@ -89,6 +93,7 @@ export default function PlatformPage() {
 
   const [tenants, setTenants] = useState<Tenant[] | null>(null);
   const [invites, setInvites] = useState<CompanyInvite[] | null>(null);
+  const [leads, setLeads] = useState<PlatformLead[] | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -104,9 +109,10 @@ export default function PlatformPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const [t, i] = await Promise.all([listTenants(), listCompanyInvites()]);
+      const [t, i, l] = await Promise.all([listTenants(), listCompanyInvites(), listLeads().catch(() => [] as PlatformLead[])]);
       setTenants(t);
       setInvites(i);
+      setLeads(l);
     } catch (error) {
       setLoadError(firestoreErrorText(error, "Не удалось прочитать компании"));
     } finally {
@@ -237,6 +243,48 @@ export default function PlatformPage() {
     void patchTenant(t, { seatsLimit: n }, n ? `Предел мест: ${n}` : "Предел мест снят");
   }
 
+  /** Одобрить заявку: именной код с текущими «пробный период» и «мест» из формы выше. */
+  async function approve(lead: PlatformLead) {
+    if (!profile) return;
+    const seatsNum = seats.trim() ? Math.round(Number(seats)) : null;
+    const ok = await confirmDialog({
+      title: `Одобрить «${lead.company}»?`,
+      description: `Код на имя ${lead.name || lead.email || "заявителя"}: пробный ${trialDays} дн.${seatsNum ? `, ${seatsNum} мест` : ", без предела мест"}. Человек увидит его на странице подключения.`,
+      confirmLabel: "Одобрить",
+    });
+    if (!ok) return;
+    setBusyId(lead.uid);
+    try {
+      const invite = await approveLead({ uid: lead.uid, adminUid: profile.uid, trialDays, seatsLimit: seatsNum });
+      setFresh(invite);
+      toast.success(`Код ${invite.code} выдан для «${lead.company}»`);
+      await load();
+    } catch (error) {
+      toast.error(firestoreErrorText(error, "Не удалось одобрить заявку"));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function reject(lead: PlatformLead) {
+    const ok = await confirmDialog({
+      title: `Отклонить «${lead.company}»?`,
+      description: "Человек сможет подать заявку заново.",
+      confirmLabel: "Отклонить",
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusyId(lead.uid);
+    try {
+      await rejectLead(lead.uid);
+      await load();
+    } catch (error) {
+      toast.error(firestoreErrorText(error, "Не удалось отклонить заявку"));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function editPlan(t: Tenant) {
     const value = await promptDialog({
       title: "Тариф",
@@ -356,6 +404,55 @@ export default function PlatformPage() {
         </div>
       </Section>
 
+      {leads && leads.length > 0 ? (
+        <Section
+          eyebrow="Заявки на подключение"
+          title={`Ждут ответа: ${leads.filter((l) => l.status === "pending").length}`}
+          padded={false}
+        >
+          <ul className="divide-y divide-border">
+            {leads.map((l) => {
+              const busy = busyId === l.uid;
+              const view =
+                l.status === "pending"
+                  ? { label: "Ждёт", tone: "bg-warning/15 text-warning" }
+                  : l.status === "approved"
+                    ? { label: l.workspaceId ? "Компания заведена" : `Код выдан · ${l.inviteCode ?? ""}`, tone: "bg-success/12 text-success" }
+                    : { label: "Отклонена", tone: "bg-muted text-muted-foreground" };
+              return (
+                <li key={l.uid} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-start sm:gap-3">
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                      <Inbox className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-medium">{l.company}</p>
+                      <p className="truncate text-[12px] text-muted-foreground">
+                        {[l.name, l.email, l.contact].filter(Boolean).join(" · ")} · {fmtDate(l.updatedAt)}
+                      </p>
+                      {l.note ? <p className="mt-1 whitespace-pre-wrap text-[12.5px] text-foreground/80">{l.note}</p> : null}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <span className={cn("rounded-md px-2 py-1 text-[12px] font-medium", view.tone)}>{view.label}</span>
+                    {l.status === "pending" ? (
+                      <>
+                        <Button size="sm" disabled={busy} onClick={() => void approve(l)}>
+                          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Одобрить
+                        </Button>
+                        <Button size="sm" variant="ghost" disabled={busy} onClick={() => void reject(l)}>
+                          <X className="h-3.5 w-3.5" /> Отклонить
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </Section>
+      ) : null}
+
       <Section
         eyebrow="Компании"
         title={tenants ? `${tenants.length} ${tenants.length === 1 ? "компания" : "компаний"}` : "Компании"}
@@ -449,7 +546,7 @@ export default function PlatformPage() {
                   <div className="min-w-0 flex-1">
                     <p className="font-mono text-[13px] tracking-wider">{i.code}</p>
                     <p className="truncate text-[12px] text-muted-foreground">
-                      {i.note || "без пометки"} · пробный {i.trialDays} дн.{i.seatsLimit ? ` · ${i.seatsLimit} мест` : ""} · {fmtDate(i.createdAt)}
+                      {i.note || "без пометки"}{i.forUid ? " · именной" : ""} · пробный {i.trialDays} дн.{i.seatsLimit ? ` · ${i.seatsLimit} мест` : ""} · {fmtDate(i.createdAt)}
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-2">

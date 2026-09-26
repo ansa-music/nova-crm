@@ -56,6 +56,7 @@ service cloud.firestore {
         && exists(path)
         && get(path).data.get('usedBy', null) == null
         && get(path).data.get('revoked', false) == false
+        && (get(path).data.get('forUid', '') == '' || get(path).data.get('forUid', '') == null || get(path).data.get('forUid', '') == request.auth.uid)
         && getAfter(path).data.usedBy == request.auth.uid
         && getAfter(path).data.workspaceId == workspaceId;
     }
@@ -423,6 +424,7 @@ service cloud.firestore {
         || (signedIn()
           && resource.data.get('usedBy', null) == null
           && resource.data.get('revoked', false) == false
+          && (resource.data.get('forUid', '') == '' || resource.data.get('forUid', '') == null || resource.data.get('forUid', '') == request.auth.uid)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedBy', 'usedAt', 'workspaceId'])
           && request.resource.data.usedBy == request.auth.uid
           && request.resource.data.usedAt is number

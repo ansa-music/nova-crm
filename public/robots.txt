@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /welcome
+Allow: /terms
+Allow: /privacy
+Disallow: /

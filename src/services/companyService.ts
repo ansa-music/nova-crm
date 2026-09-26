@@ -211,6 +211,8 @@ export interface CompanyInvite {
   workspaceId: string | null;
   workspaceName: string | null;
   revokedAt: string | null;
+  /** Именной код — выдан по заявке этому человеку (SaaS этап 3). */
+  forUid: string | null;
 }
 
 function mapInvite(raw: Record<string, unknown>): CompanyInvite {
@@ -225,6 +227,7 @@ function mapInvite(raw: Record<string, unknown>): CompanyInvite {
     workspaceId: (raw.workspace_id as string | null) ?? null,
     workspaceName: (raw.workspace_name as string | null) ?? null,
     revokedAt: (raw.revoked_at as string | null) ?? null,
+    forUid: (raw.for_uid as string | null) ?? null,
   };
 }
 
@@ -268,6 +271,7 @@ export async function createCompanyInvite(input: {
       createdBy: input.uid,
       usedBy: null,
       revoked: false,
+      forUid: null,
     });
   } catch (firestoreError) {
     // Без копии в Firestore код бесполезен (правило создания workspace его не
@@ -349,6 +353,134 @@ export async function setTenant(workspaceId: string, patch: TenantPatch): Promis
     p_seats_limit: patch.seatsLimit ?? null,
     p_set_trial: patch.trialUntil !== undefined,
     p_set_seats: patch.seatsLimit !== undefined,
+  });
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Заявки на подключение (SaaS этап 3, SQL 20261028_platform_leads.sql):
+// человек без кода оставляет заявку на /start, администратор одобряет —
+// база выдаёт код на его имя, и /start сам предлагает завести компанию.
+// ---------------------------------------------------------------------------
+
+export type LeadStatus = "pending" | "approved" | "rejected";
+
+export interface PlatformLead {
+  uid: string;
+  email: string;
+  name: string;
+  company: string;
+  contact: string;
+  note: string;
+  status: LeadStatus;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  inviteCode: string | null;
+  /** Компания, заведённая по выданному коду (если уже завели). */
+  workspaceId: string | null;
+}
+
+function mapLead(raw: Record<string, unknown>): PlatformLead {
+  const status = String(raw.status ?? "pending");
+  return {
+    uid: String(raw.uid ?? ""),
+    email: String(raw.email ?? ""),
+    name: String(raw.name ?? ""),
+    company: String(raw.company ?? ""),
+    contact: String(raw.contact ?? ""),
+    note: String(raw.note ?? ""),
+    status: status === "approved" || status === "rejected" ? status : "pending",
+    createdAt: String(raw.created_at ?? ""),
+    updatedAt: String(raw.updated_at ?? ""),
+    resolvedAt: (raw.resolved_at as string | null) ?? null,
+    inviteCode: (raw.invite_code as string | null) ?? null,
+    workspaceId: (raw.workspace_id as string | null) ?? null,
+  };
+}
+
+/** Своя заявка и код на своё имя — что показать на /start. */
+export interface MyPlatformStatus {
+  lead: PlatformLead | null;
+  invite: { code: string; trialDays: number; seatsLimit: number | null; note: string } | null;
+}
+
+export async function fetchMyPlatformStatus(): Promise<MyPlatformStatus | null> {
+  const { data, error } = await supabaseRows.rpc("platform_my_status");
+  if (error) {
+    if (isSbMissingError(error)) return null;
+    throw error;
+  }
+  const raw = (data ?? null) as { lead?: Record<string, unknown> | null; invite?: Record<string, unknown> | null } | null;
+  if (!raw) return { lead: null, invite: null };
+  const inv = raw.invite;
+  return {
+    lead: raw.lead ? mapLead(raw.lead) : null,
+    invite: inv && isCompanyCode(String(inv.code ?? ""))
+      ? {
+          code: String(inv.code),
+          trialDays: Number(inv.trial_days ?? 14),
+          seatsLimit: inv.seats_limit == null ? null : Number(inv.seats_limit),
+          note: String(inv.note ?? ""),
+        }
+      : null,
+  };
+}
+
+export async function submitLead(input: { company: string; contact: string; note: string; email: string; name: string }): Promise<PlatformLead> {
+  const { data, error } = await supabaseRows.rpc("platform_lead_submit", {
+    p_company: input.company,
+    p_contact: input.contact,
+    p_note: input.note,
+    p_email: input.email,
+    p_name: input.name,
+  });
+  if (error) {
+    if (isSbMissingError(error)) throw new Error("Приём заявок ещё не включён — напишите нам напрямую.");
+    throw error;
+  }
+  return mapLead((data ?? {}) as Record<string, unknown>);
+}
+
+export async function listLeads(): Promise<PlatformLead[]> {
+  const { data, error } = await supabaseRows.rpc("platform_leads_list");
+  if (error) throw error;
+  return unwrapRows(data).map(mapLead);
+}
+
+/** Одобрить заявку: база выдаёт именной код, копия кода — в Firestore (её смотрит правило создания workspace). */
+export async function approveLead(input: { uid: string; adminUid: string; trialDays: number; seatsLimit: number | null }): Promise<CompanyInvite> {
+  if (!db) throw new Error("Firebase не настроен");
+  const { data, error } = await supabaseRows.rpc("platform_lead_resolve", {
+    p_uid: input.uid,
+    p_approve: true,
+    p_trial_days: input.trialDays,
+    p_seats_limit: input.seatsLimit,
+  });
+  if (error) throw error;
+  const raw = (data ?? {}) as { invite?: Record<string, unknown> };
+  const invite = mapInvite(raw.invite ?? {});
+  if (!isCompanyCode(invite.code)) throw new Error("База не вернула код приглашения");
+  await setDoc(doc(db, "companyInvites", invite.code), {
+    code: invite.code,
+    note: invite.note,
+    trialDays: invite.trialDays,
+    seatsLimit: invite.seatsLimit,
+    createdAt: Date.now(),
+    createdBy: input.adminUid,
+    usedBy: null,
+    revoked: false,
+    forUid: input.uid,
+  });
+  return invite;
+}
+
+export async function rejectLead(uid: string): Promise<void> {
+  const { error } = await supabaseRows.rpc("platform_lead_resolve", {
+    p_uid: uid,
+    p_approve: false,
+    p_trial_days: null,
+    p_seats_limit: null,
   });
   if (error) throw error;
 }

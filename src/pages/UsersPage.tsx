@@ -8,6 +8,9 @@ import { Link, Navigate } from "react-router";
 import { displayNameOf } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
 import { PageHeader } from "@/components/common/PageHeader";
+import { Alert } from "@/components/ui/alert";
+import { useTenantInfo } from "@/hooks/useTenantInfo";
+import { seatsState } from "@/utils/seats";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/utils/cn";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -357,6 +360,8 @@ export default function UsersPage() {
           </>
         }
       />
+
+      <SeatsNotice workspaceId={activeWorkspaceId} members={members} />
 
       {/* Ссылка и приглашение — действия «раз в месяц», а список участников
           открывают каждый день. Раньше две карточки занимали весь первый
@@ -756,5 +761,18 @@ export default function UsersPage() {
         />
       )}
     </div>
+  );
+}
+
+/** Предел мест компании (SaaS): «12 из 15» и предупреждение, когда мест нет. */
+function SeatsNotice({ workspaceId, members }: { workspaceId: string; members: WorkspaceMember[] }) {
+  const tenant = useTenantInfo(workspaceId, true);
+  const seats = seatsState(members, tenant?.seatsLimit ?? null);
+  if (seats.limit === null) return null;
+  return (
+    <Alert tone={seats.full ? "warning" : "info"} className="mb-4">
+      Места: {seats.used} из {seats.limit}
+      {seats.full ? " — свободных нет. Чтобы пригласить ещё, попросите Nova увеличить предел." : ` · свободно ${seats.free}`}
+    </Alert>
   );
 }

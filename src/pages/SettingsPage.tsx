@@ -31,6 +31,7 @@ import {
   UserCog,
   Users,
   Wallet,
+  Globe,
 } from "lucide-react";
 import { AvatarUpload } from "@/components/common/AvatarUpload";
 import { RowsStoragePanel } from "@/components/settings/RowsStoragePanel";
@@ -38,6 +39,7 @@ import { SupabaseCollectionsPanel } from "@/components/settings/SupabaseCollecti
 import { CashboxSettingsPanel } from "@/components/cashbox/CashboxSettingsPanel";
 import { ClientCardSettingsPanel } from "@/components/settings/ClientCardSettingsPanel";
 import { PeriodsSettingsPanel } from "@/components/settings/PeriodsSettingsPanel";
+import { CompanySettingsPanel } from "@/components/settings/CompanySettingsPanel";
 import { OrderSoundSettingsPanel } from "@/components/settings/OrderSoundSettingsPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -154,6 +156,7 @@ const SETTINGS_NAV = [
   { value: "profile", label: "Профиль", icon: User },
   { value: "access-key", label: "Ключ доступа", icon: KeyRound },
   { value: "workspace", label: "Workspace", icon: Building2 },
+  { value: "company", label: "Компания", icon: Globe, owner: true },
   { value: "lists", label: "Варианты", icon: Tags, owner: true },
   { value: "fields", label: "Поля", icon: Layers, owner: true },
   { value: "appearance", label: "Оформление", icon: Palette, owner: true },
@@ -396,7 +399,9 @@ export default function SettingsPage() {
               // Звук заказа у всех — тоже только Owner.
               (item.value !== "sound" || permissions.actsAsOwner) &&
               // Периоды столов (целый месяц / половины) — только Owner.
-              (item.value !== "periods" || permissions.actsAsOwner)
+              (item.value !== "periods" || permissions.actsAsOwner) &&
+              // Регион и подписка компании — только Owner.
+              (item.value !== "company" || permissions.actsAsOwner)
           ).map((item) => (
             <TabsTrigger
               key={item.value}
@@ -562,6 +567,12 @@ export default function SettingsPage() {
             </CardHeader>
           </Card>
         </TabsContent>
+
+        {permissions.actsAsOwner && (
+          <TabsContent value="company" className="mt-0">
+            <CompanySettingsPanel />
+          </TabsContent>
+        )}
 
         {permissions.canManageWorkspace && (
         <TabsContent value="lists" className="mt-0 flex flex-col gap-4">

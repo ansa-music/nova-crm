@@ -80,6 +80,9 @@ const WorkspaceChatPage = lazy(loadWorkspaceChatPage);
 const MessagesPage = lazy(loadMessagesPage);
 const JoinWorkspacePage = lazy(() => import("@/pages/JoinWorkspacePage"));
 const StartCompanyPage = lazy(() => import("@/pages/StartCompanyPage"));
+const LandingPage = lazy(() => import("@/pages/LandingPage"));
+const PrivacyPage = lazy(() => import("@/pages/LegalPage").then((m) => ({ default: m.PrivacyPage })));
+const TermsPage = lazy(() => import("@/pages/LegalPage").then((m) => ({ default: m.TermsPage })));
 const PlatformPage = lazy(loadPlatformPage);
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
 
@@ -210,6 +213,8 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
     if (wasGoogleRedirectPending()) return <AppBootScreen phase="auth" />;
     rememberJoinIntentFromPath(location.pathname);
     rememberCompanyIntentFromLocation(location.pathname, location.search);
+    // Корень без входа — публичная страница продукта; глубокие ссылки — на вход.
+    if (location.pathname === "/") return <Navigate to="/welcome" replace />;
     return <Navigate to="/login" state={{ from: location.pathname + location.search }} replace />;
   }
   return <>{children}</>;
@@ -258,6 +263,9 @@ function AppShell() {
               </RequireAuth>
             }
           />
+          <Route path="/welcome" element={<LandingPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
           <Route
             path="/start"
             element={

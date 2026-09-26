@@ -17,6 +17,8 @@ import { memberNickValue, NICK_KIND_META, nickOptionsOf, type NickKind } from "@
 import { realNameOf } from "@/utils/displayName";
 import { firestoreErrorText } from "@/utils/dbError";
 import { refreshWorkspaceMembers } from "@/hooks/useWorkspace";
+import { useTenantInfo } from "@/hooks/useTenantInfo";
+import { assertSeatAvailable } from "@/utils/seats";
 import { ROLE_LABELS, type JoinRequest, type Role, type Workspace, type WorkspaceMember } from "@/types";
 
 /**
@@ -66,6 +68,8 @@ export function ApproveJoinDialog({
    * выглядит именно так. Тост оставлен для тех, кто уже закрыл окно.
    */
   const [error, setError] = useState<string | null>(null);
+  // Предел мест компании (SaaS) — проверяется до записи, объяснение в окне.
+  const tenant = useTenantInfo(workspaceId, true);
 
   // Список участников в браузере не живой — освежаем, чтобы «занят» в
   // выборе ника был правдой. Окончательно занятость проверяет сервер.
@@ -77,6 +81,7 @@ export function ApproveJoinDialog({
     setSaving(true);
     setError(null);
     try {
+      assertSeatAvailable(members, tenant?.seatsLimit ?? null);
       const { nickLabel } = await approveJoinRequest({
         workspaceId,
         request,
