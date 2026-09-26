@@ -165,7 +165,7 @@ export interface NavSignals {
   deskAlerts: string[];
   /** Аккаунты Грока: сколько доступно из скольких (null — ещё не читали). */
   grokPool: { available: number; total: number } | null;
-  /** Owner открыл мне раздел «Telegram» (и я ОС). */
+  /** Owner открыл мне раздел «Telegram». */
   telegramGranted: boolean;
 }
 
@@ -327,9 +327,9 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
         },
         { key: "technicians", to: "/technicians", label: "Технари", icon: HardHat, show: g.showTechniciansNav },
         { key: "os-desks", to: "/os-desks", label: "Столы ОС", icon: ScanEye, show: g.showOsDesksNav },
-        // «Telegram» — рабочий аккаунт прямо в Nova (26.09.2026): у ОС, которым
-        // Owner открыл раздел, и у самого Owner — он там выдаёт доступ и ключи
-        // (просьба Nurba: «сделай слева как главное»).
+        // «Telegram» — рабочий аккаунт прямо в Nova (26.09.2026): у тех, кому
+        // Owner открыл раздел (любая роль), и у самого Owner — он там выдаёт
+        // доступ и ключи (просьба Nurba: «сделай слева как главное»).
         {
           key: "telegram",
           to: "/telegram",
@@ -593,9 +593,10 @@ export function NavModelProvider({ children }: { children: ReactNode }) {
     permissions.isResolved && permissions.hasRole("os")
   ).requests.length;
   const grokPool = useGrokPoolSignal(activeWorkspaceId, permissions.isResolved && !permissions.roles.every((r) => r === "os"));
-  // Раздел «Telegram»: допустить можно только ОС; Owner смотрит, чтобы управлять.
-  const canHaveTelegram = permissions.isResolved && permissions.hasRole("os");
-  const telegramAccess = useTelegramAccess(activeWorkspaceId, uid, permissions.isResolved && (canHaveTelegram || permissions.actsAsOwner));
+  // Раздел «Telegram»: Owner открывает его любому участнику (с 20261012 роль
+  // не важна), поэтому свой доступ проверяет каждый.
+  const canHaveTelegram = permissions.isResolved;
+  const telegramAccess = useTelegramAccess(activeWorkspaceId, uid, canHaveTelegram);
   useTelegramRevokeGuard(activeWorkspaceId, uid, telegramAccess, { resolved: permissions.isResolved, canHaveAccess: canHaveTelegram });
   const telegramGranted = canHaveTelegram && telegramAccess.granted;
 

@@ -22,8 +22,8 @@ import { myDisplayName } from "@/utils/displayName";
 /**
  * «Telegram» (просьба Nurba 26.09.2026): рабочий аккаунт Telegram прямо в
  * Nova — чаты слева, переписка справа, отправка видео до 2 ГБ (с Premium —
- * до 4 ГБ) с прогрессом. Пока только у ОС, которых отметил Owner
- * («Доступ и ключи»). Сам Telegram через Supabase и Firebase не идёт: браузер
+ * до 4 ГБ) с прогрессом. У тех, кого отметил Owner («Доступ и ключи»):
+ * ОС, технарей и других — любая роль (с SQL 20261012). Сам Telegram через Supabase и Firebase не идёт: браузер
  * говорит с серверами Telegram напрямую (services/telegram/tgClient.ts).
  */
 export default function TelegramPage() {
@@ -32,8 +32,8 @@ export default function TelegramPage() {
   const { profile } = useAuth();
   const uid = profile?.uid ?? null;
   const isOwner = permissions.actsAsOwner;
-  const canHave = permissions.isResolved && permissions.hasRole("os");
-  const access = useTelegramAccess(activeWorkspaceId, uid, permissions.isResolved && (canHave || isOwner));
+  const canHave = permissions.isResolved;
+  const access = useTelegramAccess(activeWorkspaceId, uid, canHave);
   const granted = canHave && access.granted;
   const tg = useTg();
   const [manageOpen, setManageOpen] = useState(false);
@@ -62,7 +62,7 @@ export default function TelegramPage() {
     return (
       <AccessDenied
         title="Раздел Telegram закрыт"
-        reason={canHave ? "Раздел Telegram Owner открывает отдельным ОС — попросите его выдать доступ." : "Раздел Telegram пока только для ОС, которым его открыл Owner."}
+        reason="Раздел Telegram Owner открывает отдельным людям — попросите его выдать вам доступ."
       />
     );
   }

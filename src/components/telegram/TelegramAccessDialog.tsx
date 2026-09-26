@@ -1,21 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
 import { Eye, EyeOff, Loader2, ShieldCheck } from "lucide-react";
-import { MemberAvatar } from "@/components/common/MemberAvatar";
+import { GrokPeoplePicker } from "@/components/grok/GrokPeoplePicker";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { fetchTelegramAccessList, setTelegramAccess, setTelegramConfig, type TelegramConfig } from "@/services/telegram/telegramAccess";
-import { cn } from "@/utils/cn";
-import { personLabel } from "@/utils/peopleDesks";
-import { memberHasRole, type WorkspaceMember } from "@/types";
+import { pickerInitialSelection } from "@/utils/grokPeople";
+import type { TeamGroup } from "@/utils/teamGroup";
+import type { WorkspaceMember } from "@/types";
+
+/** ОС — главные пользователи раздела, их группа первой. */
+const TG_GROUP_ORDER: readonly TeamGroup[] = ["os", "tech", "other"];
 
 /**
- * Owner: кому открыт раздел «Telegram» (пока только ОС) и ключи приложения
- * Telegram с my.telegram.org. Пишет базу RPC tg_set_access / tg_set_config
- * (20261011): не ОС и не участников база отбросит сама.
+ * Owner: кому открыт раздел «Telegram» и ключи приложения Telegram с
+ * my.telegram.org. Отметить можно любого участника — по группам «ОС /
+ * Технари / Другие» (просьба Nurba 26.09.2026), с поиском и «все / снять» у
+ * группы. Пишет базу RPC tg_set_access / tg_set_config (20261011 + 20261012):
+ * не участников база отбросит сама.
  */
 export function TelegramAccessDialog({
   open,
@@ -30,14 +34,8 @@ export function TelegramAccessDialog({
   members: WorkspaceMember[];
   config: TelegramConfig | null;
 }) {
-  const candidates = useMemo(
-    () =>
-      members
-        .filter((m) => m.status === "active" && m.uid && memberHasRole(m, "os"))
-        .sort((a, b) => personLabel(a).localeCompare(personLabel(b), "ru")),
-    [members]
-  );
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const candidates = useMemo(() => members.filter((m) => m.status === "active" && Boolean(m.uid)), [members]);
+  const [selected, setSelected] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [apiId, setApiId] = useState("");
@@ -56,7 +54,7 @@ export function TelegramAccessDialog({
     fetchTelegramAccessList(workspaceId)
       .then((uids) => {
         if (!alive) return;
-        setSelected(new Set(uids));
+        setSelected(pickerInitialSelection(uids, candidates));
         setLoaded(true);
       })
       .catch((error: Error) => {
@@ -67,15 +65,9 @@ export function TelegramAccessDialog({
     return () => {
       alive = false;
     };
+    // Кандидаты — по открытию окна: снимок ростера посреди выбора не сбрасывает галочки.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, workspaceId, config]);
-
-  const toggle = (uid: string, on: boolean) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(uid);
-      else next.delete(uid);
-      return next;
-    });
 
   const idNum = Number(apiId.trim());
   const hash = apiHash.trim().toLowerCase();
@@ -88,7 +80,7 @@ export function TelegramAccessDialog({
     setBusy(true);
     try {
       if (keysChanged) await setTelegramConfig(workspaceId, keysEmpty ? null : { apiId: idNum, apiHash: hash });
-      const granted = await setTelegramAccess(workspaceId, [...selected]);
+      const granted = await setTelegramAccess(workspaceId, selected);
       toast.success(granted.length ? `Раздел Telegram открыт: ${granted.length}` : "Раздел Telegram закрыт для всех");
       onOpenChange(false);
     } catch (error) {
@@ -106,7 +98,8 @@ export function TelegramAccessDialog({
             <ShieldCheck className="h-4 w-4 text-primary" /> Доступ к Telegram
           </DialogTitle>
           <DialogDescription>
-            Кто видит раздел и входит в рабочий аккаунт. Пока — только ОС. Каждый вошедший видит все чаты аккаунта.
+            Кто видит раздел и входит в рабочий аккаунт. Отметить можно любого из команды. Каждый вошедший видит все чаты
+            аккаунта.
           </DialogDescription>
         </DialogHeader>
 
@@ -143,8 +136,8 @@ export function TelegramAccessDialog({
           {!keysValid && <p className="text-[12px] text-destructive">api_id — число, api_hash — 32 знака (0-9, a-f).</p>}
         </section>
 
-        <section className="min-h-0 flex-1 space-y-2 overflow-y-auto">
-          <p className="text-[12px] font-medium text-muted-foreground">ОС с доступом · {selected.size}</p>
+        <section className="flex min-h-0 flex-1 flex-col gap-2">
+          <p className="text-[12px] font-medium text-muted-foreground">С доступом · {selected.length}</p>
           {!loaded ? (
             <p className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Загружаю…
@@ -153,26 +146,10 @@ export function TelegramAccessDialog({
             <Alert tone="error" title="Список не прочитался">
               {loadError}
             </Alert>
-          ) : candidates.length === 0 ? (
-            <p className="py-3 text-sm text-muted-foreground">В команде нет ОС — раздел открывается только им.</p>
           ) : (
-            <ul className="divide-y divide-border rounded-lg border border-border">
-              {candidates.map((m) => {
-                const on = selected.has(m.uid);
-                return (
-                  <li key={m.uid}>
-                    <label className={cn("flex min-h-12 cursor-pointer items-center gap-3 px-3 py-2 hover:bg-accent/40", on && "bg-primary/[0.06]")}>
-                      <Checkbox checked={on} onCheckedChange={(v) => toggle(m.uid, v === true)} disabled={busy} />
-                      <MemberAvatar id={m.uid} name={m.name} nickname={m.nickname} photoURL={m.photoURL} className="h-8 w-8 shrink-0" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">{personLabel(m)}</span>
-                        <span className="block truncate text-[11px] text-muted-foreground">{m.email}</span>
-                      </span>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <GrokPeoplePicker candidates={candidates} selected={selected} onChange={setSelected} disabled={busy} groupOrder={TG_GROUP_ORDER} />
+            </div>
           )}
         </section>
 

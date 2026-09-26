@@ -7,8 +7,9 @@ import { cn } from "@/utils/cn";
 /**
  * Инструкция для Owner «Как подключить Telegram» (просьба Nurba 26.09.2026:
  * «дай инструкцию как подключить»). Три шага с отметкой, что уже сделано:
- * ключи есть (tg_config), ОС отмечены (tg_access — Owner читает весь список).
- * Вход в аккаунт делает сам ОС, Owner его не видит — третий шаг без отметки.
+ * ключи есть (tg_config), люди отмечены (tg_access — Owner читает весь
+ * список). Вход в аккаунт каждый делает сам, Owner его не видит — третий шаг
+ * без отметки.
  * Когда первые два шага готовы, инструкция сворачивается в строку.
  */
 export function TelegramSetupGuide({
@@ -19,7 +20,7 @@ export function TelegramSetupGuide({
 }: {
   workspaceId: string;
   config: TelegramConfig | null;
-  /** Меняется после закрытия «Доступ и ключи» — перечитать, сколько ОС отмечено. */
+  /** Меняется после закрытия «Доступ и ключи» — перечитать, сколько людей отмечено. */
   refreshKey: number;
   onOpenAccess: () => void;
 }) {
@@ -49,7 +50,7 @@ export function TelegramSetupGuide({
           <span className="min-w-0 flex-1">
             <span className="font-medium">Раздел подключён.</span>{" "}
             <span className="text-muted-foreground">
-              Ключи введены, ОС с доступом: {granted}. Дальше ОС сам входит по QR-коду.
+              Ключи введены, с доступом: {granted}. Дальше каждый входит сам по QR-коду.
             </span>
           </span>
         </div>
@@ -107,7 +108,7 @@ export function TelegramSetupGuide({
               n={2}
               done={accessDone}
               icon={<ShieldCheck className="h-4 w-4" />}
-              title="Введите ключи и отметьте ОС"
+              title="Введите ключи и отметьте людей"
               action={
                 <Button size="sm" className="gap-1.5" onClick={onOpenAccess}>
                   <ShieldCheck className="h-4 w-4" /> Доступ и ключи
@@ -117,16 +118,19 @@ export function TelegramSetupGuide({
               <li>
                 Нажмите <b>Доступ и ключи</b>, вставьте api_id и api_hash.
               </li>
-              <li>Отметьте галочками ОС, которым нужен рабочий Telegram, и нажмите «Сохранить».</li>
+              <li>
+                Отметьте галочками, кому нужен рабочий Telegram. Люди разбиты на <b>ОС</b>, <b>Технари</b> и <b>Другие</b>, у каждой
+                группы есть «все» и «снять». Нажмите «Сохранить».
+              </li>
               <li className="text-muted-foreground">
                 {keysDone ? "Ключи введены. " : "Ключей пока нет. "}
-                {granted === null ? "" : granted > 0 ? `ОС с доступом: ${granted}.` : "ОС пока не отмечены."}
+                {granted === null ? "" : granted > 0 ? `С доступом: ${granted}.` : "Пока никто не отмечен."}
               </li>
             </Step>
 
-            <Step n={3} done={false} icon={<QrCode className="h-4 w-4" />} title="ОС входит в рабочий аккаунт">
+            <Step n={3} done={false} icon={<QrCode className="h-4 w-4" />} title="Каждый отмеченный входит в рабочий аккаунт">
               <li>
-                У отмеченного ОС в меню слева появится <b>Telegram</b>. Он открывает его и нажимает <b>Показать QR-код</b>.
+                У отмеченного в меню слева появится <b>Telegram</b>. Он открывает его и нажимает <b>Показать QR-код</b>.
               </li>
               <li>
                 <Smartphone className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
@@ -135,7 +139,8 @@ export function TelegramSetupGuide({
               </li>
               <li>Если в аккаунте стоит облачный пароль, Nova его спросит. Можно войти и по номеру телефона с кодом.</li>
               <li className="text-muted-foreground">
-                Вход держится в этом браузере. На другом компьютере ОС входит так же, один раз.
+                Вход держится в этом браузере. На другом компьютере человек входит так же, один раз. Каждый вход — отдельное
+                устройство «Nova · имя» в Telegram.
               </li>
             </Step>
           </ol>
@@ -145,10 +150,10 @@ export function TelegramSetupGuide({
       <div className="rounded-xl border border-border px-4 py-3 text-[12px] leading-5 text-muted-foreground">
         <p className="mb-1 font-medium text-foreground">Важно</p>
         <ul className="list-disc space-y-1 pl-4">
-          <li>Все допущенные ОС видят все чаты рабочего аккаунта: аккаунт один на всех.</li>
+          <li>Все допущенные видят все чаты рабочего аккаунта и пишут от его имени: аккаунт один на всех.</li>
           <li>
-            Сняли галочку — Nova сама выйдет из Telegram у этого ОС, когда он откроет сайт. Отключить сразу: в Telegram на
-            телефоне «Настройки», «Устройства», сеанс «Nova · имя ОС».
+            Сняли галочку — Nova сама выйдет из Telegram у этого человека, когда он откроет сайт. Отключить сразу: в Telegram на
+            телефоне «Настройки», «Устройства», сеанс «Nova · имя».
           </li>
           <li>Файлы до 2 ГБ, с Telegram Premium до 4 ГБ. Переписка идёт напрямую в Telegram, мимо базы Nova.</li>
         </ul>

@@ -7,7 +7,7 @@ import { isSbMissingError } from "@/services/sb/sbCollections";
  * Хранится в Supabase (`tg_access`, `tg_config`, SQL 20261011), пишет только
  * Owner через RPC. Сам Telegram через Supabase не идёт — см. tgClient.ts.
  *
- * Своё «допущен ли я» читает меню у каждого ОС и у Owner: одна маленькая
+ * Своё «допущен ли я» читает меню у каждого участника: одна маленькая
  * выборка на загрузку, повтор раз в 5 минут на видимой вкладке и при
  * возврате на неё (так снятие доступа доходит до открытой вкладки).
  */
@@ -21,7 +21,7 @@ export interface TelegramAccessState {
   key: string | null;
   /** Первая выборка ещё не ответила. */
   loading: boolean;
-  /** Мне раздел открыт (строка tg_access есть и роль ОС на месте). */
+  /** Мне раздел открыт (строка tg_access есть и я участник workspace). */
   granted: boolean;
   /** Ключи приложения (null — Owner их ещё не ввёл или мне не видны). */
   config: TelegramConfig | null;
@@ -121,8 +121,8 @@ function stop(force = false) {
 }
 
 /**
- * Мой доступ к разделу. `enabled` — только у тех, кого вообще можно допустить
- * (роль ОС) и у Owner: остальным запрос незачем.
+ * Мой доступ к разделу. `enabled` — когда права известны (с SQL 20261012
+ * допустить можно любого участника).
  */
 export function useTelegramAccess(workspaceId: string | null, uid: string | null, enabled: boolean): TelegramAccessState {
   useEffect(() => {

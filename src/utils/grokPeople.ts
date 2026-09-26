@@ -34,14 +34,14 @@ export interface PickerGroup {
  * (`teamGroupOf`). Пустые группы не рисуются; поиск — по началам слов имени,
  * ника и почты (`matchesPersonQuery`), как в графике.
  */
-export function groupPickerPeople(candidates: WorkspaceMember[], query: string): PickerGroup[] {
+export function groupPickerPeople(candidates: WorkspaceMember[], query: string, order: readonly TeamGroup[] = TEAM_GROUPS): PickerGroup[] {
   const byGroup = new Map<TeamGroup, WorkspaceMember[]>();
   for (const m of candidates) {
     const g = teamGroupOf(m);
     byGroup.set(g, [...(byGroup.get(g) ?? []), m]);
   }
   const sortByName = (a: WorkspaceMember, b: WorkspaceMember) => personLabel(a).localeCompare(personLabel(b), "ru");
-  return TEAM_GROUPS.map((id): PickerGroup => {
+  return order.map((id): PickerGroup => {
     const all = (byGroup.get(id) ?? []).slice().sort(sortByName);
     return {
       id,

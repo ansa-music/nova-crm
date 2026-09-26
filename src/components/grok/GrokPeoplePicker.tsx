@@ -11,6 +11,7 @@ import { cn } from "@/utils/cn";
 import { groupPickerPeople } from "@/utils/grokPeople";
 import { personLabel } from "@/utils/peopleDesks";
 import { memberHasRole, type WorkspaceMember } from "@/types";
+import type { TeamGroup } from "@/utils/teamGroup";
 
 /**
  * Пикер людей «Грок лимита» — общий для «Доступа к аккаунту» и «Кто
@@ -25,6 +26,7 @@ export function GrokPeoplePicker({
   onChange,
   disabled = false,
   badges,
+  groupOrder,
 }: {
   candidates: WorkspaceMember[];
   selected: string[];
@@ -33,9 +35,11 @@ export function GrokPeoplePicker({
   disabled?: boolean;
   /** Подпись справа у человека: «просит доступ». */
   badges?: Record<string, string>;
+  /** Порядок групп (по умолчанию «Технари / ОС / Другие», как на «Команде»). */
+  groupOrder?: readonly TeamGroup[];
 }) {
   const [search, setSearch] = useState("");
-  const groups = useMemo(() => groupPickerPeople(candidates, search), [candidates, search]);
+  const groups = useMemo(() => groupPickerPeople(candidates, search, groupOrder), [candidates, search, groupOrder]);
   const selectedSet = useMemo(() => new Set(selected), [selected]);
   const shownCount = groups.reduce((n, g) => n + g.people.length, 0);
 
