@@ -11,7 +11,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { fetchJoinRequests, rejectJoinRequest, subscribeJoinRequests } from "@/services/joinRequestService";
 import { resendInvite } from "@/services/memberService";
-import { ROLE_LABELS, type JoinRequest, type WorkspaceMember } from "@/types";
+import { roleLabel, type JoinRequest, type WorkspaceMember } from "@/types";
 import { timeAgo } from "@/utils/date";
 
 function normalizeEmail(email: string | undefined | null): string {
@@ -141,7 +141,7 @@ export function WaitingForYou() {
                   <p className="truncate text-sm font-medium">{request.name}</p>
                   <p className="truncate text-xs text-muted-foreground">{request.email}</p>
                   <p className="text-xs text-muted-foreground">
-                    {request.requestedRole ? `${ROLE_LABELS[request.requestedRole]}` : "роль не выбрал"}
+                    {request.requestedRole ? `${roleLabel(request.requestedRole)}` : "роль не выбрал"}
                     {request.requestedNick ? ` · ник «${request.requestedNick}»` : ""} · {timeAgo(request.requestedAt)}
                   </p>
                 </div>
@@ -187,7 +187,7 @@ export function WaitingForYou() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{member.email}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {ROLE_LABELS[member.role] ?? member.role} · {timeAgo(member.invitedAt)}
+                      {roleLabel(member.role) ?? member.role} · {timeAgo(member.invitedAt)}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2 sm:shrink-0">

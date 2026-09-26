@@ -33,6 +33,7 @@ import { myDisplayName } from "@/utils/displayName";
 import { canOpenDesk, deskOwnerName, personLabel, resolvedCoverUrl } from "@/utils/peopleDesks";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { cn } from "@/utils/cn";
+import { useTerms } from "@/config/siteTerms";
 import type { WorkspacePage } from "@/types";
 
 type DeskChip = "all" | "mine" | "others" | "hidden";
@@ -47,6 +48,7 @@ function readDesksView(): "list" | "covers" {
 }
 
 export default function DesksPage() {
+  const t = useTerms();
   const navigate = useNavigate();
   const { profile } = useAuth();
   const { activeWorkspaceId, members, pages, inactivePages } = useWorkspace();
@@ -186,8 +188,8 @@ export default function DesksPage() {
   return (
     <div className="relative mx-auto w-full min-w-0 max-w-6xl p-5 sm:p-8 lg:p-10">
       <PageHeader
-        eyebrow="Студия"
-        title="Столы"
+        eyebrow={t("studio", "one")}
+        title={t("desk")}
         description="Обложки видны всем. Свой стол открывается сразу, чужой и скрытый — после разрешения."
         actions={
           <>

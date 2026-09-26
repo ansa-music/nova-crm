@@ -11,7 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { setActiveRole } from "@/services/memberService";
 import { logChange } from "@/services/historyService";
-import { ROLE_LABELS } from "@/types";
+import { roleLabel } from "@/types";
 import { cn } from "@/utils/cn";
 import { myDisplayName } from "@/utils/displayName";
 import type { Role } from "@/types";
@@ -29,15 +29,15 @@ export function RoleSwitcher({ embedded = false }: { embedded?: boolean } = {}) 
     const from = permissions.role;
     try {
       await setActiveRole(activeWorkspaceId, profile.uid, target === permissions.realRole ? null : target);
-      toast.success(target === permissions.realRole ? "Вернулись к реальной роли" : `Режим: ${ROLE_LABELS[target]}`);
+      toast.success(target === permissions.realRole ? "Вернулись к реальной роли" : `Режим: ${roleLabel(target)}`);
       // Reuses the existing workspace history log — no new audit system.
       logChange({
         workspaceId: activeWorkspaceId,
         action: "update",
         field: "activeRole",
         fieldLabel: "Режим доступа",
-        oldValue: ROLE_LABELS[from],
-        newValue: ROLE_LABELS[target],
+        oldValue: roleLabel(from),
+        newValue: roleLabel(target),
         userId: profile.uid,
         userName: myDisplayName(profile, members),
       }).catch(() => {});
@@ -50,9 +50,9 @@ export function RoleSwitcher({ embedded = false }: { embedded?: boolean } = {}) 
     <div className={cn(!embedded && "contents")}>
         <p className="mb-2 text-xs font-semibold text-muted-foreground">Режим доступа</p>
         <p className="mb-2 text-xs text-muted-foreground">
-          Реальная роль: <span className="font-medium text-foreground">{ROLE_LABELS[permissions.realRole]}</span>
+          Реальная роль: <span className="font-medium text-foreground">{roleLabel(permissions.realRole)}</span>
           <br />
-          Текущий режим: <span className="font-medium text-foreground">{ROLE_LABELS[permissions.role]}</span>
+          Текущий режим: <span className="font-medium text-foreground">{roleLabel(permissions.role)}</span>
         </p>
         <div className="flex flex-col gap-0.5">
           {permissions.allowedSimulatedRoles.map((r) => (
@@ -70,7 +70,7 @@ export function RoleSwitcher({ embedded = false }: { embedded?: boolean } = {}) 
                   permissions.role === r ? "border-primary bg-primary" : "border-muted-foreground"
                 )}
               />
-              {ROLE_LABELS[r]}
+              {roleLabel(r)}
               {r === permissions.realRole && <span className="ml-auto text-[10px] text-muted-foreground">реальная</span>}
             </button>
           ))}
@@ -95,7 +95,7 @@ export function RoleSwitcher({ embedded = false }: { embedded?: boolean } = {}) 
           title="Режим доступа"
         >
           <ShieldCheck className="h-3.5 w-3.5" />
-          {ROLE_LABELS[permissions.role]}
+          {roleLabel(permissions.role)}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64 p-3">

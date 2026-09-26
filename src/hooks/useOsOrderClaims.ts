@@ -24,6 +24,8 @@ import { putPageAcl } from "@/services/rows/rowAclService";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { deskRowHref } from "@/utils/deskLinks";
 import { personLabel } from "@/utils/peopleDesks";
+import { useSiteConfig } from "@/config/siteTerms";
+import { isModuleEnabled } from "@/types/siteConfig";
 import type { WorkspaceMember, WorkspacePage } from "@/types";
 
 /**
@@ -273,7 +275,9 @@ export function useOsOrderClaims() {
   const me = members.find((m) => m.uid === uid);
   const osNickValue = me?.osNickValue ?? "";
   const osName = personLabel(me) || osNickValue;
+  const osDeskOn = isModuleEnabled(useSiteConfig(), "osDesk");
   const enabled = Boolean(
+    osDeskOn &&
     activeWorkspaceId &&
       uid &&
       permissions.isResolved &&

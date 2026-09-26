@@ -37,6 +37,8 @@ import { useCanHover } from "@/hooks/useMediaQuery";
 import { useAccountMenu, useNavModel } from "@/hooks/useNavModel";
 import { MORE_SECTION_KEY, NAV_SECTIONS_KEY, isNavItemActive, pathMatches, type NavChild, type NavSection } from "@/config/nav";
 import { preloadRoute } from "@/config/pageLoaders";
+import { useSiteConfig } from "@/config/siteTerms";
+import { BrandMark } from "@/components/common/BrandMark";
 
 /** Сколько ждать мышь на рейке, прежде чем раскрыть панель поверх стола. */
 const PEEK_OPEN_MS = 220;
@@ -311,6 +313,7 @@ function NavSections({
  * адрес (useLocation), модель навигации и меню аккаунта (контекст).
  */
 export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: boolean; onNavigate?: () => void }) {
+  const site = useSiteConfig();
   const { profile } = useAuth();
   const permissions = usePermissions();
   const location = useLocation();
@@ -502,14 +505,18 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
               aria-label="Главная"
               className="flex h-10 w-10 items-center justify-center rounded-lg font-serif text-[18px] font-medium leading-none text-foreground hover:bg-foreground/5"
             >
-              N
+              {site.brand ? <BrandMark variant="mark" /> : "N"}
             </button>
             <NotificationBell className="h-10 w-10 rounded-lg" onOpenChange={onHoldChange(setBellOpen)} />
           </div>
         ) : (
           <div className="mb-4 flex items-center justify-between gap-2 px-1">
             <button type="button" onClick={goHome} className="flex min-w-0 items-center" title="Главная">
-              <span className="font-serif text-[22px] font-medium leading-none text-foreground">NOVA</span>
+              {site.brand ? (
+                <BrandMark />
+              ) : (
+                <span className="font-serif text-[22px] font-medium leading-none text-foreground">NOVA</span>
+              )}
             </button>
             {!mobile && <NotificationBell className="rounded-lg" onOpenChange={onHoldChange(setBellOpen)} />}
           </div>

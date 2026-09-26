@@ -55,7 +55,7 @@ import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useMembersRefresh } from "@/hooks/useMembersRefresh";
 import { usePresenceMap } from "@/hooks/usePresenceMap";
-import { EXTRA_ROLES, memberHasRole, ROLE_LABELS, rolesOf, type JoinRequest, type PageIconName, type Role, type WorkspaceMember } from "@/types";
+import { roleLabel, EXTRA_ROLES, memberHasRole, rolesOf, type JoinRequest, type PageIconName, type Role, type WorkspaceMember } from "@/types";
 import { confirmDialog } from "@/utils/appDialog";
 
 
@@ -219,7 +219,7 @@ export default function UsersPage() {
     const name = displayNameOf(member);
     const ok = await confirmDialog({
       title: `Забрать права Owner у ${name}?`,
-      description: `Роль станет «${ROLE_LABELS[role]}». Уведомление ему не придёт.`,
+      description: `Роль станет «${roleLabel(role)}». Уведомление ему не придёт.`,
       confirmLabel: "Забрать",
       destructive: true,
     });
@@ -234,7 +234,7 @@ export default function UsersPage() {
         actorUid: profile.uid,
       });
       await refreshWorkspaceMembers(activeWorkspaceId!);
-      toast.success(`${name} — теперь «${ROLE_LABELS[role]}»`, { description: "Без уведомления" });
+      toast.success(`${name} — теперь «${roleLabel(role)}»`, { description: "Без уведомления" });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось сменить роль");
     }
@@ -245,7 +245,7 @@ export default function UsersPage() {
       await setMemberExtraRoles(activeWorkspaceId!, member.uid, member.role, next);
       await refreshWorkspaceMembers(activeWorkspaceId!);
       const label = rolesOf({ role: member.role, extraRoles: next })
-        .map((r) => ROLE_LABELS[r])
+        .map((r) => roleLabel(r))
         .join(" + ");
       toast.success(`Роли: ${label}`, { description: displayNameOf(member) });
     } catch (error) {
@@ -418,7 +418,7 @@ export default function UsersPage() {
                     <p className="truncate text-xs text-muted-foreground">{request.email}</p>
                     <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
                       {request.requestedRole ? (
-                        <span className="text-foreground">{ROLE_LABELS[request.requestedRole]}</span>
+                        <span className="text-foreground">{roleLabel(request.requestedRole)}</span>
                       ) : (
                         "роль не выбрал"
                       )}
@@ -569,11 +569,11 @@ export default function UsersPage() {
                           key={role}
                           className="inline-flex items-center gap-1 rounded-full border border-teal-400/40 bg-teal-400/10 py-0.5 pl-2 pr-1 text-[11px] font-medium text-teal-200"
                         >
-                          + {ROLE_LABELS[role]}
+                          + {roleLabel(role)}
                           {canEditExtraRoles ? (
                             <button
                               type="button"
-                              title={`Убрать роль «${ROLE_LABELS[role]}»`}
+                              title={`Убрать роль «${roleLabel(role)}»`}
                               onClick={() => void handleExtraRoles(member, extraRoles.filter((r) => r !== role))}
                               className="flex h-4 w-4 items-center justify-center rounded-full hover:bg-teal-400/20"
                             >
@@ -601,7 +601,7 @@ export default function UsersPage() {
                             </DropdownMenuLabel>
                             {addableRoles.map((role) => (
                               <DropdownMenuItem key={role} onSelect={() => void handleExtraRoles(member, [...extraRoles, role])}>
-                                {ROLE_LABELS[role]}
+                                {roleLabel(role)}
                                 <span className="ml-auto text-[10px] text-muted-foreground">
                                   {role === "manager" ? "свой стол, таблицы" : "ник, оценки"}
                                 </span>

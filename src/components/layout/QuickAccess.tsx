@@ -4,6 +4,7 @@ import { pathMatches } from "@/config/nav";
 import { preloadRoute } from "@/config/pageLoaders";
 import { isHomeActive, useNavModel } from "@/hooks/useNavModel";
 import { cn } from "@/utils/cn";
+import { term, useSiteConfig } from "@/config/siteTerms";
 
 /**
  * «Мой стол · Заказы» — две главные кнопки там, где бокового меню нет
@@ -15,14 +16,34 @@ import { cn } from "@/utils/cn";
  * «Мой стол» — только у того, у кого он есть: технарь (свой стол) и ОС (стол
  * ОС). «Заказы» — у всех; горят зелёным, пока на бирже есть открытый заказ.
  */
-export function QuickAccess({ className, compact = false }: { className?: string; compact?: boolean }) {
+export function QuickAccess({
+  className,
+  compact = false,
+}: {
+  className?: string;
+  compact?: boolean;
+}) {
   const nav = useNavModel();
   const { pathname } = useLocation();
-  const deskTo = nav.isOs ? "/os-desk" : nav.home.myDeskId ? nav.myDeskTo : null;
+  useSiteConfig();
+  const ordersItem = nav.items.find((i) => i.key === "orders");
+  const osDeskItem = nav.items.find((i) => i.key === "os-desk");
+  const deskTo = nav.isOs
+    ? osDeskItem
+      ? "/os-desk"
+      : null
+    : nav.home.myDeskId
+      ? nav.myDeskTo
+      : null;
+  const myDeskLabel = `Мой ${term("desk", "one").toLowerCase()}`;
+  const ordersLabel = ordersItem?.label ?? term("order", "many");
   const deskActive = deskTo
     ? nav.isOs
       ? pathMatches(pathname, "/os-desk")
-      : isHomeActive(pathname, { to: nav.myDeskTo, myDeskId: nav.home.myDeskId })
+      : isHomeActive(pathname, {
+          to: nav.myDeskTo,
+          myDeskId: nav.home.myDeskId,
+        })
     : false;
   const ordersActive = pathMatches(pathname, "/orders");
   const DeskIcon = nav.isOs ? Table2 : Home;
@@ -34,37 +55,48 @@ export function QuickAccess({ className, compact = false }: { className?: string
         ? "bg-primary/[0.14] text-primary"
         : alert
           ? "text-success hover:bg-success/10"
-          : "text-foreground hover:bg-accent"
+          : "text-foreground hover:bg-accent",
     );
 
   return (
-    <nav className={cn("flex items-center gap-1", className)} aria-label="Быстрый доступ">
+    <nav
+      className={cn("flex items-center gap-1", className)}
+      aria-label="Быстрый доступ"
+    >
       {deskTo ? (
         <NavLink
           to={deskTo}
           onPointerEnter={() => preloadRoute(deskTo)}
           className={itemClass(deskActive, nav.home.alert)}
-          title="Мой стол"
+          title={myDeskLabel}
         >
           <DeskIcon className="h-4 w-4" />
-          {compact ? null : <span>Мой стол</span>}
-          {nav.home.alert ? <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-success" /> : null}
+          {compact ? null : <span>{myDeskLabel}</span>}
+          {nav.home.alert ? (
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-success" />
+          ) : null}
         </NavLink>
       ) : null}
-      <NavLink
-        to="/orders"
-        onPointerEnter={() => preloadRoute("/orders")}
-        className={itemClass(ordersActive, nav.ordersAlert)}
-        title={nav.openOrdersCount > 0 ? `Заказы · открытых ${nav.openOrdersCount}` : "Заказы"}
-      >
-        <ClipboardList className="h-4 w-4" />
-        {compact ? null : <span>Заказы</span>}
-        {nav.openOrdersCount > 0 ? (
-          <span className="rounded-full bg-success px-1.5 font-mono text-[10px] font-semibold leading-4 text-background">
-            {nav.openOrdersCount > 9 ? "9+" : nav.openOrdersCount}
-          </span>
-        ) : null}
-      </NavLink>
+      {ordersItem ? (
+        <NavLink
+          to="/orders"
+          onPointerEnter={() => preloadRoute("/orders")}
+          className={itemClass(ordersActive, nav.ordersAlert)}
+          title={
+            nav.openOrdersCount > 0
+              ? `${ordersLabel} · открытых ${nav.openOrdersCount}`
+              : ordersLabel
+          }
+        >
+          <ClipboardList className="h-4 w-4" />
+          {compact ? null : <span>{ordersLabel}</span>}
+          {nav.openOrdersCount > 0 ? (
+            <span className="rounded-full bg-success px-1.5 font-mono text-[10px] font-semibold leading-4 text-background">
+              {nav.openOrdersCount > 9 ? "9+" : nav.openOrdersCount}
+            </span>
+          ) : null}
+        </NavLink>
+      ) : null}
     </nav>
   );
 }

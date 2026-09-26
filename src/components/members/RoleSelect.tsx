@@ -1,6 +1,6 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/utils/cn";
-import { ALL_ROLES, ROLE_LABELS, type Role } from "@/types";
+import { roleLabel, ALL_ROLES, type Role } from "@/types";
 
 interface RoleSelectProps {
   value: Role;
@@ -41,7 +41,7 @@ export function RoleSelect({
       <SelectContent>
         {items.map((role) => (
           <SelectItem key={role} value={role}>
-            {ROLE_LABELS[role] ?? role}
+            {roleLabel(role) ?? role}
           </SelectItem>
         ))}
       </SelectContent>

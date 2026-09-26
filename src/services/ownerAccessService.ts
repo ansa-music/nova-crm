@@ -5,7 +5,7 @@ import { normalizeTimestamp } from "@/utils/date";
 import { pingInboxChanged } from "@/utils/inboxEvents";
 import { sendNotification } from "@/services/notificationService";
 import { changeMemberRole } from "@/services/memberService";
-import { ROLE_LABELS, type OwnerAccessRequest, type Role } from "@/types";
+import { roleLabel, type OwnerAccessRequest, type Role } from "@/types";
 
 /**
  * Ключ доступа из «Настройки → Ключ доступа».
@@ -213,7 +213,7 @@ export async function resolveOwnerAccessRequest(input: {
         input.status === "approved"
           ? role === "owner"
             ? "Вам выдали права Owner"
-            : `Вам выдали роль «${ROLE_LABELS[role] ?? role}»`
+            : `Вам выдали роль «${roleLabel(role) ?? role}»`
           : "Запрос по ключу доступа отклонён",
       body:
         input.status === "approved"

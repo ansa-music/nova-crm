@@ -50,6 +50,7 @@ import { useDeskObserverLoad } from "@/hooks/useDeskObserverLoad";
 import { useOpenOrdersWatch } from "@/hooks/useOpenOrdersWatch";
 import { useRowsBackendBridge } from "@/hooks/useRowsBackendBridge";
 import { useTenantRegionBridge } from "@/hooks/useTenantRegionBridge";
+import { useSiteConfigBridge } from "@/hooks/useSiteConfigBridge";
 import { useRowAclSync } from "@/hooks/useRowAclSync";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -107,6 +108,8 @@ export function AppLayout() {
   const permissions = usePermissions();
   // Пояс и валюта компании — до отрисовки страниц (нет поля — Алматы и ₸).
   useTenantRegionBridge(permissions.upkeepOwner);
+  // «Конструктор сайта»: слова, меню, модули, цвета, бренд (нет поля — Nova).
+  useSiteConfigBridge();
   const [createOpen, setCreateOpen] = useState(false);
   // Лист «Ещё» и его диалоги — здесь, а не в нижней панели: панель прячется
   // под клавиатурой, и диалог с набранным именем стола пропадал вместе с ней.

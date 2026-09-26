@@ -125,13 +125,16 @@ export const BottomNav = memo(function BottomNav({
     <nav
       aria-label="Нижняя панель"
       className={cn(
-        "grid min-h-14 shrink-0 grid-cols-4 border-t border-border bg-background pb-[env(safe-area-inset-bottom)]",
+        "grid min-h-14 shrink-0 border-t border-border bg-background pb-[env(safe-area-inset-bottom)]",
+        orders ? "grid-cols-4" : "grid-cols-3",
         hidden && "hidden"
       )}
     >
       <Tab to={home.to} label={home.label} icon={home.icon} active={homeActive} alert={home.alert} />
       <Tab to={slot.to} label={slot.label} icon={slot.icon} active={slotActive} />
-      <Tab to="/orders" label="Заказы" icon={ClipboardList} active={pathMatches(pathname, "/orders")} alert={nav.ordersAlert} />
+      {orders ? (
+        <Tab to="/orders" label={orders.label} icon={ClipboardList} active={pathMatches(pathname, "/orders")} alert={nav.ordersAlert} />
+      ) : null}
       <Tab label="Ещё" icon={Menu} active={moreOpen || moreActive} badge={moreBadge} onClick={onMore} />
     </nav>
   );

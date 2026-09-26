@@ -96,7 +96,7 @@ export function AppBootScreen({ phase }: { phase: BootstrapPhase }) {
     >
       {/* Появление — CSS (`.nova-fade-in`, только opacity), не GSAP. */}
       <div className={`boot-card${fadeIn ? " nova-fade-in" : ""} flex w-[calc(100%-2rem)] max-w-[360px] flex-col items-center gap-6 rounded-md border border-primary/35 bg-card/95 px-8 py-10`}>
-        <BrandMark />
+        <BrandMark useCache />
         {failed ? (
           <>
             <div className="flex w-full flex-col items-center gap-2 text-center">

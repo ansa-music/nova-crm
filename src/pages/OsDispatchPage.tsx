@@ -17,6 +17,7 @@ import {
 } from "@/services/osDispatchLogService";
 import { cn } from "@/utils/cn";
 import { almatyMidnightMillis, formatDateTimeManual, timeAgo } from "@/utils/date";
+import { useTerms } from "@/config/siteTerms";
 import { formatCurrency } from "@/utils/format";
 
 type Filter = "all" | "today" | OsDispatchKind;
@@ -36,6 +37,7 @@ const KIND_TONE: Record<OsDispatchKind, string> = {
  * отданные через биржу, живут на «Заказах».
  */
 export default function OsDispatchPage() {
+  const t = useTerms();
   const canSee = useCanSeeOsDispatchLog();
   const log = useSyncExternalStore(subscribeOsDispatchLogState, osDispatchLogState);
   // Фильтр — в адресе (`?f=today`): F5 и ссылка коллеге открывают тот же.
@@ -73,7 +75,7 @@ export default function OsDispatchPage() {
   );
 
   if (!canSee) {
-    return <AccessDenied title="Выдачи ОС" reason="Этот раздел — для Тимлида и Owner." backTo={{ to: "/orders", label: "Заказы" }} />;
+    return <AccessDenied title={`Выдачи ${t("os", "one")}`} reason="Этот раздел — для Тимлида и Owner." backTo={{ to: "/orders", label: "Заказы" }} />;
   }
 
   const chips: Array<{ id: Filter; label: string; count: number; partial: boolean }> = [

@@ -21,6 +21,7 @@ delete from storage.objects;
 
 \ir ../migrations/20261023_tenants.sql
 \ir ../migrations/20261024_storage_policies.sql
+\ir ../migrations/20261029_brand_storage.sql
 
 insert into public.rows_workspaces (workspace_id, owner_id, live) values ('TW2', 'TO2', true) on conflict do nothing;
 insert into public.rows_members (workspace_id, uid, role) values ('TW2', 'TO2', 'owner'), ('TW2', 'TZ', 'manager')
@@ -99,6 +100,8 @@ select tst.expect('аватар — свой uid', tst.try('T1', $q$insert into 
 select tst.expect('аватар за другого — отказ', tst.try('T1', $q$insert into storage.objects (bucket_id, name) values ('row-files', 'W/avatars/TL/a.png')$q$), 'error');
 select tst.expect('звук заказа — Owner', tst.try('O', $q$insert into storage.objects (bucket_id, name) values ('row-files', 'W/sounds/order-1.mp3')$q$), 'ok:1');
 select tst.expect('звук заказа технарём — отказ', tst.try('T1', $q$insert into storage.objects (bucket_id, name) values ('row-files', 'W/sounds/order-1.mp3')$q$), 'error');
+select tst.expect('логотип компании — Owner', tst.try('O', $q$insert into storage.objects (bucket_id, name) values ('row-files', 'W/brand/logo-1.png')$q$), 'ok:1');
+select tst.expect('логотип технарём — отказ', tst.try('T1', $q$insert into storage.objects (bucket_id, name) values ('row-files', 'W/brand/logo-1.png')$q$), 'error');
 select tst.expect('обложка стола — участник', tst.try('V', $q$insert into storage.objects (bucket_id, name) values ('row-files', 'W/covers/page1/c.webp')$q$), 'ok:1');
 
 insert into storage.objects (bucket_id, name) values
@@ -124,6 +127,7 @@ select tst.expect('чужой Owner — отказ', tst.val('TO2', $q$select co
 -- ---------- Повторный накат ----------
 \ir ../migrations/20261023_tenants.sql
 \ir ../migrations/20261024_storage_policies.sql
+\ir ../migrations/20261029_brand_storage.sql
 select tst.expect('после наката соль прежняя (не пересоздаётся)',
   (select (count(distinct ring_salt) = 2)::text from public.rows_workspaces where workspace_id in ('W', 'TW2')), 'true');
 select tst.expect('версия схемы не старее 20261023', (public.nova_schema_version() >= '20261023')::text, 'true');

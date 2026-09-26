@@ -23,6 +23,7 @@ import { osPayOf, techBonusesOf } from "@/utils/payment";
 import { periodLabel, periodNoun, periodRange } from "@/utils/periods";
 import { personLabel } from "@/utils/peopleDesks";
 import { effectiveTechLoadKinds } from "@/utils/techLoad";
+import { useTerms } from "@/config/siteTerms";
 import type { StatusOption } from "@/types";
 
 const NO_OPTIONS: StatusOption[] = [];
@@ -38,6 +39,7 @@ type View = "tech" | "os";
  * Суммы и проценты задаёт Owner в «Настройки → Касса».
  */
 export default function AbsPage() {
+  const t = useTerms();
   const { activeWorkspace, activeWorkspaceId, members, pages, osDesks } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
@@ -147,7 +149,7 @@ export default function AbsPage() {
       <PageHeader
         className="mb-0"
         eyebrow={`ABS · ${monthName}`}
-        title="ABS система"
+        title={t("abs", "one")}
         description={`Касса и доплаты за ${noun}: технари — по «Готово», ОС — по KPI и апсейлам. Суммы и проценты задаёт Owner.`}
         actions={
           <>

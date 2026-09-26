@@ -32,6 +32,7 @@ import {
   Users,
   Wallet,
   Globe,
+  Wand2,
 } from "lucide-react";
 import { AvatarUpload } from "@/components/common/AvatarUpload";
 import { RowsStoragePanel } from "@/components/settings/RowsStoragePanel";
@@ -79,6 +80,7 @@ import { cn } from "@/utils/cn";
 import type { OwnerAccessRequest, StatusOption } from "@/types";
 import { displayNameOf } from "@/utils/displayName";
 import { timeAgo } from "@/utils/date";
+import { SiteBuilderPanel } from "@/components/settings/SiteBuilderPanel";
 import { confirmDialog, promptDialog } from "@/utils/appDialog";
 
 const FEATURE_ITEMS = [
@@ -166,6 +168,7 @@ const SETTINGS_NAV = [
   { value: "clientcard", label: "Визитка", icon: IdCard, owner: true },
   { value: "periods", label: "Периоды", icon: CalendarRange, owner: true },
   { value: "sound", label: "Звук заказа", icon: Music, owner: true },
+  { value: "site", label: "Конструктор", icon: Wand2, owner: true },
   { value: "members", label: "Роли и доступ", icon: Users },
 ] as const;
 
@@ -401,7 +404,9 @@ export default function SettingsPage() {
               // Периоды столов (целый месяц / половины) — только Owner.
               (item.value !== "periods" || permissions.actsAsOwner) &&
               // Регион и подписка компании — только Owner.
-              (item.value !== "company" || permissions.actsAsOwner)
+              (item.value !== "company" || permissions.actsAsOwner) &&
+              // «Конструктор сайта» — только Owner.
+              (item.value !== "site" || permissions.actsAsOwner)
           ).map((item) => (
             <TabsTrigger
               key={item.value}
@@ -784,6 +789,12 @@ export default function SettingsPage() {
         {permissions.actsAsOwner && (
           <TabsContent value="cashbox" className="mt-0 flex flex-col gap-4">
             <CashboxSettingsPanel />
+          </TabsContent>
+        )}
+
+        {permissions.actsAsOwner && (
+          <TabsContent value="site" className="mt-0 flex flex-col gap-4">
+            <SiteBuilderPanel />
           </TabsContent>
         )}
 

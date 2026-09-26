@@ -4,6 +4,7 @@ import { SB_DEL, toFirestoreData } from "@/services/sb/docStore";
 import { WORKSPACE_CONTROL_KEYS } from "@/types";
 import { sanitizeOsPay, sanitizePaymentMethods } from "@/utils/payment";
 import { sanitizePeriods, type PeriodSettings } from "@/utils/periods";
+import { sanitizeSiteConfig, type SiteConfig } from "@/types/siteConfig";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -146,6 +147,17 @@ export async function updateOsPay(workspaceId: string, settings: OsPaySettings) 
 /** Варианты «Визитки клиента» (языки озвучки, стили, уровни). Пишет только Owner. */
 export async function updateClientCardOptions(workspaceId: string, options: ClientCardOptions) {
   await updateWorkspace(workspaceId, { clientCardOptions: sanitizeClientCardOptions(options) });
+}
+
+/**
+ * «Конструктор сайта». Пишет только Owner (Тимлиду поле закрыто правилом).
+ * Объект целиком через updateDoc: merge оставил бы снятые ключи (скрытый пункт,
+ * своё слово), и «вернуть как было» не работало бы.
+ */
+export async function updateSiteConfig(workspaceId: string, config: SiteConfig) {
+  if (!db) return;
+  const clean = sanitizeSiteConfig(config);
+  await updateDoc(paths.workspace(workspaceId), { site: Object.keys(clean).length ? clean : deleteField() });
 }
 
 /** Периоды столов (целый месяц / половины). Пишет только Owner — Тимлиду поле закрыто правилом. */

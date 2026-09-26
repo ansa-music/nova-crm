@@ -4,6 +4,8 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { readTelegramSessionMark, useTelegramAccess } from "@/services/telegram/telegramAccess";
 import { listenTgInbox } from "@/services/telegram/tgInboxPulse";
+import { useSiteConfig } from "@/config/siteTerms";
+import { isModuleEnabled } from "@/types/siteConfig";
 import { myDisplayName } from "@/utils/displayName";
 
 /**
@@ -22,7 +24,8 @@ export function TelegramBackground() {
   const uid = profile?.uid ?? null;
   const access = useTelegramAccess(activeWorkspaceId, uid, isResolved);
   const config = access.config;
-  const granted = access.granted;
+  const telegramOn = isModuleEnabled(useSiteConfig(), "telegram");
+  const granted = access.granted && telegramOn;
   const deviceName = `Nova · ${myDisplayName(profile, members)}`;
 
   useEffect(() => {
