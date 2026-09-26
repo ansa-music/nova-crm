@@ -1,19 +1,10 @@
-import { useEffect, useSyncExternalStore } from "react";
-import { deleteField, getDoc, getDocs, query, where, writeBatch } from "firebase/firestore";
+import { getDoc, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { supabaseRows } from "@/lib/supabaseRows";
-import { applySbDocs, type DocFeedConfig, type SbDoc } from "@/services/sb/docFeed";
-import {
-  isSbMissingError,
-  markSbTableMissing,
-  markSbTablePresent,
-  sbBackendOf,
-  sbTableRecheckDue,
-  sbTargetOf,
-  useSbBackend,
-  type SbBackend,
-} from "@/services/sb/sbCollections";
+import type { DocFeedConfig } from "@/services/sb/docFeed";
+import { createDocStore, plainFirestoreData, SB_DEL, type DocWrite } from "@/services/sb/docStore";
+import { isSbMissingError, markSbTableMissing, markSbTablePresent, sbTargetOf, type SbBackend } from "@/services/sb/sbCollections";
 import { useWorkspaceStore } from "@/store/workspaceStore";
 import { CUSTOM_SCHEDULE_GROUP_ID, WEEK_TEMPLATE_DOC_ID } from "@/types";
 
@@ -36,106 +27,42 @@ export const SCHEDULE_FEED: DocFeedConfig = { table: "schedule_docs", topic: "sc
 export type ScheduleKind = "month" | "template" | "group" | "request";
 
 /** Маркер «удалить поле» — deleteField() для Firestore, {"$del": true} для Supabase. */
-export const SCHED_DEL = Object.freeze({ $del: true as const });
+export const SCHED_DEL = SB_DEL;
 
-export interface ScheduleWrite {
-  kind: ScheduleKind;
-  id: string;
-  op: "merge" | "set" | "delete";
-  data?: Record<string, unknown>;
-}
-
-// ---------------------------------------------------------------------
-// Перенесено ли (отметка meta/imported).
-// ---------------------------------------------------------------------
-
-const IMPORTED_KEY = "nova:sched-imported:";
-const imported = new Map<string, boolean>();
-const importedListeners = new Set<() => void>();
-let importedVersion = 0;
-
-function readImported(workspaceId: string): boolean {
-  if (imported.has(workspaceId)) return imported.get(workspaceId)!;
-  try {
-    if (window.localStorage.getItem(IMPORTED_KEY + workspaceId) === "1") {
-      imported.set(workspaceId, true);
-      return true;
-    }
-  } catch {
-    /* без localStorage — только память вкладки */
-  }
-  return false;
-}
-
-function setImported(workspaceId: string, value: boolean) {
-  const prev = readImported(workspaceId);
-  imported.set(workspaceId, value);
-  try {
-    if (value) window.localStorage.setItem(IMPORTED_KEY + workspaceId, "1");
-    else window.localStorage.removeItem(IMPORTED_KEY + workspaceId);
-  } catch {
-    /* см. readImported */
-  }
-  if (prev !== value) {
-    importedVersion += 1;
-    importedListeners.forEach((fn) => fn());
-  }
-}
-
-const importedChecks = new Map<string, Promise<boolean>>();
-
-/** Спросить базу, стоит ли отметка переноса. Сеть — «не знаем», прежнее значение. */
-export function checkScheduleImported(workspaceId: string): Promise<boolean> {
-  const running = importedChecks.get(workspaceId);
-  if (running) return running;
-  const run = (async () => {
-    try {
-      const { data, error } = await supabaseRows
-        .from(SCHEDULE_FEED.table)
-        .select("id")
-        .eq("workspace_id", workspaceId)
-        .eq("kind", "meta")
-        .eq("id", "imported")
-        .limit(1);
-      if (error) {
-        if (isSbMissingError(error)) {
-          markSbTableMissing("schedule");
-          setImported(workspaceId, false);
-          return false;
-        }
-        return readImported(workspaceId);
-      }
-      markSbTablePresent("schedule");
-      const done = (data ?? []).length > 0;
-      setImported(workspaceId, done);
-      return done;
-    } catch {
-      return readImported(workspaceId);
-    }
-  })().finally(() => importedChecks.delete(workspaceId));
-  importedChecks.set(workspaceId, run);
-  return run;
-}
+export type ScheduleWrite = DocWrite<ScheduleKind>;
 
 function workspaceDoc(workspaceId: string) {
   return useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId) ?? null;
 }
 
-/** Где график этого workspace сейчас. */
-export function scheduleBackendFor(workspaceId: string): SbBackend {
-  const docWs = workspaceDoc(workspaceId);
-  if (!docWs) return "firestore";
-  let backend = sbBackendOf(docWs, "schedule");
-  if (backend === "firestore" && sbTargetOf(docWs, "schedule") === "supabase" && sbTableRecheckDue("schedule")) backend = "supabase";
-  if (backend === "supabase" && !readImported(workspaceId)) return "firestore";
-  return backend;
+const store = createDocStore<ScheduleKind>({
+  feed: SCHEDULE_FEED,
+  collection: "schedule",
+  writeRpc: "schedule_write",
+  importedStorageKey: "nova:sched-imported:",
+  storageKeyOf: (workspaceId) => `nova:sched-imported:${workspaceId}`,
+  firestoreRef: (workspaceId, write) => {
+    switch (write.kind) {
+      case "month":
+        return paths.techSchedule(workspaceId, write.id);
+      case "template":
+        return paths.scheduleTemplate(workspaceId, write.id);
+      case "group":
+        return paths.scheduleGroup(workspaceId, write.id);
+      case "request":
+        return paths.scheduleRequest(workspaceId, write.id);
+    }
+  },
+});
+
+/** Спросить базу, стоит ли отметка переноса. Сеть — «не знаем», прежнее значение. */
+export function checkScheduleImported(workspaceId: string): Promise<boolean> {
+  return store.checkImported(workspaceId);
 }
 
-function subscribeImported(fn: () => void) {
-  importedListeners.add(fn);
-  return () => {
-    importedListeners.delete(fn);
-  };
+/** Где график этого workspace сейчас. */
+export function scheduleBackendFor(workspaceId: string): SbBackend {
+  return store.backendFor(workspaceId);
 }
 
 /**
@@ -143,56 +70,15 @@ function subscribeImported(fn: () => void) {
  * пропала). Пока отметки нет, экран раз в минуту спрашивает её снова.
  */
 export function useScheduleBackend(workspaceId: string | null): SbBackend | null {
-  const workspace = useWorkspaceStore((s) => (workspaceId ? (s.workspaces.find((w) => w.id === workspaceId) ?? null) : null));
-  const base = useSbBackend(workspace, "schedule");
-  useSyncExternalStore(subscribeImported, () => importedVersion, () => importedVersion);
-  const done = workspaceId ? readImported(workspaceId) : false;
-  useEffect(() => {
-    if (!workspaceId || base !== "supabase" || done) return;
-    const check = () => {
-      if (document.visibilityState === "visible") void checkScheduleImported(workspaceId);
-    };
-    check();
-    const timer = window.setInterval(check, 60_000);
-    return () => window.clearInterval(timer);
-  }, [workspaceId, base, done]);
-  if (!workspaceId || base === null) return null;
-  return base === "supabase" && done ? "supabase" : "firestore";
+  return store.useBackend(workspaceId);
 }
 
 // ---------------------------------------------------------------------
 // Запись.
 // ---------------------------------------------------------------------
 
-function firestoreRef(workspaceId: string, write: ScheduleWrite) {
-  switch (write.kind) {
-    case "month":
-      return paths.techSchedule(workspaceId, write.id);
-    case "template":
-      return paths.scheduleTemplate(workspaceId, write.id);
-    case "group":
-      return paths.scheduleGroup(workspaceId, write.id);
-    case "request":
-      return paths.scheduleRequest(workspaceId, write.id);
-  }
-}
-
-/** Маркеры удаления → deleteField() (глубоко, только в простых объектах). */
-function toFirestore(value: unknown): unknown {
-  if (value === SCHED_DEL || (value && typeof value === "object" && !Array.isArray(value) && (value as { $del?: unknown }).$del === true && Object.keys(value).length === 1)) {
-    return deleteField();
-  }
-  if (value && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype) {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, toFirestore(v)]));
-  }
-  return value;
-}
-
-/** Записи в пути (Supabase): «прошлую неделю» раскладка читает только после них. */
-const pendingWrites = new Set<Promise<unknown>>();
-
 export async function waitScheduleWrites(): Promise<void> {
-  while (pendingWrites.size > 0) await Promise.allSettled([...pendingWrites]);
+  return store.waitWrites();
 }
 
 /**
@@ -200,34 +86,7 @@ export async function waitScheduleWrites(): Promise<void> {
  * сейчас (writeBatch в Firestore, schedule_write в Supabase).
  */
 export async function commitScheduleWrites(workspaceId: string, writes: ScheduleWrite[], backend?: SbBackend): Promise<void> {
-  if (writes.length === 0) return;
-  if ((backend ?? scheduleBackendFor(workspaceId)) === "supabase") {
-    const run = (async () => {
-      const { data, error } = await supabaseRows.rpc("schedule_write", {
-        p_workspace: workspaceId,
-        p_ops: writes.map((w) => ({ kind: w.kind, id: w.id, op: w.op, data: w.data ?? null })),
-      });
-      if (error) throw Object.assign(new Error(error.message || "Supabase"), { code: error.code || "unavailable" });
-      const docs = ((typeof data === "string" ? JSON.parse(data) : data) ?? []) as SbDoc[];
-      applySbDocs(SCHEDULE_FEED, workspaceId, docs.map((d) => ({ ...d, rev: Number(d.rev) || 0, deleted: Boolean(d.deleted) })));
-    })();
-    pendingWrites.add(run);
-    try {
-      await run;
-    } finally {
-      pendingWrites.delete(run);
-    }
-    return;
-  }
-  if (!db) throw new Error("Firebase не настроен");
-  const batch = writeBatch(db);
-  for (const write of writes) {
-    const ref = firestoreRef(workspaceId, write);
-    if (write.op === "delete") batch.delete(ref);
-    else if (write.op === "set") batch.set(ref, toFirestore(write.data ?? {}) as Record<string, unknown>);
-    else batch.set(ref, toFirestore(write.data ?? {}) as Record<string, unknown>, { merge: true });
-  }
-  await batch.commit();
+  await store.commit(workspaceId, writes, backend);
 }
 
 // ---------------------------------------------------------------------
@@ -271,16 +130,7 @@ async function sbImport(workspaceId: string, docs: Array<{ kind: ScheduleKind; i
   }
 }
 
-/** Документ Firestore → простой JSON (Timestamp → мс). */
-function plain(value: unknown): unknown {
-  if (value && typeof value === "object") {
-    const maybe = value as { toMillis?: () => number };
-    if (typeof maybe.toMillis === "function") return maybe.toMillis();
-    if (Array.isArray(value)) return value.map(plain);
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, plain(v)]));
-  }
-  return value;
-}
+const plain = plainFirestoreData;
 
 /**
  * Перенести график в Supabase, если пора: строки в Supabase, таблица есть,
@@ -305,7 +155,7 @@ export async function ensureScheduleImported(workspaceId: string): Promise<numbe
   const meta = ((metaRows ?? [])[0] as { data?: { at?: number; tailAt?: number } } | undefined)?.data ?? null;
   const now = Date.now();
   if (meta && meta.at && now - meta.at > TAIL_DAYS_MS) {
-    setImported(workspaceId, true);
+    store.setImported(workspaceId, true);
     return 0;
   }
 
@@ -327,6 +177,6 @@ export async function ensureScheduleImported(workspaceId: string): Promise<numbe
   for (const d of requests.docs) docs.push({ kind: "request", id: d.id, data: plain(d.data()) });
 
   await sbImport(workspaceId, docs, true);
-  setImported(workspaceId, true);
+  store.setImported(workspaceId, true);
   return docs.length;
 }

@@ -36,6 +36,7 @@ import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
 import { useOpenApprovedDesk } from "@/hooks/useOpenApprovedDesk";
 import { useMonthTabAutopilot } from "@/hooks/useMonthTabAutopilot";
 import { useWeekTemplateAutopilot } from "@/hooks/useWeekTemplateAutopilot";
+import { useSbImportAutopilot } from "@/hooks/useSbImportAutopilot";
 import { useOrderAutoPickup } from "@/hooks/useOrderAutoPickup";
 import { useOsExchangeHandoff } from "@/hooks/useOsExchangeHandoff";
 import { useOsOrderClaims } from "@/hooks/useOsOrderClaims";
@@ -74,6 +75,7 @@ export function AppLayout() {
   useOpenApprovedDesk();
   useMonthTabAutopilot();
   useWeekTemplateAutopilot();
+  useSbImportAutopilot();
   useOrderAutoPickup();
   // «Общий» заказ со стола ОС, выданный на бирже, — заводит технарю ОС.
   useOsExchangeHandoff();
