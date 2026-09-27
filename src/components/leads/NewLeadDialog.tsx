@@ -11,7 +11,9 @@ import { addLead, type NewLeadInput } from "@/services/leadBoardService";
 import { firestoreErrorText } from "@/utils/dbError";
 import { parseDateInput } from "@/utils/osDates";
 import { personLabel } from "@/utils/peopleDesks";
-import type { StatusOption, WorkspaceMember, WorkspacePage } from "@/types";
+import type { PaymentMethod, StatusOption, WorkspaceMember, WorkspacePage } from "@/types";
+import { useNavigate } from "react-router";
+import { deskNavState, deskRowHref } from "@/utils/deskLinks";
 
 const EMPTY = { client: "", phone: "", price: "", upsell: "", link: "", note: "", persons: "", minutes: "", deadline: "" };
 
@@ -31,6 +33,7 @@ export function NewLeadDialog({
   fromUid,
   fromName,
   defaultOsUid,
+  methods,
   onCreated,
 }: {
   open: boolean;
@@ -42,16 +45,23 @@ export function NewLeadDialog({
   fromUid: string;
   fromName: string;
   defaultOsUid?: string | null;
+  methods: readonly PaymentMethod[];
   onCreated: () => void;
 }) {
   const [form, setForm] = useState(EMPTY);
   const [osUid, setOsUid] = useState<string>("");
+  const [pricePay, setPricePay] = useState<string>("");
+  const [upsellPay, setUpsellPay] = useState<string>("");
+  const navigate = useNavigate();
+  const activeMethods = methods.filter((m) => !m.inactive);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setForm(EMPTY);
     setOsUid(defaultOsUid && osMembers.some((m) => m.uid === defaultOsUid) ? defaultOsUid : "");
+    setPricePay("");
+    setUpsellPay("");
   }, [open, defaultOsUid, osMembers]);
 
   const set = (key: keyof typeof EMPTY) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -73,10 +83,19 @@ export function NewLeadDialog({
       persons: Number(form.persons) || null,
       minutes: Number(form.minutes) || null,
       deadline: form.deadline ? parseDateInput(form.deadline) : null,
+      pricePay: methods.find((m) => m.id === pricePay) ?? null,
+      upsellPay: methods.find((m) => m.id === upsellPay) ?? null,
     };
     try {
-      await addLead({ workspaceId, os, osDesks, lead, statusOptions, fromUid, fromName });
-      toast.success(`${form.client.trim()} — у ОС ${personLabel(os)}`, { description: "ОС получил уведомление о новом лиде" });
+      const at = await addLead({ workspaceId, os, osDesks, lead, statusOptions, fromUid, fromName });
+      toast.success(`${form.client.trim()} — на столе у ${personLabel(os)}`, {
+        description: "ОС получил уведомление, строка подсвечена «НОВЫЙ»",
+        duration: 12000,
+        action: {
+          label: "Открыть на столе",
+          onClick: () => navigate(deskRowHref(at.pageId, at.tabId || null, at.rowId), { state: deskNavState({ to: "/leads", label: "Общая таблица" }) }),
+        },
+      });
       onCreated();
       onOpenChange(false);
     } catch (err) {
@@ -125,6 +144,38 @@ export function NewLeadDialog({
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="lead-upsell">Апсейл</Label>
               <Input id="lead-upsell" value={form.upsell} onChange={set("upsell")} inputMode="decimal" autoComplete="off" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Оплата цены</Label>
+              <Select value={pricePay || "__none"} onValueChange={(v) => setPricePay(v === "__none" ? "" : v)}>
+                <SelectTrigger aria-label="Оплата цены">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">Без способа</SelectItem>
+                  {activeMethods.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.label}{m.commissionPct ? ` −${String(m.commissionPct).replace(".", ",")}%` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Оплата апсейла</Label>
+              <Select value={upsellPay || "__none"} onValueChange={(v) => setUpsellPay(v === "__none" ? "" : v)}>
+                <SelectTrigger aria-label="Оплата апсейла">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">Без способа</SelectItem>
+                  {activeMethods.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.label}{m.commissionPct ? ` −${String(m.commissionPct).replace(".", ",")}%` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex flex-col gap-1.5 sm:col-span-2">
               <Label htmlFor="lead-link">AmoCRM ссылка</Label>

@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { ClientCardSection } from "@/components/table/ClientCardSection";
 import { TechBadge } from "@/components/os/TechBadge";
+import { PaymentChip } from "@/components/cashbox/PaymentChip";
 import { EditableText, OsPicker } from "@/components/leads/LeadCells";
 import { LeadOrderHistory, type LeadHistoryContext } from "@/components/leads/LeadHistory";
 import { useIsMobile } from "@/hooks/useMediaQuery";
@@ -13,7 +14,7 @@ import { deskNavState, deskRowHref } from "@/utils/deskLinks";
 import { formatNumber } from "@/utils/format";
 import { formatFullDate } from "@/utils/osDates";
 import type { TechIdentity } from "@/utils/techIdentity";
-import type { PageRow, StatusOption, WorkspaceMember } from "@/types";
+import type { PageRow, PaymentMethod, StatusOption, WorkspaceMember } from "@/types";
 
 type RowExtras = NonNullable<PageRow["extras"]>;
 
@@ -42,6 +43,8 @@ export function LeadCardSheet({
   historyCtx,
   historyVersion,
   onCell,
+  onPay,
+  methods,
   onExtras,
   onMoveOs,
 }: {
@@ -55,6 +58,8 @@ export function LeadCardSheet({
   historyCtx: LeadHistoryContext;
   historyVersion: number;
   onCell: (order: LeadOrder, key: string, value: string) => Promise<void>;
+  onPay: (order: LeadOrder, colKey: string, method: PaymentMethod | null) => void;
+  methods: readonly PaymentMethod[];
   onExtras: (order: LeadOrder, extras: RowExtras | null) => Promise<void>;
   onMoveOs: (order: LeadOrder, member: WorkspaceMember) => void;
 }) {
@@ -116,6 +121,11 @@ export function LeadCardSheet({
                 />
               </Field>
               {order.kind === "os" ? (
+                <Field label="Оплата цены">
+                  <PaymentChip row={order.row} colKey={k.price} methods={methods} canEdit onPick={(m) => onPay(order, k.price, m)} />
+                </Field>
+              ) : null}
+              {order.kind === "os" ? (
                 <>
                   <Field label="Апсейл">
                     <EditableText
@@ -126,6 +136,9 @@ export function LeadCardSheet({
                       align="right"
                       onCommit={(v) => onCell(order, k.upsell, v)}
                     />
+                  </Field>
+                  <Field label="Оплата апсейла">
+                    <PaymentChip row={order.row} colKey={k.upsell} methods={methods} canEdit onPick={(m) => onPay(order, k.upsell, m)} />
                   </Field>
                   <Field label="Итого">
                     <span className="block px-1.5 text-right font-mono text-[12.5px] tabular-nums">{order.total === null ? "—" : formatNumber(order.total)}</span>

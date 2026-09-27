@@ -89,6 +89,7 @@ async function connect(config: { apiId: number; apiHash: string }, session: stri
   if (session) await client.importSession(session, true);
   return {
     call: (request) => client.call(request),
+    download: (location, opts) => client.downloadAsBuffer(location, { dcId: opts.dcId, fileSize: opts.fileSize }),
     changePrimaryDc: (dcId) => client.changePrimaryDc(dcId),
     exportSession: () => client.exportSession(),
     destroy: () => client.destroy(),

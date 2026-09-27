@@ -16,11 +16,13 @@ import { computeOsFieldKeys } from "@/utils/osFieldKeys";
 import { isBlankRow } from "@/utils/blankRow";
 import { rowEnteredAtMs } from "@/utils/rowEntryOrder";
 import { almatyDay, cellMillis } from "@/utils/osDates";
-import { osRowTotal } from "@/utils/payment";
+import { feeKeyOf, osRowTotal, payKeyOf, paymentPatch } from "@/utils/payment";
 import { normalizeNumericInput, parseLooseNumber } from "@/utils/numberInput";
 import { deskRowHref } from "@/utils/deskLinks";
+import { isApprovalStatusValue, isDoneStatusLabel } from "@/utils/columnOptions";
+import { techLoadKindForOption } from "@/utils/techLoad";
 import { LEAD_AT_KEY, LEAD_BY_KEY, OS_RECEIVED_ON_KEY } from "@/utils/reservedCellKeys";
-import type { PageRow, StatusOption, WorkspaceMember, WorkspacePage } from "@/types";
+import type { PageRow, PaymentMethod, StatusOption, TechLoadKind, WorkspaceMember, WorkspacePage } from "@/types";
 
 /**
  * «Общая таблица» (просьба Nurba 27.09.2026): все заказы периода по всем ОС —
@@ -341,7 +343,8 @@ export async function patchLeadCells(
 ): Promise<void> {
   const next = { ...cells };
   const totalKey = order.keys.total;
-  const touchesMoney = order.keys.price in cells || (order.keys.upsell !== "" && order.keys.upsell in cells);
+  const moneyKeys = [order.keys.price, order.keys.upsell].filter(Boolean).flatMap((k) => [k, payKeyOf(k), feeKeyOf(k)]);
+  const touchesMoney = moneyKeys.some((k) => k in cells);
   if (order.kind === "os" && totalKey && touchesMoney) {
     const merged = { ...order.row, cells: { ...order.row.cells, ...cells } };
     const total = osRowTotal(merged, { price: order.keys.price, upsell: order.keys.upsell });
@@ -432,6 +435,9 @@ export async function moveLeadOs(input: {
 
 export interface NewLeadInput extends NewOsOrderInput {
   upsell: string;
+  /** Способ оплаты цены и апсейла (комиссия вычитается из «Итого»). */
+  pricePay?: PaymentMethod | null;
+  upsellPay?: PaymentMethod | null;
 }
 
 /**
@@ -470,9 +476,11 @@ export async function addLead(input: {
   const price = lead.price.trim() ? normalizeNumericInput(lead.price) : "";
   const upsell = lead.upsell.trim() ? normalizeNumericInput(lead.upsell) : "";
   if (upsell) extra[tab.keys.upsell] = upsell;
-  const total = osRowTotal({ cells: { [tab.keys.price]: price, [tab.keys.upsell]: upsell } }, { price: tab.keys.price, upsell: tab.keys.upsell });
+  if (lead.pricePay && price) Object.assign(extra, paymentPatch(tab.keys.price, lead.pricePay));
+  if (lead.upsellPay && upsell) Object.assign(extra, paymentPatch(tab.keys.upsell, lead.upsellPay));
+  const total = osRowTotal({ cells: { ...extra, [tab.keys.price]: price } }, { price: tab.keys.price, upsell: tab.keys.upsell });
   if (total !== null) extra[tab.keys.total] = String(total);
-  const row = await addOsDeskOrderRow({ tab, rows, order: lead, statusOptions: input.statusOptions, extraCells: extra });
+  const row = await addOsDeskOrderRow({ tab, rows, order: lead, statusOptions: input.statusOptions, extraCells: extra, highlight: true });
   ringLeads(workspaceId);
   const client = lead.client.trim() || "клиент";
   await sendNotification(
@@ -566,4 +574,85 @@ export async function fetchRecentEvents(workspaceId: string, beforeId: number | 
   const { data, error } = await q;
   if (error) throw rpcError(error, "Не удалось прочитать ленту");
   return (data ?? []).map((r) => toEvent(r as Record<string, unknown>));
+}
+
+// ---------------------------------------------------------------------------
+// Статистика
+// ---------------------------------------------------------------------------
+
+export interface LeadStats {
+  count: number;
+  /** На утверждении (не выданы ОС). */
+  approval: number;
+  /** В работе и переделка. */
+  inWork: number;
+  payment: number;
+  freeze: number;
+  done: number;
+  cancelled: number;
+  /** «Грязная» касса: цена + апсейл до комиссии, без отменённых. */
+  gross: number;
+  /** Касса после комиссии способа оплаты («Итого»), без отменённых. */
+  net: number;
+  upsell: number;
+  upsellCount: number;
+  /** Апсейл заказов в «Готово». */
+  upsellDone: number;
+  /** Касса «Готово» (после комиссии). */
+  doneNet: number;
+  /** KPI: доля «Готово» среди заказов без отменённых, 0..1; null — заказов нет. */
+  kpi: number | null;
+}
+
+function isCancelledLabel(label: string, value: string): boolean {
+  const l = label.toLowerCase();
+  return l.includes("отмен") || l.includes("cancel") || value === "cancelled";
+}
+
+/**
+ * Сводка по заказам: статус у ОС-заказа — статус ОС (его же триггер везёт
+ * технарю), у заказа технаря без ОС — статус технаря. Вид статуса — те же
+ * правила, что у «Технарей» (`techLoadKindForOption`: карта Owner или
+ * название), «Готово» — по названию, как касса везде.
+ */
+export function leadStats(
+  orders: readonly LeadOrder[],
+  statusOptions: readonly StatusOption[],
+  kinds: Record<string, TechLoadKind> | undefined
+): LeadStats {
+  const s: LeadStats = { count: 0, approval: 0, inWork: 0, payment: 0, freeze: 0, done: 0, cancelled: 0, gross: 0, net: 0, upsell: 0, upsellCount: 0, upsellDone: 0, doneNet: 0, kpi: null };
+  for (const o of orders) {
+    s.count += 1;
+    const option = statusOptions.find((x) => x.value === o.status) ?? null;
+    const label = option?.label ?? o.status;
+    if (o.status && isCancelledLabel(label, o.status)) {
+      s.cancelled += 1;
+      continue;
+    }
+    const upsell = o.upsell ?? 0;
+    s.gross += (o.price ?? 0) + upsell;
+    s.net += o.total ?? 0;
+    if (upsell) {
+      s.upsell += upsell;
+      s.upsellCount += 1;
+    }
+    const done = Boolean(o.status) && (isDoneStatusLabel(label) || o.status === "done");
+    if (done) {
+      s.done += 1;
+      s.doneNet += o.total ?? 0;
+      s.upsellDone += upsell;
+      continue;
+    }
+    if (!o.status || isApprovalStatusValue(o.status, statusOptions)) {
+      s.approval += 1;
+      continue;
+    }
+    const kind = option ? techLoadKindForOption(option, kinds) : "busy";
+    if (kind === "payment") s.payment += 1;
+    else if (kind === "freeze") s.freeze += 1;
+    else s.inWork += 1;
+  }
+  const base = s.count - s.cancelled;
+  s.kpi = base > 0 ? s.done / base : null;
+  return s;
 }
