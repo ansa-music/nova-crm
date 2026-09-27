@@ -166,6 +166,8 @@ export async function addOsDeskOrderRow(input: {
   statusOptions: readonly StatusOption[];
   /** Служебные и прочие ячейки той же записью («Общая таблица»: кто завёл, апсейл, «Итого»). */
   extraCells?: Record<string, string | number | null>;
+  /** Янтарная подсветка «НОВЫЙ» (лид от Тимлида+ — чтобы ОС его заметил). */
+  highlight?: boolean;
 }): Promise<PageRow> {
   const { tab, order } = input;
   const k = tab.keys;
@@ -194,14 +196,14 @@ export async function addOsDeskOrderRow(input: {
   const slot = blanks[0];
   const now = Date.now();
   if (slot) {
-    if (tab.tabId) await updateSubPageRowCellsBulk(tab.workspaceId, tab.page.id, tab.tabId, slot.id, cells, hasExtras ? extras : undefined, undefined, now);
-    else await updateRowCellsBulk(tab.workspaceId, tab.page.id, slot.id, cells, hasExtras ? extras : undefined, undefined, now);
-    return { ...slot, cells: { ...slot.cells, ...cells }, extras: hasExtras ? extras : slot.extras, filledAt: now, updatedAt: now };
+    if (tab.tabId) await updateSubPageRowCellsBulk(tab.workspaceId, tab.page.id, tab.tabId, slot.id, cells, hasExtras ? extras : undefined, input.highlight, now);
+    else await updateRowCellsBulk(tab.workspaceId, tab.page.id, slot.id, cells, hasExtras ? extras : undefined, input.highlight, now);
+    return { ...slot, cells: { ...slot.cells, ...cells }, extras: hasExtras ? extras : slot.extras, filledAt: now, updatedAt: now, ...(input.highlight ? { highlight: true } : {}) };
   }
   const order_ = input.rows.reduce((max, r) => Math.max(max, typeof r.order === "number" ? r.order : 0), 0) + 1;
   return tab.tabId
-    ? addSubPageRow(tab.workspaceId, tab.page.id, tab.tabId, cells, order_, hasExtras ? extras : undefined)
-    : addRow(tab.workspaceId, tab.page.id, cells, order_, hasExtras ? extras : undefined);
+    ? addSubPageRow(tab.workspaceId, tab.page.id, tab.tabId, cells, order_, hasExtras ? extras : undefined, input.highlight)
+    : addRow(tab.workspaceId, tab.page.id, cells, order_, hasExtras ? extras : undefined, input.highlight);
 }
 
 /** Для тоста: «Айгерим — на «Заказах»». */

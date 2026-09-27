@@ -70,6 +70,8 @@ export type Tl = any;
 
 export interface TgConn {
   call(request: Tl): Promise<Tl>;
+  /** Скачать файл Telegram (сама ходит в нужный дата-центр). */
+  download(location: Tl, opts: { dcId: number; fileSize?: number }): Promise<Uint8Array>;
   changePrimaryDc(dcId: number): Promise<void>;
   exportSession(): Promise<string>;
   destroy(): Promise<void>;
@@ -190,6 +192,19 @@ function mediaLabel(media: Tl): string | null {
   }
 }
 
+/** Что за вложение — чтобы технарь видел фото, видео и файлы, а не «[файл]». */
+export interface TechFile {
+  kind: "photo" | "video" | "round" | "voice" | "audio" | "sticker" | "document";
+  name: string | null;
+  mime: string | null;
+  size: number | null;
+  w: number | null;
+  h: number | null;
+  duration: number | null;
+  /** Есть превью, его отдаёт tech_media. */
+  thumb: boolean;
+}
+
 export interface TechMessage {
   id: number;
   out: boolean;
@@ -197,10 +212,83 @@ export interface TechMessage {
   text: string;
   media: string | null;
   service: boolean;
+  /** Кто написал (в группах и каналах); в личке — null. */
+  from: string | null;
+  file: TechFile | null;
 }
 
-function toTechMessage(m: Tl): TechMessage | null {
+/** Максимум, который технарь скачивает через сервер. */
+export const TECH_FILE_MAX = 20 * 1024 * 1024;
+
+const PHOTO_SIZE_TYPES = new Set(["photoSize", "photoSizeProgressive", "photoCachedSize"]);
+
+function sizeBytes(s: Tl): number {
+  if (!s) return 0;
+  if (s._ === "photoSizeProgressive") return Number(s.sizes?.[s.sizes.length - 1] ?? 0);
+  if (s._ === "photoCachedSize") return s.bytes?.length ?? 0;
+  return Number(s.size ?? 0);
+}
+
+function photoSizes(list: Tl[] | undefined): Tl[] {
+  return (list ?? []).filter((x) => PHOTO_SIZE_TYPES.has(x?._) && typeof x.type === "string");
+}
+
+function largest(list: Tl[]): Tl | null {
+  return list.reduce<Tl | null>((best, x) => (!best || (x.w ?? 0) * (x.h ?? 0) > (best.w ?? 0) * (best.h ?? 0) ? x : best), null);
+}
+
+/** Превью ~320 px: «m», иначе самое маленькое из тех, что больше 100 px, иначе любое. */
+function previewSize(list: Tl[]): Tl | null {
+  if (!list.length) return null;
+  const m = list.find((x) => x.type === "m");
+  if (m) return m;
+  const sorted = [...list].sort((a, b) => (a.w ?? 0) - (b.w ?? 0));
+  return sorted.find((x) => (x.w ?? 0) >= 100) ?? sorted[sorted.length - 1];
+}
+
+function mediaFile(media: Tl): TechFile | null {
+  if (!media) return null;
+  if (media._ === "messageMediaPhoto" && media.photo?._ === "photo") {
+    const big = largest(photoSizes(media.photo.sizes));
+    return { kind: "photo", name: null, mime: "image/jpeg", size: big ? sizeBytes(big) : null, w: big?.w ?? null, h: big?.h ?? null, duration: null, thumb: Boolean(big) };
+  }
+  if (media._ === "messageMediaDocument" && media.document?._ === "document") {
+    const doc = media.document;
+    const attrs: Tl[] = doc.attributes ?? [];
+    const video = attrs.find((a) => a._ === "documentAttributeVideo");
+    const audio = attrs.find((a) => a._ === "documentAttributeAudio");
+    const image = attrs.find((a) => a._ === "documentAttributeImageSize");
+    const name = attrs.find((a) => a._ === "documentAttributeFilename")?.fileName ?? null;
+    const kind: TechFile["kind"] = attrs.some((a) => a._ === "documentAttributeSticker")
+      ? "sticker"
+      : video
+        ? video.roundMessage
+          ? "round"
+          : "video"
+        : audio
+          ? audio.voice
+            ? "voice"
+            : "audio"
+          : String(doc.mimeType ?? "").startsWith("image/")
+            ? "photo"
+            : "document";
+    return {
+      kind,
+      name,
+      mime: doc.mimeType ?? null,
+      size: Number(doc.size ?? 0) || null,
+      w: video?.w ?? image?.w ?? null,
+      h: video?.h ?? image?.h ?? null,
+      duration: video?.duration ?? audio?.duration ?? null,
+      thumb: photoSizes(doc.thumbs).length > 0,
+    };
+  }
+  return null;
+}
+
+function toTechMessage(m: Tl, names?: Map<string, string>, group = false): TechMessage | null {
   if (!m || (m._ !== "message" && m._ !== "messageService")) return null;
+  const from = group && !m.out ? (m.fromId ? names?.get(peerKey(m.fromId)) ?? null : m.postAuthor ?? null) : null;
   return {
     id: m.id,
     out: Boolean(m.out),
@@ -208,7 +296,63 @@ function toTechMessage(m: Tl): TechMessage | null {
     text: m._ === "message" ? (m.message ?? "") : "",
     media: m._ === "message" ? mediaLabel(m.media) : null,
     service: m._ === "messageService",
+    from: from || null,
+    file: m._ === "message" ? mediaFile(m.media) : null,
   };
+}
+
+/** Имена отправителей из ответа Telegram: user:id → имя, chat/channel:id → название. */
+function namesOf(res: Tl): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const u of (res?.users ?? []) as Tl[]) map.set(`user:${u.id}`, userName(u));
+  for (const c of (res?.chats ?? []) as Tl[]) map.set(`${c._ === "channel" ? "channel" : "chat"}:${c.id}`, c.title ?? "");
+  return map;
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let out = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) out += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  return btoa(out);
+}
+
+/** Место файла для скачивания: превью или сам файл. */
+function fileLocation(media: Tl, full: boolean): { location: Tl; dcId: number; size: number; mime: string; name: string | null } | null {
+  if (media?._ === "messageMediaPhoto" && media.photo?._ === "photo") {
+    const p = media.photo;
+    const size = full ? largest(photoSizes(p.sizes)) : previewSize(photoSizes(p.sizes));
+    if (!size) return null;
+    return {
+      location: { _: "inputPhotoFileLocation", id: p.id, accessHash: p.accessHash, fileReference: p.fileReference, thumbSize: size.type },
+      dcId: p.dcId,
+      size: sizeBytes(size),
+      mime: "image/jpeg",
+      name: null,
+    };
+  }
+  if (media?._ === "messageMediaDocument" && media.document?._ === "document") {
+    const d = media.document;
+    const name = ((d.attributes ?? []) as Tl[]).find((a) => a._ === "documentAttributeFilename")?.fileName ?? null;
+    if (full) {
+      return {
+        location: { _: "inputDocumentFileLocation", id: d.id, accessHash: d.accessHash, fileReference: d.fileReference, thumbSize: "" },
+        dcId: d.dcId,
+        size: Number(d.size ?? 0),
+        mime: d.mimeType ?? "application/octet-stream",
+        name,
+      };
+    }
+    const thumb = previewSize(photoSizes(d.thumbs));
+    if (!thumb) return null;
+    return {
+      location: { _: "inputDocumentFileLocation", id: d.id, accessHash: d.accessHash, fileReference: d.fileReference, thumbSize: thumb.type },
+      dcId: d.dcId,
+      size: sizeBytes(thumb),
+      mime: "image/jpeg",
+      name: null,
+    };
+  }
+  return null;
 }
 
 function peerKey(p: Tl): string {
@@ -609,8 +753,59 @@ async function run(deps: Deps, ws: string, ctx: EdgeCtx, action: string, input: 
             minId,
             hash: deps.Long.ZERO,
           });
-          const messages = ((res?.messages ?? []) as Tl[]).map(toTechMessage).filter(Boolean) as TechMessage[];
+          const names = namesOf(res);
+          const group = grant.peer.type !== "user";
+          const messages = ((res?.messages ?? []) as Tl[]).map((m) => toTechMessage(m, names, group)).filter(Boolean) as TechMessage[];
           return { messages, done: messages.length < limit && !minId };
+        })
+      );
+    }
+    case "tech_media": {
+      // Превью фото/видео/файлов пачкой (ids) или один файл целиком (full).
+      const grant = grantOf(ctx, input.chatId);
+      const full = input.full === true;
+      const ids = (Array.isArray(input.ids) ? input.ids : [])
+        .map((x: unknown) => Math.trunc(Number(x)))
+        .filter((x: number) => Number.isFinite(x) && x > 0)
+        .slice(0, full ? 1 : 40);
+      if (!ids.length) throw new EdgeError(400, "bad_request", "Нет сообщений.");
+      const master = await db.master(ws);
+      if (!master?.session) throw new EdgeError(409, "not_connected", "Аккаунт workspace не подключён.");
+      const want = `${grant.peer.type}:${grant.peer.id}`;
+      return withLease(deps, ws, () =>
+        useConn(deps, ws, master.session, async (conn) => {
+          const idList = ids.map((id: number) => ({ _: "inputMessageID", id }));
+          const res =
+            grant.peer.type === "channel"
+              ? await conn.call({
+                  _: "channels.getMessages",
+                  channel: { _: "inputChannel", channelId: Number(grant.peer.id), accessHash: deps.Long.fromString(grant.peer.accessHash ?? "0") },
+                  id: idList,
+                })
+              : await conn.call({ _: "messages.getMessages", id: idList });
+          // messages.getMessages ищет по общему ящику аккаунта — берём ТОЛЬКО
+          // сообщения этого чата, иначе по чужому id отдали бы чужую переписку.
+          const own = ((res?.messages ?? []) as Tl[]).filter((m) => m?._ === "message" && peerKey(m.peerId) === want);
+          if (full) {
+            const m = own[0];
+            const loc = m ? fileLocation(m.media, true) : null;
+            if (!loc) throw new EdgeError(404, "no_file", "Файла в этом сообщении нет.");
+            if (loc.size > TECH_FILE_MAX) throw new EdgeError(413, "too_big", "Файл больше 20 МБ — его открывают в Telegram у ОС.");
+            const bytes = await conn.download(loc.location, { dcId: loc.dcId, fileSize: loc.size || undefined });
+            return { id: m.id, name: loc.name, mime: loc.mime, size: bytes.length, data: toBase64(bytes) };
+          }
+          const thumbs: Record<string, string> = {};
+          for (const m of own) {
+            const loc = fileLocation(m.media, false);
+            if (!loc || loc.size > 512 * 1024) continue;
+            try {
+              const bytes = await conn.download(loc.location, { dcId: loc.dcId, fileSize: loc.size || undefined });
+              thumbs[String(m.id)] = `data:${loc.mime};base64,${toBase64(bytes)}`;
+            } catch {
+              // Превью не скачалось (ссылка на файл устарела) — покажем значок.
+            }
+          }
+          return { thumbs };
         })
       );
     }

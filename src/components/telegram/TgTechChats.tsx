@@ -1,11 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Loader2, Lock, RefreshCw, Send } from "lucide-react";
+import { ArrowLeft, Download, FileText, Loader2, Lock, Mic, Music, Play, RefreshCw, Send } from "lucide-react";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { toast } from "@/components/ui/sonner";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { callTgEdge, listenTgGrants, TgEdgeError } from "@/services/telegram/tgServer";
 import { zonedDateFormat } from "@/utils/date";
 import { cn } from "@/utils/cn";
+
+interface TechFile {
+  kind: "photo" | "video" | "round" | "voice" | "audio" | "sticker" | "document";
+  name: string | null;
+  mime: string | null;
+  size: number | null;
+  w: number | null;
+  h: number | null;
+  duration: number | null;
+  thumb: boolean;
+}
 
 interface TechMessage {
   id: number;
@@ -14,6 +27,9 @@ interface TechMessage {
   text: string;
   media: string | null;
   service: boolean;
+  /** Кто написал — в группах (старый сервер поля не шлёт). */
+  from?: string | null;
+  file?: TechFile | null;
 }
 
 interface TechChat {
@@ -32,6 +48,47 @@ function errText(error: unknown) {
 
 function timeOf(ms: number) {
   return zonedDateFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(new Date(ms));
+}
+
+function dayOf(ms: number) {
+  return zonedDateFormat("ru-RU", { day: "numeric", month: "long", year: "numeric" }).format(new Date(ms));
+}
+
+function sizeText(bytes: number | null | undefined) {
+  if (!bytes) return "";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} КБ`;
+  return `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} МБ`;
+}
+
+function durationText(sec: number | null | undefined) {
+  if (!sec) return "";
+  const m = Math.floor(sec / 60);
+  return `${m}:${String(Math.round(sec % 60)).padStart(2, "0")}`;
+}
+
+function b64ToBlob(data: string, mime: string): Blob {
+  const bin = atob(data);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+const FILE_LABEL: Record<TechFile["kind"], string> = {
+  photo: "Фото",
+  video: "Видео",
+  round: "Кружок",
+  voice: "Голосовое",
+  audio: "Аудио",
+  sticker: "Стикер",
+  document: "Файл",
+};
+
+/** Открытый файл: фото или видео — в окне, остальное скачивается. */
+interface OpenedFile {
+  id: number;
+  url: string;
+  mime: string;
+  name: string;
 }
 
 /**
@@ -127,8 +184,16 @@ function TechConversation({ workspaceId, chat, onBack, onChanged }: { workspaceI
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
-  const bottom = useRef<HTMLDivElement>(null);
+  const [done, setDone] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  const [fetching, setFetching] = useState<number | null>(null);
+  const [opened, setOpened] = useState<OpenedFile | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const stickBottom = useRef(true);
+  const requested = useRef(new Set<number>());
   const lastId = useMemo(() => messages.reduce((m, x) => Math.max(m, x.id), 0), [messages]);
+  const firstId = useMemo(() => messages.reduce((m, x) => (m === 0 ? x.id : Math.min(m, x.id)), 0), [messages]);
   const lastIdRef = useRef(0);
   lastIdRef.current = lastId;
 
@@ -150,9 +215,10 @@ function TechConversation({ workspaceId, chat, onBack, onChanged }: { workspaceI
     let stopped = false;
     (async () => {
       try {
-        const res = await callTgEdge<{ messages: TechMessage[] }>(workspaceId, "tech_history", { chatId: chat.chatId, limit: 40 });
+        const res = await callTgEdge<{ messages: TechMessage[]; done?: boolean }>(workspaceId, "tech_history", { chatId: chat.chatId, limit: 40 });
         if (stopped) return;
         merge(res.messages ?? []);
+        setDone(Boolean(res.done));
         setError(null);
         read(Math.max(0, ...(res.messages ?? []).map((m) => m.id)));
       } catch (e) {
@@ -180,9 +246,74 @@ function TechConversation({ workspaceId, chat, onBack, onChanged }: { workspaceI
     };
   }, [workspaceId, chat.chatId, read]);
 
+  // Превью фото и видео — пачкой, по 40, только тех, что ещё не просили.
   useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "end" });
-  }, [messages.length]);
+    const need = messages.filter((m) => m.file?.thumb && !requested.current.has(m.id)).map((m) => m.id);
+    if (!need.length) return;
+    const batch = need.slice(-40);
+    batch.forEach((id) => requested.current.add(id));
+    callTgEdge<{ thumbs: Record<string, string> }>(workspaceId, "tech_media", { chatId: chat.chatId, ids: batch })
+      .then((res) => setThumbs((prev) => ({ ...prev, ...(res.thumbs ?? {}) })))
+      .catch(() => batch.forEach((id) => requested.current.delete(id)));
+  }, [messages, workspaceId, chat.chatId]);
+
+  // Прокрутка: вниз — только когда человек и так внизу (новое сообщение).
+  useEffect(() => {
+    const el = scroller.current;
+    if (el && stickBottom.current) el.scrollTop = el.scrollHeight;
+  }, [messages.length, thumbs]);
+
+  useEffect(() => () => {
+    if (opened) URL.revokeObjectURL(opened.url);
+  }, [opened]);
+
+  async function loadOlder() {
+    if (loadingOlder || !firstId) return;
+    const el = scroller.current;
+    const before = el ? el.scrollHeight - el.scrollTop : 0;
+    setLoadingOlder(true);
+    try {
+      const res = await callTgEdge<{ messages: TechMessage[]; done?: boolean }>(workspaceId, "tech_history", { chatId: chat.chatId, offsetId: firstId, limit: 40 });
+      stickBottom.current = false;
+      merge(res.messages ?? []);
+      setDone(Boolean(res.done) || !(res.messages ?? []).length);
+      requestAnimationFrame(() => {
+        if (el) el.scrollTop = el.scrollHeight - before;
+      });
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setLoadingOlder(false);
+    }
+  }
+
+  async function openFile(m: TechMessage) {
+    if (!m.file || fetching) return;
+    setFetching(m.id);
+    try {
+      const res = await callTgEdge<{ name: string | null; mime: string; data: string }>(workspaceId, "tech_media", { chatId: chat.chatId, ids: [m.id], full: true });
+      const blob = b64ToBlob(res.data, res.mime || m.file.mime || "application/octet-stream");
+      const url = URL.createObjectURL(blob);
+      const name = res.name || m.file.name || `${FILE_LABEL[m.file.kind].toLowerCase()}-${m.id}`;
+      const mime = blob.type;
+      if (mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/")) {
+        setOpened({ id: m.id, url, mime, name });
+      } else {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        // Ссылка вне документа у части браузеров скачивает файл без имени.
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      }
+    } catch (e) {
+      toast.error("Файл не открылся", { description: errText(e) });
+    } finally {
+      setFetching(null);
+    }
+  }
 
   async function send() {
     const value = text.trim();
@@ -191,6 +322,7 @@ function TechConversation({ workspaceId, chat, onBack, onChanged }: { workspaceI
     try {
       await callTgEdge(workspaceId, "tech_send", { chatId: chat.chatId, text: value });
       setText("");
+      stickBottom.current = true;
       const res = await callTgEdge<{ messages: TechMessage[] }>(workspaceId, "tech_history", { chatId: chat.chatId, minId: lastIdRef.current, limit: 20 });
       merge(res.messages ?? []);
     } catch (e) {
@@ -200,6 +332,7 @@ function TechConversation({ workspaceId, chat, onBack, onChanged }: { workspaceI
     }
   }
 
+  let lastDay = "";
   return (
     <>
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
@@ -208,34 +341,43 @@ function TechConversation({ workspaceId, chat, onBack, onChanged }: { workspaceI
         </Button>
         <span className="min-w-0 flex-1 truncate text-[14px] font-semibold">{chat.title || `Чат ${chat.chatId}`}</span>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+      <div
+        ref={scroller}
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stickBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
+      >
         {loading ? (
           <div className="flex justify-center p-6">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="flex flex-col gap-1.5">
-            {messages.map((m) =>
-              m.service ? (
-                <p key={m.id} className="self-center text-[11px] text-muted-foreground">
-                  служебное сообщение
-                </p>
-              ) : (
-                <div
-                  key={m.id}
-                  className={cn(
-                    "max-w-[80%] whitespace-pre-wrap break-words rounded-lg px-3 py-1.5 text-[13px]",
-                    m.out ? "self-end bg-primary/15" : "self-start bg-muted"
+          <div className="mx-auto flex max-w-3xl flex-col gap-1.5">
+            {!done && messages.length > 0 ? (
+              <Button variant="ghost" size="sm" className="self-center text-muted-foreground" disabled={loadingOlder} onClick={() => void loadOlder()}>
+                {loadingOlder ? <Loader2 className="h-4 w-4 animate-spin" /> : "Показать раньше"}
+              </Button>
+            ) : null}
+            {messages.map((m) => {
+              const day = dayOf(m.date);
+              const sep = day !== lastDay;
+              lastDay = day;
+              return (
+                <div key={m.id} className="flex flex-col">
+                  {sep ? (
+                    <span className="my-2 self-center rounded-full bg-muted px-2.5 py-0.5 text-[11px] text-muted-foreground">{day}</span>
+                  ) : null}
+                  {m.service ? (
+                    <p className="self-center text-[11px] text-muted-foreground">служебное сообщение</p>
+                  ) : (
+                    <Bubble m={m} thumb={thumbs[String(m.id)]} busy={fetching === m.id} onOpen={() => void openFile(m)} />
                   )}
-                >
-                  {m.media && <span className="mr-1 text-muted-foreground">[{m.media}]</span>}
-                  {m.text}
-                  <span className="ml-2 align-bottom text-[10px] text-muted-foreground">{timeOf(m.date)}</span>
                 </div>
-              )
-            )}
+              );
+            })}
             {!messages.length && <p className="p-6 text-center text-[13px] text-muted-foreground">Сообщений пока нет.</p>}
-            <div ref={bottom} />
           </div>
         )}
       </div>
@@ -278,6 +420,72 @@ function TechConversation({ workspaceId, chat, onBack, onChanged }: { workspaceI
           {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
         </Button>
       </form>
+      <Dialog open={Boolean(opened)} onOpenChange={(v) => !v && setOpened(null)}>
+        <DialogContent className="max-w-[min(92vw,1100px)] p-3">
+          <DialogTitle className="truncate pr-8 text-[14px]">{opened?.name}</DialogTitle>
+          {opened ? (
+            opened.mime.startsWith("image/") ? (
+              <img src={opened.url} alt={opened.name} className="max-h-[78dvh] w-full rounded-md object-contain" />
+            ) : opened.mime.startsWith("video/") ? (
+              <video src={opened.url} controls autoPlay className="max-h-[78dvh] w-full rounded-md bg-black" />
+            ) : (
+              <audio src={opened.url} controls autoPlay className="w-full" />
+            )
+          ) : null}
+          {opened ? (
+            <a href={opened.url} download={opened.name} className="inline-flex items-center gap-1.5 self-start text-[13px] text-primary hover:underline">
+              <Download className="h-3.5 w-3.5" /> Скачать
+            </a>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </>
+  );
+}
+
+function Bubble({ m, thumb, busy, onOpen }: { m: TechMessage; thumb: string | undefined; busy: boolean; onOpen: () => void }) {
+  const f = m.file ?? null;
+  const visual = f && (f.kind === "photo" || f.kind === "video" || f.kind === "round" || f.kind === "sticker");
+  const Icon = !f ? FileText : f.kind === "voice" ? Mic : f.kind === "audio" ? Music : f.kind === "video" || f.kind === "round" ? Play : FileText;
+  return (
+    <div className={cn("flex max-w-[min(80%,34rem)] flex-col gap-1 rounded-lg px-2.5 py-1.5 text-[13px]", m.out ? "self-end bg-primary/15" : "self-start bg-muted")}>
+      {m.from ? <span className="text-[11.5px] font-semibold text-primary">{m.from}</span> : null}
+      {f ? (
+        visual && (thumb || f.thumb) ? (
+          <button
+            type="button"
+            onClick={onOpen}
+            className="group relative overflow-hidden rounded-md bg-background/40"
+            style={{ aspectRatio: f.w && f.h ? `${f.w} / ${f.h}` : "4 / 3", width: f.kind === "sticker" ? "8rem" : "18rem", maxWidth: "100%", maxHeight: "22rem" }}
+            aria-label={`Открыть: ${FILE_LABEL[f.kind]}`}
+            title="Открыть"
+          >
+            {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" /> : <span className="absolute inset-0 animate-pulse bg-muted" />}
+            {f.kind === "video" || f.kind === "round" || busy ? (
+              <span className="absolute inset-0 flex items-center justify-center">
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-black/55 text-white">
+                  {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Play className="h-5 w-5" />}
+                </span>
+              </span>
+            ) : null}
+            {f.duration ? <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10.5px] text-white">{durationText(f.duration)}</span> : null}
+          </button>
+        ) : (
+          <button type="button" onClick={onOpen} className="flex min-w-0 items-center gap-2 rounded-md bg-background/40 px-2 py-1.5 text-left hover:bg-background/70" title="Открыть или скачать">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />}
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-[12.5px] font-medium">{f.name || FILE_LABEL[f.kind]}</span>
+              <span className="block text-[11px] text-muted-foreground">{[FILE_LABEL[f.kind], sizeText(f.size), durationText(f.duration)].filter(Boolean).join(" · ")}</span>
+            </span>
+          </button>
+        )
+      ) : m.media ? (
+        <span className="text-muted-foreground">[{m.media}]</span>
+      ) : null}
+      {m.text ? <span className="whitespace-pre-wrap break-words">{m.text}</span> : null}
+      <span className="self-end text-[10px] leading-none text-muted-foreground">{timeOf(m.date)}</span>
+    </div>
   );
 }

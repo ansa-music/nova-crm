@@ -15,6 +15,7 @@ import { EditableText, OsLabel, OsPicker } from "@/components/leads/LeadCells";
 import { LeadCardSheet } from "@/components/leads/LeadCardSheet";
 import { LeadFeed, type LeadHistoryContext } from "@/components/leads/LeadHistory";
 import { NewLeadDialog } from "@/components/leads/NewLeadDialog";
+import { PaymentChip } from "@/components/cashbox/PaymentChip";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentPeriodKey, usePeriodSettings } from "@/hooks/useCurrentPeriodKey";
 import { useLeadBoard } from "@/hooks/useLeadBoard";
@@ -23,12 +24,14 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useUrlState } from "@/hooks/useUrlState";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import {
+  leadStats,
   leadTablesFor,
   moveLeadOs,
   osMembersOf,
   patchLeadCells,
   patchLeadExtras,
   type LeadOrder,
+  type LeadStats,
 } from "@/services/leadBoardService";
 import { confirmDialog } from "@/utils/appDialog";
 import { cn } from "@/utils/cn";
@@ -39,9 +42,11 @@ import { formatCount, formatNumber } from "@/utils/format";
 import { normalizeNumericInput } from "@/utils/numberInput";
 import { formatDayMonth } from "@/utils/osDates";
 import { periodShortLabel, recentPeriodKeys } from "@/utils/periods";
+import { paymentMethodsOf, paymentPatch } from "@/utils/payment";
+import { effectiveTechLoadKinds } from "@/utils/techLoad";
 import { LEAD_BY_KEY } from "@/utils/reservedCellKeys";
 import { resolveTechIdentity, techIdentityOfUid, type TechIdentity } from "@/utils/techIdentity";
-import type { PageColumn, PageRow, StatusOption, WorkspaceMember, WorkspacePage } from "@/types";
+import type { PageColumn, PageRow, PaymentMethod, StatusOption, WorkspaceMember, WorkspacePage } from "@/types";
 
 type RowExtras = NonNullable<PageRow["extras"]>;
 
@@ -171,23 +176,36 @@ function LeadBoard({ workspaceId }: { workspaceId: string }) {
     }
     return { sum, open };
   }, [visible]);
+  const kinds = useMemo(() => effectiveTechLoadKinds(activeWorkspace), [activeWorkspace]);
+  const stats = useMemo(() => leadStats(visible, statusOptions, kinds), [visible, statusOptions, kinds]);
+  const methods = useMemo(() => paymentMethodsOf(activeWorkspace), [activeWorkspace]);
 
   const openOrder = openKey ? (board.orders.find((o) => o.key === openKey) ?? null) : null;
 
-  const onCell = useCallback(
-    async (order: LeadOrder, key: string, raw: string) => {
-      if (!key) return;
-      const money = key === order.keys.price || key === order.keys.upsell;
-      const value = money && raw ? normalizeNumericInput(raw) : raw;
-      board.patchLocal(order.key, { [key]: value });
+  const onCells = useCallback(
+    async (order: LeadOrder, cells: Record<string, string | number | null>) => {
+      board.patchLocal(order.key, cells);
       try {
-        await patchLeadCells(workspaceId, order, { [key]: value });
+        await patchLeadCells(workspaceId, order, cells);
       } catch (e) {
         toast.error("Не сохранилось", { description: firestoreErrorText(e, "Попробуйте ещё раз") });
         board.refresh();
       }
     },
     [board, workspaceId]
+  );
+  const onCell = useCallback(
+    async (order: LeadOrder, key: string, raw: string) => {
+      if (!key) return;
+      const money = key === order.keys.price || key === order.keys.upsell;
+      const value = money && raw ? normalizeNumericInput(raw) : raw;
+      await onCells(order, { [key]: value });
+    },
+    [onCells]
+  );
+  const onPay = useCallback(
+    (order: LeadOrder, colKey: string, method: PaymentMethod | null) => void onCells(order, paymentPatch(colKey, method)),
+    [onCells]
   );
 
   const onExtras = useCallback(
@@ -295,6 +313,8 @@ function LeadBoard({ workspaceId }: { workspaceId: string }) {
         </div>
       </div>
 
+      {board.loaded && visible.length > 0 ? <LeadStatsStrip stats={stats} /> : null}
+
       {board.error ? (
         <Alert tone="error">
           {firestoreErrorText(board.error, "Не удалось прочитать общую таблицу")}{" "}
@@ -327,7 +347,7 @@ function LeadBoard({ workspaceId }: { workspaceId: string }) {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border">
-          <div className="min-w-[980px]">
+          <div className="min-w-[1120px]">
             <div className={cn(GRID, "sticky top-0 z-10 h-8 border-b border-border bg-card text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground")}>
               <span className="px-2">Имя</span>
               <span className="px-2">Номер</span>
@@ -354,6 +374,8 @@ function LeadBoard({ workspaceId }: { workspaceId: string }) {
                         statusOptions={statusOptions}
                         onOpen={() => setOpenKey(o.key)}
                         onCell={onCell}
+                        onPay={onPay}
+                        methods={methods}
                         onMoveOs={onMoveOs}
                       />
                     ))}
@@ -374,6 +396,8 @@ function LeadBoard({ workspaceId }: { workspaceId: string }) {
         historyCtx={historyCtx}
         historyVersion={openOrder?.row.updatedAt ?? 0}
         onCell={onCell}
+        onPay={onPay}
+        methods={methods}
         onExtras={onExtras}
         onMoveOs={onMoveOs}
       />
@@ -409,6 +433,7 @@ function LeadBoard({ workspaceId }: { workspaceId: string }) {
           fromUid={profile.uid}
           fromName={fromName}
           defaultOsUid={osFilter || null}
+          methods={methods}
           onCreated={board.refresh}
         />
       ) : null}
@@ -417,7 +442,7 @@ function LeadBoard({ workspaceId }: { workspaceId: string }) {
 }
 
 const GRID =
-  "grid grid-cols-[minmax(13rem,1.7fr)_minmax(8rem,1fr)_minmax(8.5rem,1fr)_minmax(10rem,1.2fr)_7rem_7rem_4.5rem_2.25rem] items-center";
+  "grid grid-cols-[minmax(13rem,1.7fr)_minmax(8rem,1fr)_minmax(8.5rem,1fr)_minmax(10rem,1.2fr)_11rem_11rem_4.5rem_2.25rem] items-center";
 
 function buildGroups(orders: readonly LeadOrder[], options: readonly StatusOption[]): Group[] {
   const approval = approvalStatusValue([...options]);
@@ -518,6 +543,8 @@ function LeadRow({
   statusOptions,
   onOpen,
   onCell,
+  onPay,
+  methods,
   onMoveOs,
 }: {
   order: LeadOrder;
@@ -528,9 +555,17 @@ function LeadRow({
   statusOptions: readonly StatusOption[];
   onOpen: () => void;
   onCell: (order: LeadOrder, key: string, value: string) => Promise<void>;
+  onPay: (order: LeadOrder, colKey: string, method: PaymentMethod | null) => void;
+  methods: readonly PaymentMethod[];
   onMoveOs: (order: LeadOrder, member: WorkspaceMember) => void;
 }) {
   const k = order.keys;
+  const payChip = (colKey: string) =>
+    order.kind === "os" && colKey ? (
+      <span className="shrink-0">
+        <PaymentChip row={order.row} colKey={colKey} methods={methods} canEdit compact onPick={(m) => onPay(order, colKey, m)} />
+      </span>
+    ) : null;
   return (
     <div
       className={cn(GRID, "h-9 border-b border-border/60 hover:bg-accent/30", zebra && "bg-muted/20")}
@@ -548,7 +583,8 @@ function LeadRow({
       <div className="min-w-0">
         <TechCell order={order} tech={tech} statusOptions={statusOptions} />
       </div>
-      <div className="min-w-0 px-1">
+      <div className="flex min-w-0 items-center gap-0.5 px-1">
+        {payChip(k.price)}
         <EditableText
           value={order.price === null ? "" : String(order.price)}
           display={order.price === null ? "" : formatNumber(order.price)}
@@ -559,7 +595,8 @@ function LeadRow({
           onCommit={(v) => onCell(order, k.price, v)}
         />
       </div>
-      <div className="min-w-0 px-1">
+      <div className="flex min-w-0 items-center gap-0.5 px-1">
+        {payChip(k.upsell)}
         <EditableText
           value={order.upsell === null ? "" : String(order.upsell)}
           display={order.upsell === null ? "" : formatNumber(order.upsell)}
@@ -617,5 +654,34 @@ function LeadMobileCard({
         </span>
       </div>
     </button>
+  );
+}
+
+function pct(v: number | null): string {
+  return v === null ? "—" : `${Math.round(v * 100)}%`;
+}
+
+/** Сводка по видимым заказам: сколько в работе, касса грязная и чистая, апсейл, KPI. */
+function LeadStatsStrip({ stats }: { stats: LeadStats }) {
+  const tiles: Array<{ label: string; value: string; sub?: string; tone?: string }> = [
+    { label: "Заказов", value: String(stats.count), sub: stats.approval ? `на утверждении ${stats.approval}` : undefined },
+    { label: "В работе", value: String(stats.inWork), sub: [stats.payment ? `ждём оплату ${stats.payment}` : "", stats.freeze ? `заморозка ${stats.freeze}` : ""].filter(Boolean).join(" · ") || undefined },
+    { label: "Готово", value: String(stats.done), sub: stats.cancelled ? `отменено ${stats.cancelled}` : undefined, tone: "text-success" },
+    { label: "Грязная касса", value: formatNumber(stats.gross), sub: "цена + апсейл до комиссии" },
+    { label: "Чистая касса", value: formatNumber(stats.net), sub: `после комиссии · в «Готово» ${formatNumber(stats.doneNet)}` },
+    { label: "Апсейл", value: formatNumber(stats.upsell), sub: `${formatCount(stats.upsellCount, ["заказ", "заказа", "заказов"])}` },
+    { label: "Апсейл готово", value: formatNumber(stats.upsellDone), sub: "апсейл заказов в «Готово»", tone: "text-success" },
+    { label: "KPI общий", value: pct(stats.kpi), sub: "«Готово» из всех, без отменённых", tone: "text-primary" },
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+      {tiles.map((t) => (
+        <div key={t.label} className="min-w-0 rounded-xl border border-border bg-card px-3 py-2">
+          <p className="text-[10.5px] font-medium uppercase leading-tight tracking-[0.08em] text-muted-foreground">{t.label}</p>
+          <p className={cn("font-mono text-[1.15rem] tabular-nums leading-tight", t.tone)}>{t.value}</p>
+          {t.sub ? <p className="line-clamp-2 text-[11px] leading-snug text-muted-foreground" title={t.sub}>{t.sub}</p> : null}
+        </div>
+      ))}
+    </div>
   );
 }
