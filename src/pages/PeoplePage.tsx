@@ -26,11 +26,12 @@ import type { Role, WorkspacePage } from "@/types";
 
 
 /** Значения `?role=`: пусто — без фильтра. */
-const ROLE_PARAMS: readonly (Role | "")[] = ["", "owner", "teamlead", "manager", "os", "admin", "viewer"];
+const ROLE_PARAMS: readonly (Role | "")[] = ["", "owner", "teamlead", "leadplus", "manager", "os", "admin", "viewer"];
 
 const ROLE_CHIPS: { id: Role; label: string }[] = [
   { id: "owner", label: "Owner" },
   { id: "teamlead", label: "Тимлид" },
+  { id: "leadplus", label: "Тимлид+" },
   { id: "manager", label: "Технарь" },
   { id: "os", label: "ОС" },
   { id: "admin", label: "admin" },
@@ -41,7 +42,7 @@ function RoleBadge({ role }: { role: Role }) {
   const tone =
     role === "owner"
       ? "border-primary/40 bg-primary/12 text-primary"
-      : role === "teamlead"
+      : role === "teamlead" || role === "leadplus"
         ? "border-fuchsia-400/40 bg-fuchsia-400/12 text-fuchsia-200"
         : role === "manager"
           ? "border-teal-400/40 bg-teal-400/12 text-teal-200"

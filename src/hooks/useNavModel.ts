@@ -1,3 +1,4 @@
+import { isLeadRole } from "@/types/role";
 import { createContext, createElement, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import {
   CalendarCheck2,
@@ -30,7 +31,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Building2 as PlatformIcon, FileChartColumn, Smartphone, Sparkles } from "lucide-react";
+import { Building2 as PlatformIcon, FileChartColumn, Sheet as LeadBoardIcon, Smartphone, Sparkles } from "lucide-react";
 import { useInstallMode } from "@/utils/pwa";
 import { startInstall } from "@/components/common/InstallApp";
 import { DESKS_ITEM_KEY, DESK_SHORTCUTS_LIMIT, EXTRA_ROUTE_META, MORE_ITEM_KEY, MORE_SECTION_KEY, pathMatches, pathOnly, type NavChild, type NavItem, type NavSection, type PageMeta } from "@/config/nav";
@@ -90,7 +91,7 @@ let backupInFlight = false;
 /** Подпись роли под именем в карточке аккаунта; у ролей без подписи — email. */
 function roleCaption(role: Role): string | undefined {
   if (role === "owner") return "Владелец";
-  if (role === "teamlead" || role === "manager" || role === "os") return roleLabel(role);
+  if (isLeadRole(role) || role === "manager" || role === "os") return roleLabel(role);
   return undefined;
 }
 
@@ -266,7 +267,9 @@ function navGates(inp: NavInputs) {
       ? "/users"
       : myDesk
         ? `/page/${myDesk.id}`
-        : showDeskNav
+        : permissions.isResolved && permissions.role === "leadplus" && on("/leads")
+          ? "/leads"
+          : showDeskNav
           ? "/desks"
           : on("/dashboard")
             ? "/dashboard"
@@ -365,6 +368,9 @@ function buildDefaultSections(inp: NavInputs, g: NavGates, sig: NavSignals, desk
           emphasis: true,
           hint: sig.openOrdersCount > 0 ? `${sig.openOrdersCount} откр.` : undefined,
         },
+        // «Общая таблица» (27.09.2026): все заказы периода по всем ОС — у
+        // Тимлид+ и Owner. Правка, смена ОС, новый клиент, история.
+        { key: "leads", to: "/leads", label: "Общая таблица", icon: LeadBoardIcon, show: inp.permissions.canLeadBoard, emphasis: true },
         // У ОС дом — «Технари» (дубль убирает фильтр ниже); стол ОС — свой пункт.
         {
           key: "os-desk",

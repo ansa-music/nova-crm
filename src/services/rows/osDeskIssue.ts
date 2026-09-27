@@ -164,6 +164,8 @@ export async function addOsDeskOrderRow(input: {
   rows: readonly PageRow[];
   order: NewOsOrderInput;
   statusOptions: readonly StatusOption[];
+  /** Служебные и прочие ячейки той же записью («Общая таблица»: кто завёл, апсейл, «Итого»). */
+  extraCells?: Record<string, string | number | null>;
 }): Promise<PageRow> {
   const { tab, order } = input;
   const k = tab.keys;
@@ -178,6 +180,7 @@ export async function addOsDeskOrderRow(input: {
   // заказ ляжет на биржу. Не лёг (сеть, отказ) — строка остаётся «на
   // утверждении» и выдаётся со стола или из того же окна, как обычно.
   if (has(k.status)) cells[k.status] = approvalStatusValue([...input.statusOptions]);
+  if (input.extraCells) Object.assign(cells, input.extraCells);
   const extras: RowExtras = {};
   if (order.persons) extras.persons = order.persons;
   if (order.minutes) extras.minutes = order.minutes;

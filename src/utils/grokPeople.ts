@@ -1,3 +1,4 @@
+import { isLeadRole } from "@/types/role";
 import { rolesOf, type WorkspaceMember } from "@/types";
 import { personLabel } from "@/utils/peopleDesks";
 import { TEAM_GROUP_LABEL, TEAM_GROUPS, teamGroupOf, type TeamGroup } from "@/utils/teamGroup";
@@ -16,7 +17,7 @@ export function canUseGrokMember(member: WorkspaceMember): boolean {
  */
 export function grokPickerCandidates(members: WorkspaceMember[]): WorkspaceMember[] {
   return members.filter(
-    (m) => m.status === "active" && Boolean(m.uid) && m.role !== "owner" && m.role !== "teamlead" && canUseGrokMember(m)
+    (m) => m.status === "active" && Boolean(m.uid) && m.role !== "owner" && !isLeadRole(m.role) && canUseGrokMember(m)
   );
 }
 

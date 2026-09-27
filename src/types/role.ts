@@ -1,10 +1,11 @@
 import { currentSiteConfig, term } from "@/config/siteTerms";
 
-export type Role = "owner" | "teamlead" | "admin" | "manager" | "os" | "viewer";
+export type Role = "owner" | "teamlead" | "leadplus" | "admin" | "manager" | "os" | "viewer";
 
 export const ROLE_LABELS: Record<Role, string> = {
   owner: "Owner",
   teamlead: "Тимлид",
+  leadplus: "Тимлид+",
   admin: "Admin",
   manager: "Технарь",
   os: "ОС",
@@ -15,6 +16,8 @@ export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   owner: "Полный доступ: workspace, участники, права, история",
   teamlead:
     "Ведёт людей: участники, заявки, роли, доступы к столам, настройки, объявления. Таблицы столов не видит. Не может удалить workspace и менять Owner.",
+  leadplus:
+    "Всё, что Тимлид, и сверх того видит и правит все столы, ведёт «Общую таблицу» заказов и раздаёт лиды ОС. Роль выдаёт только Owner.",
   admin: "Создание и редактирование своих столов. Пользователей ведёт Owner.",
   manager: "Редактирование только разрешённых страниц",
   os: "Без своего стола. Видит «Технари»: кто из технарей свободен и сколько у них заказов.",
@@ -22,7 +25,8 @@ export const ROLE_DESCRIPTIONS: Record<Role, string> = {
 };
 
 export const ROLE_RANK: Record<Role, number> = {
-  owner: 5,
+  owner: 6,
+  leadplus: 5,
   teamlead: 4,
   admin: 3,
   manager: 2,
@@ -30,7 +34,14 @@ export const ROLE_RANK: Record<Role, number> = {
   viewer: 1,
 };
 
-export const ALL_ROLES: Role[] = ["owner", "teamlead", "admin", "manager", "os", "viewer"];
+export const ALL_ROLES: Role[] = ["owner", "teamlead", "leadplus", "admin", "manager", "os", "viewer"];
+
+/** Руководство людьми: Тимлид и Тимлид+ (Тимлид+ сверх того правит все столы). */
+export const LEAD_ROLES: Role[] = ["teamlead", "leadplus"];
+
+export function isLeadRole(role: Role | null | undefined): boolean {
+  return role === "teamlead" || role === "leadplus";
+}
 
 /**
  * Roles a person can hold on top of their main one — Owner + Технарь,

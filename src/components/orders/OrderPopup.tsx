@@ -25,6 +25,8 @@ export interface OrderPopupItem {
   href: string;
   /** «Вам выдан заказ» — самое важное: другой цвет и подпись. */
   assigned: boolean;
+  /** Своя подпись над заголовком («Новый лид от Тимлида»). */
+  eyebrow?: string;
 }
 
 let queue: OrderPopupItem[] = [];
@@ -58,6 +60,12 @@ function snapshot() {
 
 /** Уведомление про заказ → окно. «Отклик» и «отозван» — не окно, а обычный тост. */
 export function orderPopupOf(n: Notification): OrderPopupItem | null {
+  // Лид от Тимлида+ («Общая таблица») — окно со ссылкой на строку стола ОС.
+  if (n.kind === "lead-assigned" && typeof n.href === "string" && n.href.startsWith("/")) {
+    const title = n.title.replace(/^Тимлид (дал вам новый лид|передал вам заказ):\s*/i, "");
+    const eyebrow = /передал/i.test(n.title) ? "Тимлид передал вам заказ" : "Новый лид от Тимлида";
+    return { id: n.id, title, body: n.body, href: n.href, assigned: true, eyebrow };
+  }
   const href = typeof n.href === "string" && n.href.startsWith("/orders") ? n.href : null;
   if (!href) return null;
   const assigned = /^Вам выдан заказ/i.test(n.title);
@@ -120,7 +128,7 @@ export function OrderPopupHost() {
           <Icon className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="eyebrow">{current.assigned ? "Вам выдан заказ" : "Новый заказ на «Заказах»"}</p>
+          <p className="eyebrow">{current.eyebrow ?? (current.assigned ? "Вам выдан заказ" : "Новый заказ на «Заказах»")}</p>
           <p className="mt-0.5 text-[15px] font-semibold leading-snug">{current.title.replace(/^(Вам выдан заказ|Новый заказ):\s*/i, "")}</p>
           {current.body ? <p className="mt-1 text-[13px] leading-snug text-muted-foreground">{current.body}</p> : null}
           <div className="mt-3 flex flex-wrap items-center gap-2">

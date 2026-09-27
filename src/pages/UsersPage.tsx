@@ -58,10 +58,14 @@ import { usePresenceMap } from "@/hooks/usePresenceMap";
 import { roleLabel, EXTRA_ROLES, memberHasRole, rolesOf, type JoinRequest, type PageIconName, type Role, type WorkspaceMember } from "@/types";
 import { confirmDialog } from "@/utils/appDialog";
 
+/** Owner выдаёт и «Тимлид+»; Тимлиду этой роли в списке нет. */
+const LEADPLUS_ASSIGNABLE: Role[] = ["teamlead", "leadplus", "admin", "manager", "os", "viewer"];
+
 
 const ROLE_CHIPS: { id: Role | "invited"; label: string }[] = [
   { id: "owner", label: "Owner" },
   { id: "teamlead", label: "Тимлид" },
+  { id: "leadplus", label: "Тимлид+" },
   { id: "manager", label: "Технарь" },
   { id: "os", label: "ОС" },
   { id: "admin", label: "admin" },
@@ -521,7 +525,8 @@ export default function UsersPage() {
             !responsibleUids.has(member.uid);
           // A Тимлид never changes their own roles, nick or membership — the
           // Owner or another Тимлид does (firestore.rules enforce the same).
-          const selfLocked = member.uid === profile?.uid && !viewerIsOwner;
+          // Запись «Тимлид+» правит только Owner (как правила members и core_write).
+          const selfLocked = (member.uid === profile?.uid || member.role === "leadplus") && !viewerIsOwner;
           const extraRoles = rolesOf(member).slice(1);
           const addableRoles = EXTRA_ROLES.filter((r) => r !== member.role && !extraRoles.includes(r));
           // Запись Owner правит создатель, а выданный Owner — только свою
@@ -656,6 +661,7 @@ export default function UsersPage() {
                     className="w-full sm:w-32"
                     value={member.role}
                     disabled={selfLocked}
+                    assignableRoles={viewerIsOwner ? LEADPLUS_ASSIGNABLE : undefined}
                     onChange={(role) =>
                       handleRoleChange(member.status === "invited" ? member.email : member.uid, role, member.extraRoles)
                     }

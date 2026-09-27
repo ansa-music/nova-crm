@@ -49,6 +49,12 @@ export const OS_ISSUED_ON_KEY = "osIssuedOn";
  * технарь впишет потом, строку забрать может.
  */
 export const OS_RELEASED_FROM_KEY = "osReleasedFrom";
+/**
+ * «Общая таблица»: кто из руководства (Тимлид+ / Owner) завёл этот лид
+ * строкой на стол ОС (uid) и когда (мс строкой). Только для показа.
+ */
+export const LEAD_BY_KEY = "leadBy";
+export const LEAD_AT_KEY = "leadAt";
 
 export const RESERVED_CELL_KEYS: readonly string[] = [
   TECH_LINK_KEY,
@@ -59,6 +65,8 @@ export const RESERVED_CELL_KEYS: readonly string[] = [
   OS_RECEIVED_ON_KEY,
   OS_ISSUED_ON_KEY,
   OS_RELEASED_FROM_KEY,
+  LEAD_BY_KEY,
+  LEAD_AT_KEY,
 ];
 
 const RESERVED_LOWER = new Set(RESERVED_CELL_KEYS.map((k) => k.toLowerCase()));
@@ -71,6 +79,8 @@ const OS_ROW_SERVICE_KEYS = new Set([
   OS_RECEIVED_ON_KEY,
   OS_ISSUED_ON_KEY,
   OS_RELEASED_FROM_KEY,
+  LEAD_BY_KEY,
+  LEAD_AT_KEY,
 ]);
 
 /**

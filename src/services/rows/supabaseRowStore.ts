@@ -16,7 +16,7 @@ import type { PageRow, RowAttachment } from "@/types";
 
 type Cells = PageRow["cells"];
 
-interface DeskRowRecord {
+export interface DeskRowRecord {
   workspace_id: string;
   page_id: string;
   tab_id: string;
@@ -275,7 +275,7 @@ async function fetchTableDelta(
  * `collate "C"` в голове таблицы. Обычный `<` сравнивает единицы UTF-16 и
  * разошёлся бы с базой на символах за пределами BMP.
  */
-function compareCodePoints(a: string, b: string): number {
+export function compareCodePoints(a: string, b: string): number {
   const n = Math.min(a.length, b.length);
   for (let i = 0; i < n; i++) {
     const x = a.codePointAt(i)!;

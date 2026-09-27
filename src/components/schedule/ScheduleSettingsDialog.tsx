@@ -1,3 +1,4 @@
+import { isLeadRole } from "@/types/role";
 import { useMemo, useState } from "react";
 import { EyeOff, Loader2, Plus, Settings2, Trash2, UserCog, Users, Clock } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
@@ -61,7 +62,7 @@ export function ScheduleSettingsDialog({
   const candidates = useMemo(
     () =>
       members
-        .filter((m) => m.role !== "owner" && m.role !== "teamlead")
+        .filter((m) => m.role !== "owner" && !isLeadRole(m.role))
         .filter((m) => matchesPersonQuery(query, [personLabel(m), m.name, m.nickname, m.email]))
         .sort((a, b) => personLabel(a).localeCompare(personLabel(b), "ru")),
     [members, query]

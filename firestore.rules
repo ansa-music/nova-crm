@@ -86,7 +86,15 @@ service cloud.firestore {
     // if they end up responsible for or listed on a desk. Owner-only on top
     // of that: deleting the workspace and any Owner membership.
     function isTeamLead(workspaceId) {
-      return isMember(workspaceId) && myRole(workspaceId) == 'teamlead';
+      return isMember(workspaceId) && myRole(workspaceId) in ['teamlead', 'leadplus'];
+    }
+
+    // «Тимлид+» (27.09.2026): всё, что Тимлид, и сверх того ЧИТАЕТ и ПРАВИТ
+    // строки всех столов без второй роли «Технарь». Структуру чужого стола
+    // не правит (только поля месячной вкладки), личные зоны чужих столов
+    // закрыты. Роль выдаёт и снимает только Owner.
+    function isLeadPlus(workspaceId) {
+      return isMember(workspaceId) && myRole(workspaceId) == 'leadplus';
     }
 
     function hasFullAccess(workspaceId) {
@@ -119,7 +127,7 @@ service cloud.firestore {
     // A Тимлид who isn't also a Технарь: no desk tables. A Тимлид + ОС stays
     // blocked; a Тимлид + Технарь opens desks like any Технарь.
     function isDeskBlocked(workspaceId) {
-      return isTeamLead(workspaceId) && !hasExtraRole(workspaceId, 'manager');
+      return isMember(workspaceId) && myRole(workspaceId) == 'teamlead' && !hasExtraRole(workspaceId, 'manager');
     }
 
     // Owner or Admin (Выдача carries order data, so not Тимлид).
@@ -294,6 +302,7 @@ service cloud.firestore {
     // вложения заказа (как `rows_tech_fills` в Postgres, 20261001_tech_fill.sql).
     function managedRowUpdateOk(workspaceId, pageData) {
       return isOwner(workspaceId)
+        || isLeadPlus(workspaceId)
         || resource.data.get('osUid', '') == request.auth.uid
         || (isTeamLead(workspaceId)
           && rowKeysOnly(['cells', 'updatedAt'])
@@ -317,12 +326,13 @@ service cloud.firestore {
     function managedRowCreateOk(workspaceId) {
       return request.resource.data.get('osUid', '') == ''
         || isOwner(workspaceId)
+        || isLeadPlus(workspaceId)
         || request.resource.data.get('osUid', '') == request.auth.uid;
     }
 
     // Строку-заказ убирает тот, кто её ведёт.
     function managedRowDeleteOk(workspaceId) {
-      return !isManagedRow() || isOwner(workspaceId)
+      return !isManagedRow() || isOwner(workspaceId) || isLeadPlus(workspaceId)
         || resource.data.get('osUid', '') == request.auth.uid;
     }
 
@@ -373,6 +383,7 @@ service cloud.firestore {
     // allowedUsers. Everyone else: explicit allowedUsers grant.
     function canAccessPage(workspaceId, pageData) {
       return isOwner(workspaceId) ||
+        isLeadPlus(workspaceId) ||
         isTeamLeadTech(workspaceId) ||
         (isMember(workspaceId) && isOsDeskPage(pageData)) ||
         hasRole(workspaceId, 'os') ||
@@ -390,6 +401,8 @@ service cloud.firestore {
     // responsible person controls independently of plain view access.
     function canEditPage(workspaceId, pageData) {
       return isOwner(workspaceId) ||
+        // Тимлид+ правит данные всех столов (структуру стола — нет, см. pages).
+        isLeadPlus(workspaceId) ||
         // Свой стол ОС ведёт и Тимлид + ОС: запрет Тимлиду касается столов
         // технарей, а стол ОС — его личная таблица продаж.
         // Именно СВОЙ: создатель и ответственный — один человек. createdBy
@@ -505,7 +518,7 @@ service cloud.firestore {
             !('activeRole' in request.resource.data.diff(resource.data).affectedKeys())
             || request.resource.data.activeRole == null
             || (resource.data.role == 'owner' &&
-                request.resource.data.activeRole in ['owner', 'teamlead', 'admin', 'manager', 'os', 'viewer'])
+                request.resource.data.activeRole in ['owner', 'teamlead', 'leadplus', 'admin', 'manager', 'os', 'viewer'])
           );
 
         // Создатель workspace (ownerId) ведёт любую запись: приглашает, меняет
@@ -536,21 +549,25 @@ service cloud.firestore {
         // becomes 'owner'. (delete has no request.resource — only resource.)
         // Add-on roles may only be Технарь/ОС. A Тимлид never changes their
         // own roles, ОС nick or membership — the Owner or another Тимлид does.
+        // Роль «Тимлид+» выдаёт и снимает только Owner: Тимлид (и сам
+        // Тимлид+) записи Тимлид+ не заводит и чужие не правит.
         allow create: if isTeamLead(workspaceId)
-          && request.resource.data.get('role', '') != 'owner'
+          && !(request.resource.data.get('role', '') in ['owner', 'leadplus'])
           && request.resource.data.get('extraRoles', []).hasOnly(['manager', 'os'])
           && memberId != request.auth.uid
           && memberId != get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '');
         allow update: if isTeamLead(workspaceId)
           && resource.data.get('role', '') != 'owner'
           && request.resource.data.get('role', '') != 'owner'
+          && (memberId == request.auth.uid
+            || (resource.data.get('role', '') != 'leadplus' && request.resource.data.get('role', '') != 'leadplus'))
           && request.resource.data.get('extraRoles', []).hasOnly(['manager', 'os'])
           && (memberId != request.auth.uid
             || !request.resource.data.diff(resource.data).affectedKeys()
               .hasAny(['role', 'extraRoles', 'osNick', 'osNickValue', 'techNick', 'techNickValue', 'otherNick', 'otherNickValue', 'status', 'uid', 'email']))
           && memberId != get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '');
         allow delete: if isTeamLead(workspaceId)
-          && resource.data.get('role', '') != 'owner'
+          && !(resource.data.get('role', '') in ['owner', 'leadplus'])
           && memberId != request.auth.uid
           && memberId != get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.get('ownerId', '');
 
@@ -716,7 +733,24 @@ service cloud.firestore {
           && request.resource.data.responsibleUserId == request.auth.uid
           && request.auth.uid in request.resource.data.get('allowedUsers', []);
 
+        // Тимлид+ заводит стол ОС участнику с ролью ОС — чтобы положить ему лид.
+        allow create: if isLeadPlus(workspaceId) && request.resource.data.workspaceId == workspaceId
+          && request.resource.data.get('osDesk', false) == true
+          && pageId == 'osdesk_' + request.resource.data.responsibleUserId
+          && request.resource.data.createdBy == request.resource.data.responsibleUserId
+          && request.resource.data.responsibleUserId in request.resource.data.get('allowedUsers', [])
+          && (memberDoc(workspaceId, request.resource.data.responsibleUserId).data.role == 'os'
+            || 'os' in memberDoc(workspaceId, request.resource.data.responsibleUserId).data.get('extraRoles', []));
+
         allow update: if isOwner(workspaceId);
+        // Тимлид+ сверх полей доступа ставит поля месячной вкладки чужого
+        // стола (autopilot / лид в стол ОС). Структуру стола — нет.
+        allow update: if isLeadPlus(workspaceId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['allowedUsers', 'editableUsers', 'responsibleUserId', 'hiddenByResponsible', 'personalZoneAllowedUsers', 'inactive', 'inactiveAt', 'inactiveBy', 'updatedAt',
+              'autoMonthKey', 'autoMonthSubPageId', 'defaultSubPageId', 'mainTabName', 'mainTabMonthKey'])
+          && !(isOsDeskPage(resource.data)
+            && request.resource.data.diff(resource.data).affectedKeys().hasAny(['responsibleUserId']));
         // Тимлид: who sees, edits and answers for a desk — never its content
         // (columns, name, tabs). Keep in sync with the access writes in
         // pageService (updatePagePermissions, updatePageEditableUsers,

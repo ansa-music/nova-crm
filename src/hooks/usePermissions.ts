@@ -183,6 +183,10 @@ export function usePermissions() {
       isCreator: isOwnerOfWorkspace,
       /** Owner в интерфейсе: роль Owner и режим другой роли не включён. */
       actsAsOwner: effectiveRole === "owner",
+      /** Правит строки ВСЕХ столов: Owner и «Тимлид+» (замки строк-заказов ОС их не держат). */
+      editsAllDesks: effectiveRole === "owner" || roles.includes("leadplus"),
+      /** «Общая таблица» заказов (/leads): Owner и «Тимлид+». */
+      canLeadBoard: isResolved && (effectiveRole === "owner" || effectiveRole === "leadplus"),
       /**
        * Owner in the UI — every desk opens. Narrowed by a role simulation, as
        * everything in the UI. A Тимлид never has it: no desk tables for them.
