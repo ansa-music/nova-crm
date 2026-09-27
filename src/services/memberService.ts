@@ -759,6 +759,7 @@ export async function removeMember(workspaceId: string, uid: string) {
   }
   await deleteDoc(paths.member(workspaceId, uid));
   await dropFromRowsAcl(workspaceId, uid, false);
+  pruneTelegramDevices(workspaceId);
 }
 
 /**
@@ -805,6 +806,16 @@ export async function pushMemberToRowsAcl(workspaceId: string, uid: string) {
  * следующей сверке прав. Firestore уже записан — отказ здесь не откатывает
  * удаление, его доделает сверка (`useRowAclSync`) у Owner/Тимлида.
  */
+/**
+ * Убрали человека — его устройство Telegram (аккаунт workspace на сервере,
+ * SQL 20261035) сбрасывается сразу. Только у Owner; нет функции — молча.
+ */
+function pruneTelegramDevices(workspaceId: string) {
+  void import("@/services/telegram/tgServer")
+    .then((m) => m.callTgEdge(workspaceId, "devices_prune"))
+    .catch(() => undefined);
+}
+
 async function dropFromRowsAcl(workspaceId: string, uid: string, observerToo: boolean) {
   if (!uid || !usesSupabaseRows(workspaceId)) return;
   try {
@@ -892,6 +903,7 @@ export async function deleteMemberCompletely(input: {
   if (uid) batch.delete(paths.deskObserver(workspaceId, uid));
   await withDbTimeout(batch.commit(), "Удаление пользователя");
   await dropFromRowsAcl(workspaceId, uid, true);
+  pruneTelegramDevices(workspaceId);
 
   return {
     removed: {

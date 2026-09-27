@@ -12,4 +12,6 @@ dist
 graphify-out/
 src/firebase/firestoreChannel.ts
 supabase/config.toml
-supabase/functions/
+# Функции Supabase не коммитим (fs-relay попадал по ошибке) — кроме `tg` (Telegram, выкладывает деплой).
+supabase/functions/*
+!supabase/functions/tg/

@@ -14,6 +14,8 @@ import {
   type OsDeskKeys,
 } from "@/services/osDeskService";
 import { techTargetProblem, techUidByNick } from "@/services/rows/osOrderMirror";
+import { TgTechGrantToggle } from "@/components/telegram/TgTechGrantToggle";
+import { personLabel } from "@/utils/peopleDesks";
 import { DEFAULT_STATUS_OPTIONS, ensureApprovalStatus, ensureDoneStatus, isDoneStatusLabel } from "@/utils/columnOptions";
 import { OsOrderRating } from "@/components/os/OsOrderRating";
 import { firestoreErrorText } from "@/utils/dbError";
@@ -377,6 +379,10 @@ export function OsOrderPanel({
           </Button>
         ) : null}
       </div>
+
+      {techUid ? (
+        <TgTechGrantToggle pageId={pageId} rowId={row.id} techUid={techUid} techName={(() => { const m = members.find((x) => x.uid === techUid); return m ? personLabel(m) : "Технарь"; })()} />
+      ) : null}
 
       {mirror ? (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">

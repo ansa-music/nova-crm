@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, LogOut, RefreshCw, Send, ShieldCheck } from "lucide-react";
+import { Loader2, LogOut, RefreshCw, Send, ShieldCheck, Unplug } from "lucide-react";
 import { AccessDenied } from "@/components/common/AccessDenied";
 import { LoadingState } from "@/components/common/LoadingState";
 import { TelegramAccessDialog } from "@/components/telegram/TelegramAccessDialog";
 import { TelegramSetupGuide } from "@/components/telegram/TelegramSetupGuide";
 import { TgChats, useTg } from "@/components/telegram/TgChats";
 import { TgLogin } from "@/components/telegram/TgLogin";
+import { TgConnect } from "@/components/telegram/TgConnect";
+import { TgTechChats } from "@/components/telegram/TgTechChats";
+import type { TgTechGrantTools } from "@/components/telegram/TgTechGrant";
+import { callTgEdge, refreshTgServer, ringTgServer, tgFunctionMissing, tgServerLink, useTgServer, useTgTechAccess } from "@/services/telegram/tgServer";
+import { memberHasRole } from "@/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
@@ -22,7 +27,7 @@ import { clientNameAndPhone } from "@/utils/clientLabel";
 import { deskNavState, deskRowHref } from "@/utils/deskLinks";
 import { periodLabel, periodOfTabId } from "@/utils/periods";
 import { useNavigate } from "react-router";
-import { logOutTelegram, openTelegram, retryTelegramNow, takeOverTelegram } from "@/services/telegram/tgClient";
+import { acceptLoginUrlHere, logOutTelegram, openTelegram, retryTelegramNow, takeOverTelegram } from "@/services/telegram/tgClient";
 import { TgConnDot, TgElsewhere, TgRetryIn } from "@/components/telegram/TgConnection";
 import { confirmDialog } from "@/utils/appDialog";
 import { cn } from "@/utils/cn";
@@ -46,6 +51,15 @@ export default function TelegramPage() {
   const canHave = permissions.isResolved;
   const access = useTelegramAccess(activeWorkspaceId, uid, canHave);
   const granted = canHave && access.granted;
+  // Аккаунт workspace на сервере (SQL 20261035 + функция `tg`): один на
+  // workspace, вход не вылетает, браузеры получают устройство без QR.
+  const server = useTgServer(activeWorkspaceId, canHave && (granted || isOwner));
+  const serverMode = server.connected && !tgFunctionMissing();
+  const canUse = granted || (isOwner && serverMode);
+  // Технарь без полного доступа: только чаты, которые ему открыл ОС.
+  const techAccess = useTgTechAccess(activeWorkspaceId, uid, canHave && !canUse);
+  const [legacyLogin, setLegacyLogin] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
   const tg = useTg();
   const [manageOpen, setManageOpen] = useState(false);
   // Закрыли «Доступ и ключи» — инструкция перечитает, сколько ОС отмечено.
@@ -92,6 +106,20 @@ export default function TelegramPage() {
     };
   }, [activeWorkspaceId, uid, chatLinks.loaded, chatLinks.clientsMissingSql, chatLinks.clients, pagesById, periods, navigate]);
 
+  // «Технарю»: открыть переписку с клиентом технарю заказа (SQL 20261035).
+  const techGrant = useMemo<TgTechGrantTools | null>(() => {
+    if (!activeWorkspaceId || !serverMode) return null;
+    const candidates = members.filter((m) => m.uid && m.uid !== uid && m.status !== "invited" && memberHasRole(m, "manager"));
+    return {
+      workspaceId: activeWorkspaceId,
+      candidates,
+      clientOf: (id) => {
+        const c = chatLinks.clients[id];
+        return c ? { pageId: c.pageId, rowId: c.rowId } : null;
+      },
+    };
+  }, [activeWorkspaceId, serverMode, members, uid, chatLinks.clients]);
+
   const linking = useMemo<TgLinking | null>(() => {
     if (!activeWorkspaceId || !uid || !chatLinks.loaded || chatLinks.missingSql) return null;
     return {
@@ -100,18 +128,44 @@ export default function TelegramPage() {
       myOsValue,
       setLink: (dialog, osValue) => setTgChatLink(activeWorkspaceId, dialog.id, osValue, dialog.title, uid),
       client: clientTools,
+      techGrant,
     };
-  }, [activeWorkspaceId, uid, chatLinks.loaded, chatLinks.missingSql, chatLinks.links, osOptions, myOsValue, clientTools]);
+  }, [activeWorkspaceId, uid, chatLinks.loaded, chatLinks.missingSql, chatLinks.links, osOptions, myOsValue, clientTools, techGrant]);
 
+  const accountId = server.account?.id ?? null;
   useEffect(() => {
-    if (!granted || !config || !activeWorkspaceId || !uid) return;
-    void openTelegram({ workspaceId: activeWorkspaceId, uid, config, deviceName });
+    if (!canUse || !config || !activeWorkspaceId || !uid) return;
+    if (server.loading) return;
+    void openTelegram({
+      workspaceId: activeWorkspaceId,
+      uid,
+      config,
+      deviceName,
+      server: serverMode ? tgServerLink(activeWorkspaceId, accountId) : null,
+    });
     // deviceName меняется с ником — сессию из-за этого не пересоздаём.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [granted, config?.apiId, config?.apiHash, activeWorkspaceId, uid]);
+  }, [canUse, config?.apiId, config?.apiHash, activeWorkspaceId, uid, serverMode, accountId, server.loading]);
 
   if (!permissions.isResolved || (access.loading && !access.key)) return <LoadingState label="Открываю Telegram…" />;
   if (access.loading) return <LoadingState label="Проверяю доступ…" />;
+
+  if (!canUse && !isOwner && techAccess && activeWorkspaceId) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex items-center gap-3 border-b border-border px-4 py-2.5 sm:px-6">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/15 text-sky-300">
+            <Send className="h-4 w-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-sm font-semibold">Telegram</h1>
+            <p className="truncate text-[12px] text-muted-foreground">Клиенты ваших заказов</p>
+          </div>
+        </div>
+        <TgTechChats workspaceId={activeWorkspaceId} chatId={chatId} onOpenChat={(id) => setChatParam(id === null ? "" : String(id))} />
+      </div>
+    );
+  }
 
   if (!granted && !isOwner) {
     return (
@@ -134,6 +188,25 @@ export default function TelegramPage() {
     ) : null;
 
   const me = tg.auth.kind === "ready" ? tg.auth.me : null;
+
+  async function disconnect() {
+    if (!activeWorkspaceId) return;
+    const ok = await confirmDialog({
+      title: "Отключить Telegram от workspace?",
+      description: "Аккаунт выйдет на сервере и на всех устройствах Nova. Чтобы вернуть, Owner подключит его заново (QR или код).",
+      confirmLabel: "Отключить",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await callTgEdge(activeWorkspaceId, "disconnect");
+      ringTgServer(activeWorkspaceId);
+      refreshTgServer();
+      toast.success("Telegram отключён от workspace");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось отключить");
+    }
+  }
 
   async function logout() {
     if (!activeWorkspaceId || !uid || !config) return;
@@ -159,7 +232,23 @@ export default function TelegramPage() {
         </Alert>
       </Pane>
     );
-  } else if (isOwner && activeWorkspaceId && (!granted || !config)) {
+  } else if (isOwner && activeWorkspaceId && config && !serverMode && !server.sqlMissing && !server.loading && !tgFunctionMissing() && (connectOpen || (!legacyLogin && (!canUse || tg.auth.kind === "signedOut")))) {
+    // Owner: подключить аккаунт к workspace один раз (вход на сервере).
+    body = (
+      <Pane>
+        <TgConnect
+          workspaceId={activeWorkspaceId}
+          migrate={tg.auth.kind === "ready" ? acceptLoginUrlHere : null}
+          onLegacy={granted && tg.auth.kind !== "ready" ? () => setLegacyLogin(true) : null}
+        />
+        {connectOpen && (
+          <Button variant="ghost" size="sm" onClick={() => setConnectOpen(false)}>
+            Вернуться к чатам
+          </Button>
+        )}
+      </Pane>
+    );
+  } else if (isOwner && activeWorkspaceId && (!canUse || !config)) {
     // Owner: пошаговая инструкция «Как подключить» с отметками сделанного.
     body = (
       <Pane wide>
@@ -179,6 +268,8 @@ export default function TelegramPage() {
     );
   } else if (tg.auth.kind === "idle" || tg.auth.kind === "connecting") {
     body = <LoadingState label="Подключаюсь к Telegram…" />;
+  } else if (tg.auth.kind === "issuing") {
+    body = <LoadingState label="Подключаю это устройство к аккаунту workspace…" />;
   } else if (tg.auth.kind === "elsewhere") {
     body = (
       <Pane>
@@ -200,7 +291,37 @@ export default function TelegramPage() {
       </Pane>
     );
   } else if (tg.auth.kind === "ready" && me) {
-    body = <TgChats me={me} chatId={chatId} onOpenChat={(id) => setChatParam(id === null ? "" : String(id))} linking={linking} />;
+    body = (
+      <>
+        {isOwner && !serverMode && !server.sqlMissing && !server.loading && !tgFunctionMissing() && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-border bg-sky-500/5 px-4 py-2 text-[12px] sm:px-6">
+            <span className="min-w-0 flex-1">Сейчас вход только в этом браузере. Сделайте его общим для workspace — тогда Telegram не будет вылетать, а другим не нужен QR.</span>
+            <Button size="sm" variant="outline" className="h-8" onClick={() => setConnectOpen(true)}>
+              Сделать общим
+            </Button>
+          </div>
+        )}
+        <TgChats me={me} chatId={chatId} onOpenChat={(id) => setChatParam(id === null ? "" : String(id))} linking={linking} />
+      </>
+    );
+  } else if (serverMode && tg.auth.kind === "password") {
+    // Пароль на сервере не сохранён — облачный пароль вводят один раз в этом браузере.
+    body = (
+      <Pane>
+        <TgLogin auth={tg.auth} lastEnd={null} />
+      </Pane>
+    );
+  } else if (!serverMode && !isOwner && granted && server.key && !server.loading && !server.sqlMissing && !tgFunctionMissing() && tg.auth.kind === "signedOut" && !legacyLogin) {
+    body = (
+      <Pane>
+        <Alert tone="info" title="Аккаунт workspace ещё не подключён">
+          Owner подключает Telegram к workspace один раз — после этого он откроется здесь сам, без QR.
+        </Alert>
+        <button type="button" className="text-[12px] text-muted-foreground underline-offset-2 hover:underline" onClick={() => setLegacyLogin(true)}>
+          Войти по-старому — только в этом браузере
+        </button>
+      </Pane>
+    );
   } else {
     body = <TgLogin auth={tg.auth} lastEnd={tg.lastEnd} />;
   }
@@ -216,7 +337,11 @@ export default function TelegramPage() {
             Telegram {me && <TgConnDot conn={tg.conn} />}
           </h1>
           <p className="truncate text-[12px] text-muted-foreground">
-            {me ? `${me.name}${me.username ? ` · @${me.username}` : ""}${me.isPremium ? " · Premium" : ""}` : "Рабочий аккаунт"}
+            {me
+              ? `${me.name}${me.username ? ` · @${me.username}` : ""}${me.isPremium ? " · Premium" : ""}${serverMode ? " · аккаунт workspace" : ""}`
+              : server.account?.name
+                ? `${server.account.name} · аккаунт workspace`
+                : "Рабочий аккаунт"}
           </p>
         </div>
         {access.error && (
@@ -225,9 +350,14 @@ export default function TelegramPage() {
           </span>
         )}
         {manageButton}
-        {me && (
+        {me && !serverMode && (
           <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => void logout()}>
             <LogOut className="h-4 w-4" /> Выйти
+          </Button>
+        )}
+        {serverMode && isOwner && (
+          <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => void disconnect()}>
+            <Unplug className="h-4 w-4" /> Отключить
           </Button>
         )}
       </div>

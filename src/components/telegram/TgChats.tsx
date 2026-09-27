@@ -42,6 +42,7 @@ import { cn } from "@/utils/cn";
 import { formatMessageWrittenAt, zonedDateFormat } from "@/utils/date";
 import { filterDialogsByLink, TgChatFilterBar, TgOsChip, TgOsLinkButton, type TgChatFilter, type TgLinking } from "@/components/telegram/TgOsLink";
 import { TgClientButton } from "@/components/telegram/TgClientLink";
+import { TgTechGrantButton } from "@/components/telegram/TgTechGrant";
 
 const FILTER_KEY = "nova:tg-chat-filter";
 
@@ -353,6 +354,7 @@ function TgConversation({ dialog, me, onBack, linking }: { dialog: TgDialog; me:
         </div>
         {linking && (
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            {linking.techGrant && <TgTechGrantButton dialog={dialog} tools={linking.techGrant} />}
             {linking.client && <TgClientButton dialog={dialog} tools={linking.client} />}
             <TgOsLinkButton dialog={dialog} linking={linking} />
           </div>

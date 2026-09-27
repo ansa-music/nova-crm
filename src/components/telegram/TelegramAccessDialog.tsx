@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
+import { callTgEdge } from "@/services/telegram/tgServer";
 import { fetchTelegramAccessList, setTelegramAccess, setTelegramConfig, type TelegramConfig } from "@/services/telegram/telegramAccess";
 import { pickerInitialSelection } from "@/utils/grokPeople";
 import type { TeamGroup } from "@/utils/teamGroup";
@@ -82,6 +83,14 @@ export function TelegramAccessDialog({
       if (keysChanged) await setTelegramConfig(workspaceId, keysEmpty ? null : { apiId: idNum, apiHash: hash });
       const granted = await setTelegramAccess(workspaceId, selected);
       toast.success(granted.length ? `Раздел Telegram открыт: ${granted.length}` : "Раздел Telegram закрыт для всех");
+      // Аккаунт workspace на сервере: устройства тех, у кого доступ сняли,
+      // сбрасываются в Telegram сразу, не дожидаясь, пока их браузер откроет Nova.
+      void callTgEdge<{ revoked: number; fresh: boolean }>(workspaceId, "devices_prune")
+        .then((res) => {
+          if (res.revoked) toast.success(`Отключено устройств Telegram: ${res.revoked}`);
+          if (res.fresh) toast.info("Telegram не даёт отключать устройства в первые сутки после подключения — они выйдут, когда откроют Nova.");
+        })
+        .catch(() => undefined);
       onOpenChange(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось сохранить");
