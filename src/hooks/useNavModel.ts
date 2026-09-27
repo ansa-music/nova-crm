@@ -1,5 +1,6 @@
 import { createContext, createElement, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import {
+  CalendarCheck2,
   CalendarDays,
   ClipboardList,
   Contact,
@@ -58,6 +59,7 @@ import { applySiteNav } from "@/config/siteNav";
 import { useOsPendingOrderRequests } from "@/hooks/useOsPendingOrderRequests";
 import { useTelegramAccess, useTelegramRevokeGuard } from "@/services/telegram/telegramAccess";
 import { subscribeTgInbox, tgInboxPulse, tgUnreadTotal } from "@/services/telegram/tgInboxPulse";
+import { useWeeklyRating, weeklyLeftToRate } from "@/services/weeklyRatingService";
 
 /** Пути разделов страницы «Ещё» — на них в меню горит сам пункт «Ещё». */
 const MORE_PAGE_PATHS = [
@@ -120,6 +122,8 @@ export interface NavModel {
   inboxUnread: number;
   /** Непрочитанное по видам — переключатель «Общий / Личные» на странице чата. */
   chatUnread: { workspace: number; private: number };
+  /** Сколько мне ещё оценить на этой неделе — счётчик вкладки «Оценки». */
+  weeklyToRate: number;
   /** Заказы на бирже ждут — зелёный пункт «Заказы». */
   ordersAlert: boolean;
   /** Сколько заказов открыто на бирже (0 — нет или не знаем). */
@@ -179,6 +183,8 @@ export interface NavSignals {
   telegramGranted: boolean;
   /** Непрочитанные в Telegram (из вкладки с соединением). */
   telegramUnread: number;
+  /** Сколько мне ещё оценить на этой неделе («Оценка недели»). */
+  weeklyToRate: number;
 }
 
 const NO_SIGNALS: NavSignals = {
@@ -192,6 +198,7 @@ const NO_SIGNALS: NavSignals = {
   grokPool: null,
   telegramGranted: false,
   telegramUnread: 0,
+  weeklyToRate: 0,
 };
 
 function deskChild(page: WorkspacePage): NavChild {
@@ -403,12 +410,16 @@ function buildDefaultSections(inp: NavInputs, g: NavGates, sig: NavSignals, desk
         // «Дашборд» и «ABS система» — ОДИН пункт (просьба Nurba 25.09.2026:
         // «объедини так же Дашборд и ABS в одну вкладку»): горит на обоих
         // адресах, внутри переключатель «Дашборд / ABS система».
+        // Третья вкладка внутри — «Оценка недели» (27.09.2026): пока есть
+        // кого оценить, пункт ведёт прямо туда и несёт счётчик.
         {
           key: "dashboard",
-          to: "/dashboard",
+          to: sig.weeklyToRate > 0 ? "/weekly-rating" : "/dashboard",
           label: `${term("dashboard", "one", site)} · ${site.terms?.abs?.one ? term("abs", "one", site) : "ABS"}`,
           icon: LayoutDashboard,
-          activeOn: (pathname) => pathMatches(pathname, "/dashboard") || pathMatches(pathname, "/abs"),
+          badge: sig.weeklyToRate,
+          activeOn: (pathname) =>
+            pathMatches(pathname, "/dashboard") || pathMatches(pathname, "/abs") || pathMatches(pathname, "/weekly-rating"),
         },
         // Всё остальное — отдельной страницей (просьба Nurba 25.09.2026), а в
         // меню один пункт. Бейдж — сумма непрочитанного с той страницы.
@@ -432,6 +443,7 @@ function buildDefaultSections(inp: NavInputs, g: NavGates, sig: NavSignals, desk
         // «ABS система» — вкладка пункта «Дашборд · ABS»; скрытый пункт — только
         // ради заголовка экрана «/abs» (buildPageMeta читает и скрытые).
         { key: "abs", to: "/abs", label: term("abs", "one", site), icon: Trophy, show: false },
+        { key: "weekly-rating", to: "/weekly-rating", label: "Оценка недели", icon: CalendarCheck2, show: false },
         // «Отчёты» — итоги прошлых периодов (касса технарей, KPI ОС), всем ролям.
         { key: "reports", to: "/reports", label: term("reports", "one", site), icon: FileChartColumn },
         {
@@ -583,6 +595,7 @@ export function buildNavModel(
     badgeTotal,
     inboxUnread: sig.privateUnreadTotal + sig.workspaceChatUnread,
     chatUnread: { workspace: sig.workspaceChatUnread, private: sig.privateUnreadTotal },
+    weeklyToRate: sig.weeklyToRate,
     ordersAlert: sig.ordersAlert,
     openOrdersCount: sig.ordersAlert ? sig.openOrdersCount : 0,
     isOs: g.isOs,
@@ -651,15 +664,19 @@ export function NavModelProvider({ children }: { children: ReactNode }) {
   useTelegramRevokeGuard(activeWorkspaceId, uid, telegramAccess, { resolved: permissions.isResolved, canHaveAccess: canHaveTelegram });
   const telegramGranted = canHaveTelegram && telegramAccess.granted;
   const telegramUnread = tgUnreadTotal(useSyncExternalStore(subscribeTgInbox, tgInboxPulse));
-
+  // Оценка недели: один запрос на загрузку (модуль weeklyRatingService общий
+  // со страницей, ABS и «Технарями»). Выключен раздел «Дашборд» — не спрашиваем.
   const site = useSiteConfig();
+  const weeklySnap = useWeeklyRating(activeWorkspaceId, permissions.isResolved && isModuleEnabled(site, "dashboard"));
+  const weeklyToRate = useMemo(() => weeklyLeftToRate(weeklySnap, members, uid), [weeklySnap, members, uid]);
+
   const inputs = useMemo<NavInputs>(
     () => ({ uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds, platformAdmin, site }),
     [uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds, platformAdmin, site]
   );
   const signals = useMemo<NavSignals>(
-    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted, telegramUnread }),
-    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted, telegramUnread]
+    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted, telegramUnread, weeklyToRate }),
+    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted, telegramUnread, weeklyToRate]
   );
   const pageMeta = useMemo(() => buildPageMeta(inputs), [inputs]);
   const model = useMemo(() => buildNavModel(inputs, signals, pageMeta), [inputs, signals, pageMeta]);

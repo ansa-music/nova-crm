@@ -121,7 +121,7 @@ export const MODULES: ModuleMeta[] = [
   { key: "telegram", title: "Telegram", hint: "Рабочий Telegram прямо в CRM", navKeys: ["telegram"], paths: ["telegram"] },
   { key: "schedule", title: "График смен", hint: "Выходные и смены сотрудников", navKeys: ["schedule"], paths: ["schedule"] },
   { key: "chat", title: "Чат", hint: "Общий чат и личные сообщения", navKeys: ["chat", "messages"], paths: ["chat", "messages"] },
-  { key: "dashboard", title: "Дашборд и рейтинг", hint: "Дашборд, ABS, отчёты", navKeys: ["dashboard", "abs"], paths: ["dashboard", "abs"] },
+  { key: "dashboard", title: "Дашборд и рейтинг", hint: "Дашборд, ABS, оценка недели", navKeys: ["dashboard", "abs", "weekly-rating"], paths: ["dashboard", "abs", "weekly-rating"] },
   { key: "reports", title: "Отчёты за периоды", hint: "Итоги прошлых месяцев", navKeys: ["reports"], paths: ["reports"] },
   { key: "announcements", title: "Объявления", hint: "Новости для команды", navKeys: ["announcements"], paths: ["announcements"] },
   { key: "people", title: "Люди", hint: "Список сотрудников и их столов", navKeys: ["people"], paths: ["people"] },

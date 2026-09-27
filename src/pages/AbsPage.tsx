@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { Crown, FileChartColumn, Gift, HardHat, Medal, Settings2, Target, TrendingUp, UserRound } from "lucide-react";
+import { CalendarCheck2, Crown, FileChartColumn, Gift, HardHat, Medal, Settings2, Target, TrendingUp, UserRound } from "lucide-react";
 import { EmptyState } from "@/components/common/EmptyState";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
@@ -24,6 +24,8 @@ import { periodLabel, periodNoun, periodRange } from "@/utils/periods";
 import { personLabel } from "@/utils/peopleDesks";
 import { effectiveTechLoadKinds } from "@/utils/techLoad";
 import { useTerms } from "@/config/siteTerms";
+import { WeeklyScoreChip } from "@/components/technicians/WeeklyScore";
+import { publicWeeklyResults, useWeeklyRating, weeklyScoreOf, type WeeklyResults } from "@/services/weeklyRatingService";
 import type { StatusOption } from "@/types";
 
 const NO_OPTIONS: StatusOption[] = [];
@@ -52,6 +54,8 @@ export default function AbsPage() {
   const enabled = permissions.isResolved;
 
   const { loads, failed, synced } = useDeskLoads(activeWorkspaceId, enabled);
+  // Оценка недели (анонимная, средний балл прошлой недели) — рядом с местом в ABS.
+  const weeklyResults = publicWeeklyResults(useWeeklyRating(activeWorkspaceId, enabled));
   useOwnerDeskRecount(enabled ? loads : null, synced);
 
   const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
@@ -154,6 +158,13 @@ export default function AbsPage() {
         actions={
           <>
             <Link
+              to="/weekly-rating"
+              className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-border px-3 text-sm hover:bg-accent sm:min-h-9"
+            >
+              <CalendarCheck2 className="h-4 w-4" />
+              Оценка недели
+            </Link>
+            <Link
               to="/reports"
               className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-border px-3 text-sm hover:bg-accent sm:min-h-9"
             >
@@ -192,9 +203,9 @@ export default function AbsPage() {
       )}
 
       {view === "tech" ? (
-        <TechSection ranked={techRanked} bonuses={bonuses} myUid={uid} noun={noun} />
+        <TechSection ranked={techRanked} bonuses={bonuses} myUid={uid} noun={noun} weekly={weeklyResults} />
       ) : (
-        <OsSection rows={osRows} settings={osPay} myUid={uid} noun={noun} loadingUpsell={osDesks.some((d) => d.responsibleUserId && !osStats[d.responsibleUserId])} />
+        <OsSection rows={osRows} settings={osPay} myUid={uid} noun={noun} weekly={weeklyResults} loadingUpsell={osDesks.some((d) => d.responsibleUserId && !osStats[d.responsibleUserId])} />
       )}
     </div>
   );
@@ -230,7 +241,19 @@ function Money({ label, value, strong, tone }: { label: string; value: number; s
   );
 }
 
-function TechSection({ ranked, bonuses, myUid, noun }: { ranked: OverviewTechnician[]; bonuses: number[]; myUid: string; noun: string }) {
+function TechSection({
+  ranked,
+  bonuses,
+  myUid,
+  noun,
+  weekly,
+}: {
+  ranked: OverviewTechnician[];
+  bonuses: number[];
+  myUid: string;
+  noun: string;
+  weekly: WeeklyResults | null;
+}) {
   const done = ranked.reduce((n, t) => n + t.doneTotal, 0);
   const dirty = ranked.reduce((n, t) => n + t.grandTotal, 0);
   const waiting = ranked.reduce((n, t) => n + t.paymentTotal, 0);
@@ -268,8 +291,11 @@ function TechSection({ ranked, bonuses, myUid, noun }: { ranked: OverviewTechnic
                       {personLabel(tech.member)}
                       {me ? <span className="ml-1.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">вы</span> : null}
                     </p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {formatNumber(tech.summary.total)} {ordersWord(tech.summary.total)} · готово {formatNumber(tech.summary.done)}
+                    <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
+                      <span>
+                        {formatNumber(tech.summary.total)} {ordersWord(tech.summary.total)} · готово {formatNumber(tech.summary.done)}
+                      </span>
+                      <WeeklyScoreChip score={weeklyScoreOf(weekly, "os_tech", tech.member.uid)} who="tech" label="нед." />
                     </p>
                   </div>
                 </div>
@@ -307,12 +333,14 @@ function OsSection({
   myUid,
   noun,
   loadingUpsell,
+  weekly,
 }: {
   rows: OsAbsRow[];
   settings: ReturnType<typeof osPayOf>;
   myUid: string;
   noun: string;
   loadingUpsell: boolean;
+  weekly: WeeklyResults | null;
 }) {
   if (rows.length === 0) {
     return <EmptyState eyebrow="ABS" title="Пока нет ОС с ником" description="KPI считается по нику ОС в заказах: закрепите ник ОС на «Команде»." />;
@@ -399,9 +427,12 @@ function OsSection({
                       {personLabel(r.member)}
                       {me ? <span className="ml-1.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">вы</span> : null}
                     </p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {formatNumber(s.total)} {ordersWord(s.total)}
-                      {!r.kpiEligible && s.total > 0 ? ` · для KPI нужно от ${settings.kpiMinOrders}` : ""}
+                    <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
+                      <span>
+                        {formatNumber(s.total)} {ordersWord(s.total)}
+                        {!r.kpiEligible && s.total > 0 ? ` · для KPI нужно от ${settings.kpiMinOrders}` : ""}
+                      </span>
+                      <WeeklyScoreChip score={weeklyScoreOf(weekly, "tech_os", r.member.uid)} who="os" label="нед." />
                     </p>
                   </div>
                   <div className="text-right">

@@ -38,6 +38,7 @@ import { useSbBackend } from "@/services/sb/sbCollections";
 import { currentMonthSubPageId } from "@/services/monthTabService";
 import { periodLabel, previousPeriodKey } from "@/utils/periods";
 import { orderRatingId, rateOrder, RatingDeniedError, removeOrderRating } from "@/services/orderRatingService";
+import { publicWeeklyResults, useWeeklyRating, weeklyScoreOf } from "@/services/weeklyRatingService";
 import { confirmDialog } from "@/utils/appDialog";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { formatOrderDate, timeAgo, ymdInTimeZone } from "@/utils/date";
@@ -151,6 +152,8 @@ export default function TechniciansPage() {
   // empty list as if it were real data (loadFailed/ratingsFailed).
   const { loads, failed: loadFailed, synced: loadsSynced } = useDeskLoads(activeWorkspaceId, canSee);
   const { totals: orderTotals, failed: ratingsFailed } = useOrderRatingTotals(activeWorkspaceId, monthKey, canSee);
+  // Оценка недели от ОС (анонимно, средний балл прошлой недели) — рядом с визиткой.
+  const weeklyResults = publicWeeklyResults(useWeeklyRating(activeWorkspaceId, canSee));
   // График нужен прямо здесь: у кого сегодня выходной, карточка гаснет — без
   // этого «Свободен» у отсутствующего читался как «можно отдать заказ».
   const { schedules, failed: schedulesFailed, retry: retrySchedules } = useTechSchedules(activeWorkspaceId, scheduleMonthKey, canSee);
@@ -782,6 +785,7 @@ export default function TechniciansPage() {
                     count: ratingsFailed ? 0 : t.orderTotals.reduce((n, o) => n + o.count, 0),
                   }}
                   orderScoreOf={scoreOf}
+                  weeklyScore={weeklyScoreOf(weeklyResults, "os_tech", t.member.uid)}
                   onRateOrder={
                     isOsViewer && myOsValue && t.member.uid !== uid
                       ? (item, score) => handleRateOrder(item, t.member.uid, score)
