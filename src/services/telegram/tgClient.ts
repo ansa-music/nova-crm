@@ -1,7 +1,9 @@
-import { InputMedia, TelegramClient, type Dialog, type Message, type Peer } from "@mtcute/web";
+import { InputMedia, Long, TelegramClient, type Dialog, type Message, type Peer } from "@mtcute/web";
 import { setTgUploadsPulse } from "@/services/telegram/tgUploadsPulse";
 import { clearTgInboxEverywhere, publishTgInbox } from "@/services/telegram/tgInboxPulse";
 import { writeTelegramSessionMark, type TelegramConfig } from "@/services/telegram/telegramAccess";
+import { TgEdgeError, type TgPeerRef, type TgServerLink } from "@/services/telegram/tgServer";
+import { base64Url, bytesToB64, b64ToBytes, tlDecode, tlEncode } from "@/services/telegram/tlCodec";
 
 /**
  * Клиент Telegram внутри Nova (26.09.2026) на открытой библиотеке mtcute:
@@ -32,6 +34,8 @@ export interface TgMe {
 export type TgAuth =
   | { kind: "idle" }
   | { kind: "connecting" }
+  /** Сервер выдаёт этому браузеру устройство аккаунта workspace (без QR). */
+  | { kind: "issuing" }
   | { kind: "signedOut" }
   | { kind: "qr"; url: string; expires: number }
   | { kind: "qrScanned" }
@@ -293,7 +297,22 @@ function onSessionGone(s: Session, code: string, storageWasMissing: boolean) {
 // WhatsApp Web). Нет Web Locks (очень старый браузер) — как раньше.
 // ---------------------------------------------------------------------
 
-type OpenInput = { workspaceId: string; uid: string; config: TelegramConfig; deviceName: string };
+type OpenInput = {
+  workspaceId: string;
+  uid: string;
+  config: TelegramConfig;
+  deviceName: string;
+  /**
+   * Аккаунт workspace подключён на сервере (SQL 20261035 + функция `tg`):
+   * вход этому браузеру выдаёт сервер, QR не нужен, пропавший вход
+   * восстанавливается сам.
+   */
+  server?: TgServerLink | null;
+};
+
+function openKey(input: OpenInput) {
+  return `${input.workspaceId}:${input.uid}:${input.config.apiId}:${input.server ? "s" : "l"}`;
+}
 
 let lastInput: OpenInput | null = null;
 let lockHeld: { name: string; release: () => void } | null = null;
@@ -348,7 +367,7 @@ function waitForLock(name: string, input: OpenInput) {
 let opening: { key: string; promise: Promise<void> } | null = null;
 
 export function openTelegram(input: OpenInput, opts: { steal?: boolean } = {}): Promise<void> {
-  const key = `${input.workspaceId}:${input.uid}:${input.config.apiId}`;
+  const key = openKey(input);
   // Раздел и фоновый запуск зовут это почти одновременно: второй вызов ждёт
   // первый, иначе вкладка встала бы в очередь за СВОЕЙ же блокировкой.
   if (!opts.steal && opening?.key === key) return opening.promise;
@@ -415,7 +434,7 @@ const RETRY_MS = [3_000, 10_000, 30_000, 60_000];
 const NO_RETRY = new Set(["API_ID_INVALID", "API_ID_PUBLISHED_FLOOD", "PHONE_NUMBER_BANNED"]);
 
 async function startSession(input: OpenInput): Promise<void> {
-  const key = `${input.workspaceId}:${input.uid}:${input.config.apiId}`;
+  const key = openKey(input);
   if (session?.key === key && state.auth.kind !== "error") return;
   if (session && session.key !== key) await closeSession({ keepState: false });
   if (retryTimer) clearTimeout(retryTimer);
@@ -424,7 +443,7 @@ async function startSession(input: OpenInput): Promise<void> {
   let s = session;
   if (!s) {
     const existed = await storageExists(storageName);
-    const client = makeClient(input.config, storageName, input.deviceName);
+    const client = makeClient(input.config, storageName, input.server ? `${input.deviceName} · #${deviceMarker(input.workspaceId, input.uid)}` : input.deviceName);
     s = { key, workspaceId: input.workspaceId, uid: input.uid, config: input.config, client, storageName };
     session = s;
     storageMissingAtStart = existed === false;
@@ -438,11 +457,23 @@ async function startSession(input: OpenInput): Promise<void> {
   try {
     const me = await client.getMe();
     await client.notifyLoggedIn(me.raw);
+    // Один аккаунт на workspace: старый личный вход в другой аккаунт
+    // закрываем и берём устройство аккаунта workspace.
+    if (input.server?.accountId && me.id !== input.server.accountId && wrongAccountResets < 2) {
+      wrongAccountResets += 1;
+      await client.logOut().catch(() => undefined);
+      await restartFresh(s, input);
+      return;
+    }
     retryCount = 0;
     onSignedIn(toMe(me));
   } catch (error) {
     if (session !== s) return;
     const text = rpcText(error);
+    if (input.server && (SESSION_GONE.has(text) || text === "SESSION_PASSWORD_NEEDED")) {
+      await issueDevice(s, input, text === "SESSION_PASSWORD_NEEDED");
+      return;
+    }
     if (text === "SESSION_PASSWORD_NEEDED") {
       set({ auth: { kind: "password", hint: await client.getPasswordHint().catch(() => null), error: null } });
       return;
@@ -467,6 +498,138 @@ async function startSession(input: OpenInput): Promise<void> {
 }
 
 let storageMissingAtStart = false;
+let wrongAccountResets = 0;
+
+// ---------------------------------------------------------------------
+// Устройство от аккаунта workspace (сервер, функция `tg`).
+// ---------------------------------------------------------------------
+
+/** Метка браузера в названии устройства («Nova · Имя · #ab12cd») — по ней сервер снимает доступ. */
+export function deviceMarker(workspaceId: string, uid: string): string {
+  const key = `nova:tg-marker:${workspaceId}:${uid}`;
+  try {
+    const got = window.localStorage.getItem(key);
+    if (got && /^[a-z0-9]{6,12}$/.test(got)) return got;
+    const fresh = Math.random().toString(36).slice(2, 10).padEnd(8, "0");
+    window.localStorage.setItem(key, fresh);
+    return fresh;
+  } catch {
+    return "nomark00";
+  }
+}
+
+async function deleteStorage(name: string) {
+  await new Promise<void>((resolve) => {
+    try {
+      const req = indexedDB.deleteDatabase(name);
+      req.onsuccess = req.onerror = req.onblocked = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+/** Вход в этом браузере пропал или чужой — стереть и взять новое устройство у сервера. */
+async function restartFresh(s: Session, input: OpenInput) {
+  if (session !== s) return;
+  session = null;
+  await s.client.destroy().catch(() => undefined);
+  await deleteStorage(s.storageName);
+  await startSession(input);
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// deno-style «любой» TL — mtcute принимает сырые объекты.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type RawTl = any;
+
+async function issueDevice(s: Session, input: OpenInput, passwordFirst: boolean) {
+  const server = input.server;
+  if (!server || session !== s) return;
+  set({ auth: { kind: "issuing" } });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const call = (req: RawTl): Promise<RawTl> => (s.client as any).call(req);
+  const exportToken = () => call({ _: "auth.exportLoginToken", apiId: input.config.apiId, apiHash: input.config.apiHash, exceptIds: [] });
+  try {
+    let result: RawTl = null;
+    let needPassword = passwordFirst;
+    if (!needPassword) {
+      try {
+        result = await exportToken();
+        if (result._ === "auth.loginToken") {
+          await server.accept(bytesToB64(result.token), deviceMarker(input.workspaceId, input.uid));
+          for (let i = 0; i < 8 && result._ === "auth.loginToken"; i++) {
+            await sleep(i === 0 ? 300 : 800);
+            result = await exportToken();
+          }
+        }
+        if (result._ === "auth.loginTokenMigrateTo") {
+          await s.client.changePrimaryDc(result.dcId);
+          result = await call({ _: "auth.importLoginToken", token: result.token });
+        }
+      } catch (error) {
+        if (rpcText(error) !== "SESSION_PASSWORD_NEEDED") throw error;
+        needPassword = true;
+      }
+    }
+    let authorization: RawTl = result?._ === "auth.loginTokenSuccess" ? result.authorization : null;
+    if (needPassword) {
+      const request = await call({ _: "account.getPassword" });
+      const answer = await server.srp(tlEncode(request));
+      if (!answer) {
+        // Пароль на сервере не сохранён — облачный пароль вводит человек (один раз на браузер).
+        passwordHint = (request?.hint as string) ?? null;
+        set({ auth: { kind: "password", hint: passwordHint, error: null } });
+        return;
+      }
+      authorization = await call({ _: "auth.checkPassword", password: tlDecode(answer, Long) });
+    }
+    if (!authorization) throw new Error("Сервер не выдал вход — попробуйте ещё раз");
+    if (session !== s) return;
+    await s.client.notifyLoggedIn(authorization);
+    const me = await s.client.getMe();
+    retryCount = 0;
+    onSignedIn(toMe(me));
+  } catch (error) {
+    if (session !== s) return;
+    if (error instanceof TgEdgeError && error.code === "no_function") {
+      // Сервер ещё не выложен — прежний вход по QR.
+      set({ auth: { kind: "signedOut" } });
+      return;
+    }
+    const message = error instanceof TgEdgeError ? error.message : tgErrorText(error, "Не удалось подключить это устройство");
+    const delay = RETRY_MS[Math.min(retryCount, RETRY_MS.length - 1)];
+    retryCount += 1;
+    set({ auth: { kind: "error", message, retryAt: Date.now() + delay } });
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (session === s) void restartFresh(s, input);
+    }, delay);
+  }
+}
+
+/** Адрес чата для разрешения технарю (из кэша mtcute этого браузера). */
+export async function peerRefOf(chatId: number): Promise<TgPeerRef> {
+  const s = session;
+  if (!s || state.auth.kind !== "ready") throw new Error("Telegram на этом устройстве не подключён");
+  const p = (await s.client.resolvePeer(chatId)) as RawTl;
+  if (p._ === "inputPeerUser") return { type: "user", id: String(p.userId), accessHash: String(p.accessHash) };
+  if (p._ === "inputPeerChat") return { type: "chat", id: String(p.chatId) };
+  if (p._ === "inputPeerChannel") return { type: "channel", id: String(p.channelId), accessHash: String(p.accessHash) };
+  throw new Error("Этот чат нельзя открыть технарю");
+}
+
+/** Переезд: этот (старый личный) вход подтверждает вход сервера — QR сканировать не нужно. */
+export async function acceptLoginUrlHere(url: string): Promise<void> {
+  const s = session;
+  if (!s || state.auth.kind !== "ready") throw new Error("Telegram на этом устройстве не подключён");
+  const token = url.split("token=")[1] ?? "";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (s.client as any).call({ _: "auth.acceptLoginToken", token: b64ToBytes(token) });
+}
+
+export { base64Url };
 
 /** Связь и «вход закончился» посреди работы — не только при открытии. */
 function wireHealth(s: Session) {
@@ -480,7 +643,9 @@ function wireHealth(s: Session) {
   client.onError?.add((error) => {
     if (session !== s) return;
     const text = rpcText(error);
-    if (SESSION_GONE.has(text) && state.auth.kind === "ready") onSessionGone(s, text, false);
+    if (!SESSION_GONE.has(text) || state.auth.kind !== "ready") return;
+    if (lastInput?.server) void restartFresh(s, lastInput);
+    else onSessionGone(s, text, false);
   });
 }
 

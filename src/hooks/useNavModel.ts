@@ -58,6 +58,7 @@ import { HOME_TARGETS, isModuleEnabled, moduleOfPath, type SiteConfig } from "@/
 import { applySiteNav } from "@/config/siteNav";
 import { useOsPendingOrderRequests } from "@/hooks/useOsPendingOrderRequests";
 import { useTelegramAccess, useTelegramRevokeGuard } from "@/services/telegram/telegramAccess";
+import { useTgTechAccess } from "@/services/telegram/tgServer";
 import { subscribeTgInbox, tgInboxPulse, tgUnreadTotal } from "@/services/telegram/tgInboxPulse";
 import { useWeeklyRating, weeklyLeftToRate } from "@/services/weeklyRatingService";
 
@@ -181,6 +182,8 @@ export interface NavSignals {
   grokPool: { available: number; total: number } | null;
   /** Owner открыл мне раздел «Telegram». */
   telegramGranted: boolean;
+  /** Технарь: ОС открыл ему чаты клиентов (SQL 20261035). */
+  telegramTech: boolean;
   /** Непрочитанные в Telegram (из вкладки с соединением). */
   telegramUnread: number;
   /** Сколько мне ещё оценить на этой неделе («Оценка недели»). */
@@ -197,6 +200,7 @@ const NO_SIGNALS: NavSignals = {
   deskAlerts: [],
   grokPool: null,
   telegramGranted: false,
+  telegramTech: false,
   telegramUnread: 0,
   weeklyToRate: 0,
 };
@@ -389,7 +393,7 @@ function buildDefaultSections(inp: NavInputs, g: NavGates, sig: NavSignals, desk
           to: "/telegram",
           label: term("telegram", "one", site),
           icon: Send,
-          show: sig.telegramGranted || (inp.permissions.isResolved && inp.permissions.actsAsOwner),
+          show: sig.telegramGranted || sig.telegramTech || (inp.permissions.isResolved && inp.permissions.actsAsOwner),
           badge: sig.telegramGranted ? sig.telegramUnread : 0,
         },
         { key: "grok", to: "/grok-limit", label: term("grok", "one", site), icon: KeyRound, show: g.showGrokNav, hint: grokHint, emphasis: true },
@@ -663,8 +667,11 @@ export function NavModelProvider({ children }: { children: ReactNode }) {
   // не важна), поэтому свой доступ проверяет каждый.
   const canHaveTelegram = permissions.isResolved;
   const telegramAccess = useTelegramAccess(activeWorkspaceId, uid, canHaveTelegram);
-  useTelegramRevokeGuard(activeWorkspaceId, uid, telegramAccess, { resolved: permissions.isResolved, canHaveAccess: canHaveTelegram });
+  // Owner заходит и без строки доступа (аккаунт workspace на сервере) — у
+  // него автовыход не нужен.
+  useTelegramRevokeGuard(permissions.upkeepOwner ? null : activeWorkspaceId, uid, telegramAccess, { resolved: permissions.isResolved, canHaveAccess: canHaveTelegram });
   const telegramGranted = canHaveTelegram && telegramAccess.granted;
+  const telegramTech = useTgTechAccess(activeWorkspaceId, uid, canHaveTelegram && !telegramAccess.loading && !telegramGranted);
   const telegramUnread = tgUnreadTotal(useSyncExternalStore(subscribeTgInbox, tgInboxPulse));
   // Оценка недели: один запрос на загрузку (модуль weeklyRatingService общий
   // со страницей, ABS и «Технарями»). Выключен раздел «Дашборд» — не спрашиваем.
@@ -677,8 +684,8 @@ export function NavModelProvider({ children }: { children: ReactNode }) {
     [uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds, platformAdmin, site]
   );
   const signals = useMemo<NavSignals>(
-    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted, telegramUnread, weeklyToRate }),
-    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted, telegramUnread, weeklyToRate]
+    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted, telegramTech, telegramUnread, weeklyToRate }),
+    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted, telegramTech, telegramUnread, weeklyToRate]
   );
   const pageMeta = useMemo(() => buildPageMeta(inputs), [inputs]);
   const model = useMemo(() => buildNavModel(inputs, signals, pageMeta), [inputs, signals, pageMeta]);

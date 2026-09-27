@@ -6,6 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { toast } from "@/components/ui/sonner";
 import type { TgChatLink } from "@/services/telegram/tgChatLinks";
 import type { TgClientTools } from "@/components/telegram/TgClientLink";
+import type { TgTechGrantTools } from "@/components/telegram/TgTechGrant";
 import type { TgDialog } from "@/services/telegram/tgClient";
 import type { StatusOption } from "@/types";
 import { cn } from "@/utils/cn";
@@ -27,6 +28,8 @@ export interface TgLinking {
   setLink: (dialog: TgDialog, osValue: string | null) => Promise<void>;
   /** Чат ↔ клиент (SQL 20261014); null — SQL ещё не накатан. */
   client: TgClientTools | null;
+  /** Разрешения технарям (SQL 20261035); null — нельзя (нет SQL / не полный доступ). */
+  techGrant?: TgTechGrantTools | null;
 }
 
 export type TgChatFilter = "all" | "mine" | "none" | `os:${string}`;
