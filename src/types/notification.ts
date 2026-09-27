@@ -23,6 +23,7 @@ export interface Notification {
     | "grok-access-result"
     | "success-request"
     | "order-request"
+    | "weekly-rating"
     | null;
   viewRequestId?: string | null;
   /** id заявки на права Owner (совпадает с uid заявителя) — для кнопок в колокольчике. */
