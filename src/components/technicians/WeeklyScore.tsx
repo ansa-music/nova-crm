@@ -1,7 +1,7 @@
 import { CalendarCheck2, TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { formatScore } from "@/types";
-import { weekLabel, type WeeklyScore } from "@/services/weeklyRatingService";
+import { roundLabel, type WeeklyScore } from "@/services/weeklyRatingService";
 
 /**
  * Оценка недели — цветом акцента и с календарём, чтобы не путать с оценкой
@@ -14,8 +14,8 @@ export const WEEKLY_TONE = {
 
 export function weeklyTitle(score: WeeklyScore, who: "tech" | "os") {
   const from = who === "tech" ? "ОС" : "технари";
-  return `Оценка недели ${weekLabel(score.week)}: ${formatScore(score.avg)} из 10 · оценили ${score.count} (${from}, анонимно)${
-    score.avg4 !== null ? ` · за 4 недели ${formatScore(score.avg4)}` : ""
+  return `Оценка недели (${roundLabel(score.round)}): ${formatScore(score.avg)} из 10 · оценили ${score.count} (${from}, анонимно)${
+    score.avg4 !== null ? ` · за 4 оценки ${formatScore(score.avg4)}` : ""
   }`;
 }
 

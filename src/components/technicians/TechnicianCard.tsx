@@ -4,7 +4,7 @@ import { AtSign, CalendarCheck2, ChevronRight, MessageCircle, Star, Trash2 } fro
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { ScoreChip, ScoreMeter, ScoreRateButton, SCORE_TONE } from "@/components/technicians/ScoreRating";
 import { WeeklyScoreChip } from "@/components/technicians/WeeklyScore";
-import { weekLabel, type WeeklyScore } from "@/services/weeklyRatingService";
+import { roundLabel, type WeeklyScore } from "@/services/weeklyRatingService";
 import { usePresenceMap } from "@/hooks/usePresenceMap";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useWorkspaceStore } from "@/store/workspaceStore";
@@ -405,8 +405,8 @@ function TechnicianDialog({
                 <span className="text-[12px] font-medium">Оценка недели от ОС</span>
                 <WeeklyScoreChip score={weeklyScore} who="tech" className="ml-auto" />
                 <span className="w-full text-[11px] text-muted-foreground">
-                  {weekLabel(weeklyScore.week)} · оценили {weeklyScore.count}, анонимно
-                  {weeklyScore.avg4 !== null ? ` · за 4 недели ${formatScore(weeklyScore.avg4)}` : ""}
+                  {roundLabel(weeklyScore.round)} · оценили {weeklyScore.count}, анонимно
+                  {weeklyScore.avg4 !== null ? ` · за 4 оценки ${formatScore(weeklyScore.avg4)}` : ""}
                 </span>
               </div>
             ) : null}
