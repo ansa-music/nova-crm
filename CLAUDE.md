@@ -2322,8 +2322,10 @@ Function `tg` (бесплатный тариф, соединение не дер
   `tg_tech_workspaces()` (раздел открыт технарю с разрешениями); служебные `tg_srv_lease/release`
   (только service_role) — главный вход в один момент использует один вызов функции, иначе Telegram
   ответил бы `AUTH_KEY_DUPLICATED`. `nova_schema_version() = '20261035'`, `REQUIRED_SQL_VERSION` тоже.
-- **Функция** `supabase/functions/tg/` (`index.ts` — Deno и mtcute `jsr:@mtcute/deno@0.32`, запасной
-  `npm:@mtcute/web`; `handler.ts` — вся логика, без Deno, её гоняют тесты в Node; `srp.ts` — ответ
+- **Функция** `supabase/functions/tg/` (`index.ts` — Deno и `npm:@mtcute/web@0.32.3`: `jsr:@mtcute/deno`
+  сборка Supabase отклоняет — «failed to load 'node:sqlite'»; wasm шифрования — скомпилированным
+  модулем с CDN (jsdelivr, запасной unpkg, версия `@mtcute/wasm` 0.32.0 = та, что берёт web), своя
+  платформа `EdgePlatform` — у navigator в Deno нет `onLine`; `handler.ts` — вся логика, без Deno, её гоняют тесты в Node; `srp.ts` — ответ
   облачного пароля на WebCrypto, совпадает с `computeSrpParams` mtcute; `tlCodec.ts` — перенос
   TL-объектов через JSON: `$b` байты base64, `$l` Long; копия в `src/services/telegram/tlCodec.ts`).
   Деплой — шаг «Deploy Supabase function tg» в `deploy.yml` после SQL (`supabase functions deploy tg
