@@ -138,7 +138,7 @@ export function TechOrderPanel({
         successRequestedBy: me,
       });
       const leadership = members
-        .filter((m) => m.status === "active" && m.uid && (memberHasRole(m, "owner") || memberHasRole(m, "teamlead")))
+        .filter((m) => m.status === "active" && m.uid && (memberHasRole(m, "owner") || memberHasRole(m, "teamlead") || memberHasRole(m, "leadplus")))
         .map((m) => m.uid as string);
       // ОС этого заказа — по uid из строки, а не по нику: ник мог переехать.
       const targets = [...new Set([row.osUid, ...leadership].filter(Boolean) as string[])];

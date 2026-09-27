@@ -132,7 +132,7 @@ select tst.expect('rev строки ОС вырос и выдан ПОСЛЕ к�
     where s.workspace_id='WP' and s.page_id='osdesk_POS1' and s.id='s1' and s.rev > (select src_rev from tst.osp_rev) and s.rev > c.rev$q$, true), 'ok:1');
 select tst.expect('порядок BEFORE-триггеров desk_rows: стражи → статус → rev',
   tst.try('PO', $q$select 1 where (select string_agg(tgname, ',' order by tgname) from pg_trigger
-    where tgrelid = 'public.desk_rows'::regclass and not tgisinternal)
+    where tgrelid = 'public.desk_rows'::regclass and not tgisinternal and (tgtype & 2) = 2)
     = 'desk_rows_guard,desk_rows_os_managed,desk_rows_os_status_push,desk_rows_rev'$q$, true), 'ok:1');
 
 -- --- Гонка прохода: «подтянуть» по устаревшему списку не шлётся назад ---

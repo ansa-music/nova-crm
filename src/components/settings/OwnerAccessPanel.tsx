@@ -22,8 +22,8 @@ import { timeAgo } from "@/utils/date";
 import { firestoreErrorText } from "@/utils/dbError";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
 
-const GRANTABLE_ROLES: Role[] = ["owner", "teamlead", "admin", "manager", "os", "viewer"];
-const DEMOTE_ROLES: Role[] = ["teamlead", "admin", "manager", "os", "viewer"];
+const GRANTABLE_ROLES: Role[] = ["owner", "teamlead", "leadplus", "admin", "manager", "os", "viewer"];
+const DEMOTE_ROLES: Role[] = ["teamlead", "leadplus", "admin", "manager", "os", "viewer"];
 
 type Resolve = (
   request: OwnerAccessRequest,

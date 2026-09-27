@@ -28,7 +28,7 @@ import type { Role, WorkspacePage } from "@/types";
 
 /** Owner or Тимлид: people and settings — mirrors hasFullAccess() in firestore.rules. Never implies desk tables. */
 export function hasFullAccess(role: Role): boolean {
-  return role === "owner" || role === "teamlead";
+  return role === "owner" || role === "teamlead" || role === "leadplus";
 }
 
 /** Тимлид manages people, not orders: no desk table ever opens for them. */
@@ -57,7 +57,8 @@ export function isDeskBlockedFor(roles: Role[]): boolean {
 export function seesAllDesks(roles: Role[]): boolean {
   // Тимлид + Технарь и ОС (любой ролью): чужие столы на ЧТЕНИЕ без запроса.
   // У ОС заказы живут в столах технарей (просьба Nurba 23.09.2026).
-  return (roles.includes("teamlead") && roles.includes("manager")) || roles.includes("os");
+  // Тимлид+ — все столы без второй роли (и правит их, см. canEditPageData).
+  return roles.includes("leadplus") || (roles.includes("teamlead") && roles.includes("manager")) || roles.includes("os");
 }
 
 export function canManageWorkspace(role: Role): boolean {
@@ -150,7 +151,7 @@ export function canAccessPage(
 ): boolean {
   if (!uid) return false;
   if (workspaceOwnerId && uid === workspaceOwnerId) return true;
-  if (role === "owner") return true;
+  if (role === "owner" || role === "leadplus") return true;
   if (isBlockedFromDesks(role)) return false;
   if (isResponsibleForPage(page, uid)) return true;
   return Boolean(page.allowedUsers?.includes(uid));
@@ -163,7 +164,8 @@ export function canAccessPage(
  * always edit regardless of that list; a Тимлид never.
  */
 export function canEditPageData(page: WorkspacePage, role: Role, uid: string): boolean {
-  if (role === "owner") return true;
+  // Тимлид+ правит данные всех столов (структуру — нет, см. canManagePage).
+  if (role === "owner" || role === "leadplus") return true;
   if (isBlockedFromDesks(role)) return false;
   if (isResponsibleForPage(page, uid)) return true;
   if (!canAccessPage(page, role, uid)) return false;
@@ -219,7 +221,7 @@ export function canAssignResponsible(role: Role): boolean {
  * симулировать, а запись `activeRole: null` правилом разрешена всегда.
  */
 export function allowedSimulatedRoles(realRole: Role): Role[] {
-  if (realRole === "owner") return ["owner", "teamlead", "admin", "manager", "os", "viewer"];
+  if (realRole === "owner") return ["owner", "teamlead", "leadplus", "admin", "manager", "os", "viewer"];
   return [];
 }
 

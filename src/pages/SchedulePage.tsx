@@ -1,3 +1,4 @@
+import { isLeadRole, roleLabel } from "@/types/role";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
@@ -399,7 +400,7 @@ export default function SchedulePage() {
     };
     const technicians = take(active.filter((m) => worksAsTechnician(m) || deskOwners.has(m.uid)));
     const os = take(active.filter((m) => memberHasRole(m, "os")));
-    const leads = take(active.filter((m) => m.role === "teamlead" || m.role === "owner"));
+    const leads = take(active.filter((m) => isLeadRole(m.role) || m.role === "owner"));
     return { technicians, os, leads };
   }, [active, deskOwners]);
 
@@ -414,7 +415,7 @@ export default function SchedulePage() {
           uid: m.uid,
           label: personLabel(m),
           member: m,
-          note: m.role === "owner" ? "Owner" : m.role === "teamlead" ? "Тимлид" : null,
+          note: m.role === "owner" ? "Owner" : isLeadRole(m.role) ? roleLabel(m.role) : null,
         }))
         .filter((row) => withHidden || !hiddenSet.has(row.uid))
         // По алфавиту: человека ищут глазами по имени.

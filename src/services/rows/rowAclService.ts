@@ -1,6 +1,7 @@
 import { supabaseRows } from "@/lib/supabaseRows";
 import { isSbMissingError } from "@/services/sb/sbCollections";
 import type { Role, WorkspaceMember, WorkspacePage } from "@/types";
+import { isLeadRole } from "@/types/role";
 
 /**
  * Копия прав Firestore → Postgres, по которой политики `desk_rows` решают,
@@ -161,9 +162,9 @@ export function planMemberSync(
   const skipped: string[] = [];
   const currentByUid = new Map(current.map((m) => [m.uid, m]));
   const desiredUids = new Set(desired.map((m) => m.uid));
-  // Тимлид не пишет себя, Owner и роль owner — как в firestore.rules.
+  // Тимлид не пишет себя, Owner, роли owner и leadplus — как в firestore.rules.
   const teamleadMayTouch = (uid: string, role: Role | undefined) =>
-    uid !== opts.me && uid !== opts.ownerId && role !== "owner";
+    uid !== opts.me && uid !== opts.ownerId && role !== "owner" && role !== "leadplus";
   // Выданный Owner — как Тимлид, но себя (оставаясь Owner) править может:
   // роль owner выдаёт и забирает только создатель (20261003_owner_members.sql).
   const grantedMayTouch = (uid: string, role: Role | undefined) =>
@@ -521,7 +522,7 @@ export async function syncRowAcl(input: AclSyncInput): Promise<AclSyncReport> {
   const actor =
     input.realRole === "owner"
       ? "owner"
-      : input.realRole === "teamlead"
+      : input.realRole && isLeadRole(input.realRole)
         ? "teamlead"
         : input.realRole === "admin"
           ? "admin"

@@ -824,9 +824,10 @@ export default function DynamicTablePage() {
   // Кто смотрит — для замка строк-заказов. Один объект на смену прав, а не
   // новый на каждый рендер: от него зависит `cellLockFor`, а от неё — memo
   // каждой строки таблицы.
+  // Тимлид+ правит строки всех столов, как Owner (rows_edit_all_workspaces).
   const viewerIsOwner =
-    permissions.actsAsOwner;
-  const viewerIsTeamLead = permissions.hasRole("teamlead");
+    permissions.actsAsOwner || permissions.editsAllDesks;
+  const viewerIsTeamLead = permissions.hasRole("teamlead") && !viewerIsOwner;
   const viewer = useMemo(
     () => ({
       uid: permissions.uid,
@@ -843,7 +844,8 @@ export default function DynamicTablePage() {
     !page.osDesk &&
     // Owner разрешил технарю править этот стол самому.
     !page.techEditable &&
-    !permissions.actsAsOwner,
+    !permissions.actsAsOwner &&
+    !permissions.editsAllDesks,
   );
   // «Технари заполняют сами» (вкладка Owner «Правка столов»): всем разом
   // (`workspace.techFillsAll`) или этому столу (`page.techEditable`) —

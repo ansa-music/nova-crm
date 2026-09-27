@@ -12,11 +12,18 @@ import { refreshWorkspaceMembers, useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
 import { useTenantInfo } from "@/hooks/useTenantInfo";
 import { assertSeatAvailable } from "@/utils/seats";
+import { usePermissions } from "@/hooks/usePermissions";
+import type { Role } from "@/types";
+
+/** «Тимлид+» приглашает только Owner (правила пускают только его). */
+const INVITE_ROLES: Role[] = ["teamlead", "admin", "manager", "os", "viewer"];
+const OWNER_INVITE_ROLES: Role[] = ["teamlead", "leadplus", "admin", "manager", "os", "viewer"];
 
 export function InviteMemberForm({ workspaceId }: { workspaceId: string }) {
   const { profile } = useAuth();
   const { members } = useWorkspace();
   const tenant = useTenantInfo(workspaceId, true);
+  const { actsAsOwner } = usePermissions();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<InviteFormValues>({
@@ -58,7 +65,7 @@ export function InviteMemberForm({ workspaceId }: { workspaceId: string }) {
           control={form.control}
           name="role"
           render={({ field }) => (
-            <RoleSelect value={field.value} onChange={field.onChange} assignableRoles={["teamlead", "admin", "manager", "os", "viewer"]} />
+            <RoleSelect value={field.value} onChange={field.onChange} assignableRoles={actsAsOwner ? OWNER_INVITE_ROLES : INVITE_ROLES} />
           )}
         />
         <Button type="submit" disabled={isSubmitting} className="min-h-11 flex-1 gap-1.5 sm:min-h-0 sm:flex-none">

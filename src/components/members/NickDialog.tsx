@@ -1,3 +1,4 @@
+import { isLeadRole } from "@/types/role";
 import { useMemo, useState } from "react";
 import { Archive, AtSign, Check, Lock, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -49,7 +50,7 @@ export async function adoptScheduleRowByNick(input: {
   role: Role;
 }): Promise<string | null> {
   if (!input.nickLabel.trim() || !input.actorUid) return null;
-  if (input.kind === "other" && input.role !== "owner" && input.role !== "teamlead") return null;
+  if (input.kind === "other" && input.role !== "owner" && !isLeadRole(input.role)) return null;
   return bindScheduleGroupPersonToMember({
     workspaceId: input.workspaceId,
     memberUid: input.memberUid,

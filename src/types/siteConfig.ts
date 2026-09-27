@@ -111,7 +111,7 @@ export interface ModuleMeta {
  * «Настройки» не выключаются: иначе Owner закрыл бы себе вход обратно.
  */
 export const MODULES: ModuleMeta[] = [
-  { key: "orders", title: "Заказы (биржа)", hint: "Выдача заказов, отклики, автозаезд в стол", navKeys: ["orders"], paths: ["orders"] },
+  { key: "orders", title: "Заказы (биржа)", hint: "Выдача заказов, отклики, автозаезд в стол", navKeys: ["orders", "leads"], paths: ["orders", "leads"] },
   {
     key: "osDesk",
     title: "Столы продавцов (ОС)",
@@ -213,7 +213,7 @@ export interface SiteConfig {
 // ---------------------------------------------------------------------
 
 const HSL_RE = /^\d{1,3}(\.\d+)? \d{1,3}(\.\d+)?% \d{1,3}(\.\d+)?%$/;
-const ALL_ROLES: Role[] = ["owner", "teamlead", "admin", "manager", "os", "viewer"];
+const ALL_ROLES: Role[] = ["owner", "teamlead", "leadplus", "admin", "manager", "os", "viewer"];
 const ALLOWED_COLUMN_TYPES: ColumnType[] = ["text", "number", "currency", "status", "responsible", "technician", "date", "email", "phone", "url"];
 const HOME_PATHS = new Set(HOME_TARGETS.map((t) => t.path));
 const NAV_KEY_RE = /^[a-z][a-z0-9-]{0,40}$/;

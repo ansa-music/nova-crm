@@ -124,6 +124,7 @@ export function useNotificationAlerts() {
 
 /** Уведомление про заказ: всё, что ведёт на «Заказы» (новый, «открыт всем», отклик, выдача). */
 function isOrderNotification(n: Notification): boolean {
+  if (n.kind === "lead-assigned") return true;
   return typeof n.href === "string" && n.href.startsWith("/orders");
 }
 

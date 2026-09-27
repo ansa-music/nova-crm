@@ -71,7 +71,7 @@ export async function requestOrderStatus(input: {
       successRequestedBy: input.me,
     }).catch(() => undefined);
     const leadership = input.members
-      .filter((m) => m.status === "active" && m.uid && (memberHasRole(m, "owner") || memberHasRole(m, "teamlead")))
+      .filter((m) => m.status === "active" && m.uid && (memberHasRole(m, "owner") || memberHasRole(m, "teamlead") || memberHasRole(m, "leadplus")))
       .map((m) => m.uid as string)
       // ОС своё уведомление уже получил вместе с запросом.
       .filter((uid) => uid !== osUid);

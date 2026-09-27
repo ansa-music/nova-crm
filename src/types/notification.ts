@@ -25,6 +25,8 @@ export interface Notification {
     | "order-request"
     | "weekly-rating"
     | "prompt"
+    /** «Общая таблица»: Тимлид+ дал ОС нового клиента. */
+    | "lead-assigned"
     | null;
   viewRequestId?: string | null;
   /** id заявки на права Owner (совпадает с uid заявителя) — для кнопок в колокольчике. */

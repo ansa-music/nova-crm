@@ -1,3 +1,4 @@
+import { isLeadRole } from "@/types/role";
 import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
@@ -36,7 +37,7 @@ export function GrokAppDialog({ open, onOpenChange, editing, accounts, defaultPr
   const { profile } = useAuth();
   const { activeWorkspaceId, members } = useWorkspace();
   const { role } = usePermissions();
-  const canName = role === "owner" || role === "teamlead" || role === "admin";
+  const canName = role === "owner" || isLeadRole(role) || role === "admin";
   const [provider, setProvider] = useState<GrokAppProvider>(editing?.provider ?? defaultProvider);
   const [providerOther, setProviderOther] = useState(editing?.providerOther ?? "");
   const [email, setEmail] = useState(editing?.email ?? "");

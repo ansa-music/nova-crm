@@ -1,3 +1,4 @@
+import { isLeadRole } from "@/types/role";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { KeyRound, Plus, RefreshCw, Search, X } from "lucide-react";
@@ -109,7 +110,7 @@ type Entry = PoolAccount & { section: SectionId; raw: { kind: "grok"; account: G
 export default function GrokLimitPage() {
   const { profile } = useAuth();
   const { role, roles, isResolved } = usePermissions();
-  const canName = role === "owner" || role === "teamlead" || role === "admin";
+  const canName = role === "owner" || isLeadRole(role) || role === "admin";
   // Грок is closed only to a pure ОС; any other role of theirs opens it.
   const isOs = isResolved && roles.every((r) => r === "os");
   const { activeWorkspaceId, members } = useWorkspace();
@@ -118,7 +119,7 @@ export default function GrokLimitPage() {
   // Owner и Тимлид видят все аккаунты подписок, даже закрытые. А ОТКРЫВАЕТ
   // их (и решает запросы на доступ) — Owner и те, кому Owner дал право на
   // раздел: это право страницы, отдельное от ролей (types/grokAccess.ts).
-  const seesAll = role === "owner" || role === "teamlead";
+  const seesAll = role === "owner" || isLeadRole(role);
   const isOwnerRole = role === "owner";
   const grokBackend = useGrokBackend(workspaceId);
   const [accessSettings, setAccessSettings] = useState<GrokAccessSettings | null>(null);

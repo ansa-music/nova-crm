@@ -1,3 +1,4 @@
+import { isLeadRole } from "@/types/role";
 import { useEffect, useMemo, useRef } from "react";
 import { reconcileSupabaseOsExempt } from "@/services/rows/osExempt";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -47,7 +48,7 @@ export function useRowAclSync() {
   const realRole = permissions.realRole;
   const me = permissions.uid ?? "";
   const ownerId = activeWorkspace?.ownerId ?? "";
-  const management = realRole === "owner" || realRole === "teamlead";
+  const management = realRole === "owner" || isLeadRole(realRole);
   const active = Boolean(workspaceId && backend === "supabase" && permissions.isResolved && me);
 
   // Подпись прав столов: при её смене — сверка столов. В неё входит и копия
@@ -76,7 +77,7 @@ export function useRowAclSync() {
     try {
       let members: AclSyncInput["members"] = null;
       let observers: string[] | null = null;
-      if (withMembers && (ctx.realRole === "owner" || ctx.realRole === "teamlead")) {
+      if (withMembers && (ctx.realRole === "owner" || isLeadRole(ctx.realRole))) {
         // Участники в Supabase: копию прав ведёт триггер по документу, сверка
         // их не трогает (иначе снимок ростера мог бы убрать только что
         // добавленного); Owner вместо этого выравнивает тени в Firestore.
