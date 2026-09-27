@@ -2658,8 +2658,11 @@ Owner (`ensureCoreImported` → `ensureCoreMembersImported`), до неё всё
   `TelegramBackground`). Нет пункта «Заказы» — нижняя панель в 3 кнопки. «Главная» по ролям —
   `nav.home[role]` в `navGates`, только во включённый раздел и туда, куда роли и так можно.
 - **Бренд**: название, знак (1–3 знака для рейки), логотип (`services/brandService.ts`, путь
-  `{ws}/brand/logo-….ext`, ≤ 512 КБ; писать туда — только Owner: `20261030_brand_storage.sql`,
-  копия `nova_storage_path_ok` + ветка `brand`). Прежний логотип удаляется после сохранения
+  `{ws}/brand/logo-….ext`, ≤ 512 КБ; писать туда — только Owner: `20261031_site_builder.sql`,
+  копия `nova_storage_path_ok` + ветка `brand`; там же `core_workspace_owner_keys()` + `site` — в
+  режиме «настройки в Supabase» (`core_docs`) поле тоже только Owner). В режиме ядра в Supabase
+  `updateSiteConfig` пишет через `commitCore`: сначала `site: SB_DEL`, потом новое значение одной
+  транзакцией (слияние карт в базе рекурсивное, снятые ключи иначе остались бы). Прежний логотип удаляется после сохранения
   нового, несохранённые загрузки — при уходе с экрана.
 - **Шаблон нового стола** (`deskTemplate.columns`) — `CreatePageDialog` вместо `BLANK_COLUMNS`.
 - **Экран** — «Настройки → Конструктор» (`components/settings/SiteBuilderPanel.tsx`, только
@@ -2687,7 +2690,8 @@ iPhone: уведомления и удобство ввода в таблицу,
   `components/common/InstallApp.tsx` — окно `InstallAppHost` (одно на приложение, событие
   `nova:install-app`; Chrome/Android — окно браузера одним нажатием, iPhone — шаги «Поделиться → На
   экран «Домой»»), плашка `InstallAppBanner` (только телефон в браузере, одна строка, «×» — на 30 дней,
-  `nova:install-banner-hidden-until`; на «Заказах» у iPhone не рисуется — там своя), пункт меню
+  `nova:install-banner-hidden-until`; на «Заказах» у iPhone не рисуется — там своя; на КОМПЬЮТЕРЕ —
+  только когда браузер ставит сам одним нажатием, `mode === "prompt"`: Chrome/Edge/Яндекс), пункт меню
   аккаунта «Установить приложение» (`useAccountMenu`). В установленном приложении ничего этого нет.
 - **Сервис-воркер `public/sw.js`** — намеренно минимальный: навигация — из сети (`no-store`), без сети —
   последняя `index.html` (кэшируется только `text/html`, не редирект, пути `/__/` Firebase — мимо);

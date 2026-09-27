@@ -21,7 +21,7 @@ delete from storage.objects;
 
 \ir ../migrations/20261023_tenants.sql
 \ir ../migrations/20261024_storage_policies.sql
-\ir ../migrations/20261030_brand_storage.sql
+\ir ../migrations/20261031_site_builder.sql
 
 insert into public.rows_workspaces (workspace_id, owner_id, live) values ('TW2', 'TO2', true) on conflict do nothing;
 insert into public.rows_members (workspace_id, uid, role) values ('TW2', 'TO2', 'owner'), ('TW2', 'TZ', 'manager')
@@ -127,9 +127,11 @@ select tst.expect('чужой Owner — отказ', tst.val('TO2', $q$select co
 -- ---------- Повторный накат ----------
 \ir ../migrations/20261023_tenants.sql
 \ir ../migrations/20261024_storage_policies.sql
-\ir ../migrations/20261030_brand_storage.sql
+\ir ../migrations/20261031_site_builder.sql
 select tst.expect('после наката соль прежняя (не пересоздаётся)',
   (select (count(distinct ring_salt) = 2)::text from public.rows_workspaces where workspace_id in ('W', 'TW2')), 'true');
+select tst.expect('«Конструктор» (site) закрыт Тимлиду в настройках ядра',
+  ('site' = any(public.core_workspace_owner_keys()) and 'region' = any(public.core_workspace_owner_keys()))::text, 'true');
 select tst.expect('версия схемы не старее 20261023', (public.nova_schema_version() >= '20261023')::text, 'true');
 
 select label, got from tst.results where not ok;

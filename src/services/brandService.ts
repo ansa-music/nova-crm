@@ -3,7 +3,7 @@ import { removeRowFiles, rowFilePublicUrl, uploadRowFile } from "@/services/stor
 /**
  * Логотип компании («Конструктор сайта»): бакет `row-files`, путь
  * `{ws}/brand/logo-{id}.{ext}` — политики пускают писать туда только Owner
- * (20261030_brand_storage.sql). Ссылку в `workspace.site.brand` пишет
+ * (20261031_site_builder.sql). Ссылку в `workspace.site.brand` пишет
  * вызывающий; прежний файл — `removeBrandLogo` после записи новой ссылки.
  */
 

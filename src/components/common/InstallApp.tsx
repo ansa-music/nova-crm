@@ -115,8 +115,8 @@ export function InstallAppHost() {
 const BANNER_KEY = "nova:install-banner-hidden-until";
 
 /**
- * Плашка на телефоне: «Установите приложение». Только в браузере (не в
- * установленном приложении), скрыть — на 30 дней.
+ * Плашка «Установите приложение»: на телефоне — всегда (кроме уже
+ * установленного), на компьютере — где браузер ставит сам. Скрыть — на 30 дней.
  */
 export function InstallAppBanner() {
   const mobile = useIsMobile();
@@ -130,7 +130,11 @@ export function InstallAppBanner() {
       return false;
     }
   });
-  if (!mobile || hidden || mode === "installed" || mode === "unsupported") return null;
+  if (hidden || mode === "installed" || mode === "unsupported") return null;
+  // Компьютер: только там, где браузер ставит приложение сам одним нажатием
+  // (Chrome, Edge, Яндекс). В остальных — пункт «Установить приложение» в
+  // меню аккаунта, без полосы на каждом экране.
+  if (!mobile && mode !== "prompt") return null;
   // На «Заказах» у iPhone своя плашка «установите приложение» — не дублируем.
   if (isIos() && pathname.startsWith("/orders")) return null;
 
@@ -150,7 +154,9 @@ export function InstallAppBanner() {
       <Smartphone className="h-4 w-4 shrink-0 text-primary" />
       <p className="min-w-0 flex-1 truncate text-[13px]">
         <span className="font-medium">Приложение {name}</span>
-        <span className="text-muted-foreground"> · уведомления о заказах</span>
+        <span className="text-muted-foreground">
+          {mobile ? " · уведомления о заказах" : " · своё окно, значок на рабочем столе и уведомления о заказах"}
+        </span>
       </p>
       <Button size="sm" className="h-8 shrink-0 px-3" onClick={() => void startInstall(mode)}>
         Установить
