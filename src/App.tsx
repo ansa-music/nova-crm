@@ -28,6 +28,7 @@ import { ModuleGate } from "@/components/common/ModuleGate";
 import {
   loadAbsPage,
   loadWeeklyRatingPage,
+  loadPromptsPage,
   loadReportsPage,
   loadAnnouncementsPage,
   loadDashboardPage,
@@ -72,6 +73,7 @@ const OsDeskPage = lazy(loadOsDeskPage);
 const OsDesksPage = lazy(loadOsDesksPage);
 const AbsPage = lazy(loadAbsPage);
 const WeeklyRatingPage = lazy(loadWeeklyRatingPage);
+const PromptsPage = lazy(loadPromptsPage);
 const ReportsPage = lazy(loadReportsPage);
 const TelegramPage = lazy(loadTelegramPage);
 const OsDispatchPage = lazy(loadOsDispatchPage);
@@ -114,6 +116,7 @@ const MENU_PAGE_LOADERS: Array<() => Promise<unknown>> = [
   loadDashboardPage,
   loadAbsPage,
   loadWeeklyRatingPage,
+  loadPromptsPage,
   loadReportsPage,
 ];
 
@@ -310,6 +313,7 @@ function AppShell() {
             <Route path="team" element={<TeamPage />} />
             <Route path="announcements" element={<ModuleGate module="announcements"><AnnouncementsPage /></ModuleGate>} />
             <Route path="grok-limit" element={<ModuleGate module="grok"><GrokLimitPage /></ModuleGate>} />
+            <Route path="prompts" element={<ModuleGate module="prompts"><PromptsPage /></ModuleGate>} />
             <Route path="grok-limit/apps" element={<Navigate to="/grok-limit?s=higgsfield" replace />} />
             <Route path="dispatch" element={DISPATCH_ENABLED ? <DispatchPage /> : <Navigate to="/" replace />} />
             <Route path="chat" element={<ModuleGate module="chat"><WorkspaceChatPage /></ModuleGate>} />

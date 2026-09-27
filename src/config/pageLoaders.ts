@@ -24,6 +24,7 @@ export const loadOsDeskPage = () => import("@/pages/OsDeskPage");
 export const loadOsDesksPage = () => import("@/pages/OsDesksPage");
 export const loadAbsPage = () => import("@/pages/AbsPage");
 export const loadWeeklyRatingPage = () => import("@/pages/WeeklyRatingPage");
+export const loadPromptsPage = () => import("@/pages/PromptsPage");
 export const loadReportsPage = () => import("@/pages/ReportsPage");
 /** Раздел «Telegram» тянет библиотеку mtcute — в фоновую предзагрузку меню его не ставим. */
 export const loadTelegramPage = () => import("@/pages/TelegramPage");
@@ -57,6 +58,7 @@ const ROUTE_LOADERS: Record<string, () => Promise<unknown>> = {
   "os-desks": loadOsDesksPage,
   abs: loadAbsPage,
   "weekly-rating": loadWeeklyRatingPage,
+  prompts: loadPromptsPage,
   "os-dispatch": loadOsDispatchPage,
   "desk-editing": loadDeskEditingPage,
   platform: loadPlatformPage,
