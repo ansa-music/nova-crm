@@ -5,6 +5,7 @@
 // Токен в запросе — ID-токен Firebase: его проверяет сама база, когда
 // функция зовёт tg_edge_ctx с этим токеном (Third-party Auth → Firebase).
 
+import * as mt from "npm:@mtcute/web@0.32.3";
 import { handle, type Db, type DeviceRow, type EdgeCtx, type MasterRow, type TgConn } from "./handler.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
@@ -18,35 +19,63 @@ const CORS = {
 };
 
 // ---------------------------------------------------------------------
-// mtcute: сначала пакет под Deno, иначе веб-вариант (оба — на WebSocket/TCP).
+// mtcute: веб-вариант (WebSocket). Пакет под Deno (jsr:@mtcute/deno) сборка
+// Supabase не принимает — тянет `node:sqlite`. Модуль шифрования (wasm) берём
+// с CDN по явному адресу: искать файл внутри npm-пакета сборке не нужно.
+// Платформа — своя: в Deno у navigator нет onLine, и веб-платформа сочла бы
+// себя «без сети».
 // ---------------------------------------------------------------------
 
-// deno-lint-ignore no-explicit-any
-type Mt = any;
-let mtModule: Promise<{ mod: Mt; runtime: string }> | null = null;
+// Версия — та, что берёт @mtcute/web 0.32.3 (`^0.32.0`, новее нет): клей JS и wasm обязаны совпасть.
+const WASM_URLS = [
+  "https://cdn.jsdelivr.net/npm/@mtcute/wasm@0.32.0/mtcute.wasm",
+  "https://unpkg.com/@mtcute/wasm@0.32.0/mtcute.wasm",
+];
+let wasmModule: Promise<WebAssembly.Module> | null = null;
 
-function loadMtcute() {
-  if (!mtModule) {
-    mtModule = (async () => {
-      try {
-        const mod = await import("jsr:@mtcute/deno@0.32");
-        return { mod, runtime: "mtcute-deno" };
-      } catch (error) {
-        console.warn("[tg] @mtcute/deno не загрузился, беру @mtcute/web", error);
-        const mod = await import("npm:@mtcute/web@0.32.3");
-        return { mod, runtime: "mtcute-web" };
+/** Скомпилированный модуль, а не байты: из байтов `WebAssembly.instantiate` вернул бы {module, instance}. */
+function loadWasm(): Promise<WebAssembly.Module> {
+  if (!wasmModule) {
+    wasmModule = (async () => {
+      let last: unknown = null;
+      for (const url of WASM_URLS) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`wasm ${res.status} ${url}`);
+          return await WebAssembly.compile(await res.arrayBuffer());
+        } catch (error) {
+          last = error;
+        }
       }
+      throw last;
     })();
+    wasmModule.catch(() => {
+      wasmModule = null;
+    });
   }
-  return mtModule;
+  return wasmModule;
+}
+
+class EdgePlatform extends mt.WebPlatform {
+  override getDeviceModel() {
+    return "Supabase Edge";
+  }
+  override isOnline() {
+    return true;
+  }
+  override onNetworkChanged() {
+    return () => undefined;
+  }
 }
 
 async function connect(config: { apiId: number; apiHash: string }, session: string | null): Promise<TgConn> {
-  const { mod } = await loadMtcute();
-  const client = new mod.TelegramClient({
+  const wasmInput = await loadWasm();
+  const client = new mt.TelegramClient({
     apiId: config.apiId,
     apiHash: config.apiHash,
-    storage: new mod.MemoryStorage(),
+    storage: new mt.MemoryStorage(),
+    crypto: new mt.WebCryptoProvider({ wasmInput }),
+    platform: new EdgePlatform(),
     disableUpdates: true,
     initConnectionOptions: {
       deviceModel: "Nova · сервер workspace",
@@ -174,13 +203,6 @@ Deno.serve(async (req) => {
   } catch {
     /* пусто */
   }
-  const { mod, runtime } = await loadMtcute().catch((error) => {
-    console.error("[tg] mtcute не загрузился", error);
-    return { mod: null, runtime: "none" };
-  });
-  if (!mod && input.action !== "status") {
-    return Response.json({ ok: false, error: "no_mtcute", message: "Сервер Telegram не запустился (библиотека не загрузилась)." }, { status: 500, headers: CORS });
-  }
   const result = await handle(
     {
       ctx: async (t, ws) => {
@@ -196,15 +218,15 @@ Deno.serve(async (req) => {
       },
       db,
       connect,
-      Long: mod?.Long ?? { fromString: (s: string) => s, ZERO: 0 },
+      Long: mt.Long,
       randomLong: () => {
         const b = crypto.getRandomValues(new Uint32Array(2));
-        return new mod.Long(b[0], b[1]);
+        return new mt.Long(b[0], b[1]);
       },
       sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
       now: () => Date.now(),
       holderId: () => crypto.randomUUID(),
-      runtime,
+      runtime: "mtcute-web",
     },
     token,
     input
