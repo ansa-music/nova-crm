@@ -29,9 +29,11 @@ import {
   UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Building2 as PlatformIcon, FileChartColumn } from "lucide-react";
+import { Building2 as PlatformIcon, FileChartColumn, Smartphone } from "lucide-react";
+import { useInstallMode } from "@/utils/pwa";
+import { startInstall } from "@/components/common/InstallApp";
 import { DESKS_ITEM_KEY, DESK_SHORTCUTS_LIMIT, EXTRA_ROUTE_META, MORE_ITEM_KEY, MORE_SECTION_KEY, pathMatches, pathOnly, type NavChild, type NavItem, type NavSection, type PageMeta } from "@/config/nav";
-import { memberHasRole, rolesLabel, ROLE_LABELS, type Role, type WorkspaceMember, type WorkspacePage } from "@/types";
+import { roleLabel, memberHasRole, rolesLabel, type Role, type WorkspaceMember, type WorkspacePage } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -50,6 +52,9 @@ import { THEME_OPTIONS } from "@/components/layout/ThemeToggle";
 import { osDispatchLogState, subscribeOsDispatchLogState } from "@/services/osDispatchLogService";
 import { openOrdersState, subscribeOpenOrdersState } from "@/services/openOrdersPulse";
 import { useGrokPoolSignal } from "@/hooks/useGrokPoolSignal";
+import { brandName, term, useSiteConfig } from "@/config/siteTerms";
+import { HOME_TARGETS, isModuleEnabled, moduleOfPath, type SiteConfig } from "@/types/siteConfig";
+import { applySiteNav } from "@/config/siteNav";
 import { useOsPendingOrderRequests } from "@/hooks/useOsPendingOrderRequests";
 import { useTelegramAccess, useTelegramRevokeGuard } from "@/services/telegram/telegramAccess";
 import { subscribeTgInbox, tgInboxPulse, tgUnreadTotal } from "@/services/telegram/tgInboxPulse";
@@ -80,12 +85,11 @@ import { signOutUser } from "@/firebase/auth";
 let backupInFlight = false;
 
 /** Подпись роли под именем в карточке аккаунта; у ролей без подписи — email. */
-const ROLE_CAPTIONS: Partial<Record<Role, string>> = {
-  owner: "Владелец",
-  teamlead: "Тимлид",
-  manager: "Технарь",
-  os: "ОС",
-};
+function roleCaption(role: Role): string | undefined {
+  if (role === "owner") return "Владелец";
+  if (role === "teamlead" || role === "manager" || role === "os") return roleLabel(role);
+  return undefined;
+}
 
 export interface NavHome {
   to: string;
@@ -152,6 +156,8 @@ export interface NavInputs {
   pinnedIds: string[];
   /** Администратор платформы (почта Nurba) — пункт «Платформа». */
   platformAdmin?: boolean;
+  /** «Конструктор сайта» компании: слова, скрытые пункты, модули, «Главная». */
+  site: SiteConfig;
 }
 
 /**
@@ -238,7 +244,12 @@ function navGates(inp: NavInputs) {
   // «Где дом» — раньше это считали порознь HomePage и Sidebar. Без своего
   // стола дом — список столов (а не «/»: HomePage сама редиректит на home.to,
   // и «/» замкнул бы круг).
-  const homeTo = isOs
+  const site = inp.site;
+  const on = (path: string) => {
+    const mod = moduleOfPath(path);
+    return !mod || isModuleEnabled(site, mod);
+  };
+  let homeTo = isOs && on("/technicians")
     ? "/technicians"
     : isTeamlead
       ? "/users"
@@ -246,15 +257,35 @@ function navGates(inp: NavInputs) {
         ? `/page/${myDesk.id}`
         : showDeskNav
           ? "/desks"
-          : "/dashboard";
-  const homeLabel = isOs
-    ? "Технари"
+          : on("/dashboard")
+            ? "/dashboard"
+            : "/more";
+  let homeLabel = homeTo === "/technicians"
+    ? term("technician", "many", site)
     : isTeamlead
       ? "Пользователи"
       : myDesk && memberHasRole(myMembership, "manager")
-        ? "Мой стол"
+        ? `Мой ${term("desk", "one", site).toLowerCase()}`
         : "Главная";
-  const homeIcon = isOs ? HardHat : isTeamlead ? Users : Home;
+  let homeIcon = homeTo === "/technicians" ? HardHat : isTeamlead ? Users : Home;
+  // «Главная» по ролям из «Конструктора сайта»: только туда, куда человеку
+  // и так можно, и только во включённый раздел — иначе прежний дом.
+  const wanted = permissions.isResolved ? site.nav?.home?.[permissions.role] : undefined;
+  if (wanted && on(wanted) && HOME_TARGETS.some((t) => t.path === wanted)) {
+    const allowed =
+      wanted === "/desks"
+        ? showDeskNav
+        : wanted === "/os-desk"
+          ? showOsDeskNav
+          : wanted === "/technicians"
+            ? permissions.canSeeTechnicians
+            : true;
+    if (allowed) {
+      homeTo = wanted;
+      homeLabel = "Главная";
+      homeIcon = Home;
+    }
+  }
   const canIssueOrders = permissions.isResolved && (hasFullAccess(permissions.role) || permissions.hasRole("os"));
   return {
     isOs,
@@ -280,6 +311,11 @@ type NavGates = ReturnType<typeof navGates>;
 
 /** Все секции ДО фильтра по `show` — заголовкам экранов нужны и скрытые. */
 function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShortcuts: NavChild[]): NavSection[] {
+  return applySiteNav(buildDefaultSections(inp, g, sig, deskShortcuts), inp.site);
+}
+
+function buildDefaultSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShortcuts: NavChild[]): NavSection[] {
+  const site = inp.site;
   const myDeskId = inp.myDesk?.id ?? null;
   // Зелёные пункты: «Заказы», пока на бирже есть ОТКРЫТЫЙ заказ (забрали
   // последний — гаснет само); дом — когда на стол приехал заказ и его ещё не
@@ -312,7 +348,7 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
         {
           key: "orders",
           to: "/orders",
-          label: "Заказы",
+          label: term("order", "many", site),
           icon: ClipboardList,
           alert: sig.ordersAlert,
           emphasis: true,
@@ -322,7 +358,7 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
         {
           key: "os-desk",
           to: "/os-desk",
-          label: "Стол ОС",
+          label: term("osDesk", "one", site),
           icon: Table2,
           show: g.showOsDeskNav,
           emphasis: true,
@@ -331,25 +367,25 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
         {
           key: DESKS_ITEM_KEY,
           to: "/desks",
-          label: "Столы",
+          label: term("desk", "many", site),
           icon: LayoutGrid,
           show: g.showDeskNav,
           children: deskShortcuts,
         },
-        { key: "technicians", to: "/technicians", label: "Технари", icon: HardHat, show: g.showTechniciansNav },
-        { key: "os-desks", to: "/os-desks", label: "Столы ОС", icon: ScanEye, show: g.showOsDesksNav },
+        { key: "technicians", to: "/technicians", label: term("technician", "many", site), icon: HardHat, show: g.showTechniciansNav },
+        { key: "os-desks", to: "/os-desks", label: term("osDesk", "many", site), icon: ScanEye, show: g.showOsDesksNav },
         // «Telegram» — рабочий аккаунт прямо в Nova (26.09.2026): у тех, кому
         // Owner открыл раздел (любая роль), и у самого Owner — он там выдаёт
         // доступ и ключи (просьба Nurba: «сделай слева как главное»).
         {
           key: "telegram",
           to: "/telegram",
-          label: "Telegram",
+          label: term("telegram", "one", site),
           icon: Send,
           show: sig.telegramGranted || (inp.permissions.isResolved && inp.permissions.actsAsOwner),
           badge: sig.telegramGranted ? sig.telegramUnread : 0,
         },
-        { key: "grok", to: "/grok-limit", label: "Грок лимит", icon: KeyRound, show: g.showGrokNav, hint: grokHint, emphasis: true },
+        { key: "grok", to: "/grok-limit", label: term("grok", "one", site), icon: KeyRound, show: g.showGrokNav, hint: grokHint, emphasis: true },
         // Чат — ОДИН пункт (просьба Nurba 25.09.2026: «чат в быстром доступе,
         // одна страница, внутри переключиться на общий и личный»): горит и на
         // «/chat», и на «/messages», бейдж — сумма. Ведёт туда, где ждут:
@@ -357,20 +393,20 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
         {
           key: "chat",
           to: sig.privateUnreadTotal > 0 && sig.workspaceChatUnread === 0 ? "/messages" : "/chat",
-          label: "Чат",
+          label: term("chat", "one", site),
           icon: MessageSquare,
           badge: sig.privateUnreadTotal + sig.workspaceChatUnread,
           activeOn: (pathname) => pathMatches(pathname, "/chat") || pathMatches(pathname, "/messages"),
         },
         // График — тоже частое (та же просьба): смены и выходные на сегодня.
-        { key: "schedule", to: "/schedule", label: "График", icon: CalendarDays },
+        { key: "schedule", to: "/schedule", label: term("schedule", "one", site), icon: CalendarDays },
         // «Дашборд» и «ABS система» — ОДИН пункт (просьба Nurba 25.09.2026:
         // «объедини так же Дашборд и ABS в одну вкладку»): горит на обоих
         // адресах, внутри переключатель «Дашборд / ABS система».
         {
           key: "dashboard",
           to: "/dashboard",
-          label: "Дашборд · ABS",
+          label: `${term("dashboard", "one", site)} · ${site.terms?.abs?.one ? term("abs", "one", site) : "ABS"}`,
           icon: LayoutDashboard,
           activeOn: (pathname) => pathMatches(pathname, "/dashboard") || pathMatches(pathname, "/abs"),
         },
@@ -395,27 +431,27 @@ function buildRawSections(inp: NavInputs, g: NavGates, sig: NavSignals, deskShor
       items: [
         // «ABS система» — вкладка пункта «Дашборд · ABS»; скрытый пункт — только
         // ради заголовка экрана «/abs» (buildPageMeta читает и скрытые).
-        { key: "abs", to: "/abs", label: "ABS система", icon: Trophy, show: false },
+        { key: "abs", to: "/abs", label: term("abs", "one", site), icon: Trophy, show: false },
         // «Отчёты» — итоги прошлых периодов (касса технарей, KPI ОС), всем ролям.
-        { key: "reports", to: "/reports", label: "Отчёты", icon: FileChartColumn },
+        { key: "reports", to: "/reports", label: term("reports", "one", site), icon: FileChartColumn },
         {
           key: "os-dispatch",
           to: "/os-dispatch",
-          label: "Выдачи ОС",
+          label: `Выдачи ${term("os", "one", site)}`,
           icon: ListChecks,
           show: g.showOsDispatchNav,
           badge: g.showOsDispatchNav ? sig.osDispatchUnseen : 0,
         },
-        { key: "desk-editing", to: "/desk-editing", label: "Правка столов", icon: PenLine, show: g.showDeskEditingNav },
+        { key: "desk-editing", to: "/desk-editing", label: `Правка ${term("desk", "many", site).toLowerCase()}`, icon: PenLine, show: g.showDeskEditingNav },
         { key: "platform", to: "/platform", label: "Платформа", icon: PlatformIcon, show: g.showPlatformNav },
-        { key: "people", to: "/people", label: "Люди", icon: UsersRound },
-        { key: "team", to: "/team", label: "Команда", icon: Contact, show: g.showUsersNav },
+        { key: "people", to: "/people", label: term("people", "one", site), icon: UsersRound },
+        { key: "team", to: "/team", label: term("team", "one", site), icon: Contact, show: g.showUsersNav },
         { key: "users", to: "/users", label: "Пользователи", icon: Users, show: g.showUsersNav && !g.isTeamlead },
         // «Сообщения» в меню нет — это вкладка «Личные» того же «Чата». Пункт
         // остаётся скрытым ради заголовка экрана «/messages» (buildPageMeta
         // читает и скрытые пункты).
         { key: "messages", to: "/messages", label: "Сообщения", icon: MessageCircle, show: false },
-        { key: "announcements", to: "/announcements", label: "Объявления", icon: Megaphone },
+        { key: "announcements", to: "/announcements", label: term("announcements", "one", site), icon: Megaphone },
         { key: "dispatch", to: "/dispatch", label: "Выдача", icon: PackageCheck, show: g.showDispatchNav },
         { key: "settings", to: "/settings", label: "Настройки", icon: Settings },
       ],
@@ -433,15 +469,15 @@ export function buildPageMeta(inp: NavInputs): (pathname: string) => PageMeta {
   const { allPages, members } = inp;
   const { canAccessPage } = inp.permissions;
   return (pathname: string): PageMeta => {
-    if (pathname === "/") return { title: g.homeLabel, eyebrow: "Nova" };
+    if (pathname === "/") return { title: g.homeLabel, eyebrow: brandName(inp.site) };
     // Свой стол — «Мой стол», чужой — его имя; стол ОС подписан отдельно.
     // На телефоне шапка стола прячет свой h1 — имя стола здесь единственное.
     // Закрытый стол не подписываем: имя чужого стола — тоже его содержимое.
     if (pathname.startsWith("/page/")) {
       const id = pathname.slice("/page/".length).split("/")[0];
       const page = allPages.find((p) => p.id === id);
-      if (page && canAccessPage(page)) return { title: page.name, eyebrow: page.osDesk ? "Стол ОС" : "Стол" };
-      return { title: "Стол", eyebrow: "Столы" };
+      if (page && canAccessPage(page)) return { title: page.name, eyebrow: page.osDesk ? term("osDesk", "one", inp.site) : term("desk", "one", inp.site) };
+      return { title: term("desk", "one", inp.site), eyebrow: term("desk", "many", inp.site) };
     }
     if (pathname.startsWith("/messages/")) {
       const uid = pathname.slice("/messages/".length).split("/")[0];
@@ -465,12 +501,13 @@ export function buildPageMeta(inp: NavInputs): (pathname: string) => PageMeta {
       const title = best.item.key === "home" ? g.homeLabel : best.item.label;
       // Разделы со страницы «Ещё» — надзаголовок «Ещё»: так и в шапке
       // телефона видно, откуда сюда пришли.
-      const eyebrow = best.section.key === MORE_SECTION_KEY ? "Ещё" : (best.section.title ?? "Nova");
+      const eyebrow = best.section.key === MORE_SECTION_KEY ? "Ещё" : (best.section.title ?? brandName(inp.site));
       return { title, eyebrow };
     }
     const extra = EXTRA_ROUTE_META.find((r) => pathMatches(pathname, r.prefix));
-    if (extra) return { title: extra.title, eyebrow: extra.eyebrow };
-    return { title: "Nova", eyebrow: "Nova" };
+    if (extra) return { title: extra.title, eyebrow: extra.eyebrow === "Nova" ? brandName(inp.site) : extra.eyebrow };
+    const brand = brandName(inp.site);
+    return { title: brand, eyebrow: brand };
   };
 }
 
@@ -491,7 +528,7 @@ export function buildNavModel(
   // «Свой стол» для G-S и нижней панели: у Owner без стола — закреплённый или
   // первый стол (так делал GoChordHotkeys), иначе список.
   let myDeskTo = g.showDeskNav ? "/desks" : "/os-desks";
-  if (g.isOs) myDeskTo = "/os-desk";
+  if (g.isOs) myDeskTo = isModuleEnabled(inp.site, "osDesk") ? "/os-desk" : g.homeTo;
   else if (myDesk) myDeskTo = `/page/${myDesk.id}`;
   else if (permissions.hasFullDeskAccess) {
     const pinned = pinnedIds.map((id) => pages.find((p) => p.id === id)).find((p) => p !== undefined);
@@ -615,9 +652,10 @@ export function NavModelProvider({ children }: { children: ReactNode }) {
   const telegramGranted = canHaveTelegram && telegramAccess.granted;
   const telegramUnread = tgUnreadTotal(useSyncExternalStore(subscribeTgInbox, tgInboxPulse));
 
+  const site = useSiteConfig();
   const inputs = useMemo<NavInputs>(
-    () => ({ uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds, platformAdmin }),
-    [uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds, platformAdmin]
+    () => ({ uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds, platformAdmin, site }),
+    [uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds, platformAdmin, site]
   );
   const signals = useMemo<NavSignals>(
     () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted, telegramUnread }),
@@ -672,13 +710,19 @@ export interface BottomBarSlot {
  * вторая становится «Дашбордом».
  */
 export function bottomBarSlot(nav: Pick<NavModel, "home" | "items" | "isOs">): BottomBarSlot {
-  if (nav.isOs) return { key: "os-desk", to: "/os-desk", label: "Стол ОС", icon: Table2 };
+  const osDesk = nav.items.find((i) => i.key === "os-desk");
+  if (nav.isOs && osDesk) return { key: "os-desk", to: osDesk.to, label: osDesk.label, icon: Table2 };
   const desks = nav.items.find((i) => i.key === DESKS_ITEM_KEY);
-  const slot: BottomBarSlot = desks
-    ? { key: desks.key, to: desks.to, label: "Столы", icon: LayoutGrid }
-    : { key: "os-desks", to: "/os-desks", label: "Столы ОС", icon: ScanEye };
-  if (pathOnly(slot.to) !== pathOnly(nav.home.to)) return slot;
-  return { key: "dashboard", to: "/dashboard", label: "Дашборд", icon: LayoutDashboard };
+  const osDesks = nav.items.find((i) => i.key === "os-desks");
+  const dashboard = nav.items.find((i) => i.key === "dashboard");
+  const slot: BottomBarSlot | null = desks
+    ? { key: desks.key, to: desks.to, label: desks.label, icon: LayoutGrid }
+    : osDesks
+      ? { key: "os-desks", to: osDesks.to, label: osDesks.label, icon: ScanEye }
+      : null;
+  if (slot && pathOnly(slot.to) !== pathOnly(nav.home.to)) return slot;
+  if (dashboard) return { key: "dashboard", to: "/dashboard", label: term("dashboard", "one"), icon: LayoutDashboard };
+  return { key: "more-page", to: "/more", label: "Ещё", icon: LayoutList };
 }
 
 /**
@@ -756,16 +800,21 @@ export function useAccountMenu(opts: { openCreatePage?: () => void; openCreateWo
   const theme = useUiStore((s) => s.theme);
   const setTheme = useUiStore((s) => s.setTheme);
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
+  const installMode = useInstallMode();
   const myMembership = members.find((m) => m.uid === profile?.uid);
 
   const caption = permissions.isSimulating
-    ? `Режим: ${ROLE_LABELS[permissions.role]}`
+    ? `Режим: ${roleLabel(permissions.role)}`
     : (myMembership &&
-      ((myMembership.extraRoles?.length ? rolesLabel(myMembership) : null) || ROLE_CAPTIONS[myMembership.role])) ||
+      ((myMembership.extraRoles?.length ? rolesLabel(myMembership) : null) || roleCaption(myMembership.role))) ||
     profile?.email ||
     "";
 
   const actions: AccountMenuItem[] = [];
+  // Приложение на экран — без магазинов (PWA). В установленном пункта нет.
+  if (installMode !== "installed" && installMode !== "unsupported") {
+    actions.push({ key: "install-app", label: "Установить приложение", icon: Smartphone, run: () => startInstall(installMode) });
+  }
   if (canCreateWorkspace && openCreateWorkspace) {
     actions.push({ key: "create-workspace", label: "Создать workspace", icon: Plus, run: openCreateWorkspace });
   }

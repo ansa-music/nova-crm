@@ -1719,8 +1719,11 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     // "just keep typing" flow instead of getting stuck on the last row.
     // …unless this last row is still blank: one empty slot at the bottom is
     // enough, pressing Enter on it must not stack up more.
+    // На таче Enter — это «Готово» клавиатуры телефона: человек закончил
+    // ввод, а не просит новую строку. Новая строка там заводилась бы на каждое
+    // «Готово» с открытым редактором (и клавиатурой) — строки-пустышки.
     if (direction === "down" && rIdx === rowIds.length - 1) {
-      if (!rowIsBlank) await createRowAndGo(activeCell.colKey);
+      if (!rowIsBlank && !coarsePointer) await createRowAndGo(activeCell.colKey);
       return;
     }
 

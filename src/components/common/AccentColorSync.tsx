@@ -10,7 +10,11 @@ export const ACCENT_PRESETS = [
   { label: "Малина", value: "340 82% 62%" },
 ] as const;
 
-/** Workspace accent is a desk marker (--desk-accent) only. Chrome stays neon cyan. */
+/**
+ * Workspace accent is a desk marker (--desk-accent) only. Главный цвет сайта
+ * (--primary/--ring) ведёт «Конструктор сайта» (`useSiteConfigBridge`) — здесь
+ * его больше не снимаем, иначе смена цвета стола стирала бы цвет компании.
+ */
 export function AccentColorSync() {
   const { activeWorkspace } = useWorkspace();
 
@@ -21,8 +25,6 @@ export function AccentColorSync() {
     } else {
       root.style.removeProperty("--desk-accent");
     }
-    root.style.removeProperty("--primary");
-    root.style.removeProperty("--ring");
   }, [activeWorkspace?.accentColor]);
 
   return null;

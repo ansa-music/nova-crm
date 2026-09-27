@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { useLocation } from "react-router";
+import { brandName, useSiteConfig } from "@/config/siteTerms";
 import { usePageMeta } from "@/hooks/useNavModel";
 
 /**
@@ -21,12 +22,13 @@ import { usePageMeta } from "@/hooks/useNavModel";
 export function PageShell({ children }: { children: ReactNode }) {
   const location = useLocation();
   const meta = usePageMeta(location.pathname);
+  const brand = brandName(useSiteConfig());
 
   // Вкладка браузера подписана разделом — из той же модели, что шапка
   // телефона; имя стола подтягивается, когда список столов доехал.
   useEffect(() => {
-    document.title = `${meta.title} · Nova`;
-  }, [meta.title]);
+    document.title = `${meta.title} · ${brand}`;
+  }, [meta.title, brand]);
 
   return (
     <div key={location.pathname} className="page-enter flex h-full min-h-0 flex-col">

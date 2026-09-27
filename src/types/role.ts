@@ -1,3 +1,5 @@
+import { currentSiteConfig, term } from "@/config/siteTerms";
+
 export type Role = "owner" | "teamlead" | "admin" | "manager" | "os" | "viewer";
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -54,10 +56,26 @@ export function memberHasRole(member: RoleHolder | null | undefined, role: Role)
   return rolesOf(member).includes(role);
 }
 
+/**
+ * Подпись роли в интерфейсе компании. `ROLE_LABELS` — умолчания Nova; Owner
+ * переименовывает роли в «Конструкторе сайта» (id роли в правилах и базе не
+ * меняется). Роли «Технарь» и «ОС» по умолчанию берут слова «Исполнитель» и
+ * «Продавец» из того же конструктора — чтобы «Технари» в меню и роль
+ * «Технарь» не разошлись.
+ */
+export function roleLabel(role: Role): string {
+  const config = currentSiteConfig();
+  const own = config.roles?.[role];
+  if (own) return own;
+  if (role === "manager" && config.terms?.technician?.one) return term("technician", "one", config);
+  if (role === "os" && config.terms?.os?.one) return term("os", "one", config);
+  return ROLE_LABELS[role];
+}
+
 /** «Тимлид + Технарь». */
 export function rolesLabel(member: RoleHolder | null | undefined): string {
   return rolesOf(member)
-    .map((role) => ROLE_LABELS[role])
+    .map((role) => roleLabel(role))
     .join(" + ");
 }
 

@@ -15,7 +15,7 @@ import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { canOpenDesk } from "@/utils/peopleDesks";
 import { displayNameOf } from "@/utils/displayName";
 import { cn } from "@/utils/cn";
-import { ROLE_LABELS, type WorkspacePage } from "@/types";
+import { roleLabel, type WorkspacePage } from "@/types";
 
 type CommandItem = {
   id: string;
@@ -172,7 +172,7 @@ function PaletteBody({ onClose, onCreatePage }: { onClose: () => void; onCreateP
         id: "act-role",
         kind: "action",
         label: "Смотреть как…",
-        hint: ROLE_LABELS[account.currentRole],
+        hint: roleLabel(account.currentRole),
         icon: Eye,
         keepOpen: true,
         run: () => setRoleMode(true),
@@ -190,7 +190,7 @@ function PaletteBody({ onClose, onCreatePage }: { onClose: () => void; onCreateP
       account.simulatedRoles.map((role) => ({
         id: `role-${role}`,
         kind: "action" as const,
-        label: `Смотреть как ${ROLE_LABELS[role]}`,
+        label: `Смотреть как ${roleLabel(role)}`,
         hint: role === account.realRole ? "реальная" : role === account.currentRole ? "сейчас" : undefined,
         icon: Eye,
         run: () => void account.setSimulatedRole(role),

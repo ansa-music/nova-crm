@@ -23,6 +23,7 @@ import { SupabaseSqlBanner } from "@/components/common/SupabaseSqlBanner";
 import { TenantBlockedScreen, TrialBanner } from "@/components/common/TenantGate";
 import { tenantActive, useTenantInfo, type TenantInfo } from "@/hooks/useTenantInfo";
 import { NotifyHelpHost } from "@/components/common/NotifyHelpDialog";
+import { InstallAppBanner, InstallAppHost } from "@/components/common/InstallApp";
 import { OrderPopupHost } from "@/components/orders/OrderPopup";
 import { TelegramUploadPill } from "@/components/telegram/TelegramUploadPill";
 import { TelegramBackground } from "@/components/telegram/TelegramBackground";
@@ -50,6 +51,7 @@ import { useDeskObserverLoad } from "@/hooks/useDeskObserverLoad";
 import { useOpenOrdersWatch } from "@/hooks/useOpenOrdersWatch";
 import { useRowsBackendBridge } from "@/hooks/useRowsBackendBridge";
 import { useTenantRegionBridge } from "@/hooks/useTenantRegionBridge";
+import { useSiteConfigBridge } from "@/hooks/useSiteConfigBridge";
 import { useRowAclSync } from "@/hooks/useRowAclSync";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -107,6 +109,8 @@ export function AppLayout() {
   const permissions = usePermissions();
   // Пояс и валюта компании — до отрисовки страниц (нет поля — Алматы и ₸).
   useTenantRegionBridge(permissions.upkeepOwner);
+  // «Конструктор сайта»: слова, меню, модули, цвета, бренд (нет поля — Nova).
+  useSiteConfigBridge();
   const [createOpen, setCreateOpen] = useState(false);
   // Лист «Ещё» и его диалоги — здесь, а не в нижней панели: панель прячется
   // под клавиатурой, и диалог с набранным именем стола пропадал вместе с ней.
@@ -291,6 +295,7 @@ const AppChrome = memo(function AppChrome({
       <AppDialogHost />
       <DbQuotaBanner />
       <NotifyHelpHost />
+      <InstallAppHost />
       <OrderPopupHost />
       <TelegramUploadPill />
       <TelegramBackground />
@@ -300,6 +305,7 @@ const AppChrome = memo(function AppChrome({
         {!isFullscreen && <Topbar />}
         {!isFullscreen && <SupabaseSqlBanner />}
         {!isFullscreen && trial ? <TrialBanner info={trial} /> : null}
+        {!isFullscreen && <InstallAppBanner />}
         {isFullscreen && <TableChromeExit label="Свернуть" />}
         {/* overflow-x задан явно: один `overflow-y-auto` даёт и горизонтальный
             скролл, и широкие страницы ездили бы вместе с рейкой; вбок

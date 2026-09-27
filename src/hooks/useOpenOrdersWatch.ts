@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { watchOpenOrders } from "@/services/openOrdersPulse";
+import { useSiteConfig } from "@/config/siteTerms";
+import { isModuleEnabled } from "@/types/siteConfig";
 import { useOrdersBackend } from "@/services/orderStore";
 
 /**
@@ -11,5 +13,9 @@ import { useOrdersBackend } from "@/services/orderStore";
 export function useOpenOrdersWatch() {
   const { activeWorkspaceId } = useWorkspace();
   const backend = useOrdersBackend(activeWorkspaceId);
-  useEffect(() => (backend ? watchOpenOrders(activeWorkspaceId, backend) : undefined), [activeWorkspaceId, backend]);
+  const ordersOn = isModuleEnabled(useSiteConfig(), "orders");
+  useEffect(
+    () => (backend && ordersOn ? watchOpenOrders(activeWorkspaceId, backend) : undefined),
+    [activeWorkspaceId, backend, ordersOn]
+  );
 }

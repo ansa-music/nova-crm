@@ -56,6 +56,7 @@ import {
 } from "@/utils/techLoad";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { cn } from "@/utils/cn";
+import { useTerms } from "@/config/siteTerms";
 import {
   averageOfTotals,
   formatScheduleHours,
@@ -114,6 +115,7 @@ function ratingScore(row: TechnicianRow): number | null {
  * rows, so it works for an ОС who can't open a single desk.
  */
 export default function TechniciansPage() {
+  const t = useTerms();
   const { activeWorkspace, activeWorkspaceId, members, pages } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
@@ -524,8 +526,8 @@ export default function TechniciansPage() {
   return (
     <div className="mx-auto w-full min-w-0 max-w-6xl p-5 sm:p-8 lg:p-10">
       <PageHeader
-        eyebrow="Студия"
-        title="Технари"
+        eyebrow={t("studio", "one")}
+        title={t("technician")}
         description={`Кто сейчас свободен и сколько заказов за ${periodLabel(monthKey, periods).toLowerCase()}.`}
         actions={
           <>

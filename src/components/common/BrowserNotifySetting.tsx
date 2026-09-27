@@ -12,6 +12,19 @@ import {
 } from "@/utils/browserNotify";
 import { cn } from "@/utils/cn";
 import { openNotifyHelp } from "@/components/common/NotifyHelpDialog";
+import { startInstall } from "@/components/common/InstallApp";
+import { isIos, useInstallMode, type InstallMode } from "@/utils/pwa";
+
+/**
+ * iPhone в обычной вкладке: `Notification` нет вовсе, всплывашки бывают
+ * только у приложения с экрана «Домой». Вместо «браузер не умеет» —
+ * предлагаем установить.
+ */
+function useIosInstallHint(): InstallMode | null {
+  const mode = useInstallMode();
+  if (!isIos() || mode === "installed" || mode === "unsupported") return null;
+  return mode;
+}
 
 /**
  * Разрешение на всплывашки спрашивают ТОЛЬКО по клику: без жеста Chrome и
@@ -51,6 +64,7 @@ function useNotifyState() {
 /** Строка в выпадашке колокольчика. */
 export function BrowserNotifyRow() {
   const { permission, muted, enable, toggleMute } = useNotifyState();
+  const iosInstall = useIosInstallHint();
 
   // Звук есть и там, где всплывашек нет (iPhone), и до разрешения — поэтому
   // «Проверить звук» доступен всегда: услышать свой звук заказа можно сразу.
@@ -63,6 +77,25 @@ export function BrowserNotifyRow() {
       Проверить звук
     </button>
   );
+
+  if (permission === "unsupported" && iosInstall) {
+    return (
+      <div className="flex items-stretch border-b border-border bg-primary/[0.06]">
+        <button
+          type="button"
+          onClick={() => void startInstall(iosInstall)}
+          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-primary/10"
+        >
+          <BellRing className="h-4 w-4 shrink-0 text-primary" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium">Установить приложение</span>
+            <span className="block text-xs text-muted-foreground">На iPhone уведомления о заказах приходят только в приложении</span>
+          </span>
+        </button>
+        {!muted && <span className="flex items-center pr-3">{soundTest}</span>}
+      </div>
+    );
+  }
 
   if (permission === "unsupported") {
     return (
@@ -154,6 +187,26 @@ export function BrowserNotifyRow() {
  */
 export function OrdersNotifyBanner({ className }: { className?: string }) {
   const { permission, muted, enable, toggleMute } = useNotifyState();
+  const iosInstall = useIosInstallHint();
+
+  if (permission === "unsupported" && iosInstall) {
+    return (
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-primary/[0.07] px-3 py-2.5 text-sm",
+          className
+        )}
+      >
+        <BellRing className="h-4 w-4 shrink-0 text-primary" />
+        <span className="min-w-0 flex-1">
+          На iPhone уведомление о новом заказе приходит только в приложении — установите его на экран «Домой».
+        </span>
+        <Button size="sm" className="min-h-11 sm:h-9 sm:min-h-0" onClick={() => void startInstall(iosInstall)}>
+          Установить
+        </Button>
+      </div>
+    );
+  }
 
   if (permission === "unsupported" || (permission === "granted" && !muted)) return null;
 

@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { MORE_SECTION_KEY, isNavItemActive, type NavItem } from "@/config/nav";
 import { preloadRoute } from "@/config/pageLoaders";
 import { useNavModel } from "@/hooks/useNavModel";
+import { brandName, useSiteConfig } from "@/config/siteTerms";
 import { cn } from "@/utils/cn";
 
 /**
@@ -38,6 +39,7 @@ const DESCRIPTIONS: Record<string, string> = {
 };
 
 export default function MorePage() {
+  useSiteConfig();
   const nav = useNavModel();
   const { pathname } = useLocation();
   const section = nav.sections.find((s) => s.key === MORE_SECTION_KEY);
@@ -54,7 +56,7 @@ export default function MorePage() {
   return (
     <div className="mx-auto w-full min-w-0 max-w-4xl p-5 sm:p-8">
       <PageHeader
-        eyebrow="Nova"
+        eyebrow={brandName()}
         title="Ещё"
         description="Остальные разделы. Частое — в меню слева: стол, заказы, технари, столы ОС, Грок лимит, чат, график, дашборд и ABS."
         actions={

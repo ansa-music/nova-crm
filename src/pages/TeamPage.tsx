@@ -33,6 +33,7 @@ import {
   teamGroupOf,
   type TeamGroup,
 } from "@/utils/teamGroup";
+import { useTerms } from "@/config/siteTerms";
 import { rolesLabel, type WorkspaceMember } from "@/types";
 
 const GROUP_TEXT: Record<TeamGroup, { description: string; empty: string }> = {
@@ -61,6 +62,7 @@ const GROUP_TEXT: Record<TeamGroup, { description: string; empty: string }> = {
  * Открывают Owner и Тимлид (`canManageUsers`), правила держат то же самое.
  */
 export default function TeamPage() {
+  const t = useTerms();
   const { profile } = useAuth();
   const { activeWorkspaceId, activeWorkspace, members } = useWorkspace();
   const permissions = usePermissions();
@@ -124,7 +126,7 @@ export default function TeamPage() {
     <div className="mx-auto w-full min-w-0 max-w-4xl p-4 sm:p-8">
       <PageHeader
         eyebrow="Workspace"
-        title="Команда"
+        title={t("team", "one")}
         description="Технари, ОС и все остальные — кто в каком разделе и под каким ником работает. Роли и доступы к столам — на «Пользователях»."
         actions={
           <Button asChild variant="outline" className="min-h-11 gap-1.5 sm:min-h-0">

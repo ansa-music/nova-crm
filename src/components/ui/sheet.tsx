@@ -38,7 +38,7 @@ const sheetVariants = cva("fixed gap-4 border-border pointer-events-auto overscr
       right:
         "right-0 top-0 bottom-0 z-[210] h-auto w-[min(24rem,85vw)] max-w-md border-l bg-popover p-5 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right data-[state=closed]:duration-240 data-[state=open]:duration-300",
       bottom:
-        "inset-x-0 bottom-0 z-[210] max-h-[85dvh] overflow-y-auto rounded-t-2xl border-t bg-background p-4 pb-[max(env(safe-area-inset-bottom),1rem)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom data-[state=closed]:duration-240 data-[state=open]:duration-300",
+        "nova-sheet-bottom inset-x-0 bottom-0 z-[210] max-h-[85dvh] overflow-y-auto rounded-t-2xl border-t bg-background p-4 pb-[max(env(safe-area-inset-bottom),1rem)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom data-[state=closed]:duration-240 data-[state=open]:duration-300",
     },
   },
   defaultVariants: { side: "left" },

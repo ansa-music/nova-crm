@@ -53,6 +53,7 @@ import { parseHttpUrl } from "@/utils/httpUrl";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { OrdersNotifyBanner } from "@/components/common/BrowserNotifySetting";
 import { cn } from "@/utils/cn";
+import { useTerms } from "@/config/siteTerms";
 import {
   orderClaimScope,
   scheduleStateOf,
@@ -129,6 +130,7 @@ const STATUS_TONE: Record<WorkOrderStatus, string> = {
  * страницы и платила чтение за каждое изменение любого заказа (квота Spark).
  */
 export default function OrdersPage() {
+  const t = useTerms();
   const { profile } = useAuth();
   const permissions = usePermissions();
   const { activeWorkspace, activeWorkspaceId, members, pages, osDesks } = useWorkspace();
@@ -576,8 +578,8 @@ export default function OrdersPage() {
   return (
     <div className="mx-auto w-full min-w-0 max-w-4xl p-5 sm:p-8">
       <PageHeader
-        eyebrow="Студия"
-        title="Заказы"
+        eyebrow={t("studio", "one")}
+        title={t("order")}
         description={
           canClaim
             ? "Откликнитесь на открытый заказ; выданный вам — заберите в стол."

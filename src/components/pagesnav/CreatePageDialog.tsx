@@ -24,11 +24,20 @@ import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { PageColumn, PageIconName } from "@/types";
+import { useSiteConfig } from "@/config/siteTerms";
+import type { SiteConfig } from "@/types/siteConfig";
 import { displayNameOf } from "@/utils/displayName";
 
 interface CreatePageDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+}
+
+/** Шаблон нового стола из «Конструктора сайта» (или null — прежние столбцы). */
+function deskTemplateColumns(site: SiteConfig): Omit<PageColumn, "id">[] | null {
+  const cols = site.deskTemplate?.columns;
+  if (!cols?.length) return null;
+  return cols.map((c, order) => ({ key: c.key, label: c.label, type: c.type, width: c.width, order }));
 }
 
 const BLANK_COLUMNS: Omit<PageColumn, "id">[] = [
@@ -54,6 +63,7 @@ const BLANK_COLUMNS: Omit<PageColumn, "id">[] = [
 ];
 
 export function CreatePageDialog({ open, onOpenChange }: CreatePageDialogProps) {
+  const site = useSiteConfig();
   const { profile } = useAuth();
   const { activeWorkspaceId, pages, members } = useWorkspace();
   const permissions = usePermissions();
@@ -87,7 +97,7 @@ export function CreatePageDialog({ open, onOpenChange }: CreatePageDialogProps) 
         name: values.name,
         icon,
         color,
-        columns: BLANK_COLUMNS,
+        columns: deskTemplateColumns(site) ?? BLANK_COLUMNS,
         allowedUsers: permissions.deskCreatorRole === "manager" ? [profile.uid] : allowedUsers,
         createdBy: profile.uid,
         order: pages.length,

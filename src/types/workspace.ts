@@ -1,3 +1,4 @@
+import type { SiteConfig } from "@/types/siteConfig";
 import type { Role } from "@/types/role";
 import type { StatusOption } from "@/types/page";
 import type { TechLoadKind } from "@/types/deskLoad";
@@ -143,6 +144,13 @@ export interface Workspace {
    * Сменили — полностью применится после перезагрузки вкладки.
    */
   region?: WorkspaceRegion;
+  /**
+   * «Конструктор сайта» (Настройки → Конструктор, только Owner): название и
+   * логотип, цвета, слова интерфейса и подписи ролей, меню, выключенные
+   * разделы, «Главная» по ролям, шаблон нового стола. Нет поля — сайт Nova как
+   * был. Тимлиду поле закрыто правилом workspace. См. `types/siteConfig.ts`.
+   */
+  site?: SiteConfig;
   /**
    * «Настройка графика» (Owner): кто ещё правит график, смены команды, норма
    * на смене, кого не показывать. Тимлиду поле закрыто правилом workspace.

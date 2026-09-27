@@ -24,6 +24,7 @@ import HomePage from "@/pages/HomePage";
 // Загрузчики страниц — общие с предзагрузкой ниже и с наведением на пункты
 // меню (config/pageLoaders.ts): все зовут РОВНО тот же import(), и браузер
 // держит модуль один — второй вызов берёт готовый.
+import { ModuleGate } from "@/components/common/ModuleGate";
 import {
   loadAbsPage,
   loadReportsPage,
@@ -283,33 +284,33 @@ function AppShell() {
             }
           >
             <Route index element={<HomePage />} />
-            <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="abs" element={<AbsPage />} />
-            <Route path="reports" element={<ReportsPage />} />
-            <Route path="telegram" element={<TelegramPage />} />
+            <Route path="dashboard" element={<ModuleGate module="dashboard"><DashboardPage /></ModuleGate>} />
+            <Route path="abs" element={<ModuleGate module="dashboard"><AbsPage /></ModuleGate>} />
+            <Route path="reports" element={<ModuleGate module="reports"><ReportsPage /></ModuleGate>} />
+            <Route path="telegram" element={<ModuleGate module="telegram"><TelegramPage /></ModuleGate>} />
             <Route path="desks" element={<DesksPage />} />
             <Route path="more" element={<MorePage />} />
-            <Route path="people" element={<PeoplePage />} />
-            <Route path="technicians" element={<TechniciansPage />} />
-            <Route path="orders" element={<OrdersPage />} />
-            <Route path="os-desk" element={<OsDeskPage />} />
-            <Route path="os-desks" element={<OsDesksPage />} />
-            <Route path="os-dispatch" element={<OsDispatchPage />} />
+            <Route path="people" element={<ModuleGate module="people"><PeoplePage /></ModuleGate>} />
+            <Route path="technicians" element={<ModuleGate module="technicians"><TechniciansPage /></ModuleGate>} />
+            <Route path="orders" element={<ModuleGate module="orders"><OrdersPage /></ModuleGate>} />
+            <Route path="os-desk" element={<ModuleGate module="osDesk"><OsDeskPage /></ModuleGate>} />
+            <Route path="os-desks" element={<ModuleGate module="osDesk"><OsDesksPage /></ModuleGate>} />
+            <Route path="os-dispatch" element={<ModuleGate module="osDesk"><OsDispatchPage /></ModuleGate>} />
             <Route path="desk-editing" element={<DeskEditingPage />} />
             <Route path="platform" element={<PlatformPage />} />
             <Route path="observers" element={<DeskObserversPage />} />
-            <Route path="schedule" element={<SchedulePage />} />
+            <Route path="schedule" element={<ModuleGate module="schedule"><SchedulePage /></ModuleGate>} />
             <Route path="overview" element={<Navigate to="/dashboard" replace />} />
             <Route path="page/:pageId" element={<DynamicTablePage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="team" element={<TeamPage />} />
-            <Route path="announcements" element={<AnnouncementsPage />} />
-            <Route path="grok-limit" element={<GrokLimitPage />} />
+            <Route path="announcements" element={<ModuleGate module="announcements"><AnnouncementsPage /></ModuleGate>} />
+            <Route path="grok-limit" element={<ModuleGate module="grok"><GrokLimitPage /></ModuleGate>} />
             <Route path="grok-limit/apps" element={<Navigate to="/grok-limit?s=higgsfield" replace />} />
             <Route path="dispatch" element={DISPATCH_ENABLED ? <DispatchPage /> : <Navigate to="/" replace />} />
-            <Route path="chat" element={<WorkspaceChatPage />} />
-            <Route path="messages" element={<MessagesPage />} />
-            <Route path="messages/:peerUid" element={<MessagesPage />} />
+            <Route path="chat" element={<ModuleGate module="chat"><WorkspaceChatPage /></ModuleGate>} />
+            <Route path="messages" element={<ModuleGate module="chat"><MessagesPage /></ModuleGate>} />
+            <Route path="messages/:peerUid" element={<ModuleGate module="chat"><MessagesPage /></ModuleGate>} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<NotFoundPage />} />

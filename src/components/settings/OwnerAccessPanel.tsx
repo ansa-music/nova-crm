@@ -16,7 +16,7 @@ import {
   setOwnerAccessKey,
   type OwnerAccessKeyInfo,
 } from "@/services/ownerAccessService";
-import { ROLE_LABELS, type OwnerAccessRequest, type Role } from "@/types";
+import { roleLabel, type OwnerAccessRequest, type Role } from "@/types";
 import { confirmDialog } from "@/utils/appDialog";
 import { timeAgo } from "@/utils/date";
 import { firestoreErrorText } from "@/utils/dbError";
@@ -62,11 +62,11 @@ export function OwnerAccessPanel({
     if (status === "approved") {
       const ok = await confirmDialog({
         title:
-          role === "owner" ? `Выдать права Owner: ${name}?` : `Выдать роль «${ROLE_LABELS[role]}»: ${name}?`,
+          role === "owner" ? `Выдать права Owner: ${name}?` : `Выдать роль «${roleLabel(role)}»: ${name}?`,
         description:
           role === "owner"
             ? "Полный доступ Owner: все столы, участники, роли, настройки и история. Забрать можно здесь же, в списке «Owner сейчас»."
-            : `Человек получит роль «${ROLE_LABELS[role]}» вместо нынешней.`,
+            : `Человек получит роль «${roleLabel(role)}» вместо нынешней.`,
       });
       if (!ok) return;
     }
@@ -81,7 +81,7 @@ export function OwnerAccessPanel({
         status === "approved"
           ? role === "owner"
             ? `${name} — теперь Owner`
-            : `${name} — теперь «${ROLE_LABELS[role]}»`
+            : `${name} — теперь «${roleLabel(role)}»`
           : "Запрос отклонён"
       );
     } catch (error) {
@@ -106,7 +106,7 @@ export function OwnerAccessPanel({
     const name = displayNameOf(member);
     const ok = await confirmDialog({
       title: `Забрать права Owner у ${name}?`,
-      description: `Роль станет «${ROLE_LABELS[role]}». Уведомление ему не придёт.`,
+      description: `Роль станет «${roleLabel(role)}». Уведомление ему не придёт.`,
       confirmLabel: "Забрать",
       destructive: true,
     });
@@ -122,7 +122,7 @@ export function OwnerAccessPanel({
         actorUid: profile.uid,
       });
       await refreshWorkspaceMembers(workspaceId);
-      toast.success(`${name} — теперь «${ROLE_LABELS[role]}»`, { description: "Без уведомления" });
+      toast.success(`${name} — теперь «${roleLabel(role)}»`, { description: "Без уведомления" });
     } catch (error) {
       toast.error(firestoreErrorText(error, error instanceof Error ? error.message : "Не удалось сменить роль"));
     } finally {
@@ -147,9 +147,9 @@ export function OwnerAccessPanel({
                   <p className="truncate text-sm font-medium">{name}</p>
                   <p className="text-xs text-muted-foreground">
                     {pending
-                      ? `${member ? `сейчас «${ROLE_LABELS[member.role] ?? member.role}» · ` : ""}${timeAgo(request.createdAt)}`
+                      ? `${member ? `сейчас «${roleLabel(member.role) ?? member.role}» · ` : ""}${timeAgo(request.createdAt)}`
                       : request.status === "approved"
-                        ? `Выдано: «${ROLE_LABELS[request.grantedRole ?? "owner"] ?? "Owner"}» · ${timeAgo(request.updatedAt)}`
+                        ? `Выдано: «${roleLabel(request.grantedRole ?? "owner") ?? "Owner"}» · ${timeAgo(request.updatedAt)}`
                         : `Отклонено · ${timeAgo(request.updatedAt)}`}
                   </p>
                 </div>

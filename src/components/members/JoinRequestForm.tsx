@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NICK_MAX_LENGTH, nickOptionsOf } from "@/services/memberService";
 import { cn } from "@/utils/cn";
-import { ROLE_LABELS, type JoinRequest, type JoinRequestRole, type Workspace } from "@/types";
+import { roleLabel, type JoinRequest, type JoinRequestRole, type Workspace } from "@/types";
 
 const ROLE_CHOICES: { role: JoinRequestRole; title: string; hint: string; icon: typeof Wrench }[] = [
   { role: "manager", title: "Технарь", hint: "свой стол, заказы", icon: Wrench },
@@ -45,7 +45,7 @@ export function JoinRequestForm({
           <Clock className="h-4 w-4 shrink-0" /> Заявка отправлена, ждём подтверждения
         </div>
         <p className="text-[12px] text-muted-foreground">
-          {request?.requestedRole ? ROLE_LABELS[request.requestedRole] : "Роль не выбрана"}
+          {request?.requestedRole ? roleLabel(request.requestedRole) : "Роль не выбрана"}
           {request?.requestedNick ? ` · ник «${request.requestedNick}»` : ""}
         </p>
         <button

@@ -41,7 +41,7 @@ export const DialogContent = React.forwardRef<
         // the top and bottom edges with the parts past the edges completely
         // unreachable. Every dialog built on this component inherits the
         // fix; don't remove it in a caller's className override.
-        "animate-glass-pop fixed left-[50%] top-[50%] z-[310] grid max-h-[85vh] w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-xl border border-border bg-popover p-6 text-popover-foreground shadow-lg",
+        "nova-dialog animate-glass-pop fixed left-[50%] top-[50%] z-[310] grid max-h-[85vh] w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-xl border border-border bg-popover p-6 text-popover-foreground shadow-lg",
         className
       )}
       {...props}

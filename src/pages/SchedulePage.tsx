@@ -122,6 +122,7 @@ import {
   type WeekTemplate,
   type WorkspaceMember,
 } from "@/types";
+import { useTerms } from "@/config/siteTerms";
 import type { ScheduleBulkAction, ScheduleBulkPlan } from "@/utils/scheduleBulk";
 
 type ScheduleView = "week" | "month" | "day";
@@ -247,6 +248,7 @@ function revealCell(scroller: HTMLElement, cell: HTMLElement) {
  * графика»; остальные смотрят (клик по клетке — что в ней стоит).
  */
 export default function SchedulePage() {
+  const t = useTerms();
   const { profile } = useAuth();
   const permissions = usePermissions();
   const { activeWorkspaceId, activeWorkspace, members, pages } = useWorkspace();
@@ -1312,8 +1314,8 @@ export default function SchedulePage() {
   return (
     <div className="mx-auto w-full min-w-0 max-w-[1600px] px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
       <PageHeader
-        eyebrow="Студия"
-        title="График"
+        eyebrow={t("studio", "one")}
+        title={t("schedule", "one")}
         // На телефоне описание — лишние три строки над сеткой: как править,
         // и так написано строкой прямо над клетками.
         description={mobile ? undefined : description}

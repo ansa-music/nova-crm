@@ -30,6 +30,7 @@ import { cn } from "@/utils/cn";
 import { firestoreErrorText } from "@/utils/dbError";
 import { deskHref, deskNavState } from "@/utils/deskLinks";
 import { personLabel, worksAsTechnician } from "@/utils/peopleDesks";
+import { useTerms } from "@/config/siteTerms";
 import type { WorkspaceMember, WorkspacePage } from "@/types";
 
 /**
@@ -73,6 +74,7 @@ type CountState = { status: "loading" } | { status: "error"; message: string } |
 const COUNT_CONCURRENCY = 4;
 
 export default function DeskEditingPage() {
+  const t = useTerms();
   const permissions = usePermissions();
   const { activeWorkspaceId, activeWorkspace, pages, members } = useWorkspace();
   const isOwner = permissions.actsAsOwner;
@@ -288,8 +290,8 @@ export default function DeskEditingPage() {
   return (
     <div className="mx-auto w-full min-w-0 max-w-4xl space-y-4 p-4 sm:p-8">
       <PageHeader
-        eyebrow="Столы · только Owner"
-        title="Правка столов"
+        eyebrow={`${t("desk")} · только Owner`}
+        title={`Правка ${t("desk").toLowerCase()}`}
         description="Кто заполняет столы технарей — всем разом или выборочно — и перенос заказов между технарями и ОС."
       />
 

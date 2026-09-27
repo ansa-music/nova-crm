@@ -19,7 +19,7 @@ import { firestoreErrorText } from "@/utils/dbError";
 import { refreshWorkspaceMembers } from "@/hooks/useWorkspace";
 import { useTenantInfo } from "@/hooks/useTenantInfo";
 import { assertSeatAvailable } from "@/utils/seats";
-import { ROLE_LABELS, type JoinRequest, type Role, type Workspace, type WorkspaceMember } from "@/types";
+import { roleLabel, type JoinRequest, type Role, type Workspace, type WorkspaceMember } from "@/types";
 
 /**
  * Одобрить заявку на вход. Человек пришёл без роли и сам написал, кем
@@ -93,7 +93,7 @@ export function ApproveJoinDialog({
       const adopted = nickLabel
         ? await adoptScheduleRowByNick({ workspaceId, memberUid: request.uid, nickLabel, actorUid: approverUid, kind: kind!, role })
         : null;
-      toast.success(`${request.name} в workspace как ${ROLE_LABELS[role]}`, {
+      toast.success(`${request.name} в workspace как ${roleLabel(role)}`, {
         description: nickLabel
           ? `Ник: ${nickLabel}${adopted ? ` · график «${adopted}» перенесён на аккаунт` : ""}`
           : undefined,
@@ -130,7 +130,7 @@ export function ApproveJoinDialog({
             <p className="truncate text-sm font-medium">{request.name}</p>
             <p className="truncate text-xs text-muted-foreground">{request.email}</p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              Просит: <span className="text-foreground">{request.requestedRole ? ROLE_LABELS[request.requestedRole] : "роль не выбрал"}</span>
+              Просит: <span className="text-foreground">{request.requestedRole ? roleLabel(request.requestedRole) : "роль не выбрал"}</span>
               {request.requestedNick ? (
                 <>
                   {" "}· ник <span className="font-medium text-foreground">«{request.requestedNick}»</span>
@@ -182,7 +182,7 @@ export function ApproveJoinDialog({
             )}
           </div>
         ) : (
-          <p className="text-[11px] text-muted-foreground">Для роли «{ROLE_LABELS[role]}» ник не нужен.</p>
+          <p className="text-[11px] text-muted-foreground">Для роли «{roleLabel(role)}» ник не нужен.</p>
         )}
 
         {error && (

@@ -84,18 +84,34 @@ export function QuickOrderDialog({
         </DialogHeader>
         <form
           className="grid gap-2.5"
+          onKeyDown={(e) => {
+            // Enter («Далее» на клавиатуре телефона) — к следующему полю, а не
+            // отправка недозаполненного заказа. На последнем — «В стол».
+            if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+            const target = e.target as HTMLElement;
+            if (!(target instanceof HTMLInputElement)) return;
+            const fields = [...e.currentTarget.querySelectorAll<HTMLInputElement>("input:not([type=hidden]):not([disabled])")];
+            const next = fields[fields.indexOf(target) + 1];
+            if (next) {
+              e.preventDefault();
+              next.focus();
+            }
+          }}
           onSubmit={(e) => {
             e.preventDefault();
             void submit();
           }}
         >
           <div className="flex flex-col gap-1">
-            <Label htmlFor="qo-client">Клиент</Label>
+            <Label htmlFor="qo-client">
+              Клиент <span className="text-primary">*</span>
+            </Label>
             <Input
               id="qo-client"
               ref={clientRef}
               value={form.client}
               onChange={(e) => setField("client", e.target.value)}
+                enterKeyHint="next"
               autoComplete="off"
               required
             />
@@ -107,6 +123,7 @@ export function QuickOrderDialog({
                 id="qo-number"
                 value={form.number}
                 onChange={(e) => setField("number", e.target.value)}
+                enterKeyHint="next"
                 autoComplete="off"
                 inputMode="tel"
               />
@@ -157,11 +174,14 @@ export function QuickOrderDialog({
             </div>
           </div>
           <div className="flex flex-col gap-1">
-            <Label htmlFor="qo-check">Чек</Label>
+            <Label htmlFor="qo-check">
+              Чек <span className="text-primary">*</span>
+            </Label>
             <Input
               id="qo-check"
               value={form.check}
               onChange={(e) => setField("check", e.target.value)}
+                enterKeyHint="next"
               autoComplete="off"
               inputMode="numeric"
               required
@@ -174,6 +194,7 @@ export function QuickOrderDialog({
                 id="qo-persons"
                 value={form.persons}
                 onChange={(e) => setField("persons", e.target.value)}
+                enterKeyHint="next"
                 inputMode="numeric"
                 autoComplete="off"
               />
@@ -184,6 +205,7 @@ export function QuickOrderDialog({
                 id="qo-minutes"
                 value={form.minutes}
                 onChange={(e) => setField("minutes", e.target.value)}
+                enterKeyHint="done"
                 inputMode="numeric"
                 autoComplete="off"
               />
@@ -199,8 +221,14 @@ export function QuickOrderDialog({
               placeholder="По желанию — попадёт в визитку клиента"
             />
           </div>
+          {!canSave && !saving && (
+            // Кнопка выключена — пусть будет видно почему (на телефоне иначе «не нажимается»).
+            <p className="text-[12px] text-muted-foreground">
+              {!client && checkNum == null ? "Впишите клиента и сумму чека" : !client ? "Впишите клиента" : "Впишите сумму чека — только цифры"}
+            </p>
+          )}
           <DialogFooter className="mt-1">
-            <Button type="submit" disabled={!canSave} className="h-9">
+            <Button type="submit" disabled={!canSave} className="h-9 [@media(pointer:coarse)]:h-11">
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               В стол
             </Button>

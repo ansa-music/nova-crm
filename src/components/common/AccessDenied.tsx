@@ -8,7 +8,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { setActiveRole } from "@/services/memberService";
 import { cn } from "@/utils/cn";
-import { ROLE_LABELS } from "@/types";
+import { roleLabel } from "@/types";
 
 export interface AccessDeniedProps {
   /** Почему закрыто — одной фразой: «Команду ведут Owner и Тимлид». */
@@ -67,7 +67,7 @@ export function AccessDenied({ reason, title = "Доступ ограничен"
           {hint ? <p className="text-[12.5px] text-muted-foreground">{hint}</p> : null}
           {canRestoreRole ? (
             <p className="text-[12.5px] text-warning">
-              Сейчас включён режим «{ROLE_LABELS[permissions.role]}», ваша реальная роль — {ROLE_LABELS[permissions.realRole]}.
+              Сейчас включён режим «{roleLabel(permissions.role)}», ваша реальная роль — {roleLabel(permissions.realRole)}.
             </p>
           ) : null}
         </div>

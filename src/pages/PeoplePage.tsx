@@ -18,9 +18,10 @@ import { deskHref, deskNavState } from "@/utils/deskLinks";
 import { myDisplayName } from "@/utils/displayName";
 import { canOpenDesk, groupDeskSubtitle, personLabel } from "@/utils/peopleDesks";
 import { getPresenceStatus, PRESENCE_DOT_COLOR } from "@/utils/presence";
-import { memberHasRole, ROLE_LABELS, rolesOf } from "@/types";
+import { roleLabel, memberHasRole, rolesOf } from "@/types";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { cn } from "@/utils/cn";
+import { useTerms } from "@/config/siteTerms";
 import type { Role, WorkspacePage } from "@/types";
 
 
@@ -51,12 +52,13 @@ function RoleBadge({ role }: { role: Role }) {
               : "border-border bg-muted/60 text-muted-foreground";
   return (
     <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em]", tone)}>
-      {ROLE_LABELS[role]}
+      {roleLabel(role)}
     </span>
   );
 }
 
 export default function PeoplePage() {
+  const t = useTerms();
   const navigate = useNavigate();
   const { profile } = useAuth();
   const { peopleGroups, isLoadingWorkspaceData, selectPerson, ownerUid } = usePeopleDesks({
@@ -136,8 +138,8 @@ export default function PeoplePage() {
   return (
     <div className="mx-auto w-full min-w-0 max-w-2xl p-5 sm:p-8">
       <PageHeader
-        eyebrow="Студия"
-        title="Люди"
+        eyebrow={t("studio", "one")}
+        title={t("people", "one")}
         description="Лица команды. Свой стол открывается сразу, чужой — после запроса."
         actions={
           <label className="flex h-11 w-full items-center gap-2 rounded-full border border-primary/30 bg-card/80 px-4 text-[13px] text-muted-foreground sm:w-64">

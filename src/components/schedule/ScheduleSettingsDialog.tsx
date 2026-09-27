@@ -13,16 +13,7 @@ import { firestoreErrorText } from "@/utils/dbError";
 import { cn } from "@/utils/cn";
 import { matchesPersonQuery } from "@/utils/weekTemplate";
 import { personLabel } from "@/utils/peopleDesks";
-import {
-  ROLE_LABELS,
-  SCHEDULE_EDITORS_LIMIT,
-  SCHEDULE_PRESETS_LIMIT,
-  scheduleSettingsOf,
-  type ScheduleHours,
-  type ScheduleSettings,
-  type ScheduleShiftPreset,
-  type WorkspaceMember,
-} from "@/types";
+import { roleLabel, SCHEDULE_EDITORS_LIMIT, SCHEDULE_PRESETS_LIMIT, scheduleSettingsOf, type ScheduleHours, type ScheduleSettings, type ScheduleShiftPreset, type WorkspaceMember } from "@/types";
 
 type PresetDraft = { key: string; name: string; hours: ScheduleHours | null };
 
@@ -143,7 +134,7 @@ export function ScheduleSettingsDialog({
                 key={m.uid}
                 id={m.uid}
                 label={personLabel(m)}
-                sub={ROLE_LABELS[m.role] ?? m.role}
+                sub={roleLabel(m.role) ?? m.role}
                 member={m}
                 checked={editors.has(m.uid)}
                 onToggle={() => toggle(editors, setEditors, m.uid, SCHEDULE_EDITORS_LIMIT)}

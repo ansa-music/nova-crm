@@ -11,6 +11,8 @@ import { handOffExchangeOrder, HandoffProblem } from "@/services/rows/osExchange
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { DEFAULT_STATUS_OPTIONS, ensureApprovalStatus, ensureDoneStatus } from "@/utils/columnOptions";
 import { firestoreErrorText } from "@/utils/dbError";
+import { useSiteConfig } from "@/config/siteTerms";
+import { isModuleEnabled } from "@/types/siteConfig";
 import type { WorkOrder } from "@/types";
 
 /**
@@ -40,7 +42,10 @@ export function useOsExchangeHandoff() {
   /** О чём уже сказали — чтобы не повторять тост на каждый снимок. */
   const told = useRef(new Set<string>());
 
+  const site = useSiteConfig();
   const enabled = Boolean(
+    isModuleEnabled(site, "orders") &&
+    isModuleEnabled(site, "osDesk") &&
     db && activeWorkspaceId && uid && permissions.isResolved && permissions.hasRole("os") && usesSupabaseRows(activeWorkspaceId)
   );
 

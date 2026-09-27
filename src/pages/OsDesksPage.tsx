@@ -17,6 +17,7 @@ import { timeAgo, zonedDateFormat } from "@/utils/date";
 import { deskHref, deskNavState } from "@/utils/deskLinks";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { formatCurrency } from "@/utils/format";
+import { useTerms } from "@/config/siteTerms";
 import type { WorkspaceMember, WorkspacePage } from "@/types";
 
 type StatsState = { status: "loading" } | { status: "ok"; stats: OsDeskMonthStats } | { status: "error" };
@@ -29,6 +30,7 @@ type StatsState = { status: "loading" } | { status: "ok"; stats: OsDeskMonthStat
  * вправе читать.
  */
 export default function OsDesksPage() {
+  const t = useTerms();
   const { activeWorkspaceId, activeWorkspace, osDesks, members } = useWorkspace();
   const { profile } = useAuth();
   const permissions = usePermissions();
@@ -112,7 +114,7 @@ export default function OsDesksPage() {
     <div className="mx-auto w-full min-w-0 max-w-5xl p-4 sm:p-8">
       <PageHeader
         eyebrow="Мониторинг"
-        title="Столы ОС"
+        title={t("osDesk")}
         description={
           permissions.hasFullDeskAccess
             ? `Личные таблицы ОС: что записано сегодня и за ${monthName}, цена и апсейл. Вы видите и правите все столы ОС.`

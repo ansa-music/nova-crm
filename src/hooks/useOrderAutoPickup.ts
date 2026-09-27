@@ -12,6 +12,8 @@ import { useCurrentPeriodKey } from "@/hooks/useCurrentPeriodKey";
 import { myDisplayName } from "@/utils/displayName";
 import { toast } from "@/components/ui/sonner";
 import { useUiStore } from "@/store/uiStore";
+import { useSiteConfig } from "@/config/siteTerms";
+import { isModuleEnabled } from "@/types/siteConfig";
 import type { WorkOrder } from "@/types";
 
 /**
@@ -71,8 +73,10 @@ export function useOrderAutoPickup() {
 
   const uid = profile?.uid ?? "";
   const myDesk = pages.find((p) => p.responsibleUserId === uid) ?? null;
+  // Раздел «Заказы» выключен в «Конструкторе сайта» — биржу не слушаем.
+  const ordersOn = isModuleEnabled(useSiteConfig(), "orders");
   const enabled = Boolean(
-    db && activeWorkspaceId && uid && permissions.isResolved && permissions.hasRole("manager") && myDesk
+    ordersOn && db && activeWorkspaceId && uid && permissions.isResolved && permissions.hasRole("manager") && myDesk
   );
 
   useEffect(() => {

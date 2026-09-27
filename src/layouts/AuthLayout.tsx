@@ -31,7 +31,7 @@ export function AuthLayout({ children }: { children: React.ReactNode }) {
         <span className="pointer-events-none absolute right-0 top-0 h-4 w-4 rounded-tr-md border-r border-t border-primary/40" aria-hidden />
         <span className="pointer-events-none absolute bottom-0 left-0 h-4 w-4 rounded-bl-md border-b border-l border-primary/40" aria-hidden />
         <span className="pointer-events-none absolute bottom-0 right-0 h-4 w-4 rounded-br-md border-b border-r border-primary/40" aria-hidden />
-        <BrandMark className="mb-8" />
+        <BrandMark useCache className="mb-8" />
         {children}
       </div>
       <p className="pointer-events-none absolute bottom-6 left-0 right-0 z-10 text-center font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
