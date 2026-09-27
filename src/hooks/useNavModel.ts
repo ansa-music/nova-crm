@@ -30,7 +30,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Building2 as PlatformIcon, FileChartColumn, Smartphone } from "lucide-react";
+import { Building2 as PlatformIcon, FileChartColumn, Smartphone, Sparkles } from "lucide-react";
 import { useInstallMode } from "@/utils/pwa";
 import { startInstall } from "@/components/common/InstallApp";
 import { DESKS_ITEM_KEY, DESK_SHORTCUTS_LIMIT, EXTRA_ROUTE_META, MORE_ITEM_KEY, MORE_SECTION_KEY, pathMatches, pathOnly, type NavChild, type NavItem, type NavSection, type PageMeta } from "@/config/nav";
@@ -393,6 +393,8 @@ function buildDefaultSections(inp: NavInputs, g: NavGates, sig: NavSignals, desk
           badge: sig.telegramGranted ? sig.telegramUnread : 0,
         },
         { key: "grok", to: "/grok-limit", label: term("grok", "one", site), icon: KeyRound, show: g.showGrokNav, hint: grokHint, emphasis: true },
+        // «Промты» (27.09.2026): личные и общие, копирование в один клик.
+        { key: "prompts", to: "/prompts", label: term("prompts", "one", site), icon: Sparkles, show: inp.permissions.isResolved },
         // Чат — ОДИН пункт (просьба Nurba 25.09.2026: «чат в быстром доступе,
         // одна страница, внутри переключиться на общий и личный»): горит и на
         // «/chat», и на «/messages», бейдж — сумма. Ведёт туда, где ждут:

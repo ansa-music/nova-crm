@@ -24,6 +24,7 @@ export interface Notification {
     | "success-request"
     | "order-request"
     | "weekly-rating"
+    | "prompt"
     | null;
   viewRequestId?: string | null;
   /** id заявки на права Owner (совпадает с uid заявителя) — для кнопок в колокольчике. */

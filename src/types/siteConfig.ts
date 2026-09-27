@@ -23,6 +23,7 @@ export type TermKey =
   | "technician"
   | "os"
   | "grok"
+  | "prompts"
   | "abs"
   | "dashboard"
   | "schedule"
@@ -62,6 +63,7 @@ export const TERM_META: TermMeta[] = [
     defaults: { one: "Стол ОС", many: "Столы ОС" },
   },
   { key: "grok", title: "Аккаунты сервисов", defaults: { one: "Грок лимит", many: "Грок лимит" }, single: true },
+  { key: "prompts", title: "Промты", defaults: { one: "Промты", many: "Промты" }, single: true },
   { key: "abs", title: "Зарплатный рейтинг", defaults: { one: "ABS система", many: "ABS система" }, single: true },
   { key: "dashboard", title: "Дашборд", defaults: { one: "Дашборд", many: "Дашборд" }, single: true },
   { key: "schedule", title: "График", defaults: { one: "График", many: "График" }, single: true },
@@ -85,6 +87,7 @@ export type ModuleKey =
   | "osDesk"
   | "technicians"
   | "grok"
+  | "prompts"
   | "telegram"
   | "schedule"
   | "chat"
@@ -118,6 +121,7 @@ export const MODULES: ModuleMeta[] = [
   },
   { key: "technicians", title: "Загрузка исполнителей", hint: "Кто свободен, кто занят", navKeys: ["technicians"], paths: ["technicians"] },
   { key: "grok", title: "Аккаунты сервисов (Грок)", hint: "Лимиты и пароли общих аккаунтов", navKeys: ["grok"], paths: ["grok-limit"] },
+  { key: "prompts", title: "Промты", hint: "Личные и общие промты, копирование в один клик", navKeys: ["prompts"], paths: ["prompts"] },
   { key: "telegram", title: "Telegram", hint: "Рабочий Telegram прямо в CRM", navKeys: ["telegram"], paths: ["telegram"] },
   { key: "schedule", title: "График смен", hint: "Выходные и смены сотрудников", navKeys: ["schedule"], paths: ["schedule"] },
   { key: "chat", title: "Чат", hint: "Общий чат и личные сообщения", navKeys: ["chat", "messages"], paths: ["chat", "messages"] },
