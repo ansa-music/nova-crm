@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { AtSign, ChevronRight, MessageCircle, Star, Trash2 } from "lucide-react";
+import { AtSign, CalendarCheck2, ChevronRight, MessageCircle, Star, Trash2 } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { ScoreChip, ScoreMeter, ScoreRateButton, SCORE_TONE } from "@/components/technicians/ScoreRating";
+import { WeeklyScoreChip } from "@/components/technicians/WeeklyScore";
+import { weekLabel, type WeeklyScore } from "@/services/weeklyRatingService";
 import { usePresenceMap } from "@/hooks/usePresenceMap";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useWorkspaceStore } from "@/store/workspaceStore";
@@ -11,7 +13,7 @@ import { formatOrderDate, timeAgo } from "@/utils/date";
 import { personLabel } from "@/utils/peopleDesks";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
 import type { StatusBreakdownItem, TechLoadSummary } from "@/utils/techLoad";
-import { memberHasRole, rolesLabel, type WorkspaceMember, type WorkspacePage } from "@/types";
+import { formatScore, memberHasRole, rolesLabel, type WorkspaceMember, type WorkspacePage } from "@/types";
 
 /** One of the viewing ОС's orders at this Технарь, with its status resolved for display. */
 export interface TechnicianOrderItem {
@@ -63,6 +65,8 @@ export interface TechnicianCardProps {
   osShares: TechnicianOsShare[] | null;
   /** Средняя оценка заказов технаря за месяц (1–10) и сколько заказов оценено. */
   rating: { average: number | null; count: number };
+  /** Оценка недели от ОС (анонимно, средний балл прошлой недели). */
+  weeklyScore?: WeeklyScore | null;
   /** Оценка конкретного заказа этим ОС, если она уже стоит. */
   orderScoreOf?: (item: TechnicianOrderItem) => number | null;
   /** Поставить/сменить (1–10) или снять (null) оценку заказа. Только у ОС с заказами здесь. */
@@ -297,6 +301,7 @@ export function TechnicianCard(props: TechnicianCardProps) {
             average={rating.count > 0 ? rating.average : null}
             title={`Средняя оценка за заказы, из 10 · оценено ${rating.count} ${ordersWord(rating.count)}`}
           />
+          <WeeklyScoreChip score={props.weeklyScore ?? null} who="tech" label="нед." />
           {mineCount > 0 && (
             <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/35 bg-primary/10 px-2 py-0.5 text-[11px] font-medium leading-4 text-primary">
               {mineCount} ваших
@@ -317,6 +322,7 @@ export function TechnicianCard(props: TechnicianCardProps) {
 }
 
 function TechnicianDialog({
+  weeklyScore,
   member,
   isMe,
   dayOff,
@@ -393,6 +399,17 @@ function TechnicianDialog({
                 </span>
               )}
             </div>
+            {weeklyScore ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-background/40 px-3 py-2">
+                <CalendarCheck2 className="h-4 w-4 shrink-0 text-primary" />
+                <span className="text-[12px] font-medium">Оценка недели от ОС</span>
+                <WeeklyScoreChip score={weeklyScore} who="tech" className="ml-auto" />
+                <span className="w-full text-[11px] text-muted-foreground">
+                  {weekLabel(weeklyScore.week)} · оценили {weeklyScore.count}, анонимно
+                  {weeklyScore.avg4 !== null ? ` · за 4 недели ${formatScore(weeklyScore.avg4)}` : ""}
+                </span>
+              </div>
+            ) : null}
           </section>
 
           <section className="flex flex-col gap-2">

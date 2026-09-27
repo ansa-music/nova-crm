@@ -1,4 +1,4 @@
-import { LayoutDashboard, MessageCircle, MessageSquare, Trophy } from "lucide-react";
+import { CalendarCheck2, LayoutDashboard, MessageCircle, MessageSquare, Trophy } from "lucide-react";
 import { PageModeSwitch } from "@/components/common/PageModeSwitch";
 import { useNavModel } from "@/hooks/useNavModel";
 
@@ -28,6 +28,9 @@ export function ChatModeSwitch({ className }: { className?: string }) {
  * 25.09.2026: «объедини так же Дашборд и ABS систему в одну вкладку»).
  */
 export function StatsModeSwitch({ className }: { className?: string }) {
+  // Третья вкладка — «Оценки» (оценка недели, 27.09.2026: «рядом с ABS»);
+  // счётчик — сколько мне ещё оценить на этой неделе.
+  const { weeklyToRate } = useNavModel();
   return (
     <PageModeSwitch
       label="Дашборд и ABS"
@@ -35,6 +38,7 @@ export function StatsModeSwitch({ className }: { className?: string }) {
       tabs={[
         { to: "/dashboard", label: "Дашборд", icon: LayoutDashboard },
         { to: "/abs", label: "ABS система", icon: Trophy },
+        { to: "/weekly-rating", label: "Оценки", icon: CalendarCheck2, count: weeklyToRate },
       ]}
     />
   );

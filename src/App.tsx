@@ -27,6 +27,7 @@ import HomePage from "@/pages/HomePage";
 import { ModuleGate } from "@/components/common/ModuleGate";
 import {
   loadAbsPage,
+  loadWeeklyRatingPage,
   loadReportsPage,
   loadAnnouncementsPage,
   loadDashboardPage,
@@ -70,6 +71,7 @@ const OrdersPage = lazy(loadOrdersPage);
 const OsDeskPage = lazy(loadOsDeskPage);
 const OsDesksPage = lazy(loadOsDesksPage);
 const AbsPage = lazy(loadAbsPage);
+const WeeklyRatingPage = lazy(loadWeeklyRatingPage);
 const ReportsPage = lazy(loadReportsPage);
 const TelegramPage = lazy(loadTelegramPage);
 const OsDispatchPage = lazy(loadOsDispatchPage);
@@ -111,6 +113,7 @@ const MENU_PAGE_LOADERS: Array<() => Promise<unknown>> = [
   loadSettingsPage,
   loadDashboardPage,
   loadAbsPage,
+  loadWeeklyRatingPage,
   loadReportsPage,
 ];
 
@@ -286,6 +289,7 @@ function AppShell() {
             <Route index element={<HomePage />} />
             <Route path="dashboard" element={<ModuleGate module="dashboard"><DashboardPage /></ModuleGate>} />
             <Route path="abs" element={<ModuleGate module="dashboard"><AbsPage /></ModuleGate>} />
+            <Route path="weekly-rating" element={<ModuleGate module="dashboard"><WeeklyRatingPage /></ModuleGate>} />
             <Route path="reports" element={<ModuleGate module="reports"><ReportsPage /></ModuleGate>} />
             <Route path="telegram" element={<ModuleGate module="telegram"><TelegramPage /></ModuleGate>} />
             <Route path="desks" element={<DesksPage />} />
