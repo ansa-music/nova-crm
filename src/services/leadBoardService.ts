@@ -615,6 +615,21 @@ function isCancelledLabel(label: string, value: string): boolean {
  * правила, что у «Технарей» (`techLoadKindForOption`: карта Owner или
  * название), «Готово» — по названию, как касса везде.
  */
+/**
+ * Статус заказа для группы, статистики и столбца «Статус». Обычно это статус
+ * строки. Но у выданного заказа строка ОС бывает «на утверждении» (пустой
+ * статус), хотя технарь давно поставил «Готово»: подхваченные заказы и
+ * заказы, чей статус технаря к ОС ещё не подтянул проход стола ОС. Тогда
+ * верим технарю. Иначе такие заказы висели бы в «Утверждении» и не считались
+ * бы в «Готово».
+ */
+export function leadStatusOf(o: LeadOrder, statusOptions: readonly StatusOption[]): string {
+  if (o.kind === "os" && o.techStatus && isApprovalStatusValue(o.status, statusOptions) && !isApprovalStatusValue(o.techStatus, statusOptions)) {
+    return o.techStatus;
+  }
+  return o.status;
+}
+
 export function leadStats(
   orders: readonly LeadOrder[],
   statusOptions: readonly StatusOption[],
@@ -623,9 +638,10 @@ export function leadStats(
   const s: LeadStats = { count: 0, approval: 0, inWork: 0, payment: 0, freeze: 0, done: 0, cancelled: 0, gross: 0, net: 0, upsell: 0, upsellCount: 0, upsellDone: 0, doneNet: 0, kpi: null };
   for (const o of orders) {
     s.count += 1;
-    const option = statusOptions.find((x) => x.value === o.status) ?? null;
-    const label = option?.label ?? o.status;
-    if (o.status && isCancelledLabel(label, o.status)) {
+    const status = leadStatusOf(o, statusOptions);
+    const option = statusOptions.find((x) => x.value === status) ?? null;
+    const label = option?.label ?? status;
+    if (status && isCancelledLabel(label, status)) {
       s.cancelled += 1;
       continue;
     }
@@ -636,14 +652,14 @@ export function leadStats(
       s.upsell += upsell;
       s.upsellCount += 1;
     }
-    const done = Boolean(o.status) && (isDoneStatusLabel(label) || o.status === "done");
+    const done = Boolean(status) && (isDoneStatusLabel(label) || status === "done");
     if (done) {
       s.done += 1;
       s.doneNet += o.total ?? 0;
       s.upsellDone += upsell;
       continue;
     }
-    if (!o.status || isApprovalStatusValue(o.status, statusOptions)) {
+    if (!status || isApprovalStatusValue(status, statusOptions)) {
       s.approval += 1;
       continue;
     }

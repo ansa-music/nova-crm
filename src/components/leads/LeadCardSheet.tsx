@@ -97,13 +97,13 @@ export function LeadCardSheet({
                 <Select value={order.status || "__none"} onValueChange={(v) => void onCell(order, k.status, v === "__none" ? "" : v)}>
                   <SelectTrigger className="h-8" aria-label="Статус">
                     <SelectValue>
-                      {order.status ? <StatusBadge value={order.status} options={[...statusOptions]} variant="plain" /> : <span className="text-muted-foreground">без статуса</span>}
+                      {order.status ? <StatusBadge value={order.status} options={[...statusOptions]} className="max-w-none" /> : <span className="text-muted-foreground">без статуса</span>}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {statusOptions.filter((o) => !o.inactive || o.value === order.status).map((o) => (
                       <SelectItem key={o.value} value={o.value}>
-                        <StatusBadge value={o.value} options={[...statusOptions]} variant="plain" />
+                        <StatusBadge value={o.value} options={[...statusOptions]} className="max-w-none" />
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -152,8 +152,8 @@ export function LeadCardSheet({
                 <div className="flex min-w-0 items-center gap-2 px-1.5">
                   {tech ? <TechBadge identity={tech} /> : <span className="text-[12.5px] text-muted-foreground">не выдан</span>}
                   {order.techStatus && order.kind === "os" ? (
-                    <span className="ml-auto shrink-0">
-                      <StatusBadge value={order.techStatus} options={[...statusOptions]} variant="plain" />
+                    <span className="ml-auto shrink-0" title="Статус у технаря">
+                      <StatusBadge value={order.techStatus} options={[...statusOptions]} className="max-w-none" />
                     </span>
                   ) : null}
                 </div>

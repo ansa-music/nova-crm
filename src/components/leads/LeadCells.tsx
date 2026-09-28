@@ -1,10 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Wrench } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { StatusBadge } from "@/components/table/StatusBadge";
 import { cn } from "@/utils/cn";
 import { personLabel } from "@/utils/peopleDesks";
-import type { WorkspaceMember } from "@/types";
+import type { StatusOption, WorkspaceMember } from "@/types";
 
 /**
  * Значение с правкой по клику: клик — поле, Enter или уход с поля — запись,
@@ -151,6 +159,78 @@ export function OsPicker({
             {m.uid === current?.uid ? <Check className="ml-auto h-3.5 w-3.5" /> : null}
           </DropdownMenuItem>
         ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * Статус заказа цветной пилюлей целиком (без «Гото…») с выбором другого.
+ * `derived` — статус взят у технаря: у ОС строка ещё «на утверждении».
+ */
+export function LeadStatusPicker({
+  value,
+  options,
+  derived,
+  onPick,
+  disabled,
+  size = "sm",
+}: {
+  value: string;
+  options: readonly StatusOption[];
+  derived?: boolean;
+  onPick: (value: string) => void;
+  disabled?: boolean;
+  size?: "sm" | "md";
+}) {
+  const known = options.some((o) => o.value === value);
+  const pill = known ? (
+    <StatusBadge value={value} options={[...options]} className={cn("max-w-none", size === "md" && "px-3 py-1 text-[12px]")} />
+  ) : (
+    <span className="inline-flex items-center rounded-full border border-dashed border-border px-2.5 py-[3px] text-[11px] text-muted-foreground">
+      {value || "без статуса"}
+    </span>
+  );
+  const mark = derived ? (
+    <span className="inline-flex shrink-0 items-center text-muted-foreground" title="Так у технаря. У ОС заказ ещё «на утверждении»">
+      <Wrench className="h-3 w-3" aria-label="по технарю" />
+    </span>
+  ) : null;
+  if (disabled) {
+    return (
+      <span className="flex h-7 min-w-0 items-center gap-1 px-1">
+        {pill}
+        {mark}
+      </span>
+    );
+  }
+  const active = options.filter((o) => !o.inactive || o.value === value);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Сменить статус"
+          title={derived ? "Статус у технаря. Нажмите, чтобы поставить статус заказу" : "Сменить статус"}
+          className="group flex h-7 min-w-0 max-w-full items-center gap-1 rounded-md px-1 hover:bg-accent/60"
+        >
+          {pill}
+          {mark}
+          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-80 min-w-[12rem] overflow-y-auto">
+        <DropdownMenuLabel>Статус заказа</DropdownMenuLabel>
+        {active.map((o) => (
+          <DropdownMenuItem key={o.value} onSelect={() => onPick(o.value)}>
+            <StatusBadge value={o.value} options={[...options]} className="max-w-none" />
+            {o.value === value ? <Check className="ml-auto h-3.5 w-3.5" /> : null}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => onPick("")} className="text-muted-foreground">
+          Без статуса
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
