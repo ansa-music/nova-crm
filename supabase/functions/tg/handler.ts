@@ -44,6 +44,12 @@ export interface MasterRow {
   pending_phone: string | null;
   pending_code_hash: string | null;
   pending_by: string | null;
+  /** Служебный бот для файлов технарей (SQL 20261037). */
+  bot_token?: string | null;
+  bot_id?: number | string | null;
+  bot_username?: string | null;
+  /** Скрытая группа «аккаунт + бот», через неё технари передают файлы. */
+  courier_chat_id?: number | string | null;
 }
 
 export interface DeviceRow {
@@ -81,6 +87,8 @@ export interface Deps {
   ctx(token: string, ws: string): Promise<EdgeCtx>;
   db: Db;
   connect(config: { apiId: number; apiHash: string }, session: string | null): Promise<TgConn>;
+  /** Bot API (HTTPS): проверить токен служебного бота — `getMe`. */
+  botApi(token: string, method: string): Promise<Tl>;
   Long: LongCtor & { ZERO: unknown };
   randomLong(): unknown;
   sleep(ms: number): Promise<void>;
@@ -363,6 +371,67 @@ function peerKey(p: Tl): string {
   return "";
 }
 
+// ---------------------------------------------------------------------
+// Файлы технаря — через служебного бота (просьба Nurba 28.09.2026: «технарь
+// не может прикреплять файлы»). Видео по 250 МБ – 2 ГБ через функцию не
+// провезти: у неё 150 МБ памяти и 150 с на вызов, а исходящий трафик
+// Supabase — 5 ГБ в месяц. Поэтому файл идёт из браузера технаря прямо в
+// Telegram: браузер входит БОТОМ (MTProto, до 2 ГБ) и кладёт файл в скрытую
+// группу «аккаунт + бот», а функция главным входом отправляет его клиенту
+// по ссылке на тот же документ (без повторной загрузки) и убирает из группы.
+// Клиенту бот не пишет и чатов аккаунта не видит; кому технарь вправе
+// отправить, решает то же разрешение, что и для текста.
+// ---------------------------------------------------------------------
+
+export const COURIER_TITLE = "Nova · файлы технарей";
+/** Бот не бывает Premium — предел файла 2000 МБ. */
+export const BOT_FILE_MAX = 2000 * 1024 * 1024;
+const BOT_TOKEN_RE = /^\d{5,}:[A-Za-z0-9_-]{30,}$/;
+const MARKER_RE = /^[a-z0-9]{16,64}$/;
+
+interface CourierBot {
+  token: string;
+  id: number;
+  username: string | null;
+  chatId: number;
+}
+
+function courierOf(master: MasterRow | null): CourierBot | null {
+  const id = Number(master?.bot_id ?? 0);
+  const chatId = Number(master?.courier_chat_id ?? 0);
+  if (!master?.bot_token || !id || !chatId) return null;
+  return { token: master.bot_token, id, username: master.bot_username ?? null, chatId };
+}
+
+function randomMarker(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return Array.from(bytes, (b) => b.toString(36).padStart(2, "0")).join("").slice(0, 20);
+}
+
+/** id группы из ответа messages.createChat (новый слой — messages.invitedUsers). */
+export function createdChatId(res: Tl): number | null {
+  const updates = res?._ === "messages.invitedUsers" ? res.updates : res;
+  const chat = ((updates?.chats ?? []) as Tl[]).find((c) => c?._ === "chat");
+  return chat ? Number(chat.id) : null;
+}
+
+/** Медиа из сообщения — для повторной отправки тем же документом (без загрузки). */
+export function reusableMedia(media: Tl): Tl | null {
+  if (media?._ === "messageMediaPhoto" && media.photo?._ === "photo") {
+    const p = media.photo;
+    return { _: "inputMediaPhoto", id: { _: "inputPhoto", id: p.id, accessHash: p.accessHash, fileReference: p.fileReference } };
+  }
+  if (media?._ === "messageMediaDocument" && media.document?._ === "document") {
+    const d = media.document;
+    return { _: "inputMediaDocument", id: { _: "inputDocument", id: d.id, accessHash: d.accessHash, fileReference: d.fileReference } };
+  }
+  return null;
+}
+
+function fromUserId(m: Tl): number | null {
+  return m?.fromId?._ === "peerUser" ? Number(m.fromId.userId) : null;
+}
+
 function grantOf(ctx: EdgeCtx, chatId: unknown): EdgeGrant {
   const id = Number(chatId);
   const grant = ctx.grants.find((g) => Number(g.chatId) === id);
@@ -458,6 +527,8 @@ export function telegramErrorText(code: string): string {
     return "Аккаунт workspace отключён в Telegram — Owner должен подключить его снова.";
   if (code === "FRESH_RESET_AUTHORISATION_FORBIDDEN") return "Telegram не даёт сбросить устройства в первые 24 часа после подключения.";
   if (code === "PEER_ID_INVALID" || code === "CHANNEL_PRIVATE") return "Чат недоступен аккаунту workspace.";
+  if (code === "BOT_GROUPS_BLOCKED") return "Боту запрещено вступать в группы — в @BotFather: Bot Settings → Allow Groups → Turn on, и подключите снова.";
+  if (code === "USERNAME_NOT_OCCUPIED" || code === "USERNAME_INVALID") return "Аккаунт workspace не нашёл этого бота в Telegram.";
   return `Ошибка Telegram: ${code}`;
 }
 
@@ -477,6 +548,8 @@ async function run(deps: Deps, ws: string, ctx: EdgeCtx, action: string, input: 
         canManage: ctx.owner,
         full: ctx.full,
         runtime: deps.runtime,
+        // Служебный бот для файлов технарей: имя — всем, токен — никому.
+        bot: courierOf(master) ? { username: master?.bot_username ?? null } : null,
       };
     }
 
@@ -603,6 +676,64 @@ async function run(deps: Deps, ws: string, ctx: EdgeCtx, action: string, input: 
         });
       });
     }
+    // --- Служебный бот для файлов технарей ---------------------------------
+    case "bot_set": {
+      if (!ctx.owner) throw new EdgeError(403, "denied", "Бота подключает Owner.");
+      const token = typeof input.token === "string" ? input.token.trim() : "";
+      if (!BOT_TOKEN_RE.test(token)) throw new EdgeError(400, "bad_token", "Токен бота выглядит так: 123456789:AAE… — скопируйте его у @BotFather целиком.");
+      let me: Tl;
+      try {
+        me = await deps.botApi(token, "getMe");
+      } catch {
+        throw new EdgeError(502, "bot_unreachable", "Не удалось проверить токен у Telegram — повторите через минуту.");
+      }
+      if (!me?.ok || !me.result?.is_bot || !me.result?.username) {
+        throw new EdgeError(400, "bad_token", "Токен не подошёл — скопируйте его у @BotFather ещё раз.");
+      }
+      const botId = Number(me.result.id);
+      const botUsername = String(me.result.username);
+      return withLease(deps, ws, async () => {
+        const master = await db.master(ws);
+        if (!master?.session) throw new EdgeError(409, "not_connected", "Сначала подключите аккаунт Telegram к workspace.");
+        return useConn(deps, ws, master.session, async (conn) => {
+          const resolved = await conn.call({ _: "contacts.resolveUsername", username: botUsername });
+          const botUser = ((resolved?.users ?? []) as Tl[]).find((u) => Number(u?.id) === botId);
+          if (!botUser) throw new EdgeError(502, "bot_not_found", "Аккаунт workspace не нашёл этого бота в Telegram.");
+          const inputUser = { _: "inputUser", userId: botUser.id, accessHash: botUser.accessHash };
+
+          // Тот же бот и группа жива — берём её, иначе заводим новую.
+          let chatId: number | null = Number(master.bot_id ?? 0) === botId ? Number(master.courier_chat_id ?? 0) || null : null;
+          if (chatId) {
+            try {
+              const full = await conn.call({ _: "messages.getFullChat", chatId });
+              const members = ((full?.fullChat?.participants?.participants ?? []) as Tl[]).map((p) => Number(p?.userId));
+              if (!members.includes(botId)) await conn.call({ _: "messages.addChatUser", chatId, userId: inputUser, fwdLimit: 0 });
+            } catch {
+              chatId = null;
+            }
+          }
+          if (!chatId) {
+            const created = await conn.call({ _: "messages.createChat", users: [inputUser], title: COURIER_TITLE });
+            chatId = createdChatId(created);
+            if (!chatId) throw new EdgeError(502, "courier_failed", "Не удалось создать группу для файлов — повторите.");
+            const peer = { _: "inputPeerChat", chatId };
+            // Без звука и в архиве: у ОС в списке чатов группа не мешает.
+            await conn
+              .call({ _: "account.updateNotifySettings", peer: { _: "inputNotifyPeer", peer }, settings: { _: "inputPeerNotifySettings", muteUntil: 2147483647 } })
+              .catch(() => undefined);
+            await conn.call({ _: "folders.editPeerFolders", folderPeers: [{ _: "inputFolderPeer", peer, folderId: 1 }] }).catch(() => undefined);
+          }
+          await db.saveMaster(ws, { bot_token: token, bot_id: botId, bot_username: botUsername, courier_chat_id: chatId });
+          return { bot: { username: botUsername } };
+        });
+      });
+    }
+    case "bot_clear": {
+      if (!ctx.owner) throw new EdgeError(403, "denied", "Бота отключает Owner.");
+      await db.saveMaster(ws, { bot_token: null, bot_id: null, bot_username: null, courier_chat_id: null });
+      return { bot: null };
+    }
+
     case "disconnect": {
       if (!ctx.owner) throw new EdgeError(403, "denied", "Отключает аккаунт Owner.");
       return withLease(deps, ws, async () => {
@@ -630,6 +761,11 @@ async function run(deps: Deps, ws: string, ctx: EdgeCtx, action: string, input: 
           password: null,
           connected_by: null,
           connected_at: null,
+          // Группа-курьер принадлежала этому аккаунту — бота подключат заново.
+          bot_token: null,
+          bot_id: null,
+          bot_username: null,
+          courier_chat_id: null,
           ...CLEAR_PENDING,
         });
         await db.removeDevices(ws, devices.map((d) => d.marker));
@@ -729,6 +865,8 @@ async function run(deps: Deps, ws: string, ctx: EdgeCtx, action: string, input: 
               const top = d ? toTechMessage(msgs.get(`${key}#${d.topMessage}`)) : null;
               return { chatId: g.chatId, title: g.title, unread: d?.unreadCount ?? 0, last: top };
             }),
+            // Можно ли технарю отправлять файлы (подключён служебный бот).
+            files: Boolean(courierOf(master)),
           };
         })
       );
@@ -819,6 +957,74 @@ async function run(deps: Deps, ws: string, ctx: EdgeCtx, action: string, input: 
       return withLease(deps, ws, () =>
         useConn(deps, ws, master.session, async (conn) => {
           await conn.call({ _: "messages.sendMessage", peer: inputPeer(deps, grant.peer), message: text, randomId: deps.randomLong() });
+          return { sent: true };
+        })
+      );
+    }
+    case "tech_upload_begin": {
+      // Что нужно браузеру технаря, чтобы самому загрузить файл ботом.
+      const grant = grantOf(ctx, input.chatId);
+      const master = await db.master(ws);
+      if (!master?.session) throw new EdgeError(409, "not_connected", "Аккаунт workspace не подключён.");
+      const bot = courierOf(master);
+      if (!bot) {
+        throw new EdgeError(409, "no_bot", "Отправка файлов ещё не включена: Owner подключает служебного бота в разделе Telegram («Файлы технарей»).");
+      }
+      const config = await db.config(ws);
+      if (!config) throw new EdgeError(409, "no_config", "Owner ещё не ввёл ключи Telegram (api_id / api_hash).");
+      return {
+        chatId: grant.chatId,
+        apiId: config.apiId,
+        apiHash: config.apiHash,
+        botToken: bot.token,
+        botId: String(bot.id),
+        courierChatId: bot.chatId,
+        marker: randomMarker(),
+        maxBytes: BOT_FILE_MAX,
+      };
+    }
+    case "tech_upload_finish": {
+      // Файл уже лежит в группе-курьере — отправить его клиенту от аккаунта.
+      const grant = grantOf(ctx, input.chatId);
+      const marker = typeof input.marker === "string" ? input.marker : "";
+      if (!MARKER_RE.test(marker)) throw new EdgeError(400, "bad_request", "Нет метки файла.");
+      const caption = typeof input.caption === "string" ? input.caption.trim() : "";
+      if (caption.length > 1024) throw new EdgeError(400, "too_long", "Подпись к файлу длиннее 1024 знаков.");
+      const master = await db.master(ws);
+      if (!master?.session) throw new EdgeError(409, "not_connected", "Аккаунт workspace не подключён.");
+      const bot = courierOf(master);
+      if (!bot) throw new EdgeError(409, "no_bot", "Служебный бот для файлов отключён — отправьте файл ещё раз, когда Owner подключит его.");
+      const tag = `nova:${marker}`;
+      return withLease(deps, ws, () =>
+        useConn(deps, ws, master.session, async (conn) => {
+          const courier = { _: "inputPeerChat", chatId: bot.chatId };
+          let found: Tl = null;
+          let fromBot: Tl[] = [];
+          // Сообщение бота видно аккаунту сразу, но между дата-центрами бывает задержка.
+          for (let attempt = 0; attempt < 4 && !found; attempt++) {
+            if (attempt) await deps.sleep(700);
+            const res = await conn.call({
+              _: "messages.getHistory",
+              peer: courier,
+              offsetId: 0,
+              offsetDate: 0,
+              addOffset: 0,
+              limit: 30,
+              maxId: 0,
+              minId: 0,
+              hash: deps.Long.ZERO,
+            });
+            fromBot = ((res?.messages ?? []) as Tl[]).filter((m) => m?._ === "message" && fromUserId(m) === bot.id);
+            found = fromBot.find((m) => m.media && String(m.message ?? "").trim() === tag) ?? null;
+          }
+          if (!found) throw new EdgeError(404, "no_upload", "Файл не дошёл до Telegram — отправьте его ещё раз.");
+          const media = reusableMedia(found.media);
+          if (!media) throw new EdgeError(415, "bad_media", "Этот файл не переслать — отправьте его документом.");
+          await conn.call({ _: "messages.sendMedia", peer: inputPeer(deps, grant.peer), media, message: caption, randomId: deps.randomLong() });
+          // Убрать из группы этот файл и забытые (застряли дольше 2 часов).
+          const staleBefore = deps.now() / 1000 - 2 * 3600;
+          const drop = [found.id, ...fromBot.filter((m) => m.id !== found.id && (m.date ?? 0) < staleBefore).map((m) => m.id)];
+          await conn.call({ _: "messages.deleteMessages", id: drop, revoke: true }).catch(() => undefined);
           return { sent: true };
         })
       );
