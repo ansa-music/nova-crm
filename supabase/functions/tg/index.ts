@@ -96,6 +96,12 @@ async function connect(config: { apiId: number; apiHash: string }, session: stri
   };
 }
 
+/** Bot API: проверка токена служебного бота (getMe). Ошибка токена — тоже JSON. */
+async function botApi(token: string, method: string): Promise<unknown> {
+  const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, { method: "POST" });
+  return res.json();
+}
+
 // ---------------------------------------------------------------------
 // База: service role для главного входа, токен человека — для прав.
 // ---------------------------------------------------------------------
@@ -219,6 +225,7 @@ Deno.serve(async (req) => {
       },
       db,
       connect,
+      botApi,
       Long: mt.Long,
       randomLong: () => {
         const b = crypto.getRandomValues(new Uint32Array(2));

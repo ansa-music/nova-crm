@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, LogOut, RefreshCw, Send, ShieldCheck, Unplug } from "lucide-react";
+import { Loader2, LogOut, Paperclip, RefreshCw, Send, ShieldCheck, Unplug } from "lucide-react";
 import { AccessDenied } from "@/components/common/AccessDenied";
 import { LoadingState } from "@/components/common/LoadingState";
 import { TelegramAccessDialog } from "@/components/telegram/TelegramAccessDialog";
@@ -7,6 +7,7 @@ import { TelegramSetupGuide } from "@/components/telegram/TelegramSetupGuide";
 import { TgChats, useTg } from "@/components/telegram/TgChats";
 import { TgLogin } from "@/components/telegram/TgLogin";
 import { TgConnect } from "@/components/telegram/TgConnect";
+import { TgCourierDialog } from "@/components/telegram/TgCourierDialog";
 import { TgTechChats } from "@/components/telegram/TgTechChats";
 import type { TgTechGrantTools } from "@/components/telegram/TgTechGrant";
 import { callTgEdge, refreshTgServer, ringTgServer, tgFunctionMissing, tgServerLink, useTgServer, useTgTechAccess } from "@/services/telegram/tgServer";
@@ -62,6 +63,8 @@ export default function TelegramPage() {
   const [connectOpen, setConnectOpen] = useState(false);
   const tg = useTg();
   const [manageOpen, setManageOpen] = useState(false);
+  // «Файлы технарей»: служебный бот, через который технари отправляют файлы.
+  const [courierOpen, setCourierOpen] = useState(false);
   // Закрыли «Доступ и ключи» — инструкция перечитает, сколько ОС отмечено.
   const [accessRev, setAccessRev] = useState(0);
   const onManageOpenChange = (open: boolean) => {
@@ -150,7 +153,7 @@ export default function TelegramPage() {
   if (!permissions.isResolved || (access.loading && !access.key)) return <LoadingState label="Открываю Telegram…" />;
   if (access.loading) return <LoadingState label="Проверяю доступ…" />;
 
-  if (!canUse && !isOwner && techAccess && activeWorkspaceId) {
+  if (!canUse && !isOwner && techAccess && activeWorkspaceId && uid) {
     return (
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex items-center gap-3 border-b border-border px-4 py-2.5 sm:px-6">
@@ -162,7 +165,7 @@ export default function TelegramPage() {
             <p className="truncate text-[12px] text-muted-foreground">Клиенты ваших заказов</p>
           </div>
         </div>
-        <TgTechChats workspaceId={activeWorkspaceId} chatId={chatId} onOpenChat={(id) => setChatParam(id === null ? "" : String(id))} />
+        <TgTechChats workspaceId={activeWorkspaceId} uid={uid} chatId={chatId} onOpenChat={(id) => setChatParam(id === null ? "" : String(id))} />
       </div>
     );
   }
@@ -350,6 +353,11 @@ export default function TelegramPage() {
           </span>
         )}
         {manageButton}
+        {serverMode && isOwner && (
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setCourierOpen(true)} title="Бот, через который технари отправляют клиентам файлы">
+            <Paperclip className="h-4 w-4" /> Файлы технарей
+          </Button>
+        )}
         {me && !serverMode && (
           <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => void logout()}>
             <LogOut className="h-4 w-4" /> Выйти
@@ -363,6 +371,7 @@ export default function TelegramPage() {
       </div>
       {body}
       {dialog}
+      {isOwner && serverMode && activeWorkspaceId && <TgCourierDialog open={courierOpen} onOpenChange={setCourierOpen} workspaceId={activeWorkspaceId} />}
     </div>
   );
 }

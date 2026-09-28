@@ -1,4 +1,5 @@
-import { InputMedia, Long, TelegramClient, type Dialog, type Message, type Peer } from "@mtcute/web";
+import { Long, TelegramClient, type Dialog, type Message, type Peer } from "@mtcute/web";
+import { buildInputMedia } from "@/services/telegram/tgMedia";
 import { setTgUploadsPulse } from "@/services/telegram/tgUploadsPulse";
 import { clearTgInboxEverywhere, publishTgInbox } from "@/services/telegram/tgInboxPulse";
 import { writeTelegramSessionMark, type TelegramConfig } from "@/services/telegram/telegramAccess";
@@ -105,6 +106,16 @@ export interface TgUpload {
   startedAt: number;
   status: "uploading" | "done" | "error" | "cancelled";
   error: string | null;
+  /**
+   * Шаг отправки у технаря (tgTechUpload): ждёт другую отправку, готовит
+   * вход бота, загружает, передаёт клиенту. У ОС шагов нет — только загрузка.
+   */
+  phase?: "queued" | "prepare" | "upload" | "deliver";
+  /**
+   * У технаря после ошибки есть «Повторить»: файл уже в Telegram — только
+   * передать клиенту, без новой загрузки; не дошёл — загрузить заново.
+   */
+  canRetry?: boolean;
 }
 
 export interface TgState {
@@ -1193,54 +1204,6 @@ function onBeforeUnload(e: BeforeUnloadEvent) {
 }
 if (typeof window !== "undefined") window.addEventListener("beforeunload", onBeforeUnload);
 
-/** Длительность, размер и кадр-обложка видео — чтобы Telegram показал его плеером. */
-async function probeVideo(file: File): Promise<{ duration: number; width: number; height: number; thumb: Uint8Array | null } | null> {
-  if (typeof document === "undefined") return null;
-  const url = URL.createObjectURL(file);
-  try {
-    const video = document.createElement("video");
-    video.preload = "metadata";
-    video.muted = true;
-    video.src = url;
-    const ok = await new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => resolve(false), 8000);
-      video.onloadedmetadata = () => {
-        clearTimeout(timer);
-        resolve(true);
-      };
-      video.onerror = () => {
-        clearTimeout(timer);
-        resolve(false);
-      };
-    });
-    if (!ok) return null;
-    const meta = { duration: Math.round(video.duration || 0), width: video.videoWidth, height: video.videoHeight };
-    let thumb: Uint8Array | null = null;
-    try {
-      video.currentTime = Math.min(1, (video.duration || 0) / 2);
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, 4000);
-        video.onseeked = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-      });
-      const scale = Math.min(1, 320 / Math.max(meta.width || 1, meta.height || 1));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round((meta.width || 320) * scale));
-      canvas.height = Math.max(1, Math.round((meta.height || 180) * scale));
-      canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.8));
-      if (blob) thumb = new Uint8Array(await blob.arrayBuffer());
-    } catch {
-      thumb = null;
-    }
-    return { ...meta, thumb };
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
 /**
  * Отправить файл. Видео уходит видео (в исходном качестве, с плеером),
  * фото до 10 МБ — фото (Telegram его сожмёт), остальное и «как файл» —
@@ -1270,22 +1233,7 @@ export async function sendFile(input: { chatId: number; chatTitle: string; file:
   };
   set({ uploads: [...state.uploads.filter((u) => u.status === "uploading" || Date.now() - u.startedAt < 10 * 60_000), upload] });
   try {
-    const caption = input.caption?.trim() || undefined;
-    const common = { fileName: input.file.name, fileMime: input.file.type || undefined, fileSize: input.file.size, caption };
-    let media;
-    if (!input.asDocument && input.file.type.startsWith("video/")) {
-      const meta = await probeVideo(input.file);
-      media = InputMedia.video(input.file, {
-        ...common,
-        supportsStreaming: true,
-        ...(meta ? { duration: meta.duration, width: meta.width, height: meta.height } : {}),
-        ...(meta?.thumb ? { thumb: meta.thumb } : {}),
-      });
-    } else if (!input.asDocument && input.file.type.startsWith("image/") && input.file.size <= 10 * MB) {
-      media = InputMedia.photo(input.file, { fileSize: input.file.size, caption });
-    } else {
-      media = InputMedia.document(input.file, common);
-    }
+    const media = await buildInputMedia(input.file, { caption: input.caption, asDocument: input.asDocument });
     let lastPatch = 0;
     const msg = await s.client.sendMedia(input.chatId, media, {
       abortSignal: controller.signal,
