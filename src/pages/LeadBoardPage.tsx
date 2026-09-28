@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, History, IdCard, Loader2, Plus, RefreshCw, Search, Sparkles } from "lucide-react";
+import { ArrowDown, ArrowDownUp, ArrowUp, Check, ChevronDown, ChevronRight, History, IdCard, Layers, Loader2, Plus, RefreshCw, Search, Sparkles, Wrench } from "lucide-react";
 import { AccessDenied } from "@/components/common/AccessDenied";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { Alert } from "@/components/ui/alert";
@@ -11,7 +11,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "@/components/ui/sonner";
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { TechBadge } from "@/components/os/TechBadge";
-import { EditableText, OsLabel, OsPicker } from "@/components/leads/LeadCells";
+import { EditableText, LeadStatusPicker, OsLabel, OsPicker } from "@/components/leads/LeadCells";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { LeadCardSheet } from "@/components/leads/LeadCardSheet";
 import { LeadFeed, type LeadHistoryContext } from "@/components/leads/LeadHistory";
 import { NewLeadDialog } from "@/components/leads/NewLeadDialog";
@@ -25,6 +33,7 @@ import { useUrlState } from "@/hooks/useUrlState";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import {
   leadStats,
+  leadStatusOf,
   leadTablesFor,
   moveLeadOs,
   osMembersOf,
@@ -45,6 +54,19 @@ import { periodShortLabel, recentPeriodKeys } from "@/utils/periods";
 import { paymentMethodsOf, paymentPatch } from "@/utils/payment";
 import { effectiveTechLoadKinds } from "@/utils/techLoad";
 import { LEAD_BY_KEY } from "@/utils/reservedCellKeys";
+import {
+  LEAD_SORTS,
+  LEAD_SORT_LABELS,
+  LEAD_SORT_SECTIONS,
+  leadComparator,
+  nextSortForColumn,
+  rememberLeadSort,
+  rememberedLeadSort,
+  sortColumnOf,
+  type LeadSort,
+  type LeadSortColumn,
+} from "@/utils/leadSort";
+import { personLabel } from "@/utils/peopleDesks";
 import { resolveTechIdentity, techIdentityOfUid, type TechIdentity } from "@/utils/techIdentity";
 import type { PageColumn, PageRow, PaymentMethod, StatusOption, WorkspaceMember, WorkspacePage } from "@/types";
 
@@ -68,6 +90,8 @@ function matchesFilter(o: LeadOrder, f: Filter): boolean {
 }
 
 interface Group {
+  /** Плоский список без группировки: заголовок группы не рисуется. */
+  flat?: boolean;
   value: string;
   label: string;
   color: string | null;
@@ -122,6 +146,19 @@ function LeadBoard({ workspaceId }: { workspaceId: string }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [feedOpen, setFeedOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  // Порядок: в адресе (`?sort=`), а умолчание — последний выбор этого человека
+  // (нет выбора — «Новые сверху»). Умолчание фиксируется при входе на экран.
+  const [sortDefault] = useState<LeadSort>(() => rememberedLeadSort());
+  const [sort, setSortRaw] = useUrlState<LeadSort>("sort", sortDefault, { values: LEAD_SORTS });
+  const setSort = useCallback(
+    (next: LeadSort) => {
+      rememberLeadSort(next);
+      setSortRaw(next);
+    },
+    [setSortRaw]
+  );
+  const [groupParam, setGroupParam] = useUrlState<"1" | "0">("g", "1", { values: ["1", "0"] });
+  const grouped = groupParam === "1";
 
   const tables = useMemo(() => leadTablesFor(period, osDesks, pages), [period, osDesks, pages]);
   const allDesks = useMemo(() => {
@@ -166,7 +203,23 @@ function LeadBoard({ workspaceId }: { workspaceId: string }) {
     [board.orders, filter, osFilter, q]
   );
 
-  const groups = useMemo(() => buildGroups(visible, statusOptions), [visible, statusOptions]);
+  const comparator = useMemo(() => {
+    const approval = approvalStatusValue([...statusOptions]);
+    const rankOrder = [approval, ...statusOptions.map((o) => o.value).filter((v) => v !== approval)];
+    return leadComparator(sort, {
+      osLabel: (o) => {
+        const m = o.osUid ? memberByUid.get(o.osUid) : null;
+        return m ? personLabel(m) : "";
+      },
+      techLabel: (o) => techOf(o)?.label ?? "",
+      statusRank: (o) => {
+        const v = leadStatusOf(o, statusOptions);
+        const i = rankOrder.indexOf(v || approval);
+        return i < 0 ? rankOrder.length : i;
+      },
+    });
+  }, [sort, statusOptions, memberByUid, techOf]);
+  const groups = useMemo(() => buildGroups(visible, statusOptions, comparator, grouped), [visible, statusOptions, comparator, grouped]);
   const totals = useMemo(() => {
     let sum = 0;
     let open = 0;
@@ -303,6 +356,16 @@ function LeadBoard({ workspaceId }: { workspaceId: string }) {
             ))}
           </SelectContent>
         </Select>
+        <SortMenu sort={sort} onSort={setSort} className={mobile ? "min-w-0 flex-1 justify-start" : undefined} />
+        <button
+          type="button"
+          className={cn(pageChipClass(grouped), "h-9 gap-1.5")}
+          aria-pressed={grouped}
+          onClick={() => setGroupParam(grouped ? "0" : "1")}
+          title={grouped ? "Показать одним списком" : "Разложить по статусам"}
+        >
+          <Layers className="h-3.5 w-3.5" /> {mobile ? "Группы" : "Группы по статусу"}
+        </button>
         <div className="ml-auto flex items-center gap-3 font-mono text-[12.5px] tabular-nums text-muted-foreground">
           <span>{formatCount(visible.length, ["заказ", "заказа", "заказов"])}</span>
           {totals.open > 0 ? <span className="text-warning">не выдано {totals.open}</span> : null}
@@ -347,15 +410,16 @@ function LeadBoard({ workspaceId }: { workspaceId: string }) {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border">
-          <div className="min-w-[1120px]">
+          <div className="min-w-[1212px]">
             <div className={cn(GRID, "sticky top-0 z-10 h-8 border-b border-border bg-card text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground")}>
-              <span className="px-2">Имя</span>
+              <SortHead column="client" sort={sort} onSort={setSort} label="Имя" />
+              <SortHead column="status" sort={sort} onSort={setSort} label="Статус" />
               <span className="px-2">Номер</span>
-              <span className="px-2">ОС</span>
-              <span className="px-2">Тех</span>
-              <span className="px-2 text-right">Сумма</span>
-              <span className="px-2 text-right">Апсейл</span>
-              <span className="px-2">Дата</span>
+              <SortHead column="os" sort={sort} onSort={setSort} label="ОС" />
+              <SortHead column="tech" sort={sort} onSort={setSort} label="Тех" />
+              <SortHead column="sum" sort={sort} onSort={setSort} label="Сумма" align="right" />
+              <SortHead column="upsell" sort={sort} onSort={setSort} label="Апсейл" align="right" />
+              <SortHead column="date" sort={sort} onSort={setSort} label="Дата" />
               <span />
             </div>
             {groups.map((g) => (
@@ -442,13 +506,24 @@ function LeadBoard({ workspaceId }: { workspaceId: string }) {
 }
 
 const GRID =
-  "grid grid-cols-[minmax(13rem,1.7fr)_minmax(8rem,1fr)_minmax(8.5rem,1fr)_minmax(10rem,1.2fr)_11rem_11rem_4.5rem_2.25rem] items-center";
+  "grid grid-cols-[minmax(13rem,1.7fr)_9.5rem_minmax(7rem,0.8fr)_minmax(8.5rem,1fr)_minmax(11rem,1.4fr)_10rem_10rem_4.5rem_2.25rem] items-center";
 
-function buildGroups(orders: readonly LeadOrder[], options: readonly StatusOption[]): Group[] {
+function buildGroups(
+  orders: readonly LeadOrder[],
+  options: readonly StatusOption[],
+  cmp: (a: LeadOrder, b: LeadOrder) => number,
+  grouped: boolean
+): Group[] {
+  if (!grouped) {
+    const list = [...orders].sort(cmp);
+    return list.length
+      ? [{ flat: true, value: "__all", label: "Все", color: null, orders: list, sum: list.reduce((s, o) => s + (o.total ?? 0), 0) }]
+      : [];
+  }
   const approval = approvalStatusValue([...options]);
   const byValue = new Map<string, LeadOrder[]>();
   for (const o of orders) {
-    let value = o.status;
+    let value = leadStatusOf(o, options);
     if (o.kind === "os" && isApprovalStatusValue(value, options)) value = approval;
     if (!value) value = NO_STATUS;
     const list = byValue.get(value) ?? [];
@@ -462,7 +537,7 @@ function buildGroups(orders: readonly LeadOrder[], options: readonly StatusOptio
   for (const value of order) {
     const list = byValue.get(value);
     if (!list?.length) continue;
-    list.sort((a, b) => a.enteredAt - b.enteredAt || a.key.localeCompare(b.key));
+    list.sort(cmp);
     const option = options.find((o) => o.value === value);
     out.push({
       value,
@@ -476,21 +551,91 @@ function buildGroups(orders: readonly LeadOrder[], options: readonly StatusOptio
 }
 
 function GroupHeader({ group, collapsed, onToggle }: { group: Group; collapsed: boolean; onToggle: () => void }) {
+  if (group.flat) return null;
   const Icon = collapsed ? ChevronRight : ChevronDown;
+  const color = group.color ? `hsl(${group.color})` : "hsl(var(--muted-foreground))";
   return (
     <button
       type="button"
       onClick={onToggle}
       aria-expanded={!collapsed}
-      className="flex h-8 w-full items-center gap-2 border-b border-border px-2 text-left text-[12.5px] font-medium sm:rounded-none"
-      style={group.color ? { backgroundColor: `hsl(${group.color} / 0.10)` } : undefined}
+      className="flex h-9 w-full items-center gap-2 border-b border-l-[3px] border-b-border px-2 text-left text-[13px] font-medium sm:rounded-none"
+      style={{ borderLeftColor: color, backgroundColor: group.color ? `hsl(${group.color} / 0.10)` : undefined }}
     >
       <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: group.color ? `hsl(${group.color})` : "hsl(var(--muted-foreground))" }} aria-hidden />
-      <span style={group.color ? { color: `hsl(${group.color})` } : undefined}>{group.label}</span>
-      <span className="text-muted-foreground">· {group.orders.length}</span>
+      <span style={{ color }}>{group.label}</span>
+      <span
+        className="rounded-full px-1.5 font-mono text-[11px] tabular-nums"
+        style={{ backgroundColor: group.color ? `hsl(${group.color} / 0.18)` : "hsl(var(--muted))", color }}
+      >
+        {group.orders.length}
+      </span>
       <span className="ml-auto font-mono text-[12px] tabular-nums text-muted-foreground">{group.sum ? formatNumber(group.sum) : ""}</span>
     </button>
+  );
+}
+
+/** Заголовок столбца, который сортирует: первый клик — его порядок, повторный — обратный. */
+function SortHead({
+  column,
+  sort,
+  onSort,
+  label,
+  align = "left",
+}: {
+  column: LeadSortColumn;
+  sort: LeadSort;
+  onSort: (next: LeadSort) => void;
+  label: string;
+  align?: "left" | "right";
+}) {
+  const active = sortColumnOf(sort);
+  const on = active.column === column;
+  const Arrow = !on ? ArrowDownUp : active.dir === "desc" ? ArrowDown : ArrowUp;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(nextSortForColumn(column, sort))}
+      aria-sort={on ? (active.dir === "desc" ? "descending" : "ascending") : "none"}
+      title={on ? LEAD_SORT_LABELS[sort] : "Сортировать"}
+      className={cn(
+        "group flex h-8 min-w-0 items-center gap-1 px-2 uppercase tracking-[0.1em] hover:text-foreground",
+        align === "right" && "justify-end",
+        on && "text-primary"
+      )}
+    >
+      <span className="truncate">{label}</span>
+      <Arrow className={cn("h-3 w-3 shrink-0", on ? "opacity-100" : "opacity-0 group-hover:opacity-60")} aria-hidden />
+    </button>
+  );
+}
+
+/** «Порядок: …» — все виды сортировки списком. */
+function SortMenu({ sort, onSort, className }: { sort: LeadSort; onSort: (next: LeadSort) => void; className?: string }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" className={cn(pageChipClass(sort !== "new-top"), "h-9 gap-1.5", className)} aria-label="Порядок строк">
+          <ArrowDownUp className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">Порядок: {LEAD_SORT_LABELS[sort]}</span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-[14rem]">
+        {LEAD_SORT_SECTIONS.map((section, i) => (
+          <div key={section.title}>
+            {i > 0 ? <DropdownMenuSeparator /> : null}
+            <DropdownMenuLabel className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">{section.title}</DropdownMenuLabel>
+            {section.sorts.map((key) => (
+              <DropdownMenuItem key={key} onSelect={() => onSort(key)}>
+                {LEAD_SORT_LABELS[key]}
+                {key === sort ? <Check className="ml-auto h-3.5 w-3.5" /> : null}
+              </DropdownMenuItem>
+            ))}
+          </div>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -516,21 +661,59 @@ function ClientButton({ order, onOpen }: { order: LeadOrder; onOpen: () => void 
   );
 }
 
+/**
+ * Технарь и его статус. Статус у технаря — точкой, а словом только когда он
+ * РАСХОДИТСЯ со статусом заказа (иначе он дублировал бы столбец «Статус» и
+ * обрезался до «Гото…»).
+ */
+function TechStatusMark({ order, statusOptions, full }: { order: LeadOrder; statusOptions: readonly StatusOption[]; full?: boolean }) {
+  if (order.kind !== "os" || !order.techStatus) return null;
+  const option = statusOptions.find((o) => o.value === order.techStatus);
+  const label = option?.label ?? order.techStatus;
+  const color = option ? `hsl(${option.color})` : "hsl(var(--muted-foreground))";
+  const differs = order.techStatus !== leadStatusOf(order, statusOptions);
+  if (!differs) {
+    return full ? null : <span className="ml-auto h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} title={`У технаря: ${label}`} aria-label={`У технаря: ${label}`} />;
+  }
+  return (
+    <span className="ml-auto inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px]" title={`У технаря: ${label}`}>
+      {full ? <span className="text-muted-foreground">у технаря:</span> : <Wrench className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="у технаря" />}
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden />
+      <span style={{ color }}>{label}</span>
+    </span>
+  );
+}
+
 function TechCell({ order, tech, statusOptions }: { order: LeadOrder; tech: TechIdentity | null; statusOptions: readonly StatusOption[] }) {
   if (!tech) {
     return <span className="px-1.5 text-[12.5px] text-muted-foreground">{order.kind === "os" ? "не выдан" : "—"}</span>;
   }
   return (
     <span className="flex min-w-0 items-center gap-2 px-1.5">
-      <TechBadge identity={tech} />
+      <span className="min-w-0 truncate">
+        <TechBadge identity={tech} />
+      </span>
       {order.kind === "os" && order.techStatus ? (
-        <span className="ml-auto min-w-0 shrink" title="Статус у технаря">
-          <StatusBadge value={order.techStatus} options={[...statusOptions]} variant="plain" />
-        </span>
+        <TechStatusMark order={order} statusOptions={statusOptions} />
       ) : order.kind === "os" && !order.copy ? (
-        <span className="ml-auto text-[11px] text-muted-foreground" title="Технарь выбран, заказ едет к нему">едет</span>
+        <span className="ml-auto shrink-0 text-[11px] text-muted-foreground" title="Технарь выбран, заказ едет к нему">едет</span>
       ) : null}
     </span>
+  );
+}
+
+/** Столбец «Статус»: пилюля целиком и выбор другого. */
+function StatusCell({ order, statusOptions, onCell }: { order: LeadOrder; statusOptions: readonly StatusOption[]; onCell: (order: LeadOrder, key: string, value: string) => Promise<void> }) {
+  const effective = leadStatusOf(order, statusOptions);
+  const shown = effective || (order.kind === "os" ? approvalStatusValue([...statusOptions]) : "");
+  return (
+    <LeadStatusPicker
+      value={shown}
+      options={statusOptions}
+      derived={effective !== order.status}
+      disabled={!order.keys.status}
+      onPick={(v) => void onCell(order, order.keys.status, v)}
+    />
   );
 }
 
@@ -573,6 +756,9 @@ function LeadRow({
     >
       <div className="flex min-w-0 px-1">
         <ClientButton order={order} onOpen={onOpen} />
+      </div>
+      <div className="min-w-0 px-0.5">
+        <StatusCell order={order} statusOptions={statusOptions} onCell={onCell} />
       </div>
       <div className="min-w-0 px-1">
         <EditableText value={order.phone} ariaLabel="Номер" inputMode="tel" disabled={!k.phone} onCommit={(v) => onCell(order, k.phone, v)} />
@@ -635,6 +821,10 @@ function LeadMobileCard({
         <span className="min-w-0 flex-1 truncate text-[14px] font-medium">{order.client || "без имени"}</span>
         <span className="shrink-0 font-mono text-[13px] tabular-nums">{order.total === null ? "—" : formatNumber(order.total)}</span>
       </div>
+      <div className="flex min-w-0 items-center gap-2">
+        <MobileStatusPill order={order} statusOptions={statusOptions} />
+        <TechStatusMark order={order} statusOptions={statusOptions} full />
+      </div>
       <div className="flex min-w-0 items-center gap-2 text-[12px] text-muted-foreground">
         <span className="truncate">{order.phone || "без номера"}</span>
         <span className="ml-auto shrink-0 font-mono tabular-nums">{order.dateMs ? formatDayMonth(order.dateMs) : ""}</span>
@@ -646,15 +836,19 @@ function LeadMobileCard({
         <span className="text-muted-foreground">→</span>
         <span className="flex min-w-0 flex-1 items-center gap-2">
           {tech ? <TechBadge identity={tech} /> : <span className="text-[12.5px] text-muted-foreground">не выдан</span>}
-          {order.techStatus && order.kind === "os" ? (
-            <span className="ml-auto min-w-0">
-              <StatusBadge value={order.techStatus} options={[...statusOptions]} variant="plain" />
-            </span>
-          ) : null}
         </span>
       </div>
     </button>
   );
+}
+
+function MobileStatusPill({ order, statusOptions }: { order: LeadOrder; statusOptions: readonly StatusOption[] }) {
+  const effective = leadStatusOf(order, statusOptions);
+  const shown = effective || (order.kind === "os" ? approvalStatusValue([...statusOptions]) : "");
+  if (!shown || !statusOptions.some((o) => o.value === shown)) {
+    return <span className="rounded-full border border-dashed border-border px-2.5 py-[3px] text-[11px] text-muted-foreground">без статуса</span>;
+  }
+  return <StatusBadge value={shown} options={[...statusOptions]} className="max-w-none shrink-0" />;
 }
 
 function pct(v: number | null): string {
