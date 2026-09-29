@@ -185,7 +185,13 @@ import {
 import { osDateSlots, slotShown, type OsDateSlot } from "@/utils/osDates";
 import { PaymentMethodsDialog } from "@/components/cashbox/PaymentMethodsDialog";
 import { useOsTotalsKeeper } from "@/hooks/useOsTotalsKeeper";
-import { osRowTotal, paymentMethodsOf, paymentPatch } from "@/utils/payment";
+import { osRowGross, osRowTotal, paymentMethodsOf, paymentPatch } from "@/utils/payment";
+import {
+  bigQueueView,
+  isBigCheck,
+  shortMoney,
+  useBigOrderQueue,
+} from "@/services/bigOrderQueueService";
 import { normalizeNumericInput, parseLooseNumber } from "@/utils/numberInput";
 import {
   updateSubPageColumns,
@@ -877,6 +883,9 @@ export default function DynamicTablePage() {
   }, [isMyOsDesk, refreshMyOrders]);
   // Свои заказы на «Заказах» со стола — с живыми откликами: выбрать технаря
   // можно прямо в ячейке «Технарь» (OsExchangePicker), не уходя на «Заказы».
+  const bigView = bigQueueView(
+    useBigOrderQueue(activeWorkspaceId, Boolean(page?.osDesk)),
+  );
   const exchange = useMyExchangeOrders(
     activeWorkspaceId,
     dispatchOsUid ?? permissions.uid,
@@ -1193,8 +1202,33 @@ export default function DynamicTablePage() {
       return cache.get(nick) ?? null;
     };
   }, [members, techNickOptions]);
+  /** Заказ от порога «Заказов от 300к+» — выдаётся только из очереди. */
+  function isBigRow(row: PageRow): boolean {
+    return Boolean(
+      bigView &&
+      bigView.queue.length > 0 &&
+      isBigCheck(osRowGross(row, osKeys), bigView.threshold),
+    );
+  }
   /** Состояние ячейки «Технарь» строки своего стола ОС. */
   function osTechStateOf(row: PageRow): OsTechCellState | null {
+    const state = osTechStateBase(row);
+    if (
+      !state ||
+      !bigView ||
+      !state.chip ||
+      !["issue", "reissue", "pick"].includes(state.kind) ||
+      !isBigRow(row)
+    )
+      return state;
+    const tag = `${shortMoney(bigView.threshold)}+`;
+    return {
+      ...state,
+      chip: { ...state.chip, label: `Выдать · ${tag}` },
+      title: `Заказ от ${shortMoney(bigView.threshold)}: отдаётся только технарю из очереди ответственного`,
+    };
+  }
+  function osTechStateBase(row: PageRow): OsTechCellState | null {
     const nick = cellStr(row, osKeys.technician);
     const order = exchange.byRow.get(row.id);
     return osTechCellState({
@@ -1227,6 +1261,19 @@ export default function DynamicTablePage() {
       now: Date.now(),
     });
   }
+  // «Выдать из очереди» с «Заказов» ведёт сюда с `?bigq=<строка>` — окно
+  // выдачи открывается само. Параметр снимаем: F5 не должен открывать снова.
+  const bigqParam = searchParams.get("bigq");
+  useEffect(() => {
+    if (!bigqParam || !runsOsDispatch || !rowsFromServer) return;
+    const row = rows.find((r) => r.id === bigqParam);
+    if (row) void runOsTechAction(row, "choice");
+    else toast.info("Строка заказа не найдена в этой вкладке");
+    const next = new URLSearchParams(searchParams);
+    next.delete("bigq");
+    setSearchParams(next, { replace: true, state: locationStateRef.current });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bigqParam, runsOsDispatch, rowsFromServer]);
   /** Чип действия в ячейке — из того же состояния. */
   /** Метка в ячейке статуса стола ОС: технарь просит сменить статус / удалить. */
   function osRequestCellView(row: PageRow): CellActionView | null {
@@ -1292,6 +1339,7 @@ export default function DynamicTablePage() {
   // ники, заказы на «Заказах» (отклики, кому отдан), копии у технарей.
   const osCellDisplayVersion = isOsDeskPage
     ? [
+        bigView ? `${bigView.threshold}:${bigView.queue.length}` : "",
         techIdentitySignature(members, techNickOptions),
         osStatusOptions.map((o) => `${o.value}:${o.label}:${o.color}`).join("|"),
         runsOsDispatch
@@ -2079,6 +2127,7 @@ export default function DynamicTablePage() {
                         : "Заказ сразу уедет в стол выбранного технаря."
                 }
                 selectedNick={nick || null}
+                checkTotal={row ? osRowGross(row, osKeys) : null}
                 busy={techPickBusy}
                 allowClear
                 onPick={(tech) => void setRowTechnician(tech.nick, tech.name)}

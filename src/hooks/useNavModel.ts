@@ -31,7 +31,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Building2 as PlatformIcon, FileChartColumn, Sheet as LeadBoardIcon, Smartphone, Sparkles } from "lucide-react";
+import { Building2 as PlatformIcon, Crown, FileChartColumn, Sheet as LeadBoardIcon, Smartphone, Sparkles } from "lucide-react";
 import { useInstallMode } from "@/utils/pwa";
 import { startInstall } from "@/components/common/InstallApp";
 import { DESKS_ITEM_KEY, DESK_SHORTCUTS_LIMIT, EXTRA_ROUTE_META, MORE_ITEM_KEY, MORE_SECTION_KEY, pathMatches, pathOnly, type NavChild, type NavItem, type NavSection, type PageMeta } from "@/config/nav";
@@ -62,6 +62,7 @@ import { useTelegramAccess, useTelegramRevokeGuard } from "@/services/telegram/t
 import { useTgTechAccess } from "@/services/telegram/tgServer";
 import { subscribeTgInbox, tgInboxPulse, tgUnreadTotal } from "@/services/telegram/tgInboxPulse";
 import { useWeeklyRating, weeklyLeftToRate } from "@/services/weeklyRatingService";
+import { canManageBigQueue, shortMoney, useBigOrderQueue } from "@/services/bigOrderQueueService";
 
 /** Пути разделов страницы «Ещё» — на них в меню горит сам пункт «Ещё». */
 const MORE_PAGE_PATHS = [
@@ -189,6 +190,8 @@ export interface NavSignals {
   telegramUnread: number;
   /** Сколько мне ещё оценить на этой неделе («Оценка недели»). */
   weeklyToRate: number;
+  /** Я веду очередь «Заказов от 300к+» (ответственный или Owner); порог — для подписи. */
+  bigQueue: { manager: boolean; threshold: number } | null;
 }
 
 const NO_SIGNALS: NavSignals = {
@@ -204,6 +207,7 @@ const NO_SIGNALS: NavSignals = {
   telegramTech: false,
   telegramUnread: 0,
   weeklyToRate: 0,
+  bigQueue: null,
 };
 
 function deskChild(page: WorkspacePage): NavChild {
@@ -371,6 +375,15 @@ function buildDefaultSections(inp: NavInputs, g: NavGates, sig: NavSignals, desk
         // «Общая таблица» (27.09.2026): все заказы периода по всем ОС — у
         // Тимлид+ и Owner. Правка, смена ОС, новый клиент, история.
         { key: "leads", to: "/leads", label: "Общая таблица", icon: LeadBoardIcon, show: inp.permissions.canLeadBoard, emphasis: true },
+        // «Заказы от 300к+» (28.09.2026): очередь технарей для крупных заказов —
+        // у ответственных, которых назначил Owner, и у самого Owner.
+        {
+          key: "big-orders",
+          to: "/big-orders",
+          label: `Заказы от ${shortMoney(sig.bigQueue?.threshold ?? 300_000)}+`,
+          icon: Crown,
+          show: Boolean(sig.bigQueue?.manager),
+        },
         // У ОС дом — «Технари» (дубль убирает фильтр ниже); стол ОС — свой пункт.
         {
           key: "os-desk",
@@ -684,14 +697,24 @@ export function NavModelProvider({ children }: { children: ReactNode }) {
   const site = useSiteConfig();
   const weeklySnap = useWeeklyRating(activeWorkspaceId, permissions.isResolved && isModuleEnabled(site, "dashboard"));
   const weeklyToRate = useMemo(() => weeklyLeftToRate(weeklySnap, members, uid), [weeklySnap, members, uid]);
+  // «Заказы от 300к+»: одна крошечная выборка на вкладку (общая с окнами выдачи).
+  const bigSnap = useBigOrderQueue(activeWorkspaceId, permissions.isResolved && isModuleEnabled(site, "orders"));
+  const bigManager = canManageBigQueue(uid, bigSnap.data, permissions.isResolved && permissions.actsAsOwner);
+  const bigThreshold = bigSnap.data?.threshold ?? 300_000;
+  const bigQueue = useMemo(
+    () => (bigSnap.status === "ready" || (permissions.isResolved && permissions.actsAsOwner && bigSnap.status !== "missing")
+      ? { manager: bigManager, threshold: bigThreshold }
+      : null),
+    [bigSnap.status, bigManager, bigThreshold, permissions.isResolved, permissions.actsAsOwner]
+  );
 
   const inputs = useMemo<NavInputs>(
     () => ({ uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds, platformAdmin, site }),
     [uid, members, allPages, pages, permissions, myDesk, recentIds, pinnedIds, platformAdmin, site]
   );
   const signals = useMemo<NavSignals>(
-    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted, telegramTech, telegramUnread, weeklyToRate }),
-    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted, telegramTech, telegramUnread, weeklyToRate]
+    () => ({ privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted, telegramTech, telegramUnread, weeklyToRate, bigQueue }),
+    [privateUnreadTotal, workspaceChatUnread, osDispatchUnseen, osRequestsPending, ordersAlert, openOrdersCount, deskAlerts, grokPool, telegramGranted, telegramTech, telegramUnread, weeklyToRate, bigQueue]
   );
   const pageMeta = useMemo(() => buildPageMeta(inputs), [inputs]);
   const model = useMemo(() => buildNavModel(inputs, signals, pageMeta), [inputs, signals, pageMeta]);

@@ -8,6 +8,8 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { useSendOsRowToExchange } from "@/hooks/useSendOsRowToExchange";
 import { OS_DESK_KEYS, type OsDeskKeys } from "@/services/osDeskService";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
+import { bigQueueView, isBigCheck, useBigOrderQueue } from "@/services/bigOrderQueueService";
+import { osRowGross } from "@/utils/payment";
 import {
   DEFAULT_STATUS_OPTIONS,
   ensureApprovalStatus,
@@ -56,6 +58,10 @@ export function OsDispatchChoiceDialog({
   const [busy, setBusy] = useState(false);
   const statusOptions = ensureApprovalStatus(ensureDoneStatus(activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS));
   const client = String(row.cells[keys.client] ?? "").trim() || "Заказ";
+  // «Заказ от 300к+»: не на биржу, а сразу очередь ответственного.
+  const bigView = bigQueueView(useBigOrderQueue(activeWorkspaceId));
+  const checkTotal = osRowGross(row, keys);
+  const bigOrder = Boolean(bigView && bigView.queue.length > 0 && isBigCheck(checkTotal, bigView.threshold));
 
   /** Статус «Утверждение» снимается: заказ отдают — значит, он в работе. */
   function statusPatch(): Record<string, string> {
@@ -98,15 +104,16 @@ export function OsDispatchChoiceDialog({
   return (
     <>
     <TechPickerSheet
-      open={pickerOpen}
+      open={pickerOpen || bigOrder}
+      checkTotal={checkTotal}
       mode="give"
       title={`Кому отдать «${client}»?`}
       description="Заказ сразу уедет в стол выбранного технаря, статус станет «В работе»."
       busy={busy}
       onPick={(tech) => void giveToTech(tech.nick, tech.name)}
-      onClose={() => setPickerOpen(false)}
+      onClose={() => (bigOrder ? onClose() : setPickerOpen(false))}
     />
-    <Dialog open={!pickerOpen} onOpenChange={(open) => !open && !busy && onClose()}>
+    <Dialog open={!pickerOpen && !bigOrder} onOpenChange={(open) => !open && !busy && onClose()}>
       <DialogContent className="flex max-h-[90vh] max-w-lg flex-col">
         <DialogHeader>
           <DialogTitle>Как выдать «{client}»?</DialogTitle>

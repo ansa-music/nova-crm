@@ -71,6 +71,11 @@ export function osRowTotal(row: Pick<PageRow, "cells">, keys: { price: string; u
   return round2(netOf(row, keys.price) + netOf(row, keys.upsell));
 }
 
+/** Чек клиента: цена + апсейл до комиссии (0 — денег нет). */
+export function osRowGross(row: Pick<PageRow, "cells">, keys: { price: string; upsell: string }): number {
+  return round2(amountOf(row.cells[keys.price]) + amountOf(row.cells[keys.upsell]));
+}
+
 /** Сколько съела комиссия в строке (для подсказки «−12 000 комиссия»). */
 export function osRowFees(row: Pick<PageRow, "cells">, keys: { price: string; upsell: string }): number {
   const gross = amountOf(row.cells[keys.price]) + amountOf(row.cells[keys.upsell]);

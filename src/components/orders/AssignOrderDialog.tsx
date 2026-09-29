@@ -8,6 +8,8 @@ import { timeAgo } from "@/utils/date";
 import { cn } from "@/utils/cn";
 import { orderRandomPool, type OrderCandidate } from "@/services/orderService";
 import { toast } from "@/components/ui/sonner";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { bigQueueView, isBigCheck, useBigOrderQueue } from "@/services/bigOrderQueueService";
 import { orderClaimScope, type WorkOrder, type WorkspaceMember } from "@/types";
 
 interface AssignOrderDialogProps {
@@ -22,6 +24,10 @@ interface AssignOrderDialogProps {
 export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, onRandom }: AssignOrderDialogProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const { activeWorkspaceId } = useWorkspace();
+  // «Заказ от 300к+»: только очередь ответственного, без «Рандома» и списка.
+  const bigView = bigQueueView(useBigOrderQueue(activeWorkspaceId, Boolean(order)));
+  const bigOrder = Boolean(order && bigView && bigView.queue.length > 0 && isBigCheck(order.price, bigView.threshold));
   const claimed = candidates.filter((c) => c.claimedAt != null).sort((a, b) => (a.claimedAt ?? 0) - (b.claimedAt ?? 0));
   const others = candidates.filter((c) => c.claimedAt == null);
   // Тот же пул, что и у сервиса, — иначе кнопка «Рандом» на карточке
@@ -86,7 +92,8 @@ export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, o
   return (
     <>
     <TechPickerSheet
-      open={pickerOpen && Boolean(order)}
+      open={(pickerOpen || bigOrder) && Boolean(order)}
+      checkTotal={order?.price ?? null}
       title={order ? `Кому отдать «${order.client}»?` : "Кому отдать"}
       description="Свободные и без заказов — сверху; метка «откликнулся» — у тех, кто уже отозвался на заказ."
       busy={busy !== null}
@@ -102,9 +109,9 @@ export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, o
         const c = byUid.get(tech.uid);
         if (c) void run(c.uid, () => onAssign(c)).then(() => setPickerOpen(false));
       }}
-      onClose={() => setPickerOpen(false)}
+      onClose={() => (bigOrder ? onOpenChange(false) : setPickerOpen(false))}
     />
-    <Dialog open={Boolean(order) && !pickerOpen} onOpenChange={onOpenChange}>
+    <Dialog open={Boolean(order) && !pickerOpen && !bigOrder} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Кому отдать заказ</DialogTitle>
