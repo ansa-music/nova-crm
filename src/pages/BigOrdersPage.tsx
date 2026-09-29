@@ -1,5 +1,39 @@
-import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronDown, Crown, Loader2, Pause, Play, Plus, Search, Settings2, UserCog, X } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  ArrowDown,
+  ArrowDownToLine,
+  ArrowUp,
+  ArrowUpToLine,
+  ChevronDown,
+  Crown,
+  GripVertical,
+  Loader2,
+  Pause,
+  Play,
+  Plus,
+  Search,
+  Settings2,
+  Trash2,
+  UserCog,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
 import { AccessDenied } from "@/components/common/AccessDenied";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
@@ -26,7 +60,7 @@ import {
   DEFAULT_BIG_THRESHOLD,
   pauseUntil,
   saveBigConfig,
-  saveBigQueue,
+  saveBigLists,
   setBigQueueEnabled,
   setBigQueuePause,
   shortMoney,
@@ -43,6 +77,41 @@ const timeFormat = () => zonedDateFormat("ru-RU", { day: "numeric", month: "shor
 const dayFormat = () => zonedDateFormat("ru-RU", { day: "numeric", month: "short" });
 
 const DAY_MS = 86_400_000;
+const POINTER_SENSOR_OPTIONS = { activationConstraint: { distance: 5 } };
+const KEYBOARD_SENSOR_OPTIONS = { coordinateGetter: sortableKeyboardCoordinates };
+
+/** Строка очереди, которую можно тащить за ручку (мышью, пальцем или клавишами). */
+function SortableQueueItem({
+  id,
+  children,
+}: {
+  id: string;
+  children: (handle: ReactNode, dragging: boolean) => ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const handle = (
+    <button
+      type="button"
+      ref={setActivatorNodeRef}
+      {...attributes}
+      {...listeners}
+      aria-label="Перетащить"
+      title="Перетащить, чтобы поменять место"
+      className="flex h-11 w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground active:cursor-grabbing sm:h-9 sm:w-6"
+    >
+      <GripVertical className="h-4 w-4" />
+    </button>
+  );
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn("relative flex flex-col bg-card", isDragging && "z-10 shadow-lg ring-1 ring-primary/40")}
+    >
+      {children(handle, isDragging)}
+    </li>
+  );
+}
 const PAUSE_MAX_DAYS = 90;
 
 /** Конец N-го дня по часам компании: 1 — до конца сегодня, 3 — сегодня + ещё два. */
@@ -133,24 +202,42 @@ function BigOrdersBody({
   const queue = cfg.queue.map((uid) => ({ uid, member: byUid.get(uid) ?? null, until: pauseUntil(cfg, uid, now) }));
   const pausedCount = queue.filter((q) => q.until !== undefined).length;
   const priorityUid = queue.find((q) => q.until === undefined)?.uid ?? null;
+  const pool = cfg.pool.map((uid) => ({ uid, member: byUid.get(uid) ?? null }));
   const candidates = useMemo(() => {
-    const inQueue = new Set(cfg.queue);
+    const taken = new Set([...cfg.queue, ...cfg.pool]);
     const q = query.trim().toLocaleLowerCase("ru");
     return active
-      .filter((m) => worksAsTechnician(m) && !inQueue.has(m.uid))
+      .filter((m) => worksAsTechnician(m) && !taken.has(m.uid))
       .filter((m) => !q || `${personLabel(m)} ${m.name ?? ""} ${m.techNickValue ?? ""}`.toLocaleLowerCase("ru").includes(q))
       .sort((a, b) => personLabel(a).localeCompare(personLabel(b), "ru"));
-  }, [active, cfg.queue, query]);
+  }, [active, cfg.queue, cfg.pool, query]);
+  const sensors = useSensors(useSensor(PointerSensor, POINTER_SENSOR_OPTIONS), useSensor(KeyboardSensor, KEYBOARD_SENSOR_OPTIONS));
 
-  async function writeQueue(next: string[]) {
+  async function writeLists(nextQueue: string[], nextPool: string[] = cfg.pool) {
     setSaving(true);
     try {
-      await saveBigQueue(ws, next);
+      await saveBigLists(ws, nextQueue, nextPool);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось сохранить очередь");
     } finally {
       setSaving(false);
     }
+  }
+  const writeQueue = (next: string[]) => writeLists(next);
+  const toGroup = (uid: string) =>
+    writeLists(cfg.queue.filter((u) => u !== uid), [uid, ...cfg.pool.filter((u) => u !== uid)]);
+  const toQueue = (uid: string) =>
+    writeLists([...cfg.queue.filter((u) => u !== uid), uid], cfg.pool.filter((u) => u !== uid));
+  const allToQueue = () => writeLists([...cfg.queue, ...cfg.pool], []);
+  const dropFromGroup = (uid: string) => writeLists(cfg.queue, cfg.pool.filter((u) => u !== uid));
+
+  function onDragEnd(event: DragEndEvent) {
+    const { active: dragged, over } = event;
+    if (!over || dragged.id === over.id) return;
+    const from = cfg.queue.indexOf(String(dragged.id));
+    const to = cfg.queue.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    void writeQueue(arrayMove(cfg.queue, from, to));
   }
 
   async function writePause(uid: string, on: boolean, until: number | null = null) {
@@ -317,7 +404,7 @@ function BigOrdersBody({
 
       <Section
         eyebrow={`в очереди ${queue.length}${pausedCount ? ` · на паузе ${pausedCount}` : ""}`}
-        title="Очередь"
+        title="Активная очередь"
         action={
           <span className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
             {saving ? (
@@ -333,16 +420,20 @@ function BigOrdersBody({
       >
         {queue.length === 0 ? (
           <p className="px-4 py-6 text-sm text-muted-foreground">
-            Очередь пуста — крупные заказы выдаются как обычно. Добавьте технарей кнопкой ниже.
+            Очередь пуста — крупные заказы выдаются как обычно. Верните людей из группы ниже или добавьте технаря.
           </p>
         ) : (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <SortableContext items={cfg.queue} strategy={verticalListSortingStrategy}>
           <ol className="flex flex-col divide-y divide-border">
             {queue.map(({ uid, member, until }, i) => {
               const name = member ? personLabel(member) : "ушёл из команды";
               const paused = until !== undefined;
               const top = cfg.enabled && uid === priorityUid;
               return (
-                <li key={uid} className="flex flex-col">
+                <SortableQueueItem key={uid} id={uid}>
+                {(handle) => (
+                <>
                 <div
                   className={cn(
                     "flex min-h-14 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 sm:flex-nowrap sm:px-4",
@@ -351,6 +442,7 @@ function BigOrdersBody({
                   )}
                   data-paused={paused ? "true" : undefined}
                 >
+                  {handle}
                   <span
                     className={cn(
                       "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg font-mono text-sm font-semibold tabular-nums",
@@ -448,14 +540,15 @@ function BigOrdersBody({
                     </Button>
                     <Button
                       variant="ghost"
-                      size="icon"
-                      data-compact
-                      className="h-11 w-11 text-muted-foreground hover:text-destructive sm:h-8 sm:w-8"
-                      aria-label="Убрать из очереди"
+                      size="sm"
+                      className="min-h-11 gap-1 px-2 text-muted-foreground sm:min-h-8"
+                      aria-label="Убрать в группу"
+                      title="Убрать из очереди в группу — вернуть можно одной кнопкой"
                       disabled={saving}
-                      onClick={() => void writeQueue(cfg.queue.filter((u) => u !== uid))}
+                      onClick={() => void toGroup(uid)}
                     >
-                      <X className="h-4 w-4" />
+                      <ArrowDownToLine className="h-4 w-4" />
+                      <span>В группу</span>
                     </Button>
                   </span>
                 </div>
@@ -484,10 +577,14 @@ function BigOrdersBody({
                     </Button>
                   </div>
                 ) : null}
-                </li>
+                </>
+                )}
+                </SortableQueueItem>
               );
             })}
           </ol>
+          </SortableContext>
+          </DndContext>
         )}
 
         <div className="border-t border-border px-3 py-3 sm:px-4">
@@ -506,7 +603,7 @@ function BigOrdersBody({
                         setQuery("");
                       }
                       if (e.key === "Enter" && candidates.length === 1) {
-                        void writeQueue([...cfg.queue, candidates[0].uid]);
+                        void toQueue(candidates[0].uid);
                         setQuery("");
                       }
                     }}
@@ -521,22 +618,36 @@ function BigOrdersBody({
               </div>
               {candidates.length === 0 ? (
                 <p className="py-2 text-[12.5px] text-muted-foreground">
-                  {query ? "Никого не нашёл." : "Все технари уже в очереди."}
+                  {query ? "Никого не нашёл." : "Все технари уже в очереди или в группе."}
                 </p>
               ) : (
                 <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto">
                   {candidates.map((m) => (
-                    <li key={m.uid}>
+                    <li key={m.uid} className="flex items-center gap-1">
                       <button
                         type="button"
                         disabled={saving}
-                        onClick={() => void writeQueue([...cfg.queue, m.uid])}
-                        className="flex min-h-11 w-full items-center gap-2.5 rounded-lg px-2 text-left hover:bg-accent/60 disabled:opacity-60"
+                        onClick={() => void toQueue(m.uid)}
+                        title="Добавить в конец очереди"
+                        className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 text-left hover:bg-accent/60 disabled:opacity-60"
                       >
                         <MemberAvatar id={m.uid} name={personLabel(m)} photoURL={m.photoURL} className="h-7 w-7 shrink-0" />
                         <span className="min-w-0 flex-1 truncate text-sm">{personLabel(m)}</span>
-                        <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="flex shrink-0 items-center gap-1 text-[12px] text-muted-foreground">
+                          <Plus className="h-4 w-4" /> в очередь
+                        </span>
                       </button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="min-h-11 shrink-0 gap-1 px-2 text-[12px] text-muted-foreground sm:min-h-9"
+                        disabled={saving}
+                        onClick={() => void writeLists(cfg.queue, [...cfg.pool, m.uid])}
+                        aria-label={`${personLabel(m)} — в группу`}
+                        title="Отобрать в группу, в очередь пока не ставить"
+                      >
+                        <Users className="h-3.5 w-3.5" /> в группу
+                      </Button>
                     </li>
                   ))}
                 </ul>
@@ -550,11 +661,71 @@ function BigOrdersBody({
         </div>
       </Section>
 
+      <Section
+        eyebrow={`не в очереди · ${pool.length}`}
+        title="Группа"
+        action={
+          pool.length > 1 ? (
+            <Button variant="outline" size="sm" className="min-h-11 gap-1.5 sm:min-h-8" disabled={saving} onClick={() => void allToQueue()}>
+              <ArrowUpToLine className="h-3.5 w-3.5" /> Все в очередь
+            </Button>
+          ) : null
+        }
+        padded={false}
+      >
+        {pool.length === 0 ? (
+          <p className="px-4 py-5 text-[12.5px] text-muted-foreground">
+            Здесь те, кого вы отобрали, но кто сейчас не стоит в очереди. «В группу» у строки очереди убирает человека
+            сюда, «В очередь» — возвращает в конец очереди.
+          </p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-border">
+            {pool.map(({ uid, member }) => {
+              const name = member ? personLabel(member) : "ушёл из команды";
+              return (
+                <li key={uid} className="flex min-h-14 items-center gap-3 px-3 py-2 sm:px-4">
+                  <MemberAvatar id={uid} name={name} photoURL={member?.photoURL} className="h-8 w-8 shrink-0" />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-sm font-medium">{name}</span>
+                    {member && member.name && member.name !== name ? (
+                      <span className="truncate text-[11.5px] text-muted-foreground">{member.name}</span>
+                    ) : null}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="min-h-11 shrink-0 gap-1 px-2.5 sm:min-h-8"
+                    disabled={saving}
+                    onClick={() => void toQueue(uid)}
+                    aria-label={`${name} — в очередь`}
+                  >
+                    <ArrowUpToLine className="h-3.5 w-3.5" /> В очередь
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    data-compact
+                    className="h-11 w-11 shrink-0 text-muted-foreground hover:text-destructive sm:h-8 sm:w-8"
+                    aria-label="Удалить из группы"
+                    title="Удалить из группы совсем"
+                    disabled={saving}
+                    onClick={() => void dropFromGroup(uid)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Section>
+
       <p className="flex items-start gap-2 text-[12px] text-muted-foreground">
         <Settings2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         Очередь видят все, кто выдаёт заказы: полосой над выбором технаря, а у заказа от порога — вместо обычного списка.
-        Менять очередь можно в любое время — окна выдачи подхватят её сразу. Технарь на паузе сохраняет свой номер,
-        но при выдаче его пропускают; пауза с датой снимается сама.
+        Менять очередь можно в любое время — окна выдачи подхватят её сразу. Порядок — перетаскиванием за ручку или
+        стрелками. Технарь на паузе сохраняет свой номер, но при выдаче его пропускают; пауза с датой снимается сама.
+        Кто сейчас не нужен в очереди — «В группу»: он останется под рукой и вернётся одной кнопкой.
       </p>
 
       {managersOpen ? (
