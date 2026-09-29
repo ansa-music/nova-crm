@@ -15,6 +15,11 @@ import { listenTopic, ringTopic } from "@/services/sb/topicDoorbell";
  * Состояние одно на вкладку: выборка `big_queue_get` при первом читателе,
  * перечитка при возврате на вкладку (не чаще раза в 2 минуты), раз в 10 минут
  * на виду и по звонку `nova:{ws}:bigq` после чужой правки.
+ *
+ * Пауза (29.09.2026, SQL 20261039): `enabled: false` — вся функция на паузе,
+ * крупные заказы выдаются как обычно (очередь сохраняется); `paused[uid]` —
+ * технарь на паузе до момента (мс) или «до снятия» (null). Истёкшая пауза =
+ * активен, в базу ничего не пишется.
  */
 
 export const DEFAULT_BIG_THRESHOLD = 300_000;
@@ -23,6 +28,11 @@ export interface BigQueueConfig {
   threshold: number;
   managers: string[];
   queue: string[];
+  /** Функция работает (false — на паузе, выдача как обычно). */
+  enabled: boolean;
+  /** uid → до какого момента (мс) или null — «пока не снимут». */
+  paused: Record<string, number | null>;
+  pausedBy: string | null;
   updatedAt: number | null;
   updatedBy: string | null;
 }
@@ -80,6 +90,17 @@ function strings(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.length > 0) : [];
 }
 
+function pausedMap(v: unknown): Record<string, number | null> {
+  const out: Record<string, number | null> = {};
+  if (!v || typeof v !== "object" || Array.isArray(v)) return out;
+  for (const [uid, until] of Object.entries(v as Record<string, unknown>)) {
+    if (!uid) continue;
+    const n = typeof until === "number" ? until : until == null ? null : Number(until);
+    out[uid] = n === null || !Number.isFinite(n) ? null : n;
+  }
+  return out;
+}
+
 export function parseBigQueue(data: unknown): BigQueueConfig {
   const o = asObject(data);
   const threshold = typeof o.threshold === "number" ? o.threshold : Number(o.threshold);
@@ -88,6 +109,9 @@ export function parseBigQueue(data: unknown): BigQueueConfig {
     threshold: Number.isFinite(threshold) && threshold > 0 ? threshold : DEFAULT_BIG_THRESHOLD,
     managers: strings(o.managers),
     queue: strings(o.queue),
+    enabled: o.enabled !== false,
+    paused: pausedMap(o.paused),
+    pausedBy: typeof o.pausedBy === "string" ? o.pausedBy : null,
     updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : null,
     updatedBy: typeof o.updatedBy === "string" ? o.updatedBy : null,
   };
@@ -176,9 +200,31 @@ export interface BigQueueView {
   queue: string[];
 }
 
-export function bigQueueView(snap: BigQueueSnapshot): BigQueueView | null {
-  if (snap.status !== "ready" || !snap.data) return null;
-  return { threshold: snap.data.threshold, queue: snap.data.queue };
+/** Технарь на паузе сейчас: «до снятия» или дата ещё не наступила. */
+export function isPausedNow(cfg: BigQueueConfig | null, uid: string, now = Date.now()): boolean {
+  if (!cfg || !Object.prototype.hasOwnProperty.call(cfg.paused, uid)) return false;
+  const until = cfg.paused[uid];
+  return until === null || until > now;
+}
+
+/** До какого момента пауза (null — «до снятия»); undefined — не на паузе. */
+export function pauseUntil(cfg: BigQueueConfig | null, uid: string, now = Date.now()): number | null | undefined {
+  if (!isPausedNow(cfg, uid, now)) return undefined;
+  return cfg!.paused[uid] ?? null;
+}
+
+/** Очередь без тех, кто сейчас на паузе. */
+export function activeQueue(cfg: BigQueueConfig, now = Date.now()): string[] {
+  return cfg.queue.filter((uid) => !isPausedNow(cfg, uid, now));
+}
+
+/**
+ * Для окон выдачи: порог и АКТИВНАЯ очередь. Функция на паузе — null, и окна
+ * ведут себя как без очереди.
+ */
+export function bigQueueView(snap: BigQueueSnapshot, now = Date.now()): BigQueueView | null {
+  if (snap.status !== "ready" || !snap.data || !snap.data.enabled) return null;
+  return { threshold: snap.data.threshold, queue: activeQueue(snap.data, now) };
 }
 
 /** Чек от порога (включительно) — выдача только из очереди. */
@@ -207,6 +253,8 @@ function queueErrorText(error: { code?: string; message?: string }, fallback: st
   if (msg.includes("too many managers")) return "Ответственных — не больше 10.";
   if (msg.includes("bad threshold")) return "Порог — от 1 000.";
   if (msg.includes("queue too long")) return "В очереди — не больше 50 человек.";
+  if (msg.includes("not in queue")) return "Этого технаря уже нет в очереди.";
+  if (msg.includes("bad pause date")) return "Дата паузы — в будущем и не дальше 90 дней.";
   if (error.code === "42501") return "Нет права.";
   return `${fallback}${error.code ? ` (${error.code})` : ""}.`;
 }
@@ -239,4 +287,57 @@ export async function saveBigConfig(ws: string, managers: string[], threshold: n
   setSnap(ws, { status: "ready", data: saved });
   ringTopic(topicOf(ws));
   return saved;
+}
+
+
+async function applyOptimistic(
+  ws: string,
+  patch: (cfg: BigQueueConfig) => BigQueueConfig,
+  rpc: () => PromiseLike<{ data: unknown; error: { code?: string; message?: string } | null }>,
+  fallback: string,
+): Promise<BigQueueConfig> {
+  const entry = entryOf(ws);
+  const before = entry.snap;
+  if (before.data) setSnap(ws, { status: "ready", data: patch(before.data) });
+  const { data, error } = await rpc();
+  if (error) {
+    setSnap(ws, before);
+    throw new Error(queueErrorText(error, fallback));
+  }
+  const saved = parseBigQueue(data);
+  entry.loadedAt = Date.now();
+  setSnap(ws, { status: "ready", data: saved });
+  ringTopic(topicOf(ws));
+  return saved;
+}
+
+/** Вся функция: работает / на паузе. */
+export function setBigQueueEnabled(ws: string, on: boolean): Promise<BigQueueConfig> {
+  return applyOptimistic(
+    ws,
+    (cfg) => ({ ...cfg, enabled: on }),
+    () => supabaseRows.rpc("big_queue_set_enabled", { p_workspace: ws, p_on: on }),
+    on ? "Не удалось включить очередь" : "Не удалось поставить очередь на паузу",
+  );
+}
+
+/** Технарь на паузе до `untilMs` (null — до снятия); `on: false` — вернуть. */
+export function setBigQueuePause(ws: string, uid: string, on: boolean, untilMs: number | null = null): Promise<BigQueueConfig> {
+  return applyOptimistic(
+    ws,
+    (cfg) => {
+      const paused = { ...cfg.paused };
+      if (on) paused[uid] = untilMs;
+      else delete paused[uid];
+      return { ...cfg, paused };
+    },
+    () =>
+      supabaseRows.rpc("big_queue_set_pause", {
+        p_workspace: ws,
+        p_uid: uid,
+        p_on: on,
+        p_until_ms: on ? untilMs : null,
+      }),
+    on ? "Не удалось поставить на паузу" : "Не удалось снять паузу",
+  );
 }
