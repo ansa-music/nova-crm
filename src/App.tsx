@@ -30,6 +30,7 @@ import {
   loadWeeklyRatingPage,
   loadPromptsPage,
   loadLeadBoardPage,
+  loadBigOrdersPage,
   loadReportsPage,
   loadAnnouncementsPage,
   loadDashboardPage,
@@ -76,6 +77,7 @@ const AbsPage = lazy(loadAbsPage);
 const WeeklyRatingPage = lazy(loadWeeklyRatingPage);
 const PromptsPage = lazy(loadPromptsPage);
 const LeadBoardPage = lazy(loadLeadBoardPage);
+const BigOrdersPage = lazy(loadBigOrdersPage);
 const ReportsPage = lazy(loadReportsPage);
 const TelegramPage = lazy(loadTelegramPage);
 const OsDispatchPage = lazy(loadOsDispatchPage);
@@ -120,6 +122,7 @@ const MENU_PAGE_LOADERS: Array<() => Promise<unknown>> = [
   loadWeeklyRatingPage,
   loadPromptsPage,
   loadLeadBoardPage,
+  loadBigOrdersPage,
   loadReportsPage,
 ];
 
@@ -318,6 +321,7 @@ function AppShell() {
             <Route path="grok-limit" element={<ModuleGate module="grok"><GrokLimitPage /></ModuleGate>} />
             <Route path="prompts" element={<ModuleGate module="prompts"><PromptsPage /></ModuleGate>} />
             <Route path="leads" element={<ModuleGate module="orders"><LeadBoardPage /></ModuleGate>} />
+            <Route path="big-orders" element={<ModuleGate module="orders"><BigOrdersPage /></ModuleGate>} />
             <Route path="grok-limit/apps" element={<Navigate to="/grok-limit?s=higgsfield" replace />} />
             <Route path="dispatch" element={DISPATCH_ENABLED ? <DispatchPage /> : <Navigate to="/" replace />} />
             <Route path="chat" element={<ModuleGate module="chat"><WorkspaceChatPage /></ModuleGate>} />

@@ -111,7 +111,7 @@ export interface ModuleMeta {
  * «Настройки» не выключаются: иначе Owner закрыл бы себе вход обратно.
  */
 export const MODULES: ModuleMeta[] = [
-  { key: "orders", title: "Заказы (биржа)", hint: "Выдача заказов, отклики, автозаезд в стол", navKeys: ["orders", "leads"], paths: ["orders", "leads"] },
+  { key: "orders", title: "Заказы (биржа)", hint: "Выдача заказов, отклики, автозаезд в стол", navKeys: ["orders", "leads", "big-orders"], paths: ["orders", "leads", "big-orders"] },
   {
     key: "osDesk",
     title: "Столы продавцов (ОС)",

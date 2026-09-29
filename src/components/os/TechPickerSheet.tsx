@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownAZ, Check, Loader2, Search, SlidersHorizontal, UserX } from "lucide-react";
+import { ArrowDownAZ, Check, Crown, Loader2, Search, SlidersHorizontal, UserX } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { pageChipClass } from "@/components/common/PageHeader";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -9,10 +9,12 @@ import { useCurrentPeriodKey } from "@/hooks/useCurrentPeriodKey";
 import { useDeskLoads, useTechSchedules } from "@/hooks/useDeskLoads";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { currentMonthSubPageId } from "@/services/monthTabService";
+import { bigQueueView, isBigCheck, shortMoney, useBigOrderQueue } from "@/services/bigOrderQueueService";
 import { techTargetProblem } from "@/services/rows/osOrderMirror";
 import { cn } from "@/utils/cn";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { ymdInTimeZone } from "@/utils/date";
+import { currencySymbol, formatNumber } from "@/utils/format";
 import { personLabel, worksAsTechnician } from "@/utils/peopleDesks";
 import { effectiveTechLoadKinds, summarizeDeskLoad } from "@/utils/techLoad";
 import { formatScheduleHours, scheduleDayKey, scheduleHoursOf, scheduleStateOf, type TechSchedule } from "@/types";
@@ -39,6 +41,8 @@ interface TechCard extends TechPick {
   /** Почему заказ ему не отдать (нет стола, вкладки и т. п.). */
   problem: string | null;
   mark: string | null;
+  /** Место в очереди «Заказов от 300к+» (1 — в приоритете). */
+  queuePos: number | null;
 }
 
 const RANK: Record<Availability, number> = { free: 0, busy: 1, absent: 2, blocked: 3 };
@@ -93,6 +97,7 @@ export function TechPickerSheet({
   onlyUids,
   mode,
   secondary,
+  checkTotal,
 }: {
   open: boolean;
   title?: string;
@@ -129,6 +134,12 @@ export function TechPickerSheet({
    * пойдёт по нему.
    */
   secondary?: { label: string; active?: boolean; onClick: () => void } | null;
+  /**
+   * Чек заказа (цена + апсейл до комиссии). От порога «Заказов от 300к+»
+   * окно показывает ТОЛЬКО очередь ответственного, в её порядке: выходные и
+   * занятость не мешают. Ниже порога очередь стоит полосой для справки.
+   */
+  checkTotal?: number | null;
 }) {
   const { activeWorkspaceId, activeWorkspace, members, pages } = useWorkspace();
   // График — по календарному месяцу, счётчики столов — по периоду.
@@ -136,6 +147,12 @@ export function TechPickerSheet({
   const monthKey = useCurrentPeriodKey();
   const { loads } = useDeskLoads(activeWorkspaceId, open);
   const { schedules } = useTechSchedules(activeWorkspaceId, scheduleMonthKey, open);
+  const bigSnap = useBigOrderQueue(activeWorkspaceId, open);
+  const bigView = bigQueueView(bigSnap);
+  const bigRequired = Boolean(bigView && isBigCheck(checkTotal ?? null, bigView.threshold));
+  // Очередь не составлена — крупный заказ выдаётся как обычно (с плашкой).
+  const bigMode = bigRequired && Boolean(bigView && bigView.queue.length > 0);
+  const queueUids = useMemo(() => bigView?.queue ?? [], [bigView]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<Sort>(readSort);
@@ -162,11 +179,14 @@ export function TechPickerSheet({
     const todayKey = scheduleDayKey(ymdInTimeZone(Date.now()));
     const scheduleByUid = new Map<string, TechSchedule>(schedules.map((s) => [s.uid, s]));
     const loadByPage = new Map((loads ?? []).map((l) => [l.pageId, l]));
+    const queueSet = new Set(queueUids);
     return members
       .filter((m) =>
-        onlyUids
-          ? m.status === "active" && onlyUids.has(m.uid)
-          : m.status === "active" && m.uid && (m.techNickValue || !requireNick) && worksAsTechnician(m)
+        bigMode
+          ? m.status === "active" && queueSet.has(m.uid)
+          : onlyUids
+            ? m.status === "active" && onlyUids.has(m.uid)
+            : m.status === "active" && m.uid && (m.techNickValue || !requireNick) && worksAsTechnician(m)
       )
       .map((m) => {
         const page = pages.find((p) => p.responsibleUserId === m.uid && !p.inactive && !p.osDesk && !p.isDashboard);
@@ -177,7 +197,14 @@ export function TechPickerSheet({
         const schedule = scheduleByUid.get(m.uid);
         const state = scheduleStateOf(schedule, todayKey);
         const hours = scheduleHoursOf(schedule, todayKey);
-        const problem = problemOf ? problemOf(m.uid) : techTargetProblem(pages, m.uid);
+        const problem =
+          bigMode && requireNick && !m.techNickValue
+            ? "Нет ника технаря — закрепите на «Команде»"
+            : bigMode && onlyUids && !onlyUids.has(m.uid)
+              ? "Не может взять этот заказ"
+              : problemOf
+                ? problemOf(m.uid)
+                : techTargetProblem(pages, m.uid);
         const inWork = summary?.busy ?? 0;
         const availability: Availability = problem ? "blocked" : state !== "work" ? "absent" : inWork > 0 ? "busy" : "free";
         const todayNote =
@@ -193,9 +220,10 @@ export function TechPickerSheet({
           total: summary?.total ?? 0,
           todayNote,
           problem,
+          queuePos: queueSet.has(m.uid) ? queueUids.indexOf(m.uid) + 1 : null,
         };
       });
-  }, [members, pages, loads, schedules, monthKey, activeWorkspace, requireNick, problemOf, markOf, onlyUids]);
+  }, [members, pages, loads, schedules, monthKey, activeWorkspace, requireNick, problemOf, markOf, onlyUids, bigMode, queueUids]);
 
   const counts = useMemo(() => {
     const c: Record<Filter, number> = { all: cards.length, free: 0, busy: 0, absent: 0 };
@@ -216,11 +244,23 @@ export function TechPickerSheet({
       return words.every((w) => hay.includes(w));
     };
     const byName = (a: TechCard, b: TechCard) => a.name.localeCompare(b.name, "ru");
+    // Крупный заказ — строго порядок очереди, без поиска и фильтров.
+    if (bigMode) return [...cards].sort((a, b) => (a.queuePos ?? 999) - (b.queuePos ?? 999));
     const list = cards.filter((c) => (filter === "all" ? true : c.availability === filter) && matches(c));
     if (sort === "name") return list.sort(byName);
     if (sort === "load") return list.sort((a, b) => a.inWork - b.inWork || a.total - b.total || byName(a, b));
     return list.sort((a, b) => RANK[a.availability] - RANK[b.availability] || a.inWork - b.inWork || byName(a, b));
-  }, [cards, query, filter, sort]);
+  }, [cards, query, filter, sort, bigMode]);
+
+  const queueNames = useMemo(() => {
+    if (!queueUids.length) return [];
+    const byUid = new Map(members.map((m) => [m.uid, m]));
+    return queueUids
+      .map((uid) => byUid.get(uid))
+      .filter((m): m is NonNullable<typeof m> => Boolean(m && m.status === "active"))
+      .map((m) => personLabel(m) || m.techNickValue || m.email || m.uid);
+  }, [members, queueUids]);
+  const moneyLine = checkTotal ? `${formatNumber(checkTotal)} ${currencySymbol()}` : "";
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && !busy && onClose()}>
@@ -238,7 +278,30 @@ export function TechPickerSheet({
               {description ?? "Свободные и без заказов — сверху. Поиск — по имени и нику."}
             </DialogDescription>
           </div>
-          <div className="flex items-center gap-2">
+          {bigMode && bigView ? (
+            <div className="flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
+              <Crown className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              <span className="min-w-0">
+                <span className="font-medium">
+                  Заказ от {shortMoney(bigView.threshold)}{moneyLine ? ` · чек ${moneyLine}` : ""}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Отдаётся только технарю из очереди — №1 в приоритете. Выходные и занятость на эту выдачу не действуют.
+                </span>
+              </span>
+            </div>
+          ) : bigRequired && bigView ? (
+            <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              Заказ от {shortMoney(bigView.threshold)}, но очередь ещё не составлена — выдайте как обычно.
+            </div>
+          ) : queueNames.length > 0 && bigView ? (
+            <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground" title="Очередь для заказов от порога — её ведёт ответственный">
+              <Crown className="h-3.5 w-3.5 shrink-0 text-warning" />
+              <span className="shrink-0 font-medium text-foreground">Очередь {shortMoney(bigView.threshold)}+</span>
+              <span className="min-w-0 truncate">{queueNames.map((n, i) => `${i + 1}. ${n}`).join(" · ")}</span>
+            </div>
+          ) : null}
+          <div className={cn("flex items-center gap-2", bigMode && "hidden")}>
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -276,7 +339,7 @@ export function TechPickerSheet({
               </select>
             </label>
           </div>
-          <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-0.5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
+          <div className={cn("-mx-4 flex gap-2 overflow-x-auto px-4 pb-0.5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0", bigMode && "hidden")}>
             {FILTERS.map((f) => (
               <button
                 key={f.id}
@@ -311,7 +374,13 @@ export function TechPickerSheet({
             <ul className="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(230px,1fr))]">
               {shown.map((card) => (
                 <li key={card.uid}>
-                  <TechCardButton card={card} selected={card.nick === selectedNick} disabled={busy} onPick={() => onPick(card)} />
+                  <TechCardButton
+                    card={card}
+                    selected={Boolean(selectedNick) && card.nick === selectedNick}
+                    disabled={busy}
+                    bigMode={bigMode}
+                    onPick={() => onPick(card)}
+                  />
                 </li>
               ))}
             </ul>
@@ -355,15 +424,19 @@ function TechCardButton({
   card,
   selected,
   disabled,
+  bigMode = false,
   onPick,
 }: {
   card: TechCard;
   selected: boolean;
   disabled: boolean;
+  /** Крупный заказ: выходной и занятость — подпись, а не повод отказать. */
+  bigMode?: boolean;
   onPick: () => void;
 }) {
   const blocked = card.availability === "blocked";
   const badge = BADGE[card.availability];
+  const softTone = bigMode && (card.availability === "absent" || card.availability === "busy");
   return (
     <button
       type="button"
@@ -375,21 +448,40 @@ function TechCardButton({
         selected
           ? "border-primary bg-primary/10 ring-1 ring-primary/40"
           : "border-border bg-card hover:-translate-y-px hover:border-primary/50 hover:shadow-md",
-        card.availability === "absent" && !selected && "bg-muted/40",
+        card.availability === "absent" && !selected && !bigMode && "bg-muted/40",
+        bigMode && card.queuePos === 1 && !selected && "border-warning/50",
         blocked && "cursor-not-allowed opacity-60 hover:translate-y-0 hover:shadow-none"
       )}
     >
+      {bigMode && card.queuePos ? (
+        <span
+          className={cn(
+            "flex h-10 w-8 shrink-0 items-center justify-center rounded-lg font-mono text-sm font-semibold tabular-nums",
+            card.queuePos === 1 ? "bg-warning/20 text-warning" : "bg-muted text-muted-foreground"
+          )}
+          aria-label={`№${card.queuePos} в очереди`}
+        >
+          {card.queuePos}
+        </span>
+      ) : null}
       <MemberAvatar id={card.uid} name={card.name} photoURL={card.photoURL} className="h-10 w-10 shrink-0" />
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="truncate text-sm font-semibold">{card.name}</span>
           {selected ? <Check className="h-4 w-4 shrink-0 text-primary" /> : null}
+          {bigMode && card.queuePos === 1 ? (
+            <span className="shrink-0 rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">в приоритете</span>
+          ) : null}
           {card.mark ? (
             <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">{card.mark}</span>
           ) : null}
         </span>
-        <span className={cn("w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide", badge.tone)}>
+        <span
+          className={cn("w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide", softTone ? "bg-muted text-muted-foreground" : badge.tone)}
+          title={softTone ? "На выдачу заказа от порога не влияет" : undefined}
+        >
           {badge.label(card)}
+          {softTone ? " · не мешает" : ""}
         </span>
         <span className="truncate text-xs text-muted-foreground">
           {blocked

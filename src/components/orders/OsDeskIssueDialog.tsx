@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
-import { ClipboardList, Loader2, Plus, Search, Send } from "lucide-react";
+import { Link, useNavigate } from "react-router";
+import { ClipboardList, Crown, Loader2, Plus, Search, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { chipClass } from "@/components/ui/chip";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -23,7 +23,9 @@ import { DEFAULT_STATUS_OPTIONS, ensureApprovalStatus, ensureDoneStatus } from "
 import { firestoreErrorText } from "@/utils/dbError";
 import { formatCurrency } from "@/utils/format";
 import { formatDayMonth, formatFullDate, osDateSlots, slotShown } from "@/utils/osDates";
-import { osRowTotal } from "@/utils/payment";
+import { osRowGross, osRowTotal } from "@/utils/payment";
+import { bigQueueView, isBigCheck, shortMoney, useBigOrderQueue } from "@/services/bigOrderQueueService";
+import { deskNavState, deskRowHref } from "@/utils/deskLinks";
 import { myDisplayName } from "@/utils/displayName";
 import { cn } from "@/utils/cn";
 import { WORK_ORDER_URGENCY_LABELS, type PageRow, type WorkOrder, type WorkOrderUrgency } from "@/types";
@@ -62,6 +64,8 @@ export function OsDeskIssueDialog({
   const { profile } = useAuth();
   const { activeWorkspaceId, activeWorkspace, osDesks, members } = useWorkspace();
   const send = useSendOsRowToExchange();
+  const navigate = useNavigate();
+  const bigView = bigQueueView(useBigOrderQueue(activeWorkspaceId, open));
   const [tab, setTab] = useState<OsDeskTab | null>(null);
   const [rows, setRows] = useState<PageRow[] | null>(null);
   const [noDesk, setNoDesk] = useState(false);
@@ -225,6 +229,8 @@ export function OsDeskIssueDialog({
                 const receivedSlot = osDateSlots(row, { upsellKey: k.upsell }).received;
                 const received = slotShown(receivedSlot);
                 const busy = busyRowId === row.id;
+                // «Заказ от 300к+» на биржу не идёт — выдаётся из очереди на столе.
+                const big = Boolean(bigView && bigView.queue.length > 0 && isBigCheck(osRowGross(row, k), bigView.threshold));
                 return (
                   <li key={row.id} className="flex items-center gap-3 px-3 py-2">
                     <div className="min-w-0 flex-1">
@@ -247,10 +253,29 @@ export function OsDeskIssueDialog({
                         {status ? <StatusBadge value={status} options={statusOptions} variant="plain" /> : null}
                       </div>
                     </div>
-                    <Button size="sm" className="min-h-11 shrink-0 gap-1.5 sm:min-h-0" disabled={Boolean(busyRowId)} onClick={() => void issue(row)}>
-                      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                      Выдать
-                    </Button>
+                    {big && bigView ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="min-h-11 shrink-0 gap-1.5 border-warning/50 text-warning sm:min-h-0"
+                        title={`Заказ от ${shortMoney(bigView.threshold)} — только технарю из очереди`}
+                        disabled={Boolean(busyRowId)}
+                        onClick={() => {
+                          onOpenChange(false);
+                          navigate(`${deskRowHref(tab!.page.id, tab!.tabId, row.id)}&bigq=${encodeURIComponent(row.id)}`, {
+                            state: deskNavState({ to: "/orders", label: "Заказы" }),
+                          });
+                        }}
+                      >
+                        <Crown className="h-3.5 w-3.5" />
+                        Из очереди {shortMoney(bigView.threshold)}+
+                      </Button>
+                    ) : (
+                      <Button size="sm" className="min-h-11 shrink-0 gap-1.5 sm:min-h-0" disabled={Boolean(busyRowId)} onClick={() => void issue(row)}>
+                        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                        Выдать
+                      </Button>
+                    )}
                   </li>
                 );
               })}
