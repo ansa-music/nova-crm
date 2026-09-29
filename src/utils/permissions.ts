@@ -143,6 +143,15 @@ export function canSendNotifications(role: Role): boolean {
  * person always — hiddenByResponsible / view-requests must never lock them
  * out of their own desk.
  */
+/**
+ * Стол «только для Owner» (`page.ownerOnly`): открыт одному Owner — поверх
+ * ответственного, allowedUsers, ОС, Тимлид+ и наблюдателей. Проверка стоит
+ * ПЕРВОЙ во всех трёх правах на стол (как в firestore.rules).
+ */
+export function isOwnerOnlyPage(page: Pick<WorkspacePage, "ownerOnly"> | null | undefined): boolean {
+  return page?.ownerOnly === true;
+}
+
 export function canAccessPage(
   page: WorkspacePage,
   role: Role,
@@ -150,6 +159,7 @@ export function canAccessPage(
   workspaceOwnerId?: string | null
 ): boolean {
   if (!uid) return false;
+  if (isOwnerOnlyPage(page)) return role === "owner" || Boolean(workspaceOwnerId && uid === workspaceOwnerId);
   if (workspaceOwnerId && uid === workspaceOwnerId) return true;
   if (role === "owner" || role === "leadplus") return true;
   if (isBlockedFromDesks(role)) return false;
@@ -164,6 +174,7 @@ export function canAccessPage(
  * always edit regardless of that list; a Тимлид never.
  */
 export function canEditPageData(page: WorkspacePage, role: Role, uid: string): boolean {
+  if (isOwnerOnlyPage(page)) return role === "owner";
   // Тимлид+ правит данные всех столов (структуру — нет, см. canManagePage).
   if (role === "owner" || role === "leadplus") return true;
   if (isBlockedFromDesks(role)) return false;
@@ -189,6 +200,8 @@ export function canManagePage(page: WorkspacePage, role: Role, uid: string): boo
   // manages desks they are responsible for — status *variants* stay Owner-only
   // via canManageStatusVariants(effectiveRole), never this check.
   if (role === "owner") return true;
+  // Стол «только для Owner» ведёт один Owner — и ответственный его не правит.
+  if (isOwnerOnlyPage(page)) return false;
   // У ОС своих столов нет — кроме ОДНОГО: «Стол ОС» (`page.osDesk`), его
   // личной таблицы. Там он ответственный, и структуру своей таблицы —
   // столбцы, ширины, название — ведёт сам; правила это и так разрешают

@@ -9,6 +9,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import {
   OS_DESK_KEYS,
   OS_RETURNED_REISSUE_ERROR,
+  OwnerOnlyReissueError,
   pushOsRowToTech,
   returnedRowOnTechDesk,
   type OsDeskKeys,
@@ -240,16 +241,25 @@ export function OsOrderPanel({
   // есть: выдача всё равно проверит ещё раз и откажет с причиной.
   const deadLink = kind === "problem" && problem === OS_DEAD_LINK_PROBLEM;
   const [returned, setReturned] = useState<boolean | null>(null);
+  // Стол технаря «только для Owner»: выдать заново может только Owner — кнопки нет, есть причина.
+  const [reissueBlocked, setReissueBlocked] = useState<string | null>(null);
   useEffect(() => {
     setReturned(null);
+    setReissueBlocked(null);
     if (!deadLink || !activeWorkspaceId || !techUid) return;
     let cancelled = false;
     returnedRowOnTechDesk({ workspaceId: activeWorkspaceId, row, techUid, pages })
       .then((value) => {
         if (!cancelled) setReturned(value);
       })
-      .catch(() => {
-        if (!cancelled) setReturned(false);
+      .catch((error) => {
+        if (cancelled) return;
+        if (error instanceof OwnerOnlyReissueError) {
+          setReissueBlocked(error.message);
+          setReturned(true);
+          return;
+        }
+        setReturned(false);
       });
     return () => {
       cancelled = true;
@@ -455,7 +465,9 @@ export function OsOrderPanel({
       ) : null}
 
       {kind === "problem" && problem ? <p className="text-xs text-warning">Не доехал: {problem}</p> : null}
-      {deadLink && returned ? <p className="text-xs text-muted-foreground">{OS_RETURNED_REISSUE_ERROR}</p> : null}
+      {deadLink && returned ? (
+        <p className="text-xs text-muted-foreground">{reissueBlocked ?? OS_RETURNED_REISSUE_ERROR}</p>
+      ) : null}
       {!problem && targetProblem && techNick && !mirror ? <p className="text-xs text-warning">{targetProblem}</p> : null}
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
 

@@ -379,7 +379,9 @@ export function useOwnerDeskRecount(loads: DeskLoad[] | null, synced = true) {
         // пересчёт и заполняет Supabase.
         const publishedAt =
           published && published.subPageId === subPageId && !published.sbFallback ? published.updatedAt ?? 0 : 0;
-        if (startedAt - Math.max(publishedAt, verifiedAt.get(key) ?? 0) < STALE_AFTER_MS) continue;
+        // Стол «только для Owner» свои счётчики не публикует (технарь его не
+        // открывает), а строки в нём меняют ОС — всегда считаем устаревшим.
+        if (!p.ownerOnly && startedAt - Math.max(publishedAt, verifiedAt.get(key) ?? 0) < STALE_AFTER_MS) continue;
         lastRefreshAt.set(key, startedAt);
         desks.push({ page: p, key });
       }

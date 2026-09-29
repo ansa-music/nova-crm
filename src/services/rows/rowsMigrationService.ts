@@ -13,6 +13,8 @@ import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { DESK_ROWS_TABLE, supabaseRows } from "@/lib/supabaseRows";
 import { fetchPagesFresh, stripUndefined } from "@/services/pageService";
+import { rpcSetDeskOwnerOnly } from "@/services/coreStore";
+import { isSbMissingError } from "@/services/sb/sbCollections";
 import { fetchSubPages } from "@/services/subPageService";
 import { fetchDeskObserverUidsFresh } from "@/services/deskObserverService";
 import { fetchMembersFresh } from "@/services/memberService";
@@ -382,6 +384,17 @@ export async function migrateRowsToSupabase(input: MigrateInput): Promise<Migrat
     // неполный список молча стал бы эталоном, и не попавшие в него столы
     // открылись бы у всех пустыми (копия в Firestore к тому моменту замёрзла).
     const pages = await fetchPagesFresh(workspaceId);
+    // Столы «только для Owner» закрываем в базе ДО копирования строк — иначе
+    // их строки открылись бы «видящим все столы» (ОС, Тимлид+, наблюдатели).
+    // Нет функции (SQL 20261041 не вставлен) — нет и политик, закрывать нечем.
+    for (const page of pages) {
+      if (page.ownerOnly !== true || page.osDesk) continue;
+      try {
+        await rpcSetDeskOwnerOnly(workspaceId, page.id, true);
+      } catch (error) {
+        if (!isSbMissingError(error)) throw error;
+      }
+    }
     const tables = await listTables(workspaceId, pages);
     const expected = new Map<TableRef, number>();
     let rows = 0;

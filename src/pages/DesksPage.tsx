@@ -95,7 +95,8 @@ export default function DesksPage() {
   // table stays closed without the responsible person's permission.
   const mine = useMemo(() => pages.filter((page) => page.responsibleUserId === uid), [pages, uid]);
   const others = useMemo(() => pages.filter((page) => page.responsibleUserId !== uid), [pages, uid]);
-  const hidden = useMemo(() => pages.filter((page) => page.hiddenByResponsible), [pages]);
+  // «Скрытые» — и скрытые ответственным, и закрытые «только для Owner».
+  const hidden = useMemo(() => pages.filter((page) => page.hiddenByResponsible || page.ownerOnly), [pages]);
   const scoped = chip === "mine" ? mine : chip === "others" ? others : chip === "hidden" ? hidden : pages;
 
   const filtered = useMemo(() => {
@@ -154,7 +155,13 @@ export default function DesksPage() {
     });
   }
 
+  /** Стол «только для Owner» ведёт Owner — в неактуальные и обратно его переводит только он. */
+  function mayRetire(page: WorkspacePage) {
+    return permissions.canRetireDesks && (!page.ownerOnly || permissions.actsAsOwner);
+  }
+
   async function sendRequest(page: WorkspacePage) {
+    if (page.ownerOnly) throw new Error("Стол открыт только Owner");
     const toUid = page.responsibleUserId || ownerId;
     if (!toUid) throw new Error("Нет ответственного у стола");
     await requestView(page, myDisplayName(profile, members), toUid);
@@ -162,7 +169,7 @@ export default function DesksPage() {
   }
 
   async function requestFromCard(page: WorkspacePage) {
-    if (mayOpen(page)) return;
+    if (page.ownerOnly || mayOpen(page)) return;
     if (latestForPage(page.id)?.status === "pending") return;
     try {
       await sendRequest(page);
@@ -257,20 +264,21 @@ export default function DesksPage() {
           onTogglePin={(page) => togglePin(page.id)}
           renderMenu={
             permissions.canRetireDesks
-              ? (page) => (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button type="button" variant="ghost" size="icon" className="h-9 w-9 shrink-0" aria-label={`Действия со столом «${page.name}»`}>
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onSelect={() => void retireDesk(page, members, permissions.uid)}>
-                        <Archive className="h-4 w-4" /> В неактуальные
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )
+              ? (page) =>
+                  mayRetire(page) ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button type="button" variant="ghost" size="icon" className="h-9 w-9 shrink-0" aria-label={`Действия со столом «${page.name}»`}>
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => void retireDesk(page, members, permissions.uid)}>
+                          <Archive className="h-4 w-4" /> В неактуальные
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : null
               : undefined
           }
         />
@@ -294,26 +302,27 @@ export default function DesksPage() {
           )}
           renderCorner={
             permissions.canRetireDesks
-              ? (page) => (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-9 w-9 rounded-full border border-white/20 bg-black/45 text-white backdrop-blur-sm hover:bg-black/65 hover:text-white"
-                        aria-label={`Действия со столом «${page.name}»`}
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onSelect={() => void retireDesk(page, members, permissions.uid)}>
-                        <Archive className="h-4 w-4" /> В неактуальные
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )
+              ? (page) =>
+                  mayRetire(page) ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 rounded-full border border-white/20 bg-black/45 text-white backdrop-blur-sm hover:bg-black/65 hover:text-white"
+                          aria-label={`Действия со столом «${page.name}»`}
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => void retireDesk(page, members, permissions.uid)}>
+                          <Archive className="h-4 w-4" /> В неактуальные
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : null
               : undefined
           }
         />
@@ -350,19 +359,19 @@ export default function DesksPage() {
                       <div className="min-w-0">
                         <p className="truncate font-medium">{page.name}</p>
                         <p className="truncate text-[12px] text-muted-foreground">
-                          {[who, page.inactiveAt ? `неактуален с ${formatDate(page.inactiveAt, "d MMM yyyy")}` : null, by ? `убрал(а) ${by}` : null]
+                          {[who, page.ownerOnly ? "только Owner" : null, page.inactiveAt ? `неактуален с ${formatDate(page.inactiveAt, "d MMM yyyy")}` : null, by ? `убрал(а) ${by}` : null]
                             .filter(Boolean)
                             .join(" · ")}
                         </p>
                       </div>
-                      {(openable || permissions.canRetireDesks) && (
+                      {(openable || mayRetire(page)) && (
                         <div className="flex gap-2">
                           {openable && (
                             <Button type="button" size="sm" variant="outline" className="min-h-11 flex-1" onClick={() => navigate(`/page/${page.id}`)}>
                               Открыть
                             </Button>
                           )}
-                          {permissions.canRetireDesks && (
+                          {mayRetire(page) && (
                             <Button
                               type="button"
                               size="sm"

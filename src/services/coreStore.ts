@@ -43,6 +43,8 @@ export type CoreWrite = DocWrite<CoreKind>;
 
 /** Поля стола, копия которых держится в Firestore-тени (их читают правила). */
 export const SHADOW_KEYS: ReadonlySet<string> = new Set([
+  // «Только для Owner» читают canAccessPage/canEditPage правил Firestore.
+  "ownerOnly",
   "name",
   "workspaceId",
   "allowedUsers",
@@ -387,6 +389,14 @@ export function rpcApproveJoin(workspaceId: string, uid: string, role: string, n
 
 export function rpcMemberPurge(workspaceId: string, uid: string, email: string): Promise<{ member: boolean; invite: boolean; joinRequests: number }> {
   return rpc("core_member_purge", { p_workspace: workspaceId, p_uid: uid, p_email: email });
+}
+
+/**
+ * Стол «только для Owner» (SQL 20261041): флаг в `rows_owner_only` и в
+ * документе стола в core_docs — одной транзакцией; только Owner.
+ */
+export function rpcSetDeskOwnerOnly(workspaceId: string, pageId: string, on: boolean): Promise<boolean> {
+  return rpc("rows_set_desk_owner_only", { p_workspace: workspaceId, p_page: pageId, p_on: on });
 }
 
 export function rpcSeedStatus(workspaceId: string, option: { value: string; label: string; color: string }): Promise<boolean> {

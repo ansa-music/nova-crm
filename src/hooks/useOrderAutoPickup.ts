@@ -25,7 +25,8 @@ import type { WorkOrder } from "@/types";
  * из стола, числясь «В столе».
  */
 let pickupQueue: Promise<unknown> = Promise.resolve();
-function enqueuePickup<T>(task: () => Promise<T>): Promise<T> {
+/** Общая очередь заездов — ею же пользуется заезд за технаря в закрытый стол (useOwnerOnlyUpkeep). */
+export function enqueuePickup<T>(task: () => Promise<T>): Promise<T> {
   const next = pickupQueue.then(task, task);
   pickupQueue = next.catch(() => undefined);
   return next;
@@ -75,8 +76,19 @@ export function useOrderAutoPickup() {
   const myDesk = pages.find((p) => p.responsibleUserId === uid) ?? null;
   // Раздел «Заказы» выключен в «Конструкторе сайта» — биржу не слушаем.
   const ordersOn = isModuleEnabled(useSiteConfig(), "orders");
+  // Стол закрыт «только для Owner» — технарь в него не пишет (база откажет);
+  // заказ за него кладёт сессия Owner (useOwnerOnlyUpkeep). Owner и в режиме
+  // другой роли пишет сам: правила режиму роли не верят.
+  const ownerOnlyBlocked = Boolean(myDesk?.ownerOnly) && !(permissions.actsAsOwner || permissions.upkeepOwner);
   const enabled = Boolean(
-    ordersOn && db && activeWorkspaceId && uid && permissions.isResolved && permissions.hasRole("manager") && myDesk
+    ordersOn &&
+      db &&
+      activeWorkspaceId &&
+      uid &&
+      permissions.isResolved &&
+      permissions.hasRole("manager") &&
+      myDesk &&
+      !ownerOnlyBlocked
   );
 
   useEffect(() => {

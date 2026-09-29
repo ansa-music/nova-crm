@@ -198,6 +198,8 @@ export default function OrdersPage() {
   const fullAccess = permissions.isResolved && hasFullAccess(permissions.role);
   const myMembership = useMemo(() => members.find((m) => m.uid === uid) ?? null, [members, uid]);
   const myDesk = useMemo(() => pages.find((p) => p.responsibleUserId === uid) ?? null, [pages, uid]);
+  // Свой стол «только для Owner»: строку в него пишет только Owner.
+  const myDeskClosed = Boolean(myDesk?.ownerOnly) && !permissions.actsAsOwner;
 
   const osOptions = activeWorkspace?.responsibleOptions ?? [];
   /** Свой ник ОС: подставляется по умолчанию, но список открыт — можно выставить на любого. */
@@ -562,7 +564,7 @@ export default function OrdersPage() {
   }
 
   async function handleTake(order: WorkOrder) {
-    if (!activeWorkspaceId || !profile || !myDesk) return;
+    if (!activeWorkspaceId || !profile || !myDesk || myDeskClosed) return;
     await withBusy(
       order.id,
       async () => {
@@ -850,7 +852,13 @@ export default function OrdersPage() {
                       </span>
                     )}
                     {order.status === "assigned" && isAssignee && !order.osSource && (
-                      <Button size="sm" className="h-8 gap-1.5" disabled={busy || !myDesk} title={myDesk ? undefined : "У вас нет своего стола — заказ некуда положить"} onClick={() => void handleTake(order)}>
+                      <Button
+                        size="sm"
+                        className="h-8 gap-1.5"
+                        disabled={busy || !myDesk || myDeskClosed}
+                        title={!myDesk ? "У вас нет своего стола — заказ некуда положить" : myDeskClosed ? "Стол закрыт Owner — заказ положит Owner" : undefined}
+                        onClick={() => void handleTake(order)}
+                      >
                         <Inbox className="h-3.5 w-3.5" /> {myDesk ? "Забрать в стол" : "Нет своего стола"}
                       </Button>
                     )}

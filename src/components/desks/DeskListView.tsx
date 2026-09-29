@@ -43,6 +43,9 @@ export function DeskListView({
       {rows.map(({ page, owner, lastActiveAt, percent, openable, pending, pinned, mine }) => {
         const presence = getPresenceStatus(lastActiveAt);
         const who = personLabel(owner);
+        // Стол «только для Owner»: в списке остаётся, но чужому не открыть и
+        // не запросить — строка без действия.
+        const ownerLocked = Boolean(page.ownerOnly) && !openable;
         const body = (
           <>
             <span className="relative shrink-0">
@@ -62,7 +65,15 @@ export function DeskListView({
               <span className="flex items-center gap-1.5">
                 <span className="truncate text-[14px] font-medium">{page.name}</span>
                 {mine ? <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">мой</span> : null}
-                {page.hiddenByResponsible ? (
+                {page.ownerOnly ? (
+                  <span
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                    title="Таблицу этого стола видит только Owner"
+                  >
+                    <Lock className="h-3 w-3" />
+                    Только Owner
+                  </span>
+                ) : page.hiddenByResponsible ? (
                   <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground" title="Скрыт от других">
                     <EyeOff className="h-3 w-3" />
                   </span>
@@ -83,7 +94,7 @@ export function DeskListView({
             ) : (
               <span className="hidden w-28 shrink-0 sm:block" />
             )}
-            {!openable ? (
+            {!openable && !ownerLocked ? (
               <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
                 <Lock className="h-3 w-3" />
                 {pending ? "запрос отправлен" : "запросить"}
@@ -98,6 +109,10 @@ export function DeskListView({
                 {body}
                 <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
               </NavLink>
+            ) : ownerLocked ? (
+              <div className="flex min-h-12 min-w-0 flex-1 items-center gap-3 px-3 py-2" title="Стол закрыт Owner">
+                {body}
+              </div>
             ) : (
               <button
                 type="button"

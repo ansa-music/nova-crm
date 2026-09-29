@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { Plus, Settings2, Table2 } from "lucide-react";
+import { Lock, Plus, Settings2, Table2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { RecentRowsPanel } from "@/components/dashboard/RecentRowsPanel";
@@ -44,7 +44,7 @@ export function PersonalDeskSection() {
   const { activeWorkspace, activeWorkspaceId, members } = useWorkspace();
   const permissions = usePermissions();
   const { profile } = useAuth();
-  const { myDesk, studioPages, ownerUid } = usePeopleDesks();
+  const { myDesk, myDeskOpen, studioPages, ownerUid } = usePeopleDesks();
   const [studioPageId, setStudioPageId] = useState<string | null>(null);
   const [createPageOpen, setCreatePageOpen] = useState(false);
   const navigate = useNavigate();
@@ -178,6 +178,8 @@ export function PersonalDeskSection() {
     myDeskProgress && myDeskGoal > 0 ? Math.min(100, Math.round((myDeskDoneThisMonth / myDeskGoal) * 100)) : null;
   // A Технарь without a desk yet: offer to create it right here.
   const offerNewDesk = !myDesk && permissions.deskCreatorRole === "manager" && permissions.canCreatePages;
+  // Свой стол закрыт Owner («только для Owner»): обложка есть, открыть нельзя.
+  const myDeskClosed = Boolean(myDesk?.ownerOnly) && !myDeskOpen;
 
   return (
     <div className="flex flex-col gap-4 empty:hidden [&>*]:!mb-0">
@@ -185,44 +187,63 @@ export function PersonalDeskSection() {
 
       {myDesk ? (
         <section className="relative overflow-hidden rounded-[1.35rem] border border-border">
-          <button type="button" className="block w-full text-left" onClick={() => navigate(`/page/${myDesk.id}`)}>
-            <DeskCoverStrip coverUrl={resolvedCoverUrl(myDesk, ownerUid)} name={myDesk.name} ratio="hero" />
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
-          </button>
+          {myDeskClosed ? (
+            <div className="block w-full">
+              <DeskCoverStrip coverUrl={resolvedCoverUrl(myDesk, ownerUid)} name={myDesk.name} ratio="hero" />
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+            </div>
+          ) : (
+            <button type="button" className="block w-full text-left" onClick={() => navigate(`/page/${myDesk.id}`)}>
+              <DeskCoverStrip coverUrl={resolvedCoverUrl(myDesk, ownerUid)} name={myDesk.name} ratio="hero" />
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+            </button>
+          )}
           <div className="pointer-events-none absolute inset-0 z-[1] flex flex-col justify-between p-4 sm:p-7">
-            <div className="pointer-events-auto flex flex-wrap items-center gap-2 self-start">
-              <Button
-                variant="outline"
-                size="sm"
-                className="min-h-11 rounded-full border-white/25 bg-white/10 px-4 text-white hover:bg-white/16 hover:text-white"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  navigate(`/page/${myDesk.id}`);
-                }}
-              >
-                <Table2 className="h-3.5 w-3.5" />
-                Открыть стол
-              </Button>
-              {permissions.canManagePage(myDesk) ? (
+            {/* Кнопки «Открыть» и «Настроить» — только у открываемого стола;
+                пустой div держит название внизу обложки. */}
+            {myDeskClosed ? (
+              <div />
+            ) : (
+              <div className="pointer-events-auto flex flex-wrap items-center gap-2 self-start">
                 <Button
                   variant="outline"
                   size="sm"
-                  className="min-h-11 min-w-11 rounded-full border-white/25 bg-white/10 px-3 text-white hover:bg-white/16 hover:text-white sm:px-4"
-                  title="Настроить стол"
+                  className="min-h-11 rounded-full border-white/25 bg-white/10 px-4 text-white hover:bg-white/16 hover:text-white"
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    setStudioPageId(myDesk.id);
+                    navigate(`/page/${myDesk.id}`);
                   }}
                 >
-                  <Settings2 className="h-3.5 w-3.5" />
-                  <span className="sr-only sm:not-sr-only">Настроить стол</span>
+                  <Table2 className="h-3.5 w-3.5" />
+                  Открыть стол
                 </Button>
-              ) : null}
-            </div>
+                {permissions.canManagePage(myDesk) ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="min-h-11 min-w-11 rounded-full border-white/25 bg-white/10 px-3 text-white hover:bg-white/16 hover:text-white sm:px-4"
+                    title="Настроить стол"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setStudioPageId(myDesk.id);
+                    }}
+                  >
+                    <Settings2 className="h-3.5 w-3.5" />
+                    <span className="sr-only sm:not-sr-only">Настроить стол</span>
+                  </Button>
+                ) : null}
+              </div>
+            )}
             <div>
               <p className="font-serif text-[1.65rem] font-medium tracking-[-0.03em] text-white sm:text-[2.15rem]">{myDesk.name}</p>
+              {myDeskClosed ? (
+                <p className="mt-2 flex items-center gap-1.5 text-sm text-white/70">
+                  <Lock className="h-3.5 w-3.5 shrink-0" />
+                  Стол закрыт Owner — таблицу ведёт Owner
+                </p>
+              ) : null}
               {myDeskProgress ? (
                 <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 sm:gap-8">
                   <div>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -41,6 +42,22 @@ export function RequestDeskViewButton({
 
   if (canOpen) {
     return null;
+  }
+
+  // Стол «только для Owner» по запросу не открывается — просить некого.
+  if (page.ownerOnly) {
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center justify-center gap-1.5 rounded-md border border-border text-xs font-medium text-muted-foreground",
+          className ?? "min-h-11 w-full"
+        )}
+        title="Таблицу этого стола видит только Owner"
+      >
+        <Lock className="h-3.5 w-3.5 shrink-0" />
+        Только Owner
+      </span>
+    );
   }
 
   const label = pending ? "Запрос отправлен" : "Запросить просмотр";

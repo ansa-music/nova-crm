@@ -144,6 +144,17 @@ export interface WorkspacePage {
    * Supabase то же держит таблица rows_os_exempt (services/rows/osExempt.ts).
    */
   techEditable?: boolean;
+  /**
+   * Стол «только для Owner» (просьба Nurba 29.09.2026): таблицу, вкладки, чат,
+   * комментарии и личные зоны видит и правит ТОЛЬКО Owner — ответственный,
+   * allowedUsers/editableUsers, ОС, Тимлид+Технарь, Тимлид+ и наблюдатели
+   * теряют доступ. Сам стол остаётся в списках: «Столы», рейтинги, выдача
+   * заказа. Ставит только Owner (services/deskOwnerOnly.ts); держат правила
+   * Firestore (isOwnerOnlyPage) и Supabase (rows_owner_only). ОС свои
+   * строки-заказы в таком столе по-прежнему ведёт — иначе выдача
+   * остановилась бы. На столе ОС не бывает.
+   */
+  ownerOnly?: boolean;
   osDesk?: boolean;
   /** Reserved for a future public/private page toggle. Not yet enforced anywhere — always treat as "public" until wired up. */
   visibility?: "public" | "private";

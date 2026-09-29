@@ -119,14 +119,38 @@ function techTabFor(page: WorkspacePage, key: string): string {
 }
 
 /** Все столы ОС и все живые столы технарей с месячными вкладками. */
-export function leadTablesFor(key: string, osDesks: readonly WorkspacePage[], pages: readonly WorkspacePage[]): LeadTable[] {
+export function leadTablesFor(
+  key: string,
+  osDesks: readonly WorkspacePage[],
+  pages: readonly WorkspacePage[],
+  /** Смотрит Owner: столы «только для Owner» открыты только ему. */
+  viewerIsOwner = false
+): LeadTable[] {
   const out: LeadTable[] = [];
   for (const page of osDesks) out.push({ page: page.id, tab: osTabFor(page, key), kind: "os" });
   for (const page of pages) {
     if (page.osDesk || page.inactive || !page.autoMonthKey) continue;
+    // Стол закрыт Owner: Тимлид+ его строк не прочтёт — и не спрашиваем.
+    if (page.ownerOnly && !viewerIsOwner) continue;
     out.push({ page: page.id, tab: techTabFor(page, key), kind: "tech" });
   }
   return out.slice(0, 400);
+}
+
+/**
+ * Стол технаря этого заказа закрыт «только для Owner», а смотрит не Owner:
+ * копии там не видно, и «не выдан» / «едет» было бы неправдой. Стол — у
+ * строки технаря её собственный, у заказа ОС без видимой копии — адрес копии
+ * на строке-источнике.
+ */
+export function leadTechDeskHidden(
+  order: LeadOrder,
+  pagesById: ReadonlyMap<string, WorkspacePage>,
+  viewerIsOwner: boolean
+): boolean {
+  if (viewerIsOwner) return false;
+  const deskId = order.kind === "tech" ? order.pageId : order.copy ? null : (order.row.mirrorPageId ?? null);
+  return Boolean(deskId && pagesById.get(deskId)?.ownerOnly);
 }
 
 // ---------------------------------------------------------------------------

@@ -24,6 +24,8 @@ import type { WorkspaceMember, WorkspacePage } from "@/types";
  * - закрыть — стол видит только ответственный, остальные — по кнопке
  *   «Запросить просмотр»; выданные раньше просмотры снимаются.
  * Столы ОС не трогаем: их открывает сам ОС, руководство смотрит их и так.
+ * Столы «только для Owner» тоже: их списки сохранены и снова заработают,
+ * когда Owner снимет флаг, — пачка не должна их переписывать.
  */
 export function AllDesksAccessButton({
   workspaceId,
@@ -35,7 +37,9 @@ export function AllDesksAccessButton({
   members: WorkspaceMember[];
 }) {
   const [busy, setBusy] = useState(false);
-  const desks = pages.filter((p) => !p.osDesk);
+  const desks = pages.filter((p) => !p.osDesk && !p.ownerOnly);
+  const ownerOnlyCount = pages.filter((p) => !p.osDesk && p.ownerOnly).length;
+  const ownerOnlyNote = ownerOnlyCount > 0 ? ` Столы «только Owner» (${ownerOnlyCount}) не трогаем.` : "";
   // Считаем по НАСТОЯЩЕМУ доступу (allowedUsers), а не по флагу «скрыт»:
   // правила смотрят только список, и стол с флагом «открыт», но без людей в
   // списке, на деле закрыт.
@@ -56,13 +60,15 @@ export function AllDesksAccessButton({
         ? {
             title: `Открыть все столы на просмотр (${desks.length})?`,
             description:
-              "Каждый участник сможет смотреть любой стол без запроса. Править чужие столы это не даёт — права правки остаются как были. Кто придёт в команду позже, нажмите кнопку ещё раз.",
+              "Каждый участник сможет смотреть любой стол без запроса. Править чужие столы это не даёт — права правки остаются как были. Кто придёт в команду позже, нажмите кнопку ещё раз." +
+              ownerOnlyNote,
             confirmLabel: "Открыть все",
           }
         : {
             title: `Закрыть все столы (${desks.length})?`,
             description:
-              "Стол будет видеть только его ответственный. Остальные смогут смотреть только после разрешения — по кнопке «Запросить просмотр». Все выданные раньше просмотры снимутся.",
+              "Стол будет видеть только его ответственный. Остальные смогут смотреть только после разрешения — по кнопке «Запросить просмотр». Все выданные раньше просмотры снимутся." +
+              ownerOnlyNote,
             confirmLabel: "Закрыть все",
             destructive: true,
           }
@@ -94,7 +100,7 @@ export function AllDesksAccessButton({
       <DropdownMenuContent align="end" className="w-72">
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
           Сейчас: открыто всем {open}, закрыто {closed}
-          {partly > 0 ? `, частично ${partly}` : ""}. Столы ОС — отдельно, у самих ОС.
+          {partly > 0 ? `, частично ${partly}` : ""}. Столы ОС — отдельно, у самих ОС.{ownerOnlyNote}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => void apply(true)} className="items-start gap-2">

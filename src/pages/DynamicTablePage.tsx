@@ -26,6 +26,7 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Chip } from "@/components/ui/chip";
 import {
   Tooltip,
   TooltipContent,
@@ -82,6 +83,7 @@ import {
   isOsDeskId,
   missingOsDeskColumns,
   OS_RETURNED_REISSUE_ERROR,
+  OwnerOnlyReissueError,
   pushOsRowToTech,
   resolveOsDeskKeys,
   returnedRowOnTechDesk,
@@ -1543,6 +1545,8 @@ export default function DynamicTablePage() {
         // и новая копия была бы дублем — тогда кнопки нет, только объяснение.
         const lost = problem === OS_DEAD_LINK_PROBLEM;
         let returned = false;
+        // Стол технаря «только для Owner»: выдать заново может только Owner.
+        const blocked = { reason: "" };
         if (lost) {
           const techUid = techUidByNick(members, cellStr(row, osKeys.technician));
           if (techUid) {
@@ -1551,13 +1555,16 @@ export default function DynamicTablePage() {
               row,
               techUid,
               pages: workspaceDesks,
-            }).catch(() => false);
+            }).catch((error) => {
+              if (error instanceof OwnerOnlyReissueError) blocked.reason = error.message;
+              return false;
+            });
           }
         }
         toast.error(`${client}: заказ не доходит до технаря`, {
-          description: returned ? OS_RETURNED_REISSUE_ERROR : problem,
+          description: blocked.reason || (returned ? OS_RETURNED_REISSUE_ERROR : problem),
           action:
-            lost && !returned
+            lost && !returned && !blocked.reason
               ? { label: "Выдать заново", onClick: () => void reissueOsRow(row) }
               : undefined,
         });
@@ -1929,9 +1936,11 @@ export default function DynamicTablePage() {
 
   // Wait for this user's view-requests before denying — an already-approved grant
   // should not flash the request screen.
+  // Стол «только для Owner» просмотром не открывается — ждать запросы незачем.
   if (
     page &&
     !hasAccess &&
+    !page.ownerOnly &&
     viewRequestsLoading &&
     permissions.roles.some(isRestrictedDeskRole) &&
     !isOwnDesk &&
@@ -1957,6 +1966,19 @@ export default function DynamicTablePage() {
           ))}
         </div>
       </div>
+    );
+  }
+
+  // Стол «только для Owner»: таблицу не откроет никто, кроме Owner — даже
+  // ответственный. Запросить просмотр нельзя, поэтому кнопки нет.
+  if (!hasAccess && page.ownerOnly) {
+    return (
+      <AccessDenied
+        title="Стол закрыт Owner"
+        reason={`«${page.name}» открыт только Owner. Он виден в рейтингах и при выдаче заказов.`}
+        hint="Просмотр этого стола не запрашивается."
+        backTo={cameFrom ?? { to: "/desks", label: "Столы" }}
+      />
     );
   }
 
@@ -2021,9 +2043,11 @@ export default function DynamicTablePage() {
   const canOpenAccess =
     permissions.canManagePage(page) ||
     (permissions.canAssignResponsible && !page.osDesk);
+  // Стол «только для Owner» в неактуальные уводит и возвращает только Owner.
   const canRetireThisDesk =
     permissions.canRetireDesks &&
-    (!page.osDesk || permissions.hasFullDeskAccess);
+    (!page.osDesk || permissions.hasFullDeskAccess) &&
+    (!page.ownerOnly || permissions.actsAsOwner);
   // Personal Space is visible only to whoever is actually responsible for
   // THIS page (or explicitly whitelisted) — being a Manager elsewhere in the
   // workspace does not grant it. Owner keeps oversight, matching how every
@@ -2202,6 +2226,28 @@ export default function DynamicTablePage() {
         <h1 className="min-w-0 shrink truncate font-serif text-[22px] font-light leading-none tracking-[-0.01em] max-sm:hidden sm:text-[26px]">
           {page.name}
         </h1>
+        {/* Стол «только для Owner» открывает один Owner — ему и метка. На
+            телефоне только замок: заголовка там нет, строка узкая. */}
+        {page.ownerOnly && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Chip
+                active
+                tone="primary"
+                size="sm"
+                className="h-6 cursor-default gap-1 px-1.5 text-[11.5px] sm:h-6"
+              >
+                <Lock className="h-3 w-3" />
+                <span className="max-sm:sr-only">Только Owner</span>
+              </Chip>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              Таблицу, вкладки, чат и личные зоны видит только Owner — даже
+              ответственный её не откроет. Стол остаётся в «Столах», в
+              рейтингах и при выдаче заказа.
+            </TooltipContent>
+          </Tooltip>
+        )}
         {!canEditData && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -2328,7 +2374,8 @@ export default function DynamicTablePage() {
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
-            {isResponsible && (
+            {/* У стола «только для Owner» видимость решает не ответственный. */}
+            {isResponsible && !page.ownerOnly && (
               <DropdownMenuItem onClick={handleToggleVisibility}>
                 {page.hiddenByResponsible ? (
                   <>

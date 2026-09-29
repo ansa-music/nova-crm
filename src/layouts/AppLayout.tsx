@@ -41,6 +41,7 @@ import { useMonthTabAutopilot } from "@/hooks/useMonthTabAutopilot";
 import { useWeekTemplateAutopilot } from "@/hooks/useWeekTemplateAutopilot";
 import { useSbImportAutopilot } from "@/hooks/useSbImportAutopilot";
 import { useOrderAutoPickup } from "@/hooks/useOrderAutoPickup";
+import { useOwnerOnlyUpkeep } from "@/hooks/useOwnerOnlyUpkeep";
 import { useOsExchangeHandoff } from "@/hooks/useOsExchangeHandoff";
 import { useOsOrderClaims } from "@/hooks/useOsOrderClaims";
 import { useOsDispatchLogWatch } from "@/hooks/useOsDispatchLogWatch";
@@ -85,6 +86,8 @@ export function AppLayout() {
   useWeekTemplateAutopilot();
   useSbImportAutopilot();
   useOrderAutoPickup();
+  // Столы «только для Owner»: заезд заказа за технаря, счётчики, флаг в базе.
+  useOwnerOnlyUpkeep();
   // «Общий» заказ со стола ОС, выданный на бирже, — заводит технарю ОС.
   useOsExchangeHandoff();
   // Заказы, записанные технарями с ником этого ОС, — сами к нему на стол.

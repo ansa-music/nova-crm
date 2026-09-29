@@ -587,6 +587,12 @@ export async function takeOrderToDesk(input: {
   members: WorkspaceMember[];
   monthKey: string;
   me: { uid: string; name: string };
+  /**
+   * Кому выдан заказ, если кладёт не он сам: стол технаря закрыт «только
+   * для Owner», и заказ за него кладёт сессия Owner (useOwnerOnlyUpkeep).
+   * Действует по-прежнему `me` — он же в уведомлении.
+   */
+  assigneeUid?: string;
 }) {
   if (!db) throw new Error("Firebase не настроен");
   const { workspaceId, page, me } = input;
@@ -603,7 +609,7 @@ export async function takeOrderToDesk(input: {
     if ((error as { code?: string } | null)?.code === "unavailable") throw new OrderOfflineError();
     throw error;
   }
-  if (!fresh || fresh.status !== "assigned" || fresh.assignedUid !== me.uid) throw new OrderNotAssignedError();
+  if (!fresh || fresh.status !== "assigned" || fresh.assignedUid !== (input.assigneeUid ?? me.uid)) throw new OrderNotAssignedError();
   // Заказ со стола ОС заводит в стол сам ОС (строкой-заказом с его меткой).
   if (fresh.osSource) throw new Error("Этот заказ приедет в стол от ОС — забирать его не нужно");
   const order = fresh;

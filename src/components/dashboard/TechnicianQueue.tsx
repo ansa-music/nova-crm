@@ -16,7 +16,7 @@ import { deskHref, deskNavState, deskRowHref } from "@/utils/deskLinks";
 import { myDisplayName } from "@/utils/displayName";
 import { usePersonName } from "@/hooks/usePersonName";
 import { formatCurrency } from "@/utils/format";
-import { isResponsibleForPage } from "@/utils/permissions";
+import { isOwnerOnlyPage, isResponsibleForPage } from "@/utils/permissions";
 import { collectTodayOrderRows, type RecentRowItem } from "@/utils/recentRows";
 import type { PageProgress } from "@/utils/deskProgress";
 import type { StatusOption, ViewRequest, WorkspaceMember } from "@/types";
@@ -52,11 +52,14 @@ export function TechnicianQueue({
   const pendingRequests = useMemo(() => {
     if (!uid || !isTechnician) return [];
     const myPageIds = new Set<string>();
+    // Стол «только для Owner» технарь не открывает — и просмотр к нему не выдаёт.
+    const mine = (p: (typeof pages)[number]) =>
+      isResponsibleForPage(p, uid) && (!isOwnerOnlyPage(p) || permissions.canAccessPage(p));
     for (const desk of desks) {
-      if (isResponsibleForPage(desk.page, uid)) myPageIds.add(desk.page.id);
+      if (mine(desk.page)) myPageIds.add(desk.page.id);
     }
     for (const page of pages) {
-      if (isResponsibleForPage(page, uid)) myPageIds.add(page.id);
+      if (mine(page)) myPageIds.add(page.id);
     }
     return requests
       .filter(
@@ -67,7 +70,7 @@ export function TechnicianQueue({
           myPageIds.has(r.pageId)
       )
       .sort((a, b) => a.createdAt - b.createdAt);
-  }, [requests, desks, pages, uid, isTechnician]);
+  }, [requests, desks, pages, uid, isTechnician, permissions]);
 
   if (!isTechnician || !activeWorkspaceId) return null;
   if (pendingRequests.length === 0 && todayRows.length === 0) return null;
@@ -100,9 +103,10 @@ export function TechnicianQueue({
     const desk = desks.find((d) => d.page.id === row.pageId);
     navigate(deskRowHref(row.pageId, desk?.page.defaultSubPageId ?? null, row.id), { state: fromDashboard });
   }
+  const openable = (p: (typeof pages)[number]) => !isOwnerOnlyPage(p) || permissions.canAccessPage(p);
   const myDeskPage =
-    desks.find((d) => isResponsibleForPage(d.page, uid))?.page ??
-    pages.find((pg) => isResponsibleForPage(pg, uid)) ??
+    desks.find((d) => isResponsibleForPage(d.page, uid) && openable(d.page))?.page ??
+    pages.find((pg) => isResponsibleForPage(pg, uid) && openable(pg)) ??
     null;
 
   return (
