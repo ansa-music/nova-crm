@@ -1,4 +1,5 @@
--- Проверки «Заказов от 300к+» (20261038_big_orders.sql, пауза — 20261039, группа — 20261040). Запускать ПОСЛЕ
+-- Проверки «Заказов от 300к+» (20261038_big_orders.sql, пауза — 20261039, группа — 20261040,
+-- получил заказ — 20261041). Запускать ПОСЛЕ
 -- desk_rows_rls.sql (хелперы tst.*). Свой workspace WBQ.
 truncate tst.results;
 
@@ -25,7 +26,8 @@ insert into public.rows_members (workspace_id, uid, role, extra_roles) values
   ('WBQ', 'BT1', 'manager', '{}'),
   ('WBQ', 'BT2', 'manager', '{}'),
   ('WBQ', 'BT3', 'manager', '{}'),
-  ('WBQ', 'BS1', 'os', '{}')
+  ('WBQ', 'BS1', 'os', '{}'),
+  ('WBQ', 'BLP', 'leadplus', '{}')
 on conflict do nothing;
 
 -- Умолчание: порог 300 000, пусто.
@@ -184,7 +186,41 @@ select tst.expect('после повторного наката пауза на 
   'false{"BT3": null}');
 select tst.expect('после повторного наката группа на месте',
   tst.val('BS1', $q$select big_queue_get('WBQ')->>'pool'$q$), '["BT2"]');
-select tst.expect('версия схемы', (nova_schema_version() >= '20261040')::text, 'true');
+
+-- Получил заказ — ушёл из очереди (20261041). Сейчас: очередь BT3, BO, BT1; группа BT2; пауза BT3.
+select tst.expect('технарь без права не снимает из очереди',
+  tst.try('BT2', $q$select big_queue_took('WBQ', 'BT3')$q$), 'deny:42501');
+select tst.expect('посторонний не снимает из очереди',
+  tst.try('X', $q$select big_queue_took('WBQ', 'BT3')$q$), 'deny:42501');
+select tst.expect('ОС: получивший уходит в начало группы, пауза снята',
+  tst.val('BS1', $q$select (r->>'queue') || (r->>'pool') || (r->>'paused') || (r->'taken' ? 'BT3')::text || (r->>'takenBy')
+    from (select big_queue_took('WBQ', 'BT3') as r) x$q$),
+  '["BO", "BT1"]["BT3", "BT2"]{}trueBS1');
+select tst.expect('повтор — без изменений и без дубля в группе',
+  tst.val('BS1', $q$select (r->>'queue') || (r->>'pool') from (select big_queue_took('WBQ', 'BT3') as r) x$q$),
+  '["BO", "BT1"]["BT3", "BT2"]');
+select tst.expect('не в очереди — без изменений',
+  tst.val('BS1', $q$select (r->>'queue') || (r->>'pool') from (select big_queue_took('WBQ', 'BT2') as r) x$q$),
+  '["BO", "BT1"]["BT3", "BT2"]');
+select tst.expect('Тимлид+ снимает из очереди',
+  tst.val('BLP', $q$select (r->>'queue') || (r->>'pool') from (select big_queue_took('WBQ', 'BO') as r) x$q$),
+  '["BT1"]["BO", "BT3", "BT2"]');
+select tst.expect('Тимлид снимает из очереди',
+  tst.val('BTL', $q$select (r->>'queue') || (r->>'pool') from (select big_queue_took('WBQ', 'BT1') as r) x$q$),
+  '[]["BT1", "BO", "BT3", "BT2"]');
+select tst.expect('вернули в очередь — отметка «получил» остаётся',
+  tst.val('BO', $q$select (r->>'queue') || (r->'taken' ? 'BT3')::text
+    from (select big_queue_set_lists('WBQ', array['BT3', 'BO'], array['BT1', 'BT2']) as r) x$q$),
+  '["BT3", "BO"]true');
+update public.rows_workspaces set status = 'suspended' where workspace_id = 'WBQ';
+select tst.expect('приостановленная компания — не снять из очереди',
+  tst.try('BS1', $q$select big_queue_took('WBQ', 'BT3')$q$), 'deny:42501');
+update public.rows_workspaces set status = 'active' where workspace_id = 'WBQ';
+\ir ../migrations/20261041_big_orders_took.sql
+select tst.expect('после повторного наката отметки на месте',
+  tst.val('BS1', $q$select (big_queue_get('WBQ')->>'queue') || (big_queue_get('WBQ')->'taken' ?& array['BT3', 'BO', 'BT1'])::text$q$),
+  '["BT3", "BO"]true');
+select tst.expect('версия схемы', (nova_schema_version() >= '20261041')::text, 'true');
 
 -- ---------------------------------------------------------------------
 select case when ok then '  OK  ' else 'FAIL  ' end || label || case when ok then '' else '  → ' || got end

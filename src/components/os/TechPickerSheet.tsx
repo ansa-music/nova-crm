@@ -150,8 +150,9 @@ export function TechPickerSheet({
   const bigSnap = useBigOrderQueue(activeWorkspaceId, open);
   const bigView = bigQueueView(bigSnap);
   const bigRequired = Boolean(bigView && isBigCheck(checkTotal ?? null, bigView.threshold));
-  // Очередь не составлена или все в ней на паузе — крупный заказ выдаётся как
-  // обычно (с плашкой). Функция на паузе — bigView = null, как без очереди.
+  // Очередь пуста (не составлена или всех разобрали: получивший заказ уходит
+  // в группу) — крупный заказ выдаётся как обычно, с плашкой. Функция на паузе —
+  // bigView = null, как без очереди.
   const bigMode = bigRequired && Boolean(bigView && bigView.queue.length > 0);
   const queueUids = useMemo(() => bigView?.queue ?? [], [bigView]);
   const [query, setQuery] = useState("");
@@ -287,14 +288,14 @@ export function TechPickerSheet({
                   Заказ от {shortMoney(bigView.threshold)}{moneyLine ? ` · чек ${moneyLine}` : ""}
                 </span>
                 <span className="block text-xs text-muted-foreground">
-                  Отдаётся только технарю из очереди — №1 в приоритете. Выходные и занятость на эту выдачу не действуют.
+                  Отдаётся только технарю из очереди — №1 в приоритете, получивший уходит из очереди. Выходные и занятость на эту выдачу не действуют.
                 </span>
               </span>
             </div>
           ) : bigRequired && bigView ? (
             <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
               Заказ от {shortMoney(bigView.threshold)}, но{" "}
-              {bigSnap.data && bigSnap.data.queue.length > 0 ? "все технари очереди на паузе" : "очередь ещё не составлена"} — выдайте как обычно.
+              {bigSnap.data && bigSnap.data.pool.length > 0 ? "очередь пуста — все в группе" : "очередь ещё не составлена"} — выдайте как обычно.
             </div>
           ) : queueNames.length > 0 && bigView ? (
             <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground" title="Очередь для заказов от порога — её ведёт ответственный">
