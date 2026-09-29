@@ -1,4 +1,4 @@
--- Проверки «Заказов от 300к+» (20261038_big_orders.sql, пауза — 20261039). Запускать ПОСЛЕ
+-- Проверки «Заказов от 300к+» (20261038_big_orders.sql, пауза — 20261039, группа — 20261040). Запускать ПОСЛЕ
 -- desk_rows_rls.sql (хелперы tst.*). Свой workspace WBQ.
 truncate tst.results;
 
@@ -141,15 +141,50 @@ select tst.expect('приостановленная компания — пау�
   tst.try('BO', $q$select big_queue_set_enabled('WBQ', true)$q$), 'deny:42501');
 update public.rows_workspaces set status = 'active' where workspace_id = 'WBQ';
 
+-- Группа и активная очередь (20261040). Сейчас: очередь BT3, BO, BT1; ответственный BT1.
+select tst.expect('умолчание — группа пуста',
+  tst.val('BS1', $q$select big_queue_get('WBQ')->>'pool'$q$), '[]');
+select tst.expect('технарь без права не правит группу',
+  tst.try('BT2', $q$select big_queue_set_lists('WBQ', array['BT2'], array[]::text[])$q$), 'deny:42501');
+select tst.expect('ОС не правит группу',
+  tst.try('BS1', $q$select big_queue_set_lists('WBQ', array['BT1'], array['BT2'])$q$), 'deny:42501');
+select tst.expect('группа больше 100 — отказ',
+  tst.try('BT1', $q$select big_queue_set_lists('WBQ', array['BT1'], array_fill('BT2'::text, array[101]))$q$), 'deny:22023');
+select tst.run('BT1', $q$select big_queue_set_lists('WBQ', array['BT3', 'BO', 'BT1'], array['BT2', 'BT1', 'BS1', 'BT2', 'ZZZ'])$q$);
+select tst.expect('группа записана: стоящий в очереди, ОС, повтор и чужой отброшены',
+  tst.val('BS1', $q$select big_queue_get('WBQ')->>'pool'$q$), '["BT2"]');
+select tst.expect('очередь при этом та же, пауза стоящего в очереди на месте',
+  tst.val('BS1', $q$select (big_queue_get('WBQ')->>'queue') || (big_queue_get('WBQ')->>'paused')$q$),
+  '["BT3", "BO", "BT1"]{"BT3": null}');
+select tst.expect('перенос из очереди в группу — одной записью, пауза снимается',
+  tst.val('BT1', $q$select (r->>'queue') || (r->>'pool') || (r->>'paused')
+    from (select big_queue_set_lists('WBQ', array['BO', 'BT1'], array['BT2', 'BT3']) as r) x$q$),
+  '["BO", "BT1"]["BT2", "BT3"]{}');
+select tst.expect('из группы в очередь на нужное место',
+  tst.val('BO', $q$select (r->>'queue') || (r->>'pool')
+    from (select big_queue_set_lists('WBQ', array['BT2', 'BO', 'BT1'], array['BT3']) as r) x$q$),
+  '["BT2", "BO", "BT1"]["BT3"]');
+select tst.expect('старая правка одной очереди группу не трогает',
+  tst.val('BT1', $q$select big_queue_set('WBQ', array['BO', 'BT1'])->>'pool'$q$), '["BT3"]');
+select tst.run('BO', $q$select big_queue_set_lists('WBQ', array['BT3', 'BO', 'BT1'], array['BT2'])$q$);
+select tst.run('BT1', $q$select big_queue_set_pause('WBQ', 'BT3', true, null)$q$);
+update public.rows_workspaces set status = 'suspended' where workspace_id = 'WBQ';
+select tst.expect('приостановленная компания — группу не править',
+  tst.try('BO', $q$select big_queue_set_lists('WBQ', array['BT1'], array[]::text[])$q$), 'deny:42501');
+update public.rows_workspaces set status = 'active' where workspace_id = 'WBQ';
+
 -- Повторный накат.
 \ir ../migrations/20261038_big_orders.sql
 \ir ../migrations/20261039_big_orders_pause.sql
+\ir ../migrations/20261040_big_orders_pool.sql
 select tst.expect('после повторного наката очередь на месте',
   tst.val('BS1', $q$select big_queue_get('WBQ')->>'queue'$q$), '["BT3", "BO", "BT1"]');
 select tst.expect('после повторного наката пауза на месте',
   tst.val('BS1', $q$select (big_queue_get('WBQ')->>'enabled') || (big_queue_get('WBQ')->>'paused')$q$),
   'false{"BT3": null}');
-select tst.expect('версия схемы', (nova_schema_version() >= '20261039')::text, 'true');
+select tst.expect('после повторного наката группа на месте',
+  tst.val('BS1', $q$select big_queue_get('WBQ')->>'pool'$q$), '["BT2"]');
+select tst.expect('версия схемы', (nova_schema_version() >= '20261040')::text, 'true');
 
 -- ---------------------------------------------------------------------
 select case when ok then '  OK  ' else 'FAIL  ' end || label || case when ok then '' else '  → ' || got end

@@ -20,6 +20,10 @@ import { listenTopic, ringTopic } from "@/services/sb/topicDoorbell";
  * крупные заказы выдаются как обычно (очередь сохраняется); `paused[uid]` —
  * технарь на паузе до момента (мс) или «до снятия» (null). Истёкшая пауза =
  * активен, в базу ничего не пишется.
+ *
+ * Группа (29.09.2026, SQL 20261040): `pool` — заранее отобранные технари, которые
+ * сейчас НЕ в активной очереди. Переносы между очередью и группой и порядок
+ * пишутся одним `big_queue_set_lists` (оба списка разом).
  */
 
 export const DEFAULT_BIG_THRESHOLD = 300_000;
@@ -28,6 +32,8 @@ export interface BigQueueConfig {
   threshold: number;
   managers: string[];
   queue: string[];
+  /** Группа: отобраны, но сейчас не в очереди. */
+  pool: string[];
   /** Функция работает (false — на паузе, выдача как обычно). */
   enabled: boolean;
   /** uid → до какого момента (мс) или null — «пока не снимут». */
@@ -109,6 +115,7 @@ export function parseBigQueue(data: unknown): BigQueueConfig {
     threshold: Number.isFinite(threshold) && threshold > 0 ? threshold : DEFAULT_BIG_THRESHOLD,
     managers: strings(o.managers),
     queue: strings(o.queue),
+    pool: strings(o.pool).filter((uid) => !strings(o.queue).includes(uid)),
     enabled: o.enabled !== false,
     paused: pausedMap(o.paused),
     pausedBy: typeof o.pausedBy === "string" ? o.pausedBy : null,
@@ -253,6 +260,7 @@ function queueErrorText(error: { code?: string; message?: string }, fallback: st
   if (msg.includes("too many managers")) return "Ответственных — не больше 10.";
   if (msg.includes("bad threshold")) return "Порог — от 1 000.";
   if (msg.includes("queue too long")) return "В очереди — не больше 50 человек.";
+  if (msg.includes("pool too long")) return "В группе — не больше 100 человек.";
   if (msg.includes("not in queue")) return "Этого технаря уже нет в очереди.";
   if (msg.includes("bad pause date")) return "Дата паузы — в будущем и не дальше 90 дней.";
   if (error.code === "42501") return "Нет права.";
@@ -340,4 +348,30 @@ export function setBigQueuePause(ws: string, uid: string, on: boolean, untilMs: 
       }),
     on ? "Не удалось поставить на паузу" : "Не удалось снять паузу",
   );
+}
+
+/**
+ * Очередь и группа одной записью. Нет функции (SQL 20261040 ещё не накатан) —
+ * очередь пишется по-старому, группа остаётся прежней.
+ */
+export async function saveBigLists(ws: string, queue: string[], pool: string[]): Promise<BigQueueConfig> {
+  const inQueue = new Set(queue);
+  const cleanPool = pool.filter((uid, i) => !inQueue.has(uid) && pool.indexOf(uid) === i);
+  try {
+    return await applyOptimistic(
+      ws,
+      (cfg) => {
+        const paused = Object.fromEntries(Object.entries(cfg.paused).filter(([uid]) => inQueue.has(uid)));
+        return { ...cfg, queue, pool: cleanPool, paused };
+      },
+      () => supabaseRows.rpc("big_queue_set_lists", { p_workspace: ws, p_queue: queue, p_pool: cleanPool }),
+      "Не удалось сохранить очередь",
+    );
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Очередь ещё не включена")) {
+      if (cleanPool.length) throw new Error("Группа ещё не включена в базе — Owner должен обновить SQL.");
+      return saveBigQueue(ws, queue);
+    }
+    throw error;
+  }
 }
