@@ -191,7 +191,7 @@ export interface NavSignals {
   /** Сколько мне ещё оценить на этой неделе («Оценка недели»). */
   weeklyToRate: number;
   /** Я веду очередь «Заказов от 300к+» (ответственный или Owner); порог — для подписи. */
-  bigQueue: { manager: boolean; threshold: number } | null;
+  bigQueue: { manager: boolean; threshold: number; paused: boolean } | null;
 }
 
 const NO_SIGNALS: NavSignals = {
@@ -383,6 +383,7 @@ function buildDefaultSections(inp: NavInputs, g: NavGates, sig: NavSignals, desk
           label: `Заказы от ${shortMoney(sig.bigQueue?.threshold ?? 300_000)}+`,
           icon: Crown,
           show: Boolean(sig.bigQueue?.manager),
+          hint: sig.bigQueue?.paused ? "пауза" : undefined,
         },
         // У ОС дом — «Технари» (дубль убирает фильтр ниже); стол ОС — свой пункт.
         {
@@ -701,11 +702,12 @@ export function NavModelProvider({ children }: { children: ReactNode }) {
   const bigSnap = useBigOrderQueue(activeWorkspaceId, permissions.isResolved && isModuleEnabled(site, "orders"));
   const bigManager = canManageBigQueue(uid, bigSnap.data, permissions.isResolved && permissions.actsAsOwner);
   const bigThreshold = bigSnap.data?.threshold ?? 300_000;
+  const bigPaused = bigSnap.data?.enabled === false;
   const bigQueue = useMemo(
     () => (bigSnap.status === "ready" || (permissions.isResolved && permissions.actsAsOwner && bigSnap.status !== "missing")
-      ? { manager: bigManager, threshold: bigThreshold }
+      ? { manager: bigManager, threshold: bigThreshold, paused: bigPaused }
       : null),
-    [bigSnap.status, bigManager, bigThreshold, permissions.isResolved, permissions.actsAsOwner]
+    [bigSnap.status, bigManager, bigThreshold, bigPaused, permissions.isResolved, permissions.actsAsOwner]
   );
 
   const inputs = useMemo<NavInputs>(

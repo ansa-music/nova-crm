@@ -1,4 +1,4 @@
--- Проверки «Заказов от 300к+» (20261038_big_orders.sql). Запускать ПОСЛЕ
+-- Проверки «Заказов от 300к+» (20261038_big_orders.sql, пауза — 20261039). Запускать ПОСЛЕ
 -- desk_rows_rls.sql (хелперы tst.*). Свой workspace WBQ.
 truncate tst.results;
 
@@ -90,11 +90,66 @@ select tst.expect('приостановленная компания — чит�
   tst.try('BS1', $q$select big_queue_get('WBQ')$q$), 'ok');
 update public.rows_workspaces set status = 'active' where workspace_id = 'WBQ';
 
+-- Пауза (20261039). Очередь сейчас: BT3, BO, BT1; ответственный — BT1.
+select tst.expect('умолчание — функция работает',
+  tst.val('BS1', $q$select big_queue_get('WBQ')->>'enabled'$q$), 'true');
+select tst.expect('умолчание — никто не на паузе',
+  tst.val('BS1', $q$select big_queue_get('WBQ')->>'paused'$q$), '{}');
+select tst.expect('технарь не ставит функцию на паузу',
+  tst.try('BT2', $q$select big_queue_set_enabled('WBQ', false)$q$), 'deny:42501');
+select tst.expect('ОС не ставит технаря на паузу',
+  tst.try('BS1', $q$select big_queue_set_pause('WBQ', 'BT3', true, null)$q$), 'deny:42501');
+select tst.expect('не-ответственный Тимлид не ставит на паузу',
+  tst.try('BTL', $q$select big_queue_set_pause('WBQ', 'BT3', true, null)$q$), 'deny:42501');
+select tst.expect('на паузу — только из очереди',
+  tst.try('BT1', $q$select big_queue_set_pause('WBQ', 'BT2', true, null)$q$), 'deny:22023');
+select tst.expect('дата паузы в прошлом — отказ',
+  tst.try('BT1', $q$select big_queue_set_pause('WBQ', 'BT3', true, 1000)$q$), 'deny:22023');
+select tst.expect('дата паузы дальше 90 дней — отказ',
+  tst.try('BT1', $q$select big_queue_set_pause('WBQ', 'BT3', true,
+    ((extract(epoch from now()) + 91 * 86400) * 1000)::bigint)$q$), 'deny:22023');
+select tst.run('BT1', $q$select big_queue_set_pause('WBQ', 'BT3', true, null)$q$);
+select tst.expect('ответственный поставил технаря на паузу «до снятия»',
+  tst.val('BS1', $q$select big_queue_get('WBQ')->>'paused'$q$), '{"BT3": null}');
+select tst.run('BO', $q$select big_queue_set_pause('WBQ', 'BT1', true,
+  ((extract(epoch from now()) + 3 * 86400) * 1000)::bigint)$q$);
+select tst.expect('Owner поставил паузу с датой',
+  tst.val('BS1', $q$select jsonb_typeof(big_queue_get('WBQ')->'paused'->'BT1')$q$), 'number');
+select tst.expect('кто ставил паузу — из токена',
+  tst.val('BS1', $q$select big_queue_get('WBQ')->>'pausedBy'$q$), 'BO');
+select tst.expect('пауза не меняет порядок очереди',
+  tst.val('BS1', $q$select big_queue_get('WBQ')->>'queue'$q$), '["BT3", "BO", "BT1"]');
+select tst.run('BT1', $q$select big_queue_set_pause('WBQ', 'BT1', false, null)$q$);
+select tst.expect('«Вернуть» снимает паузу',
+  tst.val('BS1', $q$select big_queue_get('WBQ')->>'paused'$q$), '{"BT3": null}');
+select tst.expect('правка очереди оставляет паузу тех, кто остался',
+  tst.val('BT1', $q$select big_queue_set('WBQ', array['BT1', 'BT3'])->>'paused'$q$), '{"BT3": null}');
+select tst.expect('правка очереди без убранного снимает его паузу',
+  tst.val('BT1', $q$select big_queue_set('WBQ', array['BO', 'BT1'])->>'paused'$q$), '{}');
+select tst.run('BO', $q$select big_queue_set('WBQ', array['BT3', 'BO', 'BT1'])$q$);
+select tst.expect('вернули в очередь — паузы нет',
+  tst.val('BS1', $q$select big_queue_get('WBQ')->>'paused'$q$), '{}');
+select tst.run('BT1', $q$select big_queue_set_pause('WBQ', 'BT3', true, null)$q$);
+select tst.run('BT1', $q$select big_queue_set_enabled('WBQ', false)$q$);
+select tst.expect('функция на паузе',
+  tst.val('BS1', $q$select big_queue_get('WBQ')->>'enabled'$q$), 'false');
+select tst.expect('на паузе очередь и паузы технарей сохраняются',
+  tst.val('BS1', $q$select (big_queue_get('WBQ')->>'queue') || (big_queue_get('WBQ')->>'paused')$q$),
+  '["BT3", "BO", "BT1"]{"BT3": null}');
+update public.rows_workspaces set status = 'suspended' where workspace_id = 'WBQ';
+select tst.expect('приостановленная компания — паузу не переключить',
+  tst.try('BO', $q$select big_queue_set_enabled('WBQ', true)$q$), 'deny:42501');
+update public.rows_workspaces set status = 'active' where workspace_id = 'WBQ';
+
 -- Повторный накат.
 \ir ../migrations/20261038_big_orders.sql
+\ir ../migrations/20261039_big_orders_pause.sql
 select tst.expect('после повторного наката очередь на месте',
   tst.val('BS1', $q$select big_queue_get('WBQ')->>'queue'$q$), '["BT3", "BO", "BT1"]');
-select tst.expect('версия схемы', (nova_schema_version() >= '20261038')::text, 'true');
+select tst.expect('после повторного наката пауза на месте',
+  tst.val('BS1', $q$select (big_queue_get('WBQ')->>'enabled') || (big_queue_get('WBQ')->>'paused')$q$),
+  'false{"BT3": null}');
+select tst.expect('версия схемы', (nova_schema_version() >= '20261039')::text, 'true');
 
 -- ---------------------------------------------------------------------
 select case when ok then '  OK  ' else 'FAIL  ' end || label || case when ok then '' else '  → ' || got end
