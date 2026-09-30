@@ -65,6 +65,9 @@ export function useMonthTabAutopilot() {
         Boolean(page.autoMonthSubPageId) && page.osFieldKeys?.tabId === page.autoMonthSubPageId;
       if (monthReady && keysReady) continue;
       if (!isOwner && page.responsibleUserId !== uid) continue;
+      // Стол «только для Owner»: вкладки ведёт сессия Owner — ответственному
+      // база их не отдаёт и писать не даст.
+      if (page.ownerOnly && !isOwner) continue;
       if (!isMonthlyDesk(page, members)) continue;
       const key = `${activeWorkspaceId}:${page.id}:${monthKey}`;
       if (attempted.has(key)) continue;

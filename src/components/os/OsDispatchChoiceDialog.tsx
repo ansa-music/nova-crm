@@ -8,7 +8,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { useSendOsRowToExchange } from "@/hooks/useSendOsRowToExchange";
 import { OS_DESK_KEYS, type OsDeskKeys } from "@/services/osDeskService";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
-import { bigQueueView, isBigCheck, noteBigQueuePick, useBigOrderQueue } from "@/services/bigOrderQueueService";
+import { bigOrderRowKey, bigQueueView, isBigCheck, noteBigQueuePick, useBigOrderQueue } from "@/services/bigOrderQueueService";
 import { osRowGross } from "@/utils/payment";
 import {
   DEFAULT_STATUS_OPTIONS,
@@ -79,7 +79,7 @@ export function OsDispatchChoiceDialog({
       toast.success(`${client} → ${name}`, { description: "Заказ уедет в его стол через секунду." });
       onClose();
       // Крупный заказ — технарь из очереди «300к+» уходит в группу.
-      noteBigQueuePick(activeWorkspaceId, uid, checkTotal);
+      noteBigQueuePick(activeWorkspaceId, uid, checkTotal, bigOrderRowKey(pageId, row.id));
     } catch (error) {
       toast.error(firestoreErrorText(error, "Не удалось выбрать технаря"));
     } finally {

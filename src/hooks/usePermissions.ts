@@ -29,6 +29,7 @@ import {
   canViewHistory,
   hasFullAccess,
   isDeskBlockedFor,
+  isOwnerOnlyPage,
   isResponsibleForPage,
 } from "@/utils/permissions";
 import { deskObserverState, subscribeDeskObserverState } from "@/services/deskObserverService";
@@ -214,6 +215,10 @@ export function usePermissions() {
       canAccessPage: (page: WorkspacePage) => {
         if (!isResolved || !uid) return false;
         if (actsAsCreator) return true;
+        // Стол «только для Owner» — поверх всех обходов ниже (наблюдатель,
+        // ОС видит всё, Тимлид+, ответственный). Owner в «режиме роли» его не
+        // видит — как и всё остальное в выбранной роли.
+        if (isOwnerOnlyPage(page)) return effectiveRole === "owner";
         // Наблюдатель — ДО проверки deskBlocked: право выдаётся человеку, а не
         // роли, и Тимлиду без Технаря оно тоже должно работать.
         if (isDeskObserver) return true;
@@ -229,13 +234,17 @@ export function usePermissions() {
       // «Свой» = создатель и ответственный (зеркало canEditPage в правилах).
       canEditPageData: (page: WorkspacePage) =>
         isResolved &&
-        ((Boolean(page.osDesk) && isResponsibleForPage(page, uid) && page.createdBy === uid) ||
-          (!deskBlocked && roles.some((role) => canEditPageData(page, role, uid)))),
+        (isOwnerOnlyPage(page)
+          ? effectiveRole === "owner"
+          : (Boolean(page.osDesk) && isResponsibleForPage(page, uid) && page.createdBy === uid) ||
+            (!deskBlocked && roles.some((role) => canEditPageData(page, role, uid)))),
       isResponsibleForPage: (page: WorkspacePage) => Boolean(uid) && isResponsibleForPage(page, uid),
       canManagePage: (page: WorkspacePage) =>
         isResolved &&
-        ((Boolean(page.osDesk) && roles.includes("os") && isResponsibleForPage(page, uid) && page.createdBy === uid) ||
-          (!deskBlocked && roles.some((role) => canManagePage(page, role, uid)))),
+        (isOwnerOnlyPage(page)
+          ? effectiveRole === "owner"
+          : (Boolean(page.osDesk) && roles.includes("os") && isResponsibleForPage(page, uid) && page.createdBy === uid) ||
+            (!deskBlocked && roles.some((role) => canManagePage(page, role, uid)))),
       canDeletePage: (page: WorkspacePage) =>
         isResolved && !deskBlocked && roles.some((role) => canDeletePage(page, role, uid)),
       /** Move desks to «Неактуальные» and back — Owner and Тимлид (by real role, like users admin). */

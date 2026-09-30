@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Lock } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/table/StatusBadge";
@@ -40,6 +40,7 @@ export function LeadCardSheet({
   os,
   osMembers,
   tech,
+  techDeskHidden = false,
   historyCtx,
   historyVersion,
   onCell,
@@ -55,6 +56,8 @@ export function LeadCardSheet({
   os: WorkspaceMember | null;
   osMembers: readonly WorkspaceMember[];
   tech: TechIdentity | null;
+  /** Стол технаря закрыт «только для Owner», а смотрит не Owner: копии не видно, стол не открыть. */
+  techDeskHidden?: boolean;
   historyCtx: LeadHistoryContext;
   historyVersion: number;
   onCell: (order: LeadOrder, key: string, value: string) => Promise<void>;
@@ -150,7 +153,17 @@ export function LeadCardSheet({
               </Field>
               <Field label="Технарь">
                 <div className="flex min-w-0 items-center gap-2 px-1.5">
-                  {tech ? <TechBadge identity={tech} /> : <span className="text-[12.5px] text-muted-foreground">не выдан</span>}
+                  {tech ? (
+                    <TechBadge identity={tech} />
+                  ) : (
+                    <span className="text-[12.5px] text-muted-foreground">{techDeskHidden ? "стол технаря закрыт Owner" : "не выдан"}</span>
+                  )}
+                  {tech && techDeskHidden ? (
+                    <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
+                      <Lock className="h-3 w-3" aria-hidden />
+                      стол закрыт Owner
+                    </span>
+                  ) : null}
                   {order.techStatus && order.kind === "os" ? (
                     <span className="ml-auto shrink-0" title="Статус у технаря">
                       <StatusBadge value={order.techStatus} options={[...statusOptions]} className="max-w-none" />
@@ -170,14 +183,16 @@ export function LeadCardSheet({
               ) : null}
             </div>
 
-            <Link
-              to={deskRowHref(order.pageId, order.tabId || null, order.row.id)}
-              state={deskNavState({ to: "/leads", label: "Общая таблица" })}
-              className="inline-flex items-center gap-1.5 self-start text-[13px] text-primary hover:underline"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              {order.kind === "os" ? "Открыть на столе ОС" : "Открыть на столе технаря"}
-            </Link>
+            {order.kind === "tech" && techDeskHidden ? null : (
+              <Link
+                to={deskRowHref(order.pageId, order.tabId || null, order.row.id)}
+                state={deskNavState({ to: "/leads", label: "Общая таблица" })}
+                className="inline-flex items-center gap-1.5 self-start text-[13px] text-primary hover:underline"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                {order.kind === "os" ? "Открыть на столе ОС" : "Открыть на столе технаря"}
+              </Link>
+            )}
 
             <div className="flex flex-col gap-1">
               <h3 className="text-[12px] font-medium uppercase tracking-[0.12em] text-muted-foreground">История заказа</h3>

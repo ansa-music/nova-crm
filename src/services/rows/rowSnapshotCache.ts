@@ -225,6 +225,26 @@ export function dropRowSnapshot(workspaceId: string, pageId: string, tabId: stri
   });
 }
 
+/** Все снимки одного стола (все вкладки) — стол закрыли «только для Owner». */
+export function dropPageRowSnapshots(workspaceId: string, pageId: string): void {
+  const uid = currentUid();
+  if (!uid) return;
+  const prefix = `${uid}:${workspaceId}:${pageId}:`;
+  for (const [key, pending] of pendingWrites) {
+    if (!key.startsWith(prefix)) continue;
+    clearTimeout(pending.timer);
+    pendingWrites.delete(key);
+  }
+  void openDb().then((db) => {
+    if (!db) return;
+    try {
+      db.transaction(STORE, "readwrite").objectStore(STORE).delete(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
+    } catch {
+      /* нет базы — и снимков нет */
+    }
+  });
+}
+
 /** Стереть ВСЕ снимки этого браузера — при выходе из аккаунта. */
 export function wipeRowSnapshots(): void {
   for (const pending of pendingWrites.values()) clearTimeout(pending.timer);

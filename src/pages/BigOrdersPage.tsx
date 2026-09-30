@@ -25,6 +25,7 @@ import {
   ArrowUp,
   ArrowUpToLine,
   ChevronsUp,
+  RotateCcw,
   Crown,
   GripVertical,
   Loader2,
@@ -40,6 +41,8 @@ import {
 import { toast } from "sonner";
 import { AccessDenied } from "@/components/common/AccessDenied";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
+import { BigCountBadge } from "@/components/orders/BigCountBadge";
+import { confirmDialog } from "@/utils/appDialog";
 import { PageHeader } from "@/components/common/PageHeader";
 import { GrokPeoplePicker, GrokPickerShell } from "@/components/grok/GrokPeoplePicker";
 import { Alert } from "@/components/ui/alert";
@@ -55,6 +58,7 @@ import {
   canManageBigQueue,
   DEFAULT_BIG_THRESHOLD,
   saveBigConfig,
+  resetBigQueueCounts,
   saveBigLists,
   setBigQueueEnabled,
   shortMoney,
@@ -289,6 +293,22 @@ function BigOrdersBody({
     }
   }
 
+  async function resetCounts() {
+    const ok = await confirmDialog({
+      title: "Сбросить счётчик?",
+      description: "У всех технарей число полученных заказов от порога станет 0. Считать начнём заново — с новых выдач.",
+      confirmLabel: "Сбросить",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await resetBigQueueCounts(ws);
+      toast.success("Счётчик сброшен — считаем с новых заказов");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сбросить счётчик");
+    }
+  }
+
   async function saveThreshold() {
     const value = Math.round(Number(String(thresholdDraft ?? "").replace(/[^\d]/g, "")));
     if (!Number.isFinite(value) || value < 1000) {
@@ -309,11 +329,16 @@ function BigOrdersBody({
     return m ? personLabel(m) : "ушёл из команды";
   });
   const updatedBy = cfg.updatedBy ? byUid.get(cfg.updatedBy) : null;
+  const resetBy = cfg.countsResetBy ? byUid.get(cfg.countsResetBy) : null;
   const pausedBy = cfg.pausedBy ? byUid.get(cfg.pausedBy) : null;
   const nameOf = (uid: string) => {
     const member = byUid.get(uid) ?? null;
     return { member, name: member ? personLabel(member) : "ушёл из команды" };
   };
+  const tally = Object.entries(cfg.counts)
+    .filter(([, n]) => n > 0)
+    .map(([uid, n]) => ({ uid, n, name: nameOf(uid).name }))
+    .sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, "ru"));
   const iconBtn = "h-11 w-11 sm:h-8 sm:w-8";
 
   function personBlock(uid: string, extra: ReactNode) {
@@ -324,6 +349,7 @@ function BigOrdersBody({
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
             <span className="truncate text-sm font-medium">{name}</span>
+            <BigCountBadge count={cfg.counts[uid]} since={cfg.countsSince} />
             {extra}
           </span>
           {member && member.name && member.name !== name ? (
@@ -653,6 +679,7 @@ function BigOrdersBody({
                       >
                         <MemberAvatar id={m.uid} name={personLabel(m)} photoURL={m.photoURL} className="h-7 w-7 shrink-0" />
                         <span className="min-w-0 flex-1 truncate text-sm">{personLabel(m)}</span>
+                        <BigCountBadge count={cfg.counts[m.uid]} since={cfg.countsSince} />
                         <span className="flex shrink-0 items-center gap-1 text-[12px] text-muted-foreground">
                           <Plus className="h-4 w-4" /> в очередь
                         </span>
@@ -708,6 +735,46 @@ function BigOrdersBody({
         </SortableContext>
       </Section>
       </DndContext>
+
+      <Section
+        eyebrow={
+          cfg.countsSince
+            ? `считаем с ${timeFormat().format(cfg.countsSince)}${resetBy ? ` · сбросил(а) ${personLabel(resetBy)}` : ""}`
+            : "считаем с первой выдачи"
+        }
+        title="Получили заказы от порога"
+        action={
+          isOwner ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-h-11 gap-1.5 sm:min-h-8"
+              disabled={tally.length === 0}
+              onClick={() => void resetCounts()}
+            >
+              <RotateCcw className="h-3.5 w-3.5" /> Сбросить
+            </Button>
+          ) : null
+        }
+        padded={false}
+      >
+        {tally.length === 0 ? (
+          <p className="px-4 py-5 text-[12.5px] text-muted-foreground">
+            Пока никто. Каждый крупный заказ даёт получившему +1 — число стоит рядом с его именем здесь и в окне
+            выдачи. Сбрасывает только Owner.
+          </p>
+        ) : (
+          <ul className="flex flex-wrap gap-2 px-3 py-3 sm:px-4">
+            {tally.map((t) => (
+              <li key={t.uid} className="flex min-w-0 items-center gap-2 rounded-full border border-border bg-muted/30 py-1 pl-1 pr-3">
+                <MemberAvatar id={t.uid} name={t.name} photoURL={byUid.get(t.uid)?.photoURL} className="h-6 w-6 shrink-0" />
+                <span className="max-w-[10rem] truncate text-[12.5px]">{t.name}</span>
+                <BigCountBadge count={t.n} since={cfg.countsSince} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
 
       <p className="flex items-start gap-2 text-[12px] text-muted-foreground">
         <Settings2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />

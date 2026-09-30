@@ -194,8 +194,11 @@ export function useDeskLoadPublisher({
     [active, subPage, rows, responsibleOptions, monthKey, periods]
   );
   const osOrders = useMemo(
-    () => (active && subPage ? collectOsOrders(subPage.columns, rows, responsibleOptions) : null),
-    [active, subPage, rows, responsibleOptions]
+    () =>
+      active && subPage
+        ? collectOsOrders(subPage.columns, rows, responsibleOptions, { onlyOsManaged: page?.ownerOnly === true })
+        : null,
+    [active, subPage, rows, responsibleOptions, page?.ownerOnly]
   );
 
   const pageId = page?.id;

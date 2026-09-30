@@ -163,16 +163,16 @@ service cloud.firestore {
     // deliberately NOT sufficient here — Personal Space is a stricter,
     // separate gate on top of the parent page ACL.
     function canUsePersonalZone(workspaceId, pageData, zoneUid) {
-      return isOwner(workspaceId)
+      return isOwner(workspaceId) || (!isOwnerOnlyPage(pageData) && (
         // Своя личная зона на СВОЁМ столе ОС — и у Тимлида + ОС (как canEditPage).
-        || (pageData.get('osDesk', false) == true
+        (pageData.get('osDesk', false) == true
           && pageData.get('responsibleUserId', null) == request.auth.uid
           && pageData.get('createdBy', '') == request.auth.uid
           && zoneUid == request.auth.uid)
         || (!isDeskBlocked(workspaceId) && (
           (isResponsiblePage(workspaceId, pageData) && zoneUid == request.auth.uid)
           || (isMember(workspaceId) && zoneUid == request.auth.uid
-              && request.auth.uid in pageData.get('personalZoneAllowedUsers', []))));
+              && request.auth.uid in pageData.get('personalZoneAllowedUsers', []))))));
     }
 
     /**
@@ -204,6 +204,16 @@ service cloud.firestore {
     // ответственного или editableUsers.
     function isOsDeskPage(pageData) {
       return pageData.get('osDesk', false) == true;
+    }
+
+    // Стол «только для Owner» (просьба Nurba 29.09.2026): таблицу, вкладки,
+    // чат, комментарии и личные зоны видит и правит ТОЛЬКО Owner — поверх
+    // всех обходов (ответственный, allowedUsers/editableUsers, ОС видит всё,
+    // Тимлид+Технарь, Тимлид+, наблюдатели). Сам документ стола остаётся в
+    // списках: рейтинги и выдача заказа. pageData всюду — get() стола по id
+    // из пути или из записи, поэтому .get() тут не расходится с list-запросами.
+    function isOwnerOnlyPage(pageData) {
+      return pageData.get('ownerOnly', false) == true;
     }
 
     // Строки таблиц переехали в Supabase (`rowsBackend` у workspace, «гибрид»
@@ -382,7 +392,7 @@ service cloud.firestore {
     // Responsible person: their own desk even if hidden or missing from
     // allowedUsers. Everyone else: explicit allowedUsers grant.
     function canAccessPage(workspaceId, pageData) {
-      return isOwner(workspaceId) ||
+      return isOwner(workspaceId) || (!isOwnerOnlyPage(pageData) && (
         isLeadPlus(workspaceId) ||
         isTeamLeadTech(workspaceId) ||
         (isMember(workspaceId) && isOsDeskPage(pageData)) ||
@@ -391,7 +401,7 @@ service cloud.firestore {
         isDeskObserver(workspaceId) ||
         (!isDeskBlocked(workspaceId) && (
           isResponsiblePage(workspaceId, pageData) ||
-          (isMember(workspaceId) && request.auth.uid in pageData.get('allowedUsers', []))));
+          (isMember(workspaceId) && request.auth.uid in pageData.get('allowedUsers', []))))));
     }
 
     // Viewers can open a page but never write row data on it.
@@ -400,7 +410,7 @@ service cloud.firestore {
     // editableUsers too — a separate grant the Owner or this page's
     // responsible person controls independently of plain view access.
     function canEditPage(workspaceId, pageData) {
-      return isOwner(workspaceId) ||
+      return isOwner(workspaceId) || (!isOwnerOnlyPage(pageData) && (
         // Тимлид+ правит данные всех столов (структуру стола — нет, см. pages).
         isLeadPlus(workspaceId) ||
         // Свой стол ОС ведёт и Тимлид + ОС: запрет Тимлиду касается столов
@@ -412,7 +422,7 @@ service cloud.firestore {
           && pageData.get('createdBy', '') == request.auth.uid) ||
         (!isDeskBlocked(workspaceId) && (
           pageData.get('responsibleUserId', null) == request.auth.uid ||
-          (canAccessPage(workspaceId, pageData) && request.auth.uid in pageData.get('editableUsers', []))));
+          (canAccessPage(workspaceId, pageData) && request.auth.uid in pageData.get('editableUsers', []))))));
     }
 
     // ---------------------------------------------------------------------
@@ -706,6 +716,7 @@ service cloud.firestore {
         // that claim exists a second create for the same uid is rejected —
         // including from a second tab or a repeated direct write.
         allow create: if isMember(workspaceId) && request.resource.data.workspaceId == workspaceId &&
+          (isOwner(workspaceId) || request.resource.data.get('ownerOnly', false) != true) &&
           (isOwner(workspaceId) ||
             (myRole(workspaceId) == 'admin' &&
               request.resource.data.responsibleUserId == request.auth.uid &&
@@ -729,6 +740,7 @@ service cloud.firestore {
           && hasRole(workspaceId, 'os')
           && pageId == 'osdesk_' + request.auth.uid
           && request.resource.data.get('osDesk', false) == true
+          && request.resource.data.get('ownerOnly', false) != true
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.responsibleUserId == request.auth.uid
           && request.auth.uid in request.resource.data.get('allowedUsers', []);
@@ -736,13 +748,19 @@ service cloud.firestore {
         // Тимлид+ заводит стол ОС участнику с ролью ОС — чтобы положить ему лид.
         allow create: if isLeadPlus(workspaceId) && request.resource.data.workspaceId == workspaceId
           && request.resource.data.get('osDesk', false) == true
+          && request.resource.data.get('ownerOnly', false) != true
           && pageId == 'osdesk_' + request.resource.data.responsibleUserId
           && request.resource.data.createdBy == request.resource.data.responsibleUserId
           && request.resource.data.responsibleUserId in request.resource.data.get('allowedUsers', [])
           && (memberDoc(workspaceId, request.resource.data.responsibleUserId).data.role == 'os'
             || 'os' in memberDoc(workspaceId, request.resource.data.responsibleUserId).data.get('extraRoles', []));
 
-        allow update: if isOwner(workspaceId);
+        allow update: if isOwner(workspaceId)
+          // «Только для Owner» — только true/false и не на столе ОС (ОС
+          // потерял бы свой стол и выдачу заказов).
+          && request.resource.data.get('ownerOnly', false) is bool
+          && !(request.resource.data.get('ownerOnly', false) == true
+            && request.resource.data.get('osDesk', false) == true);
         // Тимлид+ сверх полей доступа ставит поля месячной вкладки чужого
         // стола (autopilot / лид в стол ОС). Структуру стола — нет.
         allow update: if isLeadPlus(workspaceId)
@@ -778,12 +796,14 @@ service cloud.firestore {
         // this workspace, so neither may be rewritten here either.
         allow update: if isMember(workspaceId)
           && resource.data.responsibleUserId == request.auth.uid
+          // Стол «только для Owner» ведёт Owner — ответственный его не правит.
+          && resource.data.get('ownerOnly', false) != true
           // osDesk снять нельзя: иначе ОС одним merge превращал бы свой
           // личный стол в обычный — и тот всплывал бы в «Столах», на
           // дашборде и в «Технарях», где ему делать нечего.
           // techEditable — исключение из «заказы ведёт ОС»: выдаёт только
           // Owner, иначе технарь сам снял бы с себя замок.
-          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['responsibleUserId', 'createdBy', 'workspaceId', 'inactive', 'inactiveAt', 'inactiveBy', 'osDesk', 'techEditable']);
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['responsibleUserId', 'createdBy', 'workspaceId', 'inactive', 'inactiveAt', 'inactiveBy', 'osDesk', 'techEditable', 'ownerOnly']);
 
         // Admin (not Owner, who already has full rights above) may assign
         // or reassign who's responsible for this page. setPageResponsible()
@@ -836,7 +856,8 @@ service cloud.firestore {
             allow create: if isMember(workspaceId) &&
               canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
               request.resource.data.authorUid == request.auth.uid;
-            allow update, delete: if isMember(workspaceId) && resource.data.authorUid == request.auth.uid;
+            allow update, delete: if isMember(workspaceId) && resource.data.authorUid == request.auth.uid &&
+              canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
           }
         }
 
@@ -889,7 +910,8 @@ service cloud.firestore {
           allow create: if isMember(workspaceId) &&
             canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data) &&
             request.resource.data.authorUid == request.auth.uid;
-          allow update, delete: if isMember(workspaceId) && resource.data.authorUid == request.auth.uid;
+          allow update, delete: if isMember(workspaceId) && resource.data.authorUid == request.auth.uid &&
+            canAccessPage(workspaceId, get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId)).data);
         }
 
         // -----------------------------------------------------------------
@@ -987,7 +1009,8 @@ service cloud.firestore {
           && request.resource.data.workspaceId == workspaceId
           && request.resource.data.status == 'pending'
           && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId))
-          && get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId)).data.get('responsibleUserId', '') == request.resource.data.toUid;
+          && get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId)).data.get('responsibleUserId', '') == request.resource.data.toUid
+          && get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(request.resource.data.pageId)).data.get('ownerOnly', false) != true;
         allow update: if isMember(workspaceId)
           && resource.data.toUid == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
@@ -1063,8 +1086,10 @@ service cloud.firestore {
         allow read: if isMember(workspaceId);
         allow write: if isMember(workspaceId) &&
           (isOwner(workspaceId) ||
-            get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId))
-              .data.get('responsibleUserId', null) == request.auth.uid);
+            (get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId))
+              .data.get('responsibleUserId', null) == request.auth.uid
+             && get(/databases/$(database)/documents/workspaces/$(workspaceId)/pages/$(pageId))
+              .data.get('ownerOnly', false) != true));
       }
 
       // -----------------------------------------------------------------

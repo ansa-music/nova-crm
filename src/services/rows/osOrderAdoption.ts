@@ -231,7 +231,16 @@ export async function adoptOrdersToOsDesks(input: {
   // них в отчёте — шум, за которым не видно настоящих отставших столов.
   const only = input.pageIds ? new Set(input.pageIds) : null;
   const candidates = pages.filter(
-    (p) => !p.osDesk && !p.inactive && p.responsibleUserId && isMonthlyDesk(p, [...members]) && (!only || only.has(p.id))
+    (p) =>
+      !p.osDesk &&
+      !p.inactive &&
+      p.responsibleUserId &&
+      isMonthlyDesk(p, [...members]) &&
+      (!only || only.has(p.id)) &&
+      // Общий прогон («передать все») столы «только для Owner» не трогает:
+      // строки-источники легли бы на столы ОС, а их читают все. У одного
+      // стола «Передать ОС» — осознанное решение Owner.
+      (only || !p.ownerOnly)
   );
   const techDesks = candidates.filter((p) => currentMonthSubPageId(p, monthKey));
   for (const stale of candidates.filter((p) => !currentMonthSubPageId(p, monthKey))) {

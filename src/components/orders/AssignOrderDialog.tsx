@@ -9,7 +9,7 @@ import { cn } from "@/utils/cn";
 import { orderRandomPool, type OrderCandidate } from "@/services/orderService";
 import { toast } from "@/components/ui/sonner";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { bigQueueView, isBigCheck, noteBigQueuePick, useBigOrderQueue } from "@/services/bigOrderQueueService";
+import { bigOrderRowKey, bigQueueView, isBigCheck, noteBigQueuePick, useBigOrderQueue } from "@/services/bigOrderQueueService";
 import { orderClaimScope, type WorkOrder, type WorkspaceMember } from "@/types";
 
 interface AssignOrderDialogProps {
@@ -37,7 +37,10 @@ export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, o
   /** Отдать и, если заказ крупный, убрать получившего из очереди «300к+». */
   async function assign(c: OrderCandidate) {
     await onAssign(c);
-    noteBigQueuePick(activeWorkspaceId, c.uid, order?.price ?? null);
+    // Ключ заказа: у заказа со стола ОС — адрес строки (тот же, что при выдаче со
+    // стола), иначе id заказа — повторная выдача не считается дважды.
+    const key = order ? (order.osSource ? bigOrderRowKey(order.osSource.pageId, order.osSource.rowId) : `order:${order.id}`) : null;
+    noteBigQueuePick(activeWorkspaceId, c.uid, order?.price ?? null, key);
   }
 
   async function run(key: string, fn: () => Promise<void>) {

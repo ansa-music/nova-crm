@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Check, Eye, EyeOff, Loader2, Search, ShieldCheck, Users, UserX, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, Eye, EyeOff, Loader2, Lock, Search, ShieldCheck, Users, UserX, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -19,6 +19,7 @@ import { displayNameOf } from "@/utils/displayName";
 import { timeAgo } from "@/utils/date";
 import { isDeskBlockedFor } from "@/utils/permissions";
 import { setPageResponsible, updatePageAccess } from "@/services/pageService";
+import { fetchOwnerOnlyPageIds, OwnerOnlySqlMissingError, setPageOwnerOnly } from "@/services/deskOwnerOnly";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { cn } from "@/utils/cn";
@@ -47,6 +48,13 @@ interface DeskAccessDialogProps {
  * `editableUsers`, как и в правилах. Owner видит любой стол всегда, поэтому
  * его в списке нет; Тимлид без роли Технарь столы не открывает, ему просмотр
  * выдать нельзя (правило isDeskBlocked) — переключатели у него выключены.
+ *
+ * «Только для Owner» (`page.ownerOnly`, 29.09.2026) — сверху, только у Owner и
+ * не на столе ОС. Флаг пишет `setPageOwnerOnly` отдельно от доступа: включая —
+ * ДО остальных записей, выключая — ПОСЛЕ (сбой посередине оставит стол
+ * закрытым, а не открытым). Пока флаг стоит, списки не действуют и не
+ * правятся, но хранятся; ответственный остаётся — стол по-прежнему его в
+ * рейтингах и при выдаче заказа.
  */
 export function DeskAccessDialog({
   page,
@@ -61,6 +69,7 @@ export function DeskAccessDialog({
   const [editableUsers, setEditableUsers] = useState<string[]>(page.editableUsers ?? []);
   const [hidden, setHidden] = useState<boolean>(Boolean(page.hiddenByResponsible));
   const [responsibleUserId, setResponsibleUserId] = useState<string>(page.responsibleUserId ?? "");
+  const [ownerOnly, setOwnerOnly] = useState<boolean>(Boolean(page.ownerOnly));
   const [search, setSearch] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
@@ -82,6 +91,29 @@ export function DeskAccessDialog({
 
   const canEdit = permissions.canManagePage(page);
   const canAssignResponsible = permissions.canAssignResponsible;
+  // Флаг ставит только Owner; стол ОС и дашборд так не закрывают.
+  const canSetOwnerOnly = permissions.actsAsOwner && !page.osDesk && !page.isDashboard;
+  const ownerOnlyTitle = ownerOnly ? "Стол только для Owner — списки сейчас не действуют" : undefined;
+  // Флаг лежит в двух местах (документ стола и база строк). Если прошлое
+  // сохранение упало посередине, они расходятся — тогда «Сохранить» пишет
+  // флаг заново, даже если документ уже совпадает с переключателем.
+  const [sqlOwnerOnly, setSqlOwnerOnly] = useState<boolean | null>(null);
+  const flagWriteFailedRef = useRef(false);
+  useEffect(() => {
+    if (!canSetOwnerOnly) return;
+    let cancelled = false;
+    fetchOwnerOnlyPageIds(page.workspaceId)
+      .then((ids) => {
+        if (!cancelled && ids) setSqlOwnerOnly(ids.has(page.id));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [canSetOwnerOnly, page.workspaceId, page.id]);
+  const flagMismatch = sqlOwnerOnly !== null && sqlOwnerOnly !== Boolean(page.ownerOnly);
+  // Просмотр не выдаётся, пока стол закрыт хоть где-то: и в переключателе, и в сохранённом флаге.
+  const approveBlocked = ownerOnly || Boolean(page.ownerOnly);
   const memberByUid = (uid: string) => members.find((m) => m.uid === uid) ?? null;
 
   function isBlocked(member: WorkspaceMember) {
@@ -89,7 +121,7 @@ export function DeskAccessDialog({
   }
 
   function toggleAccess(uid: string) {
-    if (!canEdit || uid === responsibleUserId) return;
+    if (!canEdit || ownerOnly || uid === responsibleUserId) return;
     setAllowedUsers((prev) => {
       if (prev.includes(uid)) {
         // Правка без просмотра невозможна — editableUsers всегда подмножество.
@@ -101,7 +133,7 @@ export function DeskAccessDialog({
   }
 
   function toggleEdit(uid: string) {
-    if (!canEdit) return;
+    if (!canEdit || ownerOnly) return;
     setEditableUsers((prev) => (prev.includes(uid) ? prev.filter((u) => u !== uid) : [...prev, uid]));
   }
 
@@ -111,6 +143,7 @@ export function DeskAccessDialog({
    * уходит в базу одним «Сохранить» вместе со списком.
    */
   function setOpenForAll(open: boolean) {
+    if (ownerOnly) return;
     setHidden(!open);
     const keep = responsibleUserId ? [responsibleUserId] : [];
     if (open) {
@@ -122,13 +155,13 @@ export function DeskAccessDialog({
   }
 
   function grantRole(role: "manager" | "os") {
-    if (!canEdit) return;
+    if (!canEdit || ownerOnly) return;
     const uids = otherMembers.filter((m) => memberHasRole(m, role) && !isBlocked(m)).map((m) => m.uid);
     setAllowedUsers((prev) => Array.from(new Set([...prev, ...uids])));
   }
 
   function revokeAll() {
-    if (!canEdit) return;
+    if (!canEdit || ownerOnly) return;
     const keep = responsibleUserId ? [responsibleUserId] : [];
     setAllowedUsers(keep);
     setEditableUsers((prev) => prev.filter((u) => keep.includes(u)));
@@ -136,6 +169,8 @@ export function DeskAccessDialog({
 
   async function handleResolve(request: ViewRequest, status: "approved" | "denied") {
     if (!onResolveRequest) return;
+    // На столе «только для Owner» просмотр не выдаётся — только «Отклонить».
+    if (status === "approved" && approveBlocked) return;
     setResolvingId(request.id);
     try {
       await onResolveRequest(request, status);
@@ -152,9 +187,32 @@ export function DeskAccessDialog({
     }
   }
 
+  async function writeOwnerOnlyFlag(on: boolean) {
+    try {
+      await setPageOwnerOnly(page.workspaceId, page, on);
+      flagWriteFailedRef.current = false;
+      setSqlOwnerOnly(null);
+    } catch (error) {
+      // Одна из двух записей могла пройти — следующее «Сохранить» повторит обе.
+      flagWriteFailedRef.current = true;
+      throw error;
+    }
+  }
+
   async function handleSave() {
     setIsSaving(true);
+    const ownerOnlyChanged =
+      canSetOwnerOnly &&
+      (ownerOnly !== Boolean(page.ownerOnly) ||
+        flagWriteFailedRef.current ||
+        (sqlOwnerOnly !== null && sqlOwnerOnly !== ownerOnly));
     try {
+      // Закрыть «только для Owner» — ДО записи списков: сбой не оставит стол
+      // открытым с уже новыми списками. Флаг идёт своей записью, не через
+      // updatePageAccess.
+      if (ownerOnlyChanged && ownerOnly) {
+        await writeOwnerOnlyFlag(true);
+      }
       const nextResponsible = responsibleUserId || null;
       const responsibleChanged = canAssignResponsible && nextResponsible !== (page.responsibleUserId ?? null);
       // Сначала ответственный, потом доступ: setPageResponsible безусловно
@@ -172,10 +230,24 @@ export function DeskAccessDialog({
           ...(canToggleVisibility ? { hiddenByResponsible: hidden } : {}),
         });
       }
-      toast.success("Доступ обновлён");
+      // Открыть — ПОСЛЕ: списки уже на месте и заработают сразу.
+      if (ownerOnlyChanged && !ownerOnly) {
+        await writeOwnerOnlyFlag(false);
+      }
+      toast.success(
+        ownerOnlyChanged
+          ? ownerOnly
+            ? "Стол только для Owner"
+            : "Стол снова открыт по спискам доступа"
+          : "Доступ обновлён"
+      );
       onOpenChange(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось сохранить доступ");
+      if (error instanceof OwnerOnlySqlMissingError) {
+        toast.error("«Только для Owner» не сохранено", { description: error.message });
+      } else {
+        toast.error(error instanceof Error ? error.message : "Не удалось сохранить доступ");
+      }
     } finally {
       setIsSaving(false);
     }
@@ -197,6 +269,40 @@ export function DeskAccessDialog({
         </DialogHeader>
 
         <div className="flex max-h-[70vh] flex-col gap-5 overflow-y-auto px-6 py-5">
+          {canSetOwnerOnly && (
+            <section
+              className={cn(
+                "flex items-start gap-3 rounded-xl border p-3",
+                ownerOnly ? "border-primary/30 bg-primary/[0.06]" : "border-border"
+              )}
+            >
+              <Lock className={cn("mt-0.5 h-4 w-4 shrink-0", ownerOnly ? "text-primary" : "text-muted-foreground")} />
+              <div className="min-w-0 flex-1">
+                <Label htmlFor="desk-owner-only" className="text-sm font-medium">
+                  Только для Owner
+                </Label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Таблицу, вкладки, чат и личные зоны видит только Owner — даже ответственный её не откроет. Стол
+                  остаётся в «Столах», в рейтингах и при выдаче заказа.
+                </p>
+                {flagMismatch && (
+                  <p className="mt-1 text-xs text-warning">
+                    {sqlOwnerOnly
+                      ? "В базе строк стол всё ещё закрыт — «Сохранить» выровняет по переключателю."
+                      : "В базе строк стол ещё не закрыт — «Сохранить» выровняет по переключателю."}
+                  </p>
+                )}
+              </div>
+              <Switch
+                id="desk-owner-only"
+                checked={ownerOnly}
+                onCheckedChange={setOwnerOnly}
+                disabled={isSaving}
+                aria-label="Только для Owner"
+              />
+            </section>
+          )}
+
           {canAssignResponsible && (
             <section className="flex flex-col gap-1.5">
               <Label className="flex items-center gap-1.5">
@@ -241,7 +347,13 @@ export function DeskAccessDialog({
                     : "Просмотр у всех участников. Выключите, чтобы оставить только выбранных."}
                 </p>
               </div>
-              <Switch checked={!hidden} onCheckedChange={setOpenForAll} disabled={!canEdit} aria-label="Стол открыт для всех" />
+              <Switch
+                checked={!hidden}
+                onCheckedChange={setOpenForAll}
+                disabled={!canEdit || ownerOnly}
+                title={ownerOnlyTitle}
+                aria-label="Стол открыт для всех"
+              />
             </section>
           )}
 
@@ -272,7 +384,19 @@ export function DeskAccessDialog({
                         {timeAgo(request.createdAt)}
                       </p>
                     </div>
-                    <Button size="sm" className="h-8 gap-1" disabled={busy} onClick={() => void handleResolve(request, "approved")}>
+                    <Button
+                      size="sm"
+                      className="h-8 gap-1"
+                      disabled={busy || approveBlocked}
+                      title={
+                        approveBlocked
+                          ? ownerOnly
+                            ? "Стол только для Owner — просмотр не выдаётся"
+                            : "Сначала сохраните — стол ещё только для Owner"
+                          : undefined
+                      }
+                      onClick={() => void handleResolve(request, "approved")}
+                    >
                       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Открыть
                     </Button>
                     <Button
@@ -297,19 +421,32 @@ export function DeskAccessDialog({
                 Участники · просмотр {viewersCount} · правка {editorsCount}
               </p>
               {canEdit && (
-                <div className="flex flex-wrap gap-1">
-                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => grantRole("manager")}>
+                <div className="flex flex-wrap gap-1" title={ownerOnlyTitle}>
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" disabled={ownerOnly} onClick={() => grantRole("manager")}>
                     + технари
                   </Button>
-                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => grantRole("os")}>
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" disabled={ownerOnly} onClick={() => grantRole("os")}>
                     + ОС
                   </Button>
-                  <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground" onClick={revokeAll}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+                    disabled={ownerOnly}
+                    onClick={revokeAll}
+                  >
                     <UserX className="h-3 w-3" /> убрать всех
                   </Button>
                 </div>
               )}
             </div>
+
+            {ownerOnly && (
+              <p className="text-xs text-muted-foreground">
+                Пока стол только для Owner, эти списки не действуют — они сохранены и снова заработают, когда «Только
+                для Owner» выключат.
+              </p>
+            )}
 
             {otherMembers.length > 5 && (
               <div className="relative">
@@ -359,19 +496,22 @@ export function DeskAccessDialog({
                         {blocked ? " · столы не открывает" : ""}
                       </p>
                     </div>
-                    <div className="flex w-16 shrink-0 justify-center" title={blocked ? "Тимлид без роли Технарь столы не открывает" : "Просмотр"}>
+                    <div
+                      className="flex w-16 shrink-0 justify-center"
+                      title={blocked ? "Тимлид без роли Технарь столы не открывает" : (ownerOnlyTitle ?? "Просмотр")}
+                    >
                       <Switch
                         checked={hasAccess && !blocked}
                         onCheckedChange={() => toggleAccess(m.uid)}
-                        disabled={!canEdit || isResp || blocked}
+                        disabled={!canEdit || isResp || blocked || ownerOnly}
                         aria-label={`Просмотр: ${displayNameOf(m)}`}
                       />
                     </div>
-                    <div className="flex w-16 shrink-0 justify-center" title="Правка">
+                    <div className="flex w-16 shrink-0 justify-center" title={ownerOnlyTitle ?? "Правка"}>
                       <Switch
                         checked={canEditThis && !blocked}
                         onCheckedChange={() => toggleEdit(m.uid)}
-                        disabled={!canEdit || isResp || blocked || !hasAccess}
+                        disabled={!canEdit || isResp || blocked || !hasAccess || ownerOnly}
                         aria-label={`Правка: ${displayNameOf(m)}`}
                       />
                     </div>

@@ -10,6 +10,7 @@ import { useDeskLoads, useTechSchedules } from "@/hooks/useDeskLoads";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { currentMonthSubPageId } from "@/services/monthTabService";
 import { bigQueueView, isBigCheck, shortMoney, useBigOrderQueue } from "@/services/bigOrderQueueService";
+import { BigCountBadge } from "@/components/orders/BigCountBadge";
 import { techTargetProblem } from "@/services/rows/osOrderMirror";
 import { cn } from "@/utils/cn";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
@@ -260,8 +261,14 @@ export function TechPickerSheet({
     return queueUids
       .map((uid) => byUid.get(uid))
       .filter((m): m is NonNullable<typeof m> => Boolean(m && m.status === "active"))
-      .map((m) => personLabel(m) || m.techNickValue || m.email || m.uid);
-  }, [members, queueUids]);
+      .map((m) => {
+        const name = personLabel(m) || m.techNickValue || m.email || m.uid;
+        const n = bigSnap.data?.counts[m.uid];
+        return n ? `${name} (${n})` : name;
+      });
+  }, [members, queueUids, bigSnap.data]);
+  const bigCounts = bigView ? bigSnap.data?.counts ?? null : null;
+  const bigSince = bigSnap.data?.countsSince ?? null;
   const moneyLine = checkTotal ? `${formatNumber(checkTotal)} ${currencySymbol()}` : "";
 
   return (
@@ -382,6 +389,8 @@ export function TechPickerSheet({
                     selected={Boolean(selectedNick) && card.nick === selectedNick}
                     disabled={busy}
                     bigMode={bigMode}
+                    bigCount={bigCounts?.[card.uid]}
+                    bigSince={bigSince}
                     onPick={() => onPick(card)}
                   />
                 </li>
@@ -428,6 +437,8 @@ function TechCardButton({
   selected,
   disabled,
   bigMode = false,
+  bigCount,
+  bigSince = null,
   onPick,
 }: {
   card: TechCard;
@@ -435,6 +446,9 @@ function TechCardButton({
   disabled: boolean;
   /** Крупный заказ: выходной и занятость — подпись, а не повод отказать. */
   bigMode?: boolean;
+  /** Сколько крупных заказов получил с последнего сброса. */
+  bigCount?: number;
+  bigSince?: number | null;
   onPick: () => void;
 }) {
   const blocked = card.availability === "blocked";
@@ -469,8 +483,9 @@ function TechCardButton({
       ) : null}
       <MemberAvatar id={card.uid} name={card.name} photoURL={card.photoURL} className="h-10 w-10 shrink-0" />
       <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-sm font-semibold">{card.name}</span>
+        <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+          <span className="max-w-full truncate text-sm font-semibold">{card.name}</span>
+          <BigCountBadge count={bigCount} since={bigSince} />
           {selected ? <Check className="h-4 w-4 shrink-0 text-primary" /> : null}
           {bigMode && card.queuePos === 1 ? (
             <span className="shrink-0 rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">в приоритете</span>

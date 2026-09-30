@@ -336,6 +336,8 @@ export default function UsersPage() {
   async function handleTogglePageAccess(uid: string, pageId: string, checked: boolean) {
     const latest = useWorkspaceStore.getState().pages.find((p) => p.id === pageId);
     if (!latest) return;
+    // Стол «только для Owner»: список просмотра сейчас не действует — не правим.
+    if (latest.ownerOnly) return;
     const already = Boolean(latest.allowedUsers?.includes(uid));
     if (already === checked) return;
     if (!checked && latest.responsibleUserId === uid) {
@@ -719,17 +721,30 @@ export default function UsersPage() {
                     {deskPages.map((page) => {
                       const Icon = PAGE_ICON_MAP[(page.icon as PageIconName) ?? "LayoutGrid"] ?? PAGE_ICON_MAP.LayoutGrid ?? PAGE_ICON_MAP.Users;
                       const checked = Boolean(page.allowedUsers?.includes(member.uid) || page.responsibleUserId === member.uid);
+                      const ownerOnly = Boolean(page.ownerOnly);
                       return (
                         <label
                           key={page.id}
-                          className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-accent/40"
+                          title={ownerOnly ? "Стол только для Owner" : undefined}
+                          className={cn(
+                            "flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm",
+                            ownerOnly ? "text-muted-foreground" : "hover:bg-accent/40"
+                          )}
                         >
                           <Checkbox
                             checked={checked}
+                            disabled={ownerOnly}
+                            title={ownerOnly ? "Стол только для Owner" : undefined}
                             onCheckedChange={(value) => handleTogglePageAccess(member.uid, page.id, Boolean(value))}
                           />
                           <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: `hsl(${page.color})` }} />
                           <span className="truncate">{page.name}</span>
+                          {ownerOnly ? (
+                            <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
+                              <Lock className="h-3 w-3" />
+                              Только Owner
+                            </span>
+                          ) : null}
                         </label>
                       );
                     })}

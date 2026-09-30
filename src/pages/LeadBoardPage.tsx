@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { ArrowDown, ArrowDownUp, ArrowUp, Check, ChevronDown, ChevronRight, History, IdCard, Layers, Loader2, Plus, RefreshCw, Search, Sparkles, Wrench } from "lucide-react";
+import { ArrowDown, ArrowDownUp, ArrowUp, Check, ChevronDown, ChevronRight, History, IdCard, Layers, Loader2, Lock, Plus, RefreshCw, Search, Sparkles, Wrench } from "lucide-react";
 import { AccessDenied } from "@/components/common/AccessDenied";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { Alert } from "@/components/ui/alert";
@@ -35,6 +35,7 @@ import {
   leadStats,
   leadStatusOf,
   leadTablesFor,
+  leadTechDeskHidden,
   moveLeadOs,
   osMembersOf,
   patchLeadCells,
@@ -127,10 +128,10 @@ export default function LeadBoardPage() {
       </div>
     );
   }
-  return <LeadBoard workspaceId={activeWorkspaceId} />;
+  return <LeadBoard workspaceId={activeWorkspaceId} viewerIsOwner={permissions.actsAsOwner} />;
 }
 
-function LeadBoard({ workspaceId }: { workspaceId: string }) {
+function LeadBoard({ workspaceId, viewerIsOwner }: { workspaceId: string; viewerIsOwner: boolean }) {
   const { activeWorkspace, members, pages, allPages, osDesks } = useWorkspace();
   const { profile } = useAuth();
   const mobile = useIsMobile();
@@ -160,13 +161,15 @@ function LeadBoard({ workspaceId }: { workspaceId: string }) {
   const [groupParam, setGroupParam] = useUrlState<"1" | "0">("g", "1", { values: ["1", "0"] });
   const grouped = groupParam === "1";
 
-  const tables = useMemo(() => leadTablesFor(period, osDesks, pages), [period, osDesks, pages]);
+  // Столы «только для Owner» — только у Owner (Тимлиду+ их строки закрыты базой).
+  const tables = useMemo(() => leadTablesFor(period, osDesks, pages, viewerIsOwner), [period, osDesks, pages, viewerIsOwner]);
   const allDesks = useMemo(() => {
     const map = new Map<string, WorkspacePage>();
     for (const p of [...allPages, ...osDesks]) map.set(p.id, p);
     return [...map.values()];
   }, [allPages, osDesks]);
   const pagesById = useMemo(() => new Map(allDesks.map((p) => [p.id, p])), [allDesks]);
+  const techHiddenOf = useCallback((o: LeadOrder) => leadTechDeskHidden(o, pagesById, viewerIsOwner), [pagesById, viewerIsOwner]);
   const board = useLeadBoard({ workspaceId, tables, pages: allDesks, enabled: true });
 
   const statusOptions = useMemo(() => getColumnOptions(STATUS_COLUMN, activeWorkspace), [activeWorkspace]);
@@ -403,7 +406,7 @@ function LeadBoard({ workspaceId }: { workspaceId: string }) {
               {collapsed.has(g.value)
                 ? null
                 : g.orders.map((o) => (
-                    <LeadMobileCard key={o.key} order={o} os={o.osUid ? (memberByUid.get(o.osUid) ?? null) : null} tech={techOf(o)} statusOptions={statusOptions} onOpen={() => setOpenKey(o.key)} />
+                    <LeadMobileCard key={o.key} order={o} os={o.osUid ? (memberByUid.get(o.osUid) ?? null) : null} tech={techOf(o)} techHidden={techHiddenOf(o)} statusOptions={statusOptions} onOpen={() => setOpenKey(o.key)} />
                   ))}
             </section>
           ))}
@@ -434,6 +437,7 @@ function LeadBoard({ workspaceId }: { workspaceId: string }) {
                         zebra={i % 2 === 1}
                         os={o.osUid ? (memberByUid.get(o.osUid) ?? null) : null}
                         tech={techOf(o)}
+                        techHidden={techHiddenOf(o)}
                         osMembers={osMembers}
                         statusOptions={statusOptions}
                         onOpen={() => setOpenKey(o.key)}
@@ -457,6 +461,7 @@ function LeadBoard({ workspaceId }: { workspaceId: string }) {
         os={openOrder?.osUid ? (memberByUid.get(openOrder.osUid) ?? null) : null}
         osMembers={osMembers}
         tech={openOrder ? techOf(openOrder) : null}
+        techDeskHidden={openOrder ? techHiddenOf(openOrder) : false}
         historyCtx={historyCtx}
         historyVersion={openOrder?.row.updatedAt ?? 0}
         onCell={onCell}
@@ -684,8 +689,37 @@ function TechStatusMark({ order, statusOptions, full }: { order: LeadOrder; stat
   );
 }
 
-function TechCell({ order, tech, statusOptions }: { order: LeadOrder; tech: TechIdentity | null; statusOptions: readonly StatusOption[] }) {
+/** Стол технаря закрыт «только для Owner» — копии не видно, «не выдан» было бы неправдой. */
+const TECH_DESK_HIDDEN_LABEL = "стол технаря закрыт Owner";
+
+function HiddenDeskMark() {
+  return (
+    <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground" title={TECH_DESK_HIDDEN_LABEL}>
+      <Lock className="h-3 w-3" aria-label={TECH_DESK_HIDDEN_LABEL} />
+    </span>
+  );
+}
+
+function TechCell({
+  order,
+  tech,
+  techHidden,
+  statusOptions,
+}: {
+  order: LeadOrder;
+  tech: TechIdentity | null;
+  techHidden: boolean;
+  statusOptions: readonly StatusOption[];
+}) {
   if (!tech) {
+    if (techHidden) {
+      return (
+        <span className="flex min-w-0 items-center gap-1 px-1.5 text-[12px] text-muted-foreground" title={TECH_DESK_HIDDEN_LABEL}>
+          <Lock className="h-3 w-3 shrink-0" aria-hidden />
+          <span className="truncate">{TECH_DESK_HIDDEN_LABEL}</span>
+        </span>
+      );
+    }
     return <span className="px-1.5 text-[12.5px] text-muted-foreground">{order.kind === "os" ? "не выдан" : "—"}</span>;
   }
   return (
@@ -695,6 +729,8 @@ function TechCell({ order, tech, statusOptions }: { order: LeadOrder; tech: Tech
       </span>
       {order.kind === "os" && order.techStatus ? (
         <TechStatusMark order={order} statusOptions={statusOptions} />
+      ) : techHidden ? (
+        <HiddenDeskMark />
       ) : order.kind === "os" && !order.copy ? (
         <span className="ml-auto shrink-0 text-[11px] text-muted-foreground" title="Технарь выбран, заказ едет к нему">едет</span>
       ) : null}
@@ -722,6 +758,7 @@ function LeadRow({
   zebra,
   os,
   tech,
+  techHidden,
   osMembers,
   statusOptions,
   onOpen,
@@ -734,6 +771,7 @@ function LeadRow({
   zebra: boolean;
   os: WorkspaceMember | null;
   tech: TechIdentity | null;
+  techHidden: boolean;
   osMembers: readonly WorkspaceMember[];
   statusOptions: readonly StatusOption[];
   onOpen: () => void;
@@ -767,7 +805,7 @@ function LeadRow({
         <OsPicker current={os} osMembers={osMembers} disabled={order.kind !== "os"} onPick={(m) => onMoveOs(order, m)} />
       </div>
       <div className="min-w-0">
-        <TechCell order={order} tech={tech} statusOptions={statusOptions} />
+        <TechCell order={order} tech={tech} techHidden={techHidden} statusOptions={statusOptions} />
       </div>
       <div className="flex min-w-0 items-center gap-0.5 px-1">
         {payChip(k.price)}
@@ -805,12 +843,14 @@ function LeadMobileCard({
   order,
   os,
   tech,
+  techHidden,
   statusOptions,
   onOpen,
 }: {
   order: LeadOrder;
   os: WorkspaceMember | null;
   tech: TechIdentity | null;
+  techHidden: boolean;
   statusOptions: readonly StatusOption[];
   onOpen: () => void;
 }) {
@@ -835,7 +875,12 @@ function LeadMobileCard({
         </span>
         <span className="text-muted-foreground">→</span>
         <span className="flex min-w-0 flex-1 items-center gap-2">
-          {tech ? <TechBadge identity={tech} /> : <span className="text-[12.5px] text-muted-foreground">не выдан</span>}
+          {tech ? (
+            <TechBadge identity={tech} />
+          ) : (
+            <span className="text-[12.5px] text-muted-foreground">{techHidden ? TECH_DESK_HIDDEN_LABEL : "не выдан"}</span>
+          )}
+          {tech && techHidden ? <HiddenDeskMark /> : null}
         </span>
       </div>
     </button>

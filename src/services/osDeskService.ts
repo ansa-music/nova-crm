@@ -1,4 +1,6 @@
-import { db } from "@/firebase/firebase";
+import { auth, db } from "@/firebase/firebase";
+import { useWorkspaceStore } from "@/store/workspaceStore";
+import { isOwnerOnlyPage } from "@/utils/permissions";
 import { generateId } from "@/utils/id";
 import { createPageDoc, ensureNewDeskAcl, fetchPageDoc, stripUndefined, updatePageColumns, updatePageMainTab } from "@/services/pageService";
 import { ensureMonthTab } from "@/services/monthTabService";
@@ -181,6 +183,27 @@ function columnsInDisplayOrder(columns: readonly PageColumn[]): PageColumn[] {
 export const OS_RETURNED_REISSUE_ERROR =
   "Заказ вернули технарю на «Правке столов» — его строка осталась у него в столе, новая копия была бы дублем. Вернуть заказ под ОС может Owner: «Правка столов» → «Передать ОС»";
 
+/** Отказ «Выдать заново»: стол технаря закрыт «только для Owner» — проверить строки может лишь Owner. */
+export class OwnerOnlyReissueError extends Error {
+  constructor() {
+    super("Стол технаря закрыт Owner — выдать заново может Owner");
+    this.name = "OwnerOnlyReissueError";
+  }
+}
+
+/**
+ * Owner ли эта сессия — по НАСТОЯЩЕЙ роли (база режиму роли не верит):
+ * создатель workspace или участник с ролью Owner.
+ */
+function sessionIsOwner(workspaceId: string): boolean {
+  const uid = auth?.currentUser?.uid;
+  if (!uid) return false;
+  const state = useWorkspaceStore.getState();
+  if (state.workspaces.find((w) => w.id === workspaceId)?.ownerId === uid) return true;
+  if (state.activeWorkspaceId !== workspaceId) return false;
+  return state.members.find((m) => m.uid === uid)?.role === "owner";
+}
+
 /**
  * Лежит ли ещё в столе технаря строка этого заказа, который Owner вернул
  * технарю («Правка столов» → «Вернуть»): `releaseDeskOrders` снимает с неё
@@ -196,11 +219,18 @@ export async function returnedRowOnTechDesk(input: {
   pages: readonly WorkspacePage[];
   /** Стол, куда собирались писать (на случай, если его нет в `pages`). */
   targetPageId?: string | null;
+  /** Спрашивает Owner — строки закрытого стола ему видны. Нет — по сессии. */
+  viewerIsOwner?: boolean;
 }): Promise<boolean> {
   const desks = input.pages
     .filter((p) => !p.osDesk && !p.isDashboard && p.responsibleUserId === input.techUid)
     .map((p) => p.id);
   if (input.targetPageId) desks.push(input.targetPageId);
+  // Стол «только для Owner»: строк технаря в нём никто, кроме Owner, не видит
+  // (база отдаёт ОС лишь его собственные копии), и «строки нет» здесь было бы
+  // неправдой — новая копия легла бы дублем. Решает Owner.
+  const hidden = input.pages.some((p) => desks.includes(p.id) && isOwnerOnlyPage(p));
+  if (hidden && !(input.viewerIsOwner ?? sessionIsOwner(input.workspaceId))) throw new OwnerOnlyReissueError();
   const ids = [mirrorRowId(input.row.id)];
   if (input.row.id.startsWith("adopt_") && input.row.id.length > "adopt_".length) {
     ids.push(input.row.id.slice("adopt_".length));
@@ -261,7 +291,8 @@ export async function pushOsRowToTech(input: {
           pages: input.pages,
           targetPageId: target.page.id,
         });
-      } catch {
+      } catch (error) {
+        if (error instanceof OwnerOnlyReissueError) throw error;
         throw new Error("Не удалось проверить стол технаря — заказ не выдан, повторите позже");
       }
       if (returned) throw new Error(OS_RETURNED_REISSUE_ERROR);

@@ -484,7 +484,7 @@ export async function refreshDeskLoadFromRows(
   // того хранилища, куда запись ушла на деле (см. DeskLoadPublishResult).
   rememberPublishedSignature(deskLoadSignatureKey(page.id, subPageId, result.backend), deskLoadSignature({ ...next, responsibleUserId }));
   // The ОС order lists go with the counts — same trigger, same desk.
-  const osOrders = collectOsOrders(columns, rows, responsibleOptions);
+  const osOrders = collectOsOrders(columns, rows, responsibleOptions, { onlyOsManaged: page.ownerOnly === true });
   await Promise.all(
     Object.entries(osOrders).map(async ([osValue, orders]) => {
       const key = osOrdersSignatureKey(page.id, osValue);

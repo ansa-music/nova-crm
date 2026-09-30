@@ -168,11 +168,17 @@ const OS_ORDERS_LIMIT = 150;
  * This month's orders per ОС (by option value): title from the «Клиент»/
  * first text column, raw status, order date. Newest first. Blank rows are
  * skipped like everywhere else.
+ *
+ * `onlyOsManaged` — стол «только для Owner»: в список ОС идут только строки,
+ * которые ведёт сам ОС (`osUid`), — остальные строки такого стола ему не
+ * видны и в базе. Ник, у которого на столе только чужие строки, получает
+ * ПУСТОЙ список: он перезапишет список, опубликованный до закрытия стола.
  */
 export function collectOsOrders(
   columns: PageColumn[],
   rows: PageRow[],
-  responsibleOptions: StatusOption[] = []
+  responsibleOptions: StatusOption[] = [],
+  options: { onlyOsManaged?: boolean } = {}
 ): Record<string, OsOrderItem[]> {
   const visible = columns.filter((c) => !c.hidden);
   const titleCol = findQuickOrderColumns(visible).client ?? visible[0] ?? columns[0];
@@ -187,6 +193,10 @@ export function collectOsOrders(
     const cells = row.cells ?? {};
     const values = rowOsValues(cells, osColumns, byValue, byLabel);
     if (values.size === 0) continue;
+    if (options.onlyOsManaged && !row.osUid) {
+      for (const os of values) out[os] ??= [];
+      continue;
+    }
     const dateRaw = dateCol ? Number(cells[dateCol.key]) : NaN;
     const item: OsOrderItem = {
       rowId: row.id,

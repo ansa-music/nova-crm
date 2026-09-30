@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Search, UsersRound } from "lucide-react";
+import { Lock, Search, UsersRound } from "lucide-react";
 import { useNavigate } from "react-router";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -169,10 +169,12 @@ export default function PeoplePage() {
         <div className="flex flex-col gap-2">
           {filtered.map((group) => {
             const openPage = group.pages.find((p) => mayOpen(p)) ?? null;
-            const requestPage = openPage ? null : (group.pages[0] ?? null);
+            // Стол «только для Owner» по запросу не открывается — просим другой.
+            const requestPage = openPage ? null : (group.pages.find((p) => !p.ownerOnly) ?? null);
             const name = personLabel(group.member) || (group.uid ? "Стол" : "Без ответственного");
             const desk = groupDeskSubtitle(group);
             const hidden = Boolean(group.deskHidden);
+            const ownerOnly = group.pages.length > 0 && group.pages.every((p) => p.ownerOnly);
             const rowClass = cn(
               "flex min-h-16 w-full items-center gap-3 rounded-xl border border-primary/25 bg-card px-3 py-3 text-left",
               hidden && "opacity-80"
@@ -208,7 +210,15 @@ export default function PeoplePage() {
                     {rolesOf(group.member).map((role) => (
                       <RoleBadge key={role} role={role} />
                     ))}
-                    {hidden ? (
+                    {ownerOnly ? (
+                      <span
+                        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/25 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground"
+                        title="Таблицу этого стола видит только Owner"
+                      >
+                        <Lock className="h-3 w-3" />
+                        Только Owner
+                      </span>
+                    ) : hidden ? (
                       <span className="shrink-0 rounded-full border border-primary/25 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
                         скрыт
                       </span>

@@ -29,6 +29,11 @@ import { listenTopic, ringTopic } from "@/services/sb/topicDoorbell";
  * крупный заказ, сам уходит в начало группы (`big_queue_took`, может тот, кто
  * выдаёт заказы), `taken[uid]` — когда (мс сервера). Зовут окна выдачи ПОСЛЕ
  * удачной записи технаря — `noteBigQueuePick`.
+ *
+ * Счётчик (там же): сколько крупных заказов человек получил с последнего сброса
+ * (`counts`, считает база по журналу «заказ → технарь»: повторная выдача того же
+ * заказа не считается, переданный заказ переходит к новому). Сбрасывает только
+ * Owner (`resetBigQueueCounts`).
  */
 
 export const DEFAULT_BIG_THRESHOLD = 300_000;
@@ -45,6 +50,11 @@ export interface BigQueueConfig {
   pausedBy: string | null;
   /** uid → когда получил крупный заказ (мс сервера). */
   taken: Record<string, number>;
+  /** uid → сколько крупных заказов получил с последнего сброса. */
+  counts: Record<string, number>;
+  /** С какого момента считаем (мс сервера); null — ещё ни одного. */
+  countsSince: number | null;
+  countsResetBy: string | null;
   updatedAt: number | null;
   updatedBy: string | null;
 }
@@ -124,6 +134,9 @@ export function parseBigQueue(data: unknown): BigQueueConfig {
     enabled: o.enabled !== false,
     pausedBy: typeof o.pausedBy === "string" ? o.pausedBy : null,
     taken: takenMap(o.taken),
+    counts: takenMap(o.counts),
+    countsSince: Number.isFinite(Number(o.countsSince)) && Number(o.countsSince) > 0 ? Number(o.countsSince) : null,
+    countsResetBy: typeof o.countsResetBy === "string" ? o.countsResetBy : null,
     updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : null,
     updatedBy: typeof o.updatedBy === "string" ? o.updatedBy : null,
   };
@@ -249,6 +262,7 @@ function queueErrorText(error: { code?: string; message?: string }, fallback: st
   if (msg.includes("queue too long")) return "В очереди — не больше 50 человек.";
   if (msg.includes("pool too long")) return "В группе — не больше 100 человек.";
   if (msg.includes("cannot issue orders")) return "Нет права выдавать заказы.";
+  if (msg.includes("only owner")) return "Сбросить счётчик может только Owner.";
   if (error.code === "42501") return "Нет права.";
   return `${fallback}${error.code ? ` (${error.code})` : ""}.`;
 }
@@ -338,12 +352,15 @@ export async function saveBigLists(ws: string, queue: string[], pool: string[]):
   }
 }
 
-/** Технарь получил крупный заказ — из очереди в начало группы. */
-export function markBigQueueTaken(ws: string, uid: string): Promise<BigQueueConfig> {
+/**
+ * Технарь получил крупный заказ: +1 к счётчику (по ключу заказа) и, пока
+ * функция работает, из очереди в начало группы.
+ */
+export function markBigQueueTaken(ws: string, uid: string, orderKey: string | null = null): Promise<BigQueueConfig> {
   return applyOptimistic(
     ws,
     (cfg) =>
-      cfg.queue.includes(uid)
+      cfg.enabled && cfg.queue.includes(uid)
         ? {
             ...cfg,
             queue: cfg.queue.filter((u) => u !== uid),
@@ -351,21 +368,49 @@ export function markBigQueueTaken(ws: string, uid: string): Promise<BigQueueConf
             taken: { ...cfg.taken, [uid]: Date.now() },
           }
         : cfg,
-    () => supabaseRows.rpc("big_queue_took", { p_workspace: ws, p_uid: uid }),
-    "Не удалось убрать из очереди",
+    () => supabaseRows.rpc("big_queue_took", { p_workspace: ws, p_uid: uid, p_order_key: orderKey }),
+    "Не удалось отметить крупный заказ",
   );
 }
 
+/** Сбросить счётчик — только Owner. */
+export function resetBigQueueCounts(ws: string): Promise<BigQueueConfig> {
+  return applyOptimistic(
+    ws,
+    (cfg) => ({ ...cfg, counts: {}, countsSince: Date.now() }),
+    () => supabaseRows.rpc("big_queue_reset_counts", { p_workspace: ws }),
+    "Не удалось сбросить счётчик",
+  );
+}
+
+const recentPicks = new Map<string, number>();
+
+/** Ключ заказа для счётчика: адрес строки стола ОС или id заказа биржи. */
+export function bigOrderRowKey(pageId: string, rowId: string): string {
+  return `row:${pageId}:${rowId}`;
+}
+
 /**
- * Окна выдачи зовут ПОСЛЕ удачной записи технаря: чек от порога, функция
- * работает и технарь стоит в очереди — он уходит в группу. Выдача уже прошла,
- * поэтому ошибки только в консоль (нет функции в базе — молча).
+ * Окна выдачи зовут ПОСЛЕ удачной записи технаря: чек от порога — +1 к счётчику
+ * технаря и (пока функция работает и он в очереди) переход в группу. Выдача уже
+ * прошла, поэтому ошибки только в консоль (нет функции в базе — молча).
  */
-export function noteBigQueuePick(ws: string | null | undefined, uid: string | null | undefined, check: number | null | undefined): void {
+export function noteBigQueuePick(
+  ws: string | null | undefined,
+  uid: string | null | undefined,
+  check: number | null | undefined,
+  orderKey: string | null,
+): void {
   if (!ws || !uid) return;
   const cfg = entryOf(ws).snap.data;
-  if (!cfg || !cfg.enabled || !cfg.queue.includes(uid) || !isBigCheck(check, cfg.threshold)) return;
-  markBigQueueTaken(ws, uid).catch((error) => {
+  if (!cfg || !isBigCheck(check, cfg.threshold)) return;
+  // Одна выдача может дойти сюда дважды (окно выбора и страница «Заказы») —
+  // база и так не считает её второй раз, но лишний запрос не нужен.
+  const sig = `${ws}|${uid}|${orderKey ?? ""}`;
+  const now = Date.now();
+  if ((recentPicks.get(sig) ?? 0) > now - 10_000) return;
+  recentPicks.set(sig, now);
+  markBigQueueTaken(ws, uid, orderKey).catch((error) => {
     if (!(error instanceof Error && error.message.startsWith("Очередь ещё не включена"))) {
       console.warn("[big-orders] took failed", error);
     }

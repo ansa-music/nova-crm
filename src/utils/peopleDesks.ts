@@ -84,7 +84,7 @@ export function groupAllPeople(members: WorkspaceMember[], visiblePages: Workspa
     if (!member.uid) continue;
     const list = (byUid.get(member.uid) ?? []).slice();
     list.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, "ru"));
-    const deskHidden = list.length > 0 && list.every((p) => p.hiddenByResponsible);
+    const deskHidden = list.length > 0 && list.every((p) => p.hiddenByResponsible || p.ownerOnly);
     groups.push({ key: member.uid, uid: member.uid, member, pages: list, deskHidden });
   }
   groups.sort((a, b) => personLabel(a.member).localeCompare(personLabel(b.member), "ru"));
@@ -175,6 +175,9 @@ export function canOpenDesk(opts: {
   const uid = opts.uid ?? "";
   if (!uid) return false;
   if (opts.isOwner) return true;
+  // Стол «только для Owner» — никому, кроме Owner: ни ответственному, ни ОС,
+  // ни Тимлиду+, ни наблюдателю (как canAccessPage в firestore.rules).
+  if (opts.page.ownerOnly) return false;
   // Стол ОС: руководство смотрит напрямую, сам ОС — свой (даже Тимлид + ОС).
   if (opts.page.osDesk && (opts.seesOsDesks || opts.page.responsibleUserId === uid)) return true;
   // «Видит все столы» стоит ВЫШЕ deskBlocked: у Тимлида + Технаря блокировки и

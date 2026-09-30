@@ -177,6 +177,8 @@ export async function requestDeskView(input: {
   existing: ViewRequest[];
 }): Promise<ViewRequest | null> {
   if (!db) throw new Error("Firebase не настроен");
+  // Стол «только для Owner» не открывается по запросу — просить незачем.
+  if (input.page.ownerOnly) throw new Error("Стол открыт только Owner");
   const toUid = input.page.responsibleUserId;
   if (!toUid) throw new Error("У стола нет ответственного");
   const current = latestRequestForPage(input.existing, input.page.id, input.fromUid);
@@ -244,6 +246,11 @@ export async function resolveDeskViewRequest(input: {
   // (Так было со столами ОС: колокольчик искал стол среди обычных столов.)
   if (input.status === "approved" && !input.page) {
     throw new Error("Стол не найден — обновите страницу и попробуйте ещё раз");
+  }
+  // Стол «только для Owner»: выданный просмотр не действовал бы, а запрос
+  // закрылся бы «одобренным». Отклонить — можно.
+  if (input.status === "approved" && input.page?.ownerOnly) {
+    throw new Error("Стол открыт только Owner");
   }
   if (input.status === "approved" && input.page) {
     await toggleUserPageAccess(input.workspaceId, input.page, input.request.fromUid, true);

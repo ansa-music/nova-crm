@@ -46,6 +46,7 @@ import {
   fetchCorePage,
   fetchCorePages,
   pageWrite,
+  rpcSetDeskOwnerOnly,
   watchCore,
   watchCoreBackend,
 } from "@/services/coreStore";
@@ -695,8 +696,10 @@ export async function setAllDesksVisibility(
   allActiveMemberUids: string[]
 ): Promise<number> {
   if (!db) throw new Error("Firebase не настроен");
+  // Столы «только для Owner» пачка не трогает: их списки сохранены на потом.
+  const targets = desks.filter((page) => page.ownerOnly !== true);
   const now = Date.now();
-  const patches = desks.map((page) => {
+  const patches = targets.map((page) => {
     const keep = [page.responsibleUserId].filter((id): id is string => Boolean(id));
     const allowedUsers = open ? Array.from(new Set([...allActiveMemberUids, ...keep])) : keep;
     return { pageId: page.id, patch: { allowedUsers, hiddenByResponsible: !open, updatedAt: now } };
@@ -714,7 +717,7 @@ export async function setAllDesksVisibility(
   // всем разом, значит и в Supabase он должен закрыться сразу, а не после
   // фоновой сверки. (Столы в Supabase — копию ведёт триггер.)
   for (const item of patches) await mirrorPageAcl(workspaceId, item.pageId, { allowed_uids: item.patch.allowedUsers });
-  return desks.length;
+  return targets.length;
 }
 
 /**
@@ -1194,6 +1197,9 @@ export async function duplicatePage(workspaceId: string, page: WorkspacePage, ne
     // Сначала стол и его права в Supabase, потом строки.
     await batch.commit();
     await ensureNewDeskAcl(workspaceId, duplicated);
+    // Копия стола «только для Owner» закрыта в базе ДО строк — иначе строки
+    // копии открылись бы «видящим все столы» до ближайшей сверки.
+    if (duplicated.ownerOnly === true) await rpcSetDeskOwnerOnly(workspaceId, newId, true);
     const source = await sbFetchRows(workspaceId, page.id, null);
     await sbPutRows(
       workspaceId,

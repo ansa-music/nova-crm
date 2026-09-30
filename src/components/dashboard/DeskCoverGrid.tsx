@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { EyeOff } from "lucide-react";
+import { EyeOff, Lock } from "lucide-react";
 import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { deskOwnerName, resolvedCoverUrl } from "@/utils/peopleDesks";
 import { cn } from "@/utils/cn";
@@ -37,8 +37,11 @@ export function DeskCoverGrid({
         const who = deskOwnerName(members, page);
         const highlighted = highlightedId === page.id;
         const openable = canOpen ? canOpen(page) : true;
+        // Стол «только для Owner»: обложка и прогресс видны, но чужому карточка
+        // не кликается и запроса не шлёт — метка «Только Owner» сверху.
+        const ownerLocked = Boolean(page.ownerOnly) && !openable;
         const pending = Boolean(!openable && isPending?.(page));
-        const action = renderAction?.(page) ?? null;
+        const action = ownerLocked ? null : (renderAction?.(page) ?? null);
         const corner = renderCorner?.(page) ?? null;
         return (
           <div
@@ -46,8 +49,9 @@ export function DeskCoverGrid({
             className={cn(
               "relative overflow-hidden rounded-xl border bg-card text-left reflective-sheen",
               highlighted ? "border-primary/70" : "border-primary/28",
-              (openable || !pending) && "transition-colors hover:border-primary/60"
+              (openable || (!pending && !ownerLocked)) && "transition-colors hover:border-primary/60"
             )}
+            title={ownerLocked ? "Стол закрыт Owner" : undefined}
           >
             <DeskCoverStrip
               coverUrl={resolvedCoverUrl(page, ownerUid)}
@@ -64,7 +68,7 @@ export function DeskCoverGrid({
                 className="absolute inset-0 z-[1] active:scale-[0.99]"
                 aria-label={page.name}
               />
-            ) : !pending && onRequest ? (
+            ) : !pending && !ownerLocked && onRequest ? (
               <button
                 type="button"
                 onClick={() => onRequest(page)}
@@ -73,7 +77,12 @@ export function DeskCoverGrid({
               />
             ) : null}
 
-            {page.hiddenByResponsible ? (
+            {page.ownerOnly ? (
+              <span className="pointer-events-none absolute left-3 top-3 z-[2] inline-flex items-center gap-1 rounded-full border border-white/20 bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
+                <Lock className="h-3 w-3" />
+                Только Owner
+              </span>
+            ) : page.hiddenByResponsible ? (
               <span className="pointer-events-none absolute left-3 top-3 z-[2] inline-flex items-center gap-1 rounded-full border border-white/20 bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
                 <EyeOff className="h-3 w-3" />
                 Скрыт

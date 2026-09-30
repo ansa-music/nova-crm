@@ -666,7 +666,10 @@ export function NavModelProvider({ children }: { children: ReactNode }) {
   // что memo ниже не рвётся на каждый рендер провайдера.
   const { members, allPages, pages, activeWorkspaceId } = useWorkspace();
   const permissions = usePermissions();
-  const { myDesk } = usePeopleDesks();
+  const { myDesk: ownDesk, myDeskOpen } = usePeopleDesks();
+  // Свой стол, закрытый Owner («только для Owner»), домом не служит: дом и
+  // «Мой стол» ведут туда же, куда у человека без стола.
+  const myDesk = myDeskOpen ? ownDesk : null;
   const { privateUnreadTotal, workspaceChatUnread } = useInboxSummary(activeWorkspaceId, uid, {
     includeWorkspaceChat: true,
   });

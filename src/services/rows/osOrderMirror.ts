@@ -42,14 +42,19 @@ export interface TechTarget {
 }
 
 /** Почему стол не годится для заказа ОС. null — годится. */
+/** Стол «только для Owner» технарь не откроет — вкладку и карту столбцов ведёт Owner. */
+const OWNER_ONLY_DESK_PROBLEM = "Стол технаря закрыт Owner — вкладку месяца и столбцы обновит Owner";
+
 function deskProblem(page: WorkspacePage): string | null {
   // Именно ТЕКУЩЕГО месяца: 1-го числа `autoMonthSubPageId` ещё показывает на
   // прошлую вкладку, и заказ уезжал бы в сентябрь, где его «Технари» и
   // дашборд уже не считают. Автопилот переведёт стол при первом заходе.
   if (!currentMonthSubPageId(page, currentPeriodKeyOf(page.workspaceId))) {
+    if (page.ownerOnly) return OWNER_ONLY_DESK_PROBLEM;
     return "У технаря ещё нет вкладки текущего месяца — пусть откроет свой стол";
   }
   if (!page.osFieldKeys || page.osFieldKeys.tabId !== page.autoMonthSubPageId) {
+    if (page.ownerOnly) return OWNER_ONLY_DESK_PROBLEM;
     return "Стол технаря ещё не сообщил, куда писать — пусть откроет свой стол и обновит страницу";
   }
   // Без ключа `os` заказ уехал бы БЕЗ ника ОС: он бы не попал ни в счётчики
