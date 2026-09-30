@@ -9,7 +9,7 @@ import { cn } from "@/utils/cn";
 import { orderRandomPool, type OrderCandidate } from "@/services/orderService";
 import { toast } from "@/components/ui/sonner";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { bigQueueView, isBigCheck, useBigOrderQueue } from "@/services/bigOrderQueueService";
+import { bigOrderRowKey, bigQueueView, isBigCheck, noteBigQueuePick, useBigOrderQueue } from "@/services/bigOrderQueueService";
 import { orderClaimScope, type WorkOrder, type WorkspaceMember } from "@/types";
 
 interface AssignOrderDialogProps {
@@ -34,6 +34,15 @@ export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, o
   // работает, а в диалоге выключена (или наоборот).
   const randomPool = orderRandomPool(candidates, orderClaimScope(order));
 
+  /** Отдать и, если заказ крупный, убрать получившего из очереди «300к+». */
+  async function assign(c: OrderCandidate) {
+    await onAssign(c);
+    // Ключ заказа: у заказа со стола ОС — адрес строки (тот же, что при выдаче со
+    // стола), иначе id заказа — повторная выдача не считается дважды.
+    const key = order ? (order.osSource ? bigOrderRowKey(order.osSource.pageId, order.osSource.rowId) : `order:${order.id}`) : null;
+    noteBigQueuePick(activeWorkspaceId, c.uid, order?.price ?? null, key);
+  }
+
   async function run(key: string, fn: () => Promise<void>) {
     setBusy(key);
     try {
@@ -55,7 +64,7 @@ export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, o
         key={c.uid}
         type="button"
         disabled={disabled}
-        onClick={() => void run(c.uid, () => onAssign(c))}
+        onClick={() => void run(c.uid, () => assign(c))}
         className={cn(
           "flex w-full items-center gap-3 rounded-xl border p-2.5 text-left transition-colors",
           c.hasDesk ? "border-border hover:border-primary/40 hover:bg-accent/40" : "border-border/60 opacity-60",
@@ -107,7 +116,7 @@ export function AssignOrderDialog({ order, onOpenChange, candidates, onAssign, o
       markOf={(uid) => (byUid.get(uid)?.claimedAt != null ? "откликнулся" : null)}
       onPick={(tech) => {
         const c = byUid.get(tech.uid);
-        if (c) void run(c.uid, () => onAssign(c)).then(() => setPickerOpen(false));
+        if (c) void run(c.uid, () => assign(c)).then(() => setPickerOpen(false));
       }}
       onClose={() => (bigOrder ? onOpenChange(false) : setPickerOpen(false))}
     />

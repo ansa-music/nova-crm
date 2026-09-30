@@ -8,7 +8,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { useSendOsRowToExchange } from "@/hooks/useSendOsRowToExchange";
 import { OS_DESK_KEYS, type OsDeskKeys } from "@/services/osDeskService";
 import { sbPatchRow } from "@/services/rows/supabaseRowStore";
-import { bigQueueView, isBigCheck, useBigOrderQueue } from "@/services/bigOrderQueueService";
+import { bigOrderRowKey, bigQueueView, isBigCheck, noteBigQueuePick, useBigOrderQueue } from "@/services/bigOrderQueueService";
 import { osRowGross } from "@/utils/payment";
 import {
   DEFAULT_STATUS_OPTIONS,
@@ -71,13 +71,15 @@ export function OsDispatchChoiceDialog({
     return inProgress ? { [STATUS_KEY]: inProgress } : {};
   }
 
-  async function giveToTech(nick: string, name: string) {
+  async function giveToTech(nick: string, name: string, uid: string) {
     if (!activeWorkspaceId) return;
     setBusy(true);
     try {
       await sbPatchRow(activeWorkspaceId, pageId, subPageId, row.id, { cells: { [TECH_KEY]: nick, ...statusPatch() } });
       toast.success(`${client} → ${name}`, { description: "Заказ уедет в его стол через секунду." });
       onClose();
+      // Крупный заказ — технарь из очереди «300к+» уходит в группу.
+      noteBigQueuePick(activeWorkspaceId, uid, checkTotal, bigOrderRowKey(pageId, row.id));
     } catch (error) {
       toast.error(firestoreErrorText(error, "Не удалось выбрать технаря"));
     } finally {
@@ -110,7 +112,7 @@ export function OsDispatchChoiceDialog({
       title={`Кому отдать «${client}»?`}
       description="Заказ сразу уедет в стол выбранного технаря, статус станет «В работе»."
       busy={busy}
-      onPick={(tech) => void giveToTech(tech.nick, tech.name)}
+      onPick={(tech) => void giveToTech(tech.nick, tech.name, tech.uid)}
       onClose={() => (bigOrder ? onClose() : setPickerOpen(false))}
     />
     <Dialog open={!pickerOpen && !bigOrder} onOpenChange={(open) => !open && !busy && onClose()}>

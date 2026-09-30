@@ -16,6 +16,7 @@ import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { bigOrderRowKey, noteBigQueuePick, useBigOrderQueue } from "@/services/bigOrderQueueService";
 import { useUrlState } from "@/hooks/useUrlState";
 import { deskHref, deskNavState, deskRowHref } from "@/utils/deskLinks";
 import { useCurrentPeriodKey } from "@/hooks/useCurrentPeriodKey";
@@ -177,6 +178,8 @@ export default function OrdersPage() {
   // Кто выдал / кому отдан — по нику участника сейчас, а не строкой в заказе.
   const nameOf = usePersonName();
   const canIssue = permissions.isResolved && (hasFullAccess(permissions.role) || permissions.hasRole("os"));
+  // Порог и очередь «300к+» — чтобы выдача (и «Рандом») считали крупные заказы.
+  useBigOrderQueue(activeWorkspaceId, canIssue);
   // ОС выдаёт ТОЛЬКО со своего стола (просьба Nurba 24.09.2026): «Выдать
   // заказ» у него — выбор строки стола ОС, а заказ, которого на столе нет,
   // сначала ложится на стол («Новый заказ»). Руководство без роли ОС выдаёт
@@ -549,6 +552,13 @@ export default function OrdersPage() {
   async function handleAssign(order: WorkOrder, candidate: OrderCandidate, opts: { silent?: boolean } = {}) {
     if (!activeWorkspaceId || !profile) return;
     await assignOrder({ workspaceId: activeWorkspaceId, order, technician: { uid: candidate.uid, name: candidate.name }, actorUid: profile.uid, actorName: myName });
+    // Крупный заказ («300к+»): +1 к счётчику получившего — и при «Рандоме» тоже.
+    noteBigQueuePick(
+      activeWorkspaceId,
+      candidate.uid,
+      order.price ?? null,
+      order.osSource ? bigOrderRowKey(order.osSource.pageId, order.osSource.rowId) : `order:${order.id}`,
+    );
     // У барабана результат написан прямо на экране — тост поверх него лишний.
     if (!opts.silent) toast.success(`Заказ выдан: ${candidate.name}`);
   }

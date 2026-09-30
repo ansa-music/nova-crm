@@ -17,13 +17,23 @@ import { listenTopic, ringTopic } from "@/services/sb/topicDoorbell";
  * на виду и по звонку `nova:{ws}:bigq` после чужой правки.
  *
  * Пауза (29.09.2026, SQL 20261039): `enabled: false` — вся функция на паузе,
- * крупные заказы выдаются как обычно (очередь сохраняется); `paused[uid]` —
- * технарь на паузе до момента (мс) или «до снятия» (null). Истёкшая пауза =
- * активен, в базу ничего не пишется.
+ * крупные заказы выдаются как обычно (очередь сохраняется). Паузу у отдельного
+ * технаря убрали (просьба Nurba): колонка `paused` в базе осталась, клиент её
+ * не читает — очередь при выдаче = вся `queue`.
  *
  * Группа (29.09.2026, SQL 20261040): `pool` — заранее отобранные технари, которые
  * сейчас НЕ в активной очереди. Переносы между очередью и группой и порядок
  * пишутся одним `big_queue_set_lists` (оба списка разом).
+ *
+ * Получил — ушёл (29.09.2026, SQL 20261041): технарь из очереди, получивший
+ * крупный заказ, сам уходит в начало группы (`big_queue_took`, может тот, кто
+ * выдаёт заказы), `taken[uid]` — когда (мс сервера). Зовут окна выдачи ПОСЛЕ
+ * удачной записи технаря — `noteBigQueuePick`.
+ *
+ * Счётчик (там же): сколько крупных заказов человек получил с последнего сброса
+ * (`counts`, считает база по журналу «заказ → технарь»: повторная выдача того же
+ * заказа не считается, переданный заказ переходит к новому). Сбрасывает только
+ * Owner (`resetBigQueueCounts`).
  */
 
 export const DEFAULT_BIG_THRESHOLD = 300_000;
@@ -36,9 +46,15 @@ export interface BigQueueConfig {
   pool: string[];
   /** Функция работает (false — на паузе, выдача как обычно). */
   enabled: boolean;
-  /** uid → до какого момента (мс) или null — «пока не снимут». */
-  paused: Record<string, number | null>;
+  /** Кто последним переключал «работает / на паузе». */
   pausedBy: string | null;
+  /** uid → когда получил крупный заказ (мс сервера). */
+  taken: Record<string, number>;
+  /** uid → сколько крупных заказов получил с последнего сброса. */
+  counts: Record<string, number>;
+  /** С какого момента считаем (мс сервера); null — ещё ни одного. */
+  countsSince: number | null;
+  countsResetBy: string | null;
   updatedAt: number | null;
   updatedBy: string | null;
 }
@@ -96,13 +112,12 @@ function strings(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.length > 0) : [];
 }
 
-function pausedMap(v: unknown): Record<string, number | null> {
-  const out: Record<string, number | null> = {};
+function takenMap(v: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
   if (!v || typeof v !== "object" || Array.isArray(v)) return out;
-  for (const [uid, until] of Object.entries(v as Record<string, unknown>)) {
-    if (!uid) continue;
-    const n = typeof until === "number" ? until : until == null ? null : Number(until);
-    out[uid] = n === null || !Number.isFinite(n) ? null : n;
+  for (const [uid, at] of Object.entries(v as Record<string, unknown>)) {
+    const n = typeof at === "number" ? at : Number(at);
+    if (uid && Number.isFinite(n) && n > 0) out[uid] = n;
   }
   return out;
 }
@@ -117,8 +132,11 @@ export function parseBigQueue(data: unknown): BigQueueConfig {
     queue: strings(o.queue),
     pool: strings(o.pool).filter((uid) => !strings(o.queue).includes(uid)),
     enabled: o.enabled !== false,
-    paused: pausedMap(o.paused),
     pausedBy: typeof o.pausedBy === "string" ? o.pausedBy : null,
+    taken: takenMap(o.taken),
+    counts: takenMap(o.counts),
+    countsSince: Number.isFinite(Number(o.countsSince)) && Number(o.countsSince) > 0 ? Number(o.countsSince) : null,
+    countsResetBy: typeof o.countsResetBy === "string" ? o.countsResetBy : null,
     updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : null,
     updatedBy: typeof o.updatedBy === "string" ? o.updatedBy : null,
   };
@@ -207,31 +225,13 @@ export interface BigQueueView {
   queue: string[];
 }
 
-/** Технарь на паузе сейчас: «до снятия» или дата ещё не наступила. */
-export function isPausedNow(cfg: BigQueueConfig | null, uid: string, now = Date.now()): boolean {
-  if (!cfg || !Object.prototype.hasOwnProperty.call(cfg.paused, uid)) return false;
-  const until = cfg.paused[uid];
-  return until === null || until > now;
-}
-
-/** До какого момента пауза (null — «до снятия»); undefined — не на паузе. */
-export function pauseUntil(cfg: BigQueueConfig | null, uid: string, now = Date.now()): number | null | undefined {
-  if (!isPausedNow(cfg, uid, now)) return undefined;
-  return cfg!.paused[uid] ?? null;
-}
-
-/** Очередь без тех, кто сейчас на паузе. */
-export function activeQueue(cfg: BigQueueConfig, now = Date.now()): string[] {
-  return cfg.queue.filter((uid) => !isPausedNow(cfg, uid, now));
-}
-
 /**
- * Для окон выдачи: порог и АКТИВНАЯ очередь. Функция на паузе — null, и окна
- * ведут себя как без очереди.
+ * Для окон выдачи: порог и очередь. Функция на паузе — null, и окна ведут себя
+ * как без очереди.
  */
-export function bigQueueView(snap: BigQueueSnapshot, now = Date.now()): BigQueueView | null {
+export function bigQueueView(snap: BigQueueSnapshot): BigQueueView | null {
   if (snap.status !== "ready" || !snap.data || !snap.data.enabled) return null;
-  return { threshold: snap.data.threshold, queue: activeQueue(snap.data, now) };
+  return { threshold: snap.data.threshold, queue: snap.data.queue };
 }
 
 /** Чек от порога (включительно) — выдача только из очереди. */
@@ -261,8 +261,8 @@ function queueErrorText(error: { code?: string; message?: string }, fallback: st
   if (msg.includes("bad threshold")) return "Порог — от 1 000.";
   if (msg.includes("queue too long")) return "В очереди — не больше 50 человек.";
   if (msg.includes("pool too long")) return "В группе — не больше 100 человек.";
-  if (msg.includes("not in queue")) return "Этого технаря уже нет в очереди.";
-  if (msg.includes("bad pause date")) return "Дата паузы — в будущем и не дальше 90 дней.";
+  if (msg.includes("cannot issue orders")) return "Нет права выдавать заказы.";
+  if (msg.includes("only owner")) return "Сбросить счётчик может только Owner.";
   if (error.code === "42501") return "Нет права.";
   return `${fallback}${error.code ? ` (${error.code})` : ""}.`;
 }
@@ -329,27 +329,6 @@ export function setBigQueueEnabled(ws: string, on: boolean): Promise<BigQueueCon
   );
 }
 
-/** Технарь на паузе до `untilMs` (null — до снятия); `on: false` — вернуть. */
-export function setBigQueuePause(ws: string, uid: string, on: boolean, untilMs: number | null = null): Promise<BigQueueConfig> {
-  return applyOptimistic(
-    ws,
-    (cfg) => {
-      const paused = { ...cfg.paused };
-      if (on) paused[uid] = untilMs;
-      else delete paused[uid];
-      return { ...cfg, paused };
-    },
-    () =>
-      supabaseRows.rpc("big_queue_set_pause", {
-        p_workspace: ws,
-        p_uid: uid,
-        p_on: on,
-        p_until_ms: on ? untilMs : null,
-      }),
-    on ? "Не удалось поставить на паузу" : "Не удалось снять паузу",
-  );
-}
-
 /**
  * Очередь и группа одной записью. Нет функции (SQL 20261040 ещё не накатан) —
  * очередь пишется по-старому, группа остаётся прежней.
@@ -360,10 +339,7 @@ export async function saveBigLists(ws: string, queue: string[], pool: string[]):
   try {
     return await applyOptimistic(
       ws,
-      (cfg) => {
-        const paused = Object.fromEntries(Object.entries(cfg.paused).filter(([uid]) => inQueue.has(uid)));
-        return { ...cfg, queue, pool: cleanPool, paused };
-      },
+      (cfg) => ({ ...cfg, queue, pool: cleanPool }),
       () => supabaseRows.rpc("big_queue_set_lists", { p_workspace: ws, p_queue: queue, p_pool: cleanPool }),
       "Не удалось сохранить очередь",
     );
@@ -374,4 +350,69 @@ export async function saveBigLists(ws: string, queue: string[], pool: string[]):
     }
     throw error;
   }
+}
+
+/**
+ * Технарь получил крупный заказ: +1 к счётчику (по ключу заказа) и, пока
+ * функция работает, из очереди в начало группы.
+ */
+export function markBigQueueTaken(ws: string, uid: string, orderKey: string | null = null): Promise<BigQueueConfig> {
+  return applyOptimistic(
+    ws,
+    (cfg) =>
+      cfg.enabled && cfg.queue.includes(uid)
+        ? {
+            ...cfg,
+            queue: cfg.queue.filter((u) => u !== uid),
+            pool: [uid, ...cfg.pool.filter((u) => u !== uid)],
+            taken: { ...cfg.taken, [uid]: Date.now() },
+          }
+        : cfg,
+    () => supabaseRows.rpc("big_queue_took", { p_workspace: ws, p_uid: uid, p_order_key: orderKey }),
+    "Не удалось отметить крупный заказ",
+  );
+}
+
+/** Сбросить счётчик — только Owner. */
+export function resetBigQueueCounts(ws: string): Promise<BigQueueConfig> {
+  return applyOptimistic(
+    ws,
+    (cfg) => ({ ...cfg, counts: {}, countsSince: Date.now() }),
+    () => supabaseRows.rpc("big_queue_reset_counts", { p_workspace: ws }),
+    "Не удалось сбросить счётчик",
+  );
+}
+
+const recentPicks = new Map<string, number>();
+
+/** Ключ заказа для счётчика: адрес строки стола ОС или id заказа биржи. */
+export function bigOrderRowKey(pageId: string, rowId: string): string {
+  return `row:${pageId}:${rowId}`;
+}
+
+/**
+ * Окна выдачи зовут ПОСЛЕ удачной записи технаря: чек от порога — +1 к счётчику
+ * технаря и (пока функция работает и он в очереди) переход в группу. Выдача уже
+ * прошла, поэтому ошибки только в консоль (нет функции в базе — молча).
+ */
+export function noteBigQueuePick(
+  ws: string | null | undefined,
+  uid: string | null | undefined,
+  check: number | null | undefined,
+  orderKey: string | null,
+): void {
+  if (!ws || !uid) return;
+  const cfg = entryOf(ws).snap.data;
+  if (!cfg || !isBigCheck(check, cfg.threshold)) return;
+  // Одна выдача может дойти сюда дважды (окно выбора и страница «Заказы») —
+  // база и так не считает её второй раз, но лишний запрос не нужен.
+  const sig = `${ws}|${uid}|${orderKey ?? ""}`;
+  const now = Date.now();
+  if ((recentPicks.get(sig) ?? 0) > now - 10_000) return;
+  recentPicks.set(sig, now);
+  markBigQueueTaken(ws, uid, orderKey).catch((error) => {
+    if (!(error instanceof Error && error.message.startsWith("Очередь ещё не включена"))) {
+      console.warn("[big-orders] took failed", error);
+    }
+  });
 }

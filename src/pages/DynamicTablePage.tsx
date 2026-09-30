@@ -190,6 +190,8 @@ import { useOsTotalsKeeper } from "@/hooks/useOsTotalsKeeper";
 import { osRowGross, osRowTotal, paymentMethodsOf, paymentPatch } from "@/utils/payment";
 import {
   bigQueueView,
+  bigOrderRowKey,
+  noteBigQueuePick,
   isBigCheck,
   shortMoney,
   useBigOrderQueue,
@@ -1087,7 +1089,7 @@ export default function DynamicTablePage() {
   /** Заказ строки уже у технаря: есть копия или её адрес на строке. */
   const rowIssued = (row: PageRow) =>
     osRowIssued(row, myOrders.bySource.get(row.id) ?? null);
-  async function setRowTechnician(nick: string, name = "") {
+  async function setRowTechnician(nick: string, name = "", uid = "") {
     if (!activeWorkspaceId || !page || !techPickRow) return;
     const row = techPickRow;
     const client = cellStr(row, osKeys.client) || "Заказ";
@@ -1118,6 +1120,12 @@ export default function DynamicTablePage() {
         { cells },
       );
       setTechPick(null);
+      // Крупный заказ («300к+»): технарю +1 к счётчику, и из очереди он
+      // уходит в группу (просьбы Nurba 29.09.2026). «Только наметить» —
+      // ещё не выдача.
+      if (nick && isOrder && !(onApproval && !issued && techPlanOnly)) {
+        noteBigQueuePick(activeWorkspaceId, uid, osRowGross(row, osKeys), bigOrderRowKey(page.id, row.id));
+      }
       const who = name || "технарю";
       if (!nick) {
         if (issued)
@@ -2154,7 +2162,7 @@ export default function DynamicTablePage() {
                 checkTotal={row ? osRowGross(row, osKeys) : null}
                 busy={techPickBusy}
                 allowClear
-                onPick={(tech) => void setRowTechnician(tech.nick, tech.name)}
+                onPick={(tech) => void setRowTechnician(tech.nick, tech.name, tech.uid)}
                 onClear={() => void setRowTechnician("")}
                 onClose={() => setTechPick(null)}
                 secondary={
