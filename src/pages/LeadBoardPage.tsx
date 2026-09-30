@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "@/components/ui/sonner";
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { TechBadge } from "@/components/os/TechBadge";
-import { EditableText, LeadStatusPicker, OsLabel, OsPicker } from "@/components/leads/LeadCells";
+import { EditableText, LeadStatusPicker, OsLabel, OsPicker, PersonPill } from "@/components/leads/LeadCells";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +32,8 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useUrlState } from "@/hooks/useUrlState";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import {
+  leadDeadlineOf,
+  leadIsClosed,
   leadStats,
   leadStatusOf,
   leadTablesFor,
@@ -50,7 +52,12 @@ import { firestoreErrorText } from "@/utils/dbError";
 import { myDisplayName } from "@/utils/displayName";
 import { formatCount, formatNumber } from "@/utils/format";
 import { normalizeNumericInput } from "@/utils/numberInput";
-import { formatDayMonth } from "@/utils/osDates";
+import { formatDayMonth, formatFullDate, osDateSlots } from "@/utils/osDates";
+import { almatyMidnightMillis } from "@/utils/date";
+import { deskRowHref } from "@/utils/deskLinks";
+import { buildPersonDeskIndex, osDeskLink, techDeskLink, type DeskLink, type PersonDeskIndex } from "@/utils/personDeskLinks";
+import { DeskLinkButton } from "@/components/common/DeskLinkButton";
+import { OsDatesCell } from "@/components/os/OsDatesCell";
 import { periodShortLabel, recentPeriodKeys } from "@/utils/periods";
 import { paymentMethodsOf, paymentPatch } from "@/utils/payment";
 import { effectiveTechLoadKinds } from "@/utils/techLoad";
@@ -102,8 +109,9 @@ interface Group {
 
 /**
  * «Общая таблица» (Тимлид+ и Owner): все заказы периода по всем ОС и
- * технарям одной таблицей, по статусам — как у ОС. Имя (визитка) · Номер ·
- * ОС · Тех · Сумма · Апсейл · Дата. Правка — прямо в клетке, ОС — выбором
+ * технарям одной таблицей, по статусам — как у ОС. Столбцы — как в таблице
+ * Nurba: Имя (визитка) · Даты · Номер · Сумма · Апсейл · Менеджер ОС · Статус ·
+ * Дата сдачи · Технарь; у ОС и технаря — «↗ открыть стол». Правка — прямо в клетке, ОС — выбором
  * (строка переезжает на его стол), новый клиент — «+ Клиент», история заказа
  * и лента изменений — из `order_events`. Всё — в Supabase, вживую.
  */
@@ -193,6 +201,37 @@ function LeadBoard({ workspaceId, viewerIsOwner }: { workspaceId: string; viewer
     [members, techNickOptions]
   );
 
+  // Цвета пилюль «Менеджер ОС» и «Технарь» — варианты их ников.
+  const responsibleOptions = activeWorkspace?.responsibleOptions;
+  const osColorOf = useCallback(
+    (o: LeadOrder): string | null => {
+      const m = o.osUid ? memberByUid.get(o.osUid) : null;
+      return (m?.osNickValue && responsibleOptions?.find((x) => x.value === m.osNickValue)?.color) || null;
+    },
+    [memberByUid, responsibleOptions]
+  );
+  const techColorOf = useCallback(
+    (o: LeadOrder): string | null => {
+      const t = techOf(o);
+      return (t?.nick && techNickOptions.find((x) => x.value === t.nick)?.color) || null;
+    },
+    [techOf, techNickOptions]
+  );
+  // «↗ открыть стол» у ОС и технаря — на строку заказа, если стол открыт.
+  const canAccessDesk = usePermissions().canAccessPage;
+  const deskIndex = useMemo(
+    () => buildPersonDeskIndex({ members, pages: allDesks, osDesks: allDesks.filter((p) => p.osDesk), canAccess: canAccessDesk }),
+    [members, allDesks, canAccessDesk]
+  );
+  const osLinkOf = useCallback(
+    (o: LeadOrder) => leadOsLink(o, deskIndex, o.osUid ? (memberByUid.get(o.osUid) ?? null) : null),
+    [deskIndex, memberByUid]
+  );
+  const techLinkOf = useCallback(
+    (o: LeadOrder) => leadTechLink(o, deskIndex, techOf(o), techHiddenOf(o)),
+    [deskIndex, techOf, techHiddenOf]
+  );
+
   const q = query.trim().toLocaleLowerCase("ru");
   const visible = useMemo(
     () =>
@@ -279,7 +318,7 @@ function LeadBoard({ workspaceId, viewerIsOwner }: { workspaceId: string; viewer
   const onMoveOs = useCallback(
     async (order: LeadOrder, member: WorkspaceMember) => {
       const ok = await confirmDialog({
-        title: `Передать заказ «${order.client || "без имени"}» ОС ${member.osNick || member.nickname || member.name}?`,
+        title: `Передать заказ «${order.client || "без имени"}» ОС ${personLabel(member)}?`,
         description: order.copy
           ? "Строка переедет на стол нового ОС, заказ у технаря останется у него, но его будет вести новый ОС."
           : "Строка переедет на стол нового ОС. Он получит уведомление.",
@@ -288,7 +327,7 @@ function LeadBoard({ workspaceId, viewerIsOwner }: { workspaceId: string; viewer
       if (!ok || !profile) return;
       try {
         await moveLeadOs({ workspaceId, order, toOs: member, osDesks, fromUid: profile.uid, fromName });
-        toast.success(`Заказ у ОС ${member.osNick || member.nickname || member.name}`);
+        toast.success(`Заказ у ОС ${personLabel(member)}`);
         setOpenKey(null);
         board.refresh();
       } catch (e) {
@@ -307,7 +346,7 @@ function LeadBoard({ workspaceId, viewerIsOwner }: { workspaceId: string; viewer
     });
 
   return (
-    <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-3 p-4 sm:p-6">
+    <div className="mx-auto flex w-full min-w-0 max-w-[1560px] flex-col gap-3 p-4 sm:p-6">
       <PageHeader
         className="mb-0"
         eyebrow="Тимлид+ · все заказы периода"
@@ -406,23 +445,24 @@ function LeadBoard({ workspaceId, viewerIsOwner }: { workspaceId: string; viewer
               {collapsed.has(g.value)
                 ? null
                 : g.orders.map((o) => (
-                    <LeadMobileCard key={o.key} order={o} os={o.osUid ? (memberByUid.get(o.osUid) ?? null) : null} tech={techOf(o)} techHidden={techHiddenOf(o)} statusOptions={statusOptions} onOpen={() => setOpenKey(o.key)} />
+                    <LeadMobileCard key={o.key} order={o} os={o.osUid ? (memberByUid.get(o.osUid) ?? null) : null} tech={techOf(o)} techHidden={techHiddenOf(o)} statusOptions={statusOptions} onOpen={() => setOpenKey(o.key)} osColor={osColorOf(o)} techColor={techColorOf(o)} />
                   ))}
             </section>
           ))}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border">
-          <div className="min-w-[1212px]">
-            <div className={cn(GRID, "sticky top-0 z-10 h-8 border-b border-border bg-card text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground")}>
+          <div className="min-w-[1260px]">
+            <div className={cn(GRID, "sticky top-0 z-10 h-9 border-b-2 border-primary/40 bg-muted text-[11px] font-semibold uppercase tracking-[0.04em] text-foreground/80")}>
               <SortHead column="client" sort={sort} onSort={setSort} label="Имя" />
-              <SortHead column="status" sort={sort} onSort={setSort} label="Статус" />
+              <span className="px-2">Даты</span>
               <span className="px-2">Номер</span>
-              <SortHead column="os" sort={sort} onSort={setSort} label="ОС" />
-              <SortHead column="tech" sort={sort} onSort={setSort} label="Тех" />
               <SortHead column="sum" sort={sort} onSort={setSort} label="Сумма" align="right" />
               <SortHead column="upsell" sort={sort} onSort={setSort} label="Апсейл" align="right" />
-              <SortHead column="date" sort={sort} onSort={setSort} label="Дата" />
+              <SortHead column="os" sort={sort} onSort={setSort} label="Менеджер ОС" />
+              <SortHead column="status" sort={sort} onSort={setSort} label="Статус" />
+              <SortHead column="deadline" sort={sort} onSort={setSort} label="Дата сдачи" />
+              <SortHead column="tech" sort={sort} onSort={setSort} label="Технарь" />
               <span />
             </div>
             {groups.map((g) => (
@@ -445,6 +485,10 @@ function LeadBoard({ workspaceId, viewerIsOwner }: { workspaceId: string; viewer
                         onPay={onPay}
                         methods={methods}
                         onMoveOs={onMoveOs}
+                        osColor={osColorOf(o)}
+                        techColor={techColorOf(o)}
+                        osLink={osLinkOf(o)}
+                        techLink={techLinkOf(o)}
                       />
                     ))}
               </div>
@@ -462,6 +506,8 @@ function LeadBoard({ workspaceId, viewerIsOwner }: { workspaceId: string; viewer
         osMembers={osMembers}
         tech={openOrder ? techOf(openOrder) : null}
         techDeskHidden={openOrder ? techHiddenOf(openOrder) : false}
+        osLink={openOrder ? osLinkOf(openOrder) : null}
+        techLink={openOrder ? techLinkOf(openOrder) : null}
         historyCtx={historyCtx}
         historyVersion={openOrder?.row.updatedAt ?? 0}
         onCell={onCell}
@@ -510,8 +556,32 @@ function LeadBoard({ workspaceId, viewerIsOwner }: { workspaceId: string; viewer
   );
 }
 
+/** Стол ОС заказа: у заказа ОС — сама строка-источник, у строки технаря — его заказ на столе ОС. */
+function leadOsLink(o: LeadOrder, index: PersonDeskIndex, os: WorkspaceMember | null): DeskLink | null {
+  if (!o.osUid) return null;
+  const label = `Открыть стол ОС ${os ? personLabel(os) : ""}`.trim();
+  if (o.kind === "os") return index.openable.has(o.pageId) ? { href: deskRowHref(o.pageId, o.tabId || null, o.row.id), label } : null;
+  const target = index.osByUid.get(o.osUid);
+  return target ? osDeskLink(index, target, o.row) : null;
+}
+
+/** Стол технаря: копия заказа у него (или сама строка без ОС), иначе его стол. */
+function leadTechLink(o: LeadOrder, index: PersonDeskIndex, tech: TechIdentity | null, techHidden: boolean): DeskLink | null {
+  if (techHidden) return null;
+  const label = `Открыть стол технаря ${tech?.label ?? ""}`.trim();
+  if (o.kind === "tech") return index.openable.has(o.pageId) ? { href: deskRowHref(o.pageId, o.tabId || null, o.row.id), label } : null;
+  if (o.copy?.deskPageId && index.openable.has(o.copy.deskPageId)) {
+    return { href: deskRowHref(o.copy.deskPageId, o.copy.tabId || null, o.copy.id), label };
+  }
+  const uid = o.techUid ?? tech?.uid ?? null;
+  const target = uid ? index.techByUid.get(uid) : undefined;
+  return target ? techDeskLink(index, target, o.row) : null;
+}
+
+// Порядок — как в таблице Nurba: Имя · Даты · Номер · Сумма · Апсейл ·
+// Менеджер ОС · Статус · Дата сдачи · Технарь (+ история).
 const GRID =
-  "grid grid-cols-[minmax(13rem,1.7fr)_9.5rem_minmax(7rem,0.8fr)_minmax(8.5rem,1fr)_minmax(11rem,1.4fr)_10rem_10rem_4.5rem_2.25rem] items-center";
+  "grid grid-cols-[minmax(11rem,1.4fr)_5rem_minmax(7rem,0.8fr)_8.75rem_8.75rem_minmax(8.5rem,1fr)_9rem_7rem_minmax(11rem,1.3fr)_2.25rem] items-center";
 
 function buildGroups(
   orders: readonly LeadOrder[],
@@ -604,7 +674,7 @@ function SortHead({
       aria-sort={on ? (active.dir === "desc" ? "descending" : "ascending") : "none"}
       title={on ? LEAD_SORT_LABELS[sort] : "Сортировать"}
       className={cn(
-        "group flex h-8 min-w-0 items-center gap-1 px-2 uppercase tracking-[0.1em] hover:text-foreground",
+        "group flex h-8 min-w-0 items-center gap-1 px-2 uppercase hover:text-foreground",
         align === "right" && "justify-end",
         on && "text-primary"
       )}
@@ -705,11 +775,14 @@ function TechCell({
   tech,
   techHidden,
   statusOptions,
+  color,
 }: {
   order: LeadOrder;
   tech: TechIdentity | null;
   techHidden: boolean;
   statusOptions: readonly StatusOption[];
+  /** Цвет пилюли — варианта ника технаря; `undefined` — без пилюли. */
+  color?: string | null;
 }) {
   if (!tech) {
     if (techHidden) {
@@ -724,9 +797,15 @@ function TechCell({
   }
   return (
     <span className="flex min-w-0 items-center gap-2 px-1.5">
-      <span className="min-w-0 truncate">
-        <TechBadge identity={tech} />
-      </span>
+      {color !== undefined ? (
+        <PersonPill color={color} className="shrink">
+          <TechBadge identity={tech} />
+        </PersonPill>
+      ) : (
+        <span className="min-w-0 truncate">
+          <TechBadge identity={tech} />
+        </span>
+      )}
       {order.kind === "os" && order.techStatus ? (
         <TechStatusMark order={order} statusOptions={statusOptions} />
       ) : techHidden ? (
@@ -766,6 +845,10 @@ function LeadRow({
   onPay,
   methods,
   onMoveOs,
+  osColor,
+  techColor,
+  osLink,
+  techLink,
 }: {
   order: LeadOrder;
   zebra: boolean;
@@ -779,6 +862,10 @@ function LeadRow({
   onPay: (order: LeadOrder, colKey: string, method: PaymentMethod | null) => void;
   methods: readonly PaymentMethod[];
   onMoveOs: (order: LeadOrder, member: WorkspaceMember) => void;
+  osColor: string | null;
+  techColor: string | null;
+  osLink: DeskLink | null;
+  techLink: DeskLink | null;
 }) {
   const k = order.keys;
   const payChip = (colKey: string) =>
@@ -795,17 +882,11 @@ function LeadRow({
       <div className="flex min-w-0 px-1">
         <ClientButton order={order} onOpen={onOpen} />
       </div>
-      <div className="min-w-0 px-0.5">
-        <StatusCell order={order} statusOptions={statusOptions} onCell={onCell} />
+      <div className="min-w-0 px-2">
+        <LeadDatesCell order={order} />
       </div>
       <div className="min-w-0 px-1">
         <EditableText value={order.phone} ariaLabel="Номер" inputMode="tel" disabled={!k.phone} onCommit={(v) => onCell(order, k.phone, v)} />
-      </div>
-      <div className="min-w-0 px-1">
-        <OsPicker current={os} osMembers={osMembers} disabled={order.kind !== "os"} onPick={(m) => onMoveOs(order, m)} />
-      </div>
-      <div className="min-w-0">
-        <TechCell order={order} tech={tech} techHidden={techHidden} statusOptions={statusOptions} />
       </div>
       <div className="flex min-w-0 items-center gap-0.5 px-1">
         {payChip(k.price)}
@@ -831,11 +912,56 @@ function LeadRow({
           onCommit={(v) => onCell(order, k.upsell, v)}
         />
       </div>
-      <span className="px-2 font-mono text-[12px] tabular-nums text-muted-foreground">{order.dateMs ? formatDayMonth(order.dateMs) : "—"}</span>
+      <div className="flex min-w-0 items-center gap-0.5 px-1">
+        <div className="min-w-0">
+          <OsPicker current={os} osMembers={osMembers} disabled={order.kind !== "os"} onPick={(m) => onMoveOs(order, m)} pill={{ color: osColor }} />
+        </div>
+        <DeskLinkButton link={osLink} />
+      </div>
+      <div className="min-w-0 px-0.5">
+        <StatusCell order={order} statusOptions={statusOptions} onCell={onCell} />
+      </div>
+      <div className="min-w-0 px-1">
+        <DeadlineCell order={order} statusOptions={statusOptions} onOpen={onOpen} />
+      </div>
+      <div className="flex min-w-0 items-center gap-0.5 pr-1">
+        <div className="min-w-0">
+          <TechCell order={order} tech={tech} techHidden={techHidden} statusOptions={statusOptions} color={techColor} />
+        </div>
+        <DeskLinkButton link={techLink} />
+      </div>
       <button type="button" aria-label="История заказа" title="История заказа" className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onOpen}>
         <History className="h-3.5 w-3.5" />
       </button>
     </div>
+  );
+}
+
+/** «Даты»: ↓ получен и ➤ выдан, как на столе ОС (только показ). У заказа без ОС — одна дата. */
+function LeadDatesCell({ order }: { order: LeadOrder }) {
+  if (order.kind !== "os") {
+    return <span className="font-mono text-[12px] tabular-nums text-muted-foreground">{order.dateMs ? formatDayMonth(order.dateMs) : "—"}</span>;
+  }
+  const slots = osDateSlots(order.row, { upsellKey: order.keys.upsell || "upsell", mirrorCreatedAt: order.copy?.createdAt ?? null });
+  return <OsDatesCell info={{ received: slots.received, issued: slots.issued }} />;
+}
+
+/** «Дата сдачи» — дедлайн из визитки; прошёл, а заказ не закрыт — красным. Нажатие открывает визитку. */
+function DeadlineCell({ order, statusOptions, onOpen }: { order: LeadOrder; statusOptions: readonly StatusOption[]; onOpen: () => void }) {
+  const deadline = leadDeadlineOf(order);
+  const overdue = deadline !== null && deadline < almatyMidnightMillis(Date.now()) && !leadIsClosed(order, statusOptions);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={deadline !== null ? `Сдать до ${formatFullDate(deadline)}${overdue ? " — срок прошёл" : ""}` : "Срок сдачи — в визитке клиента"}
+      className={cn(
+        "flex h-7 w-full items-center rounded-md px-1.5 font-mono text-[12px] tabular-nums hover:bg-accent/60",
+        deadline === null ? "text-muted-foreground/50" : overdue ? "font-semibold text-destructive" : "text-foreground"
+      )}
+    >
+      {deadline === null ? "—" : formatDayMonth(deadline)}
+    </button>
   );
 }
 
@@ -846,6 +972,8 @@ function LeadMobileCard({
   techHidden,
   statusOptions,
   onOpen,
+  osColor,
+  techColor,
 }: {
   order: LeadOrder;
   os: WorkspaceMember | null;
@@ -853,7 +981,11 @@ function LeadMobileCard({
   techHidden: boolean;
   statusOptions: readonly StatusOption[];
   onOpen: () => void;
+  osColor: string | null;
+  techColor: string | null;
 }) {
+  const deadline = leadDeadlineOf(order);
+  const overdue = deadline !== null && deadline < almatyMidnightMillis(Date.now()) && !leadIsClosed(order, statusOptions);
   return (
     <button type="button" onClick={onOpen} className="flex w-full min-w-0 flex-col gap-1.5 rounded-xl border border-border bg-card px-3 py-2.5 text-left">
       <div className="flex min-w-0 items-center gap-2">
@@ -867,16 +999,27 @@ function LeadMobileCard({
       </div>
       <div className="flex min-w-0 items-center gap-2 text-[12px] text-muted-foreground">
         <span className="truncate">{order.phone || "без номера"}</span>
+        {deadline !== null ? (
+          <span className={cn("shrink-0 font-mono tabular-nums", overdue && "font-semibold text-destructive")}>до {formatDayMonth(deadline)}</span>
+        ) : null}
         <span className="ml-auto shrink-0 font-mono tabular-nums">{order.dateMs ? formatDayMonth(order.dateMs) : ""}</span>
       </div>
       <div className="flex min-w-0 items-center gap-2">
         <span className="min-w-0 max-w-[45%]">
-          <OsLabel member={os} />
+          {os ? (
+            <PersonPill color={osColor}>
+              <OsLabel member={os} />
+            </PersonPill>
+          ) : (
+            <OsLabel member={os} />
+          )}
         </span>
         <span className="text-muted-foreground">→</span>
         <span className="flex min-w-0 flex-1 items-center gap-2">
           {tech ? (
-            <TechBadge identity={tech} />
+            <PersonPill color={techColor}>
+              <TechBadge identity={tech} />
+            </PersonPill>
           ) : (
             <span className="text-[12.5px] text-muted-foreground">{techHidden ? TECH_DESK_HIDDEN_LABEL : "не выдан"}</span>
           )}

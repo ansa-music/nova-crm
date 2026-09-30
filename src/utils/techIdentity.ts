@@ -111,11 +111,12 @@ export function techIdentityOfUid(
   };
 }
 
-/** Подсказка к нику: «ARM-07 — Арман Ахметов» или что с ником не так. */
+/** Подсказка к нику: «ARM-07» или что с ником не так. */
 export function techIdentityTitle(identity: TechIdentity | null): string {
   if (!identity) return "Технарь не выбран";
   if (identity.issue === "unknown-nick") return "Этого ника нет в списке ников технарей — выберите технаря заново";
-  const who = identity.realName ? `${identity.label} — ${identity.realName}` : (identity.label ?? "технарь");
+  // Только ник: имя человека на рабочих экранах не показываем (Nurba 30.09.2026).
+  const who = identity.label ?? "технарь";
   if (identity.issue === "no-account") return `${who}. У этого ника нет аккаунта — закрепите ник на «Команде»`;
   if (identity.issue === "inactive") return `${who}. Ник в неактуальных или аккаунт выключен — заказ ему не уйдёт`;
   return who;

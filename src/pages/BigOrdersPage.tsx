@@ -352,9 +352,6 @@ function BigOrdersBody({
             <BigCountBadge count={cfg.counts[uid]} since={cfg.countsSince} />
             {extra}
           </span>
-          {member && member.name && member.name !== name ? (
-            <span className="truncate text-[11.5px] text-muted-foreground">{member.name}</span>
-          ) : null}
         </span>
       </>
     );

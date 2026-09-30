@@ -12,6 +12,8 @@ import { isOptionColumn, splitOptionsByActivity } from "@/utils/columnOptions";
 import { parseHttpUrl } from "@/utils/httpUrl";
 import { cn } from "@/utils/cn";
 import type { PageColumn } from "@/types";
+import { DeskLinkButton } from "@/components/common/DeskLinkButton";
+import type { DeskLink } from "@/utils/personDeskLinks";
 
 interface TableCellProps {
   column: PageColumn;
@@ -82,6 +84,19 @@ interface TableCellProps {
    * строку и при «Просторно», и после ручного ресайза строки — ресайз терял смысл.
    */
   rowHeight?: number;
+  /** «↗ открыть стол» у ячейки ОС / технаря (`utils/personDeskLinks.ts`). */
+  deskLink?: DeskLink | null;
+}
+
+/** Списочная ячейка с кнопкой «открыть стол» справа; без ссылки — как была. */
+function OptionCellWrap({ link, children }: { link: DeskLink | null | undefined; children: ReactNode }) {
+  if (!link) return <>{children}</>;
+  return (
+    <div className="flex h-full w-full min-w-0 items-center">
+      <div className="h-full min-w-0 flex-1">{children}</div>
+      <DeskLinkButton link={link} className="mr-1" />
+    </div>
+  );
 }
 
 /**
@@ -143,6 +158,7 @@ export function TableCell({
   onOpenPicker,
   display,
   rowHeight,
+  deskLink,
 }: TableCellProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const tdRef = useRef<HTMLTableCellElement>(null);
@@ -415,9 +431,11 @@ export function TableCell({
               <span className="text-xs text-muted-foreground/70">{canEdit ? "Выбрать…" : "—"}</span>
             )}
           </button>
+          <DeskLinkButton link={deskLink} />
           {trailing}
         </div>
       ) : isOptionColumn(column.type) ? (
+        <OptionCellWrap link={deskLink}>
         <Select
           value={stringValue || undefined}
           onValueChange={(v) => onStatusChange(v === "__clear__" ? "" : v)}
@@ -484,6 +502,7 @@ export function TableCell({
             </SelectItem>
           </SelectContent>
         </Select>
+        </OptionCellWrap>
       ) : column.type === "date" ? (
         <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
           <PopoverTrigger asChild>

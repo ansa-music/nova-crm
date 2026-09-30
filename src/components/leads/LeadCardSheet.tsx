@@ -9,6 +9,8 @@ import { PaymentChip } from "@/components/cashbox/PaymentChip";
 import { EditableText, OsPicker } from "@/components/leads/LeadCells";
 import { LeadOrderHistory, type LeadHistoryContext } from "@/components/leads/LeadHistory";
 import { useIsMobile } from "@/hooks/useMediaQuery";
+import { DeskLinkButton } from "@/components/common/DeskLinkButton";
+import type { DeskLink } from "@/utils/personDeskLinks";
 import type { LeadOrder } from "@/services/leadBoardService";
 import { deskNavState, deskRowHref } from "@/utils/deskLinks";
 import { formatNumber } from "@/utils/format";
@@ -48,6 +50,8 @@ export function LeadCardSheet({
   methods,
   onExtras,
   onMoveOs,
+  osLink = null,
+  techLink = null,
 }: {
   order: LeadOrder | null;
   onClose: () => void;
@@ -58,6 +62,9 @@ export function LeadCardSheet({
   tech: TechIdentity | null;
   /** Стол технаря закрыт «только для Owner», а смотрит не Owner: копии не видно, стол не открыть. */
   techDeskHidden?: boolean;
+  /** «Стол ОС ↗» / «Стол технаря ↗» — см. `utils/personDeskLinks.ts`. */
+  osLink?: DeskLink | null;
+  techLink?: DeskLink | null;
   historyCtx: LeadHistoryContext;
   historyVersion: number;
   onCell: (order: LeadOrder, key: string, value: string) => Promise<void>;
@@ -149,7 +156,12 @@ export function LeadCardSheet({
                 </>
               ) : null}
               <Field label="ОС">
-                <OsPicker current={os} osMembers={osMembers} disabled={order.kind !== "os"} onPick={(m) => onMoveOs(order, m)} />
+                <div className="flex min-w-0 items-center gap-1">
+                  <div className="min-w-0 flex-1">
+                    <OsPicker current={os} osMembers={osMembers} disabled={order.kind !== "os"} onPick={(m) => onMoveOs(order, m)} />
+                  </div>
+                  <DeskLinkButton link={osLink} withText="Стол" />
+                </div>
               </Field>
               <Field label="Технарь">
                 <div className="flex min-w-0 items-center gap-2 px-1.5">
@@ -169,6 +181,7 @@ export function LeadCardSheet({
                       <StatusBadge value={order.techStatus} options={[...statusOptions]} className="max-w-none" />
                     </span>
                   ) : null}
+                  <DeskLinkButton link={techLink} withText="Стол" className={order.techStatus && order.kind === "os" ? undefined : "ml-auto"} />
                 </div>
               </Field>
               {k.link ? (

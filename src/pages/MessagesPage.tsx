@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { rolesLabel } from "@/types/role";
 import { useNavigate, useParams } from "react-router";
 import { ArrowLeft, CheckCheck, MessageCircle, Search, UserPlus } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -273,7 +274,7 @@ export default function MessagesPage() {
                   </Avatar>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{displayNameOf(m)}</p>
-                    <p className="truncate text-xs text-muted-foreground">{m.email}</p>
+                    <p className="truncate text-xs text-muted-foreground">{rolesLabel(m)}</p>
                   </div>
                 </button>
               ))}

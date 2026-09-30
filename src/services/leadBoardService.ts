@@ -14,6 +14,7 @@ import { findOsDeskOf, resolveOsDeskKeys, type OsDeskKeys } from "@/services/osD
 import { sendNotification } from "@/services/notificationService";
 import { computeOsFieldKeys } from "@/utils/osFieldKeys";
 import { isBlankRow } from "@/utils/blankRow";
+import { personLabel } from "@/utils/peopleDesks";
 import { rowEnteredAtMs } from "@/utils/rowEntryOrder";
 import { almatyDay, cellMillis } from "@/utils/osDates";
 import { feeKeyOf, osRowTotal, payKeyOf, paymentPatch } from "@/utils/payment";
@@ -88,6 +89,17 @@ export interface LeadOrder {
   enteredAt: number;
   /** Дата заказа: поставленная ОС «получен», иначе время внесения. */
   dateMs: number;
+}
+
+/**
+ * Срок сдачи заказа — дедлайн из визитки (`row.extras.deadline`): у заказа ОС
+ * — строки ОС, иначе (или если там пусто) — копии у технаря.
+ */
+export function leadDeadlineOf(order: Pick<LeadOrder, "row" | "copy">): number | null {
+  const own = order.row.extras?.deadline;
+  if (typeof own === "number" && Number.isFinite(own)) return own;
+  const copy = order.copy?.extras?.deadline;
+  return typeof copy === "number" && Number.isFinite(copy) ? copy : null;
 }
 
 export interface LeadBoardHead {
@@ -410,7 +422,7 @@ export async function moveLeadOs(input: {
   const tab = await openOsDeskCurrentTab({
     workspaceId,
     uid: toOs.uid,
-    name: toOs.osNick || toOs.nickname || toOs.name || "",
+    name: personLabel(toOs),
     osDesks: input.osDesks,
     createIfMissing: true,
   });
@@ -482,7 +494,7 @@ export async function addLead(input: {
   const tab = await openOsDeskCurrentTab({
     workspaceId,
     uid: os.uid,
-    name: os.osNick || os.nickname || os.name || "",
+    name: personLabel(os),
     osDesks: input.osDesks,
     createIfMissing: true,
   });
@@ -652,6 +664,14 @@ export function leadStatusOf(o: LeadOrder, statusOptions: readonly StatusOption[
     return o.techStatus;
   }
   return o.status;
+}
+
+/** Заказ закрыт — «Готово» или «Отменено»: просроченный срок сдачи у него не краснеет. */
+export function leadIsClosed(o: LeadOrder, statusOptions: readonly StatusOption[]): boolean {
+  const status = leadStatusOf(o, statusOptions);
+  if (!status) return false;
+  const label = statusOptions.find((x) => x.value === status)?.label ?? status;
+  return isCancelledLabel(label, status) || isDoneStatusLabel(label) || status === "done";
 }
 
 export function leadStats(
