@@ -1,4 +1,4 @@
-import type { LeadOrder } from "@/services/leadBoardService";
+import { leadDeadlineOf, type LeadOrder } from "@/services/leadBoardService";
 
 /**
  * Порядок строк «Общей таблицы». Умолчание — «Новые сверху»: последний
@@ -13,6 +13,7 @@ export const LEAD_SORTS = [
   "sum-desc",
   "sum-asc",
   "upsell-desc",
+  "deadline-asc",
   "client",
   "os",
   "tech",
@@ -28,6 +29,7 @@ export const LEAD_SORT_LABELS: Record<LeadSort, string> = {
   "sum-desc": "Сумма: больше",
   "sum-asc": "Сумма: меньше",
   "upsell-desc": "Апсейл: больше",
+  "deadline-asc": "Срок сдачи: ближе",
   client: "Клиент А–Я",
   os: "ОС А–Я",
   tech: "Технарь А–Я",
@@ -37,12 +39,12 @@ export const LEAD_SORT_LABELS: Record<LeadSort, string> = {
 /** Группы в меню «Порядок». */
 export const LEAD_SORT_SECTIONS: Array<{ title: string; sorts: LeadSort[] }> = [
   { title: "Время внесения", sorts: ["new-top", "new-bottom"] },
-  { title: "Дата и деньги", sorts: ["date-desc", "date-asc", "sum-desc", "sum-asc", "upsell-desc"] },
+  { title: "Дата и деньги", sorts: ["date-desc", "date-asc", "deadline-asc", "sum-desc", "sum-asc", "upsell-desc"] },
   { title: "Люди и статус", sorts: ["client", "os", "tech", "status"] },
 ];
 
 /** Столбец шапки → вид сортировки при первом клике и при повторном. */
-export type LeadSortColumn = "client" | "status" | "os" | "tech" | "sum" | "upsell" | "date";
+export type LeadSortColumn = "client" | "status" | "os" | "tech" | "sum" | "upsell" | "date" | "deadline";
 const COLUMN_SORTS: Record<LeadSortColumn, [LeadSort, LeadSort | null]> = {
   client: ["client", null],
   status: ["status", null],
@@ -51,6 +53,7 @@ const COLUMN_SORTS: Record<LeadSortColumn, [LeadSort, LeadSort | null]> = {
   sum: ["sum-desc", "sum-asc"],
   upsell: ["upsell-desc", null],
   date: ["new-top", "new-bottom"],
+  deadline: ["deadline-asc", null],
 };
 
 /** Клик по заголовку столбца: первый — его вид, повторный — обратное направление. */
@@ -75,6 +78,8 @@ export function sortColumnOf(sort: LeadSort): { column: LeadSortColumn; dir: "as
       return { column: "sum", dir: "asc" };
     case "upsell-desc":
       return { column: "upsell", dir: "desc" };
+    case "deadline-asc":
+      return { column: "deadline", dir: "asc" };
     default:
       return { column: sort, dir: "asc" };
   }
@@ -124,6 +129,8 @@ export function leadComparator(sort: LeadSort, ctx: LeadSortContext): (a: LeadOr
         return byNumber(a.total, b.total, 1);
       case "upsell-desc":
         return byNumber(a.upsell || null, b.upsell || null, -1);
+      case "deadline-asc":
+        return byNumber(leadDeadlineOf(a), leadDeadlineOf(b), 1);
       case "client":
         return byText(a.client.trim(), b.client.trim());
       case "os":

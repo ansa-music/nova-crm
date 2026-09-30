@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, Wrench } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import {
@@ -118,6 +118,25 @@ export function OsLabel({ member, fallback }: { member: WorkspaceMember | null; 
   );
 }
 
+/**
+ * Цветная пилюля человека, как в таблице Nurba («Менеджер ОС», «Технарь»):
+ * цвет — варианта ника (HSL-триплет), без варианта — нейтральная.
+ */
+export function PersonPill({ color, children, className }: { color: string | null | undefined; children: ReactNode; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-6 min-w-0 max-w-full items-center gap-1 rounded-full border px-1.5",
+        !color && "border-border bg-muted/60",
+        className
+      )}
+      style={color ? { backgroundColor: `hsl(${color} / 0.16)`, borderColor: `hsl(${color} / 0.35)` } : undefined}
+    >
+      {children}
+    </span>
+  );
+}
+
 /** ОС заказа с выбором другого — строка переезжает на его стол. */
 export function OsPicker({
   current,
@@ -125,17 +144,24 @@ export function OsPicker({
   onPick,
   disabled,
   fallback,
+  pill,
 }: {
   current: WorkspaceMember | null;
   osMembers: readonly WorkspaceMember[];
   onPick: (member: WorkspaceMember) => void;
   disabled?: boolean;
   fallback?: string;
+  /** Нарисовать ОС цветной пилюлей (цвет варианта его ника); `undefined` — как раньше. */
+  pill?: { color: string | null };
 }) {
+  const label = (
+    <OsLabel member={current} fallback={fallback} />
+  );
+  const shown = pill && current ? <PersonPill color={pill.color}>{label}</PersonPill> : label;
   if (disabled) {
     return (
       <span className="flex h-7 min-w-0 items-center px-1.5">
-        <OsLabel member={current} fallback={fallback} />
+        {shown}
       </span>
     );
   }
@@ -147,7 +173,7 @@ export function OsPicker({
           aria-label="Сменить ОС"
           className="group flex h-7 w-full min-w-0 items-center justify-between gap-1 rounded-md px-1.5 hover:bg-accent/60"
         >
-          <OsLabel member={current} fallback={fallback} />
+          {shown}
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100" />
         </button>
       </DropdownMenuTrigger>

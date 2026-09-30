@@ -115,6 +115,7 @@ import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
 import { usePendingCellWrites } from "@/hooks/usePendingCellWrites";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
+import { buildPersonDeskIndex, deskLinkForCell } from "@/utils/personDeskLinks";
 import { useUiStore } from "@/store/uiStore";
 import { updateResponsibleOptions, updateCustomFieldOptions, updateStatusOptions } from "@/services/workspaceService";
 import { APP_CURRENCY, formatCount, formatCurrency, formatCurrencyCell, formatNumber, downloadCsv } from "@/utils";
@@ -814,6 +815,27 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   const { activeWorkspace } = useWorkspace();
   const { profile } = useAuth();
   const permissions = usePermissions();
+  // «↗ открыть стол» у ячеек ОС и технаря: индекс «ник → стол» один на
+  // таблицу, строки получают стабильный колбэк, перерисовку решает подпись.
+  const { members: deskLinkMembers, allPages: deskLinkPages } = useWorkspace();
+  const deskLinkCanAccess = permissions.canAccessPage;
+  const personDeskIndex = useMemo(
+    () =>
+      buildPersonDeskIndex({
+        members: deskLinkMembers,
+        pages: deskLinkPages,
+        osDesks: deskLinkPages.filter((p) => p.osDesk),
+        canAccess: deskLinkCanAccess,
+      }),
+    [deskLinkMembers, deskLinkPages, deskLinkCanAccess]
+  );
+  const personDeskIndexRef = useRef(personDeskIndex);
+  personDeskIndexRef.current = personDeskIndex;
+  const deskLinkFor = useCallback(
+    (row: PageRow, column: PageColumn) =>
+      deskLinkForCell(personDeskIndexRef.current, row, column, row.cells[column.key], page.id),
+    [page.id]
+  );
   // Shared option lists (statuses, Ответственный, custom fields) — Owner only
   // here: a Тимлид manages them in Настройки but never opens a desk table.
   const canEditSharedLists = permissions.canManageStatusVariants;
@@ -4168,6 +4190,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         cellDisplayKeys={cellDisplay?.keys}
         cellDisplayVersion={cellDisplay?.version}
         renderCellDisplay={cellDisplay ? renderCellDisplay : undefined}
+        deskLinkFor={deskLinkFor}
+        deskLinkVersion={personDeskIndex.signature}
         cellActionKeys={cellActionKeys}
         getCellAction={cellAction ? getCellActionView : undefined}
         cellActionPulse={cellAction ? cellActionPulse : undefined}

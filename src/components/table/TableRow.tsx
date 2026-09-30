@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/utils/cn";
 import type { CellAddress, PageColumn, PageRow } from "@/types";
+import type { DeskLink } from "@/utils/personDeskLinks";
 
 const ROW_GUTTER_WIDTH = 56;
 
@@ -127,6 +128,9 @@ interface TableRowProps {
   cellDisplayKeys?: readonly string[];
   cellDisplayVersion?: string;
   renderCellDisplay?: (row: PageRow, colKey: string) => React.ReactNode | undefined;
+  /** «↗ открыть стол» у ячеек ОС / технаря — см. `utils/personDeskLinks.ts`. */
+  deskLinkFor?: (row: PageRow, column: PageColumn) => DeskLink | null;
+  deskLinkVersion?: string;
 }
 
 /**
@@ -254,6 +258,7 @@ function TableRowInner({
   renderCellAddon,
   cellDisplayKeys,
   renderCellDisplay,
+  deskLinkFor,
 }: TableRowProps) {
   const allowRowDrag = canReorder && !coarsePointer;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -486,6 +491,11 @@ function TableRowInner({
                 : null
             }
             coarsePointer={coarsePointer}
+            deskLink={
+              deskLinkFor && !blank && (column.type === "responsible" || column.type === "technician")
+                ? deskLinkFor(row, column)
+                : null
+            }
             leading={
               renderCellAddon && !blank && cellAddonKeys?.includes(column.key) ? renderCellAddon(row, column.key) : undefined
             }
@@ -601,6 +611,8 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     prev.cellDisplayKeys !== next.cellDisplayKeys ||
     prev.cellDisplayVersion !== next.cellDisplayVersion ||
     prev.renderCellDisplay !== next.renderCellDisplay ||
+    prev.deskLinkFor !== next.deskLinkFor ||
+    prev.deskLinkVersion !== next.deskLinkVersion ||
     prev.onCellAction !== next.onCellAction ||
     prev.getCellAction !== next.getCellAction ||
     prev.cellActionPulse !== next.cellActionPulse

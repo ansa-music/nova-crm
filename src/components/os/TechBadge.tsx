@@ -28,13 +28,14 @@ export function OsTechLeftView({ left, size = "cell", title }: { left: OsTechLef
 }
 
 /**
- * Технарь в лицо: аватар, ник и настоящее имя (если оно другое). Одна
+ * Технарь в лицо: аватар и ник. Настоящее имя НЕ показываем (просьба Nurba
+ * 30.09.2026: «везде только по никам»). Одна
  * отрисовка на ячейку «Технарь» стола ОС, «Карточки» и карточку строки —
  * раньше ник рисовался как статус («● ник»), неизвестный ник давал «—», а
  * карточка показывала сырое `opt_…`.
  *
  * `size="cell"` — в строку таблицы (аватар 16 px, одна строка), `card` —
- * в карточку строки (аватар 32 px, ник и имя в две строки).
+ * в карточку строки (аватар 32 px, ник и под ним — что с ником не так).
  */
 export function TechBadge({
   identity,
@@ -91,8 +92,6 @@ export function TechBadge({
             <span className="truncate text-xs text-warning">
               {identity.issue === "no-account" ? "нет аккаунта — закрепите ник на «Команде»" : "ник в неактуальных"}
             </span>
-          ) : identity.realName ? (
-            <span className="truncate text-xs text-muted-foreground">{identity.realName}</span>
           ) : null}
         </span>
       </span>
@@ -104,9 +103,6 @@ export function TechBadge({
       {/* Имя сжимается первым: ник — то, по чему ОС ищет технаря. */}
       <span className="min-w-0 shrink truncate text-[12.5px] font-medium leading-none">{label}</span>
       {warn}
-      {identity.realName ? (
-        <span className="min-w-0 shrink-[4] truncate text-[11.5px] leading-none text-muted-foreground">· {identity.realName}</span>
-      ) : null}
     </span>
   );
 }

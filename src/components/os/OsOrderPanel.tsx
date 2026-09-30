@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowDownToLine, Hand, Loader2, RefreshCw, Send, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/table/StatusBadge";
@@ -29,6 +29,9 @@ import { formatCurrency } from "@/utils/format";
 import { parseLooseNumber } from "@/utils/numberInput";
 import type { OsDateSlot } from "@/utils/osDates";
 import { OsDateButton, type OsDateSetter, type OsDatesInfo } from "@/components/os/OsDatesCell";
+import { DeskLinkButton } from "@/components/common/DeskLinkButton";
+import { usePermissions } from "@/hooks/usePermissions";
+import { buildPersonDeskIndex, techDeskLink } from "@/utils/personDeskLinks";
 
 /** Сумма из ячейки как число (для показа рядом со способом оплаты). */
 function cellAmount(value: unknown): number {
@@ -228,6 +231,15 @@ export function OsOrderPanel({
 
   const kind = state?.kind ?? null;
   const techNick = cellText(row, keys.technician);
+  const { allPages: deskPages } = useWorkspace();
+  const canAccessDesk = usePermissions().canAccessPage;
+  // «Стол технаря ↗» — на его копию заказа или на его стол, если он нам открыт.
+  const techLink = useMemo(() => {
+    if (!techNick) return null;
+    const index = buildPersonDeskIndex({ members, pages: deskPages, osDesks: deskPages.filter((p) => p.osDesk), canAccess: canAccessDesk });
+    const target = index.techByNick.get(techNick);
+    return target ? techDeskLink(index, target, row, pageId) : null;
+  }, [techNick, members, deskPages, canAccessDesk, row, pageId]);
   const techUid = techUidByNick(members, techNick);
   // Отдать некому (нет аккаунта, стола, карты столбцов) — «Выдать заново» не
   // предлагаем, причина и так написана.
@@ -382,6 +394,7 @@ export function OsOrderPanel({
           ) : (
             <span className="text-sm text-muted-foreground">не выбран</span>
           )}
+          <DeskLinkButton link={techLink} withText="Стол технаря" className="-ml-2 mt-1" />
         </div>
         {pickAction ? (
           <Button variant="outline" size="sm" className="min-h-11 sm:min-h-9" onClick={() => onAction(pickAction)}>
