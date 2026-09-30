@@ -63,7 +63,7 @@ export function eventText(e: LeadEvent, ctx: LeadHistoryContext): string {
     case "carried":
       return "перенесён в новый период";
     case "deleted":
-      return "строка удалена";
+      return "заказ удалён";
     case "os":
       return `ОС: ${who(e.oldValue, ctx)} → ${who(e.newValue, ctx)}`;
     default:
@@ -169,7 +169,8 @@ export function LeadFeed({
                 disabled={!order}
                 onClick={() => order && onOpen(order)}
               >
-                <EventLine e={e} ctx={ctx} title={order?.client || "заказ"} />
+                {/* Удалённого заказа в таблице нет — имя клиента пишет в событие сама база (20261043). */}
+                <EventLine e={e} ctx={ctx} title={order?.client || (e.kind === "deleted" ? e.oldValue : null) || "заказ"} />
               </button>
             </li>
           );

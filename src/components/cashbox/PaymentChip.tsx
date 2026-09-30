@@ -24,6 +24,7 @@ export function PaymentChip({
   canEdit,
   canConfigure,
   compact,
+  dot,
   onPick,
   onConfigure,
 }: {
@@ -35,6 +36,13 @@ export function PaymentChip({
   canConfigure?: boolean;
   /** Узкая ячейка таблицы (а не карточка строки). */
   compact?: boolean;
+  /**
+   * Одна цветная точка перед суммой — «Общая таблица» в виде отчёта, где
+   * подпись «Lavatop −8%» не помещается рядом с суммой. Название и комиссия —
+   * в подсказке; пустой способ проявляется при наведении на строку
+   * (`group/row`), на таче его не видно — способ ставят в карточке.
+   */
+  dot?: boolean;
   onPick: (method: PaymentMethod | null) => void;
   onConfigure?: () => void;
 }) {
@@ -45,7 +53,21 @@ export function PaymentChip({
   if (!label && !canEdit) return null;
   const active = methods.filter((m) => !m.inactive || m.id === id);
 
-  const chip = (
+  const chip = dot ? (
+    <span
+      className={cn(
+        "inline-flex h-5 w-4 shrink-0 items-center justify-center",
+        !label && "opacity-0 group-hover/row:opacity-70 group-focus-within/row:opacity-70 [@media(hover:none)]:hidden"
+      )}
+      title={label ? `${label} · ${formatFee(fee)}` : "Способ оплаты"}
+    >
+      {label ? (
+        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: method?.color ?? "hsl(var(--muted-foreground))" }} />
+      ) : (
+        <CreditCard className="h-3 w-3 text-muted-foreground" />
+      )}
+    </span>
+  ) : (
     <span
       className={cn(
         "inline-flex max-w-full min-w-0 items-center gap-1 border font-medium leading-none",

@@ -67,8 +67,11 @@ export function formatCurrencyCell(raw: string): string {
   return n === null ? raw : formatCurrency(n);
 }
 
+/** Один форматтер на приложение: новый на каждое число стоил заметно на длинных таблицах. */
+const RU_NUMBER = new Intl.NumberFormat("ru-RU");
+
 export function formatNumber(value: number): string {
-  return new Intl.NumberFormat("ru-RU").format(value || 0);
+  return RU_NUMBER.format(value || 0);
 }
 
 export function parseNumeric(value: string): number {

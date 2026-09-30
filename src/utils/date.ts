@@ -160,41 +160,64 @@ export function zonedDateFormat(locale: string, options: Intl.DateTimeFormatOpti
  * всегда +300: так было зашито (`+05:00`), и так же считают старые браузеры,
  * у которых в базе поясов ещё Алматы +6 (до марта 2024).
  */
+/**
+ * Форматтеры по поясу — один на пояс: `new Intl.DateTimeFormat` на каждый
+ * вызов стоил сотни миллисекунд на таблице в сотни строк (у каждой строки
+ * несколько дат). Пояс неизвестен — конструктор бросает, как и раньше, и в
+ * кэш ничего не попадает.
+ */
+const tzFormats = new Map<string, Intl.DateTimeFormat>();
+function tzFormat(kind: string, timeZone: string, make: () => Intl.DateTimeFormat): Intl.DateTimeFormat {
+  const key = `${kind}|${timeZone}`;
+  let f = tzFormats.get(key);
+  if (!f) {
+    f = make();
+    tzFormats.set(key, f);
+  }
+  return f;
+}
+
 export function timeZoneOffsetMinutes(ms: number, timeZone = USER_TIMEZONE): number {
   if (timeZone === DEFAULT_TIMEZONE) return 300;
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).formatToParts(new Date(ms));
+  const parts = tzFormat("offset", timeZone, () =>
+    new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    })
+  ).formatToParts(new Date(ms));
   const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? "0");
   const wall = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour") % 24, get("minute"), get("second"));
   return Math.round((wall - Math.floor(ms / 1000) * 1000) / 60_000);
 }
 
 export function hourInTimeZone(ms: number, timeZone = USER_TIMEZONE): number {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone,
-    hour: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date(ms));
+  const parts = tzFormat("hour", timeZone, () =>
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      hour: "2-digit",
+      hour12: false,
+    })
+  ).formatToParts(new Date(ms));
   const raw = Number(parts.find((part) => part.type === "hour")?.value ?? "0");
   return raw === 24 ? 0 : raw;
 }
 
 /** YYYY-MM-DD in the given zone, for calendar-day compares. */
 export function ymdInTimeZone(ms: number, timeZone = USER_TIMEZONE): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(ms));
+  return tzFormat("ymd", timeZone, () =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+  ).format(new Date(ms));
 }
 
 /** Order-received date in Asia/Almaty (calendar day, not a deadline). */

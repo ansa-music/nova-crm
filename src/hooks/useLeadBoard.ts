@@ -27,6 +27,13 @@ export interface LeadBoardState {
   refresh: () => void;
   /** Своя правка — сразу на экран, до ответа базы. */
   patchLocal: (key: string, cells: Record<string, unknown>) => void;
+  /**
+   * Удаление — строки (ключи `page/tab/id`) пропадают сразу. Метка живёт,
+   * пока выборка их ещё приносит: выборка, начатая до удаления, не вернёт
+   * строку на экран. Не удалилось или «Вернуть» — `unhideLocal`.
+   */
+  hideLocal: (keys: readonly string[]) => void;
+  unhideLocal: (keys: readonly string[]) => void;
 }
 
 /**
@@ -50,12 +57,14 @@ export function useLeadBoard(input: {
   const [records, setRecords] = useState<Map<string, DeskRowRecord>>(() => new Map());
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
   const kickRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     setRecords(new Map());
     setLoaded(false);
     setError(null);
+    setHidden(new Set());
     if (!enabled || !workspaceId) return;
     let cancelled = false;
     let map = new Map<string, DeskRowRecord>();
@@ -83,6 +92,12 @@ export function useLeadBoard(input: {
       setRecords(new Map(map));
       setLoaded(true);
       setError(null);
+      // База строку больше не отдаёт — метка удаления своё отслужила.
+      setHidden((prev) => {
+        if (prev.size === 0) return prev;
+        const next = new Set([...prev].filter((key) => map.has(key)));
+        return next.size === prev.size ? prev : next;
+      });
     };
 
     const run = async (mode: "delta" | "full") => {
@@ -180,13 +195,29 @@ export function useLeadBoard(input: {
     });
   }, []);
 
+  const hideLocal = useCallback((keys: readonly string[]) => {
+    if (keys.length === 0) return;
+    setHidden((prev) => new Set([...prev, ...keys]));
+  }, []);
+  const unhideLocal = useCallback((keys: readonly string[]) => {
+    if (keys.length === 0) return;
+    setHidden((prev) => {
+      const next = new Set(prev);
+      for (const key of keys) next.delete(key);
+      return next.size === prev.size ? prev : next;
+    });
+  }, []);
+
   const pagesById = useMemo(() => new Map(input.pages.map((p) => [p.id, p])), [input.pages]);
   const orders = useMemo(
-    () => buildLeadOrders(records.values(), { pagesById, tables: tablesRef.current }),
+    () => {
+      const shown = hidden.size ? [...records.values()].filter((r) => !hidden.has(recordKey(r))) : records.values();
+      return buildLeadOrders(shown, { pagesById, tables: tablesRef.current });
+    },
     // tablesSig — таблицы, по которым разбирается выборка.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [records, pagesById, tablesSig]
+    [records, hidden, pagesById, tablesSig]
   );
 
-  return { orders, loaded, error, refresh, patchLocal };
+  return { orders, loaded, error, refresh, patchLocal, hideLocal, unhideLocal };
 }

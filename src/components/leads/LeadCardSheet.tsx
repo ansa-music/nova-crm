@@ -1,6 +1,7 @@
 import { Link } from "react-router";
-import { ExternalLink, Lock } from "lucide-react";
+import { ExternalLink, Lock, Trash2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { ClientCardSection } from "@/components/table/ClientCardSection";
@@ -50,6 +51,7 @@ export function LeadCardSheet({
   methods,
   onExtras,
   onMoveOs,
+  onDelete,
   osLink = null,
   techLink = null,
 }: {
@@ -72,6 +74,8 @@ export function LeadCardSheet({
   methods: readonly PaymentMethod[];
   onExtras: (order: LeadOrder, extras: RowExtras | null) => Promise<void>;
   onMoveOs: (order: LeadOrder, member: WorkspaceMember) => void;
+  /** «Удалить заказ» — со стола ОС, копию у технаря и заказ на «Заказах» (подтверждение — у страницы). */
+  onDelete?: (order: LeadOrder) => void;
 }) {
   const mobile = useIsMobile();
   const k = order?.keys;
@@ -211,6 +215,16 @@ export function LeadCardSheet({
               <h3 className="text-[12px] font-medium uppercase tracking-[0.12em] text-muted-foreground">История заказа</h3>
               <LeadOrderHistory workspaceId={workspaceId} order={order} ctx={historyCtx} version={historyVersion} />
             </div>
+
+            {onDelete ? (
+              <Button
+                variant="outline"
+                className="mt-1 min-h-11 gap-1.5 self-start border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive sm:min-h-9"
+                onClick={() => onDelete(order)}
+              >
+                <Trash2 className="h-4 w-4" /> Удалить заказ
+              </Button>
+            ) : null}
           </>
         ) : null}
       </SheetContent>

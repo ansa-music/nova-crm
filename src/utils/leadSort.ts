@@ -1,9 +1,11 @@
 import { leadDeadlineOf, type LeadOrder } from "@/services/leadBoardService";
 
 /**
- * Порядок строк «Общей таблицы». Умолчание — «Новые сверху»: последний
- * внесённый заказ первым (время внесения = max(createdAt, filledAt), как у
- * стола — слот, заполненный сегодня, сегодняшний).
+ * Порядок строк «Общей таблицы». Умолчание — «Новые снизу»: по времени
+ * внесения В ТАБЛИЦУ, сверху вниз, как журнал в Excel (просьба Nurba
+ * 30.09.2026; до того было «Новые сверху»). Время внесения = max(createdAt,
+ * filledAt), как у стола: слот, заполненный сегодня, — сегодняшний; дата,
+ * которую вписали в строку, тут ни при чём.
  */
 export const LEAD_SORTS = [
   "new-top",
@@ -20,6 +22,16 @@ export const LEAD_SORTS = [
   "status",
 ] as const;
 export type LeadSort = (typeof LEAD_SORTS)[number];
+
+export const DEFAULT_LEAD_SORT: LeadSort = "new-bottom";
+
+/**
+ * Умолчание на телефоне — «Новые сверху»: там не таблица, а лента карточек,
+ * и до вчерашних заказов иначе пришлось бы листать все заказы периода.
+ */
+export function defaultLeadSort(mobile: boolean): LeadSort {
+  return mobile ? "new-top" : DEFAULT_LEAD_SORT;
+}
 
 export const LEAD_SORT_LABELS: Record<LeadSort, string> = {
   "new-top": "Новые сверху",
@@ -38,7 +50,7 @@ export const LEAD_SORT_LABELS: Record<LeadSort, string> = {
 
 /** Группы в меню «Порядок». */
 export const LEAD_SORT_SECTIONS: Array<{ title: string; sorts: LeadSort[] }> = [
-  { title: "Время внесения", sorts: ["new-top", "new-bottom"] },
+  { title: "Время внесения в таблицу", sorts: ["new-bottom", "new-top"] },
   { title: "Дата и деньги", sorts: ["date-desc", "date-asc", "deadline-asc", "sum-desc", "sum-asc", "upsell-desc"] },
   { title: "Люди и статус", sorts: ["client", "os", "tech", "status"] },
 ];
@@ -52,7 +64,7 @@ const COLUMN_SORTS: Record<LeadSortColumn, [LeadSort, LeadSort | null]> = {
   tech: ["tech", null],
   sum: ["sum-desc", "sum-asc"],
   upsell: ["upsell-desc", null],
-  date: ["new-top", "new-bottom"],
+  date: ["new-bottom", "new-top"],
   deadline: ["deadline-asc", null],
 };
 
@@ -111,7 +123,11 @@ function byText(a: string, b: string): number {
   return collator.compare(a, b);
 }
 
-/** Компаратор строк; равенство решает время внесения (новые выше), затем ключ. */
+/**
+ * Компаратор строк; равенство решает время внесения — в ту же сторону, что
+ * читается таблица (сверху вниз, новые ниже; у «Новые сверху» и «Дата заказа:
+ * новые» — новые выше), затем ключ.
+ */
 export function leadComparator(sort: LeadSort, ctx: LeadSortContext): (a: LeadOrder, b: LeadOrder) => number {
   const primary = (a: LeadOrder, b: LeadOrder): number => {
     switch (sort) {
@@ -144,27 +160,56 @@ export function leadComparator(sort: LeadSort, ctx: LeadSortContext): (a: LeadOr
   return (a, b) => {
     const r = primary(a, b);
     if (r) return r;
-    if (sort !== "new-bottom" && b.enteredAt !== a.enteredAt) return b.enteredAt - a.enteredAt;
+    if (b.enteredAt !== a.enteredAt) return sort === "new-top" || sort === "date-desc" ? b.enteredAt - a.enteredAt : a.enteredAt - b.enteredAt;
     return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
   };
 }
 
-const MEMORY_KEY = "nova:leads-sort";
+/**
+ * Выбор в меню «Порядок» — на человека (localStorage). Ключ новый: прежняя
+ * память (`nova:leads-sort`) держала и случайный клик по заголовку, и у
+ * кого-то умолчание навсегда стало «по сумме». Клик по заголовку — только в
+ * адресе и в память не идёт.
+ */
+const MEMORY_KEY = "nova:leads-sort:v2";
 
-export function rememberedLeadSort(): LeadSort {
+export function rememberedLeadSort(mobile = false): LeadSort {
   try {
     const v = localStorage.getItem(MEMORY_KEY);
     if (v && (LEAD_SORTS as readonly string[]).includes(v)) return v as LeadSort;
   } catch {
     /* нет хранилища — умолчание */
   }
-  return "new-top";
+  return defaultLeadSort(mobile);
 }
 
-export function rememberLeadSort(sort: LeadSort): void {
+export function rememberLeadSort(sort: LeadSort, mobile = false): void {
   try {
-    if (sort === "new-top") localStorage.removeItem(MEMORY_KEY);
+    if (sort === defaultLeadSort(mobile)) localStorage.removeItem(MEMORY_KEY);
     else localStorage.setItem(MEMORY_KEY, sort);
+  } catch {
+    /* не страшно */
+  }
+}
+
+/**
+ * Группы по статусу: по умолчанию выключены — таблица одним списком по
+ * времени внесения, как отчёт в Excel. Включил — запоминается на человека.
+ */
+const GROUP_MEMORY_KEY = "nova:leads-group";
+
+export function rememberedLeadGrouping(): boolean {
+  try {
+    return localStorage.getItem(GROUP_MEMORY_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function rememberLeadGrouping(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(GROUP_MEMORY_KEY, "1");
+    else localStorage.removeItem(GROUP_MEMORY_KEY);
   } catch {
     /* не страшно */
   }

@@ -99,3 +99,27 @@ export async function redo() {
   }
   emit();
 }
+
+/**
+ * Отменить ИМЕННО эту команду — для кнопки «Вернуть» в тосте. Обычный
+ * `undo()` снял бы вершину стека, а над командой к тому времени могла лечь
+ * другая правка. Команды в стеке нет (её уже отменили Ctrl+Z или вытеснили
+ * 20 новых) — false, и ничего не делаем.
+ */
+export async function undoCommand(cmd: UndoCommand): Promise<boolean> {
+  const at = undoStack.lastIndexOf(cmd);
+  if (at < 0) return false;
+  undoStack.splice(at, 1);
+  emit();
+  try {
+    await cmd.undo();
+    redoStack.push(cmd);
+  } catch (error) {
+    undoStack.splice(Math.min(at, undoStack.length), 0, cmd);
+    toast.error(error instanceof Error ? error.message : "Не удалось отменить");
+    emit();
+    return false;
+  }
+  emit();
+  return true;
+}

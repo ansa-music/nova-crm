@@ -1,12 +1,15 @@
-import { supabaseRows } from "@/lib/supabaseRows";
+import { DESK_ROWS_TABLE, supabaseRows } from "@/lib/supabaseRows";
 import {
   compareCodePoints,
   md5Hex,
   recordToRow,
   RowsStoreError,
   sbPatchRow,
+  sbPutRows,
   type DeskRowRecord,
 } from "@/services/rows/supabaseRowStore";
+import { deleteOrder } from "@/services/orderService";
+import { fetchOrderAnywhere } from "@/services/orderStore";
 import { ringRowsDoorbell } from "@/services/rows/rowsDoorbell";
 import { ringTopic } from "@/services/sb/topicDoorbell";
 import { addOsDeskOrderRow, fetchOsDeskTabRows, openOsDeskCurrentTab, type NewOsOrderInput } from "@/services/rows/osDeskIssue";
@@ -469,6 +472,201 @@ export async function moveLeadOs(input: {
   return moved;
 }
 
+// ---------------------------------------------------------------------------
+// Удаление заказа (просьба Nurba 30.09.2026: «чтобы можно было удалять отсюда»)
+// ---------------------------------------------------------------------------
+
+/**
+ * Строка, которую убирает «Удалить заказ». У копии и источника — условие
+ * «это именно она»: удаление по адресу без него снесло бы чужой заказ, если
+ * адрес устарел (заказ перевыдали, копию перенесли).
+ */
+export interface LeadDeleteTarget {
+  pageId: string;
+  /** '' — «Основная». */
+  tabId: string;
+  rowId: string;
+  role: "main" | "copy" | "source";
+  /** Копия у технаря: только строка-заказ ОС, чей источник — этот. */
+  srcRowId?: string;
+  /** Источник на столе ОС: только если он всё ещё показывает на эту строку. */
+  mirrorRowId?: string;
+}
+
+/**
+ * Что уходит вместе с заказом: главная строка (источник на столе ОС или
+ * строка технаря), копия у технаря — загруженная и по адресу `mirror_*`
+ * источника (копия может лежать вне выборки: другая вкладка, закрытый стол),
+ * а у строки технаря с меткой ОС — её источник на столе ОС (он вне выборки,
+ * иначе заказ был бы собран из него).
+ */
+export function leadDeleteTargets(order: LeadOrder): LeadDeleteTarget[] {
+  const out = new Map<string, LeadDeleteTarget>();
+  const add = (target: LeadDeleteTarget) => {
+    if (!target.pageId || !target.rowId) return;
+    const key = `${target.pageId}/${target.tabId}/${target.rowId}`;
+    if (!out.has(key)) out.set(key, target);
+  };
+  add({ pageId: order.pageId, tabId: order.tabId, rowId: order.row.id, role: "main" });
+  if (order.kind === "os") {
+    if (order.copy?.deskPageId) {
+      add({ pageId: order.copy.deskPageId, tabId: order.copy.tabId ?? "", rowId: order.copy.id, role: "copy", srcRowId: order.row.id });
+    }
+    const m = order.row;
+    if (m.mirrorPageId && m.mirrorRowId) {
+      add({ pageId: m.mirrorPageId, tabId: m.mirrorTabId ?? "", rowId: m.mirrorRowId, role: "copy", srcRowId: order.row.id });
+    }
+  } else if (order.row.osUid && order.row.srcPageId && order.row.srcRowId) {
+    add({ pageId: order.row.srcPageId, tabId: order.row.srcTabId ?? "", rowId: order.row.srcRowId, role: "source", mirrorRowId: order.row.id });
+  }
+  return [...out.values()];
+}
+
+/** Удаление одной строки; ответ — удалённые записи целиком (для «Вернуть»). */
+async function deleteTargetRow(workspaceId: string, t: LeadDeleteTarget): Promise<DeskRowRecord[]> {
+  let q = supabaseRows
+    .from(DESK_ROWS_TABLE)
+    .delete()
+    .eq("workspace_id", workspaceId)
+    .eq("page_id", t.pageId)
+    .eq("tab_id", t.tabId)
+    .eq("id", t.rowId);
+  if (t.srcRowId) q = q.eq("src_row_id", t.srcRowId).not("os_uid", "is", null);
+  if (t.mirrorRowId) q = q.eq("mirror_row_id", t.mirrorRowId);
+  const { data, error } = await q.select("*");
+  if (error) throw rpcError(error, "Не удалось удалить строку");
+  return (data ?? []) as DeskRowRecord[];
+}
+
+/** Строка на месте? Удаление без прав молча находит ноль строк — так их отличить от «уже удалена». */
+async function rowStillThere(workspaceId: string, t: LeadDeleteTarget): Promise<boolean> {
+  const { data, error } = await supabaseRows
+    .from(DESK_ROWS_TABLE)
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("page_id", t.pageId)
+    .eq("tab_id", t.tabId)
+    .eq("id", t.rowId)
+    .limit(1);
+  if (error) throw rpcError(error, "Не удалось проверить строку");
+  return (data ?? []).length > 0;
+}
+
+export interface LeadDeleteResult {
+  /** Удалённые строки целиком — «Вернуть» вставляет их обратно как были. */
+  records: DeskRowRecord[];
+  /** Заказы (ключи `LeadOrder.key`), которые удалены. */
+  deleted: string[];
+  /** Не удалились: главная строка осталась на месте. */
+  failed: Array<{ key: string; error: unknown }>;
+  /** Сняты с «Заказов» вместе со строкой. */
+  exchangeRemoved: string[];
+  /** Строка удалена, а заказ на «Заказах» снять не вышло. */
+  exchangeFailed: string[];
+}
+
+async function deleteOneLead(workspaceId: string, order: LeadOrder, into: LeadDeleteResult, rung: Set<string>): Promise<void> {
+  const targets = leadDeleteTargets(order);
+  const main = targets[0];
+  const removed = await deleteTargetRow(workspaceId, main);
+  if (removed.length === 0 && (await rowStillThere(workspaceId, main))) {
+    throw new RowsStoreError("Нет прав удалить эту строку", "permission-denied");
+  }
+  into.records.push(...removed);
+  rung.add(`${main.pageId}\u0001${main.tabId}`);
+  into.deleted.push(order.key);
+  // Копия и источник — вслед за заказом. Не вышло — не страшно: осиротевшую
+  // копию уберёт проход стола ОС, а в «Общей таблице» она останется видна
+  // отдельной строкой, и её можно удалить ещё раз.
+  for (const t of targets.slice(1)) {
+    try {
+      const rows = await deleteTargetRow(workspaceId, t);
+      into.records.push(...rows);
+      if (rows.length) rung.add(`${t.pageId}\u0001${t.tabId}`);
+    } catch (e) {
+      console.warn("[leads] копия заказа не удалилась", t, e);
+    }
+  }
+}
+
+/**
+ * Удалить заказы «Общей таблицы»: строки со столов ОС и технарей, затем их
+ * заказы на «Заказах» (иначе заказ висел бы на бирже без строки: отклик и
+ * выдача упёрлись бы в пустоту). Главная строка каждого заказа удаляется
+ * первой; отказ по ней — заказ в `failed`, остальные идут дальше. Пишут
+ * Owner и Тимлид+ (`rows_edit_all_workspaces`, политика удаления строк).
+ */
+export async function deleteLeadOrders(workspaceId: string, orders: readonly LeadOrder[]): Promise<LeadDeleteResult> {
+  const result: LeadDeleteResult = { records: [], deleted: [], failed: [], exchangeRemoved: [], exchangeFailed: [] };
+  const rung = new Set<string>();
+  const queue = [...orders];
+  const worker = async () => {
+    for (let order = queue.shift(); order; order = queue.shift()) {
+      try {
+        await deleteOneLead(workspaceId, order, result, rung);
+      } catch (error) {
+        result.failed.push({ key: order.key, error });
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, orders.length) }, worker));
+
+  for (const table of rung) {
+    const [page, tab] = table.split("\u0001");
+    ringRowsDoorbell(workspaceId, page, tab);
+  }
+  if (rung.size) ringLeads(workspaceId);
+
+  const orderIds = [...new Set(result.records.map((r) => r.order_id).filter((id): id is string => Boolean(id)))];
+  for (const id of orderIds) {
+    try {
+      const live = await fetchOrderAnywhere(workspaceId, id, true);
+      if (!live) continue;
+      await deleteOrder(workspaceId, live);
+      result.exchangeRemoved.push(id);
+    } catch (e) {
+      console.warn("[leads] заказ на «Заказах» не снят", id, e);
+      result.exchangeFailed.push(id);
+    }
+  }
+  return result;
+}
+
+/** «Повторить» после «Вернуть» (Ctrl+Shift+Z): те же строки — снова прочь. */
+export async function deleteLeadRecords(workspaceId: string, records: readonly DeskRowRecord[]): Promise<void> {
+  const rung = new Set<string>();
+  for (const r of records) {
+    const tab = r.tab_id ?? "";
+    await deleteTargetRow(workspaceId, { pageId: r.page_id, tabId: tab, rowId: r.id, role: "main" });
+    rung.add(`${r.page_id}\u0001${tab}`);
+  }
+  for (const table of rung) {
+    const [page, tab] = table.split("\u0001");
+    ringRowsDoorbell(workspaceId, page, tab);
+  }
+  ringLeads(workspaceId);
+}
+
+/**
+ * «Вернуть»: удалённые строки — обратно, те же id и все поля (копия снова
+ * связана с источником). Заказ, снятый с «Заказов», не возвращается: у строки
+ * ОС он станет «снятым», и её можно выдать заново.
+ */
+export async function restoreLeadRecords(workspaceId: string, records: readonly DeskRowRecord[]): Promise<void> {
+  const byTable = new Map<string, { page: string; tab: string; rows: PageRow[] }>();
+  for (const r of records) {
+    const tab = r.tab_id ?? "";
+    const key = `${r.page_id}\u0001${tab}`;
+    const entry = byTable.get(key) ?? { page: r.page_id, tab, rows: [] };
+    entry.rows.push(recordToRow(r));
+    byTable.set(key, entry);
+  }
+  // Источники раньше копий: так ОС, у которого стол открыт, не увидит копию-сироту.
+  const ordered = [...byTable.values()].sort((a, b) => Number(b.page.startsWith("osdesk_")) - Number(a.page.startsWith("osdesk_")));
+  for (const t of ordered) await sbPutRows(workspaceId, t.page, t.tab || null, t.rows);
+  ringLeads(workspaceId);
+}
+
 export interface NewLeadInput extends NewOsOrderInput {
   upsell: string;
   /** Способ оплаты цены и апсейла (комиссия вычитается из «Итого»). */
@@ -664,6 +862,14 @@ export function leadStatusOf(o: LeadOrder, statusOptions: readonly StatusOption[
     return o.techStatus;
   }
   return o.status;
+}
+
+/** Заказ отменён: в итогах отчёта он не считается (как в «Грязной кассе»). */
+export function leadIsCancelled(o: LeadOrder, statusOptions: readonly StatusOption[]): boolean {
+  const status = leadStatusOf(o, statusOptions);
+  if (!status) return false;
+  const label = statusOptions.find((x) => x.value === status)?.label ?? status;
+  return isCancelledLabel(label, status);
 }
 
 /** Заказ закрыт — «Готово» или «Отменено»: просроченный срок сдачи у него не краснеет. */
