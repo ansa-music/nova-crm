@@ -185,6 +185,8 @@ import {
   type OsDatesInfo,
 } from "@/components/os/OsDatesCell";
 import { osDateSlots, slotShown, type OsDateSlot } from "@/utils/osDates";
+import { trancheClearPatch, trancheOf, tranchePatch } from "@/utils/osTranche";
+import { OsTrancheCell, OsTrancheInline, type TrancheSetter } from "@/components/os/OsTrancheCell";
 import { PaymentMethodsDialog } from "@/components/cashbox/PaymentMethodsDialog";
 import { useOsTotalsKeeper } from "@/hooks/useOsTotalsKeeper";
 import { osRowGross, osRowTotal, paymentMethodsOf, paymentPatch } from "@/utils/payment";
@@ -978,8 +980,8 @@ export default function DynamicTablePage() {
   // Добавки в ячейках стола ОС: способ оплаты у «Цены» и «Апсейла» (у
   // апсейла ещё и его дата) и столбец «Даты» — получен / выдан.
   const osAddonKeys = useMemo(
-    () => [osKeys.price, osKeys.upsell, osKeys.dates],
-    [osKeys.price, osKeys.upsell, osKeys.dates],
+    () => [osKeys.price, osKeys.upsell, osKeys.dates, osKeys.tranche],
+    [osKeys.price, osKeys.upsell, osKeys.dates, osKeys.tranche],
   );
   const osLockedKeys = useMemo(
     () =>
@@ -989,9 +991,11 @@ export default function DynamicTablePage() {
               "«Итого» считает стол сам: цена и апсейл за вычетом комиссии способа оплаты",
             [osKeys.dates]:
               "Даты ставятся кнопками в ячейке: пунктир — рекомендуемая дата, нажмите, чтобы поставить; поставленную — нажмите, чтобы поменять",
+            [osKeys.tranche]:
+              "Второй транш ставится кнопкой в ячейке: сумма и «принят». Пометка только для вас — технарю и в кассу уходит общая сумма",
           }
         : undefined,
-    [isOsDeskPage, osKeys.total, osKeys.dates],
+    [isOsDeskPage, osKeys.total, osKeys.dates, osKeys.tranche],
   );
   const paymentMethods = useMemo(
     () => paymentMethodsOf(activeWorkspace),
@@ -1047,11 +1051,38 @@ export default function DynamicTablePage() {
       toast.error(firestoreErrorText(error, "Не удалось поставить дату"));
     }
   }
+  /**
+   * Второй транш — личная пометка ОС (utils/osTranche.ts): сумма и «принят».
+   * Пишется в служебные ячейки строки стола ОС, технарю не уходит.
+   */
+  async function setOsRowTranche(row: PageRow, change: Parameters<TrancheSetter>[0]) {
+    if (!activeWorkspaceId || !page) return;
+    const patch = change === "clear" ? trancheClearPatch() : tranchePatch(change);
+    if (Object.keys(patch).length === 0) return;
+    try {
+      if (activeSubPageId)
+        await updateSubPageRowCellsBulk(
+          activeWorkspaceId,
+          page.id,
+          activeSubPageId,
+          row.id,
+          patch,
+        );
+      else await updateRowCellsBulk(activeWorkspaceId, page.id, row.id, patch);
+    } catch (error) {
+      toast.error(firestoreErrorText(error, "Не удалось записать второй транш"));
+    }
+  }
   // Здесь, а не `canEditData` ниже: тот объявлен после ранних возвратов.
   const osDatesEditable = Boolean(page && permissions.canEditPageData(page));
   const setOsDate = osDatesEditable
     ? (row: PageRow) => (slot: OsDateSlot, value: number | null) =>
         void setOsRowDate(row, slot, value)
+    : null;
+  // Второй транш — пометка САМОГО ОС (решение Nurba): правит только хозяин
+  // стола ОС; Owner, Тимлид и остальные видят её, но не меняют.
+  const setOsTranche = osDatesEditable && isMyOsDesk
+    ? (row: PageRow): TrancheSetter => (change) => void setOsRowTranche(row, change)
     : null;
   // Что ещё, кроме самой строки, меняет «Даты»: копии у технарей (дата
   // заведения — запасная «выдан») и заказы на «Заказах». Строки таблицы
@@ -2680,7 +2711,12 @@ export default function DynamicTablePage() {
                 lockedKeys={osLockedKeys}
                 cardMeta={
                   isOsDeskPage
-                    ? (row) => <OsDatesInline info={osDatesOf(row)} />
+                    ? (row) => (
+                        <>
+                          <OsDatesInline info={osDatesOf(row)} />
+                          <OsTrancheInline info={trancheOf(row)} />
+                        </>
+                      )
                     : undefined
                 }
                 cellAddon={
@@ -2694,6 +2730,13 @@ export default function DynamicTablePage() {
                               <OsDatesCell
                                 info={osDatesOf(row)}
                                 onSet={setOsDate?.(row)}
+                              />
+                            );
+                          if (colKey === osKeys.tranche)
+                            return (
+                              <OsTrancheCell
+                                info={trancheOf(row)}
+                                onSet={setOsTranche?.(row)}
                               />
                             );
                           const chip = (
@@ -2817,6 +2860,7 @@ export default function DynamicTablePage() {
                         dates={osDatesOf(row)}
                         upsellDate={osSlotsOf(row).upsell}
                         onSetDate={setOsDate?.(row)}
+                        onSetTranche={setOsTranche?.(row)}
                         payment={{
                           methods: paymentMethods,
                           canConfigure: isRealOwner,

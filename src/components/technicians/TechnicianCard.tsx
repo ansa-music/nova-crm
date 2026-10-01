@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { AtSign, CalendarCheck2, ChevronRight, MessageCircle, Star, Trash2 } from "lucide-react";
+import { ArrowUpRight, AtSign, CalendarCheck2, ChevronRight, MessageCircle, Star, Trash2 } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { ScoreChip, ScoreMeter, ScoreRateButton, SCORE_TONE } from "@/components/technicians/ScoreRating";
 import { WeeklyScoreChip } from "@/components/technicians/WeeklyScore";
@@ -9,6 +9,7 @@ import { usePresenceMap } from "@/hooks/usePresenceMap";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useWorkspaceStore } from "@/store/workspaceStore";
 import { cn } from "@/utils/cn";
+import { deskHref, deskNavState } from "@/utils/deskLinks";
 import { formatOrderDate, timeAgo } from "@/utils/date";
 import { personLabel } from "@/utils/peopleDesks";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
@@ -50,8 +51,13 @@ export interface TechnicianCardProps {
   member: WorkspaceMember;
   isMe: boolean;
   desks: WorkspacePage[];
-  /** Owner: desk names open the desk. */
-  deskLinks: boolean;
+  /**
+   * Столы технаря, которые зритель может открыть (`canAccessPage`): у них
+   * кнопка «Стол ↗» на визитке и «Открыть стол» в окне, а имена в шапке окна
+   * — ссылки. Пусто — стол не открыть (чужой стол у технаря, «только для
+   * Owner», «Таблицы закрыты» у Тимлида).
+   */
+  openDeskIds: readonly string[];
   /** Some status counts as «Ждём оплату»: show its tile. */
   showPayment: boolean;
   busy: boolean;
@@ -219,9 +225,10 @@ export function TechnicianCard(props: TechnicianCardProps) {
   // «оценить N» — единственная подсказка на визитке о том, что за кликом
   // есть действие, а не только цифры: заказы этого ОС без оценки.
   const toRate = onRateOrder ? (myOrders?.items ?? []).filter((item) => (orderScoreOf?.(item) ?? null) === null).length : 0;
+  const deskTo = primaryOpenDesk(desks, props.openDeskIds);
 
   return (
-    <>
+    <div className="relative h-full">
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -312,13 +319,38 @@ export function TechnicianCard(props: TechnicianCardProps) {
               <Star className="h-3 w-3" /> оценить {toRate}
             </span>
           )}
-          <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+          {deskTo ? (
+            // Место под кнопку «Стол ↗» (она стоит поверх карточки справа внизу).
+            <span className="ml-auto h-8 w-[4.5rem] shrink-0 [@media(pointer:coarse)]:h-11" aria-hidden />
+          ) : (
+            <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+          )}
         </div>
       </button>
 
+      {/* Ссылка — сосед кнопки, а не её ребёнок: ссылка внутри <button> недопустима. */}
+      {deskTo ? (
+        <Link
+          to={deskHref(deskTo.id)}
+          state={deskNavState({ to: "/technicians", label: "Технари" })}
+          data-tech-desk-link
+          title={`Открыть стол «${deskTo.name}»`}
+          aria-label={`Открыть стол технаря ${name}`}
+          className="absolute bottom-4 right-4 inline-flex h-8 items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2.5 text-[12px] font-medium text-primary hover:bg-primary/20 [@media(pointer:coarse)]:h-11"
+        >
+          Стол <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+        </Link>
+      ) : null}
+
       <TechnicianDialog {...props} open={open} onOpenChange={setOpen} />
-    </>
+    </div>
   );
+}
+
+/** Какой стол открывать кнопкой: открытый зрителю, месячный (стол технаря) первым. */
+function primaryOpenDesk(desks: readonly WorkspacePage[], openIds: readonly string[]): WorkspacePage | null {
+  const open = desks.filter((d) => openIds.includes(d.id));
+  return open.find((d) => d.autoMonthKey || d.technicianDesk) ?? open[0] ?? null;
 }
 
 function TechnicianDialog({
@@ -327,7 +359,7 @@ function TechnicianDialog({
   isMe,
   dayOff,
   desks,
-  deskLinks,
+  openDeskIds,
   showPayment,
   busy,
   summary,
@@ -372,8 +404,12 @@ function TechnicianDialog({
                   : desks.map((desk, i) => (
                       <span key={desk.id}>
                         {i > 0 ? ", " : ""}
-                        {deskLinks ? (
-                          <Link to={`/page/${desk.id}`} className="hover:text-foreground hover:underline">
+                        {openDeskIds.includes(desk.id) ? (
+                          <Link
+                            to={deskHref(desk.id)}
+                            state={deskNavState({ to: "/technicians", label: "Технари" })}
+                            className="hover:text-foreground hover:underline"
+                          >
                             {desk.name}
                           </Link>
                         ) : (
@@ -567,6 +603,19 @@ function TechnicianDialog({
             <span className="min-w-0 flex-1 truncate">
               {noDesk ? "Стол не назначен" : counted ? `обновлено ${timeAgo(updatedAt)}` : "в этом месяце стол ещё не открывали"}
             </span>
+            {(() => {
+              const desk = primaryOpenDesk(desks, openDeskIds);
+              return desk ? (
+                <Link
+                  to={deskHref(desk.id)}
+                  state={deskNavState({ to: "/technicians", label: "Технари" })}
+                  data-tech-desk-open
+                  className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-primary px-2.5 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 [@media(pointer:coarse)]:h-11"
+                >
+                  {isMe ? "Мой стол" : "Открыть стол"} <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+                </Link>
+              ) : null;
+            })()}
             {!isMe && (
               <Link
                 to={`/messages/${member.uid}`}

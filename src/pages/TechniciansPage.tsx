@@ -772,7 +772,7 @@ export default function TechniciansPage() {
                   dayOff={dayOffOf(t.member.uid)}
                   todayHours={hoursOf(t.member.uid)}
                   desks={t.desks}
-                  deskLinks={isOwner}
+                  openDeskIds={t.desks.filter((d) => permissions.canAccessPage(d)).map((d) => d.id)}
                   showPayment={showPayment}
                   busy={t.busy}
                   summary={t.summary}

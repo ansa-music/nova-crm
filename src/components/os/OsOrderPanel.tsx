@@ -30,6 +30,8 @@ import { parseLooseNumber } from "@/utils/numberInput";
 import type { OsDateSlot } from "@/utils/osDates";
 import { OsDateButton, type OsDateSetter, type OsDatesInfo } from "@/components/os/OsDatesCell";
 import { DeskLinkButton } from "@/components/common/DeskLinkButton";
+import { OsTrancheCell, type TrancheSetter } from "@/components/os/OsTrancheCell";
+import { trancheOf } from "@/utils/osTranche";
 import { usePermissions } from "@/hooks/usePermissions";
 import { buildPersonDeskIndex, techDeskLink } from "@/utils/personDeskLinks";
 
@@ -185,6 +187,7 @@ export function OsOrderPanel({
   dates,
   upsellDate,
   onSetDate,
+  onSetTranche,
   canRate = true,
 }: {
   row: PageRow;
@@ -213,6 +216,8 @@ export function OsOrderPanel({
   upsellDate?: OsDateSlot;
   /** Поставить дату (нет — только показ). */
   onSetDate?: OsDateSetter;
+  /** Записать второй транш (личная пометка ОС; нет — только показ). */
+  onSetTranche?: TrancheSetter | null;
   /** Показывать оценку технарю (ставит только сам ОС заказа; Owner на чужом столе — нет). */
   canRate?: boolean;
   /** Касса: способы оплаты у цены и апсейла (на телефоне — только отсюда). */
@@ -474,6 +479,11 @@ export function OsOrderPanel({
               </p>
             );
           })()}
+          <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-1.5 text-sm">
+            <span className="w-16 text-muted-foreground">2-й транш</span>
+            <OsTrancheCell size="card" info={trancheOf(row)} onSet={onSetTranche} />
+            <span className="basis-full text-[11px] text-muted-foreground">Пометка только для вас — технарю и в кассу уходит «Итого».</span>
+          </div>
         </div>
       ) : null}
 

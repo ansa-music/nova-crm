@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ArrowRight, Check, Crown, Target } from "lucide-react";
+import { ArrowRight, Check, Crown, Hourglass, Target } from "lucide-react";
 import { MetricCard } from "@/components/ui/metric-card";
 import { useCurrentPeriodKey, usePeriodSettings } from "@/hooks/useCurrentPeriodKey";
 import { useDeskLoads } from "@/hooks/useDeskLoads";
@@ -17,6 +17,7 @@ import { formatCurrency, formatNumber } from "@/utils/format";
 import { parseLooseNumber } from "@/utils/numberInput";
 import { formatDayMonth, osDateSlots, slotShown } from "@/utils/osDates";
 import { netOf, osPayOf } from "@/utils/payment";
+import { trancheTotals } from "@/utils/osTranche";
 import { effectiveTechLoadKinds } from "@/utils/techLoad";
 import type { PageRow, WorkspacePage } from "@/types";
 
@@ -150,6 +151,7 @@ export function OsDeskStats({
     return { mine: all.find((r) => r.member.uid === osUid) ?? null, ranked: all.filter((r) => r.kpiPlace !== null).length };
   }, [members, pages, loads, monthKey, statusOptions, kinds, settings, osUid, month.net, month.gross]);
 
+  const tranches = useMemo(() => trancheTotals(rows), [rows]);
   const mine = abs.mine;
   const upsellPay = Math.round((month.net * settings.upsellPct) / 100);
   // Счётчики столов ещё не пришли или не прочитались — это «не знаем», а не «заказов нет».
@@ -217,6 +219,29 @@ export function OsDeskStats({
           size="sm"
         />
       </div>
+
+      {/* Вторые транши — личная пометка ОС по открытой вкладке (utils/osTranche). */}
+      {tranches.waitingCount + tranches.paidCount > 0 ? (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px]" data-os-tranche-stats>
+          <span className="inline-flex items-center gap-1 text-muted-foreground">
+            <Hourglass className="h-3.5 w-3.5" /> Вторые транши · {tabLabel}:
+          </span>
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 tabular-nums",
+              tranches.waitingCount ? "border-warning/40 bg-warning/10 text-warning" : "border-border text-muted-foreground"
+            )}
+          >
+            ждём {formatNumber(tranches.waitingCount)}
+            {tranches.waitingSum > 0 ? ` · ${formatCurrency(tranches.waitingSum)}` : ""}
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-md border border-success/40 bg-success/10 px-1.5 py-0.5 tabular-nums text-success">
+            <Check className="h-3 w-3" /> принято {formatNumber(tranches.paidCount)}
+            {tranches.paidSum > 0 ? ` · ${formatCurrency(tranches.paidSum)}` : ""}
+          </span>
+          <span className="text-muted-foreground">только для вас — в кассу и ABS идёт полная сумма</span>
+        </div>
+      ) : null}
 
       {/* Пороги KPI и место — одной строкой: сколько ещё закрыть до следующего. */}
       {!loadsFailed ? (

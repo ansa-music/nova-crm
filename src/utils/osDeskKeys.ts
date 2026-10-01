@@ -14,10 +14,14 @@ export interface OsDeskKeys {
   total: string;
   /** «Даты» — получен / выдан (utils/osDates.ts), только для показа. */
   dates: string;
+  /** «2-й транш» — пометка ОС (utils/osTranche.ts), ячейку рисует стол. */
+  tranche: string;
 }
 
 /** Ключ столбца «Даты» стола ОС. Камелкейс: из названия столбца такой slug не получится. */
 export const OS_DATES_COLUMN_KEY = "osDates";
+/** Ключ столбца «2-й транш» стола ОС (значения — служебные ячейки строки). */
+export const OS_TRANCHE_COLUMN_KEY = "osTranche";
 
 /** Ключи нового стола ОС — от `OS_DESK_COLUMNS`. */
 export const OS_DESK_KEYS: OsDeskKeys = {
@@ -31,6 +35,7 @@ export const OS_DESK_KEYS: OsDeskKeys = {
   technician: "technician",
   total: "total",
   dates: OS_DATES_COLUMN_KEY,
+  tranche: OS_TRANCHE_COLUMN_KEY,
 };
 
 /**
@@ -58,5 +63,6 @@ export function resolveOsDeskKeys(columns: readonly PageColumn[] | null | undefi
     technician: byType("technician") ?? OS_DESK_KEYS.technician,
     total: byKey("total") ?? byLabel(/^итог/i) ?? OS_DESK_KEYS.total,
     dates: OS_DATES_COLUMN_KEY,
+    tranche: OS_TRANCHE_COLUMN_KEY,
   };
 }
