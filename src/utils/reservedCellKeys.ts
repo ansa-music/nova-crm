@@ -55,6 +55,14 @@ export const OS_RELEASED_FROM_KEY = "osReleasedFrom";
  */
 export const LEAD_BY_KEY = "leadBy";
 export const LEAD_AT_KEY = "leadAt";
+/**
+ * Второй транш заказа — ЛИЧНАЯ пометка ОС на его столе (просьба Nurba
+ * 30.09.2026): сумма, которую клиент доплатит вторым заходом, и день, когда
+ * ОС её принял (полдень по Алматы, мс строкой; пусто — «ждём»). Технарю,
+ * кассе, ABS и счётчикам не уходит — там по-прежнему общая сумма заказа.
+ */
+export const OS_TRANCHE2_KEY = "osTranche2";
+export const OS_TRANCHE2_ON_KEY = "osTranche2On";
 
 export const RESERVED_CELL_KEYS: readonly string[] = [
   TECH_LINK_KEY,
@@ -67,6 +75,8 @@ export const RESERVED_CELL_KEYS: readonly string[] = [
   OS_RELEASED_FROM_KEY,
   LEAD_BY_KEY,
   LEAD_AT_KEY,
+  OS_TRANCHE2_KEY,
+  OS_TRANCHE2_ON_KEY,
 ];
 
 const RESERVED_LOWER = new Set(RESERVED_CELL_KEYS.map((k) => k.toLowerCase()));
@@ -81,6 +91,8 @@ const OS_ROW_SERVICE_KEYS = new Set([
   OS_RELEASED_FROM_KEY,
   LEAD_BY_KEY,
   LEAD_AT_KEY,
+  OS_TRANCHE2_KEY,
+  OS_TRANCHE2_ON_KEY,
 ]);
 
 /**

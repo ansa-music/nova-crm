@@ -6,7 +6,7 @@ import { createPageDoc, ensureNewDeskAcl, fetchPageDoc, stripUndefined, updatePa
 import { ensureMonthTab } from "@/services/monthTabService";
 import { currentPeriodKeyOf, periodSettingsOf } from "@/services/periodService";
 import { periodLabel } from "@/utils/periods";
-import { OS_DATES_COLUMN_KEY, type OsDeskKeys } from "@/utils/osDeskKeys";
+import { OS_DATES_COLUMN_KEY, OS_TRANCHE_COLUMN_KEY, type OsDeskKeys } from "@/utils/osDeskKeys";
 import { findInProgressStatusOption, isApprovalStatusValue } from "@/utils/columnOptions";
 import { mirrorAddressOf } from "@/utils/osDispatchPlan";
 import { OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
@@ -22,6 +22,8 @@ import { personLabel } from "@/utils/peopleDesks";
 
 /** Ширина «Дат»: без времени хватает 92 px (первая версия со временем была 112). */
 const OS_DATES_COLUMN_WIDTH = 92;
+/** «2-й транш»: сумма и чип «ждём» / «✓ 03.10». */
+const OS_TRANCHE_COLUMN_WIDTH = 124;
 const OS_DATES_COLUMN_WIDTH_V1 = 112;
 /**
  * Ширина «Технаря»: в ячейке теперь бейдж технаря (аватар, ник) и чип
@@ -73,6 +75,11 @@ export const OS_DESK_COLUMNS: Array<Pick<PageColumn, "key" | "label" | "type" | 
   // Столбец только для чтения — его пишет стол ОС сам (useOsTotalsKeeper), и
   // именно эта сумма уезжает технарю как цена заказа.
   { key: "total", label: "Итого", type: "currency", width: 140 },
+  // Второй транш — личная пометка ОС (просьба Nurba 30.09.2026): сколько
+  // клиент доплатит вторым заходом и принят ли он. Ячейка пустая и закрыта,
+  // рисует её стол (`OsTrancheCell`); значения — служебные ячейки строки
+  // (utils/osTranche.ts). Технарю и в кассу не уходит.
+  { key: OS_TRANCHE_COLUMN_KEY, label: "2-й транш", type: "text", width: OS_TRANCHE_COLUMN_WIDTH },
   { key: "note", label: "Примечание", type: "text", width: 240 },
   { key: "link", label: "Ссылка", type: "url", width: 190 },
 ];
@@ -83,8 +90,11 @@ export const OS_DESK_COLUMNS: Array<Pick<PageColumn, "key" | "label" | "type" | 
  * стол, где ОС переставил или добавил столбцы сам, не трогаем.
  */
 const OS_DESK_LEGACY_ORDER = ["client", OS_DATES_COLUMN_KEY, "phone", "price", "upsell", "total", "status", "note", "technician", "link"];
-/** Новый порядок тех же ключей — из `OS_DESK_COLUMNS`. */
-const OS_DESK_ORDER = OS_DESK_COLUMNS.map((c) => c.key);
+/**
+ * Новый порядок тех же ключей — из `OS_DESK_COLUMNS`, без «2-го транша»:
+ * прежний стол его не имел, перестановку решаем до того, как его дописать.
+ */
+const OS_DESK_ORDER = OS_DESK_COLUMNS.map((c) => c.key).filter((k) => k !== OS_TRANCHE_COLUMN_KEY);
 
 export { OS_DESK_KEYS, resolveOsDeskKeys, type OsDeskKeys } from "@/utils/osDeskKeys";
 
@@ -165,6 +175,15 @@ export function missingOsDeskColumns(existingColumns: PageColumn[]): PageColumn[
   if (keys.length === OS_DESK_LEGACY_ORDER.length && keys.every((k, i) => k === OS_DESK_LEGACY_ORDER[i])) {
     const byKey = new Map(cols.map((c) => [c.key, c]));
     cols = OS_DESK_ORDER.map((k) => byKey.get(k)!);
+    changed = true;
+  }
+  // «2-й транш» — сразу за «Итого» (нет «Итого» — за «Апсейлом», иначе в
+  // конец). ПОСЛЕ перестановки: прежний порядок сверяется без него.
+  if (!cols.some((c) => c.key === OS_TRANCHE_COLUMN_KEY)) {
+    let after = cols.findIndex((c) => c.key === "total");
+    if (after === -1) after = cols.findIndex((c) => c.key === "upsell");
+    const tranche: PageColumn = { id: generateId("col"), key: OS_TRANCHE_COLUMN_KEY, label: "2-й транш", type: "text", width: OS_TRANCHE_COLUMN_WIDTH, order: 0 };
+    cols = after === -1 ? [...cols, tranche] : [...cols.slice(0, after + 1), tranche, ...cols.slice(after + 1)];
     changed = true;
   }
   return changed ? cols.map((c, i) => ({ ...c, order: i })) : null;
