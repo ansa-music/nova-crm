@@ -199,10 +199,13 @@ export default function OrdersPage() {
     openIssue();
     navigate({ pathname: location.pathname, search: location.search }, { replace: true });
   }, [location.hash, location.pathname, location.search, canIssue, navigate, openIssue]);
-  const canClaim = permissions.isResolved && permissions.hasRole("manager");
   const fullAccess = permissions.isResolved && hasFullAccess(permissions.role);
   const myMembership = useMemo(() => members.find((m) => m.uid === uid) ?? null, [members, uid]);
   const myDesk = useMemo(() => pages.find((p) => p.responsibleUserId === uid) ?? null, [pages, uid]);
+  // Откликаются технари и Owner со своим столом (его стол — стол технаря):
+  // Owner без стола заказы только выдаёт, и кнопка на каждой карточке была бы мусором.
+  const canClaim =
+    permissions.isResolved && (permissions.hasRole("manager") || (permissions.actsAsOwner && Boolean(myDesk)));
   // Свой стол «только для Owner»: строку в него пишет только Owner.
   const myDeskClosed = Boolean(myDesk?.ownerOnly) && !permissions.actsAsOwner;
 
@@ -568,7 +571,15 @@ export default function OrdersPage() {
   }
 
   async function handleRandom(order: WorkOrder, uids?: string[]) {
-    const draw = drawRandom(order, uids ? { uids } : undefined);
+    let draw: Awaited<ReturnType<typeof drawRandom>>;
+    try {
+      draw = await drawRandom(order, uids ? { uids } : undefined);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Не удалось крутить барабан";
+      if (uids) throw new Error(text);
+      toast.error(text);
+      return;
+    }
     if (!draw.ok) {
       if (uids) throw new Error(draw.reason);
       // С карточки: откликов нет — сразу предложить «Свою рулетку».
