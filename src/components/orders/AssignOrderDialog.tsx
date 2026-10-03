@@ -22,7 +22,8 @@ interface AssignOrderDialogProps {
   onRandom: (uids?: string[]) => Promise<void>;
   /** Пул «Рандома» и веса — из `useOrderAssignment`, чтобы кнопка и бросок считали одинаково. */
   randomPoolFor: (order: WorkOrder) => OrderCandidate[];
-  weightFor: (poolUids: readonly string[]) => RandomWeightOf;
+  /** Проценты у Owner: вес в этом пуле при этой сумме чека. */
+  weightFor: (poolUids: readonly string[], checkTotal?: number | null) => RandomWeightOf;
   /** Открыть окно сразу в «Своей рулетке» (тост с карточки заказа). */
   startCustom?: boolean;
 }
@@ -56,7 +57,7 @@ export function AssignOrderDialog({
   const randomReason =
     randomPool.length > 0 || !order
       ? null
-      : (randomPoolProblem(candidates, orderClaimScope(order)) ?? "У откликнувшихся шанс ×0 в настройках «Рандома»");
+      : (randomPoolProblem(candidates, orderClaimScope(order)) ?? "Некому выдать");
   const eligibleCustom = (c: OrderCandidate) => c.hasDesk && !c.absentToday;
 
   const orderId = order?.id ?? null;
@@ -84,8 +85,8 @@ export function AssignOrderDialog({
   const chances = useMemo(() => {
     if (!actsAsOwner) return null;
     const uids = custom ? customUids : poolKey ? poolKey.split(",") : [];
-    return chancePercents(uids, weightFor(uids));
-  }, [actsAsOwner, custom, customUids, poolKey, weightFor]);
+    return chancePercents(uids, weightFor(uids, order?.price ?? null));
+  }, [actsAsOwner, custom, customUids, poolKey, weightFor, order?.price]);
 
   /** Отдать и, если заказ крупный, убрать получившего из очереди «300к+». */
   async function assign(c: OrderCandidate) {

@@ -2,17 +2,19 @@ import { useCallback, useMemo } from "react";
 import { useCurrentMonthKey } from "@/hooks/useCurrentMonthKey";
 import { useCurrentPeriodKey } from "@/hooks/useCurrentPeriodKey";
 import { useDeskLoads, useTechSchedules } from "@/hooks/useDeskLoads";
+import { useAuth } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { currentMonthSubPageId } from "@/services/monthTabService";
 import { customRandomPool, orderRandomPool, pickWeighted, randomPoolProblem, type OrderCandidate } from "@/services/orderService";
+import { announceSpin, drawOnServer, useRandomSettings } from "@/services/randomService";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { ymdInTimeZone } from "@/utils/date";
-import { displayNameOf } from "@/utils/displayName";
+import { displayNameOf, myDisplayName } from "@/utils/displayName";
+import { worksAsTechnician } from "@/utils/peopleDesks";
 import { currentBusyUids, currentOrderCounts, effectiveTechLoadKinds } from "@/utils/techLoad";
 import {
-  memberHasRole,
   orderClaimScope,
-  randomSettingsOf,
   randomWeightOf,
   scheduleDayKey,
   scheduleStateOf,
@@ -40,6 +42,8 @@ export type RandomDraw =
  */
 export function useOrderAssignment(enabled: boolean) {
   const { activeWorkspace, activeWorkspaceId, members, pages } = useWorkspace();
+  const { profile } = useAuth();
+  const { actsAsOwner } = usePermissions();
   // График — по календарному месяцу, счётчики столов — по периоду.
   const scheduleMonthKey = useCurrentMonthKey();
   const monthKey = useCurrentPeriodKey();
@@ -89,14 +93,20 @@ export function useOrderAssignment(enabled: boolean) {
       }),
     [pages, loads, monthKey]
   );
-  const randomSettings = useMemo(() => randomSettingsOf(activeWorkspace), [activeWorkspace]);
+  /**
+   * Шансы читает ТОЛЬКО Owner (Supabase `random_settings`): остальным они
+   * неизвестны, и окно у них процентов не рисует. Бросок делает база.
+   */
+  const { data: randomSettings } = useRandomSettings(activeWorkspaceId, enabled && actsAsOwner, activeWorkspace?.randomSettings);
 
   /**
-   * Вес технаря в конкретном пуле (шансы Owner): личный множитель и
-   * «меньше заказов — выше шанс» относительно остальных в ЭТОМ пуле.
+   * Вес технаря в конкретном пуле (проценты у Owner): личный множитель,
+   * множитель группы чека и «меньше заказов — выше шанс» относительно
+   * остальных в ЭТОМ пуле. Та же формула — в SQL `random_draw`.
    */
   const weightFor = useCallback(
-    (poolUids: readonly string[]) => (uid: string) => randomWeightOf(uid, randomSettings, orderCounts, poolUids),
+    (poolUids: readonly string[], checkTotal?: number | null) => (uid: string) =>
+      randomWeightOf(uid, randomSettings, orderCounts, poolUids, checkTotal),
     [randomSettings, orderCounts]
   );
 
@@ -119,7 +129,9 @@ export function useOrderAssignment(enabled: boolean) {
   );
 
   const technicians = useMemo(
-    () => members.filter((m) => m.status === "active" && Boolean(m.uid) && memberHasRole(m, "manager")),
+    // Owner работает за столом как технарь (`worksAsTechnician`) — он тоже в
+    // «Кому отдать», в «Рандоме» (если откликнулся) и в шансах.
+    () => members.filter((m) => m.status === "active" && Boolean(m.uid) && worksAsTechnician(m)),
     [members]
   );
   const deskByUid = useMemo(() => {
@@ -143,51 +155,60 @@ export function useOrderAssignment(enabled: boolean) {
     [technicians, deskByUid, blockReasonFor, scheduleByUid, todayKey]
   );
 
-  /** Кто попадает в пул «Рандома» по откликам (без весов — ×0 отсекается ниже). */
+  /**
+   * Кто крутится в барабане «Рандома» — откликнувшиеся. Шансы ×0 здесь НЕ
+   * отсекаются: их знает только база, и такой человек в колесе просто не
+   * выигрывает — по колесу о настройке не догадаться.
+   */
   const randomPoolFor = useCallback(
-    (order: WorkOrder, candidates: OrderCandidate[] = candidatesFor(order)): OrderCandidate[] => {
-      const base = orderRandomPool(candidates, orderClaimScope(order));
-      const weightOf = weightFor(base.map((c) => c.uid));
-      return base.filter((c) => weightOf(c.uid) > 0);
-    },
-    [candidatesFor, weightFor]
+    (order: WorkOrder, candidates: OrderCandidate[] = candidatesFor(order)): OrderCandidate[] =>
+      orderRandomPool(candidates, orderClaimScope(order)),
+    [candidatesFor]
   );
 
   /**
    * Бросок «Рандома»: по живым откликам или, с `uids`, «Своя рулетка» среди
    * выбранных. До первого снимка графика «кто сегодня отсутствует» неизвестен,
    * и случайный выбор мог бы достаться выходному; при отказе чтения — не
-   * держим, иначе «Рандом» умер бы совсем. Победитель — по шансам Owner.
+   * держим, иначе «Рандом» умер бы совсем. Победителя выбирает БАЗА по
+   * скрытым шансам Owner (`random_draw`) и зовёт всех на сайте смотреть
+   * барабан; нет функции в базе — поровну в браузере, как раньше.
    */
   const drawRandom = useCallback(
-    (order: WorkOrder, opts?: { uids?: readonly string[] }): RandomDraw => {
+    async (order: WorkOrder, opts?: { uids?: readonly string[] }): Promise<RandomDraw> => {
       if (!schedulesLoaded && !schedulesFailed) return { ok: false, reason: "График ещё загружается — попробуйте через секунду" };
       const candidates = candidatesFor(order);
       let pool: OrderCandidate[];
       if (opts?.uids) {
-        const chosen = customRandomPool(candidates, opts.uids);
-        const weightOf = weightFor(chosen.map((c) => c.uid));
-        pool = chosen.filter((c) => weightOf(c.uid) > 0);
-        if (pool.length === 0) {
-          return {
-            ok: false,
-            reason: chosen.length > 0 ? "У выбранных шанс ×0 в настройках «Рандома»" : "Отметьте хотя бы двоих со столом, кто сегодня на смене",
-          };
-        }
+        pool = customRandomPool(candidates, opts.uids);
+        if (pool.length === 0) return { ok: false, reason: "Отметьте хотя бы двоих со столом, кто сегодня на смене" };
       } else {
         pool = randomPoolFor(order, candidates);
         if (pool.length === 0) {
-          const scope = orderClaimScope(order);
-          const reason =
-            randomPoolProblem(candidates, scope) ?? "У откликнувшихся шанс ×0 в настройках «Рандома» — выдайте вручную";
-          return { ok: false, reason };
+          return { ok: false, reason: randomPoolProblem(candidates, orderClaimScope(order)) ?? "Некому выдать" };
         }
       }
-      const winner = pickWeighted(pool, weightFor(pool.map((c) => c.uid)));
+      if (activeWorkspaceId) {
+        const server = await drawOnServer({
+          ws: activeWorkspaceId,
+          orderId: order.id,
+          title: order.client || "Заказ",
+          pool: pool.map((c) => ({ uid: c.uid, name: c.name, count: orderCounts.get(c.uid) ?? 0 })),
+          checkTotal: order.price ?? null,
+          byName: myDisplayName(profile, members),
+        });
+        if (server) {
+          const winner = pool.find((c) => c.uid === server.winnerUid);
+          if (!winner) return { ok: false, reason: "База выбрала того, кого нет в барабане — попробуйте ещё раз" };
+          announceSpin(activeWorkspaceId);
+          return { ok: true, pool, winner };
+        }
+      }
+      const winner = pickWeighted(pool);
       if (!winner) return { ok: false, reason: "Некому выдать" };
       return { ok: true, pool, winner };
     },
-    [schedulesLoaded, schedulesFailed, candidatesFor, randomPoolFor, weightFor]
+    [schedulesLoaded, schedulesFailed, candidatesFor, randomPoolFor, activeWorkspaceId, orderCounts, profile, members]
   );
 
   return {

@@ -25,6 +25,7 @@ import { tenantActive, useTenantInfo, type TenantInfo } from "@/hooks/useTenantI
 import { NotifyHelpHost } from "@/components/common/NotifyHelpDialog";
 import { InstallAppBanner, InstallAppHost } from "@/components/common/InstallApp";
 import { OrderPopupHost } from "@/components/orders/OrderPopup";
+import { LiveWheelHost } from "@/components/orders/LiveWheelHost";
 import { TelegramUploadPill } from "@/components/telegram/TelegramUploadPill";
 import { TelegramBackground } from "@/components/telegram/TelegramBackground";
 import { AccentColorSync } from "@/components/common/AccentColorSync";
@@ -300,6 +301,7 @@ const AppChrome = memo(function AppChrome({
       <NotifyHelpHost />
       <InstallAppHost />
       <OrderPopupHost />
+      <LiveWheelHost />
       <TelegramUploadPill />
       <TelegramBackground />
       <AccentColorSync />

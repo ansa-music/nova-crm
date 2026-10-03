@@ -337,7 +337,7 @@ export function randomPoolProblem(
   if (present.length === 0) return "Откликнувшихся сегодня нет на смене — «Своя рулетка» или выдайте вручную";
   const allowed = present.filter((c) => scope === "all" || !c.blockedReason);
   if (allowed.length === 0) return "Откликнулись только занятые — откройте заказ «Всем» или «Своя рулетка»";
-  return "У откликнувшихся шанс ×0 в настройках «Рандома» — выдайте вручную";
+  return "Некому выдать — выдайте вручную";
 }
 
 /**

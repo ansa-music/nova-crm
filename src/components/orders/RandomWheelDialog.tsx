@@ -16,9 +16,15 @@ interface RandomWheelDialogProps {
   /** Победитель ВЫБРАН ДО показа (crypto, `pickFromPool`) — колесо его только показывает. */
   winnerUid: string | null;
   orderClient: string;
-  /** Записать выдачу. Идёт параллельно вращению: ждать четыре секунды ради записи незачем. */
-  onAssign: () => Promise<void>;
+  /**
+   * Записать выдачу. Идёт параллельно вращению: ждать четыре секунды ради
+   * записи незачем. Нет — режим зрителя (`watch`): чужой спин, заказ пишет
+   * тот, кто крутит.
+   */
+  onAssign?: () => Promise<void>;
   onClose: () => void;
+  /** Смотрим чужой спин: кто крутит. */
+  watch?: { byName: string } | null;
 }
 
 const SIZE = 260;
@@ -55,7 +61,7 @@ function shortName(name: string, count: number): string {
  * длительность и остановку анимации браузер не гарантирует — вкладку могут
  * свернуть, — и выдача зависела бы от кадров.
  */
-export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onClose }: RandomWheelDialogProps) {
+export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onClose, watch }: RandomWheelDialogProps) {
   const open = pool.length > 0 && Boolean(winnerUid);
   const winnerIndex = pool.findIndex((c) => c.uid === winnerUid);
   const winner = winnerIndex >= 0 ? pool[winnerIndex] : null;
@@ -97,7 +103,7 @@ export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onCl
     });
     // Запись идёт СРАЗУ, параллельно вращению: победитель уже выбран, ждать
     // четыре секунды ради Firestore незачем — и технарь получает заказ раньше.
-    void onAssign()
+    void (onAssign ? onAssign() : Promise.resolve())
       .then(() => alive && setSaved(true))
       .catch((e) => alive && setError(e instanceof Error ? e.message : "Не удалось выдать заказ"));
     const timer = window.setTimeout(() => alive && setLanded(true), reduceMotion ? 0 : SPIN_MS);
@@ -125,21 +131,26 @@ export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onCl
   }, [landed, error, saved]);
 
   const done = landed && (saved || error);
+  // Зритель закрывает когда угодно: заказ пишет не он.
+  const closable = Boolean(done || watch);
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && done && onClose()}>
+    <Dialog open={open} onOpenChange={(next) => !next && closable && onClose()}>
       <DialogContent
         className="max-w-sm"
         // Пока крутится — не закрываем ни Esc, ни кликом мимо: заказ в этот
         // момент уже пишется, и закрытый диалог оставил бы человека без ответа.
-        onEscapeKeyDown={(e) => !done && e.preventDefault()}
-        onPointerDownOutside={(e) => !done && e.preventDefault()}
-        onInteractOutside={(e) => !done && e.preventDefault()}
+        onEscapeKeyDown={(e) => !closable && e.preventDefault()}
+        onPointerDownOutside={(e) => !closable && e.preventDefault()}
+        onInteractOutside={(e) => !closable && e.preventDefault()}
+        data-wheel-watch={watch ? "" : undefined}
       >
         <DialogHeader>
           <DialogTitle>{landed && winner ? `Выпал: ${winner.name}` : "Крутим барабан"}</DialogTitle>
           <DialogDescription>
-            {landed
+            {watch && !landed
+              ? `${watch.byName || "Выдающий"} крутит барабан · ${orderClient} · в барабане ${pool.length} чел.`
+              : landed
               ? error
                 ? "Колесо остановилось, но выдать заказ не удалось."
                 : `${orderClient} — заказ уходит в стол.`
@@ -247,7 +258,7 @@ export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onCl
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">{winner.name}</p>
                 <p className="truncate text-xs text-muted-foreground">
-                  {error ?? (saved ? "Заказ выдан" : "Записываем…")}
+                  {error ?? (watch ? `Выпал заказ «${orderClient}»` : saved ? "Заказ выдан" : "Записываем…")}
                 </p>
               </div>
               {!saved && !error ? (
@@ -261,8 +272,8 @@ export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onCl
           )}
         </div>
 
-        <Button className="w-full" disabled={!done} onClick={onClose}>
-          {done ? "Готово" : "Крутится…"}
+        <Button className="w-full" disabled={!closable} onClick={onClose}>
+          {done ? "Готово" : watch ? "Закрыть" : "Крутится…"}
         </Button>
       </DialogContent>
     </Dialog>

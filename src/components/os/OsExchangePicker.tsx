@@ -58,7 +58,7 @@ export function OsExchangePicker({ order, onClose }: { order: WorkOrder | null; 
         weightFor={assignment.weightFor}
         onRandom={async (uids) => {
           if (!order) return;
-          const draw = assignment.drawRandom(order, uids ? { uids } : undefined);
+          const draw = await assignment.drawRandom(order, uids ? { uids } : undefined);
           if (!draw.ok) throw new Error(draw.reason);
           setWheel({ order, pool: draw.pool, winner: draw.winner });
         }}
