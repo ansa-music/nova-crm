@@ -5,6 +5,7 @@ import { WORKSPACE_CONTROL_KEYS } from "@/types";
 import { sanitizeOsPay, sanitizePaymentMethods } from "@/utils/payment";
 import { sanitizePeriods, type PeriodSettings } from "@/utils/periods";
 import { sanitizeSiteConfig, type SiteConfig } from "@/types/siteConfig";
+import { sanitizeRandomSettings, type RandomSettings } from "@/types/randomSettings";
 import { db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { generateId } from "@/utils/id";
@@ -171,6 +172,28 @@ export async function updateSiteConfig(workspaceId: string, config: SiteConfig) 
     return;
   }
   await updateDoc(paths.workspace(workspaceId), { site: empty ? deleteField() : clean });
+}
+
+/**
+ * Шансы «Рандома» (личный множитель, «меньше заказов — выше шанс»). Пишет
+ * только Owner — Тимлиду поле закрыто правилом. Как `updateSiteConfig`: в
+ * Supabase карта сливается рекурсивно, поэтому сначала снимаем поле целиком.
+ */
+export async function updateRandomSettings(workspaceId: string, settings: RandomSettings) {
+  if (!db) return;
+  const clean = sanitizeRandomSettings(settings);
+  const empty = Object.keys(clean).length === 0;
+  if (coreMembersBackendFor(workspaceId) === "supabase") {
+    await commitCore(
+      workspaceId,
+      empty
+        ? [workspaceWrite(workspaceId, "merge", { randomSettings: SB_DEL })]
+        : [workspaceWrite(workspaceId, "merge", { randomSettings: SB_DEL }), workspaceWrite(workspaceId, "merge", { randomSettings: clean })],
+      { optimistic: true }
+    );
+    return;
+  }
+  await updateDoc(paths.workspace(workspaceId), { randomSettings: empty ? deleteField() : clean });
 }
 
 /** Периоды столов (целый месяц / половины). Пишет только Owner — Тимлиду поле закрыто правилом. */

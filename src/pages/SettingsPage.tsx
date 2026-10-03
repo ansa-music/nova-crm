@@ -31,6 +31,7 @@ import {
   UserCog,
   Users,
   Wallet,
+  Dices,
   Globe,
   Wand2,
 } from "lucide-react";
@@ -38,6 +39,7 @@ import { AvatarUpload } from "@/components/common/AvatarUpload";
 import { RowsStoragePanel } from "@/components/settings/RowsStoragePanel";
 import { SupabaseCollectionsPanel } from "@/components/settings/SupabaseCollectionsPanel";
 import { CashboxSettingsPanel } from "@/components/cashbox/CashboxSettingsPanel";
+import { RandomSettingsPanel } from "@/components/settings/RandomSettingsPanel";
 import { ClientCardSettingsPanel } from "@/components/settings/ClientCardSettingsPanel";
 import { PeriodsSettingsPanel } from "@/components/settings/PeriodsSettingsPanel";
 import { CompanySettingsPanel } from "@/components/settings/CompanySettingsPanel";
@@ -165,6 +167,7 @@ const SETTINGS_NAV = [
   { value: "backup", label: "Бэкап", icon: Download, owner: true },
   { value: "rows", label: "Строки таблиц", icon: Database, owner: true },
   { value: "cashbox", label: "Касса", icon: Wallet, owner: true },
+  { value: "random", label: "Рандом", icon: Dices, owner: true },
   { value: "clientcard", label: "Визитка", icon: IdCard, owner: true },
   { value: "periods", label: "Периоды", icon: CalendarRange, owner: true },
   { value: "sound", label: "Звук заказа", icon: Music, owner: true },
@@ -397,6 +400,8 @@ export default function SettingsPage() {
               (item.value !== "rows" || permissions.actsAsOwner) &&
               // Способы оплаты и премии — только Owner по настоящей роли.
               (item.value !== "cashbox" || permissions.actsAsOwner) &&
+              // Шансы «Рандома» — только Owner.
+              (item.value !== "random" || permissions.actsAsOwner) &&
               // Варианты визитки клиента — тоже только Owner.
               (item.value !== "clientcard" || permissions.actsAsOwner) &&
               // Звук заказа у всех — тоже только Owner.
@@ -789,6 +794,12 @@ export default function SettingsPage() {
         {permissions.actsAsOwner && (
           <TabsContent value="cashbox" className="mt-0 flex flex-col gap-4">
             <CashboxSettingsPanel />
+          </TabsContent>
+        )}
+
+        {permissions.actsAsOwner && (
+          <TabsContent value="random" className="mt-0 flex flex-col gap-4">
+            <RandomSettingsPanel />
           </TabsContent>
         )}
 

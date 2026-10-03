@@ -7,6 +7,8 @@ set client_min_messages = warning;
 truncate tst.results;
 
 \ir ../migrations/20261030_core_members.sql
+-- Список полей настроек «только Owner» — самый новый (шансы «Рандома»).
+\ir ../migrations/20261043_random_settings.sql
 
 delete from public.core_docs where workspace_id in ('W', 'W2');
 
@@ -117,6 +119,10 @@ select tst.expect('Тимлид правит ники «Другие»',
   tst.val('TL', $q$select core_write('W', '[{"kind":"workspace","id":"W","op":"merge","data":{"otherNickOptions":[{"value":"o1","label":"Босс","color":"1 1% 1%"}]}}]'::jsonb) -> 0 -> 'data' -> 'otherNickOptions' -> 0 ->> 'label'$q$), 'Босс');
 select tst.expect('Тимлид не трогает кассу',
   tst.val('TL', $q$select core_write('W', '[{"kind":"workspace","id":"W","op":"merge","data":{"paymentMethods":[]}}]'::jsonb)::text$q$), 'error:42501');
+select tst.expect('Тимлид не трогает шансы «Рандома»',
+  tst.val('TL', $q$select core_write('W', '[{"kind":"workspace","id":"W","op":"merge","data":{"randomSettings":{"fewerOrdersBoost":1}}}]'::jsonb)::text$q$), 'error:42501');
+select tst.expect('Owner правит шансы «Рандома»',
+  tst.val('O', $q$select core_write('W', '[{"kind":"workspace","id":"W","op":"merge","data":{"randomSettings":{"weights":{"T1":2}}}}]'::jsonb) -> 0 -> 'data' -> 'randomSettings' -> 'weights' ->> 'T1'$q$), '2');
 select tst.expect('Тимлид не трогает периоды',
   tst.val('TL', $q$select core_write('W', '[{"kind":"workspace","id":"W","op":"merge","data":{"periods":{"mode":"half"}}}]'::jsonb)::text$q$), 'error:42501');
 select tst.expect('технарь настройки не правит',

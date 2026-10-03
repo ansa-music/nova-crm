@@ -4,14 +4,16 @@ import { useCurrentPeriodKey } from "@/hooks/useCurrentPeriodKey";
 import { useDeskLoads, useTechSchedules } from "@/hooks/useDeskLoads";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { currentMonthSubPageId } from "@/services/monthTabService";
-import { orderRandomPool, pickFromPool, type OrderCandidate } from "@/services/orderService";
+import { customRandomPool, orderRandomPool, pickWeighted, randomPoolProblem, type OrderCandidate } from "@/services/orderService";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { ymdInTimeZone } from "@/utils/date";
 import { displayNameOf } from "@/utils/displayName";
-import { currentBusyUids, effectiveTechLoadKinds } from "@/utils/techLoad";
+import { currentBusyUids, currentOrderCounts, effectiveTechLoadKinds } from "@/utils/techLoad";
 import {
   memberHasRole,
   orderClaimScope,
+  randomSettingsOf,
+  randomWeightOf,
   scheduleDayKey,
   scheduleStateOf,
   type TechSchedule,
@@ -76,6 +78,28 @@ export function useOrderAssignment(enabled: boolean) {
     [pages, loads, monthKey, statusOptions, kinds]
   );
 
+  /** Заказов за текущий период у каждого — для коэффициента «меньше заказов — выше шанс». */
+  const orderCounts = useMemo(
+    () =>
+      currentOrderCounts({
+        pages,
+        loads: loads ?? [],
+        monthKey,
+        currentTabOf: (page) => currentMonthSubPageId(page, monthKey),
+      }),
+    [pages, loads, monthKey]
+  );
+  const randomSettings = useMemo(() => randomSettingsOf(activeWorkspace), [activeWorkspace]);
+
+  /**
+   * Вес технаря в конкретном пуле (шансы Owner): личный множитель и
+   * «меньше заказов — выше шанс» относительно остальных в ЭТОМ пуле.
+   */
+  const weightFor = useCallback(
+    (poolUids: readonly string[]) => (uid: string) => randomWeightOf(uid, randomSettings, orderCounts, poolUids),
+    [randomSettings, orderCounts]
+  );
+
   /** Выходной и «отпросился» закрывают отклик на ЛЮБОЙ заказ. */
   const scheduleBlockReasonFor = useCallback(
     (technicianUid: string): string | null => {
@@ -119,30 +143,51 @@ export function useOrderAssignment(enabled: boolean) {
     [technicians, deskByUid, blockReasonFor, scheduleByUid, todayKey]
   );
 
+  /** Кто попадает в пул «Рандома» по откликам (без весов — ×0 отсекается ниже). */
+  const randomPoolFor = useCallback(
+    (order: WorkOrder, candidates: OrderCandidate[] = candidatesFor(order)): OrderCandidate[] => {
+      const base = orderRandomPool(candidates, orderClaimScope(order));
+      const weightOf = weightFor(base.map((c) => c.uid));
+      return base.filter((c) => weightOf(c.uid) > 0);
+    },
+    [candidatesFor, weightFor]
+  );
+
   /**
-   * Бросок «Рандома» по живым откликам. До первого снимка графика «кто
-   * сегодня отсутствует» неизвестен, и случайный выбор мог бы достаться
-   * выходному; при отказе чтения — не держим, иначе «Рандом» умер бы совсем.
+   * Бросок «Рандома»: по живым откликам или, с `uids`, «Своя рулетка» среди
+   * выбранных. До первого снимка графика «кто сегодня отсутствует» неизвестен,
+   * и случайный выбор мог бы достаться выходному; при отказе чтения — не
+   * держим, иначе «Рандом» умер бы совсем. Победитель — по шансам Owner.
    */
   const drawRandom = useCallback(
-    (order: WorkOrder): RandomDraw => {
+    (order: WorkOrder, opts?: { uids?: readonly string[] }): RandomDraw => {
       if (!schedulesLoaded && !schedulesFailed) return { ok: false, reason: "График ещё загружается — попробуйте через секунду" };
       const candidates = candidatesFor(order);
-      const pool = orderRandomPool(candidates, orderClaimScope(order));
-      const winner = pickFromPool(pool);
-      if (!winner) {
-        const withDesk = candidates.filter((c) => c.hasDesk);
-        return {
-          ok: false,
-          reason:
-            withDesk.length > 0
-              ? "Сегодня все технари со столом отсутствуют (выходной или отпросились) — выдайте вручную"
-              : "Некому выдать: ни у кого нет стола",
-        };
+      let pool: OrderCandidate[];
+      if (opts?.uids) {
+        const chosen = customRandomPool(candidates, opts.uids);
+        const weightOf = weightFor(chosen.map((c) => c.uid));
+        pool = chosen.filter((c) => weightOf(c.uid) > 0);
+        if (pool.length === 0) {
+          return {
+            ok: false,
+            reason: chosen.length > 0 ? "У выбранных шанс ×0 в настройках «Рандома»" : "Отметьте хотя бы двоих со столом, кто сегодня на смене",
+          };
+        }
+      } else {
+        pool = randomPoolFor(order, candidates);
+        if (pool.length === 0) {
+          const scope = orderClaimScope(order);
+          const reason =
+            randomPoolProblem(candidates, scope) ?? "У откликнувшихся шанс ×0 в настройках «Рандома» — выдайте вручную";
+          return { ok: false, reason };
+        }
       }
+      const winner = pickWeighted(pool, weightFor(pool.map((c) => c.uid)));
+      if (!winner) return { ok: false, reason: "Некому выдать" };
       return { ok: true, pool, winner };
     },
-    [schedulesLoaded, schedulesFailed, candidatesFor]
+    [schedulesLoaded, schedulesFailed, candidatesFor, randomPoolFor, weightFor]
   );
 
   return {
@@ -157,6 +202,10 @@ export function useOrderAssignment(enabled: boolean) {
     scheduleBlockReasonFor,
     blockReasonFor,
     candidatesFor,
+    randomPoolFor,
+    weightFor,
+    orderCounts,
+    randomSettings,
     drawRandom,
   };
 }

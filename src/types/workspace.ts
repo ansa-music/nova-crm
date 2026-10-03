@@ -1,4 +1,5 @@
 import type { SiteConfig } from "@/types/siteConfig";
+import type { RandomSettings } from "@/types/randomSettings";
 import type { Role } from "@/types/role";
 import type { StatusOption } from "@/types/page";
 import type { TechLoadKind } from "@/types/deskLoad";
@@ -151,6 +152,12 @@ export interface Workspace {
    * был. Тимлиду поле закрыто правилом workspace. См. `types/siteConfig.ts`.
    */
   site?: SiteConfig;
+  /**
+   * Шансы «Рандома» (Настройки → Рандом, только Owner): личный множитель и
+   * коэффициент «меньше заказов — выше шанс». Тимлиду поле закрыто правилом
+   * workspace. См. `types/randomSettings.ts`.
+   */
+  randomSettings?: RandomSettings;
   /**
    * «Настройка графика» (Owner): кто ещё правит график, смены команды, норма
    * на смене, кого не показывать. Тимлиду поле закрыто правилом workspace.
