@@ -27,3 +27,4 @@ export * from "@/types/grokAppAccount";
 export * from "@/types/grokAccess";
 
 export * from "@/types/dailyDispatch";
+export * from "@/types/randomSettings";

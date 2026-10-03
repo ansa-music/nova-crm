@@ -276,8 +276,8 @@ export interface OrderCandidate {
   claimedAt: number | null;
   /**
    * «сегодня выходной» / «отпросился» / «уже есть заказ в работе»; null —
-   * свободен. Для ВЫДАЮЩЕГО это пометка (бейдж и приоритет «Рандома»);
-   * откликнуться занятый может, только если заказ открыт «Всем».
+   * свободен. Для ВЫДАЮЩЕГО это пометка (бейдж); откликнуться занятый может,
+   * только если заказ открыт «Всем», — так же его отклик считает и «Рандом».
    */
   blockedReason?: string | null;
   /**
@@ -288,58 +288,102 @@ export interface OrderCandidate {
   absentToday?: boolean;
 }
 
+/** Вес кандидата в броске; нет функции — у всех поровну. */
+export type RandomWeightOf = (uid: string) => number;
+
+const EQUAL_WEIGHT: RandomWeightOf = () => 1;
+
 /**
- * Пул «Рандома»: сначала отсекаем тех, кому заказ некуда забрать, и только
- * потом смотрим на отклики. Порядок важен: если сначала брать откликнувшихся,
- * один отклик от технаря БЕЗ стола съедал весь фоллбэк и рандом оказывался
- * пустым. Диалог и карточка обязаны звать именно эту функцию, иначе кнопка
- * в одном месте работает, а в другом выключена.
+ * Пул «Рандома» — ТОЛЬКО откликнувшиеся (просьба Nurba 03.10.2026: «заказы при
+ * нажатии на рандом распределяются среди тех, кто откликнулся»). Запасных
+ * пулов «свободные молчащие» / «все со столом» больше нет: без откликов
+ * «Рандом» отвечает причиной (`randomPoolProblem`), а выдающий крутит «Свою
+ * рулетку» среди тех, кого выберет сам (`customRandomPool`).
  *
- * Те, у кого сегодня выходной, из СЛУЧАЙНОГО выбора выпадают всегда: если
- * человека сегодня нет, отдавать ему заказ броском монеты — прямой способ
- * уронить срок. Руками отдать всё равно можно (и ОС об этом просил) — это
- * осознанное решение живого человека, а не случайность.
- *
- * Порядок зависит от того, кому открыт отклик (`WorkOrder.claimScope`):
- * - «Свободные» (по умолчанию): свободные откликнувшиеся → свободные
- *   молчащие → занятые откликнувшиеся → все со столом. Руководство сказало
- *   «только свободные» — старый отклик занятого (он мог откликнуться, пока
- *   заказ был открыт всем) свободного не перебивает.
- * - «Все»: свободные откликнувшиеся → занятые откликнувшиеся → свободные
- *   молчащие → все со столом. Здесь отклик занятого значит «возьму ещё
- *   один», и он важнее свободного, который промолчал.
- * Последний фоллбэк — все со столом: «Рандом» не должен превращаться в
- * мёртвую кнопку в день, когда свободных нет вовсе.
+ * В пуле: откликнулся, есть стол (забрать заказ некуда — не выиграет), сегодня
+ * на смене (выходной из случайного выбора выпадает всегда), шанс у Owner не ×0,
+ * и при заказе «Свободным» — без заказа «в работе»: старый отклик человека,
+ * который с тех пор занят, не считается. При «Все» отклик занятого — обычный.
+ * Диалог и карточка обязаны звать именно эту функцию, иначе кнопка в одном
+ * месте работает, а в другом выключена.
  */
-export function orderRandomPool(candidates: OrderCandidate[], scope: WorkOrderClaimScope = "free"): OrderCandidate[] {
-  // Кого сегодня нет, в случайный выбор не попадает НИКОГДА — ни в основной
-  // пул, ни в запасной. Раньше запасной вариант («свободных нет — берём всех
-  // со столом») возвращал и выходных: в воскресенье при трёх технарях, из
-  // которых один выходной, один отпросился и один занят, заказ с вероятностью
-  // 2/3 уходил тому, кого нет.
-  const withDesk = candidates.filter((c) => c.hasDesk && !c.absentToday);
-  const free = withDesk.filter((c) => !c.blockedReason);
-  const claimedFree = free.filter((c) => c.claimedAt != null);
-  if (claimedFree.length > 0) return claimedFree;
-  const claimed = withDesk.filter((c) => c.claimedAt != null);
-  if (scope === "all" && claimed.length > 0) return claimed;
-  if (free.length > 0) return free;
-  if (claimed.length > 0) return claimed;
-  // Никто не откликнулся и свободных нет — все вышедшие сегодня со столом:
-  // лучше заказ в очередь живому человеку, чем мёртвая кнопка.
-  return withDesk;
+export function orderRandomPool(
+  candidates: OrderCandidate[],
+  scope: WorkOrderClaimScope = "free",
+  weightOf: RandomWeightOf = EQUAL_WEIGHT
+): OrderCandidate[] {
+  return candidates.filter(
+    (c) =>
+      c.claimedAt != null &&
+      c.hasDesk &&
+      !c.absentToday &&
+      (scope === "all" || !c.blockedReason) &&
+      weightOf(c.uid) > 0
+  );
+}
+
+/** Почему пул «Рандома» пуст — понятной фразой для кнопки и тоста; null — не пуст. */
+export function randomPoolProblem(
+  candidates: OrderCandidate[],
+  scope: WorkOrderClaimScope = "free",
+  weightOf: RandomWeightOf = EQUAL_WEIGHT
+): string | null {
+  if (orderRandomPool(candidates, scope, weightOf).length > 0) return null;
+  const claimed = candidates.filter((c) => c.claimedAt != null);
+  if (claimed.length === 0) return "Никто не откликнулся — подождите отклика или «Своя рулетка»";
+  const withDesk = claimed.filter((c) => c.hasDesk);
+  if (withDesk.length === 0) return "У откликнувшихся нет стола — забрать заказ некуда";
+  const present = withDesk.filter((c) => !c.absentToday);
+  if (present.length === 0) return "Откликнувшихся сегодня нет на смене — «Своя рулетка» или выдайте вручную";
+  const allowed = present.filter((c) => scope === "all" || !c.blockedReason);
+  if (allowed.length === 0) return "Откликнулись только занятые — откройте заказ «Всем» или «Своя рулетка»";
+  return "У откликнувшихся шанс ×0 в настройках «Рандома» — выдайте вручную";
 }
 
 /**
- * Бросок по уже посчитанному пулу. Отдельно от `pickRandomCandidate`, потому
- * что барабан «Рандома» рисует ТОТ ЖЕ пул, из которого тянули: считать пул
- * дважды — верный способ показать одно, а выдать другое.
+ * «Своя рулетка»: выдающий сам выбрал, среди кого крутить. Отклик и занятость
+ * не важны — людей выбрал человек; стол обязателен, а тех, кого сегодня нет,
+ * случай не выбирает никогда (как и в обычном «Рандоме»). Порядок — как в
+ * списке кандидатов.
  */
-export function pickFromPool(pool: OrderCandidate[]): OrderCandidate | null {
-  if (pool.length === 0) return null;
+export function customRandomPool(
+  candidates: OrderCandidate[],
+  uids: readonly string[],
+  weightOf: RandomWeightOf = EQUAL_WEIGHT
+): OrderCandidate[] {
+  const picked = new Set(uids);
+  return candidates.filter((c) => picked.has(c.uid) && c.hasDesk && !c.absentToday && weightOf(c.uid) > 0);
+}
+
+function randomUnit(): number {
   const bytes = new Uint32Array(1);
   crypto.getRandomValues(bytes);
-  return pool[bytes[0] % pool.length];
+  return bytes[0] / 4294967296;
+}
+
+/**
+ * Бросок по уже посчитанному пулу с весами (шансы Owner). Отдельно от пула,
+ * потому что барабан «Рандома» рисует ТОТ ЖЕ пул, из которого тянули: считать
+ * пул дважды — верный способ показать одно, а выдать другое. При равных весах
+ * — равная вероятность, как раньше.
+ */
+export function pickWeighted(pool: OrderCandidate[], weightOf: RandomWeightOf = EQUAL_WEIGHT, unit: () => number = randomUnit): OrderCandidate | null {
+  const weights = pool.map((c) => Math.max(0, weightOf(c.uid)));
+  const total = weights.reduce((a, b) => a + b, 0);
+  if (pool.length === 0 || total <= 0) return null;
+  let target = unit() * total;
+  for (let i = 0; i < pool.length; i += 1) {
+    if (weights[i] <= 0) continue;
+    if (target < weights[i]) return pool[i];
+    target -= weights[i];
+  }
+  // Погрешность плавающей точки: последний с ненулевым весом.
+  for (let i = pool.length - 1; i >= 0; i -= 1) if (weights[i] > 0) return pool[i];
+  return null;
+}
+
+export function pickFromPool(pool: OrderCandidate[]): OrderCandidate | null {
+  return pickWeighted(pool);
 }
 
 export function pickRandomCandidate(candidates: OrderCandidate[], scope: WorkOrderClaimScope = "free"): OrderCandidate | null {

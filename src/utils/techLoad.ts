@@ -1,7 +1,7 @@
 import { isBlankRow } from "@/utils/blankRow";
 import { ymdInTimeZone } from "@/utils/date";
 import { parseLooseNumber } from "@/utils/numberInput";
-import { isDoneStatusLabel, isFreezeStatusLabel } from "@/utils/columnOptions";
+import { isApprovalOption, isDoneStatusLabel, isFreezeStatusLabel } from "@/utils/columnOptions";
 import { findQuickOrderColumns } from "@/utils/quickOrder";
 import { DEFAULT_PERIODS, dayInPeriod, type PeriodSettings } from "@/utils/periods";
 import type { DeskLoad, OsOrderItem, PageColumn, PageRow, StatusOption, TechLoadKind, Workspace, WorkspacePage } from "@/types";
@@ -355,11 +355,17 @@ export interface TechLoadSummary {
   freeze: number;
   /** «Ждём оплату» — separate, never busy. */
   payment: number;
+  /**
+   * «Утверждение» — заказ ещё не согласован, технарь им не занят (просьба
+   * Nurba 03.10.2026: отклик закрывает только «в работе»). Отдельно, чтобы ни
+   * карта статусов Owner, ни разбор по названию не сделали его «занят».
+   */
+  approval: number;
   /** Finished orders: `free` statuses except cancelled ones and orders without a status. */
   done: number;
 }
 
-export const EMPTY_TECH_LOAD: TechLoadSummary = { total: 0, busy: 0, free: 0, rework: 0, freeze: 0, payment: 0, done: 0 };
+export const EMPTY_TECH_LOAD: TechLoadSummary = { total: 0, busy: 0, free: 0, rework: 0, freeze: 0, payment: 0, approval: 0, done: 0 };
 
 function findStatusOption(raw: string, statusOptions: StatusOption[]): StatusOption | undefined {
   const lower = raw.toLowerCase();
@@ -383,6 +389,10 @@ export function summarizeDeskLoad(
       continue;
     }
     const option = findStatusOption(raw, statusOptions);
+    if (isApprovalOption(option ?? { value: raw, label: raw })) {
+      summary.approval += count;
+      continue;
+    }
     const kind = option ? techLoadKindForOption(option, kinds) : autoTechLoadKind(raw, raw);
     summary[kind] += count;
     if (kind === "free" && !isCancelledStatus(option?.label ?? raw, option?.value ?? raw)) summary.done += count;
@@ -398,6 +408,7 @@ export function addTechLoad(a: TechLoadSummary, b: TechLoadSummary): TechLoadSum
     rework: a.rework + b.rework,
     freeze: a.freeze + b.freeze,
     payment: a.payment + b.payment,
+    approval: a.approval + b.approval,
     done: a.done + b.done,
   };
 }
@@ -465,6 +476,30 @@ export function statusBreakdown(
  * стол, убранный в «Неактуальные», не пересчитывается никогда, и его старые
  * строки навсегда держали технаря «занятым».
  */
+/**
+ * Заказов у каждого технаря за текущий период — для шансов «Рандома»
+ * («меньше заказов — выше шанс»). Те же правила, что у `currentBusyUids`:
+ * только активные столы и только счётчик текущей вкладки периода.
+ */
+export function currentOrderCounts(input: {
+  pages: WorkspacePage[];
+  loads: DeskLoad[];
+  monthKey: string;
+  currentTabOf: (page: WorkspacePage) => string | null;
+}): Map<string, number> {
+  const loadByPage = new Map(input.loads.map((load) => [load.pageId, load]));
+  const counts = new Map<string, number>();
+  for (const page of input.pages) {
+    if (page.isDashboard || !page.responsibleUserId) continue;
+    const load = loadByPage.get(page.id);
+    if (!load) continue;
+    const tab = input.currentTabOf(page);
+    if (!tab || load.monthKey !== input.monthKey || load.subPageId !== tab) continue;
+    counts.set(page.responsibleUserId, (counts.get(page.responsibleUserId) ?? 0) + (load.total ?? 0));
+  }
+  return counts;
+}
+
 export function currentBusyUids(input: {
   pages: WorkspacePage[];
   loads: DeskLoad[];

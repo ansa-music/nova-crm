@@ -144,6 +144,8 @@ export default function OrdersPage() {
   // пришедшие уже после открытия, иначе «Рандом» считает claims пустыми и
   // отдаёт заказ НЕ откликнувшемуся.
   const [assignForId, setAssignForId] = useState<string | null>(null);
+  // Окно выдачи сразу в «Своей рулетке» (тост «Рандома» без откликов).
+  const [assignCustom, setAssignCustom] = useState(false);
   /**
    * Барабан «Рандома». Победитель и пул фиксируются В МОМЕНТ броска и живут
    * здесь: заказ во время вращения уже уезжает в `assigned`, и пересчёт
@@ -229,6 +231,8 @@ export default function OrdersPage() {
     retrySchedules,
     scheduleBlockReasonFor,
     candidatesFor,
+    randomPoolFor,
+    weightFor,
     drawRandom,
   } = useOrderAssignment(permissions.isResolved);
 
@@ -563,10 +567,20 @@ export default function OrdersPage() {
     if (!opts.silent) toast.success(`Заказ выдан: ${candidate.name}`);
   }
 
-  async function handleRandom(order: WorkOrder) {
-    const draw = drawRandom(order);
+  async function handleRandom(order: WorkOrder, uids?: string[]) {
+    const draw = drawRandom(order, uids ? { uids } : undefined);
     if (!draw.ok) {
-      toast.error(draw.reason);
+      if (uids) throw new Error(draw.reason);
+      // С карточки: откликов нет — сразу предложить «Свою рулетку».
+      toast.error(draw.reason, {
+        action: {
+          label: "Своя рулетка",
+          onClick: () => {
+            setAssignCustom(true);
+            setAssignForId(order.id);
+          },
+        },
+      });
       return;
     }
     // Дальше показывает барабан — он же и запишет выдачу, параллельно вращению.
@@ -1063,15 +1077,23 @@ export default function OrdersPage() {
       ) : null}
       <AssignOrderDialog
         order={assignFor}
-        onOpenChange={(open) => !open && setAssignForId(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAssignForId(null);
+            setAssignCustom(false);
+          }
+        }}
         candidates={assignFor ? candidatesFor(assignFor) : []}
+        randomPoolFor={randomPoolFor}
+        weightFor={weightFor}
+        startCustom={assignCustom}
         onAssign={async (c) => {
           if (!assignFor) return;
           await handleAssign(assignFor, c);
         }}
-        onRandom={async () => {
+        onRandom={async (uids) => {
           if (!assignFor) return;
-          await handleRandom(assignFor);
+          await handleRandom(assignFor, uids);
         }}
       />
       <RandomWheelDialog
