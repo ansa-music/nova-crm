@@ -255,6 +255,7 @@ grant all on function public.rows_os_claim_order(text, text, text, text, bigint,
 \ir ../migrations/20261002_os_sync.sql
 \ir ../migrations/20261004_exchange_claim.sql
 \ir ../migrations/20261007_carry_over.sql
+\ir ../migrations/20261045_tech_sync.sql
 select tst.expect('после повторного наката триггерная функция снова закрыта',
   tst.try('PO', $q$select 1 where not has_function_privilege('anon', 'public.desk_rows_os_status_push()', 'execute')
     and not has_function_privilege('tst_nobody', 'public.desk_rows_os_status_push()', 'execute')

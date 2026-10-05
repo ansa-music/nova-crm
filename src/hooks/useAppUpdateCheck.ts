@@ -4,6 +4,7 @@ import { toast } from "@/components/ui/sonner";
 import { db } from "@/firebase/firebase";
 import { flushHistory } from "@/services/historyService";
 import { sbWaitForPendingWrites } from "@/services/rows/supabaseRowStore";
+import { waitTechSyncIdle } from "@/services/rows/techSync";
 import { dbQuotaHit } from "@/utils/dbError";
 import { useWorkspace } from "@/hooks/useWorkspace";
 
@@ -112,7 +113,10 @@ async function reloadSafely() {
     // История копится пачкой в памяти — её надо поставить в очередь ДО
     // ожидания, иначе перезагрузка унесёт последние записи журнала.
     const flushed = flushHistory().catch(() => undefined);
-    const writes = Promise.all([flushed, db ? waitForPendingWrites(db) : Promise.resolve(), sbWaitForPendingWrites()]);
+    // Авто-передача ОС: правка, сделанная за секунду до перезагрузки, должна уйти
+    // столу ОС (очередь пуста — возвращается сразу, базу не спрашивает).
+    const techSync = waitTechSyncIdle().catch(() => undefined);
+    const writes = Promise.all([flushed, db ? waitForPendingWrites(db) : Promise.resolve(), sbWaitForPendingWrites(), techSync]);
     await Promise.race([writes, new Promise((resolve) => setTimeout(resolve, 4000))]);
   } catch {
     /* всё равно перезагружаем */

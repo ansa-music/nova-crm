@@ -185,6 +185,7 @@ select tst.expect('Owner переархивирует любой стол',
 -- --- Версия и повторный накат ----------------------------------------------
 select tst.expect('версия схемы не старее 20261007', (public.nova_schema_version() >= '20261007')::text, 'true');
 \ir ../migrations/20261007_carry_over.sql
+\ir ../migrations/20261045_tech_sync.sql
 select tst.expect('после повторного наката перенос работает',
   tst.jval('VT1', $q$select (rows_carry_over('WV','VP1','month-2026-09','month-2026-10-1', array['r4']) ->> 'moved')$q$), '["r4"]');
 

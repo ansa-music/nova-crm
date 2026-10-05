@@ -12,9 +12,11 @@ import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { coreMembersBackendFor, corePagesBackendFor } from "@/services/coreStore";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { deskModeOf, setDeskMode, useDeskModeSupported, type DeskMode } from "@/services/rows/deskMode";
 import { setDeskTechEditable } from "@/services/rows/osExempt";
+import { resumeTechSyncDesk, sbSetTechSync, techSyncActive, useTechSyncState } from "@/services/rows/techSync";
 import { CarryOverSection } from "@/components/desks/CarryOverSection";
 import {
   adoptOrdersToOsDesks,
@@ -87,6 +89,30 @@ export default function DeskEditingPage() {
   const [report, setReport] = useState<OsAdoptionReport | null>(null);
   const [lastMessage, setLastMessage] = useState<string | null>(null);
   const supported = useDeskModeSupported(activeWorkspaceId);
+  // Авто-передача ОС (SQL 20261045): состояние — одним запросом при открытии
+  // страницы (и при возврате на вкладку); без SQL база отвечает «функции нет»,
+  // и 10 минут её больше не спрашиваем.
+  const techSyncState = useTechSyncState(isOwner && onSupabase ? activeWorkspaceId : null);
+  // Столы и участники читаются из Supabase и на сайте (Owner мог вернуть ядро
+  // в Firestore выключателем — тогда база читала бы устаревшие столбцы).
+  const coreHere = Boolean(
+    activeWorkspaceId &&
+      corePagesBackendFor(activeWorkspaceId) === "supabase" &&
+      coreMembersBackendFor(activeWorkspaceId) === "supabase"
+  );
+  const techSyncOn = techSyncState?.on === true;
+  /** Почему авто-передачу нельзя включить (null — можно или ещё не знаем). */
+  const techSyncBlock = !onSupabase
+    ? "Столы и участники ещё не перенесены в Supabase"
+    : !techSyncState
+      ? null
+      : !techSyncState.supported
+        ? "Нужен свежий SQL"
+        : !techSyncState.core || !coreHere
+          ? "Столы и участники ещё не перенесены в Supabase"
+          : null;
+  /** Авто-передача сейчас работает — столы «Заполняет сам» уходят ОС сами. */
+  const techSyncWorks = techSyncActive(techSyncState) && coreHere;
 
   const desks = useMemo<DeskItem[]>(() => {
     return pages
@@ -160,6 +186,8 @@ export default function DeskEditingPage() {
     setBusy("__mode");
     try {
       await setDeskMode(workspaceId, next);
+      // Столы могли войти в авто-передачу — очередь этого браузера не ждёт паузу.
+      for (const d of desks) resumeTechSyncDesk(workspaceId, d.page.id);
       toast.success(`Режим: ${chosen?.title}`);
     } catch (error) {
       toast.error(firestoreErrorText(error, "Не удалось переключить режим"));
@@ -172,9 +200,24 @@ export default function DeskEditingPage() {
     setBusy(d.page.id);
     try {
       await setDeskTechEditable(workspaceId, d.page.id, next);
+      if (next) resumeTechSyncDesk(workspaceId, d.page.id);
       toast.success(next ? `${d.name} заполняет свой стол сам` : `${d.name}: стол снова по общему режиму`);
     } catch (error) {
       toast.error(firestoreErrorText(error, "Не удалось сохранить"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** Выключатель авто-передачи ОС — пишет база (`rows_set_tech_sync`, только Owner). */
+  async function toggleTechSync(next: boolean) {
+    setBusy("__techSync");
+    try {
+      const done = await sbSetTechSync(workspaceId, next);
+      if (!done) toast.error("Нужен свежий SQL — без него авто-передача ОС не включается");
+      else toast.success(next ? "Авто-передача ОС включена" : "Авто-передача ОС выключена");
+    } catch (error) {
+      toast.error(firestoreErrorText(error, "Не удалось переключить авто-передачу ОС"));
     } finally {
       setBusy(null);
     }
@@ -194,7 +237,7 @@ export default function DeskEditingPage() {
     setReport(null);
     setLastMessage(null);
     try {
-      const result = await adoptOrdersToOsDesks({ workspaceId, members, pageIds: [d.page.id] });
+      const result = await adoptOrdersToOsDesks({ workspaceId, members, workspace: activeWorkspace, pageIds: [d.page.id] });
       setReport(result);
       if (result.errors.length) toast.error("Передано с ошибками — подробности ниже");
       else toast.success(`ОС получили заказов: ${result.adopted}`);
@@ -221,7 +264,7 @@ export default function DeskEditingPage() {
     setReport(null);
     setLastMessage(null);
     try {
-      const released = await releaseDeskOrders(workspaceId, d.page, d.member.techNickValue ?? "");
+      const released = await releaseDeskOrders(workspaceId, d.page, d.member.techNickValue ?? "", members);
       if (willOpen && released > 0) await setDeskTechEditable(workspaceId, d.page.id, true);
       toast.success(released ? `Технарю вернулось заказов: ${released}` : "Заказов под управлением ОС у этого стола нет");
     } catch (error) {
@@ -244,7 +287,7 @@ export default function DeskEditingPage() {
     setReport(null);
     setLastMessage(null);
     try {
-      const result = await adoptOrdersToOsDesks({ workspaceId, members, onProgress: setProgress });
+      const result = await adoptOrdersToOsDesks({ workspaceId, members, workspace: activeWorkspace, onProgress: setProgress });
       setReport(result);
       if (result.errors.length) toast.error("Передано с ошибками — подробности ниже");
       else toast.success(`ОС получили заказов: ${result.adopted}`);
@@ -343,6 +386,35 @@ export default function DeskEditingPage() {
       </Section>
 
       <Section
+        data-tech-sync-card
+        eyebrow="Столы «Заполняет сам»"
+        title="Авто-передача ОС"
+        action={
+          <label className="flex min-h-11 items-center gap-2 text-xs text-muted-foreground sm:min-h-0">
+            {busy === "__techSync" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            <Switch
+              checked={techSyncOn}
+              onCheckedChange={(v) => void toggleTechSync(v)}
+              // Выключить можно всегда; включить — только когда есть чем.
+              disabled={disabled || !techSyncState || (!techSyncOn && techSyncBlock !== null)}
+              aria-label="Авто-передача ОС"
+            />
+            {techSyncOn ? "Включена" : "Выключена"}
+          </label>
+        }
+      >
+        <p className="text-xs leading-5 text-muted-foreground">
+          На столах «Заполняет сам» заказ с ником ОС сам появляется у ОС, а правки и статус доезжают за пару секунд.
+          «Передать ОС» нужна после «Вернуть» и для остальных столов.
+        </p>
+        {techSyncBlock && (
+          <p className="mt-2 text-xs font-medium text-warning" data-tech-sync-block>
+            {techSyncBlock}
+          </p>
+        )}
+      </Section>
+
+      <Section
         eyebrow="Выборочно"
         title={`Технари · заполняют сами: ${mode === "tech" ? `все ${desks.length}` : `${exemptCount} из ${desks.length}`}`}
         padded={false}
@@ -384,6 +456,13 @@ export default function DeskEditingPage() {
                         {d.name}
                         {fills && (
                           <span className="rounded-md bg-primary/12 px-1.5 py-0.5 text-[10px] font-medium text-primary">заполняет сам</span>
+                        )}
+                        {/* Авто-передача ОС работает на этом столе (стол «только
+                            для Owner» сам не уходит — там «Передать ОС»). */}
+                        {fills && techSyncWorks && !d.page.ownerOnly && (
+                          <span className="rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            уходит ОС само
+                          </span>
                         )}
                       </p>
                       <p className="truncate text-xs text-muted-foreground">

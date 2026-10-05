@@ -11,6 +11,7 @@ import { sendNotification } from "@/services/notificationService";
 import { patchTechOrderRow } from "@/services/pageService";
 import { firestoreErrorText } from "@/utils/dbError";
 import { myDisplayName } from "@/utils/displayName";
+import { personLabel } from "@/utils/peopleDesks";
 import { pickRowCardColumns } from "@/utils/rowCardColumns";
 import { TECH_LINK_KEY, TECH_NOTE_KEY } from "@/utils/reservedCellKeys";
 import {
@@ -51,6 +52,7 @@ export function TechOrderPanel({
   canWrite,
   pendingRequest,
   onAskStatus,
+  liveSync = false,
 }: {
   row: PageRow;
   workspaceId: string;
@@ -68,9 +70,19 @@ export function TechOrderPanel({
    * ячейке статуса.
    */
   onAskStatus?: () => void;
+  /**
+   * На этом столе работает авто-передача ОС (стол «Заполняет сам», функция
+   * включена — `useTechDeskSync().active`): технарь правит заказ сам, а правки
+   * и статус база сразу везёт на стол ОС. Просить ОС о статусе тогда незачем.
+   */
+  liveSync?: boolean;
 }) {
   const { members, allPages, activeWorkspace } = useWorkspace();
   const { profile } = useAuth();
+  // Заказ, который ОС ведёт на столе с авто-передачей: текст и кнопки другие.
+  const live = Boolean(liveSync && row.osUid);
+  const osMember = live ? members.find((m) => m.uid === row.osUid) : undefined;
+  const osNick = osMember?.osNick || personLabel(osMember) || "";
   /**
    * Запрос к ОС: «удалить заказ» или «поставить статус» — только у заказов,
    * которые ведёт ОС (метка osUid и адрес строки-источника).
@@ -258,7 +270,11 @@ export function TechOrderPanel({
         ) : null}
       </div>
       <p className="text-xs text-muted-foreground">
-        Статус, сумму и клиента здесь меняет ОС. Ваше — ссылка на работу и примечание.
+        {live
+          ? `Заказ у ОС${osNick ? ` ${osNick}` : ""}. ${
+              canWrite ? "Вы заполняете сами" : "Стол заполняет сам технарь"
+            } — правки и статус сразу уходят ОС.`
+          : "Статус, сумму и клиента здесь меняет ОС. Ваше — ссылка на работу и примечание."}
       </p>
 
       <label className="flex flex-col gap-1">
@@ -287,7 +303,10 @@ export function TechOrderPanel({
 
       {canWrite && (
         <div className="flex flex-wrap gap-2">
-          {onAskStatus && canRequest ? (
+          {/* Авто-передача: статус технарь ставит сам, и он сам уходит ОС —
+              просьбы о статусе и «Успешке» не предлагаем («удалить» остаётся:
+              заказ ОС технарь удалить не может). */}
+          {live ? null : onAskStatus && canRequest ? (
             !pending ? (
               <Button size="sm" className="min-h-11 gap-1.5 sm:min-h-9" disabled={busy} onClick={onAskStatus}>
                 <CheckCircle2 className="h-4 w-4" />
@@ -308,7 +327,7 @@ export function TechOrderPanel({
           )}
           {canRequest && !pending && !draftKind ? (
             <>
-              {onAskStatus ? null : (
+              {onAskStatus || live ? null : (
                 <Button size="sm" variant="outline" className="min-h-9" disabled={busy} onClick={() => setDraftKind("status")}>
                   <Workflow className="h-4 w-4" />
                   Попросить статус…

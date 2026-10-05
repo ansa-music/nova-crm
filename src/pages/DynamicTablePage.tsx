@@ -140,6 +140,7 @@ import { useDeskLoadPublisher } from "@/hooks/useDeskLoadPublisher";
 import { useOsFieldKeysPublisher } from "@/hooks/useOsFieldKeysPublisher";
 import { useTableDiagWatch } from "@/hooks/useTableDiagWatch";
 import { useMyOrderRows } from "@/hooks/useMyOrderRows";
+import { useTechDeskSync } from "@/hooks/useTechDeskSync";
 import {
   OS_CLAIM_KICK_EVENT,
   OS_CLAIMED_EVENT,
@@ -871,6 +872,21 @@ export default function DynamicTablePage() {
     (activeWorkspace?.techFillsAll || page.techEditable) &&
     deskModeSupported === true,
   );
+  // Авто-передача ОС (просьба Nurba 05.10.2026, SQL 20261045): на столе
+  // «Заполняет сам» заказ с ником ОС сам уходит ОС, без кнопки «Передать ОС».
+  // Здесь стол отдаёт очереди свои строки, догоняет недоехавшее и знает, почему
+  // строка «не у ОС». `active` — функция работает именно на этом столе; в
+  // остальных режимах, без SQL и при выключателе Owner хук ничего не делает.
+  const techSync = useTechDeskSync({
+    workspaceId: activeWorkspaceId,
+    page: hasAccess ? page : null,
+    tabId: activeSubPageId ?? "",
+    rows,
+    enabled: Boolean(
+      techFills && hasAccess && page && permissions.canEditPageData(page),
+    ),
+    rowsFromServer,
+  });
   const myOrders = useMyOrderRows(
     activeWorkspaceId,
     dispatchOsUid ?? permissions.uid,
@@ -1194,6 +1210,9 @@ export default function DynamicTablePage() {
     orders: myOrders,
     osUid: dispatchOsUid ?? permissions.uid,
     osNickValue: isMyOsDesk ? myOsNickValue : dispatchOsNickValue,
+    // Сам ОС или Owner от его имени: вернуть технарю его строку они могут
+    // по-разному (см. хук, авто-передача ОС).
+    actorUid: permissions.uid,
     rowsFromServer,
     exchange,
   });
@@ -1859,6 +1878,9 @@ export default function DynamicTablePage() {
     );
   }
   function askOsCellView(row: PageRow): CellActionView | null {
+    // Авто-передача ОС: технарь ставит статус сам, и он сам уходит ОС —
+    // просить ОС о статусе незачем.
+    if (techFills && techSync.active) return null;
     if (!canAskOs(row) || !askStatusColumn) return null;
     const current = String(
       row.cells[row.statusKey || askStatusColumn.key] ?? "",
@@ -1892,6 +1914,33 @@ export default function DynamicTablePage() {
       tone: "neutral",
       icon: "hand",
     };
+  }
+
+  // Авто-передача ОС: строка с ником ОС, которая до ОС не дошла (ник не
+  // закреплён, у ОС ещё нет стола, заказ вернул Owner…), — метка «не у ОС» в
+  // ячейке ОС. Причина — в подсказке, а по нажатию — тостом (на телефоне
+  // подсказок нет). Столбец ОС известен только во вкладке, для которой стол
+  // опубликовал карту столбцов, — там же, где строки и уходят ОС.
+  const techSyncOsKey =
+    techSync.active &&
+    page?.osFieldKeys?.os &&
+    (page.osFieldKeys.tabId || "") === (activeSubPageId ?? "")
+      ? page.osFieldKeys.os
+      : null;
+  function notAtOsCellView(row: PageRow): CellActionView | null {
+    const reason = techSync.reasonOf(row.id);
+    if (!reason) return null;
+    return {
+      kind: "not-at-os",
+      label: "не у ОС",
+      title: reason,
+      tone: "warning",
+      icon: "alert",
+    };
+  }
+  function tellNotAtOs(row: PageRow) {
+    const reason = techSync.reasonOf(row.id);
+    if (reason) toast.info("Заказ пока не у ОС", { description: reason });
   }
 
   // Диагностика `?diag=table` (utils/tableDiag.ts): что сменилось на рендере.
@@ -2800,6 +2849,15 @@ export default function DynamicTablePage() {
                             if (request) setDecideRequestId(request.id);
                           },
                         }
+                    : techSyncOsKey
+                      ? {
+                          // Авто-передача ОС: метка «не у ОС» в ячейке ОС
+                          // («Готово?» в статусе здесь не нужна — статус
+                          // технаря уходит ОС сам).
+                          colKey: techSyncOsKey,
+                          get: notAtOsCellView,
+                          run: tellNotAtOs,
+                        }
                     : askOsEnabled && askStatusColumn
                       ? {
                           colKey: askStatusColumn.key,
@@ -2892,6 +2950,8 @@ export default function DynamicTablePage() {
                           ? () => setStatusRequestRowId(row.id)
                           : undefined
                       }
+                      // Авто-передача ОС: правки и статус уходят ОС сами.
+                      liveSync={techFills && techSync.active}
                     />
                   );
                 }}

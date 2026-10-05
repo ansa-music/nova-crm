@@ -45,6 +45,10 @@ export const OS_DESK_KEYS: OsDeskKeys = {
  * случайный, и проход, читающий `cells.status`, видел пустоту: статус у ОС
  * меняли, а технарю ничего не уезжало. Сначала ключ по умолчанию, потом тип,
  * потом название.
+ *
+ * Двойник в базе — `rows_os_cols_keys` (supabase/migrations/20261045_tech_sync.sql):
+ * по нему база сама кладёт заказ технаря в стол ОС. Меняете правило здесь —
+ * меняйте и там (сессия Owner сверяет оба и выключает авто-передачу при расхождении).
  */
 export function resolveOsDeskKeys(columns: readonly PageColumn[] | null | undefined): OsDeskKeys {
   if (!columns?.length) return OS_DESK_KEYS;

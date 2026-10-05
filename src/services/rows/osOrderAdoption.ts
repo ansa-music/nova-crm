@@ -10,6 +10,16 @@ import { buildMirrorCells, mirrorSyncHash } from "@/services/rows/osOrderMirror"
 import { openOsDeskCurrentTab, type OsDeskTab } from "@/services/rows/osDeskIssue";
 import { sbFindDeskRowTab } from "@/services/rows/osOrderClaim";
 import {
+  fetchTechSyncState,
+  sbTechSync,
+  TECH_SYNC_REASON_TEXT,
+  techSyncActive,
+  type TechSyncItem,
+  type TechSyncResult,
+} from "@/services/rows/techSync";
+import { useWorkspaceStore } from "@/store/workspaceStore";
+import { TECH_SYNC_MAX_ITEMS, techFillsDesk } from "@/utils/techSyncPlan";
+import {
   OS_ISSUED_AT_KEY,
   OS_ISSUED_ON_KEY,
   OS_LOST_FOR_KEY,
@@ -194,9 +204,151 @@ async function ensureOsFieldKeys(
   return { keys, published: true };
 }
 
+/** Ответы `rows_tech_sync`, после которых строка осталась у технаря, — словами для отчёта Owner. */
+const SYNC_ADOPT_SKIP_TEXT: Record<string, string> = {
+  no_client: "в строке нет имени клиента",
+  released: "у ОС этот заказ уже со своей копией — «Выдать заново» на столе ОС",
+  src_conflict: "на столе ОС уже лежит другая строка этого заказа",
+  busy: "строка была занята чужой правкой — повторите",
+  error: "сбой базы на этой строке — повторите",
+  not_linked: "связь со столом ОС оборвана",
+  no_source: "строки-источника на столе ОС нет",
+};
+
+/**
+ * «Передать ОС» для стола, где работает авто-передача ОС (SQL 20261045): две
+ * записи клиента (источник на столе ОС + метка на строке технаря) заменяет
+ * `rows_tech_sync` с `force` — та же функция базы, что связывает строки сама.
+ * Так источник у заказа один, сколько бы путей его ни заводили, а ячейки база
+ * собирает из своей строки. `force` (Owner / Тимлид+) снимает отметку «вернули
+ * технарю» и берёт заказ на столе «только для Owner».
+ *
+ * Строки называем базе САМИ и пачками не больше 50 (`TECH_SYNC_MAX_ITEMS`):
+ * несвязанные строки с ником ОС из уже прочитанной вкладки. Режим «возьми
+ * сама до 200 строк» (`p_items = null`) связывал бы весь стол одним
+ * оператором и на большом столе упирался бы в предел времени запроса. Слать
+ * нечего — один пустой вызов-проба: база всё равно отвечает, её ли это стол.
+ *
+ * У ОС ещё нет стола (`no_os_desk`) — сессия Owner заводит его и повторяет эти
+ * строки ОДИН раз. false — база сказала, что стол не её (выключено, не
+ * «Заполняет сам», нет SQL): вызывающий идёт прежним путём.
+ */
+async function adoptDeskBySync(input: {
+  workspaceId: string;
+  page: WorkspacePage;
+  tabId: string;
+  keys: OsFieldKeys;
+  rows: readonly PageRow[];
+  pages: WorkspacePage[];
+  members: readonly WorkspaceMember[];
+  report: OsAdoptionReport;
+  unknownNicks: Set<string>;
+  osDeskByUid: Map<string, WorkspacePage>;
+}): Promise<boolean> {
+  const { workspaceId, page, tabId, keys, rows, members, report } = input;
+  const answers = new Map<string, TechSyncItem>();
+  // Сбой посреди работы (сеть): что база уже связала — в отчёт, сбой — строкой.
+  let failure: unknown = null;
+  /** База перестала считать стол своим посреди работы (выключили авто-передачу). */
+  let stopped = false;
+  const ids = rows.filter((row) => !row.osUid && cellText(row, keys.os).trim()).map((row) => ({ row: row.id }));
+  if (ids.length === 0) {
+    // Проба: строк нет, но «не мой стол» вызывающий должен узнать и тут.
+    // Не прошла — ничего не сделано, решает вызывающий (исключение наружу).
+    const probe = await sbTechSync(workspaceId, page.id, tabId, [], { force: true, probe: true });
+    if (probe.status !== "ok") return false;
+  }
+  for (let i = 0; i < ids.length; i += TECH_SYNC_MAX_ITEMS) {
+    let result: TechSyncResult;
+    try {
+      result = await sbTechSync(workspaceId, page.id, tabId, ids.slice(i, i + TECH_SYNC_MAX_ITEMS), { force: true });
+    } catch (error) {
+      // Первый же вызов не прошёл — ничего не сделано, решает вызывающий.
+      if (i === 0) throw error;
+      failure = error;
+      break;
+    }
+    if (result.status !== "ok") {
+      if (i === 0) return false;
+      stopped = true;
+      break;
+    }
+    for (const item of result.items) answers.set(item.row, item);
+  }
+
+  // У ОС нет стола — заводит Owner (как прежний перенос) и повторяет один раз.
+  const needDesk = [...answers.values()].filter((item) => item.code === "no_os_desk" && item.osUid);
+  if (needDesk.length > 0) {
+    for (const uid of new Set(needDesk.map((item) => item.osUid as string))) {
+      const known = input.osDeskByUid.get(uid) ?? findOsDeskOf(input.pages, uid);
+      const osMember = members.find((m) => m.uid === uid);
+      try {
+        const desk = await ensureOsDesk({ workspaceId, uid, name: personLabel(osMember) });
+        input.osDeskByUid.set(uid, desk);
+        if (!known) report.createdOsDesks += 1;
+      } catch (error) {
+        report.errors.push(`Стол ОС для «${personLabel(osMember) || uid}» не завёлся — ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    try {
+      const again = await sbTechSync(
+        workspaceId,
+        page.id,
+        tabId,
+        needDesk.map((item) => ({ row: item.row })),
+        { force: true }
+      );
+      if (again.status === "ok") for (const item of again.items) answers.set(item.row, item);
+    } catch (error) {
+      failure = error;
+    }
+  }
+
+  // Отчёт — теми же строками, что у прежнего пути. «Уже у ОС» и «без ника ОС»
+  // база не перечисляет — считаем по прочитанным строкам стола.
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  for (const row of rows) {
+    if (isBlankRow(row)) continue;
+    if (row.osUid) report.alreadyManaged += 1;
+    else if (!cellText(row, keys.os).trim()) report.skippedNoOs += 1;
+  }
+  const skipped = new Map<string, number>();
+  for (const item of answers.values()) {
+    if (item.code === "linked") report.adopted += 1;
+    else if (item.code === "no_os_member") {
+      report.skippedNoAccount += 1;
+      const row = byId.get(item.row);
+      const nick = row ? cellText(row, keys.os).trim() : "";
+      if (nick) input.unknownNicks.add(nick);
+    } else if (item.code === "ok" || item.code === "noop") {
+      // Строку успели связать, пока шёл вызов (технарь, подхват ОС).
+      if (!byId.get(item.row)?.osUid) report.alreadyManaged += 1;
+    } else if (item.code !== "no_os" && item.code !== "blank" && item.code !== "gone") {
+      skipped.set(item.code, (skipped.get(item.code) ?? 0) + 1);
+    }
+  }
+  for (const [code, count] of skipped) {
+    // Свои слова — первыми: у «Передать ОС» (force) `released` значит не
+    // «вернул Owner», а «источник на столе ОС занят его собственной копией».
+    const reason = SYNC_ADOPT_SKIP_TEXT[code] ?? TECH_SYNC_REASON_TEXT[code] ?? `ответ базы «${code}»`;
+    report.errors.push(`«${page.name}»: не передано строк — ${count}: ${reason}`);
+  }
+  if (stopped) {
+    report.errors.push(`«${page.name}»: передача остановлена — авто-передачу ОС выключили, пока она шла. Повторите: уже переданное не размножится`);
+  }
+  if (failure) {
+    report.errors.push(
+      `«${page.name}»: передача оборвалась — ${failure instanceof Error ? failure.message : String(failure)}. Повторите: уже переданное не размножится`
+    );
+  }
+  return true;
+}
+
 export async function adoptOrdersToOsDesks(input: {
   workspaceId: string;
   members: readonly WorkspaceMember[];
+  /** Режим столов workspace («Технари заполняют сами»); нет — из стора. */
+  workspace?: { techFillsAll?: boolean } | null;
   /** Только эти столы («Передать ОС» у одного технаря на «Правке столов»); нет — все. */
   pageIds?: readonly string[];
   onProgress?: (p: OsAdoptionProgress) => void;
@@ -249,6 +401,14 @@ export async function adoptOrdersToOsDesks(input: {
     );
   }
   report.deskTotal = techDesks.length;
+  // Авто-передача ОС (SQL 20261045): на столах «Заполняет сам» заказ ОС
+  // передаёт та же функция базы, что связывает строки сама. Состояние
+  // спрашиваем, только если такие столы среди переносимых есть; выключено,
+  // нет SQL или ядро не в Supabase — все столы идут прежним путём.
+  const workspace = input.workspace ?? useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId) ?? null;
+  const syncOn = techDesks.some((p) => techFillsDesk(p, workspace))
+    ? techSyncActive(await fetchTechSyncState(workspaceId))
+    : false;
   const unknownNicks = new Set<string>();
   const osDeskByUid = new Map<string, WorkspacePage>();
   /** Вкладка текущего месяца стола ОС (как её откроет сам стол) — по uid ОС. */
@@ -285,6 +445,17 @@ export async function adoptOrdersToOsDesks(input: {
     } catch (error) {
       report.errors.push(`«${page.name}»: строки не прочитались — ${error instanceof Error ? error.message : String(error)}`);
       continue;
+    }
+
+    if (syncOn && techFillsDesk(page, workspace)) {
+      try {
+        const handled = await adoptDeskBySync({ workspaceId, page, tabId, keys, rows, pages, members, report, unknownNicks, osDeskByUid });
+        if (handled) continue;
+        // База сказала «не мой стол» (выключили, пока шёл перенос) — прежним путём.
+      } catch (error) {
+        report.errors.push(`«${page.name}»: не удалось передать заказы ОС — ${error instanceof Error ? error.message : String(error)}`);
+        continue;
+      }
     }
 
     for (const row of rows) {
@@ -428,7 +599,7 @@ export async function releaseAllOrders(input: {
     done += 1;
     input.onProgress?.({ done, total: desks.length, label: page.name });
     try {
-      released += await releaseDeskOrders(workspaceId, page, techNickOf(input.members, page));
+      released += await releaseDeskOrders(workspaceId, page, techNickOf(input.members, page), input.members);
     } catch (error) {
       errors.push(`«${page.name}» — ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -440,8 +611,16 @@ export async function releaseAllOrders(input: {
  * Снять управление со всех заказов стола — по ВСЕМ вкладкам, а не только по
  * текущему месяцу: заказ, выданный в сентябре, в октябре лежит в прошлой
  * вкладке, и аварийная кнопка обязана расстегнуть и его.
+ *
+ * `members` — участники workspace: по ним находится ник ОС, который вёл
+ * строку (`row.osUid`), для отметки «вернули технарю».
  */
-export async function releaseDeskOrders(workspaceId: string, page: WorkspacePage, techNick = ""): Promise<number> {
+export async function releaseDeskOrders(
+  workspaceId: string,
+  page: WorkspacePage,
+  techNick = "",
+  members?: readonly WorkspaceMember[]
+): Promise<number> {
   const byTab = await sbFetchAllPageRows(workspaceId, page.id);
   const osKeys = page.osFieldKeys;
   let released = 0;
@@ -452,11 +631,16 @@ export async function releaseDeskOrders(workspaceId: string, page: WorkspacePage
       // забрали (`osReleasedFrom`). Раньше его держала только строка-источник
       // ОС (`osLostFor`, без адреса), и стоило ОС удалить её или выдать
       // заказ другому, как забор (SQL 20261002) снова брал строку себе.
-      // Только во вкладке, где забор ищет строки (вкладка карты столбцов
-      // стола), и только если в строке есть ник ОС. Owner пишет мимо стража,
-      // а до SQL 20261002 ячейка просто лежит без дела.
+      // Отметка ставится КАЖДОЙ возвращённой строке, в любой вкладке, и ник
+      // берётся у участника, который её вёл (`row.osUid`): раньше — только во
+      // вкладке карты столбцов и из ячейки ОС, и возвращённая строка прошлого
+      // периода после переноса в новый снова уходила ОС (подхватом, а с SQL
+      // 20261045 — авто-передачей, которой «отлёживаться» не нужно). Нет
+      // участника с ником (ОС убрали) — как раньше, из ячейки ОС вкладки с
+      // картой столбцов. Owner пишет мимо стража.
       const releasedFrom =
-        osKeys?.os && (tabId || "") === (osKeys.tabId || "") ? cellText(row, osKeys.os).trim() : "";
+        (members?.find((m) => m.uid === row.osUid)?.osNickValue ?? "").trim() ||
+        (osKeys?.os && (tabId || "") === (osKeys.tabId || "") ? cellText(row, osKeys.os).trim() : "");
       await sbPatchRow(workspaceId, page.id, tabId || null, row.id, {
         cells: releasedFrom ? { [OS_RELEASED_FROM_KEY]: releasedFrom } : {},
         releaseOrder: true,

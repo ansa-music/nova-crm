@@ -1,11 +1,11 @@
 import { runTransaction } from "firebase/firestore";
-import { db } from "@/firebase/firebase";
+import { auth, db } from "@/firebase/firebase";
 import { paths } from "@/firebase/firestore";
 import { corePagesOnSupabase, stripUndefined, writePageDoc } from "@/services/pageService";
 import { archiveSubPage, fetchSubPages } from "@/services/subPageService";
 import { commitCore, docToSubPage, subPageWrite } from "@/services/coreStore";
 import { periodSettingsOf } from "@/services/periodService";
-import { isHalfKey, periodLabel } from "@/utils/periods";
+import { isHalfKey, isPeriodKey, periodLabel } from "@/utils/periods";
 import { ymdInTimeZone } from "@/utils/date";
 import { computeOsFieldKeys, sameOsFieldKeys } from "@/utils/osFieldKeys";
 import { worksAsTechnician } from "@/utils/peopleDesks";
@@ -154,6 +154,15 @@ function columnSource(page: WorkspacePage, subPages: SubPage[]): SubPage | null 
   return null;
 }
 
+/**
+ * Столбцы, с которыми завелась бы новая вкладка периода этого стола. По ним
+ * база выводит ключи ячеек для ещё не заведённой вкладки стола ОС
+ * (`rows_os_target`, SQL 20261045) — самопроверка Owner сверяет то же самое.
+ */
+export function monthTabColumnsFor(page: WorkspacePage, subPages: SubPage[]): PageColumn[] {
+  return columnSource(page, subPages)?.columns ?? page.columns;
+}
+
 async function createMonthTabOnce(page: WorkspacePage, subPages: SubPage[], monthKey: string, uid: string): Promise<SubPage> {
   if (!db) throw new Error("Firebase не настроен");
   const firestore = db;
@@ -241,6 +250,29 @@ export async function ensureMonthTabForKey(
     return { tab: { ...found, isArchived: false }, restored: true };
   }
   return { tab: found ?? (await createMonthTabOnce(page, subPages, monthKey, uid)), restored: false };
+}
+
+/**
+ * Документ вкладки периода СТРОГО по id `month-{ключ}` — «завести один раз»,
+ * без подхвата вкладки по имени и без markMonthTab.
+ *
+ * Для авто-передачи ОС (SQL 20261045): база кладёт заказ технаря на стол ОС
+ * во вкладку с этим id, даже когда документа вкладки ещё нет — ОС не открывал
+ * стол в новом периоде (у `tab_id` строк нет внешнего ключа). Сессия Owner
+ * заводит документ, чтобы такие строки было видно; сам стол ОС потом находит
+ * ту же вкладку по id (`ensureOsDeskMonth` → `findMonthTab`) и уже сам делает
+ * её открываемой по умолчанию. Столбцы — как у обычной новой вкладки
+ * (`columnSource`): по ним же база вывела ключи ячеек.
+ *
+ * Вкладка с таким id уже есть (и архивная тоже) — ничего не делаем.
+ */
+export async function ensureMonthTabDocById(workspaceId: string, page: WorkspacePage, periodKey: string): Promise<void> {
+  if (!isPeriodKey(periodKey)) return;
+  const desk = page.workspaceId === workspaceId ? page : { ...page, workspaceId };
+  const subPages = await fetchSubPages(workspaceId, desk.id);
+  if (subPages.some((s) => s.id === monthTabId(periodKey))) return;
+  const uid = auth?.currentUser?.uid || desk.responsibleUserId || desk.createdBy;
+  await createMonthTabOnce(desk, subPages, periodKey, uid);
 }
 
 /** Finds or creates this month's tab on a desk and makes it the default. Returns the tab id. */

@@ -100,6 +100,7 @@ select tst.expect('mixed: заказ ОС заперт',
 \ir ../migrations/20261002_os_sync.sql
 \ir ../migrations/20261004_exchange_claim.sql
 \ir ../migrations/20261007_carry_over.sql
+\ir ../migrations/20261045_tech_sync.sql
 select tst.expect('после каскадного наката guard — версия с веткой возврата (20261002)',
   tst.try('O', $q$select 1 from pg_proc where proname = 'desk_rows_guard' and prosrc like '%вернуть строку технарю%'$q$, true), 'ok:1');
 select tst.expect('после повторного наката режим mixed на месте',

@@ -18,6 +18,7 @@ import {
   type CollectionKey,
   type SbSetting,
 } from "@/services/sb/sbCollections";
+import { sbSetTechSync } from "@/services/rows/techSync";
 import { cn } from "@/utils/cn";
 
 /**
@@ -88,7 +89,28 @@ export function SupabaseCollectionsPanel() {
     if (sbSettingOf(workspace, key) === setting) return;
     setSaving(key);
     try {
+      // Ядро уходит в Firestore — авто-передача ОС выключается ПЕРВОЙ: база
+      // продолжала бы читать столбцы столов ОС и вкладку периода из своей
+      // (с этой минуты замершей) копии документов и клала бы заказы технарей
+      // не в те ячейки. Нет функции в базе или строки не в Supabase —
+      // выключать нечего. Не выключилась (нет связи с Supabase) — откат ядра
+      // всё равно проходит: это аварийный выход, держать его нельзя; Owner
+      // получает предупреждение. Обратно включает Owner на «Правке столов».
+      let techSyncLeftOn = false;
+      if (key === "core" && setting === "firestore") {
+        try {
+          await sbSetTechSync(workspace.id, false);
+        } catch {
+          techSyncLeftOn = true;
+        }
+      }
       await setSbCollectionSetting(workspace.id, key, setting);
+      if (techSyncLeftOn) {
+        toast.warning("Авто-передача ОС не выключилась", {
+          description: "Выключите её на «Правке столов»: с ядром в Firestore база кладёт заказы технарей по старым столбцам столов ОС.",
+          duration: 15_000,
+        });
+      }
       toast.success(
         setting === "firestore"
           ? `${SB_COLLECTION_LABELS[key]}: обратно в Firestore`

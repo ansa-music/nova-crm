@@ -45,6 +45,7 @@ import { useOrderAutoPickup } from "@/hooks/useOrderAutoPickup";
 import { useOwnerOnlyUpkeep } from "@/hooks/useOwnerOnlyUpkeep";
 import { useOsExchangeHandoff } from "@/hooks/useOsExchangeHandoff";
 import { useOsOrderClaims } from "@/hooks/useOsOrderClaims";
+import { useTechSyncBridge } from "@/hooks/useTechSyncBridge";
 import { useOsDispatchLogWatch } from "@/hooks/useOsDispatchLogWatch";
 import { useNotificationAlerts } from "@/hooks/useNotificationAlerts";
 import { useOrderSoundBridge } from "@/hooks/useOrderSoundBridge";
@@ -93,6 +94,10 @@ export function AppLayout() {
   useOsExchangeHandoff();
   // Заказы, записанные технарями с ником этого ОС, — сами к нему на стол.
   useOsOrderClaims();
+  // Авто-передача ОС: правки технаря, который заполняет стол сам, — сразу на
+  // стол ОС, без кнопки «Передать ОС». В остальных режимах хук ничего не
+  // слушает и ничего не спрашивает.
+  useTechSyncBridge();
   // «Выдачи ОС» — журнал для Тимлида и Owner (счётчик в меню и тост).
   useOsDispatchLogWatch();
   // Звук и всплывашка браузера на новое уведомление. Здесь, а не в

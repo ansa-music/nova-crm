@@ -52,6 +52,7 @@ select tst.expect('версия схемы не старее 20261006', (public.
 -- --- Повторный накат ------------------------------------------------------
 \ir ../migrations/20261006_periods.sql
 \ir ../migrations/20261007_carry_over.sql
+\ir ../migrations/20261045_tech_sync.sql
 select tst.expect('после повторного наката ограничение одно',
   (select count(*)::text from pg_constraint where conrelid = 'public.desk_loads'::regclass and contype = 'c' and pg_get_constraintdef(oid) like '%month_key ~%'), '1');
 select tst.expect('после повторного наката половина принимается', tst.try('T1', tst.put('P1', 'T1', '2026-12-1', '{"total":1}')), 'ok:1');

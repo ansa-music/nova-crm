@@ -4,7 +4,9 @@ import { toast } from "@/components/ui/sonner";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { resolveOsDeskKeys, type OsDeskKeys } from "@/services/osDeskService";
 import {
+  buildMirrorCells,
   findTechTarget,
+  mirrorSyncHash,
   pushOrderToTech,
   sbFetchRowById,
   techTargetProblem,
@@ -13,6 +15,8 @@ import {
 import { isClaimedOriginal, sbReleaseOsClaim } from "@/services/rows/osOrderClaim";
 import { ringRowsDoorbell } from "@/services/rows/rowsDoorbell";
 import { sbDeleteRow } from "@/services/rows/supabaseRowStore";
+import { fetchTechSyncState, techSyncActive } from "@/services/rows/techSync";
+import { sendNotification } from "@/services/notificationService";
 import {
   createPassRefresher,
   createSingleFlight,
@@ -37,10 +41,13 @@ import {
 import { logOsDispatch } from "@/services/osDispatchLogService";
 import { isExchangeHandoffRow } from "@/services/rows/osExchange";
 import { firestoreErrorText } from "@/utils/dbError";
+import { deskRowHref } from "@/utils/deskLinks";
+import { parseLooseNumber } from "@/utils/numberInput";
 import { OS_ISSUED_AT_KEY, OS_ISSUED_ON_KEY, OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
 import { personLabel } from "@/utils/peopleDesks";
 import { osRowTotal } from "@/utils/payment";
 import { OS_DEAD_LINK_PROBLEM } from "@/utils/osTechCell";
+import { techFillsDesk } from "@/utils/techSyncPlan";
 import type { PageColumn, PageRow } from "@/types";
 
 /**
@@ -74,8 +81,30 @@ import type { PageColumn, PageRow } from "@/types";
  * «Выборочно» — выбранному технарю (`choiceRow`, диалог рисует стол).
  * Выдачу выбранному технарю (и смену, и снятие) проход пишет в журнал
  * «Выдачи ОС» — его смотрят Тимлид и Owner.
+ *
+ * АВТО-ПЕРЕДАЧА ОС (05.10.2026, SQL 20261045): на столе «Заполняет сам» база
+ * сама связывает строку технаря со столом ОС — через секунду после того, как
+ * он её вписал. Поэтому проход стал осторожнее:
+ * - «копии нет в списке — её удалили» (`lost`) в ЛЮБОМ режиме сначала
+ *   сверяется по первичному ключу: только что связанная строка в прочитанный
+ *   список ещё не попала, и проход рвал живую связь;
+ * - на столе с работающей авто-передачей СОБСТВЕННУЮ строку технаря, взятую
+ *   ОС (`isClaimedOriginal`), проход не удаляет никогда — ни при снятии
+ *   технаря, ни при смене технаря, ни при уборке лишних копий: технарь писал
+ *   её сам. Строка возвращается ему (метка заказа и ник ОС снимаются);
+ * - переезд заказа между двумя столами ОДНОГО человека там же не выполняется:
+ *   заказ остаётся, где лежит, на строке — причина;
+ * - пересылка одних ПОЛЕЙ в существующую копию там же идёт не по строке с
+ *   экрана (ей до секунды), а по строкам, перечитанным по первичному ключу:
+ *   правки технаря база сама увозит в источник (триггер `desk_rows_tech_push`),
+ *   подпись источника при этом не меняется, и проход по старому снимку
+ *   стирал бы технарю только что вписанное. Копия уже держит те же значения —
+ *   в неё не пишем вовсе, только ставим подпись на источник.
+ * В остальных режимах и пока SQL не вставлен всё, кроме первого, не действует.
  */
 const DEBOUNCE_MS = 700;
+/** Сколько раз подряд ждём, что живая копия появится в списке заказов (см. `lost`). */
+const COPY_WAIT_PASSES = 3;
 
 export interface OsDeskDispatchInput {
   workspaceId: string | null;
@@ -106,6 +135,12 @@ export interface OsDeskDispatchInput {
   };
   osUid: string;
   osNickValue: string;
+  /**
+   * Кто за этим браузером: сам ОС стола или Owner, ведущий его выдачу. Вернуть
+   * технарю его строку сам ОС может функцией базы (`rows_os_release_claim`),
+   * Owner — обычной правкой. Нет поля — считаем, что проход ведёт сам ОС.
+   */
+  actorUid?: string | null;
   /**
    * Строки стола пришли С СЕРВЕРА (не из кэша и не пустота до первой выборки).
    * Только по такому списку можно решать «строки больше нет — убрать заказ у
@@ -159,17 +194,46 @@ function cellText(row: PageRow, key: string | undefined): string {
   return value === null || value === undefined ? "" : String(value).trim();
 }
 
+/**
+ * Копия у технаря уже держит всё, что записала бы пересылка полей (`want` —
+ * `buildMirrorCells` по источнику): тогда писать в неё нечего. Сумма
+ * сравнивается числом (у технаря «50 000», в пересылке «50000»), остальные
+ * ячейки — строками без краевых пробелов, визитка — как JSON. Визитку
+ * пересылка пишет, только когда она у источника есть (`pushOrderToTech`), —
+ * пустая визитка источника копию не меняет и расхождением не считается.
+ */
+export function copyHoldsMirror(
+  copy: PageRow,
+  want: Record<string, string | number | null>,
+  priceKey: string | undefined,
+  source: PageRow
+): boolean {
+  for (const [key, value] of Object.entries(want)) {
+    const theirs = String(copy.cells?.[key] ?? "").trim();
+    const ours = String(value ?? "").trim();
+    if (theirs === ours) continue;
+    if (key !== priceKey) return false;
+    const a = parseLooseNumber(theirs);
+    const b = parseLooseNumber(ours);
+    if (a === null || b === null || a !== b) return false;
+  }
+  if (source.extras === null || source.extras === undefined) return true;
+  return JSON.stringify(copy.extras ?? null) === JSON.stringify(source.extras);
+}
+
 // Текст метки «связь с копией оборвана» живёт рядом с моделью ячейки
 // «Технарь» (она решает по нему, что показать); отсюда — для старых импортов.
 export { OS_DEAD_LINK_PROBLEM };
 
 export function useOsDeskDispatch(input: OsDeskDispatchInput) {
-  const { pages, members, activeWorkspace } = useWorkspace();
+  const { pages, allPages: everyPage, members, activeWorkspace } = useWorkspace();
   const latest = useRef(input);
   latest.current = input;
   const statusOptions = ensureApprovalStatus(ensureDoneStatus(activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS));
-  const ctx = useRef({ pages, members, statusOptions });
-  ctx.current = { pages, members, statusOptions };
+  // `everyPage` — все столы, с «Неактуальными»: копия заказа может лежать и там
+  // (выдача по-прежнему смотрит только активные `pages`).
+  const ctx = useRef({ pages, everyPage: everyPage ?? pages, members, statusOptions, workspace: activeWorkspace });
+  ctx.current = { pages, everyPage: everyPage ?? pages, members, statusOptions, workspace: activeWorkspace };
   /**
    * Какой статус был у строки в прошлый проход — по переходу «Утверждение →
    * В работе» стол спрашивает, как отдать заказ. Первый проход только
@@ -190,6 +254,12 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
   const changes = useRef<RowChangeMemory & { scope: string }>({ scope: "", seen: new Map(), changedAt: new Map() });
   /** О чём уже сказали человеку — чтобы не повторять тост на каждый такт. */
   const told = useRef(new Set<string>());
+  /**
+   * Сколько проходов подряд копия строки «жива и ссылается сюда», а в списке
+   * заказов её всё нет (ключ строка:копия) — чтобы не перечитывать список по
+   * кругу, если он её почему-то не отдаёт.
+   */
+  const copyWaits = useRef(new Map<string, number>());
 
   /** Почему заказ не доходит до технаря — по id строки (стол рисует метку). */
   const [problems, setProblems] = useState<Record<string, string>>({});
@@ -291,8 +361,9 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
   async function sweep() {
     refreshQueued.current = false;
     const cur = latest.current;
-    const { pages: allPages, members: allMembers, statusOptions } = ctx.current;
+    const { pages: allPages, everyPage: deskPages, members: allMembers, statusOptions, workspace } = ctx.current;
     if (!cur.workspaceId) return;
+    const ws = cur.workspaceId;
     // Стол закрыли или список заказов перечитывается — ждём: проход по
     // неполной картине и есть источник дублей и «пропавших» копий.
     if (!activeNow.current || cur.orders.loading || cur.orders.error) return;
@@ -315,6 +386,82 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
     const nameOf = (uid: string | null | undefined, fallback = "") =>
       (uid ? personLabel(allMembers.find((m) => m.uid === uid)) : "") || fallback;
     const osName = nameOf(cur.osUid, "ОС");
+    // Проход ведёт сам ОС стола (а не Owner от его имени).
+    const selfOs = !cur.actorUid || cur.actorUid === cur.osUid;
+    const nickWord = selfOs ? "ваш ник" : "ник ОС";
+
+    /**
+     * На столе, где лежит копия, работает авто-передача ОС (SQL 20261045):
+     * стол «Заполняет сам», Owner её включил, ядро в Supabase. Состояние —
+     * из памяти `techSync` (ответ базы помнится 5 минут), и спрашивается оно,
+     * только когда дело дошло до строки на столе «Заполняет сам»: в остальных
+     * режимах запроса нет вовсе, а без SQL ответ «нет» — и всё как раньше.
+     */
+    const syncDesk = async (pageId: string | null | undefined): Promise<boolean> => {
+      // По всем столам, с «Неактуальными»: строка технаря — его и там.
+      const deskPage = pageId ? deskPages.find((p) => p.id === pageId) : undefined;
+      if (!deskPage || !techFillsDesk(deskPage, workspace)) return false;
+      return techSyncActive(await fetchTechSyncState(ws));
+    };
+
+    /**
+     * Вернуть технарю его СОБСТВЕННУЮ строку, которую вёл этот ОС: снять метку
+     * заказа и стереть ник ОС (иначе авто-передача тут же связала бы строку
+     * снова). Сам ОС — функцией базы (`rows_os_release_claim`); Owner, ведущий
+     * проход чужого стола ОС, — обычной правкой: ему опорные поля менять можно.
+     * `delete` — база говорит, что строку завёл ОС, а не взял у технаря: её
+     * убирают удалением, как раньше. `skip` — ответ непонятен, повторим в
+     * следующий проход. Повтор после сбоя следующего шага безопасен: уже
+     * отпущенная строка — тоже `released`.
+     */
+    const releaseOriginal = async (addr: {
+      pageId: string;
+      tabId: string | null;
+      rowId: string;
+    }): Promise<"released" | "gone" | "delete" | "skip"> => {
+      if (selfOs) {
+        try {
+          const out = await sbReleaseOsClaim(ws, addr.pageId, addr.tabId, addr.rowId, true);
+          if (out === "released" || out === "gone") return out;
+          return out === "not_claimed" ? "delete" : "skip";
+        } catch (error) {
+          // База отказала: строку могли отпустить прошлым проходом (её
+          // следующий шаг тогда не удался) — сверяем по первичному ключу.
+          const still = await sbFetchRowById(ws, addr.pageId, addr.tabId, addr.rowId).catch(() => undefined);
+          if (still === null) return "gone";
+          if (still && !still.osUid) return "released";
+          throw error;
+        }
+      }
+      // Правка несуществующей строки завела бы её заново — сначала сверяем.
+      const still = await sbFetchRowById(ws, addr.pageId, addr.tabId, addr.rowId);
+      if (!still) return "gone";
+      if (!still.osUid) return "released";
+      const osKeys = deskPages.find((p) => p.id === addr.pageId)?.osFieldKeys;
+      const osKey = osKeys?.os && (osKeys.tabId || "") === (addr.tabId ?? "") ? osKeys.os : null;
+      // Как в базе: ник стирается, только если в ячейке ник ЭТОГО ОС (другой
+      // ник — технарь уже выбрал другого ОС, и строку свяжут с ним).
+      const clearNick = Boolean(osKey && cur.osNickValue && cellText(still, osKey) === cur.osNickValue.trim());
+      await sbPatchRow(ws, addr.pageId, addr.tabId, addr.rowId, {
+        cells: clearNick && osKey ? { [osKey]: "" } : {},
+        releaseOrder: true,
+        clearSuccessRequest: true,
+      });
+      return "released";
+    };
+
+    /**
+     * Копия «жива и ссылается сюда», а в списке заказов её нет — перечитать
+     * список (если он её отдаст: это заказ ЭТОГО ОС) и подождать. Не больше
+     * `COPY_WAIT_PASSES` раз подряд на строку: дальше просто ждём без запросов.
+     */
+    const waitForCopy = (rowId: string, copy: PageRow) => {
+      const key = `${rowId}:${copy.deskPageId ?? ""}/${copy.id}`;
+      const seen = copyWaits.current.get(key) ?? 0;
+      if (copy.osUid !== cur.osUid || seen >= COPY_WAIT_PASSES) return;
+      copyWaits.current.set(key, seen + 1);
+      refresher.now();
+    };
 
     // Сначала убираем лишние копии одного заказа: иначе они посчитаются у
     // технаря дважды, а проход ниже будет чинить не ту строку.
@@ -329,19 +476,42 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
       },
     });
     let removedDups = 0;
+    let returnedDups = 0;
     const dupSources = new Set<string>();
     for (const dup of extra) {
       try {
-        await sbDeleteRow(cur.workspaceId, dup.pageId, dup.tabId, dup.rowId);
+        const copy = cur.orders.rows.find((o) => o.id === dup.rowId && o.deskPageId === dup.pageId);
+        // Авто-передача: лишняя «копия» — собственная строка технаря. Не
+        // удаляем, а возвращаем ему (см. шапку файла).
+        let returned = false;
+        if (copy && isClaimedOriginal(copy) && (await syncDesk(dup.pageId))) {
+          const out = await releaseOriginal(dup);
+          if (out === "skip") continue;
+          if (out === "delete") await sbDeleteRow(ws, dup.pageId, dup.tabId, dup.rowId);
+          else returned = out === "released";
+          if (out === "gone") {
+            changed = true;
+            if (copy.srcRowId) dupSources.add(copy.srcRowId);
+            continue;
+          }
+        } else {
+          await sbDeleteRow(ws, dup.pageId, dup.tabId, dup.rowId);
+        }
         changed = true;
-        removedDups += 1;
-        const src = cur.orders.rows.find((o) => o.id === dup.rowId && o.deskPageId === dup.pageId)?.srcRowId;
-        if (src) dupSources.add(src);
+        if (returned) returnedDups += 1;
+        else removedDups += 1;
+        if (copy?.srcRowId) dupSources.add(copy.srcRowId);
       } catch {
         // Не вышло — попробуем в следующий проход.
       }
     }
     if (removedDups) toast.success(`Убрал лишние копии заказов: ${removedDups}`);
+    if (returnedDups) {
+      toast.success(
+        returnedDups === 1 ? "Лишнюю копию заказа вернули технарю" : `Лишние копии заказов вернули технарям: ${returnedDups}`,
+        { description: `Это его собственная строка: она осталась у технаря, ${nickWord} с неё снят.` }
+      );
+    }
 
     // Строку удалили со стола ОС — заказ уходит и из стола технаря (жалоба
     // Nurba 23.09.2026: «удаляешь заказ — у технаря он остаётся»). Сирота —
@@ -434,6 +604,8 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
       const client = cellText(row, OS_COLUMNS.client);
       const techNick = techColumn ? cellText(row, techColumn.key) : "";
       const mirror = mirrorForRow(row, cur.orders.rows);
+      // Копия в списке — счётчик «ждём, пока появится» больше не нужен.
+      if (mirror && copyWaits.current.size > 0) copyWaits.current.delete(`${row.id}:${mirror.deskPageId ?? ""}/${mirror.id}`);
       const at = mirrorAddressOf(row, mirror);
       const statusNow = statusColumn ? cellText(row, statusColumn.key) : "";
       const onApproval = isApprovalStatusValue(statusNow, statusOptions);
@@ -507,7 +679,36 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
       if (!techNick && at) {
         busy.current.add(row.id);
         try {
-          if (mirror) await sbDeleteRow(cur.workspaceId, at.pageId, at.tabId, at.rowId);
+          // Авто-передача (SQL 20261045) на столе копии: собственную строку
+          // технаря не удаляем — возвращаем ему; в остальных режимах — как было.
+          const inScope = await syncDesk(at.pageId);
+          let returned = false;
+          if (!mirror && inScope) {
+            // Копии нет в прочитанном списке, но база могла связать строку
+            // секунду назад. Снять адрес с живой связи она всё равно не даст —
+            // сверяем по первичному ключу и решаем в следующий проход, уже с
+            // копией на руках. Не прочиталось — «не узнали», не трогаем.
+            let copy: PageRow | null;
+            try {
+              copy = await sbFetchRowById(ws, at.pageId, at.tabId, at.rowId);
+            } catch {
+              continue;
+            }
+            if (copy && copy.osUid && copy.srcPageId === cur.pageId && copy.srcRowId === row.id) {
+              waitForCopy(row.id, copy);
+              continue;
+            }
+          }
+          if (mirror) {
+            if (inScope && isClaimedOriginal(mirror)) {
+              const out = await releaseOriginal(at);
+              if (out === "skip") continue;
+              if (out === "delete") await sbDeleteRow(ws, at.pageId, at.tabId, at.rowId);
+              else returned = out === "released";
+            } else {
+              await sbDeleteRow(cur.workspaceId, at.pageId, at.tabId, at.rowId);
+            }
+          }
           await sbPatchRow(cur.workspaceId, cur.pageId, cur.subPageId, row.id, {
             cells: { [OS_STATUS_SENT_KEY]: "", [OS_LOST_FOR_KEY]: "", [OS_ISSUED_AT_KEY]: "", [OS_ISSUED_ON_KEY]: "" },
             clearMirror: true,
@@ -517,7 +718,13 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
             busy.current.delete(row.id);
             continue;
           }
-          toast.success("Заказ убран у технаря", { description: client || undefined });
+          if (returned) {
+            toast.success("Заказ вернули технарю", {
+              description: `${client ? `${client}: ` : ""}строка осталась у технаря, ${nickWord} с неё снят.`,
+            });
+          } else {
+            toast.success("Заказ убран у технаря", { description: client || undefined });
+          }
           const prevUid = allPages.find((p) => p.id === at.pageId)?.responsibleUserId ?? null;
           void logOsDispatch(cur.workspaceId, {
             kind: "unassign",
@@ -588,6 +795,26 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
         }
         continue;
       }
+      // Авто-передача (SQL 20261045): заказ лежит в одном столе технаря, а
+      // писать сейчас можно только в другой его же стол (у первого, например,
+      // ещё нет вкладки нового периода). Переезд между столами ОДНОГО человека
+      // на столе с авто-передачей не выполняем: у прежнего стола строку
+      // пришлось бы снять, и человек получил бы тот же заказ второй строкой
+      // без своих правок. Заказ остаётся на месте, на строке — причина.
+      if (mirror && at && at.pageId && at.pageId !== target.page.id) {
+        const fromPage = allPages.find((p) => p.id === at.pageId);
+        if (fromPage && !fromPage.inactive && fromPage.responsibleUserId === techUid && (await syncDesk(fromPage.id))) {
+          const reason =
+            techTargetProblem([fromPage], techUid, fromPage.id) ??
+            "Заказ лежит в другом столе этого технаря — между его столами заказ не переезжает";
+          setProblem(row.id, reason);
+          if (!told.current.has(`${row.id}:${reason}`)) {
+            told.current.add(`${row.id}:${reason}`);
+            toast.error(`${client || "Заказ"}: ${reason}`);
+          }
+          continue;
+        }
+      }
       setProblem(row.id, null);
 
       // Список заказов читался ДО последней правки этой строки — по нему
@@ -624,6 +851,27 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
       if (plan.action === "lost") {
         busy.current.add(row.id);
         try {
+          // «Копии нет» — по списку заказов, а он читается отдельно от строк
+          // стола и на первом взгляде не помечен устаревшим: строку, которую
+          // база связала секунду назад (авто-передача, забор заказа), проход
+          // объявлял потерянной и рвал живую связь. Решение необратимо —
+          // сверяем по первичному ключу (во всех режимах): копия есть и
+          // ссылается сюда — список отстал, перечитываем и ничего не снимаем;
+          // не прочиталась — «не узнали», тоже не трогаем.
+          const lostAt = plan.removeAt ?? at;
+          if (lostAt) {
+            let copy: PageRow | null;
+            try {
+              copy = await sbFetchRowById(ws, lostAt.pageId, lostAt.tabId, lostAt.rowId);
+            } catch {
+              continue;
+            }
+            if (copy && copy.osUid && copy.srcPageId === cur.pageId && copy.srcRowId === row.id) {
+              waitForCopy(row.id, copy);
+              continue;
+            }
+            copyWaits.current.delete(`${row.id}:${lostAt.pageId}/${lostAt.rowId}`);
+          }
           await sbPatchRow(cur.workspaceId, cur.pageId, cur.subPageId, row.id, {
             cells: plan.sourceCells,
             clearMirror: true,
@@ -647,15 +895,75 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
       try {
         // Сменили технаря: сначала убираем заказ у прежнего, иначе он
         // останется висеть в его столе и посчитается в его загрузке.
+        /** Прежний технарь, которому при переезде вернули его собственную строку. */
+        let returnedTo: string | null = null;
         if (plan.action === "move" && plan.removeAt) {
-          await sbDeleteRow(cur.workspaceId, plan.removeAt.pageId, plan.removeAt.tabId, plan.removeAt.rowId);
+          // Авто-передача (SQL 20261045) на прежнем столе: собственную строку
+          // технаря, взятую ОС, не удаляем — возвращаем ему без ника ОС (она
+          // его, пока он сам её не уберёт). В остальных режимах — как было.
+          if (mirror && isClaimedOriginal(mirror) && (await syncDesk(plan.removeAt.pageId))) {
+            const out = await releaseOriginal(plan.removeAt);
+            if (out === "skip") continue;
+            if (out === "delete") {
+              await sbDeleteRow(ws, plan.removeAt.pageId, plan.removeAt.tabId, plan.removeAt.rowId);
+            } else if (out === "released") {
+              returnedTo = deskPages.find((p) => p.id === plan.removeAt?.pageId)?.responsibleUserId ?? null;
+            }
+          } else {
+            await sbDeleteRow(cur.workspaceId, plan.removeAt.pageId, plan.removeAt.tabId, plan.removeAt.rowId);
+          }
         }
         if (plan.action === "push" || plan.action === "move") {
+          /** Строка-источник и копия, по которым идёт запись (см. ниже — могут быть перечитаны). */
+          let sourceRow: PageRow = row;
+          let copyRow: PageRow | null = mirror;
+          // Авто-передача (SQL 20261045): пересылка одних полей в существующую
+          // копию. Правку технаря база уже увезла в источник той же записью, а
+          // подпись источника (`syncHash`) она не трогает — проход видит
+          // «поля разошлись» и слал бы технарю снимок источника с экрана,
+          // которому до секунды: только что вписанная им ячейка стиралась.
+          // Поэтому обе строки перечитываем по первичному ключу (копию первой:
+          // источник тогда не старее копии) и решаем по свежим.
+          if (plan.action === "push" && plan.withStatus === false && plan.mirrorRowId && at && (await syncDesk(at.pageId))) {
+            let freshCopy: PageRow | null = null;
+            let freshSource: PageRow | null = null;
+            try {
+              freshCopy = await sbFetchRowById(ws, at.pageId, at.tabId, at.rowId);
+              if (freshCopy) freshSource = await sbFetchRowById(ws, cur.pageId, cur.subPageId, row.id);
+            } catch {
+              freshCopy = null;
+            }
+            if (!freshCopy || !freshSource) {
+              // Не прочиталось или строки уже нет — «не узнали»: в этот проход
+              // строку не трогаем, список заказов перечитаем.
+              refresher.later();
+              continue;
+            }
+            const want = buildMirrorCells({
+              source: freshSource,
+              osColumns: OS_COLUMNS,
+              keys: target.keys,
+              osNickValue: cur.osNickValue,
+              status: "",
+              withStatus: false,
+              dateMs: 0,
+            });
+            if (copyHoldsMirror(freshCopy, want, target.keys.price, freshSource)) {
+              // Значения уже те же (их привёз триггер базы) — копию не трогаем,
+              // только подпись на источник: по ней проход и сравнивает поля.
+              await sbPatchRow(ws, cur.pageId, cur.subPageId, row.id, { syncHash: mirrorSyncHash(want, freshSource.extras) });
+              changed = true;
+              continue;
+            }
+            // ОС и правда поменял поля — едут технарю, но по свежему источнику.
+            sourceRow = freshSource;
+            copyRow = freshCopy;
+          }
           const pushed = await pushOrderToTech({
             workspaceId: cur.workspaceId,
             osUid: cur.osUid,
             osNickValue: cur.osNickValue,
-            source: row,
+            source: sourceRow,
             srcPageId: cur.pageId,
             srcTabId: cur.subPageId,
             osColumns: OS_COLUMNS,
@@ -673,7 +981,7 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
             mirrorTabId: plan.action === "move" ? undefined : plan.mirrorTabId,
             // Правим существующую копию — под её ключом статуса и с её
             // опорными полями (страж базы отклоняет их смену).
-            copy: plan.action === "push" && plan.mirrorRowId ? mirror : undefined,
+            copy: plan.action === "push" && plan.mirrorRowId ? copyRow : undefined,
             osStatusKey: statusColumn.key,
           });
           changed = true;
@@ -703,6 +1011,27 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
                 srcPageId: cur.pageId,
                 srcRowId: row.id,
               }).catch(() => undefined);
+            }
+            // Прежнему технарю — одно уведомление: заказ ушёл к другому, а
+            // его собственная строка осталась у него (авто-передача).
+            if (returnedTo && returnedTo !== techUid && plan.removeAt && !told.current.has(`${row.id}:${plan.removeAt.rowId}:moved`)) {
+              told.current.add(`${row.id}:${plan.removeAt.rowId}:moved`);
+              const fromUid = cur.actorUid || cur.osUid;
+              void sendNotification(
+                {
+                  workspaceId: ws,
+                  title: `Заказ передали другому технарю${client ? `: ${client}` : ""}`,
+                  body: `ОС ${osName} отдал заказ технарю ${name}. Ваша строка осталась у вас без ника ОС — удалите её, если она больше не нужна.`,
+                  priority: "normal",
+                  fromUid,
+                  fromName: nameOf(fromUid, osName),
+                  target: "selected",
+                  selectedUids: [returnedTo],
+                  pageId: plan.removeAt.pageId,
+                  href: deskRowHref(plan.removeAt.pageId, plan.removeAt.tabId, plan.removeAt.rowId),
+                },
+                [returnedTo]
+              ).catch(() => undefined);
             }
             // Заказ висел на бирже, а ОС отдал его сам — закрываем его там,
             // иначе технари продолжали бы откликаться на уже отданный заказ.

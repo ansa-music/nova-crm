@@ -98,7 +98,12 @@ function previousMonthOf(monthKey: string): string {
   return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, "0")}`;
 }
 
-/** Ключ периода, в который попадает момент `ms` (день по Алматы). */
+/**
+ * Ключ периода, в который попадает момент `ms` (день по Алматы).
+ * Двойник в базе — `rows_period_key` / `rows_period_now`
+ * (supabase/migrations/20261045_tech_sync.sql, вместе с очисткой настройки
+ * как `sanitizePeriods`): по нему база выбирает вкладку стола ОС. Менять вместе.
+ */
 export function periodKeyFor(ms: number, settings: PeriodSettings = DEFAULT_PERIODS): string {
   const ymd = ymdInTimeZone(ms);
   const month = ymd.slice(0, 7);

@@ -64,6 +64,9 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 /**
  * «Итого» строки стола ОС: (цена − комиссия) + (апсейл − комиссия).
  * null — денег в строке нет вовсе (пустой слот, заказ без суммы).
+ * Двойник в базе — `rows_os_total` (и `rows_cell_num`,
+ * supabase/migrations/20261045_tech_sync.sql): сумму технаря база сверяет с
+ * этим числом. Менять вместе.
  */
 export function osRowTotal(row: Pick<PageRow, "cells">, keys: { price: string; upsell: string }): number | null {
   const gross = amountOf(row.cells[keys.price]) + amountOf(row.cells[keys.upsell]);

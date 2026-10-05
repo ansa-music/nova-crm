@@ -1532,6 +1532,83 @@ export function sbSubscribeRows(
 }
 
 // ---------------------------------------------------------------------------
+// Свои записи строк — событие для авто-передачи ОС (hooks/useTechSyncBridge).
+// ---------------------------------------------------------------------------
+
+/** Эта вкладка только что записала содержимое строк (запись уже в базе). */
+export interface OwnRowWrite {
+  workspaceId: string;
+  pageId: string;
+  /** '' — «Основная». */
+  tab: string;
+  rowIds: string[];
+  /** Ключи ячеек, которые несла запись. */
+  cellKeys: string[];
+  /** Запись несла визитку (`extras`). */
+  extras: boolean;
+}
+
+const ownRowWriteListeners = new Set<(event: OwnRowWrite) => void>();
+
+/**
+ * Слушать СВОИ удачные записи содержимого строк: правку ячеек и визитки
+ * (`sbPatchRow`) и запись строк целиком (`sbPutRow`/`sbPutRows`). Событие
+ * приходит после ответа базы. Служебные записи связки «стол ОС ↔ технарь»
+ * (метка ОС, адреса источника и копии, подпись, снятие управления) сюда НЕ
+ * попадают: слушатель на них ответил бы новой записью — петля.
+ */
+export function onOwnRowWrite(listener: (e: OwnRowWrite) => void): () => void {
+  ownRowWriteListeners.add(listener);
+  return () => {
+    ownRowWriteListeners.delete(listener);
+  };
+}
+
+function emitOwnRowWrite(event: OwnRowWrite) {
+  // Нечего сообщать: высота строки, подсветка, вложения, пустой слот.
+  if (event.rowIds.length === 0 || (event.cellKeys.length === 0 && !event.extras)) return;
+  for (const listener of [...ownRowWriteListeners]) {
+    try {
+      listener(event);
+    } catch (error) {
+      console.warn("[rows] слушатель своей записи упал", error);
+    }
+  }
+}
+
+/** Правка несёт поля строки-заказа — её пишет сама связка, а не человек. */
+function isOrderLinkPatch(patch: RowPatch): boolean {
+  return (
+    patch.osUid !== undefined ||
+    patch.techUid !== undefined ||
+    patch.statusKey !== undefined ||
+    patch.syncHash !== undefined ||
+    patch.srcPageId !== undefined ||
+    patch.srcTabId !== undefined ||
+    patch.srcRowId !== undefined ||
+    patch.mirrorPageId !== undefined ||
+    patch.mirrorTabId !== undefined ||
+    patch.mirrorRowId !== undefined ||
+    Boolean(patch.releaseOrder) ||
+    Boolean(patch.clearMirror)
+  );
+}
+
+/** Строка целиком с меткой ОС или адресами — перенос, снимок стола: тоже служебная. */
+function isOrderLinkRow(row: PageRow): boolean {
+  return Boolean(
+    row.osUid ||
+      row.techUid ||
+      row.statusKey ||
+      row.syncHash ||
+      row.srcPageId ||
+      row.srcRowId ||
+      row.mirrorPageId ||
+      row.mirrorRowId
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Запись — каждая сразу видна в открытой таблице (см. optimistic).
 // ---------------------------------------------------------------------------
 
@@ -1567,6 +1644,17 @@ export async function sbPutRows(workspaceId: string, pageId: string, tab: string
       }
     }
   );
+  if (ownRowWriteListeners.size > 0) {
+    const plain = rows.filter((row) => !isOrderLinkRow(row));
+    emitOwnRowWrite({
+      workspaceId,
+      pageId,
+      tab: tabKey(tab),
+      rowIds: plain.map((row) => row.id),
+      cellKeys: [...new Set(plain.flatMap((row) => Object.keys(row.cells ?? {})))],
+      extras: plain.some((row) => Boolean(row.extras)),
+    });
+  }
 }
 
 export interface CarryOverResult {
@@ -1732,6 +1820,16 @@ export async function sbPatchRow(
       if (error) throw toStoreError(error, "Не удалось сохранить строку");
     }
   );
+  if (ownRowWriteListeners.size > 0 && !isOrderLinkPatch(patch)) {
+    emitOwnRowWrite({
+      workspaceId,
+      pageId,
+      tab: tabKey(tab),
+      rowIds: [rowId],
+      cellKeys: Object.keys(patch.cells ?? {}),
+      extras: patch.extras !== undefined,
+    });
+  }
 }
 
 export async function sbDeleteRow(workspaceId: string, pageId: string, tab: string | null, rowId: string): Promise<void> {

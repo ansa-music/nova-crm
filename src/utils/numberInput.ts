@@ -12,6 +12,9 @@
  *
  * Returns `null` when the input has no recognisable number at all, so the
  * caller can keep the raw text (and warn) instead of silently storing 0.
+ *
+ * SQL twin: `rows_num_loose` (supabase/migrations/20261045_tech_sync.sql) —
+ * the database parses the technician's sum with the same rules; change both.
  */
 export function parseLooseNumber(raw: string): number | null {
   let s = raw.trim();
