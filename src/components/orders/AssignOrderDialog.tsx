@@ -1,12 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Check, Dices, Hand, Loader2, Maximize2, Shuffle } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
+import { ArrowLeft, Check, Dices, Hand, Loader2, Maximize2, Sparkles } from "lucide-react";
 import { TechPickerSheet } from "@/components/os/TechPickerSheet";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { timeAgo } from "@/utils/date";
 import { cn } from "@/utils/cn";
-import { randomPoolProblem, type OrderCandidate, type RandomWeightOf } from "@/services/orderService";
+import {
+  lastRandomMode,
+  RANDOM_MODE_LABELS,
+  randomPoolProblemOf,
+  rememberRandomMode,
+  type OrderCandidate,
+  type RandomMode,
+  type RandomWeightOf,
+} from "@/services/orderService";
+import type { RandomRequest } from "@/hooks/useOrderAssignment";
 import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "@/components/ui/sonner";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -18,10 +28,10 @@ interface AssignOrderDialogProps {
   onOpenChange: (open: boolean) => void;
   candidates: Array<OrderCandidate & { member: WorkspaceMember; deskName: string | null }>;
   onAssign: (candidate: OrderCandidate) => Promise<void>;
-  /** Без `uids` — «Рандом» из откликнувшихся, с `uids` — «Своя рулетка». */
-  onRandom: (uids?: string[]) => Promise<void>;
+  /** `{ mode }` — «Рандом» среди откликнувшихся или свободных, `{ uids }` — «Своя рулетка». */
+  onRandom: (request: RandomRequest) => Promise<void>;
   /** Пул «Рандома» и веса — из `useOrderAssignment`, чтобы кнопка и бросок считали одинаково. */
-  randomPoolFor: (order: WorkOrder) => OrderCandidate[];
+  randomPoolFor: (order: WorkOrder, mode?: RandomMode) => OrderCandidate[];
   /** Проценты у Owner: вес в этом пуле при этой сумме чека. */
   weightFor: (poolUids: readonly string[], checkTotal?: number | null) => RandomWeightOf;
   /** Открыть окно сразу в «Своей рулетке» (тост с карточки заказа). */
@@ -51,13 +61,19 @@ export function AssignOrderDialog({
   const bigOrder = Boolean(order && bigView && bigView.queue.length > 0 && isBigCheck(order.price, bigView.threshold));
   const claimed = candidates.filter((c) => c.claimedAt != null).sort((a, b) => (a.claimedAt ?? 0) - (b.claimedAt ?? 0));
   const others = candidates.filter((c) => c.claimedAt == null);
-  // Тот же пул, что и у броска, — иначе кнопка «Рандом» на карточке
-  // работает, а в диалоге выключена (или наоборот).
-  const randomPool = order ? randomPoolFor(order) : [];
-  const randomReason =
-    randomPool.length > 0 || !order
-      ? null
-      : (randomPoolProblem(candidates, orderClaimScope(order)) ?? "Некому выдать");
+  const reduce = useReducedMotion() ?? false;
+  // Среди кого крутить — выбирает выдающий (просьба Nurba 05.10.2026). Тот же пул,
+  // что и у броска, — иначе карточка работает, а окно выключено (или наоборот).
+  const pools: Record<RandomMode, OrderCandidate[]> = {
+    claimed: order ? randomPoolFor(order, "claimed") : [],
+    free: order ? randomPoolFor(order, "free") : [],
+  };
+  const reasons: Record<RandomMode, string | null> = {
+    claimed: order && pools.claimed.length === 0 ? (randomPoolProblemOf(candidates, "claimed", orderClaimScope(order)) ?? "Некому выдать") : null,
+    free: order && pools.free.length === 0 ? (randomPoolProblemOf(candidates, "free", orderClaimScope(order)) ?? "Некому выдать") : null,
+  };
+  const [mode, setMode] = useState<RandomMode>("claimed");
+  const randomPool = pools[mode];
   const eligibleCustom = (c: OrderCandidate) => c.hasDesk && !c.absentToday;
 
   const orderId = order?.id ?? null;
@@ -68,6 +84,10 @@ export function AssignOrderDialog({
       return;
     }
     setCustom(startCustom ? initialCustom() : null);
+    // Режим по умолчанию: где есть кого крутить, при равных — последний выбранный.
+    const remembered = lastRandomMode() ?? "claimed";
+    const other: RandomMode = remembered === "claimed" ? "free" : "claimed";
+    setMode(pools[remembered].length > 0 || pools[other].length === 0 ? remembered : other);
     // initialCustom читает кандидатов на момент открытия — нарочно без них в зависимостях.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId, startCustom]);
@@ -157,6 +177,7 @@ export function AssignOrderDialog({
   }
 
   const byUid = new Map(candidates.map((c) => [c.uid, c]));
+  const byUidAll = byUid;
   return (
     <>
     <TechPickerSheet
@@ -180,9 +201,15 @@ export function AssignOrderDialog({
       onClose={() => (bigOrder ? onOpenChange(false) : setPickerOpen(false))}
     />
     <Dialog open={Boolean(order) && !pickerOpen && !bigOrder} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md overflow-hidden" style={{ perspective: 900 }}>
         {custom ? (
-          <>
+          <motion.div
+            key="custom"
+            className="flex flex-col gap-4"
+            initial={reduce ? false : { opacity: 0, x: 28, rotateY: -8 }}
+            animate={{ opacity: 1, x: 0, rotateY: 0 }}
+            transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 34 }}
+          >
             <DialogHeader>
               <DialogTitle>Своя рулетка</DialogTitle>
               <DialogDescription>
@@ -277,43 +304,64 @@ export function AssignOrderDialog({
               <Button
                 className="flex-1 gap-2"
                 disabled={customUids.length < 2 || busy !== null}
-                onClick={() => void run("__custom", () => onRandom(customUids))}
+                onClick={() => void run("__custom", () => onRandom({ uids: customUids }))}
               >
                 {busy === "__custom" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Dices className="h-4 w-4" />}
                 {customUids.length < 2 ? "Отметьте хотя бы двоих" : `Крутить · ${customUids.length}`}
               </Button>
             </div>
-          </>
+          </motion.div>
         ) : (
-          <>
+          <motion.div
+            key="list"
+            className="flex flex-col gap-4"
+            initial={reduce ? false : { opacity: 0, x: -28, rotateY: 8 }}
+            animate={{ opacity: 1, x: 0, rotateY: 0 }}
+            transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 34 }}
+          >
         <DialogHeader>
           <DialogTitle>Кому отдать заказ</DialogTitle>
           <DialogDescription>
             {order ? `${order.client} — можно отдать любому технарю со столом, даже если он не откликался.` : ""}
           </DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-1">
-          <div className="flex gap-2">
+        <RandomModeCards
+          mode={mode}
+          onMode={setMode}
+          pools={pools}
+          reasons={reasons}
+          byUid={byUidAll}
+          reduce={reduce}
+          disabled={busy !== null}
+        />
+        <div className="flex gap-2">
+          <motion.div className="flex-1" whileTap={reduce || randomPool.length === 0 ? undefined : { scale: 0.97 }}>
             <Button
-              variant="outline"
-              className="flex-1 gap-2"
+              className="group w-full gap-2"
+              data-random-spin
               disabled={randomPool.length === 0 || busy !== null}
-              onClick={() => void run("__random", () => onRandom())}
+              onClick={() => {
+                rememberRandomMode(mode);
+                void run("__random", () => onRandom({ mode }));
+              }}
             >
-              {busy === "__random" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shuffle className="h-4 w-4" />}
-              {randomPool.length > 0 ? `Рандом из откликнувшихся (${randomPool.length})` : "Рандом из откликнувшихся"}
+              {busy === "__random" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Dices className="h-4 w-4 transition-transform duration-500 group-hover:rotate-[200deg]" />
+              )}
+              {randomPool.length > 0 ? `Крутить · ${randomPool.length}` : "Некого крутить"}
             </Button>
-            <Button
-              variant="outline"
-              className="shrink-0 gap-1.5"
-              disabled={busy !== null}
-              title="Выбрать, среди кого крутить рулетку"
-              onClick={() => setCustom(initialCustom())}
-            >
-              <Dices className="h-4 w-4" /> Своя рулетка
-            </Button>
-          </div>
-          {randomReason ? <p className="text-xs text-muted-foreground">{randomReason}</p> : null}
+          </motion.div>
+          <Button
+            variant="outline"
+            className="shrink-0 gap-1.5"
+            disabled={busy !== null}
+            title="Выбрать, среди кого крутить рулетку"
+            onClick={() => setCustom(initialCustom())}
+          >
+            <Dices className="h-4 w-4" /> Своя рулетка
+          </Button>
         </div>
         {candidates.length > 6 ? (
           <Button variant="outline" className="w-full gap-2" disabled={busy !== null} onClick={() => setPickerOpen(true)}>
@@ -338,10 +386,132 @@ export function AssignOrderDialog({
           )}
           {candidates.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">Технарей в workspace пока нет.</p>}
         </div>
-          </>
+          </motion.div>
         )}
       </DialogContent>
     </Dialog>
     </>
+  );
+}
+
+const CARD_SPRING = { type: "spring", stiffness: 460, damping: 32 } as const;
+
+/**
+ * Две карточки «Среди кого крутить»: откликнувшиеся / без заказов в работе.
+ * Подсветка выбранной ПЕРЕЕЗЖАЕТ между карточками (`layoutId`), выбранная чуть
+ * приподнимается, стопка аватаров пула перестраивается: ушедшие сжимаются,
+ * новые вырастают.
+ */
+function RandomModeCards({
+  mode,
+  onMode,
+  pools,
+  reasons,
+  byUid,
+  reduce,
+  disabled,
+}: {
+  mode: RandomMode;
+  onMode: (mode: RandomMode) => void;
+  pools: Record<RandomMode, OrderCandidate[]>;
+  reasons: Record<RandomMode, string | null>;
+  byUid: Map<string, OrderCandidate & { member: WorkspaceMember }>;
+  reduce: boolean;
+  disabled: boolean;
+}) {
+  const modes: RandomMode[] = ["claimed", "free"];
+  return (
+    <div className="flex flex-col gap-1.5" data-random-modes>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Рандом — среди кого крутить</p>
+      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Среди кого крутить «Рандом»">
+        {modes.map((m) => {
+          const pool = pools[m];
+          const on = m === mode;
+          const empty = pool.length === 0;
+          const Icon = m === "claimed" ? Hand : Sparkles;
+          const shown = pool.slice(0, 4);
+          return (
+            <motion.button
+              key={m}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              data-random-mode={m}
+              disabled={disabled}
+              onClick={() => onMode(m)}
+              animate={reduce ? undefined : { scale: on ? 1.02 : 1, y: on ? -1 : 0 }}
+              whileTap={reduce ? undefined : { scale: 0.97 }}
+              transition={CARD_SPRING}
+              className={cn(
+                "relative flex min-h-[92px] flex-col items-start gap-1 overflow-hidden rounded-xl border p-2.5 text-left transition-colors",
+                on ? "border-primary/50" : "border-border hover:border-primary/30",
+                empty && !on && "opacity-60"
+              )}
+            >
+              {on ? (
+                <motion.span
+                  layoutId={reduce ? undefined : "random-mode-glow"}
+                  transition={CARD_SPRING}
+                  aria-hidden
+                  className="absolute inset-0 -z-0 bg-gradient-to-br from-primary/[0.16] via-primary/[0.06] to-transparent"
+                />
+              ) : null}
+              <span className="relative z-10 flex w-full items-center gap-1.5">
+                <motion.span
+                  animate={reduce ? undefined : { rotate: on ? (m === "claimed" ? -12 : 18) : 0, scale: on ? 1.15 : 1 }}
+                  transition={CARD_SPRING}
+                  className={cn("grid h-5 w-5 place-items-center", on ? "text-primary" : "text-muted-foreground")}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                </motion.span>
+                <span className={cn("min-w-0 flex-1 truncate text-[13px] font-medium", on && "text-primary")}>
+                  {RANDOM_MODE_LABELS[m].title}
+                </span>
+                <motion.span
+                  key={pool.length}
+                  initial={reduce ? false : { scale: 1.4, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={CARD_SPRING}
+                  className={cn("font-mono text-[13px] tabular-nums", on ? "text-primary" : "text-muted-foreground")}
+                >
+                  {pool.length}
+                </motion.span>
+              </span>
+              <span className="relative z-10 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+                {empty ? reasons[m] : m === "claimed" ? "кто отозвался на заказ" : "со столом, на смене, без «в работе»"}
+              </span>
+              <span className="relative z-10 mt-auto flex h-6 items-center pl-1.5">
+                {shown.map((c, i) => {
+                    const member = byUid.get(c.uid)?.member;
+                    return (
+                      <motion.span
+                        key={c.uid}
+                        layout={!reduce}
+                        initial={reduce ? false : { scale: 0, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ ...CARD_SPRING, delay: reduce ? 0 : i * 0.03 }}
+                        className="-ml-1.5 rounded-full ring-2 ring-background"
+                        data-pool-avatar
+                        title={c.name}
+                      >
+                        <MemberAvatar
+                          id={c.uid}
+                          name={member?.name ?? c.name}
+                          nickname={member?.nickname}
+                          photoURL={member?.photoURL}
+                          className="h-6 w-6"
+                        />
+                      </motion.span>
+                    );
+                  })}
+                {pool.length > shown.length ? (
+                  <span className="ml-1 font-mono text-[10.5px] text-muted-foreground">+{pool.length - shown.length}</span>
+                ) : null}
+              </span>
+            </motion.button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

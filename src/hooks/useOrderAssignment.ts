@@ -6,7 +6,14 @@ import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { currentMonthSubPageId } from "@/services/monthTabService";
-import { customRandomPool, orderRandomPool, pickWeighted, randomPoolProblem, type OrderCandidate } from "@/services/orderService";
+import {
+  customRandomPool,
+  pickWeighted,
+  randomPoolOf,
+  randomPoolProblemOf,
+  type OrderCandidate,
+  type RandomMode,
+} from "@/services/orderService";
 import { announceSpin, drawOnServer, useRandomSettings } from "@/services/randomService";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { ymdInTimeZone } from "@/utils/date";
@@ -26,8 +33,11 @@ import {
 export type AssignCandidate = OrderCandidate & { member: WorkspaceMember; deskName: string | null };
 
 export type RandomDraw =
-  | { ok: true; pool: OrderCandidate[]; winner: OrderCandidate }
+  | { ok: true; pool: OrderCandidate[]; winner: OrderCandidate; mode: RandomMode | "custom" }
   | { ok: false; reason: string };
+
+/** Что крутить: пул по режиму (откликнувшиеся / свободные) или «Своя рулетка». */
+export type RandomRequest = { mode: RandomMode } | { uids: readonly string[] };
 
 /**
  * Кому можно отдать заказ: технари, их столы, отклики, занятость и график.
@@ -156,13 +166,14 @@ export function useOrderAssignment(enabled: boolean) {
   );
 
   /**
-   * Кто крутится в барабане «Рандома» — откликнувшиеся. Шансы ×0 здесь НЕ
-   * отсекаются: их знает только база, и такой человек в колесе просто не
-   * выигрывает — по колесу о настройке не догадаться.
+   * Кто крутится в барабане «Рандома» — откликнувшиеся или свободные (режим
+   * выбирает выдающий). Шансы ×0 здесь НЕ отсекаются: их знает только база, и
+   * такой человек в колесе просто не выигрывает — по колесу о настройке не
+   * догадаться.
    */
   const randomPoolFor = useCallback(
-    (order: WorkOrder, candidates: OrderCandidate[] = candidatesFor(order)): OrderCandidate[] =>
-      orderRandomPool(candidates, orderClaimScope(order)),
+    (order: WorkOrder, mode: RandomMode = "claimed", candidates: OrderCandidate[] = candidatesFor(order)): OrderCandidate[] =>
+      randomPoolOf(candidates, mode, orderClaimScope(order)),
     [candidatesFor]
   );
 
@@ -175,17 +186,23 @@ export function useOrderAssignment(enabled: boolean) {
    * барабан; нет функции в базе — поровну в браузере, как раньше.
    */
   const drawRandom = useCallback(
-    async (order: WorkOrder, opts?: { uids?: readonly string[] }): Promise<RandomDraw> => {
+    async (order: WorkOrder, request: RandomRequest = { mode: "claimed" }): Promise<RandomDraw> => {
       if (!schedulesLoaded && !schedulesFailed) return { ok: false, reason: "График ещё загружается — попробуйте через секунду" };
       const candidates = candidatesFor(order);
       let pool: OrderCandidate[];
-      if (opts?.uids) {
-        pool = customRandomPool(candidates, opts.uids);
+      let mode: RandomMode | "custom";
+      if ("uids" in request) {
+        mode = "custom";
+        pool = customRandomPool(candidates, request.uids);
         if (pool.length === 0) return { ok: false, reason: "Отметьте хотя бы двоих со столом, кто сегодня на смене" };
       } else {
-        pool = randomPoolFor(order, candidates);
+        mode = request.mode;
+        pool = randomPoolFor(order, request.mode, candidates);
         if (pool.length === 0) {
-          return { ok: false, reason: randomPoolProblem(candidates, orderClaimScope(order)) ?? "Некому выдать" };
+          return {
+            ok: false,
+            reason: randomPoolProblemOf(candidates, request.mode, orderClaimScope(order)) ?? "Некому выдать",
+          };
         }
       }
       if (activeWorkspaceId) {
@@ -201,12 +218,12 @@ export function useOrderAssignment(enabled: boolean) {
           const winner = pool.find((c) => c.uid === server.winnerUid);
           if (!winner) return { ok: false, reason: "База выбрала того, кого нет в барабане — попробуйте ещё раз" };
           announceSpin(activeWorkspaceId);
-          return { ok: true, pool, winner };
+          return { ok: true, pool, winner, mode };
         }
       }
       const winner = pickWeighted(pool);
       if (!winner) return { ok: false, reason: "Некому выдать" };
-      return { ok: true, pool, winner };
+      return { ok: true, pool, winner, mode };
     },
     [schedulesLoaded, schedulesFailed, candidatesFor, randomPoolFor, activeWorkspaceId, orderCounts, profile, members]
   );

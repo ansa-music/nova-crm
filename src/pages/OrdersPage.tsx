@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { CalendarClock, Clock3, ExternalLink, Hand, Inbox, Link2, Phone, Plus, Shuffle, Trash2, Undo2, UserCheck, Users, XCircle } from "lucide-react";
+import { CalendarClock, Clock3, ExternalLink, Hand, Inbox, Link2, Phone, Plus, Trash2, Undo2, UserCheck, Users, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/common/EmptyState";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
@@ -20,7 +20,8 @@ import { bigOrderRowKey, noteBigQueuePick, useBigOrderQueue } from "@/services/b
 import { useUrlState } from "@/hooks/useUrlState";
 import { deskHref, deskNavState, deskRowHref } from "@/utils/deskLinks";
 import { useCurrentPeriodKey } from "@/hooks/useCurrentPeriodKey";
-import { useOrderAssignment } from "@/hooks/useOrderAssignment";
+import { useOrderAssignment, type RandomRequest } from "@/hooks/useOrderAssignment";
+import { RandomModeChooser } from "@/components/orders/RandomModeChooser";
 import {
   assignOrder,
   countOrdersWithStatus,
@@ -39,6 +40,9 @@ import {
   unassignOrder,
   type HistoryOrderStatus,
   type OrderCandidate,
+  RANDOM_MODE_LABELS,
+  randomPoolOf,
+  randomPoolProblemOf,
 } from "@/services/orderService";
 import { feedOpenOrdersFromPage, releaseOpenOrdersPageFeed } from "@/services/openOrdersPulse";
 import { useOrdersBackend } from "@/services/orderStore";
@@ -151,7 +155,7 @@ export default function OrdersPage() {
    * здесь: заказ во время вращения уже уезжает в `assigned`, и пересчёт
    * кандидатов по живому снимку опустошил бы колесо на середине.
    */
-  const [wheel, setWheel] = useState<{ order: WorkOrder; pool: WheelCandidate[]; winner: OrderCandidate } | null>(null);
+  const [wheel, setWheel] = useState<{ order: WorkOrder; pool: WheelCandidate[]; winner: OrderCandidate; among: string | null } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [ordersError, setOrdersError] = useState(false);
   /** Список заказов подтверждён сервером (не снимок из кэша на диске). */
@@ -570,18 +574,19 @@ export default function OrdersPage() {
     if (!opts.silent) toast.success(`Заказ выдан: ${candidate.name}`);
   }
 
-  async function handleRandom(order: WorkOrder, uids?: string[]) {
+  /** `fromDialog` — ошибка уходит в окно выдачи, иначе (карточка) — тостом. */
+  async function handleRandom(order: WorkOrder, request: RandomRequest, fromDialog = false) {
     let draw: Awaited<ReturnType<typeof drawRandom>>;
     try {
-      draw = await drawRandom(order, uids ? { uids } : undefined);
+      draw = await drawRandom(order, request);
     } catch (error) {
       const text = error instanceof Error ? error.message : "Не удалось крутить барабан";
-      if (uids) throw new Error(text);
+      if (fromDialog) throw new Error(text);
       toast.error(text);
       return;
     }
     if (!draw.ok) {
-      if (uids) throw new Error(draw.reason);
+      if (fromDialog) throw new Error(draw.reason);
       // С карточки: откликов нет — сразу предложить «Свою рулетку».
       toast.error(draw.reason, {
         action: {
@@ -595,7 +600,12 @@ export default function OrdersPage() {
       return;
     }
     // Дальше показывает барабан — он же и запишет выдачу, параллельно вращению.
-    setWheel({ order, pool: draw.pool, winner: draw.winner });
+    setWheel({
+      order,
+      pool: draw.pool,
+      winner: draw.winner,
+      among: draw.mode === "custom" ? "своя рулетка" : RANDOM_MODE_LABELS[draw.mode].among,
+    });
   }
 
   async function handleTake(order: WorkOrder) {
@@ -935,9 +945,20 @@ export default function OrdersPage() {
                         <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={busy} onClick={() => setAssignForId(order.id)}>
                           <UserCheck className="h-3.5 w-3.5" /> Выдать…
                         </Button>
-                        <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={busy} onClick={() => void withBusy(order.id, () => handleRandom(order), "Не удалось выдать")}>
-                          <Shuffle className="h-3.5 w-3.5" /> Рандом
-                        </Button>
+                        <RandomModeChooser
+                          disabled={busy}
+                          busy={busyId === order.id}
+                          statsOf={() => {
+                            const candidates = candidatesFor(order);
+                            const scope = orderClaimScope(order);
+                            const stat = (mode: "claimed" | "free") => ({
+                              count: randomPoolOf(candidates, mode, scope).length,
+                              reason: randomPoolProblemOf(candidates, mode, scope),
+                            });
+                            return { claimed: stat("claimed"), free: stat("free") };
+                          }}
+                          onPick={(mode) => void withBusy(order.id, () => handleRandom(order, { mode }), "Не удалось выдать")}
+                        />
                       </>
                     )}
                     {canManage && order.status === "assigned" && (
@@ -1102,15 +1123,16 @@ export default function OrdersPage() {
           if (!assignFor) return;
           await handleAssign(assignFor, c);
         }}
-        onRandom={async (uids) => {
+        onRandom={async (request) => {
           if (!assignFor) return;
-          await handleRandom(assignFor, uids);
+          await handleRandom(assignFor, request, true);
         }}
       />
       <RandomWheelDialog
         pool={wheel?.pool ?? []}
         winnerUid={wheel?.winner.uid ?? null}
         orderClient={wheel?.order.client ?? ""}
+        modeLabel={wheel?.among ?? null}
         onAssign={async () => {
           if (!wheel) return;
           await handleAssign(wheel.order, wheel.winner, { silent: true });
