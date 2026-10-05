@@ -25,6 +25,8 @@ interface RandomWheelDialogProps {
   onClose: () => void;
   /** Смотрим чужой спин: кто крутит. */
   watch?: { byName: string } | null;
+  /** «среди откликнувшихся» / «среди свободных» / «своя рулетка» — в подписи. */
+  modeLabel?: string | null;
 }
 
 const SIZE = 260;
@@ -61,7 +63,7 @@ function shortName(name: string, count: number): string {
  * длительность и остановку анимации браузер не гарантирует — вкладку могут
  * свернуть, — и выдача зависела бы от кадров.
  */
-export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onClose, watch }: RandomWheelDialogProps) {
+export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onClose, watch, modeLabel = null }: RandomWheelDialogProps) {
   const open = pool.length > 0 && Boolean(winnerUid);
   const winnerIndex = pool.findIndex((c) => c.uid === winnerUid);
   const winner = winnerIndex >= 0 ? pool[winnerIndex] : null;
@@ -154,12 +156,12 @@ export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onCl
               ? error
                 ? "Колесо остановилось, но выдать заказ не удалось."
                 : `${orderClient} — заказ уходит в стол.`
-              : `${orderClient} · в барабане ${pool.length} ${pool.length === 1 ? "человек" : "чел."}`}
+              : `${orderClient} · в барабане ${pool.length} ${pool.length === 1 ? "человек" : "чел."}${modeLabel ? ` · ${modeLabel}` : ""}`}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col items-center gap-4 py-1">
-          <div ref={wheelRef} className="relative" style={{ width: SIZE, height: SIZE }}>
+          <div ref={wheelRef} className="nova-wheel-enter relative" style={{ width: SIZE, height: SIZE }}>
             {/* Стрелка сверху — вне вращающегося слоя. */}
             <div className="absolute left-1/2 top-[-6px] z-10 -translate-x-1/2">
               <div

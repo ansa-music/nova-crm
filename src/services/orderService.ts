@@ -341,6 +341,74 @@ export function randomPoolProblem(
 }
 
 /**
+ * Среди кого крутить «Рандом» — выбирает выдающий по нажатию (просьба Nurba
+ * 05.10.2026: «среди откликнувшихся или среди тех, у кого нет в работе заказов»).
+ */
+export type RandomMode = "claimed" | "free";
+
+export const RANDOM_MODE_LABELS: Record<RandomMode, { title: string; short: string; among: string }> = {
+  claimed: { title: "Откликнувшиеся", short: "Откликнулись", among: "среди откликнувшихся" },
+  free: { title: "Без заказов в работе", short: "Свободные", among: "среди свободных" },
+};
+
+/**
+ * Пул «Свободные»: есть стол, сегодня на смене и нет заказа «в работе»
+ * (`blockedReason` — те же правила, что «Технари» и запрет отклика: «Ждём оплату»
+ * и «Утверждение» не занимают). Отклик не нужен.
+ */
+export function freeRandomPool(candidates: OrderCandidate[], weightOf: RandomWeightOf = EQUAL_WEIGHT): OrderCandidate[] {
+  return candidates.filter((c) => c.hasDesk && !c.absentToday && !c.blockedReason && weightOf(c.uid) > 0);
+}
+
+export function freeRandomProblem(candidates: OrderCandidate[], weightOf: RandomWeightOf = EQUAL_WEIGHT): string | null {
+  if (freeRandomPool(candidates, weightOf).length > 0) return null;
+  const withDesk = candidates.filter((c) => c.hasDesk);
+  if (withDesk.length === 0) return "Ни у кого нет стола — забрать заказ некуда";
+  const present = withDesk.filter((c) => !c.absentToday);
+  if (present.length === 0) return "Сегодня на смене никого со столом — «Своя рулетка» или выдайте вручную";
+  return "Свободных нет — у всех на смене есть заказ в работе";
+}
+
+/** Пул «Рандома» по режиму — одна точка для кнопок и броска. */
+export function randomPoolOf(
+  candidates: OrderCandidate[],
+  mode: RandomMode,
+  scope: WorkOrderClaimScope = "free",
+  weightOf: RandomWeightOf = EQUAL_WEIGHT
+): OrderCandidate[] {
+  return mode === "free" ? freeRandomPool(candidates, weightOf) : orderRandomPool(candidates, scope, weightOf);
+}
+
+export function randomPoolProblemOf(
+  candidates: OrderCandidate[],
+  mode: RandomMode,
+  scope: WorkOrderClaimScope = "free",
+  weightOf: RandomWeightOf = EQUAL_WEIGHT
+): string | null {
+  return mode === "free" ? freeRandomProblem(candidates, weightOf) : randomPoolProblem(candidates, scope, weightOf);
+}
+
+const RANDOM_MODE_KEY = "nova:random-mode";
+
+/** Последний выбранный режим — подсвечивается в выборе (удобство одного человека). */
+export function lastRandomMode(): RandomMode | null {
+  try {
+    const v = localStorage.getItem(RANDOM_MODE_KEY);
+    return v === "claimed" || v === "free" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberRandomMode(mode: RandomMode) {
+  try {
+    localStorage.setItem(RANDOM_MODE_KEY, mode);
+  } catch {
+    /* приватное окно — не помним */
+  }
+}
+
+/**
  * «Своя рулетка»: выдающий сам выбрал, среди кого крутить. Отклик и занятость
  * не важны — людей выбрал человек; стол обязателен, а тех, кого сегодня нет,
  * случай не выбирает никогда (как и в обычном «Рандоме»). Порядок — как в

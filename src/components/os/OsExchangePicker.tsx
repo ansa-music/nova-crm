@@ -5,7 +5,7 @@ import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useOrderAssignment } from "@/hooks/useOrderAssignment";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { assignOrder, type OrderCandidate } from "@/services/orderService";
+import { assignOrder, RANDOM_MODE_LABELS, type OrderCandidate } from "@/services/orderService";
 import { myDisplayName } from "@/utils/displayName";
 import type { WorkOrder } from "@/types";
 
@@ -24,7 +24,7 @@ export function OsExchangePicker({ order, onClose }: { order: WorkOrder | null; 
   const { profile } = useAuth();
   const { activeWorkspaceId, members } = useWorkspace();
   const assignment = useOrderAssignment(Boolean(order));
-  const [wheel, setWheel] = useState<{ order: WorkOrder; pool: WheelCandidate[]; winner: OrderCandidate } | null>(null);
+  const [wheel, setWheel] = useState<{ order: WorkOrder; pool: WheelCandidate[]; winner: OrderCandidate; among: string } | null>(null);
   const myName = myDisplayName(profile, members);
 
   async function assign(target: WorkOrder, candidate: OrderCandidate, silent = false) {
@@ -56,17 +56,23 @@ export function OsExchangePicker({ order, onClose }: { order: WorkOrder | null; 
         }}
         randomPoolFor={assignment.randomPoolFor}
         weightFor={assignment.weightFor}
-        onRandom={async (uids) => {
+        onRandom={async (request) => {
           if (!order) return;
-          const draw = await assignment.drawRandom(order, uids ? { uids } : undefined);
+          const draw = await assignment.drawRandom(order, request);
           if (!draw.ok) throw new Error(draw.reason);
-          setWheel({ order, pool: draw.pool, winner: draw.winner });
+          setWheel({
+            order,
+            pool: draw.pool,
+            winner: draw.winner,
+            among: draw.mode === "custom" ? "своя рулетка" : RANDOM_MODE_LABELS[draw.mode].among,
+          });
         }}
       />
       <RandomWheelDialog
         pool={wheel?.pool ?? []}
         winnerUid={wheel?.winner.uid ?? null}
         orderClient={wheel?.order.client ?? ""}
+        modeLabel={wheel?.among ?? null}
         onAssign={async () => {
           if (wheel) await assign(wheel.order, wheel.winner, true);
         }}
