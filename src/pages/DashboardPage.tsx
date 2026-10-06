@@ -52,8 +52,10 @@ import { effectiveTechLoadKinds, techLoadKindForOption } from "@/utils/techLoad"
 import { formatScore, type StatusOption } from "@/types";
 import { techBonusesOf } from "@/utils/payment";
 import { myDisplayName } from "@/utils/displayName";
+import { useStudioMode } from "@/config/studio";
 
 const NO_OPTIONS: StatusOption[] = [];
+const NO_BONUSES: readonly number[] = [];
 /** Столбцов в графике по периодам: 8 половин = 4 месяца, 8 целых месяцев — тоже влезают. */
 const MONTHS_SHOWN = 8;
 
@@ -73,6 +75,9 @@ export default function DashboardPage() {
   const periods = usePeriodSettings();
   const uid = profile?.uid ?? "";
   const enabled = permissions.isResolved;
+  // «NOVA Studio»: без оценок ОС, премий, ABS и отчётов; «технари» — менеджеры.
+  // Только вид — флаг с черновиком, перерисовка лишь при его смене.
+  const studio = useStudioMode();
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -87,7 +92,8 @@ export default function DashboardPage() {
 
   const monthKeys = useMemo(() => recentPeriodKeys(monthKey, MONTHS_SHOWN, periods), [monthKey, periods]);
   const { loads, failed: loadsFailed, synced: loadsSynced } = useDeskLoads(activeWorkspaceId, enabled);
-  const { totals: orderTotals, failed: ratingsFailed } = useOrderRatingTotals(activeWorkspaceId, monthKey, enabled);
+  // В студии оценок нет (их ставят ОС) — их итоги и не читаем.
+  const { totals: orderTotals, failed: ratingsFailed } = useOrderRatingTotals(activeWorkspaceId, monthKey, enabled && !studio);
   const history = useDeskLoadHistory(activeWorkspaceId, monthKeys[0], enabled);
   useOwnerDeskRecount(enabled ? loads : null, loadsSynced);
 
@@ -146,7 +152,9 @@ export default function DashboardPage() {
 
   const byDone = useMemo(() => rankByDone(overview.technicians), [overview]);
   // Премии технарям за места по «Готово» (Owner задаёт в «Настройки → Касса»).
-  const bonuses = useMemo(() => techBonusesOf(activeWorkspace), [activeWorkspace]);
+  // В студии премий нет вовсе: вкладки «Касса» там нет, а пустой список
+  // `techBonusesOf` превратил бы в премии Nova по умолчанию.
+  const bonuses = useMemo(() => (studio ? NO_BONUSES : techBonusesOf(activeWorkspace)), [activeWorkspace, studio]);
   // Итог прошлого месяца — по его архиву: первого числа премии не пропадают.
   const previousBonuses = useMemo(() => {
     const uids = new Set(overview.technicians.map((t) => t.member.uid));
@@ -190,7 +198,7 @@ export default function DashboardPage() {
   const myOsOrders = myOsValue ? overview.os.find((o) => o.osValue === myOsValue)?.count ?? 0 : 0;
   const myDonePlace = placeOf(byDone, uid);
   const myBonus = myDonePlace ? bonusForPlace(bonuses, myDonePlace - 1, byDone[myDonePlace - 1]?.doneTotal ?? 0) : 0;
-  const myRatingPlace = placeOf(byRating, uid);
+  const myRatingPlace = studio ? null : placeOf(byRating, uid);
   const monthName = periodLabel(monthKey, periods);
   const monthGenitive = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", timeZone: "UTC" })
     .format(new Date(Date.UTC(year, monthIndex, 1)))
@@ -227,10 +235,21 @@ export default function DashboardPage() {
         eyebrow={`Дашборд · ${monthName}`}
         title={`${greetingByHour(hour)}${who ? `, ${who}` : ""}`}
         titleStyle={{ textShadow: greetingGlowShadow(hour) }}
-        description="Сверху — твоё, ниже — все технари за месяц: рейтинги, деньги и заказы."
+        description={
+          studio
+            ? "Сверху — твоё, ниже — вся команда за месяц: рейтинг, деньги и заказы."
+            : "Сверху — твоё, ниже — все технари за месяц: рейтинги, деньги и заказы."
+        }
         actions={
           totals.updatedAt > 0 ? (
-            <p className="text-[11px] text-muted-foreground" title="Цифры обновляются, когда технари работают в своих столах">
+            <p
+              className="text-[11px] text-muted-foreground"
+              title={
+                studio
+                  ? "Цифры обновляются, когда менеджеры работают в своих столах"
+                  : "Цифры обновляются, когда технари работают в своих столах"
+              }
+            >
               обновлено {timeAgo(totals.updatedAt)}
             </p>
           ) : undefined
@@ -284,14 +303,22 @@ export default function DashboardPage() {
       )}
 
       {overview.technicians.length === 0 ? (
-        <EmptyState
-          eyebrow="Дашборд"
-          title="Пока нет технарей"
-          description="Здесь появятся рейтинги и графики, когда у участников с ролью «Технарь» будут столы."
-        />
+        studio ? (
+          <EmptyState
+            eyebrow="Дашборд"
+            title="Пока нет менеджеров"
+            description="Здесь появятся рейтинг и графики, когда у менеджеров команды будут столы."
+          />
+        ) : (
+          <EmptyState
+            eyebrow="Дашборд"
+            title="Пока нет технарей"
+            description="Здесь появятся рейтинги и графики, когда у участников с ролью «Технарь» будут столы."
+          />
+        )
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+          <div className={studio ? "grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5" : "grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6"}>
             <StatTile
               accent
               label="Готово"
@@ -327,28 +354,40 @@ export default function DashboardPage() {
               value={`${totals.freeTechs} из ${totals.techs}`}
               sub={totals.busyTechs ? `заняты ${totals.busyTechs}` : "все свободны"}
             />
-            <StatTile
-              label="Оценка заказов"
-              value={totals.ratingAvg !== null ? `${formatScore(totals.ratingAvg)} / 10` : "—"}
-              sub={totals.ratingCount ? `${totals.ratingCount} ${ratingsWord(totals.ratingCount)}` : "оценок нет"}
-            />
+            {!studio && (
+              <StatTile
+                label="Оценка заказов"
+                value={totals.ratingAvg !== null ? `${formatScore(totals.ratingAvg)} / 10` : "—"}
+                sub={totals.ratingCount ? `${totals.ratingCount} ${ratingsWord(totals.ratingCount)}` : "оценок нет"}
+              />
+            )}
           </div>
 
-          <BonusTop monthLabel={periodLabel(prevMonthKey, periods).toLowerCase()} entries={previousBonuses} />
+          {/* В студии премий нет, оценки ставят ОС, «Отчёты» выключены — всего этого не показываем. */}
+          {!studio && (
+            <>
+              <BonusTop monthLabel={periodLabel(prevMonthKey, periods).toLowerCase()} entries={previousBonuses} />
 
-          <MonthlyRatingTop monthLabel={periodLabel(prevMonthKey, periods).toLowerCase()} entries={previousTop} />
+              <MonthlyRatingTop monthLabel={periodLabel(prevMonthKey, periods).toLowerCase()} entries={previousTop} />
 
-          <p className="-mt-2 text-right text-[12px]">
-            <Link to="/reports" className="text-muted-foreground hover:text-foreground">
-              Отчёты за прошлые периоды →
-            </Link>
-          </p>
+              <p className="-mt-2 text-right text-[12px]">
+                <Link to="/reports" className="text-muted-foreground hover:text-foreground">
+                  Отчёты за прошлые периоды →
+                </Link>
+              </p>
+            </>
+          )}
 
-          <LeadersRow byDone={byDone[0] ?? null} byRating={byRating[0] ?? null} byOrders={byOrders} myUid={uid} />
+          <LeadersRow byDone={byDone[0] ?? null} byRating={studio ? null : byRating[0] ?? null} byOrders={byOrders} myUid={uid} />
 
+          {/* В студии рядом с рейтингом — график по месяцам: панели «ОС» там нет. */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <DoneLeaderboard ranked={byDone} myUid={uid} bonuses={bonuses} />
-            <RatingLeaderboard ranked={byRating} unrated={unrated} myUid={uid} />
+            <DoneLeaderboard ranked={byDone} myUid={uid} bonuses={bonuses} studio={studio} />
+            {studio ? (
+              <MonthlyChart months={months} labelOf={(key) => periodShortLabel(key, periods)} />
+            ) : (
+              <RatingLeaderboard ranked={byRating} unrated={unrated} myUid={uid} />
+            )}
           </div>
 
           <DailyChart days={overview.days} today={today} monthName={monthGenitive} />
@@ -360,6 +399,7 @@ export default function DashboardPage() {
                 showPayment={showPayment}
                 myUid={uid}
                 linkDesks={permissions.hasFullDeskAccess}
+                studio={studio}
               />
             </div>
             <div className="min-w-0 lg:col-span-2">
@@ -367,15 +407,24 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <OsBars os={overview.os} myOsValue={myOsValue} />
-            <MonthlyChart months={months} labelOf={(key) => periodShortLabel(key, periods)} />
-          </div>
+          {!studio && (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <OsBars os={overview.os} myOsValue={myOsValue} />
+              <MonthlyChart months={months} labelOf={(key) => periodShortLabel(key, periods)} />
+            </div>
+          )}
 
-          <p className="text-center text-[11px] text-muted-foreground">
-            Цифры считает каждый стол, пока технарь в нём работает; у Owner дашборд ещё и пересчитывает все столы.
-            Пустые строки не считаются.
-          </p>
+          {studio ? (
+            <p className="text-center text-[11px] text-muted-foreground">
+              Цифры считает каждый стол, пока менеджер в нём работает; у Owner дашборд ещё и пересчитывает все столы.
+              Пустые строки не считаются.
+            </p>
+          ) : (
+            <p className="text-center text-[11px] text-muted-foreground">
+              Цифры считает каждый стол, пока технарь в нём работает; у Owner дашборд ещё и пересчитывает все столы.
+              Пустые строки не считаются.
+            </p>
+          )}
         </>
       )}
     </div>

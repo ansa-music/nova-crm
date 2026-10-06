@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { useNavigate } from "react-router";
 import { ArrowRight, ClipboardList, PackageCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSiteConfig } from "@/config/siteTerms";
 import { cn } from "@/utils/cn";
 import type { Notification } from "@/types";
 
@@ -77,6 +78,10 @@ export function orderPopupOf(n: Notification): OrderPopupItem | null {
 export function OrderPopupHost() {
   const items = useSyncExternalStore(subscribe, snapshot, snapshot);
   const navigate = useNavigate();
+  // Раздел заказов переименован в Конструкторе (у «NOVA Studio» — «Рандом») —
+  // подпись называет его так же, как меню. Нет своей подписи — как было.
+  const ordersLabel = useSiteConfig().nav?.labels?.orders?.trim();
+  const freshEyebrow = ordersLabel ? `Новый заказ в разделе «${ordersLabel}»` : "Новый заказ на «Заказах»";
   const current = items[0] ?? null;
   const rest = items.length - 1;
   // Появление: чуть снизу, чтобы взгляд зацепился, но без прыжка.
@@ -128,7 +133,7 @@ export function OrderPopupHost() {
           <Icon className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="eyebrow">{current.eyebrow ?? (current.assigned ? "Вам выдан заказ" : "Новый заказ на «Заказах»")}</p>
+          <p className="eyebrow">{current.eyebrow ?? (current.assigned ? "Вам выдан заказ" : freshEyebrow)}</p>
           <p className="mt-0.5 text-[15px] font-semibold leading-snug">{current.title.replace(/^(Вам выдан заказ|Новый заказ):\s*/i, "")}</p>
           {current.body ? <p className="mt-1 text-[13px] leading-snug text-muted-foreground">{current.body}</p> : null}
           <div className="mt-3 flex flex-wrap items-center gap-2">

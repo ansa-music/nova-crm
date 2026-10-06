@@ -57,6 +57,7 @@ import { useGrokPoolSignal } from "@/hooks/useGrokPoolSignal";
 import { brandName, term, useSiteConfig } from "@/config/siteTerms";
 import { HOME_TARGETS, isModuleEnabled, moduleOfPath, type SiteConfig } from "@/types/siteConfig";
 import { applySiteNav } from "@/config/siteNav";
+import { isStudioSite, useStudioMode } from "@/config/studio";
 import { useOsPendingOrderRequests } from "@/hooks/useOsPendingOrderRequests";
 import { useTelegramAccess, useTelegramRevokeGuard } from "@/services/telegram/telegramAccess";
 import { useTgTechAccess } from "@/services/telegram/tgServer";
@@ -140,6 +141,11 @@ export interface NavModel {
    * ОС. Остальным «/orders#new» открыл бы диалог, который правила не пропустят.
    */
   canIssueOrders: boolean;
+  /**
+   * «NOVA Studio» (с черновиком — только вид), не Owner: вторая кнопка нижней
+   * панели — «Telegram», если раздел виден (`bottomBarSlot`).
+   */
+  studioMember: boolean;
   /** Заголовок экрана; та же функция, что в `usePageMeta` (бейджи её не меняют). */
   pageMeta: (pathname: string) => PageMeta;
 }
@@ -627,6 +633,7 @@ export function buildNavModel(
     isOs: g.isOs,
     isTeamlead: g.isTeamlead,
     canIssueOrders: g.canIssueOrders,
+    studioMember: isStudioSite(inp.site) && permissions.isResolved && !permissions.actsAsOwner,
     pageMeta,
   };
 }
@@ -769,7 +776,14 @@ export interface BottomBarSlot {
  * (Owner без своего стола — дом «/desks»), две кнопки на один путь путали бы:
  * вторая становится «Дашбордом».
  */
-export function bottomBarSlot(nav: Pick<NavModel, "home" | "items" | "isOs">): BottomBarSlot {
+export function bottomBarSlot(nav: Pick<NavModel, "home" | "items" | "isOs" | "studioMember">): BottomBarSlot {
+  // «NOVA Studio»: у менеджера свой стол и так дом, а «Столы» показали бы его
+  // же — на панели общий Telegram (под «Ещё» его не найти). Раздел не виден —
+  // как раньше.
+  if (nav.studioMember) {
+    const telegram = nav.items.find((i) => i.key === "telegram");
+    if (telegram) return { key: telegram.key, to: telegram.to, label: telegram.label, icon: telegram.icon };
+  }
   const osDesk = nav.items.find((i) => i.key === "os-desk");
   if (nav.isOs && osDesk) return { key: "os-desk", to: osDesk.to, label: osDesk.label, icon: Table2 };
   const desks = nav.items.find((i) => i.key === DESKS_ITEM_KEY);
@@ -862,6 +876,9 @@ export function useAccountMenu(opts: { openCreatePage?: () => void; openCreateWo
   const canCreateWorkspace = isWorkspaceAdmin(profile?.email);
   const installMode = useInstallMode();
   const myMembership = members.find((m) => m.uid === profile?.uid);
+  // «NOVA Studio»: ролей две — смотреть «как кто-то» незачем, «Режим доступа»
+  // скрыт. Уже включённый режим остаётся виден, иначе из него не выйти.
+  const studio = useStudioMode();
 
   const caption = permissions.isSimulating
     ? `Режим: ${roleLabel(permissions.role)}`
@@ -966,7 +983,7 @@ export function useAccountMenu(opts: { openCreatePage?: () => void; openCreateWo
     })),
     canCreateWorkspace,
     actions,
-    showRoleSwitcher: permissions.allowedSimulatedRoles.length > 0,
+    showRoleSwitcher: permissions.allowedSimulatedRoles.length > 0 && !(studio && !permissions.isSimulating),
     simulatedRoles: permissions.allowedSimulatedRoles,
     realRole: permissions.realRole,
     currentRole: permissions.role,

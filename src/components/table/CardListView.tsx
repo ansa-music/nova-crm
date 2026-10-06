@@ -1,6 +1,6 @@
 import { carriedLabel } from "@/utils/carryOver";
 import { useMemo, useState, type ReactNode } from "react";
-import { CalendarDays, ChevronRight, Phone, Plus } from "lucide-react";
+import { CalendarClock, CalendarDays, ChevronRight, Phone, Plus } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,16 @@ import { pickRowCardColumns } from "@/utils/rowCardColumns";
 import { isBlankRow } from "@/utils/blankRow";
 import { cn } from "@/utils/cn";
 import type { PageColumn, PageRow } from "@/types";
+import { deadlineToneTitle, type DeadlineTone } from "@/utils/studioDeadline";
+
+/** Дедлайн карточки «NOVA Studio»: дата, тон подсветки и «сегодня/завтра». */
+export interface CardDeadline {
+  ms: number;
+  tone: DeadlineTone | null;
+  word: "сегодня" | "завтра" | null;
+  /** Столбец, откуда взята дата (null — из визитки): он же «первая дата» — второй раз её не рисуем. */
+  columnKey: string | null;
+}
 
 /** Сколько карточек показываем сразу: телефонный экран всё равно не покажет больше. */
 const PAGE_SIZE = 40;
@@ -34,6 +44,11 @@ interface CardListViewProps {
   emptyText?: string;
   /** Имена вкладок по id — метка «перенос» у строк из прошлого периода. */
   tabNames?: Readonly<Record<string, string>>;
+  /**
+   * «NOVA Studio»: дедлайн карточки (таблица считает тон тем же правилом, что
+   * у ячейки). Стоит первым в мета-строке, рядом с датой заказа. Нет — как раньше.
+   */
+  deadlineOf?: (row: PageRow) => CardDeadline | null;
 }
 
 /**
@@ -48,7 +63,7 @@ interface CardListViewProps {
  * На телефоне карточки идут одной колонкой, на широком экране — сеткой:
  * иначе на десктопе это была бы одна колонка во всю ширину стола.
  */
-export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder, renderMeta, renderFooter, emptyText, tabNames }: CardListViewProps) {
+export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder, renderMeta, renderFooter, emptyText, tabNames, deadlineOf }: CardListViewProps) {
   const fields = useMemo(() => pickRowCardColumns(columns), [columns]);
   const [limit, setLimit] = useState(PAGE_SIZE);
 
@@ -107,7 +122,11 @@ export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder, re
               : row.orderId
                 ? "border-violet-400/45 bg-violet-400/[0.07]"
                 : "border-border bg-card";
-            const dateValue = fields.date ? Number(row.cells[fields.date.key] ?? 0) : 0;
+            const deadline = deadlineOf?.(row) ?? null;
+            const dateValue =
+              fields.date && !(deadline && deadline.columnKey === fields.date.key)
+                ? Number(row.cells[fields.date.key] ?? 0)
+                : 0;
             const phone = fields.phone ? String(row.cells[fields.phone.key] ?? "").trim() : "";
 
             const card = (
@@ -152,6 +171,21 @@ export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder, re
                       <StatusBadge value={statusValue} options={fields.status.statusOptions ?? []} />
                     )}
                     {renderMeta?.(row)}
+                    {deadline && (
+                      // Дедлайн студии — словом «до …», а не только цветом.
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 tabular",
+                          deadline.tone && "rounded px-1.5 font-medium",
+                          deadline.tone === "overdue" && "bg-destructive/15 text-destructive",
+                          deadline.tone === "soon" && "bg-warning/15 text-warning"
+                        )}
+                        title={deadline.tone ? deadlineToneTitle(deadline.tone) : "Дедлайн"}
+                      >
+                        <CalendarClock className="h-3 w-3" /> до {formatOrderDate(deadline.ms)}
+                        {deadline.word ? ` · ${deadline.word}` : deadline.tone === "overdue" ? " · просрочен" : ""}
+                      </span>
+                    )}
                     {dateValue > 0 && (
                       <span className="inline-flex items-center gap-1 tabular">
                         <CalendarDays className="h-3 w-3" /> {formatOrderDate(dateValue)}

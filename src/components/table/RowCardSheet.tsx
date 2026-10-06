@@ -70,6 +70,12 @@ interface RowCardSheetProps {
     onSave: (rowId: string, next: RowExtras | null) => Promise<void>;
     /** Стол строки — визитке для кнопки «Чат в Telegram». */
     pageId?: string;
+    /**
+     * «NOVA Studio»: у стола есть столбец срока — срок строки живёт в нём, и
+     * поле «Дедлайн сдачи» визитка не показывает. Значение, не объект, —
+     * сравнение остаётся по значению.
+     */
+    hasDeadlineColumn?: boolean;
   };
   /** Доп. панель над полями — сейчас это «Выдача» на столе ОС. */
   extraPanel?: React.ReactNode;
@@ -475,6 +481,7 @@ export function RowCardSheet({
                       canEdit={editableRow && clientCard.canEditOf(record)}
                       onSave={(next) => clientCard.onSave(record.id, next)}
                       pageId={clientCard.pageId}
+                      hasDeadlineColumn={clientCard.hasDeadlineColumn}
                     />
                   </div>
                 ) : null}

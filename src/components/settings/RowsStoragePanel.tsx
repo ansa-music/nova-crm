@@ -6,6 +6,7 @@ import { migrationSql, sqlEditorUrl } from "@/services/sb/migrationSql";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/components/ui/sonner";
+import { useStudioMode } from "@/config/studio";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useRowsBackend } from "@/hooks/useRowsBackend";
@@ -105,6 +106,9 @@ export function RowsStoragePanel() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<MigrationProgress | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
+  // «NOVA Studio»: ни технарей, ни ОС, ни «Правки столов» (раздел закрыт
+  // `StudioGate`) — карточку-ссылку туда не показываем. Только вид.
+  const studio = useStudioMode();
 
   if (!activeWorkspace || !workspaceId) return null;
   const me = permissions.uid ?? "";
@@ -341,22 +345,24 @@ export function RowsStoragePanel() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Кто заполняет столы технарей</CardTitle>
-          <CardDescription>
-            «Заказы ведёт ОС», «технари заполняют сами» (всем или выборочно) и перенос заказов между технарями и ОС —
-            на отдельной вкладке Owner «Правка столов».
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button size="sm" variant="outline" className="min-h-11 gap-1.5 sm:min-h-0" asChild>
-            <Link to="/desk-editing">
-              <PenLine className="h-3.5 w-3.5" /> Открыть «Правку столов»
-            </Link>
-          </Button>
-        </CardContent>
-      </Card>
+      {!studio && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Кто заполняет столы технарей</CardTitle>
+            <CardDescription>
+              «Заказы ведёт ОС», «технари заполняют сами» (всем или выборочно) и перенос заказов между технарями и ОС —
+              на отдельной вкладке Owner «Правка столов».
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button size="sm" variant="outline" className="min-h-11 gap-1.5 sm:min-h-0" asChild>
+              <Link to="/desk-editing">
+                <PenLine className="h-3.5 w-3.5" /> Открыть «Правку столов»
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

@@ -1,6 +1,7 @@
 import { CalendarCheck2, LayoutDashboard, MessageCircle, MessageSquare, Trophy } from "lucide-react";
 import { PageModeSwitch } from "@/components/common/PageModeSwitch";
 import { useNavModel } from "@/hooks/useNavModel";
+import { useStudioMode } from "@/config/studio";
 
 /**
  * «Общий / Личные» — переключатель одного пункта меню «Чат» (просьба Nurba
@@ -31,6 +32,10 @@ export function StatsModeSwitch({ className }: { className?: string }) {
   // Третья вкладка — «Оценки» (оценка недели, 27.09.2026: «рядом с ABS»);
   // счётчик — сколько мне ещё оценить на этой неделе.
   const { weeklyToRate } = useNavModel();
+  // «NOVA Studio»: ни ABS, ни оценок — переключателю нечего переключать
+  // (их адреса закрывает StudioGate). Только вид — флаг с черновиком.
+  const studio = useStudioMode();
+  if (studio) return null;
   return (
     <PageModeSwitch
       label="Дашборд и ABS"

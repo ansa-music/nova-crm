@@ -1,12 +1,13 @@
 import { useEffect } from "react";
 import { currentSiteConfig, flushSiteConfig, setSavedSiteConfig, useSiteConfig } from "@/config/siteTerms";
 import { useWorkspaceStore } from "@/store/workspaceStore";
-import type { SiteBackground, SiteConfig } from "@/types/siteConfig";
+import type { SiteBackground, SiteConfig, SiteFx } from "@/types/siteConfig";
 
 /**
  * «Конструктор сайта» — из документа workspace в живое хранилище
- * (`config/siteTerms.ts`) и на страницу: цвета, иконка вкладки, запомненный
- * бренд для экранов без workspace (вход, загрузка, 404).
+ * (`config/siteTerms.ts`) и на страницу: цвета, особый вид (`theme.fx`),
+ * иконка вкладки, запомненный бренд для экранов без workspace (вход,
+ * загрузка, 404). Особый вид в запомненный бренд НЕ попадает.
  *
  * Сохранённую настройку кладёт ПРИ ОТРИСОВКЕ (как регион): меню и страницы
  * рисуются после AppLayout и должны сразу видеть свои слова. Нет поля —
@@ -104,16 +105,108 @@ export function backgroundVars(key: SiteBackground | undefined): Record<string, 
 export function applySiteTheme(config: SiteConfig) {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
+  const cosmos = config.theme?.fx === "cosmos";
   const primary = config.theme?.primary ? primaryVars(config.theme.primary) : null;
   for (const name of PRIMARY_VARS) {
     if (primary?.[name]) root.style.setProperty(name, primary[name]);
     else root.style.removeProperty(name);
   }
-  const surfaces = backgroundVars(config.theme?.background);
+  // «Космос» перекрывает фон из «Цветов»: поверхности у него свои.
+  const surfaces = cosmos ? COSMOS_SURFACES : backgroundVars(config.theme?.background);
   for (const name of SURFACE_VARS) {
     if (surfaces?.[name]) root.style.setProperty(name, surfaces[name]);
     else root.style.removeProperty(name);
   }
+  for (const name of FX_VARS) {
+    if (cosmos) root.style.setProperty(name, COSMOS_FX_VARS[name]);
+    else root.style.removeProperty(name);
+  }
+  applySiteFx(root, cosmos ? "cosmos" : null);
+}
+
+// ---------------------------------------------------------------------
+// Вид «космос» (воркспейс «NOVA Studio», 06.10.2026).
+// ---------------------------------------------------------------------
+
+/**
+ * Поверхности «космоса» — тёмный индиго НИЗКОЙ насыщенности: цвета статусов на
+ * нём не «плывут», а текст `--foreground` читается так же, как на графите.
+ * Все значения без альфы — таблицы, липкие ячейки и шапка остаются
+ * непрозрачными (урок про зебру: color-mix, не alpha).
+ */
+const COSMOS_SURFACES: Record<(typeof SURFACE_VARS)[number], string> = {
+  "--background": "250 30% 6%",
+  "--card": "250 26% 9%",
+  "--popover": "250 26% 11%",
+  "--muted": "250 22% 13%",
+  "--accent": "250 22% 14%",
+  "--border": "250 22% 17%",
+  "--input": "250 22% 14%",
+  "--sidebar": "250 28% 8%",
+  "--sidebar-border": "250 22% 13%",
+  "--sidebar-accent": "250 22% 13%",
+};
+
+/** Переменные, которые пишет ТОЛЬКО «космос»: без флага снимаются (значения из index.css). */
+const FX_VARS = ["--destructive"] as const;
+
+const COSMOS_FX_VARS: Record<(typeof FX_VARS)[number], string> = {
+  // Оранжевый акцент студии (20°) стоит вплотную к красному «удалить» (8°) —
+  // под «космосом» красный уводим к малиновому 352°, чтобы их не путали.
+  // Светлота 52 %: белая подпись на кнопке «Удалить» — 4.65:1 (при 60 % было 3.76:1).
+  "--destructive": "352 72% 52%",
+};
+
+/** Цвет полосы браузера/PWA: прежний из index.html и фон «космоса» (hsl 250 30% 6%). */
+const DEFAULT_THEME_COLOR = "#0b0c0e";
+const COSMOS_THEME_COLOR = "#0c0b14";
+
+/**
+ * Шрифты «космоса» (Unbounded — заголовки, Onest — текст) качаются ТОЛЬКО при
+ * флаге: остальным компаниям лишние байты не нужны. Применяются они тоже только
+ * под `html[data-site-fx="cosmos"]` (index.css).
+ */
+const COSMOS_FONTS_ID = "nova-cosmos-fonts";
+const COSMOS_FONTS_HREF =
+  "https://fonts.googleapis.com/css2?family=Onest:wght@300..700&family=Unbounded:wght@300..700&display=swap";
+
+/**
+ * Всё «не-переменное» особого вида — атрибут для CSS, цвет полосы браузера,
+ * шрифты — ставится и снимается здесь же, внутри `applySiteTheme`: и
+ * размонтирование моста, и смена workspace проходят через неё, так что
+ * в обычной компании от «космоса» не остаётся ничего. Нет флага — ничего не
+ * пишется (атрибута нет, цвет полосы и так прежний, ссылки на шрифты нет).
+ */
+function applySiteFx(root: HTMLElement, fx: SiteFx | null) {
+  if (fx) {
+    if (root.dataset.siteFx !== fx) root.dataset.siteFx = fx;
+  } else if (root.dataset.siteFx !== undefined) {
+    delete root.dataset.siteFx;
+  }
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  const color = fx === "cosmos" ? COSMOS_THEME_COLOR : DEFAULT_THEME_COLOR;
+  if (meta && meta.getAttribute("content") !== color) meta.setAttribute("content", color);
+  toggleCosmosFonts(fx === "cosmos");
+}
+
+function toggleCosmosFonts(on: boolean) {
+  const existing = document.getElementById(COSMOS_FONTS_ID);
+  if (!on) {
+    existing?.remove();
+    return;
+  }
+  if (existing) return;
+  const link = document.createElement("link");
+  link.id = COSMOS_FONTS_ID;
+  link.rel = "stylesheet";
+  link.href = COSMOS_FONTS_HREF;
+  // Не держим отрисовку — как шрифты в index.html: print → all по загрузке
+  // (display=swap до этого рисует запасным шрифтом).
+  link.media = "print";
+  link.onload = () => {
+    link.media = "all";
+  };
+  document.head.appendChild(link);
 }
 
 // ---------------------------------------------------------------------

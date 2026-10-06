@@ -1,4 +1,5 @@
 import { AlertTriangle, Archive, AtSign, Pencil } from "lucide-react";
+import { useStudioMode } from "@/config/studio";
 import { memberNickValue, nickLabelOf, type NickKind } from "@/services/memberService";
 import { cn } from "@/utils/cn";
 import type { StatusOption, WorkspaceMember } from "@/types";
@@ -39,6 +40,10 @@ export function MemberNickChip({
   onClick: () => void;
   className?: string;
 }) {
+  // «NOVA Studio» (только вид): технарей там нет — ник менеджера просто «ник».
+  const studio = useStudioMode();
+  const prefix = studio && kind === "tech" ? PREFIX.other : PREFIX[kind];
+  const empty = studio && kind === "tech" ? EMPTY.other : EMPTY[kind];
   const value = memberNickValue(member, kind);
   const label = nickLabelOf(member, kind, options);
   const option = value ? options.find((o) => o.value === value) : undefined;
@@ -50,8 +55,8 @@ export function MemberNickChip({
     : stale
         ? "Ник остался от прошлой роли — его можно открепить"
         : value
-          ? `Сменить или открепить ${PREFIX[kind]}`
-          : EMPTY[kind];
+          ? `Сменить или открепить ${prefix}`
+          : empty;
   return (
     <button
       type="button"
@@ -79,11 +84,11 @@ export function MemberNickChip({
       )}
       {label ? (
         <span className="truncate">
-          {PREFIX[kind]}: <span className="font-semibold">{label}</span>
+          {prefix}: <span className="font-semibold">{label}</span>
           {missing ? " — удалён из списка" : stale ? " — не по роли" : inactive ? " — неактуальный" : ""}
         </span>
       ) : (
-        <span className="truncate">{EMPTY[kind]}</span>
+        <span className="truncate">{empty}</span>
       )}
       <Pencil className="h-3 w-3 shrink-0 opacity-70" />
     </button>

@@ -138,6 +138,23 @@ export function useTgServer(ws: string | null, enabled: boolean): TgServerState 
   return enabled && ws && snap.key === ws ? snap : EMPTY;
 }
 
+const noSubscribe = () => () => {};
+
+/**
+ * Только «аккаунт подключён». Без `enabled` нет ни запросов, ни подписки на
+ * стор: хук стоит в каркасе у ВСЕХ компаний (обслуживание «NOVA Studio»), и
+ * общий `useTgServer` перерисовывал бы каркас на каждое обновление статуса.
+ */
+export function useTgServerConnected(ws: string | null, enabled: boolean): boolean {
+  const on = Boolean(enabled && ws);
+  useEffect(() => {
+    if (!on || !ws) return;
+    start(ws);
+    return () => stop();
+  }, [on, ws]);
+  return useSyncExternalStore(on ? subscribe : noSubscribe, () => on && state.key === ws && state.connected);
+}
+
 export function ringTgServer(ws: string) {
   ringTopic(topicOf(ws));
 }

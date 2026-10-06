@@ -41,6 +41,16 @@ import { TableRow, createCellActionPulse } from "@/components/table/TableRow";
 import { GroupHeaderRow } from "@/components/table/GroupHeaderRow";
 import { TableToolbar } from "@/components/table/TableToolbar";
 import { QuickOrderDialog } from "@/components/table/QuickOrderDialog";
+import { StudioOrderDialog } from "@/components/table/StudioOrderDialog";
+import {
+  deadlineClock,
+  deadlineDayWord,
+  deadlineMillis,
+  deadlineToneOf,
+  findDeadlineColumn,
+  isClosedStatus,
+  type DeadlineTone,
+} from "@/utils/studioDeadline";
 import { buildQuickOrderRow, findQuickOrderColumns, parseOptionalNumber, type QuickOrderInput } from "@/utils/quickOrder";
 import {
   captureTableView,
@@ -491,6 +501,18 @@ interface DataTableProps {
   groupHint?: (label: string, column: PageColumn | null) => string | null;
   /** Свой текст пустого стола (стол ОС объясняет, с чего начать). */
   emptyState?: { title: string; description?: string };
+  /**
+   * Воркспейс «NOVA Studio» — ВИД (с черновиком Конструктора): подсветка
+   * дедлайна в таблице и в карточках, подсказка визитки. Флаг считает
+   * DynamicTablePage один раз; строки получают готовые значения.
+   */
+  studio?: boolean;
+  /**
+   * «NOVA Studio» по СОХРАНЁННОМУ флагу: вместо «Быстрого заказа» открывается
+   * форма студии (StudioOrderDialog) — она пишет строку, поэтому черновик
+   * Конструктора её не включает.
+   */
+  studioOrders?: boolean;
   canEditStructure: boolean;
   userId: string;
   userName: string;
@@ -519,7 +541,7 @@ function normalizeContact(raw: string, type: "phone" | "email" | string): string
   return v.toLowerCase();
 }
 
-export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, focusOpenCard = false, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, techFills = false, onSummaryChange, onActionsChange, cellPickerKeys, onOpenCellPicker, cellAction, cellAddon, lockedKeys, cardMeta, cellDisplay, cardFooter, rowCardHiddenKeys, tabNames, canMarkRowDone, groupHint, emptyState }: DataTableProps) {
+export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, userId, userName, subPageId, focusRowId, focusOpenCard = false, manualRowOrder = false, viewer, renderRowPanel, ordersFromOsOnly = false, techFills = false, onSummaryChange, onActionsChange, cellPickerKeys, onOpenCellPicker, cellAction, cellAddon, lockedKeys, cardMeta, cellDisplay, cardFooter, rowCardHiddenKeys, tabNames, canMarkRowDone, groupHint, emptyState, studio = false, studioOrders = false }: DataTableProps) {
   // Внешний выбор ячейки: колбэк стабилен (через ref), иначе каждый рендер
   // стола перерисовывал бы все строки — TableRow сравнивает пропсы.
   const cellPickerRef = useRef(onOpenCellPicker);
@@ -880,6 +902,55 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     quickOrderCols.os && isOptionColumn(quickOrderCols.os.type)
       ? getColumnOptions(quickOrderCols.os, activeWorkspace)
       : null;
+
+  // ---- «NOVA Studio»: дедлайн на виду (только вид, без новых подписок) ----
+  // Столбец дедлайна и столбец статуса — раз на смену столбцов; тон строки
+  // считается в renderRow по строке с экрана и уходит в TableRow строкой.
+  // Без студии здесь null, и строки получают undefined — как раньше.
+  const studioDeadline = useMemo(() => {
+    if (!studio) return null;
+    return {
+      column: findDeadlineColumn(displayColumns, quickOrderCols.deadline),
+      statusCol: displayColumns.find((c) => c.type === "status") ?? null,
+    };
+  }, [studio, displayColumns, quickOrderCols.deadline]);
+  // «Сегодня/завтра» по часам компании — раз на рендер таблицы, не на строку.
+  const studioClock = studioDeadline ? deadlineClock() : null;
+  function studioRowClosed(row: PageRow): boolean {
+    const statusCol = studioDeadline?.statusCol;
+    return statusCol ? isClosedStatus(row.cells[statusCol.key], statusCol.statusOptions ?? []) : false;
+  }
+  function studioDeadlineTone(row: PageRow): DeadlineTone | null {
+    const column = studioDeadline?.column;
+    if (!column || !studioClock) return null;
+    return deadlineToneOf(row.cells[column.key], studioClock, studioRowClosed(row));
+  }
+  // Карточки на телефоне: дедлайн из столбца, а пуст он — из визитки
+  // (extras.deadline, его кладёт и заезд заказа с «Рандома»).
+  const studioCardDeadline =
+    studioDeadline && studioClock
+      ? (row: PageRow) => {
+          const column = studioDeadline.column;
+          const cell = column ? row.cells[column.key] : null;
+          const fromColumn = deadlineMillis(cell) !== null;
+          const raw = fromColumn ? cell : (row.extras?.deadline ?? null);
+          const ms = deadlineMillis(raw);
+          if (ms === null) return null;
+          const closed = studioRowClosed(row);
+          return {
+            ms,
+            tone: deadlineToneOf(ms, studioClock, closed),
+            word: closed ? null : deadlineDayWord(ms, studioClock),
+            columnKey: fromColumn && column ? column.key : null,
+          };
+        }
+      : undefined;
+  // Форма заказа студии получает ВСЕ столбцы в порядке схемы (и скрытые) с
+  // вариантами: «первая дата» — дата заказа, даже если её спрятали.
+  const studioOrderColumns = useMemo(
+    () => (studioOrders ? columns.map((c) => ({ ...c, statusOptions: getColumnOptions(c, activeWorkspace) })) : []),
+    [studioOrders, columns, activeWorkspace]
+  );
 
   const stickyKeys = useMemo(
     () => pinnedKeys.filter((k) => displayColumns.some((c) => c.key === k)),
@@ -3274,6 +3345,54 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     toast.success("Заказ в столе");
   }
 
+  /**
+   * «NOVA Studio»: заказ из формы студии ложится тем же путём, что быстрый
+   * заказ: первая пустая строка, иначе новая внизу; `filledAt` ставит
+   * fillRowService; одна undo-команда; тост. Ячейки форма уже собрала по
+   * ключам столбцов — чужие ключи (столбца нет) не пишем. Визитка — только
+   * срок, когда у стола нет столбца срока (`studioOrderExtras`), иначе null.
+   */
+  async function handleStudioOrder(input: Record<string, string>, extras: RowExtras | null) {
+    const known = new Set(columns.map((c) => c.key));
+    const cells: Record<string, string | number | null> = {};
+    for (const [key, value] of Object.entries(input)) if (known.has(key)) cells[key] = value;
+    if (quickOrderStatus) {
+      const statusCol = displayColumns.find((c) => c.type === "status");
+      if (statusCol) cells[statusCol.key] = quickOrderStatus;
+    }
+    try {
+      const blank = firstBlankRow();
+      if (blank) {
+        const patch: Record<string, string | number | null> = {};
+        for (const [key, value] of Object.entries(cells)) if (isFilledCellValue(value)) patch[key] = value;
+        const cleared = Object.fromEntries(Object.keys(patch).map((key) => [key, ""]));
+        await fillRowService(workspaceId, page.id, blank.id, patch, extras);
+        pushCommand({
+          undo: () => fillRowService(workspaceId, page.id, blank.id, cleared, null),
+          redo: () => fillRowService(workspaceId, page.id, blank.id, patch, extras),
+        });
+        pendingScrollRowIdRef.current = blank.id;
+        toast.success("Заказ в столе", { description: "Записан в первую пустую строку" });
+        return;
+      }
+      const newRow = await addRowService(workspaceId, page.id, cells, nextRowOrder(), extras ?? undefined);
+      let liveId = newRow.id;
+      pushCommand({
+        undo: () => deleteRowService(workspaceId, page.id, liveId),
+        redo: async () => {
+          const restored = await addRowService(workspaceId, page.id, cells, nextRowOrder(), extras ?? undefined);
+          liveId = restored.id;
+        },
+      });
+      pendingScrollRowIdRef.current = newRow.id;
+      toast.success("Заказ в столе");
+    } catch (error) {
+      // Форма остаётся открытой с введённым — ошибку пробрасываем дальше.
+      toast.error(error instanceof Error ? error.message : "Не удалось записать заказ");
+      throw error;
+    }
+  }
+
   function handleContextMenuOpen(rowId: string) {
     contextRowIdRef.current = rowId;
   }
@@ -4240,6 +4359,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         duplicateColKeys={duplicateContactKeys.get(row.id) ?? null}
         onFindDuplicates={rowHandlers.onFindDuplicates}
         blank={isBlankRow(displayRow)}
+        deadlineKey={studioDeadline?.column?.key}
+        deadlineTone={studioDeadline?.column ? studioDeadlineTone(displayRow) : undefined}
+        studio={studio}
       />
     );
   }
@@ -4414,6 +4536,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           onOpenRow={setExpandedRowId}
           renderMeta={cardMeta}
           renderFooter={cardFooter}
+          deadlineOf={studioCardDeadline}
           tabNames={tabNames}
           emptyText={emptyState ? [emptyState.title, emptyState.description].filter(Boolean).join(". ") : undefined}
           onAddOrder={
@@ -4973,6 +5096,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                 canEditOf: (row) => !cellLockFor(row, extrasHintKey),
                 onSave: saveClientCard,
                 pageId: page.id,
+                // Студия: срок строки — столбец срока стола, поле визитки скрыто.
+                hasDeadlineColumn: Boolean(studioDeadline?.column),
               }
             : undefined
         }
@@ -4983,6 +5108,19 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         hiddenFieldKeys={rowCardHiddenKeys}
       />
 
+      {/* «NOVA Studio» (сохранённый флаг): своя форма заказа вместо «Быстрого
+          заказа» — те же входы, то же состояние, та же запись строки. */}
+      {studioOrders ? (
+        <StudioOrderDialog
+          open={quickOrderOpen}
+          onOpenChange={(open) => {
+            setQuickOrderOpen(open);
+            if (!open) setQuickOrderStatus(null);
+          }}
+          columns={studioOrderColumns}
+          onSave={handleStudioOrder}
+        />
+      ) : (
       <QuickOrderDialog
         open={quickOrderOpen}
         onOpenChange={(open) => {
@@ -4992,6 +5130,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onSubmit={handleQuickOrder}
         osOptions={quickOrderOsOptions}
       />
+      )}
 
       <SmartPasteDialog request={smartPaste} onCancel={() => setSmartPaste(null)} onApply={(r) => void applySmartPaste(r)} />
 

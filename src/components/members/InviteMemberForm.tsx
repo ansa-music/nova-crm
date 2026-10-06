@@ -13,7 +13,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useTenantInfo } from "@/hooks/useTenantInfo";
 import { assertSeatAvailable } from "@/utils/seats";
 import { usePermissions } from "@/hooks/usePermissions";
-import type { Role } from "@/types";
+import { useStudioMode } from "@/config/studio";
+import { roleLabel, type Role } from "@/types";
 
 /** «Тимлид+» приглашает только Owner (правила пускают только его). */
 const INVITE_ROLES: Role[] = ["teamlead", "admin", "manager", "os", "viewer"];
@@ -24,6 +25,8 @@ export function InviteMemberForm({ workspaceId }: { workspaceId: string }) {
   const { members } = useWorkspace();
   const tenant = useTenantInfo(workspaceId, true);
   const { actsAsOwner } = usePermissions();
+  // «NOVA Studio»: роль одна — «Менеджер», выбора нет (только вид).
+  const studio = useStudioMode();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<InviteFormValues>({
@@ -36,7 +39,7 @@ export function InviteMemberForm({ workspaceId }: { workspaceId: string }) {
     setIsSubmitting(true);
     try {
       assertSeatAvailable(members, tenant?.seatsLimit ?? null);
-      await inviteMember(workspaceId, values.email, values.role, profile.uid);
+      await inviteMember(workspaceId, values.email, studio ? "manager" : values.role, profile.uid);
       await refreshWorkspaceMembers(workspaceId);
       toast.success(`Приглашение для ${values.email} создано`);
       form.reset({ email: "", role: "manager" });
@@ -61,13 +64,18 @@ export function InviteMemberForm({ workspaceId }: { workspaceId: string }) {
         )}
       </div>
       <div className="flex gap-2">
-        <Controller
-          control={form.control}
-          name="role"
-          render={({ field }) => (
-            <RoleSelect value={field.value} onChange={field.onChange} assignableRoles={actsAsOwner ? OWNER_INVITE_ROLES : INVITE_ROLES} />
-          )}
-        />
+        {studio ? (
+          // Одна роль — выпадашка с одним пунктом была бы шумом.
+          <p className="flex min-w-0 flex-1 items-center text-[12px] text-muted-foreground">Роль — {roleLabel("manager")}</p>
+        ) : (
+          <Controller
+            control={form.control}
+            name="role"
+            render={({ field }) => (
+              <RoleSelect value={field.value} onChange={field.onChange} assignableRoles={actsAsOwner ? OWNER_INVITE_ROLES : INVITE_ROLES} />
+            )}
+          />
+        )}
         <Button type="submit" disabled={isSubmitting} className="min-h-11 flex-1 gap-1.5 sm:min-h-0 sm:flex-none">
           {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
           Пригласить

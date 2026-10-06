@@ -60,6 +60,7 @@ import { CarryOverBanner } from "@/components/table/CarryOverBanner";
 import { CarryOverDialog } from "@/components/table/CarryOverDialog";
 import { useCarryOver } from "@/hooks/useCarryOver";
 import { DISPATCH_ENABLED } from "@/config/features";
+import { useStudioMode, useStudioSaved } from "@/config/studio";
 import { toast } from "@/components/ui/sonner";
 import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
 import { restoreDesk, retireDesk } from "@/components/desks/deskRetireActions";
@@ -404,6 +405,12 @@ export default function DynamicTablePage() {
   // подписки живут, только пока окно открыто. На телефоне — лист снизу.
   const [statsOpen, setStatsOpen] = useState(false);
   const statsOnPhone = useIsMobile();
+  // Воркспейс «NOVA Studio» (06.10.2026): флаг считается ОДИН раз здесь и
+  // уходит в таблицу пропами — TableRow/TableCell его не читают (горячий путь,
+  // memo по значению). Вид (дедлайн, «Статистика» без процентов) — с
+  // черновиком Конструктора; форма заказа ПИШЕТ — только по сохранённому.
+  const studioView = useStudioMode();
+  const studioSaved = useStudioSaved();
   // Сводка и действия стола — их считает DataTable (у него отфильтрованные
   // строки и статусы), шапка только рисует. См. types/deskSummary.ts.
   const [summaryStore] = useState(createDeskSummaryStore);
@@ -2385,7 +2392,9 @@ export default function DynamicTablePage() {
             title={
               page.osDesk
                 ? "Статистика ОС: KPI, апсейл и ваш процент"
-                : "Статистика стола: «Готово», общий доход, проценты"
+                : studioView
+                  ? "Статистика стола: «Готово» и общий доход"
+                  : "Статистика стола: «Готово», общий доход, проценты"
             }
             onClick={() => setStatsOpen(!statsOpen)}
             className={cn(
@@ -2685,12 +2694,20 @@ export default function DynamicTablePage() {
                   embedded
                 />
               ) : (
-                <SubPageStats columns={activeSubPage ? activeSubPage.columns : page.columns} rows={rows} embedded />
+                <SubPageStats
+                  columns={activeSubPage ? activeSubPage.columns : page.columns}
+                  rows={rows}
+                  embedded
+                  // Студия: проценты не считаем (просьба Nurba) — только суммы.
+                  hidePercents={studioView}
+                />
               );
               const title = page.osDesk ? "Статистика ОС" : "Статистика стола";
               const description = page.osDesk
                 ? "KPI, апсейл месяца и ваш процент. Стол под окном не трогаем."
-                : "«Готово», общий доход и проценты по открытой вкладке.";
+                : studioView
+                  ? "«Готово» и общий доход по открытой вкладке."
+                  : "«Готово», общий доход и проценты по открытой вкладке.";
               return statsOnPhone ? (
                 <Sheet open onOpenChange={(o) => !o && setStatsOpen(false)}>
                   <SheetContent side="bottom" className="flex max-h-[88dvh] flex-col gap-0 p-0 pb-[env(safe-area-inset-bottom)]">
@@ -2964,6 +2981,8 @@ export default function DynamicTablePage() {
                 focusOpenCard={searchParams.get("card") === "1"}
                 onSummaryChange={summaryStore.set}
                 onActionsChange={setActions}
+                studio={studioView}
+                studioOrders={studioSaved}
               />
             )}
           </div>

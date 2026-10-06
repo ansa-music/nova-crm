@@ -11,6 +11,7 @@ import { fetchTelegramAccessList, setTelegramAccess, setTelegramConfig, type Tel
 import { pickerInitialSelection } from "@/utils/grokPeople";
 import type { TeamGroup } from "@/utils/teamGroup";
 import type { WorkspaceMember } from "@/types";
+import { useStudioSaved } from "@/config/studio";
 
 /** ОС — главные пользователи раздела, их группа первой. */
 const TG_GROUP_ORDER: readonly TeamGroup[] = ["os", "tech", "other"];
@@ -36,6 +37,10 @@ export function TelegramAccessDialog({
   config: TelegramConfig | null;
 }) {
   const candidates = useMemo(() => members.filter((m) => m.status === "active" && Boolean(m.uid)), [members]);
+  // «NOVA Studio»: доступ у всех выдаёт сама студия (только добавляет). Выбора
+  // людей нет и список здесь НЕ пишется — сохранение не может никого убрать.
+  // Флаг — сохранённый: решает, пишется ли список.
+  const studio = useStudioSaved();
   const [selected, setSelected] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -81,6 +86,11 @@ export function TelegramAccessDialog({
     setBusy(true);
     try {
       if (keysChanged) await setTelegramConfig(workspaceId, keysEmpty ? null : { apiId: idNum, apiHash: hash });
+      if (studio) {
+        if (keysChanged) toast.success(keysEmpty ? "Ключи Telegram стёрты" : "Ключи Telegram сохранены");
+        onOpenChange(false);
+        return;
+      }
       const granted = await setTelegramAccess(workspaceId, selected);
       toast.success(granted.length ? `Раздел Telegram открыт: ${granted.length}` : "Раздел Telegram закрыт для всех");
       // Аккаунт workspace на сервере: устройства тех, у кого доступ сняли,
@@ -107,8 +117,9 @@ export function TelegramAccessDialog({
             <ShieldCheck className="h-4 w-4 text-primary" /> Доступ к Telegram
           </DialogTitle>
           <DialogDescription>
-            Кто видит раздел и входит в рабочий аккаунт. Отметить можно любого из команды. Каждый вошедший видит все чаты
-            аккаунта.
+            {studio
+              ? "Ключи приложения Telegram. Доступ к рабочему аккаунту у всей команды — каждый видит все чаты аккаунта."
+              : "Кто видит раздел и входит в рабочий аккаунт. Отметить можно любого из команды. Каждый вошедший видит все чаты аккаунта."}
           </DialogDescription>
         </DialogHeader>
 
@@ -145,33 +156,44 @@ export function TelegramAccessDialog({
           {!keysValid && <p className="text-[12px] text-destructive">api_id — число, api_hash — 32 знака (0-9, a-f).</p>}
         </section>
 
-        <section className="flex min-h-0 flex-1 flex-col gap-2">
-          <p className="text-[12px] font-medium text-muted-foreground">С доступом · {selected.length}</p>
-          {!loaded ? (
-            <p className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Загружаю…
+        {studio ? (
+          <section className="space-y-1 rounded-lg border border-border px-3 py-2.5 text-[13px]">
+            <p className="font-medium">Доступ у всех участников — выдаётся автоматически</p>
+            <p className="text-[12px] text-muted-foreground">
+              Новый человек получает Telegram сразу после одобрения заявки — как только рабочий аккаунт подключён.
+              {loaded && !loadError ? ` Сейчас с доступом: ${selected.length} из ${candidates.length}.` : ""}
             </p>
-          ) : loadError ? (
-            <Alert tone="error" title="Список не прочитался">
-              {loadError}
-            </Alert>
-          ) : (
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-              <GrokPeoplePicker candidates={candidates} selected={selected} onChange={setSelected} disabled={busy} groupOrder={TG_GROUP_ORDER} />
-            </div>
-          )}
-        </section>
+          </section>
+        ) : (
+          <section className="flex min-h-0 flex-1 flex-col gap-2">
+            <p className="text-[12px] font-medium text-muted-foreground">С доступом · {selected.length}</p>
+            {!loaded ? (
+              <p className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Загружаю…
+              </p>
+            ) : loadError ? (
+              <Alert tone="error" title="Список не прочитался">
+                {loadError}
+              </Alert>
+            ) : (
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                <GrokPeoplePicker candidates={candidates} selected={selected} onChange={setSelected} disabled={busy} groupOrder={TG_GROUP_ORDER} />
+              </div>
+            )}
+          </section>
+        )}
 
         <p className="text-[11px] leading-5 text-muted-foreground">
-          Сняли доступ — Nova сама выйдет из Telegram у этого человека, как только он откроет сайт. Надёжнее сразу отключить его
-          устройство «Nova · Имя» в Telegram: Настройки → Устройства.
+          {studio
+            ? "Убрали человека из команды — раздел у него закроется сам. Надёжнее сразу отключить его устройство «Nova · Имя» в Telegram: Настройки → Устройства."
+            : "Сняли доступ — Nova сама выйдет из Telegram у этого человека, как только он откроет сайт. Надёжнее сразу отключить его устройство «Nova · Имя» в Telegram: Настройки → Устройства."}
         </p>
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Отмена
           </Button>
-          <Button onClick={() => void save()} disabled={busy || !loaded || Boolean(loadError) || !keysValid} className="gap-1.5">
+          <Button onClick={() => void save()} disabled={busy || (studio ? !keysChanged : !loaded || Boolean(loadError)) || !keysValid} className="gap-1.5">
             {busy && <Loader2 className="h-4 w-4 animate-spin" />} Сохранить
           </Button>
         </DialogFooter>

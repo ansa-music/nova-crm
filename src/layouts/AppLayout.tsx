@@ -29,6 +29,7 @@ import { LiveWheelHost } from "@/components/orders/LiveWheelHost";
 import { TelegramUploadPill } from "@/components/telegram/TelegramUploadPill";
 import { TelegramBackground } from "@/components/telegram/TelegramBackground";
 import { AccentColorSync } from "@/components/common/AccentColorSync";
+import { CosmosBackdropHost } from "@/components/common/CosmosBackdropHost";
 import { RemovedFromWorkspace } from "@/components/common/RemovedFromWorkspace";
 import { Button } from "@/components/ui/button";
 import { TableChromeExit } from "@/components/table/TableChromeExit";
@@ -56,6 +57,8 @@ import { useRowsBackendBridge } from "@/hooks/useRowsBackendBridge";
 import { useTenantRegionBridge } from "@/hooks/useTenantRegionBridge";
 import { useSiteConfigBridge } from "@/hooks/useSiteConfigBridge";
 import { useRowAclSync } from "@/hooks/useRowAclSync";
+import { useStudioProvision } from "@/hooks/useStudioProvision";
+import { useStudioUpkeep } from "@/hooks/useStudioUpkeep";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useTableDiagWatch } from "@/hooks/useTableDiagWatch";
@@ -120,6 +123,10 @@ export function AppLayout() {
   useTenantRegionBridge(permissions.upkeepOwner);
   // «Конструктор сайта»: слова, меню, модули, цвета, бренд (нет поля — Nova).
   useSiteConfigBridge();
+  // Воркспейс «NOVA Studio»: разовое создание у администратора платформы и
+  // обслуживание (свой стол менеджера, общий Telegram) — только при флаге студии.
+  useStudioProvision();
+  useStudioUpkeep();
   const [createOpen, setCreateOpen] = useState(false);
   // Лист «Ещё» и его диалоги — здесь, а не в нижней панели: панель прячется
   // под клавиатурой, и диалог с набранным именем стола пропадал вместе с ней.
@@ -295,6 +302,8 @@ const AppChrome = memo(function AppChrome({
     // экрана вместе с нижней панелью. Класс `has-bottom-nav` читают итоги
     // стола и панель массовых действий (CSS у стола), пока панель на экране.
     <div className={`page-surface flex h-[100dvh] overflow-hidden bg-background ${showBottomNav ? "has-bottom-nav" : ""}`}>
+      {/* Фон «космос» — только у компании с theme.fx = "cosmos", у остальных null. */}
+      <CosmosBackdropHost />
       <NicknamePrompt />
       <GlobalMessageToaster />
       <GlobalSearch hideTrigger />

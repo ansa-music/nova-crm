@@ -180,11 +180,27 @@ export interface SiteBrand {
   logoPath?: string;
 }
 
+/**
+ * Особый вид всего сайта. Пока один — «cosmos» (воркспейс «NOVA Studio»,
+ * 06.10.2026): космический фон, свои поверхности и переходы. Ставится только
+ * пресетом/импортом JSON — в общих списках Конструктора его нет, поэтому
+ * Owner других компаний новых контролов не видят.
+ */
+export type SiteFx = "cosmos";
+
 export interface SiteTheme {
   /** Главный цвет — HSL-триплет «189 67% 70%». */
   primary?: string;
   background?: SiteBackground;
+  fx?: SiteFx;
 }
+
+/**
+ * Профиль поведения workspace. «studio» — маленькая команда, которая сама ведёт
+ * свои заказы (учебные работы): только Owner и «Менеджер», без ОС и передачи
+ * технарям, свои столы, общий Telegram, «Рандом». Нет поля — обычная Nova.
+ */
+export type SiteProfile = "studio";
 
 export interface SiteNav {
   hidden?: string[];
@@ -195,10 +211,12 @@ export interface SiteNav {
 }
 
 export interface SiteDeskTemplate {
-  columns: Array<Pick<PageColumn, "key" | "label" | "type" | "width">>;
+  /** `customFieldId` — только у столбца типа `custom` (своё поле workspace). */
+  columns: Array<Pick<PageColumn, "key" | "label" | "type" | "width" | "customFieldId">>;
 }
 
 export interface SiteConfig {
+  profile?: SiteProfile;
   brand?: SiteBrand;
   theme?: SiteTheme;
   terms?: Partial<Record<TermKey, Partial<TermForms>>>;
@@ -214,7 +232,8 @@ export interface SiteConfig {
 
 const HSL_RE = /^\d{1,3}(\.\d+)? \d{1,3}(\.\d+)?% \d{1,3}(\.\d+)?%$/;
 const ALL_ROLES: Role[] = ["owner", "teamlead", "leadplus", "admin", "manager", "os", "viewer"];
-const ALLOWED_COLUMN_TYPES: ColumnType[] = ["text", "number", "currency", "status", "responsible", "technician", "date", "email", "phone", "url"];
+const ALLOWED_COLUMN_TYPES: ColumnType[] = ["text", "number", "currency", "status", "responsible", "technician", "custom", "date", "email", "phone", "url"];
+const CUSTOM_FIELD_ID_RE = /^[a-zA-Z0-9_-]{1,60}$/;
 const HOME_PATHS = new Set(HOME_TARGETS.map((t) => t.path));
 const NAV_KEY_RE = /^[a-z][a-z0-9-]{0,40}$/;
 
@@ -242,6 +261,8 @@ export function sanitizeSiteConfig(input: unknown): SiteConfig {
   const src = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
   const out: SiteConfig = {};
 
+  if (src.profile === "studio") out.profile = "studio";
+
   const b = (src.brand ?? {}) as Record<string, unknown>;
   const brand: SiteBrand = {};
   const name = cleanText(b.name, 40);
@@ -263,6 +284,7 @@ export function sanitizeSiteConfig(input: unknown): SiteConfig {
   if (typeof t.background === "string" && SITE_BACKGROUNDS.some((bg) => bg.key === t.background) && t.background !== "graphite") {
     theme.background = t.background as SiteBackground;
   }
+  if (t.fx === "cosmos") theme.fx = "cosmos";
   const themeClean = pruneEmpty(theme);
   if (themeClean) out.theme = themeClean;
 
@@ -329,19 +351,36 @@ export function sanitizeSiteConfig(input: unknown): SiteConfig {
     for (const raw of tpl.columns.slice(0, 30)) {
       const c = (raw ?? {}) as Record<string, unknown>;
       const label = cleanText(c.label, 40);
-      const type = ALLOWED_COLUMN_TYPES.includes(c.type as ColumnType) ? (c.type as ColumnType) : "text";
+      let type = ALLOWED_COLUMN_TYPES.includes(c.type as ColumnType) ? (c.type as ColumnType) : "text";
+      // Своё поле без ссылки на список вариантов — просто текст.
+      const customFieldId = type === "custom" && typeof c.customFieldId === "string" && CUSTOM_FIELD_ID_RE.test(c.customFieldId) ? c.customFieldId : undefined;
+      if (type === "custom" && !customFieldId) type = "text";
       let key = typeof c.key === "string" && /^[a-zA-Z][a-zA-Z0-9_]{0,40}$/.test(c.key) ? c.key : "";
       if (!label) continue;
       if (!key || seen.has(key)) key = `col${columns.length + 1}`;
       while (seen.has(key)) key = `${key}_`;
       seen.add(key);
       const width = typeof c.width === "number" && Number.isFinite(c.width) ? Math.min(600, Math.max(60, Math.round(c.width))) : 150;
-      columns.push({ key, label, type, width });
+      columns.push(customFieldId ? { key, label, type, width, customFieldId } : { key, label, type, width });
     }
     if (columns.length) out.deskTemplate = { columns };
   }
 
   return out;
+}
+
+/**
+ * Столбцы нового стола из шаблона Конструктора (или null — прежние столбцы).
+ * Своё поле (`custom`) несёт `customFieldId`, иначе выпадашка была бы пустой.
+ */
+export function deskTemplateColumns(site: SiteConfig | null | undefined): Omit<PageColumn, "id">[] | null {
+  const cols = site?.deskTemplate?.columns;
+  if (!cols?.length) return null;
+  return cols.map((c, order) =>
+    c.type === "custom" && c.customFieldId
+      ? { key: c.key, label: c.label, type: c.type, width: c.width, order, customFieldId: c.customFieldId }
+      : { key: c.key, label: c.label, type: c.type, width: c.width, order },
+  );
 }
 
 export function siteConfigOf(workspace: { site?: SiteConfig } | null | undefined): SiteConfig {

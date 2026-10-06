@@ -84,6 +84,7 @@ import { displayNameOf } from "@/utils/displayName";
 import { timeAgo } from "@/utils/date";
 import { SiteBuilderPanel } from "@/components/settings/SiteBuilderPanel";
 import { confirmDialog, promptDialog } from "@/utils/appDialog";
+import { useStudioMode } from "@/config/studio";
 
 const FEATURE_ITEMS = [
   {
@@ -175,6 +176,13 @@ const SETTINGS_NAV = [
   { value: "members", label: "Роли и доступ", icon: Users },
 ] as const;
 
+/**
+ * Вкладки, которых нет у «NOVA Studio»: касса (способы оплаты с комиссией,
+ * премии, зарплата ОС — студия проценты не считает) и визитка (персонажи,
+ * минуты, озвучка — это про ролики Nova, у студии визитка своя).
+ */
+const STUDIO_HIDDEN_TABS: ReadonlySet<string> = new Set(["cashbox", "clientcard"]);
+
 export default function SettingsPage() {
   // «/settings?tab=cashbox» — прямая ссылка на вкладку (кнопка «Настроить» на «ABS»).
   const [settingsParams] = useSearchParams();
@@ -185,6 +193,14 @@ export default function SettingsPage() {
   useEffect(() => setSettingsTab(tabParam), [tabParam]);
   const { profile } = useAuth();
   const permissions = usePermissions();
+  // «NOVA Studio»: вкладок «Касса» и «Визитка» нет, а «Роли и доступ» — только
+  // у того, кто ведёт людей: менеджера она вела в тупик («Пользователи» ему
+  // закрыты, Тимлида в студии нет). Ссылка на скрытую вкладку (старая
+  // закладка) открывает «Возможности». Только вид — флаг с черновиком.
+  const studio = useStudioMode();
+  const studioHidesTab = (value: string) =>
+    studio && (STUDIO_HIDDEN_TABS.has(value) || (value === "members" && !permissions.canManageUsers));
+  const shownTab = studioHidesTab(settingsTab) ? "features" : settingsTab;
   const { activeWorkspace, members } = useWorkspace();
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [workspaceName, setWorkspaceName] = useState(activeWorkspace?.name ?? "");
@@ -380,7 +396,7 @@ export default function SettingsPage() {
       />
 
       <Tabs
-        value={settingsTab}
+        value={shownTab}
         // Список заявок читается разово (без onSnapshot), поэтому обновляем его
         // на каждом входе на вкладку — иначе заявка, поданная при открытой
         // странице, появилась бы только после перезагрузки.
@@ -411,7 +427,10 @@ export default function SettingsPage() {
               // Регион и подписка компании — только Owner.
               (item.value !== "company" || permissions.actsAsOwner) &&
               // «Конструктор сайта» — только Owner.
-              (item.value !== "site" || permissions.actsAsOwner)
+              (item.value !== "site" || permissions.actsAsOwner) &&
+              // «NOVA Studio»: без кассы и визитки Nova; «Роли и доступ» — только
+              // тому, кто ведёт людей.
+              !studioHidesTab(item.value)
           ).map((item) => (
             <TabsTrigger
               key={item.value}
@@ -570,9 +589,18 @@ export default function SettingsPage() {
             <CardHeader>
               <CardTitle>Новые пользователи</CardTitle>
               <CardDescription>
-                По ссылке «Присоединиться» человек приходит без роли: выбирает, кем работает (Технарь или ОС), пишет свой
-                ник, если он есть, и ждёт. Впускает Тимлид или Owner на «Пользователи» — как есть или поменяв роль и ник.
-                Мгновенный вход без одобрения убран: роль и ник теперь всегда подтверждает человек.
+                {studio ? (
+                  <>
+                    По ссылке «Присоединиться» человек пишет свой ник и ждёт. Впускает Owner на «Пользователи» — человек
+                    сразу становится менеджером, свой стол и Telegram у него появятся сами.
+                  </>
+                ) : (
+                  <>
+                    По ссылке «Присоединиться» человек приходит без роли: выбирает, кем работает (Технарь или ОС), пишет свой
+                    ник, если он есть, и ждёт. Впускает Тимлид или Owner на «Пользователи» — как есть или поменяв роль и ник.
+                    Мгновенный вход без одобрения убран: роль и ник теперь всегда подтверждает человек.
+                  </>
+                )}
               </CardDescription>
             </CardHeader>
           </Card>
@@ -791,7 +819,7 @@ export default function SettingsPage() {
         </TabsContent>
         )}
 
-        {permissions.actsAsOwner && (
+        {permissions.actsAsOwner && !studio && (
           <TabsContent value="cashbox" className="mt-0 flex flex-col gap-4">
             <CashboxSettingsPanel />
           </TabsContent>
@@ -809,7 +837,7 @@ export default function SettingsPage() {
           </TabsContent>
         )}
 
-        {permissions.actsAsOwner && (
+        {permissions.actsAsOwner && !studio && (
           <TabsContent value="clientcard" className="mt-0 flex flex-col gap-4">
             <ClientCardSettingsPanel />
           </TabsContent>

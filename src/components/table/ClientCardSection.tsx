@@ -12,6 +12,7 @@ import { parseHttpUrl } from "@/utils/httpUrl";
 import { almatyNoonMillis, formatOrderDate, ymdInTimeZone } from "@/utils/date";
 import { cn } from "@/utils/cn";
 import { clientCardOptionsOf } from "@/types";
+import { useStudioMode } from "@/config/studio";
 
 const PERSON_PICKS = [1, 2, 3, 4, 5, 6];
 const MINUTE_PICKS = [1, 2, 3, 5, 10];
@@ -144,6 +145,12 @@ function ChoiceField({
  *
  * Озвучка (есть/нет + язык), стиль и уровень заказа — добавлены 25.09.2026;
  * варианты чипов задаёт Owner в «Настройки → Визитка» (`clientCardOptions`).
+ *
+ * Воркспейс «NOVA Studio» (06.10.2026, только вид): визитка учебного заказа —
+ * дедлайн, ссылка и «Требования» (бывшие «Пожелания»). Персонажи, минуты,
+ * озвучка, стиль, уровень и ссылка «варианты» скрыты; их значения в черновике
+ * остаются как были и пишутся неизменными. Срок у строки студии один: есть
+ * на столе столбец срока — «Дедлайн сдачи» в визитке не показывается.
  */
 export function ClientCardSection({
   rowId,
@@ -151,6 +158,7 @@ export function ClientCardSection({
   canEdit,
   onSave,
   pageId,
+  hasDeadlineColumn = false,
 }: {
   rowId: string;
   initial: RowExtras;
@@ -158,9 +166,14 @@ export function ClientCardSection({
   onSave: (next: RowExtras | null) => Promise<void>;
   /** Стол строки: по нему визитка находит привязанный чат Telegram. */
   pageId?: string;
+  /** Студия: у стола есть столбец срока (`studioDeadlineColumn`) — срок строки в нём. */
+  hasDeadlineColumn?: boolean;
 }) {
   const { activeWorkspace } = useWorkspace();
   const { actsAsOwner } = usePermissions();
+  // Не горячий путь (одна открытая карточка): флаг читаем здесь, перерисовка —
+  // только когда он сменился.
+  const studio = useStudioMode();
   const options = useMemo(() => clientCardOptionsOf(activeWorkspace), [activeWorkspace]);
   const [persons, setPersons] = useState(() => numberText(initial.persons));
   const [minutes, setMinutes] = useState(() => numberText(initial.minutes));
@@ -171,6 +184,12 @@ export function ClientCardSection({
   const [voiceLang, setVoiceLang] = useState(() => initial.voiceLang ?? "");
   const [style, setStyle] = useState(() => initial.style ?? "");
   const [tier, setTier] = useState(() => initial.tier ?? "");
+  // Студия со столбцом срока: поле «Дедлайн сдачи» скрыто — срок строки в
+  // столбце. Срок, уже лежащий в визитке (стол жил без столбца, его добавили
+  // позже), остаётся виден на этой строке, чтобы его можно было стереть; поле
+  // не пропадает и тогда, когда его стёрли, пока курсор в нём.
+  const [cardDeadlineKept, setCardDeadlineKept] = useState(() => initial.deadline != null);
+  const deadlineField = !studio || !hasDeadlineColumn || cardDeadlineKept;
   const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
   // Что уже лежит в базе (по нашим данным): с этим сравнивается черновик,
   // чтобы не писать одно и то же и не откатывать ввод живым снимком строки.
@@ -196,6 +215,7 @@ export function ClientCardSection({
   useEffect(() => {
     applyExtras(normalizeRowExtras(initial));
     savedRef.current = normalizeRowExtras(initial);
+    setCardDeadlineKept(initial.deadline != null);
     setState("idle");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowId]);
@@ -205,6 +225,7 @@ export function ClientCardSection({
     if (sameExtras(live, savedRef.current)) return;
     savedRef.current = live;
     applyExtras(live);
+    if (live?.deadline != null) setCardDeadlineKept(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial.persons, initial.minutes, initial.note, initial.link, initial.deadline, initial.voice, initial.voiceLang, initial.style, initial.tier]);
 
@@ -278,7 +299,7 @@ export function ClientCardSection({
 
   const statusText = state === "saving" ? "сохраняю…" : state === "saved" ? "сохранено" : canEdit ? "пишется само" : "только просмотр";
   const settingsLink =
-    actsAsOwner ? (
+    actsAsOwner && !studio ? (
       <Link
         to="/settings?tab=clientcard"
         className="inline-flex items-center gap-1 font-sans text-[11px] normal-case tracking-normal text-muted-foreground hover:text-primary"
@@ -291,22 +312,22 @@ export function ClientCardSection({
   if (!canEdit) {
     const items: Array<{ icon: React.ReactNode; label: string; value: React.ReactNode }> = [];
     if (initial.deadline != null) items.push({ icon: <CalendarClock className="h-3.5 w-3.5" />, label: "Дедлайн", value: `до ${formatOrderDate(initial.deadline)}` });
-    if (initial.persons != null) items.push({ icon: <Users className="h-3.5 w-3.5" />, label: "Персонажи", value: initial.persons });
-    if (initial.minutes != null) items.push({ icon: <Clock3 className="h-3.5 w-3.5" />, label: "Минуты", value: initial.minutes });
-    if (initial.voice != null) {
+    if (!studio && initial.persons != null) items.push({ icon: <Users className="h-3.5 w-3.5" />, label: "Персонажи", value: initial.persons });
+    if (!studio && initial.minutes != null) items.push({ icon: <Clock3 className="h-3.5 w-3.5" />, label: "Минуты", value: initial.minutes });
+    if (!studio && initial.voice != null) {
       items.push({
         icon: <Mic className="h-3.5 w-3.5" />,
         label: "Озвучка",
         value: initial.voice ? `есть${initial.voiceLang?.trim() ? ` · ${initial.voiceLang.trim()}` : ""}` : "нет",
       });
     }
-    if (initial.style?.trim()) items.push({ icon: <Palette className="h-3.5 w-3.5" />, label: "Стиль", value: initial.style.trim() });
-    if (initial.tier?.trim()) items.push({ icon: <Layers className="h-3.5 w-3.5" />, label: "Уровень", value: initial.tier.trim() });
+    if (!studio && initial.style?.trim()) items.push({ icon: <Palette className="h-3.5 w-3.5" />, label: "Стиль", value: initial.style.trim() });
+    if (!studio && initial.tier?.trim()) items.push({ icon: <Layers className="h-3.5 w-3.5" />, label: "Уровень", value: initial.tier.trim() });
     if (initial.link?.trim()) {
       const url = parseHttpUrl(initial.link);
       items.push({
         icon: <Link2 className="h-3.5 w-3.5" />,
-        label: "AmoCRM",
+        label: studio ? "Ссылка" : "AmoCRM",
         value: url ? (
           <a href={url.toString()} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-primary hover:underline">
             {initial.link} <ExternalLink className="h-3 w-3" />
@@ -324,7 +345,13 @@ export function ClientCardSection({
           <span className="ml-auto font-sans text-[11px] normal-case tracking-normal text-muted-foreground">{statusText}</span>
         </p>
         {items.length === 0 && !initial.note?.trim() ? (
-          <p className="text-sm text-muted-foreground">Пусто — персы, минуты, озвучку, стиль и пожелания заполняет тот, кто ведёт заказ.</p>
+          <p className="text-sm text-muted-foreground">
+            {studio
+              ? hasDeadlineColumn
+                ? "Пусто — ссылку и требования заполняет тот, кто ведёт заказ."
+                : "Пусто — дедлайн, ссылку и требования заполняет тот, кто ведёт заказ."
+              : "Пусто — персы, минуты, озвучку, стиль и пожелания заполняет тот, кто ведёт заказ."}
+          </p>
         ) : (
           <div className="flex flex-col gap-1.5">
             {items.length > 0 && (
@@ -337,6 +364,11 @@ export function ClientCardSection({
                   </span>
                 ))}
               </div>
+            )}
+            {studio && initial.note?.trim() && (
+              <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
+                <NotebookPen className="h-3.5 w-3.5" /> Требования
+              </span>
             )}
             {initial.note?.trim() && <p className="whitespace-pre-wrap break-words text-sm">{initial.note}</p>}
           </div>
@@ -359,6 +391,9 @@ export function ClientCardSection({
         </span>
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
+        {/* Студия: персонажи, минуты, озвучка, стиль и уровень не нужны. */}
+        {!studio && (
+        <>
         <div className="grid gap-1.5">
           <span className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
             <Users className="h-3.5 w-3.5" /> Персонажи
@@ -462,7 +497,11 @@ export function ClientCardSection({
           </span>
           <ChoiceField id={`cc-tier-${rowId}`} options={options.tiers} value={tier} onChange={setTier} onTyping={scheduleSave} fieldProps={fieldProps} placeholder="какой уровень" />
         </div>
+        </>
+        )}
 
+        {/* Студия со столбцом срока: срок — в столбце, здесь поля нет. */}
+        {deadlineField && (
         <div className="grid gap-1.5">
           <label htmlFor={`cc-deadline-${rowId}`} className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
             <CalendarClock className="h-3.5 w-3.5" /> Дедлайн сдачи
@@ -481,9 +520,10 @@ export function ClientCardSection({
             className="h-9 w-full sm:w-44"
           />
         </div>
-        <div className="grid gap-1.5">
+        )}
+        <div className={cn("grid gap-1.5", !deadlineField && "sm:col-span-2")}>
           <label htmlFor={`cc-link-${rowId}`} className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-            <Link2 className="h-3.5 w-3.5" /> AmoCRM ссылка
+            <Link2 className="h-3.5 w-3.5" /> {studio ? "Ссылка" : "AmoCRM ссылка"}
           </label>
           <div className="flex items-center gap-2">
             <Input
@@ -494,7 +534,7 @@ export function ClientCardSection({
                 scheduleSave();
               }}
               {...fieldProps}
-              placeholder="Ссылка на клиента из AmoCRM"
+              placeholder={studio ? "Задание, методичка, файлы — ссылка https://" : "Ссылка на клиента из AmoCRM"}
               inputMode="url"
               autoComplete="off"
               className="h-9 min-w-0 flex-1"
@@ -517,7 +557,7 @@ export function ClientCardSection({
         </div>
         <div className="grid gap-1.5 sm:col-span-2">
           <label htmlFor={`cc-note-${rowId}`} className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-            <NotebookPen className="h-3.5 w-3.5" /> Пожелания
+            <NotebookPen className="h-3.5 w-3.5" /> {studio ? "Требования" : "Пожелания"}
           </label>
           <Textarea
             id={`cc-note-${rowId}`}
@@ -528,7 +568,11 @@ export function ClientCardSection({
             }}
             {...fieldProps}
             rows={3}
-            placeholder="Стиль, музыка, сроки, кто есть кто — что угодно по желанию"
+            placeholder={
+              studio
+                ? "Объём, оформление по ГОСТу, оригинальность, требования преподавателя — всё, что просит клиент"
+                : "Стиль, музыка, сроки, кто есть кто — что угодно по желанию"
+            }
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();

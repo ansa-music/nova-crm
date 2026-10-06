@@ -260,11 +260,14 @@ export function DoneLeaderboard({
   ranked,
   myUid,
   bonuses = [],
+  studio = false,
 }: {
   ranked: OverviewTechnician[];
   myUid: string;
   /** Премии за 1–3 место (workspace.techBonuses). */
   bonuses?: readonly number[];
+  /** «NOVA Studio» — подписи про менеджеров вместо технарей. */
+  studio?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const leader = ranked[0]?.doneTotal ?? 0;
@@ -272,7 +275,7 @@ export function DoneLeaderboard({
   const anyBonus = bonuses.some((b) => b > 0);
   return (
     <Panel
-      eyebrow="Рейтинг · касса технарей"
+      eyebrow={studio ? "Рейтинг · касса менеджеров" : "Рейтинг · касса технарей"}
       title="По сумме «Готово»"
       action={
         anyBonus ? (
@@ -283,7 +286,9 @@ export function DoneLeaderboard({
       }
     >
       {ranked.length === 0 ? (
-        <p className="py-6 text-center text-sm text-muted-foreground">Пока нет технарей со столами.</p>
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          {studio ? "Пока нет менеджеров со столами." : "Пока нет технарей со столами."}
+        </p>
       ) : (
         <ol className="flex flex-col gap-2.5">
           {shown.map((tech, i) => {
@@ -617,11 +622,14 @@ export function LoadChart({
   showPayment,
   myUid,
   linkDesks,
+  studio = false,
 }: {
   technicians: OverviewTechnician[];
   showPayment: boolean;
   myUid: string;
   linkDesks: boolean;
+  /** «NOVA Studio» — подписи про менеджеров вместо технарей. */
+  studio?: boolean;
 }) {
   const segments = LOAD_SEGMENTS.filter((s) => showPayment || s.kind !== "payment");
   const rows = technicians
@@ -631,7 +639,7 @@ export function LoadChart({
   const max = Math.max(1, ...rows.map((r) => r.shown));
   const totals = Object.fromEntries(segments.map((s) => [s.kind, technicians.reduce((n, t) => n + t.summary[s.kind], 0)]));
   return (
-    <Panel eyebrow="Кто чем занят" title="Загрузка технарей">
+    <Panel eyebrow="Кто чем занят" title={studio ? "Загрузка менеджеров" : "Загрузка технарей"}>
       <ul className="mb-3 flex flex-wrap gap-x-3 gap-y-1" aria-label="Легенда">
         {segments.map((s) => (
           <li key={s.kind} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -642,7 +650,9 @@ export function LoadChart({
         ))}
       </ul>
       {rows.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">Пока нет технарей со столами.</p>
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          {studio ? "Пока нет менеджеров со столами." : "Пока нет технарей со столами."}
+        </p>
       ) : (
         <ul className="flex flex-col gap-2">
           {rows.map(({ tech, shown }) => {

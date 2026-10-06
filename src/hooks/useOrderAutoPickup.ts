@@ -12,7 +12,8 @@ import { useCurrentPeriodKey } from "@/hooks/useCurrentPeriodKey";
 import { myDisplayName } from "@/utils/displayName";
 import { toast } from "@/components/ui/sonner";
 import { useUiStore } from "@/store/uiStore";
-import { useSiteConfig } from "@/config/siteTerms";
+import { currentSiteConfig, useSiteConfig } from "@/config/siteTerms";
+import { studioMode } from "@/config/studio";
 import { isModuleEnabled } from "@/types/siteConfig";
 import type { WorkOrder } from "@/types";
 
@@ -155,7 +156,10 @@ export function useOrderAutoPickup() {
               handledRef.current.delete(order.id);
               console.error("Не удалось положить заказ в стол:", error);
               toast.error(`Заказ «${order.client}» не доехал в стол`, {
-                description: "Откройте «Заказы» и нажмите «Забрать в стол».",
+                // NOVA Studio: раздел в меню зовётся «Рандом» (подпись пункта).
+                description: studioMode()
+                  ? `Откройте «${currentSiteConfig().nav?.labels?.orders ?? "Рандом"}» и нажмите «Забрать в стол».`
+                  : "Откройте «Заказы» и нажмите «Забрать в стол».",
               });
             });
         }

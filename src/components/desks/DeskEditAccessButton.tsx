@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { PenLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useStudioMode } from "@/config/studio";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { deskModeOf } from "@/services/rows/deskMode";
 
@@ -10,9 +11,13 @@ import { deskModeOf } from "@/services/rows/deskMode";
  * заполняет столы», выборочные отметки и перенос заказов между технарями и
  * ОС. Раньше здесь был диалог, и выборочное разрешение в нём не открывало
  * технарю заказы от ОС — отсюда жалоба «функция есть, но не работает».
+ * У «NOVA Studio» раздела нет (`StudioGate` уводит с `/desk-editing`), поэтому
+ * кнопки там нет вовсе — та же проверка вида, что у шлюза.
  */
 export function DeskEditAccessButton() {
+  const studio = useStudioMode();
   const { activeWorkspace, pages } = useWorkspace();
+  if (studio) return null;
   const mode = deskModeOf(activeWorkspace);
   const exemptCount = pages.filter((p) => p.techEditable && !p.osDesk && !p.inactive).length;
   const hint = mode === "tech" ? "сами" : mode === "os" ? (exemptCount ? `ОС · ${exemptCount}` : "ОС") : exemptCount ? `· ${exemptCount}` : null;

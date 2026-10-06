@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/sonner";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { useStudioMode } from "@/config/studio";
 import { currentMonthKey, nextMonthKey } from "@/services/monthTabService";
 import { updatePeriods } from "@/services/workspaceService";
 import { cn } from "@/utils/cn";
@@ -43,6 +44,8 @@ function firstDayLabel(monthKey: string): string {
  */
 export function PeriodsSettingsPanel() {
   const { activeWorkspace, activeWorkspaceId } = useWorkspace();
+  // «NOVA Studio»: без технарей, ABS, премий и оценок (только подписи).
+  const studio = useStudioMode();
   const saved = periodsOf(activeWorkspace);
   const [draft, setDraft] = useState<PeriodSettings>(saved);
   const [saving, setSaving] = useState(false);
@@ -101,8 +104,9 @@ export function PeriodsSettingsPanel() {
           <CalendarRange className="h-4 w-4 text-primary" /> Периоды столов
         </CardTitle>
         <CardDescription>
-          Столы технарей ведутся по периодам: целый месяц или две половины. По периодам считаются вкладки столов, «Технари»,
-          дашборд, премии, оценки заказов и «ABS система». График смен всегда по календарным месяцам.
+          {studio
+            ? "Столы ведутся по периодам: целый месяц или две половины. По периодам считаются вкладки столов и дашборд."
+            : "Столы технарей ведутся по периодам: целый месяц или две половины. По периодам считаются вкладки столов, «Технари», дашборд, премии, оценки заказов и «ABS система». График смен всегда по календарным месяцам."}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
@@ -173,8 +177,8 @@ export function PeriodsSettingsPanel() {
 
         {halvesOn && draft.from && draft.from > month && (
           <Alert tone="warning" title={`Вступит в силу с ${firstDayLabel(draft.from)}`}>
-            С этого дня у каждого стола технаря появится вкладка «1–{sanitizePeriods(draft).splitDay}», а {sanitizePeriods(draft).splitDay + 1}-го —
-            «{splitFirstLast.dayFrom}–{splitFirstLast.dayTo}». Вкладки прошлых месяцев не трогаются; счётчики, оценки и премии считаются по каждой
+            С этого дня у каждого стола{studio ? "" : " технаря"} появится вкладка «1–{sanitizePeriods(draft).splitDay}», а {sanitizePeriods(draft).splitDay + 1}-го —
+            «{splitFirstLast.dayFrom}–{splitFirstLast.dayTo}». Вкладки прошлых месяцев не трогаются; {studio ? "суммы считаются" : "счётчики, оценки и премии считаются"} по каждой
             половине отдельно.
           </Alert>
         )}

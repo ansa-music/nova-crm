@@ -25,6 +25,7 @@ import HomePage from "@/pages/HomePage";
 // меню (config/pageLoaders.ts): все зовут РОВНО тот же import(), и браузер
 // держит модуль один — второй вызов берёт готовый.
 import { ModuleGate } from "@/components/common/ModuleGate";
+import { StudioGate } from "@/components/common/StudioGate";
 import {
   loadAbsPage,
   loadWeeklyRatingPage,
@@ -297,33 +298,33 @@ function AppShell() {
           >
             <Route index element={<HomePage />} />
             <Route path="dashboard" element={<ModuleGate module="dashboard"><DashboardPage /></ModuleGate>} />
-            <Route path="abs" element={<ModuleGate module="dashboard"><AbsPage /></ModuleGate>} />
-            <Route path="weekly-rating" element={<ModuleGate module="dashboard"><WeeklyRatingPage /></ModuleGate>} />
-            <Route path="reports" element={<ModuleGate module="reports"><ReportsPage /></ModuleGate>} />
+            <Route path="abs" element={<StudioGate><ModuleGate module="dashboard"><AbsPage /></ModuleGate></StudioGate>} />
+            <Route path="weekly-rating" element={<StudioGate><ModuleGate module="dashboard"><WeeklyRatingPage /></ModuleGate></StudioGate>} />
+            <Route path="reports" element={<StudioGate><ModuleGate module="reports"><ReportsPage /></ModuleGate></StudioGate>} />
             <Route path="telegram" element={<ModuleGate module="telegram"><TelegramPage /></ModuleGate>} />
             <Route path="desks" element={<DesksPage />} />
             <Route path="more" element={<MorePage />} />
             <Route path="people" element={<ModuleGate module="people"><PeoplePage /></ModuleGate>} />
-            <Route path="technicians" element={<ModuleGate module="technicians"><TechniciansPage /></ModuleGate>} />
+            <Route path="technicians" element={<StudioGate><ModuleGate module="technicians"><TechniciansPage /></ModuleGate></StudioGate>} />
             <Route path="orders" element={<ModuleGate module="orders"><OrdersPage /></ModuleGate>} />
-            <Route path="os-desk" element={<ModuleGate module="osDesk"><OsDeskPage /></ModuleGate>} />
-            <Route path="os-desks" element={<ModuleGate module="osDesk"><OsDesksPage /></ModuleGate>} />
-            <Route path="os-dispatch" element={<ModuleGate module="osDesk"><OsDispatchPage /></ModuleGate>} />
-            <Route path="desk-editing" element={<DeskEditingPage />} />
+            <Route path="os-desk" element={<StudioGate><ModuleGate module="osDesk"><OsDeskPage /></ModuleGate></StudioGate>} />
+            <Route path="os-desks" element={<StudioGate><ModuleGate module="osDesk"><OsDesksPage /></ModuleGate></StudioGate>} />
+            <Route path="os-dispatch" element={<StudioGate><ModuleGate module="osDesk"><OsDispatchPage /></ModuleGate></StudioGate>} />
+            <Route path="desk-editing" element={<StudioGate><DeskEditingPage /></StudioGate>} />
             <Route path="platform" element={<PlatformPage />} />
-            <Route path="observers" element={<DeskObserversPage />} />
+            <Route path="observers" element={<StudioGate><DeskObserversPage /></StudioGate>} />
             <Route path="schedule" element={<ModuleGate module="schedule"><SchedulePage /></ModuleGate>} />
             <Route path="overview" element={<Navigate to="/dashboard" replace />} />
             <Route path="page/:pageId" element={<DynamicTablePage />} />
             <Route path="users" element={<UsersPage />} />
-            <Route path="team" element={<TeamPage />} />
+            <Route path="team" element={<StudioGate><TeamPage /></StudioGate>} />
             <Route path="announcements" element={<ModuleGate module="announcements"><AnnouncementsPage /></ModuleGate>} />
             <Route path="grok-limit" element={<ModuleGate module="grok"><GrokLimitPage /></ModuleGate>} />
             <Route path="prompts" element={<ModuleGate module="prompts"><PromptsPage /></ModuleGate>} />
-            <Route path="leads" element={<ModuleGate module="orders"><LeadBoardPage /></ModuleGate>} />
-            <Route path="big-orders" element={<ModuleGate module="orders"><BigOrdersPage /></ModuleGate>} />
+            <Route path="leads" element={<StudioGate><ModuleGate module="orders"><LeadBoardPage /></ModuleGate></StudioGate>} />
+            <Route path="big-orders" element={<StudioGate><ModuleGate module="orders"><BigOrdersPage /></ModuleGate></StudioGate>} />
             <Route path="grok-limit/apps" element={<Navigate to="/grok-limit?s=higgsfield" replace />} />
-            <Route path="dispatch" element={DISPATCH_ENABLED ? <DispatchPage /> : <Navigate to="/" replace />} />
+            <Route path="dispatch" element={DISPATCH_ENABLED ? <StudioGate><DispatchPage /></StudioGate> : <Navigate to="/" replace />} />
             <Route path="chat" element={<ModuleGate module="chat"><WorkspaceChatPage /></ModuleGate>} />
             <Route path="messages" element={<ModuleGate module="chat"><MessagesPage /></ModuleGate>} />
             <Route path="messages/:peerUid" element={<ModuleGate module="chat"><MessagesPage /></ModuleGate>} />

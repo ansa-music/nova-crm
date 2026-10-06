@@ -4,7 +4,10 @@ import { Loader2, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
+import { useSiteConfig } from "@/config/siteTerms";
+import { isCosmosSite } from "@/config/studio";
 import { cn } from "@/utils/cn";
+import { cosmosConfettiStyle } from "@/utils/confetti";
 import type { OrderCandidate } from "@/services/orderService";
 import type { WorkspaceMember } from "@/types";
 
@@ -48,6 +51,16 @@ function sectorPath(from: number, to: number): string {
   return `M ${R} ${R} L ${x1} ${y1} A ${R - 4} ${R - 4} 0 ${large} 1 ${x2} ${y2} Z`;
 }
 
+/**
+ * Вид «орбита» под «космосом» (воркспейс «NOVA Studio», 06.10.2026): тёмные
+ * сектора с тонкой оранжевой кромкой, звёзды за колесом (index.css,
+ * `.nova-cosmos-wheel`), светящаяся стрелка. Только краски: углы, посадка на
+ * сектор и время вращения те же. Без флага — прежний вид байт в байт.
+ */
+const COSMOS_SECTOR_FILLS = ["hsl(250 34% 11%)", "hsl(250 28% 16%)", "hsl(252 30% 21%)"] as const;
+const COSMOS_WHEEL_SHADOW =
+  "0 0 0 1px hsl(var(--primary) / 0.6), 0 0 0 5px hsl(250 32% 7%), 0 0 0 6px hsl(230 100% 82% / 0.22), 0 0 34px -4px hsl(var(--primary) / 0.45), 0 0 70px -12px hsl(230 100% 75% / 0.35)";
+
 function shortName(name: string, count: number): string {
   const limit = count <= 4 ? 14 : count <= 7 ? 11 : 8;
   const clean = name.trim() || "—";
@@ -73,6 +86,8 @@ export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onCl
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const wheelRef = useRef<HTMLDivElement | null>(null);
+  // Только вид (с черновиком Конструктора), механику барабана не трогает.
+  const cosmos = isCosmosSite(useSiteConfig());
 
   const seg = 360 / Math.max(pool.length, 1);
   // Небольшой сдвиг внутри сектора — иначе стрелка всегда встаёт ровно по
@@ -129,6 +144,8 @@ export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onCl
       origin: rect
         ? { x: (rect.left + rect.width / 2) / window.innerWidth, y: (rect.top + rect.height / 2) / window.innerHeight }
         : { y: 0.4 },
+      // Под «космосом» — звёзды цветами студии; без флага null и ничего не добавляется.
+      ...cosmosConfettiStyle(),
     });
   }, [landed, error, saved]);
 
@@ -161,12 +178,12 @@ export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onCl
         </DialogHeader>
 
         <div className="flex flex-col items-center gap-4 py-1">
-          <div ref={wheelRef} className="nova-wheel-enter relative" style={{ width: SIZE, height: SIZE }}>
+          <div ref={wheelRef} className={cn("nova-wheel-enter relative", cosmos && "nova-cosmos-wheel")} style={{ width: SIZE, height: SIZE }}>
             {/* Стрелка сверху — вне вращающегося слоя. */}
-            <div className="absolute left-1/2 top-[-6px] z-10 -translate-x-1/2">
+            <div className={cn("absolute left-1/2 top-[-6px] z-10 -translate-x-1/2", cosmos && "nova-cosmos-wheel-pointer")}>
               <div
                 className="h-0 w-0 border-l-[9px] border-r-[9px] border-t-[16px] border-l-transparent border-r-transparent"
-                style={{ borderTopColor: "hsl(var(--foreground))" }}
+                style={{ borderTopColor: cosmos ? "hsl(var(--primary))" : "hsl(var(--foreground))" }}
               />
             </div>
             <div
@@ -175,11 +192,11 @@ export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onCl
                 transform: `rotate(${angle}deg)`,
                 // Ease-out «как настоящее колесо»: резкий старт, долгий выкат.
                 transition: reduceMotion ? "none" : `transform ${SPIN_MS}ms cubic-bezier(0.12, 0.72, 0.1, 1)`,
-                boxShadow: "0 0 0 3px hsl(var(--border)), 0 12px 40px -12px hsl(var(--primary) / 0.5)",
+                boxShadow: cosmos ? COSMOS_WHEEL_SHADOW : "0 0 0 3px hsl(var(--border)), 0 12px 40px -12px hsl(var(--primary) / 0.5)",
               }}
             >
               <svg viewBox={`0 0 ${SIZE} ${SIZE}`} width={SIZE} height={SIZE} role="img" aria-label="Барабан случайного выбора">
-                <circle cx={R} cy={R} r={R} fill="hsl(var(--card))" />
+                <circle cx={R} cy={R} r={R} fill={cosmos ? "hsl(250 34% 7%)" : "hsl(var(--card))"} />
                 {pool.map((c, i) => {
                   const from = i * seg;
                   const mid = from + seg / 2;
@@ -187,13 +204,15 @@ export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onCl
                   // последний берёт третий тон, иначе первый и последний
                   // сектора сходились бы одинаковыми.
                   const tone = pool.length % 2 === 1 && i === pool.length - 1 ? 2 : i % 2;
-                  const fill =
-                    tone === 0
+                  const fill = cosmos
+                    ? COSMOS_SECTOR_FILLS[tone]
+                    : tone === 0
                       ? "hsl(var(--primary) / 0.88)"
                       : tone === 1
                         ? "hsl(var(--primary) / 0.22)"
                         : "hsl(var(--primary) / 0.55)";
-                  const text = tone === 1 ? "hsl(var(--foreground))" : "hsl(var(--primary-foreground))";
+                  // На тёмных секторах «орбиты» подпись везде светлая.
+                  const text = cosmos ? "hsl(var(--foreground))" : tone === 1 ? "hsl(var(--foreground))" : "hsl(var(--primary-foreground))";
                   const [tx, ty] = polar(mid, R * 0.62);
                   // Подпись идёт ПО ДУГЕ, а не вдоль радиуса. Колесо
                   // останавливается сектором победителя ровно под стрелкой, то
@@ -205,6 +224,8 @@ export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onCl
                   // остальные гаснут: одной стрелки мало — она стоит НАД
                   // колесом и в скриншоте на телефоне почти не читается.
                   const isWinner = i === winnerIndex;
+                  // «Орбита»: победитель после остановки подсвечен заливкой акцента.
+                  const sectorFill = cosmos && landed && isWinner ? "hsl(var(--primary) / 0.3)" : fill;
                   return (
                     <g
                       key={c.uid}
@@ -213,13 +234,21 @@ export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onCl
                       {/* Один участник — это круг целиком: дуга от 0° до 360°
                           вырождается в точку и не рисуется вовсе. */}
                       {pool.length === 1 ? (
-                        <circle cx={R} cy={R} r={R - 4} fill={fill} />
+                        <circle cx={R} cy={R} r={R - 4} fill={sectorFill} />
                       ) : (
                         <path
                           d={sectorPath(from, from + seg)}
-                          fill={fill}
-                          stroke={landed && isWinner ? "hsl(var(--foreground))" : "hsl(var(--card))"}
-                          strokeWidth={landed && isWinner ? 2.5 : 1.5}
+                          fill={sectorFill}
+                          stroke={
+                            cosmos
+                              ? landed && isWinner
+                                ? "hsl(var(--primary))"
+                                : "hsl(var(--primary) / 0.5)"
+                              : landed && isWinner
+                                ? "hsl(var(--foreground))"
+                                : "hsl(var(--card))"
+                          }
+                          strokeWidth={cosmos ? (landed && isWinner ? 2 : 0.9) : landed && isWinner ? 2.5 : 1.5}
                         />
                       )}
                       <text
@@ -237,8 +266,21 @@ export function RandomWheelDialog({ pool, winnerUid, orderClient, onAssign, onCl
                     </g>
                   );
                 })}
-                <circle cx={R} cy={R} r={22} fill="hsl(var(--card))" stroke="hsl(var(--border))" strokeWidth={2} />
-                <circle cx={R} cy={R} r={6} fill="hsl(var(--primary))" />
+                {cosmos ? (
+                  <>
+                    {/* Орбиты: пунктир по ободу и тонкое внутреннее кольцо; ступица светится. */}
+                    <circle cx={R} cy={R} r={R - 2} fill="none" stroke="hsl(230 100% 82% / 0.45)" strokeWidth={1} strokeDasharray="1 5" />
+                    <circle cx={R} cy={R} r={R * 0.36} fill="none" stroke="hsl(var(--primary) / 0.35)" strokeWidth={0.75} />
+                    <circle cx={R} cy={R} r={22} fill="hsl(250 34% 8%)" stroke="hsl(var(--primary) / 0.8)" strokeWidth={1.5} />
+                    <circle cx={R} cy={R} r={13} fill="hsl(var(--primary) / 0.2)" />
+                    <circle cx={R} cy={R} r={6} fill="hsl(var(--primary))" />
+                  </>
+                ) : (
+                  <>
+                    <circle cx={R} cy={R} r={22} fill="hsl(var(--card))" stroke="hsl(var(--border))" strokeWidth={2} />
+                    <circle cx={R} cy={R} r={6} fill="hsl(var(--primary))" />
+                  </>
+                )}
               </svg>
             </div>
           </div>

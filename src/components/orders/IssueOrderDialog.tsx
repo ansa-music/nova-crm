@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Archive, Banknote, CalendarDays, Clock3, Link2, Loader2, Phone, Users } from "lucide-react";
+import { Archive, Banknote, BookOpen, CalendarDays, Clock3, Link2, Loader2, Phone, Shapes, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { parseOptionalNumber } from "@/utils/quickOrder";
 import { isHttpUrl } from "@/utils/httpUrl";
 import { splitOptionsByActivity } from "@/utils/columnOptions";
 import { cn } from "@/utils/cn";
+import { term } from "@/config/siteTerms";
 import { WORK_ORDER_URGENCY_LABELS, type StatusOption, type WorkOrderUrgency } from "@/types";
 
 export interface IssueOrderForm {
@@ -24,9 +25,13 @@ export interface IssueOrderForm {
   minutes: string;
   note: string;
   osValue: string;
+  /** NOVA Studio: подпись варианта «Тип работы»; у остальных всегда пусто. */
+  workType: string;
+  /** NOVA Studio: тема работы; у остальных всегда пусто. */
+  topic: string;
 }
 
-const EMPTY: IssueOrderForm = { client: "", phone: "", link: "", deadline: "", urgency: "normal", price: "", persons: "", minutes: "", note: "", osValue: "" };
+const EMPTY: IssueOrderForm = { client: "", phone: "", link: "", deadline: "", urgency: "normal", price: "", persons: "", minutes: "", note: "", osValue: "", workType: "", topic: "" };
 
 const URGENCY_PICKS: Array<{ value: WorkOrderUrgency; tone: string }> = [
   { value: "normal", tone: "border-border text-muted-foreground" },
@@ -52,10 +57,18 @@ interface IssueOrderDialogProps {
    * только свой, выбора нет; заказ сначала ложится строкой на стол.
    */
   fromDesk?: boolean;
+  /**
+   * NOVA Studio (только вид): без ОС, «Персонажей» и «Минут»; вместо них «Тип
+   * работы» чипами и «Тема» — они уйдут первой строкой пожеланий
+   * (`packStudioOrderNote` в OrdersPage).
+   */
+  studio?: boolean;
+  /** Варианты «Тип работы» (своё поле workspace `work_type`) — для студии. */
+  workTypeOptions?: StatusOption[];
 }
 
 /** «Выдать заказ» — те же поля, что попадут в строку стола технаря. */
-export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit, fromDesk = false }: IssueOrderDialogProps) {
+export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit, fromDesk = false, studio = false, workTypeOptions = [] }: IssueOrderDialogProps) {
   // Свой ник первым, остальные — как в общем списке «Ответственный».
   const orderedOs = myOs
     ? [myOs, ...osOptions.filter((o) => o.value !== myOs.value)]
@@ -85,7 +98,8 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
   const priceBad = form.price.trim() !== "" && priceNum == null;
   // Без схемы браузер считает адрес относительным и уводит внутрь CRM.
   const linkBad = form.link.trim() !== "" && !isHttpUrl(form.link);
-  const needsOs = !fromDesk && orderedOs.length > 0;
+  // В студии ОС нет — поле скрыто и не обязательно.
+  const needsOs = !fromDesk && !studio && orderedOs.length > 0;
   const canSave = Boolean(form.client.trim()) && !personsBad && !minutesBad && !priceBad && (!needsOs || Boolean(form.osValue)) && !saving;
 
   async function handleSubmit() {
@@ -113,7 +127,9 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
           <DialogDescription>
             {fromDesk
               ? "Заказ ляжет строкой на ваш стол ОС и сразу уйдёт на «Заказы» — технари смогут откликнуться."
-              : "Технари увидят заказ на «Заказах» и смогут откликнуться."}
+              : studio
+                ? `${term("technician")} увидят заказ и смогут откликнуться — даже с работами в процессе.`
+                : "Технари увидят заказ на «Заказах» и смогут откликнуться."}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -127,6 +143,48 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
             <Label htmlFor="io-client">Имя клиента</Label>
             <Input id="io-client" ref={clientRef} value={form.client} onChange={(e) => set("client", e.target.value)} placeholder="Айгерим" autoComplete="off" />
           </div>
+          {studio ? (
+            <>
+              {/* Студия: ОС нет; телефон или @username — тот же столбец стола. */}
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="io-phone" className="flex items-center gap-1.5">
+                  <Phone className="h-3.5 w-3.5 text-muted-foreground" /> Телефон / Telegram
+                </Label>
+                <Input id="io-phone" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+7 701 000 00 00 или @username" autoComplete="off" />
+              </div>
+              {workTypeOptions.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <Label className="flex items-center gap-1.5">
+                    <Shapes className="h-3.5 w-3.5 text-muted-foreground" /> Тип работы
+                  </Label>
+                  <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Тип работы">
+                    {workTypeOptions.map((o) => {
+                      const on = form.workType === o.label;
+                      return (
+                        <button
+                          key={o.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={on}
+                          className={cn(chip(on), "inline-flex items-center gap-1.5")}
+                          onClick={() => set("workType", on ? "" : o.label)}
+                        >
+                          <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ background: `hsl(${o.color})` }} />
+                          {o.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="io-topic" className="flex items-center gap-1.5">
+                  <BookOpen className="h-3.5 w-3.5 text-muted-foreground" /> Тема
+                </Label>
+                <Input id="io-topic" value={form.topic} onChange={(e) => set("topic", e.target.value)} placeholder="Инфляция в Казахстане" autoComplete="off" />
+              </div>
+            </>
+          ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="io-phone" className="flex items-center gap-1.5">
@@ -172,6 +230,7 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
               )}
             </div>
           </div>
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="io-link" className="flex items-center gap-1.5">
@@ -197,7 +256,7 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="io-price" className="flex items-center gap-1.5">
-              <Banknote className="h-3.5 w-3.5 text-muted-foreground" /> Цена заказа
+              <Banknote className="h-3.5 w-3.5 text-muted-foreground" /> {studio ? "Сумма" : "Цена заказа"}
             </Label>
             <Input
               id="io-price"
@@ -209,6 +268,8 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
               autoComplete="off"
             />
           </div>
+          {/* Персонажи и минуты — мультфильмы Nova; у студии их нет. */}
+          {!studio && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="io-persons" className="flex items-center gap-1.5">
@@ -237,6 +298,7 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
               </div>
             </div>
           </div>
+          )}
           <div className="flex flex-col gap-1.5">
             <Label>Срочность</Label>
             <div className="flex flex-wrap gap-1.5">
@@ -261,8 +323,14 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="io-note">Пожелания</Label>
-            <Textarea id="io-note" rows={2} value={form.note} onChange={(e) => set("note", e.target.value)} placeholder="Попадут в визитку клиента в столе" />
+            <Label htmlFor="io-note">{studio ? "Требования" : "Пожелания"}</Label>
+            <Textarea
+              id="io-note"
+              rows={2}
+              value={form.note}
+              onChange={(e) => set("note", e.target.value)}
+              placeholder={studio ? "Объём, оформление, оригинальность — попадут в визитку клиента" : "Попадут в визитку клиента в столе"}
+            />
           </div>
           <DialogFooter>
             <Button type="submit" disabled={!canSave}>

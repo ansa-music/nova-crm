@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
+import { useStudioMode } from "@/config/studio";
 import {
   linkMemberNick,
   memberNickValue,
@@ -113,6 +114,10 @@ export function NickPicker({
   const [query, setQuery] = useState(initialQuery);
   const [showInactive, setShowInactive] = useState(false);
   const meta = NICK_KIND_META[kind];
+  // «NOVA Studio» (только вид): технарей там нет — список ников менеджеров
+  // называется просто «список ников».
+  const studioTech = useStudioMode() && kind === "tech";
+  const listName = studioTech ? "список ников" : meta.listName;
 
   const pinnedBy = useMemo(() => {
     const map = new Map<string, WorkspaceMember>();
@@ -212,14 +217,16 @@ export function NickPicker({
           >
             <Plus className="h-3.5 w-3.5 shrink-0 text-primary" />
             <span className="min-w-0 flex-1 truncate">
-              Новый ник «<span className="font-medium">{newLabel}</span>» — добавить в {meta.listName}
+              Новый ник «<span className="font-medium">{newLabel}</span>» — добавить в {listName}
             </span>
             {choice?.kind === "new" && choice.label === newLabel && <Check className="h-4 w-4 shrink-0 text-primary" />}
           </button>
         )}
 
         {options.length === 0 && !newLabel && (
-          <p className="px-2.5 py-3 text-xs text-muted-foreground">Список {meta.listName} пуст — введите ник выше, он добавится.</p>
+          <p className="px-2.5 py-3 text-xs text-muted-foreground">
+            {studioTech ? "Список ников" : <>Список {meta.listName}</>} пуст — введите ник выше, он добавится.
+          </p>
         )}
         {options.length > 0 && free.length === 0 && !newLabel && (
           <p className="px-2.5 py-3 text-xs text-muted-foreground">Свободных ников нет — введите новый выше, он добавится.</p>
@@ -236,7 +243,7 @@ export function NickPicker({
       {choice?.kind === "new" && (
         <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <AtSign className="h-3 w-3 shrink-0" />
-          Новый ник «{choice.label}» появится в {meta.listName} при сохранении.
+          Новый ник «{choice.label}» появится в {listName} при сохранении.
         </p>
       )}
     </div>
@@ -264,6 +271,20 @@ const KIND_TEXT: Record<NickKind, { title: string; description: string; unpin: s
   },
 };
 
+/**
+ * «NOVA Studio» (только вид): технарей, ОС и «Графика» там нет — ник менеджера
+ * просто «Ник», а пояснение без разделов Nova.
+ */
+function studioKindText(kind: NickKind): (typeof KIND_TEXT)[NickKind] {
+  const description = "Человек работает под этим ником — так его видно везде на сайте.";
+  if (kind !== "tech") return { ...KIND_TEXT[kind], description };
+  return {
+    title: "Ник",
+    description,
+    unpin: "ник останется в списке ников свободным, человека снова будут показывать по его имени.",
+  };
+}
+
 /** Закрепить за участником ник (ОС или технаря) или открепить его. Тимлид/Owner only. */
 export function NickDialog({
   workspaceId,
@@ -283,13 +304,14 @@ export function NickDialog({
   onSaved: () => Promise<void> | void;
 }) {
   const { uid: actorUid } = usePermissions();
+  const studio = useStudioMode();
   const value = memberNickValue(member, kind);
   const currentValue = value && options.some((o) => o.value === value) ? value : null;
   const [choice, setChoice] = useState<NickChoice | null>(currentValue ? { kind: "option", value: currentValue } : null);
   const [saving, setSaving] = useState(false);
   // Настоящее имя, а не ник: у технаря с ником иначе вышло бы «Ник технаря · Sako».
   const name = realNameOf(member);
-  const text = KIND_TEXT[kind];
+  const text = studio ? studioKindText(kind) : KIND_TEXT[kind];
   // Ник, который удалили из списка, возвращается под старым value.
   const savedLabel = (member[NICK_KIND_META[kind].label] as string | undefined)?.trim() ?? "";
   const lostNick = value && !currentValue ? savedLabel : "";

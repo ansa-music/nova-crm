@@ -19,6 +19,7 @@ import {
 import { cn } from "@/utils/cn";
 import type { CellAddress, PageColumn, PageRow } from "@/types";
 import type { DeskLink } from "@/utils/personDeskLinks";
+import type { DeadlineTone } from "@/utils/studioDeadline";
 
 const ROW_GUTTER_WIDTH = 56;
 
@@ -131,6 +132,15 @@ interface TableRowProps {
   /** «↗ открыть стол» у ячеек ОС / технаря — см. `utils/personDeskLinks.ts`. */
   deskLinkFor?: (row: PageRow, column: PageColumn) => DeskLink | null;
   deskLinkVersion?: string;
+  /**
+   * «NOVA Studio» (флаг считает DynamicTablePage один раз): столбец дедлайна и
+   * готовый тон ЭТОЙ строки — строками, чтобы memo сравнивал по значению.
+   * Без студии не приходят, строка рисуется как раньше.
+   */
+  deadlineKey?: string | null;
+  deadlineTone?: DeadlineTone | null;
+  /** «NOVA Studio»: подсказка кнопки визитки — без персов и минут. */
+  studio?: boolean;
 }
 
 /**
@@ -259,6 +269,9 @@ function TableRowInner({
   cellDisplayKeys,
   renderCellDisplay,
   deskLinkFor,
+  deadlineKey,
+  deadlineTone,
+  studio,
 }: TableRowProps) {
   const allowRowDrag = canReorder && !coarsePointer;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -487,6 +500,7 @@ function TableRowInner({
                     fromOrder: Boolean(row.orderId),
                     isNewOrder: Boolean(row.highlight),
                     carriedLabel: carriedLabel(row, tabNames),
+                    studio,
                   }
                 : null
             }
@@ -521,6 +535,7 @@ function TableRowInner({
             isDuplicate={Boolean(duplicateColKeys && duplicateColKeys.includes(column.key))}
             onFindDuplicates={onFindDuplicates ? () => onFindDuplicates(row.id, column.key) : undefined}
             rowHeight={rowHeight}
+            deadlineTone={deadlineKey && column.key === deadlineKey ? deadlineTone : undefined}
           />
         );
       })}
@@ -613,6 +628,9 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     prev.renderCellDisplay !== next.renderCellDisplay ||
     prev.deskLinkFor !== next.deskLinkFor ||
     prev.deskLinkVersion !== next.deskLinkVersion ||
+    prev.deadlineKey !== next.deadlineKey ||
+    prev.deadlineTone !== next.deadlineTone ||
+    prev.studio !== next.studio ||
     prev.onCellAction !== next.onCellAction ||
     prev.getCellAction !== next.getCellAction ||
     prev.cellActionPulse !== next.cellActionPulse

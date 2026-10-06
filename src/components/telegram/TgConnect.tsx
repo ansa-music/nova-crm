@@ -4,6 +4,7 @@ import { KeyRound, Link2, Loader2, QrCode, ShieldCheck, Smartphone } from "lucid
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useStudioMode, useStudioSaved } from "@/config/studio";
 import { callTgEdge, refreshTgServer, ringTgServer, TgEdgeError } from "@/services/telegram/tgServer";
 
 type Step =
@@ -39,6 +40,11 @@ export function TgConnect({ workspaceId, migrate = null, onLegacy = null }: Prop
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
+  // «NOVA Studio»: у менеджеров своей формы пароля нет — без пароля на сервере
+  // они не войдут, поэтому «Запомнить» не выключается. Галочку прячет вид
+  // (флаг с черновиком), а в запрос `remember` ставит сохранённый флаг.
+  const studio = useStudioMode();
+  const studioSaved = useStudioSaved();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const alive = useRef(true);
@@ -157,7 +163,7 @@ export function TgConnect({ workspaceId, migrate = null, onLegacy = null }: Prop
             e.preventDefault();
             if (!password) return;
             void run(async () => {
-              const res = await callTgEdge(workspaceId, "connect_password", { password, remember });
+              const res = await callTgEdge(workspaceId, "connect_password", { password, remember: studioSaved || remember });
               setPassword("");
               apply(res);
             });
@@ -167,10 +173,14 @@ export function TgConnect({ workspaceId, migrate = null, onLegacy = null }: Prop
             <KeyRound className="h-4 w-4 text-primary" /> Облачный пароль Telegram{step.hint ? ` (подсказка: ${step.hint})` : ""}
           </p>
           <Input type="password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Облачный пароль" aria-label="Облачный пароль" />
-          <label className="flex items-start gap-2 text-[12px] text-muted-foreground">
-            <input type="checkbox" className="mt-0.5" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-            <span>Запомнить пароль на сервере — новые устройства будут входить сами. Без этого пароль спросят один раз в каждом браузере.</span>
-          </label>
+          {studio ? (
+            <p className="text-[12px] text-muted-foreground">Пароль сохраняется на сервере — без него участники не смогут войти.</p>
+          ) : (
+            <label className="flex items-start gap-2 text-[12px] text-muted-foreground">
+              <input type="checkbox" className="mt-0.5" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+              <span>Запомнить пароль на сервере — новые устройства будут входить сами. Без этого пароль спросят один раз в каждом браузере.</span>
+            </label>
+          )}
           <Button type="submit" disabled={busy || !password} className="min-h-11 sm:min-h-9">
             {busy && <Loader2 className="h-4 w-4 animate-spin" />} Подключить
           </Button>

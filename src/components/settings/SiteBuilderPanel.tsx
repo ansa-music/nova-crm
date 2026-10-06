@@ -14,7 +14,7 @@ import { removeBrandLogo, uploadBrandLogo } from "@/services/brandService";
 import { updateSiteConfig } from "@/services/workspaceService";
 import { firestoreErrorText } from "@/utils/dbError";
 import { cn } from "@/utils/cn";
-import { ALL_ROLES, ROLE_LABELS, type ColumnType, type Role } from "@/types";
+import { ALL_ROLES, ROLE_LABELS, type ColumnType, type CustomFieldDef, type Role } from "@/types";
 import {
   HOME_TARGETS,
   LOCKED_NAV_KEYS,
@@ -76,6 +76,45 @@ const COLUMN_TYPES: Array<{ value: ColumnType; label: string }> = [
   { value: "email", label: "Почта" },
   { value: "url", label: "Ссылка" },
 ];
+
+type TemplateColumn = SiteDeskTemplate["columns"][number];
+
+/**
+ * «NOVA Studio»: тип столбца «Своё поле» — выпадашка из «Настройки → Поля».
+ * В выборе типа он живёт значением `custom:<id поля>`; у других компаний
+ * этих пунктов нет вовсе — их Конструктор прежний.
+ */
+const CUSTOM_TYPE_PREFIX = "custom:";
+/** Та же проверка id поля, что в `sanitizeSiteConfig`: иное он превратит в текст. */
+const CUSTOM_FIELD_ID_RE = /^[a-zA-Z0-9_-]{1,60}$/;
+const NO_FIELDS: CustomFieldDef[] = [];
+
+function withColumnType(col: TemplateColumn, value: string): TemplateColumn {
+  if (value.startsWith(CUSTOM_TYPE_PREFIX)) return { ...col, type: "custom", customFieldId: value.slice(CUSTOM_TYPE_PREFIX.length) };
+  return { ...col, type: value as ColumnType };
+}
+
+/**
+ * Импорт JSON в компанию без сохранённой студии — ровно как до студии
+ * (прежний `sanitizeSiteConfig`): «Своё поле» приезжает текстом без ссылки на
+ * поле, космос не переносится. Ни того, ни другого в Конструкторе такой
+ * компании нет — выбор типа остался бы пустым, а космос нечем было бы выключить.
+ */
+function withoutStudioLook(config: SiteConfig): SiteConfig {
+  const next: SiteConfig = { ...config };
+  if (next.theme?.fx) {
+    const theme = { ...next.theme };
+    delete theme.fx;
+    if (Object.keys(theme).length) next.theme = theme;
+    else delete next.theme;
+  }
+  if (next.deskTemplate) {
+    next.deskTemplate = {
+      columns: next.deskTemplate.columns.map((c) => (c.type === "custom" ? { key: c.key, label: c.label, type: "text", width: c.width } : c)),
+    };
+  }
+  return next;
+}
 
 const NOVA_DESK_COLUMNS: SiteDeskTemplate["columns"] = [
   { key: "name", label: "Название", type: "text", width: 220 },
@@ -155,6 +194,19 @@ export function SiteBuilderPanel() {
   const { activeWorkspace, activeWorkspaceId } = useWorkspace();
   const saved = useMemo(() => sanitizeSiteConfig(siteConfigOf(activeWorkspace)), [activeWorkspace]);
   const savedKey = JSON.stringify(saved);
+  // «NOVA Studio» — только по СОХРАНЁННОЙ настройке, не по черновику: свои
+  // контролы студии (космос, «Своё поле») видны лишь там, где студия уже есть.
+  const studioSaved = saved.profile === "studio";
+  const customFields = activeWorkspace?.customFields ?? NO_FIELDS;
+  const customTypeOptions = useMemo(
+    () =>
+      studioSaved
+        ? customFields
+            .filter((f) => CUSTOM_FIELD_ID_RE.test(f.id))
+            .map((f) => ({ value: `${CUSTOM_TYPE_PREFIX}${f.id}`, label: `Своё поле: ${f.name}` }))
+        : [],
+    [studioSaved, customFields]
+  );
   const [draft, setDraft] = useState<SiteConfig>(saved);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -238,7 +290,12 @@ export function SiteBuilderPanel() {
   function importJson() {
     try {
       const parsed = sanitizeSiteConfig(JSON.parse(importText));
-      setDraft(parsed);
+      // Профиль поведения («studio») переносом не переезжает и не снимается:
+      // файл переносит ВИД, а что делает сайт — решает сохранённая настройка
+      // этой компании (иначе JSON студии включил бы её поведение у чужих).
+      if (saved.profile) parsed.profile = saved.profile;
+      else delete parsed.profile;
+      setDraft(studioSaved ? parsed : withoutStudioLook(parsed));
       setImportText("");
       toast.success("Настройка загружена — проверьте и нажмите «Сохранить»");
     } catch {
@@ -357,7 +414,17 @@ export function SiteBuilderPanel() {
       <Section
         title="Цвета"
         description="Главный цвет — кнопки, ссылки, активный пункт меню. Фон — оттенок всех поверхностей."
-        onReset={clean.theme ? () => patch((prev) => ({ ...prev, theme: undefined })) : undefined}
+        onReset={
+          studioSaved
+            ? // В студии «Как у Nova» сбрасывает цвета, а космос оставляет —
+              // он выключается своим переключателем ниже.
+              clean.theme?.primary || clean.theme?.background
+              ? () => patch((prev) => ({ ...prev, theme: prev.theme?.fx ? { fx: prev.theme.fx } : undefined }))
+              : undefined
+            : clean.theme
+              ? () => patch((prev) => ({ ...prev, theme: undefined }))
+              : undefined
+        }
       >
         <div className="flex flex-wrap items-center gap-2">
           {PRIMARY_PRESETS.map((p) => (
@@ -407,6 +474,20 @@ export function SiteBuilderPanel() {
             );
           })}
         </div>
+        {studioSaved ? (
+          <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border px-3 py-2.5 hover:bg-accent/40">
+            <Switch
+              checked={clean.theme?.fx === "cosmos"}
+              onCheckedChange={(next) => patch((prev) => ({ ...prev, theme: { ...prev.theme, fx: next ? "cosmos" : undefined } }))}
+            />
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium">Космос-эффекты</span>
+              <span className="block text-[11px] text-muted-foreground">
+                Звёздный фон, туманность и мягкие переходы. Выключено — обычный вид с выбранными цветами.
+              </span>
+            </span>
+          </label>
+        ) : null}
       </Section>
 
       <Section
@@ -617,8 +698,8 @@ export function SiteBuilderPanel() {
                 />
                 <div className="col-span-2 row-start-2 sm:col-span-1 sm:row-start-auto">
                   <Select
-                    value={col.type}
-                    onValueChange={(value) => setColumns(columns.map((c, i) => (i === index ? { ...c, type: value as ColumnType } : c)))}
+                    value={studioSaved && col.type === "custom" && col.customFieldId ? `${CUSTOM_TYPE_PREFIX}${col.customFieldId}` : col.type}
+                    onValueChange={(value) => setColumns(columns.map((c, i) => (i === index ? withColumnType(c, value) : c)))}
                   >
                     <SelectTrigger className="h-9">
                       <SelectValue />
@@ -629,6 +710,18 @@ export function SiteBuilderPanel() {
                           {t.label}
                         </SelectItem>
                       ))}
+                      {customTypeOptions.map((t) => (
+                        <SelectItem key={t.value} value={t.value}>
+                          {t.label}
+                        </SelectItem>
+                      ))}
+                      {/* Поле удалили из «Полей», а столбец на него ещё ссылается — пусть выбор не будет пустым. */}
+                      {studioSaved &&
+                      col.type === "custom" &&
+                      col.customFieldId &&
+                      !customTypeOptions.some((t) => t.value === `${CUSTOM_TYPE_PREFIX}${col.customFieldId}`) ? (
+                        <SelectItem value={`${CUSTOM_TYPE_PREFIX}${col.customFieldId}`}>Своё поле: {col.customFieldId} (нет в «Полях»)</SelectItem>
+                      ) : null}
                     </SelectContent>
                   </Select>
                 </div>
@@ -700,12 +793,13 @@ export function SiteBuilderPanel() {
             <Download className="mr-1.5 h-4 w-4" />
             Скачать настройку
           </Button>
+          {/* «Всё как у Nova» сбрасывает вид, а профиль поведения студии оставляет как сохранён. */}
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            disabled={!Object.keys(clean).length}
-            onClick={() => setDraft({})}
+            disabled={studioSaved ? !Object.keys(clean).some((k) => k !== "profile") : !Object.keys(clean).length}
+            onClick={() => setDraft(saved.profile ? { profile: saved.profile } : {})}
           >
             <RotateCcw className="mr-1.5 h-4 w-4" />
             Всё как у Nova

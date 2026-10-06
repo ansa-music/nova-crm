@@ -19,7 +19,20 @@ import { firestoreErrorText } from "@/utils/dbError";
 import { refreshWorkspaceMembers } from "@/hooks/useWorkspace";
 import { useTenantInfo } from "@/hooks/useTenantInfo";
 import { assertSeatAvailable } from "@/utils/seats";
+import { studioSavedFor, useStudioMode } from "@/config/studio";
 import { roleLabel, type JoinRequest, type Role, type Workspace, type WorkspaceMember } from "@/types";
+
+/**
+ * «NOVA Studio»: после одобрения — доступ к общему Telegram новому человеку и
+ * всем активным (только ДОБАВИТЬ, решает studioService). Модуль грузится лишь
+ * в студии; null («не выполнено») не ошибка, сбой — только в консоль: заявка
+ * уже одобрена, а недостающих догонит сверка в сессии Owner.
+ */
+function grantStudioTelegram(workspaceId: string, uids: string[]): void {
+  void import("@/services/studioService")
+    .then(({ ensureStudioTelegramAccess }) => ensureStudioTelegramAccess(workspaceId, uids))
+    .catch((error: unknown) => console.warn("studio: Telegram access after approve failed:", error));
+}
 
 /**
  * Одобрить заявку на вход. Человек пришёл без роли и сам написал, кем
@@ -45,7 +58,11 @@ export function ApproveJoinDialog({
   onApproved: () => Promise<void> | void;
 }) {
   const requestedRole: Role = request.requestedRole ?? DEFAULT_JOIN_ROLE;
-  const [role, setRole] = useState<Role>(requestedRole);
+  const [pickedRole, setRole] = useState<Role>(requestedRole);
+  // «NOVA Studio»: роль одна — «Менеджер», выбора нет (просьба «ОС» из старой
+  // формы там не действует). Только вид: пишет одобрение тот же код.
+  const studio = useStudioMode();
+  const role: Role = studio ? "manager" : pickedRole;
   const kind = nickKindForRole(role);
   const options = useMemo(() => (kind ? nickOptionsOf(workspace, kind) : []), [workspace, kind]);
   // Выбор ника живёт по роли: сменили Технаря на ОС — предлагаем тот же ник,
@@ -90,6 +107,11 @@ export function ApproveJoinDialog({
         approvedBy: approverUid,
         members,
       });
+      // Пишет — значит, по СОХРАНЁННОМУ флагу этого workspace, а не по черновику.
+      if (studioSavedFor(workspaceId)) {
+        const active = members.filter((m) => m.status === "active" && m.uid).map((m) => m.uid);
+        grantStudioTelegram(workspaceId, [...new Set([request.uid, ...active])]);
+      }
       const adopted = nickLabel
         ? await adoptScheduleRowByNick({ workspaceId, memberUid: request.uid, nickLabel, actorUid: approverUid, kind: kind!, role })
         : null;
@@ -140,15 +162,22 @@ export function ApproveJoinDialog({
           </div>
         </div>
 
-        <label className="flex items-center justify-between gap-3 text-[13px]">
-          Роль
-          <RoleSelect value={role} onChange={setRole} className="w-40" />
-        </label>
+        {studio ? (
+          <div className="flex items-center justify-between gap-3 text-[13px]">
+            Роль
+            <span className="font-medium">{roleLabel(role)}</span>
+          </div>
+        ) : (
+          <label className="flex items-center justify-between gap-3 text-[13px]">
+            Роль
+            <RoleSelect value={role} onChange={setRole} className="w-40" />
+          </label>
+        )}
 
         {kind ? (
           <div className="flex min-w-0 flex-col gap-1.5">
             <div className="flex items-center justify-between gap-2 text-[13px]">
-              <span>{NICK_KIND_META[kind].title}</span>
+              <span>{studio ? "Ник" : NICK_KIND_META[kind].title}</span>
               {choice && (
                 <button
                   type="button"
@@ -175,7 +204,7 @@ export function ApproveJoinDialog({
                 Ник «{requestedOption.label}», который просил человек, уже закреплён за {realNameOf(requestedTakenBy)}.
               </p>
             )}
-            {!choice && (
+            {!choice && !studio && (
               <p className="text-[11px] text-muted-foreground">
                 Без ника — его можно закрепить позже на странице «Команда».
               </p>

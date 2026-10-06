@@ -42,6 +42,7 @@ import { filterDialogsByLink, TgChatFilterBar, TgOsChip, TgOsLinkButton, type Tg
 import { TgClientButton } from "@/components/telegram/TgClientLink";
 import { TgTechGrantButton } from "@/components/telegram/TgTechGrant";
 import { formatBytes, formatDuration, PendingFile, UploadRow } from "@/components/telegram/TgUploadParts";
+import { useStudioMode } from "@/config/studio";
 
 const FILTER_KEY = "nova:tg-chat-filter";
 
@@ -114,10 +115,14 @@ export function TgChats({
   linking?: TgLinking | null;
 }) {
   const tg = useTg();
+  // «NOVA Studio» (только вид): ОС нет — ни фильтров по ОС, ни меток, ни
+  // «Привязать к ОС»; список всегда «Все» (фильтр из памяти другой компании
+  // спрятал бы чаты без кнопки сброса). «Клиент» остаётся.
+  const studio = useStudioMode();
   const [query, setQuery] = useState("");
   const [filterRaw, setFilterRaw] = useState<TgChatFilter>(readFilter);
   // «Мои» без своего ника ОС ничего не значат — тогда «Все».
-  const filter: TgChatFilter = !linking || (filterRaw === "mine" && !linking.myOsValue) ? "all" : filterRaw;
+  const filter: TgChatFilter = studio || !linking || (filterRaw === "mine" && !linking.myOsValue) ? "all" : filterRaw;
   const setFilter = (next: TgChatFilter) => {
     setFilterRaw(next);
     try {
@@ -147,7 +152,7 @@ export function TgChats({
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск чатов" className="h-9 pl-8 text-sm" />
           </div>
-          {linking && (
+          {linking && !studio && (
             <div className="mt-2">
               <TgChatFilterBar dialogs={searched} filter={filter} onFilter={setFilter} linking={linking} />
             </div>
@@ -180,7 +185,7 @@ export function TgChats({
                       {linking?.client?.clients[d.id] && (
                         <UserRound className="h-3 w-3 shrink-0 text-primary" aria-label={`Клиент: ${linking.client.clients[d.id].label}`} />
                       )}
-                      {linking?.links[d.id] && <TgOsChip value={linking.links[d.id].osValue} options={linking.options} className="max-w-[6.5rem] shrink-0" />}
+                      {!studio && linking?.links[d.id] && <TgOsChip value={linking.links[d.id].osValue} options={linking.options} className="max-w-[6.5rem] shrink-0" />}
                     </span>
                     <span className="shrink-0 text-[10px] text-muted-foreground">{d.lastAt ? formatMessageWrittenAt(d.lastAt, { compact: true }) : ""}</span>
                   </span>
@@ -203,7 +208,7 @@ export function TgChats({
       </div>
       <div className={cn("min-w-0 flex-1 flex-col", chatId === null ? "hidden md:flex" : "flex")}>
         {open ? (
-          <TgConversation key={open.id} dialog={open} me={me} onBack={() => onOpenChat(null)} linking={linking} />
+          <TgConversation key={open.id} dialog={open} me={me} onBack={() => onOpenChat(null)} linking={linking} studio={studio} />
         ) : chatId !== null && tg.dialogsLoaded ? (
           <EmptyPane text="Чат не найден среди последних" onBack={() => onOpenChat(null)} />
         ) : (
@@ -239,7 +244,20 @@ function ReadMark({ read }: { read: boolean }) {
 // Переписка.
 // ---------------------------------------------------------------------
 
-function TgConversation({ dialog, me, onBack, linking }: { dialog: TgDialog; me: TgMe; onBack: () => void; linking: TgLinking | null }) {
+function TgConversation({
+  dialog,
+  me,
+  onBack,
+  linking,
+  studio,
+}: {
+  dialog: TgDialog;
+  me: TgMe;
+  onBack: () => void;
+  linking: TgLinking | null;
+  /** «NOVA Studio»: без «Технарю» и «Привязать к ОС». */
+  studio: boolean;
+}) {
   const tg = useTg();
   const cache = tg.chats[dialog.id];
   const messages = cache?.messages ?? [];
@@ -337,9 +355,9 @@ function TgConversation({ dialog, me, onBack, linking }: { dialog: TgDialog; me:
         </div>
         {linking && (
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
-            {linking.techGrant && <TgTechGrantButton dialog={dialog} tools={linking.techGrant} />}
+            {!studio && linking.techGrant && <TgTechGrantButton dialog={dialog} tools={linking.techGrant} />}
             {linking.client && <TgClientButton dialog={dialog} tools={linking.client} />}
-            <TgOsLinkButton dialog={dialog} linking={linking} />
+            {!studio && <TgOsLinkButton dialog={dialog} linking={linking} />}
           </div>
         )}
       </div>

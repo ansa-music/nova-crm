@@ -22,6 +22,8 @@ import { toast } from "@/components/ui/sonner";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { bigOrderRowKey, bigQueueView, isBigCheck, noteBigQueuePick, useBigOrderQueue } from "@/services/bigOrderQueueService";
 import { chancePercents, orderClaimScope, type WorkOrder, type WorkspaceMember } from "@/types";
+import { useStudioMode } from "@/config/studio";
+import { useTerms } from "@/config/siteTerms";
 
 interface AssignOrderDialogProps {
   order: WorkOrder | null;
@@ -62,6 +64,10 @@ export function AssignOrderDialog({
   const claimed = candidates.filter((c) => c.claimedAt != null).sort((a, b) => (a.claimedAt ?? 0) - (b.claimedAt ?? 0));
   const others = candidates.filter((c) => c.claimedAt == null);
   const reduce = useReducedMotion() ?? false;
+  // NOVA Studio (только вид): исполнители — «менеджеры», режим по умолчанию —
+  // «Откликнулись» (см. RandomModeChooser). У остальных — как было.
+  const studio = useStudioMode();
+  const t = useTerms();
   // Среди кого крутить — выбирает выдающий (просьба Nurba 05.10.2026). Тот же пул,
   // что и у броска, — иначе карточка работает, а окно выключено (или наоборот).
   const pools: Record<RandomMode, OrderCandidate[]> = {
@@ -84,6 +90,11 @@ export function AssignOrderDialog({
       return;
     }
     setCustom(startCustom ? initialCustom() : null);
+    // Студия: всегда «Откликнулись»; запомненный режим устройства не читаем и не пишем.
+    if (studio) {
+      setMode("claimed");
+      return;
+    }
     // Режим по умолчанию: где есть кого крутить, при равных — последний выбранный.
     const remembered = lastRandomMode() ?? "claimed";
     const other: RandomMode = remembered === "claimed" ? "free" : "claimed";
@@ -322,7 +333,7 @@ export function AssignOrderDialog({
         <DialogHeader>
           <DialogTitle>Кому отдать заказ</DialogTitle>
           <DialogDescription>
-            {order ? `${order.client} — можно отдать любому технарю со столом, даже если он не откликался.` : ""}
+            {order ? `${order.client} — можно отдать любому ${studio ? "менеджеру" : "технарю"} со столом, даже если он не откликался.` : ""}
           </DialogDescription>
         </DialogHeader>
         <RandomModeCards
@@ -341,7 +352,7 @@ export function AssignOrderDialog({
               data-random-spin
               disabled={randomPool.length === 0 || busy !== null}
               onClick={() => {
-                rememberRandomMode(mode);
+                if (!studio) rememberRandomMode(mode);
                 void run("__random", () => onRandom({ mode }));
               }}
             >
@@ -366,7 +377,7 @@ export function AssignOrderDialog({
         {candidates.length > 6 ? (
           <Button variant="outline" className="w-full gap-2" disabled={busy !== null} onClick={() => setPickerOpen(true)}>
             <Maximize2 className="h-4 w-4" />
-            Все технари на весь экран · поиск и сортировка
+            Все {studio ? t("technician").toLowerCase() : "технари"} на весь экран · поиск и сортировка
           </Button>
         ) : null}
         <div className="flex max-h-[55vh] flex-col gap-3 overflow-y-auto">
@@ -379,12 +390,14 @@ export function AssignOrderDialog({
           {others.length > 0 && (
             <div className="flex flex-col gap-1.5">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {claimed.length ? "Отдать напрямую — без отклика" : "Технари"}
+                {claimed.length ? "Отдать напрямую — без отклика" : studio ? t("technician") : "Технари"}
               </p>
               {others.map(row)}
             </div>
           )}
-          {candidates.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">Технарей в workspace пока нет.</p>}
+          {candidates.length === 0 && (
+            <p className="py-6 text-center text-sm text-muted-foreground">{studio ? "Менеджеров в workspace пока нет." : "Технарей в workspace пока нет."}</p>
+          )}
         </div>
           </motion.div>
         )}

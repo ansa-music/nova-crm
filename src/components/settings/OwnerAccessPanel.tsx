@@ -21,9 +21,13 @@ import { confirmDialog } from "@/utils/appDialog";
 import { timeAgo } from "@/utils/date";
 import { firestoreErrorText } from "@/utils/dbError";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
+import { STUDIO_ASSIGNABLE_ROLES, useStudioMode } from "@/config/studio";
 
 const GRANTABLE_ROLES: Role[] = ["owner", "teamlead", "leadplus", "admin", "manager", "os", "viewer"];
 const DEMOTE_ROLES: Role[] = ["teamlead", "leadplus", "admin", "manager", "os", "viewer"];
+/** «NOVA Studio»: ролей две — Owner и «Менеджер». */
+const STUDIO_GRANTABLE_ROLES: Role[] = ["owner", ...STUDIO_ASSIGNABLE_ROLES];
+const STUDIO_DEMOTE_ROLES: Role[] = [...STUDIO_ASSIGNABLE_ROLES];
 
 type Resolve = (
   request: OwnerAccessRequest,
@@ -48,6 +52,8 @@ export function OwnerAccessPanel({
   const { profile } = useAuth();
   const { activeWorkspace, members } = useWorkspace();
   const workspaceId = activeWorkspace?.id ?? null;
+  // «NOVA Studio» (только вид): выдать по ключу — Owner или «Менеджер», снять Owner — в «Менеджера».
+  const studio = useStudioMode();
   const [grantRole, setGrantRole] = useState<Record<string, Role>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -158,7 +164,7 @@ export function OwnerAccessPanel({
                     <RoleSelect
                       className="w-full sm:w-36"
                       value={grantRole[request.id] ?? "owner"}
-                      assignableRoles={GRANTABLE_ROLES}
+                      assignableRoles={studio ? STUDIO_GRANTABLE_ROLES : GRANTABLE_ROLES}
                       disabled={Boolean(busy)}
                       onChange={(role) => setGrantRole((prev) => ({ ...prev, [request.id]: role }))}
                     />
@@ -208,7 +214,7 @@ export function OwnerAccessPanel({
                 <RoleSelect
                   className="w-full sm:w-36"
                   value="owner"
-                  assignableRoles={DEMOTE_ROLES}
+                  assignableRoles={studio ? STUDIO_DEMOTE_ROLES : DEMOTE_ROLES}
                   disabled={Boolean(busy)}
                   onChange={(role) => void handleRevoke(member.uid, role)}
                 />

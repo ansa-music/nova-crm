@@ -5,6 +5,8 @@ import { MORE_SECTION_KEY, isNavItemActive, type NavItem } from "@/config/nav";
 import { preloadRoute } from "@/config/pageLoaders";
 import { useNavModel } from "@/hooks/useNavModel";
 import { brandName, useSiteConfig } from "@/config/siteTerms";
+import { useStudioMode } from "@/config/studio";
+import { isStudioBlockedPath } from "@/components/common/StudioGate";
 import { cn } from "@/utils/cn";
 
 /**
@@ -38,12 +40,31 @@ const DESCRIPTIONS: Record<string, string> = {
   platform: "Компании, коды приглашения, тарифы",
 };
 
+/**
+ * «NOVA Studio»: подписи без технарей, ОС и кассы (у студии их нет). Чего
+ * здесь нет — как у Nova. «Отчёты», «Правку столов» и «Команду» студия не
+ * показывает вовсе (StudioGate), им подписи не нужны.
+ */
+const STUDIO_DESCRIPTIONS: Record<string, string> = {
+  settings: "Профиль, оформление, списки",
+};
+
+/** Подпись под плиткой: в студии — своя, если есть. */
+function descriptionOf(key: string, studio: boolean): string | undefined {
+  return (studio ? STUDIO_DESCRIPTIONS[key] : undefined) ?? DESCRIPTIONS[key];
+}
+
 export default function MorePage() {
   useSiteConfig();
+  // «NOVA Studio» — только вид (флаг с черновиком), как и StudioGate.
+  const studio = useStudioMode();
   const nav = useNavModel();
   const { pathname } = useLocation();
   const section = nav.sections.find((s) => s.key === MORE_SECTION_KEY);
-  const items = section?.items ?? [];
+  const allItems = section?.items ?? [];
+  // Разделы, которые студия закрывает (StudioGate), меню и так прячет
+  // настройкой студии; здесь — страховка, чтобы плитка не вела на «Главную».
+  const items = studio ? allItems.filter((i) => !isStudioBlockedPath(i.to)) : allItems;
   const byKey = new Map(items.map((i) => [i.key, i]));
   const groups = GROUPS.map((g) => ({ title: g.title, items: g.keys.map((k) => byKey.get(k)).filter((i): i is NavItem => Boolean(i)) })).filter(
     (g) => g.items.length > 0
@@ -52,13 +73,24 @@ export default function MorePage() {
   const grouped = new Set(GROUPS.flatMap((g) => g.keys));
   const rest = items.filter((i) => !grouped.has(i.key));
   if (rest.length > 0) groups.push({ title: "Другое", items: rest });
+  // В студии подпись страницы — из её же главного меню, без технарей, ОС и ABS.
+  const studioMain = studio
+    ? (nav.sections.find((s) => s.key !== MORE_SECTION_KEY)?.items ?? [])
+        .filter((i) => i.key !== "home" && i.key !== "more-page")
+        .map((i) => `«${i.label}»`)
+    : [];
+  const description = studio
+    ? studioMain.length > 0
+      ? `Остальные разделы. Частое — в меню слева: ${studioMain.join(", ")}.`
+      : "Остальные разделы."
+    : "Остальные разделы. Частое — в меню слева: стол, заказы, технари, столы ОС, Грок лимит, чат, график, дашборд и ABS.";
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-4xl p-5 sm:p-8">
       <PageHeader
         eyebrow={brandName()}
         title="Ещё"
-        description="Остальные разделы. Частое — в меню слева: стол, заказы, технари, столы ОС, Грок лимит, чат, график, дашборд и ABS."
+        description={description}
         actions={
           <button
             type="button"
@@ -102,8 +134,8 @@ export default function MorePage() {
                           </span>
                         ) : null}
                       </span>
-                      {DESCRIPTIONS[item.key] ? (
-                        <span className="block truncate text-[12px] text-muted-foreground">{DESCRIPTIONS[item.key]}</span>
+                      {descriptionOf(item.key, studio) ? (
+                        <span className="block truncate text-[12px] text-muted-foreground">{descriptionOf(item.key, studio)}</span>
                       ) : null}
                     </span>
                     <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />

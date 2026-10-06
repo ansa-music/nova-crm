@@ -14,6 +14,7 @@ import { logChange } from "@/services/historyService";
 import { roleLabel } from "@/types";
 import { cn } from "@/utils/cn";
 import { myDisplayName } from "@/utils/displayName";
+import { useStudioMode } from "@/config/studio";
 import type { Role } from "@/types";
 
 /** Dropdown switcher for the topbar — renders nothing for Manager/Viewer, who have nothing to switch. */
@@ -21,8 +22,12 @@ export function RoleSwitcher({ embedded = false }: { embedded?: boolean } = {}) 
   const permissions = usePermissions();
   const { profile } = useAuth();
   const { activeWorkspaceId, members } = useWorkspace();
+  // «NOVA Studio»: ролей две, смотреть «как кто-то» незачем — переключателя нет.
+  // Уже включённый режим всё равно можно вернуть: иначе из него не выйти.
+  const studio = useStudioMode();
 
   if (permissions.allowedSimulatedRoles.length === 0) return null;
+  if (studio && !permissions.isSimulating) return null;
 
   async function handleSelect(target: Role) {
     if (!activeWorkspaceId || !profile) return;

@@ -25,7 +25,8 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { PageColumn, PageIconName } from "@/types";
 import { useSiteConfig } from "@/config/siteTerms";
-import type { SiteConfig } from "@/types/siteConfig";
+import { deskTemplateColumns } from "@/types/siteConfig";
+import { useStudioMode } from "@/config/studio";
 import { displayNameOf } from "@/utils/displayName";
 
 interface CreatePageDialogProps {
@@ -33,11 +34,22 @@ interface CreatePageDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-/** Шаблон нового стола из «Конструктора сайта» (или null — прежние столбцы). */
-function deskTemplateColumns(site: SiteConfig): Omit<PageColumn, "id">[] | null {
-  const cols = site.deskTemplate?.columns;
-  if (!cols?.length) return null;
-  return cols.map((c, order) => ({ key: c.key, label: c.label, type: c.type, width: c.width, order }));
+/**
+ * Шаблон стола из Конструктора для ЭТОЙ компании. Своё поле (`custom`),
+ * которого в её `customFields` нет (шаблон студии перенесли JSON-ом), —
+ * обычный текст без `customFieldId`: иначе новый стол получил бы пустую
+ * выпадашку. Поле есть или своих полей в шаблоне нет — столбцы как в шаблоне.
+ */
+function templateColumnsFor(
+  columns: Omit<PageColumn, "id">[] | null,
+  customFieldIds: ReadonlySet<string>
+): Omit<PageColumn, "id">[] | null {
+  if (!columns) return null;
+  return columns.map((c) =>
+    c.type === "custom" && !(c.customFieldId && customFieldIds.has(c.customFieldId))
+      ? { key: c.key, label: c.label, type: "text", width: c.width, order: c.order }
+      : c
+  );
 }
 
 const BLANK_COLUMNS: Omit<PageColumn, "id">[] = [
@@ -65,8 +77,10 @@ const BLANK_COLUMNS: Omit<PageColumn, "id">[] = [
 export function CreatePageDialog({ open, onOpenChange }: CreatePageDialogProps) {
   const site = useSiteConfig();
   const { profile } = useAuth();
-  const { activeWorkspaceId, pages, members } = useWorkspace();
+  const { activeWorkspace, activeWorkspaceId, pages, members } = useWorkspace();
   const permissions = usePermissions();
+  // Воркспейс «NOVA Studio»: подсказки о лимите — словами менеджера (только вид).
+  const studio = useStudioMode();
   const [icon, setIcon] = useState<PageIconName>("LayoutGrid");
   const [color, setColor] = useState(COLOR_PRESETS[2]);
   const [allowedUsers, setAllowedUsers] = useState<string[]>([]);
@@ -97,7 +111,11 @@ export function CreatePageDialog({ open, onOpenChange }: CreatePageDialogProps) 
         name: values.name,
         icon,
         color,
-        columns: deskTemplateColumns(site) ?? BLANK_COLUMNS,
+        columns:
+          templateColumnsFor(
+            deskTemplateColumns(site),
+            new Set((activeWorkspace?.customFields ?? []).map((f) => f.id))
+          ) ?? BLANK_COLUMNS,
         allowedUsers: permissions.deskCreatorRole === "manager" ? [profile.uid] : allowedUsers,
         createdBy: profile.uid,
         order: pages.length,
@@ -129,11 +147,18 @@ export function CreatePageDialog({ open, onOpenChange }: CreatePageDialogProps) 
 
         {managerQuotaReached ? (
           <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm">
-            <p className="font-medium">Достигнут лимит страниц</p>
+            <p className="font-medium">{studio ? "Ваш стол уже есть" : "Достигнут лимит страниц"}</p>
+            {studio ? (
+              <p className="text-muted-foreground">
+                У менеджера один свой стол — у вас это «{ownedPages[0]?.name}». Все заказы ведите в нём; если нужен
+                ещё один стол, попросите Owner.
+              </p>
+            ) : (
             <p className="text-muted-foreground">
               Новый обычный Manager может создать одну собственную страницу. У вас уже есть «{ownedPages[0]?.name}».
               Дополнительные страницы может создать Owner или Admin.
             </p>
+            )}
             <DialogFooter>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Понятно

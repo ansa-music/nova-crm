@@ -18,6 +18,13 @@ interface RandomModeChooserProps {
   onPick: (mode: RandomMode) => void;
   disabled?: boolean;
   busy?: boolean;
+  /**
+   * NOVA Studio (только вид): подсвечен всегда «Откликнулись» — в маленькой
+   * команде «Свободных» (без работ в процессе) почти не бывает. Выбор в студии
+   * не запоминается: память режима общая на устройство, и выбор в студии
+   * переписывал бы привычный режим в других компаниях.
+   */
+  studio?: boolean;
 }
 
 const MODES: RandomMode[] = ["claimed", "free"];
@@ -32,12 +39,12 @@ const SPRING = { type: "spring", stiffness: 520, damping: 34, mass: 0.7 } as con
  * чипы режимов выезжают каскадом и сжимаются при нажатии. Esc, клик мимо и
  * уход фокуса — свернуть. `prefers-reduced-motion` — без трансформаций.
  */
-export function RandomModeChooser({ statsOf, onPick, disabled = false, busy = false }: RandomModeChooserProps) {
+export function RandomModeChooser({ statsOf, onPick, disabled = false, busy = false, studio = false }: RandomModeChooserProps) {
   const reduce = useReducedMotion() ?? false;
   const [stats, setStats] = useState<RandomModeStats | null>(null);
   const open = stats !== null;
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const last = open ? lastRandomMode() : null;
+  const last = open ? (studio ? "claimed" : lastRandomMode()) : null;
 
   useEffect(() => {
     if (!open) return;
@@ -133,7 +140,7 @@ export function RandomModeChooser({ statsOf, onPick, disabled = false, busy = fa
                   disabled={off}
                   title={off ? (s.reason ?? "Некого крутить") : `Крутить ${RANDOM_MODE_LABELS[mode].among}: ${s.count} чел.`}
                   onClick={() => {
-                    rememberRandomMode(mode);
+                    if (!studio) rememberRandomMode(mode);
                     setStats(null);
                     onPick(mode);
                   }}

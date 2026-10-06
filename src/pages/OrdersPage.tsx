@@ -47,7 +47,7 @@ import {
 import { feedOpenOrdersFromPage, releaseOpenOrdersPageFeed } from "@/services/openOrdersPulse";
 import { useOrdersBackend } from "@/services/orderStore";
 import { firestoreErrorText } from "@/utils/dbError";
-import { parseOptionalNumber } from "@/utils/quickOrder";
+import { packStudioOrderNote, parseOptionalNumber, parseStudioOrderNote } from "@/utils/quickOrder";
 import { myDisplayName } from "@/utils/displayName";
 import { usePersonName } from "@/hooks/usePersonName";
 import { formatCurrency } from "@/utils/format";
@@ -58,7 +58,8 @@ import { parseHttpUrl } from "@/utils/httpUrl";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { OrdersNotifyBanner } from "@/components/common/BrowserNotifySetting";
 import { cn } from "@/utils/cn";
-import { useTerms } from "@/config/siteTerms";
+import { termLower, useSiteConfig, useTerms } from "@/config/siteTerms";
+import { STUDIO_CUSTOM_FIELDS, STUDIO_WORK_TYPE_FIELD_ID, useStudioMode } from "@/config/studio";
 import {
   orderClaimScope,
   scheduleStateOf,
@@ -124,6 +125,27 @@ const STATUS_TONE: Record<WorkOrderStatus, string> = {
 };
 
 /**
+ * NOVA Studio: пожелания заказа, где первая строка — «[Курсовая] Тема: …»
+ * (`packStudioOrderNote`). Тип — чипом, тема — заметным текстом: по ним
+ * менеджер решает, откликаться ли. Строка не в этом формате — как есть.
+ */
+function StudioOrderNote({ note }: { note: string }) {
+  const { workType, topic, rest } = parseStudioOrderNote(note);
+  if (!workType && !topic) return <p className="mt-2 whitespace-pre-line text-sm text-muted-foreground">{note}</p>;
+  return (
+    <div className="mt-2 flex flex-col gap-1 text-sm">
+      <p className="flex flex-wrap items-center gap-1.5">
+        {workType && (
+          <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">{workType}</span>
+        )}
+        {topic && <span className="min-w-0 font-medium text-foreground">{topic}</span>}
+      </p>
+      {rest && <p className="whitespace-pre-line text-muted-foreground">{rest}</p>}
+    </div>
+  );
+}
+
+/**
  * «Заказы» — биржа между ОС и технарями. ОС/Тимлид/Owner выдаёт заказ,
  * технари откликаются, выдающий отдаёт заказ одному из них (или рандому),
  * назначенный забирает его в свой стол — строка заполняется сама.
@@ -139,6 +161,23 @@ export default function OrdersPage() {
   const { profile } = useAuth();
   const permissions = usePermissions();
   const { activeWorkspace, activeWorkspaceId, members, pages, osDesks } = useWorkspace();
+  // NOVA Studio (только вид): раздел называется как пункт меню («Рандом»),
+  // исполнители — словом компании («менеджеры»), окно выдачи — без ОС и
+  // мультфильмов. У остальных компаний слова ниже — прежние, байт в байт.
+  const studio = useStudioMode();
+  const site = useSiteConfig();
+  const sectionTitle = studio ? (site.nav?.labels?.orders ?? t("order")) : "Заказы";
+  const techMany = studio ? termLower("technician", "many", site) : "технари";
+  const studioWorkTypes = useMemo(
+    () =>
+      studio
+        ? (activeWorkspace?.customFields?.find((f) => f.id === STUDIO_WORK_TYPE_FIELD_ID)?.options ??
+            STUDIO_CUSTOM_FIELDS.find((f) => f.id === STUDIO_WORK_TYPE_FIELD_ID)?.options ??
+            []
+          ).filter((o) => !o.inactive)
+        : [],
+    [studio, activeWorkspace?.customFields]
+  );
   const monthKey = useCurrentPeriodKey();
   const [orders, setOrders] = useState<WorkOrder[] | null>(null);
   // Вкладка — в адресе (`?status=taken`): F5 и ссылка коллеге открывают ту же.
@@ -280,7 +319,7 @@ export default function OrdersPage() {
       actor: { uid, name: myName },
       notifyUids: scope === "all" ? busyTechniciansToNotify(order) : [],
     });
-    toast.success(scope === "all" ? `«${order.client}»: откликаются все технари` : `«${order.client}»: откликаются только свободные`);
+    toast.success(scope === "all" ? `«${order.client}»: откликаются все ${techMany}` : `«${order.client}»: откликаются только свободные`);
   }
 
   // Другой workspace — своя история: старую выбрасываем, ответы в пути отбрасываем.
@@ -484,7 +523,11 @@ export default function OrdersPage() {
         price: parseOptionalNumber(form.price),
         persons: parseOptionalNumber(form.persons),
         minutes: parseOptionalNumber(form.minutes),
-        note: form.note,
+        // Студия: у заказа нет полей «Тип работы» и «Тема» (их набор держит
+        // база) — они едут первой строкой пожеланий и при заезде в стол
+        // раскладываются по своим столбцам (`takeOrderToDesk`). Поля пусты
+        // (не студия) — пожелания как были.
+        note: form.workType || form.topic ? packStudioOrderNote(form.workType, form.topic, form.note) : form.note,
         osValue: os?.value ?? "",
         osLabel: os?.label ?? "",
         createdBy: profile.uid,
@@ -492,7 +535,7 @@ export default function OrdersPage() {
         technicianUids: technicians.map((m) => m.uid).filter((id) => id !== profile.uid),
       });
       setTab("open");
-      toast.success("Заказ выдан", { description: "Технари получили уведомление." });
+      toast.success("Заказ выдан", { description: studio ? `${t("technician")} получили уведомление.` : "Технари получили уведомление." });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось выдать заказ");
       throw error;
@@ -626,13 +669,15 @@ export default function OrdersPage() {
     <div className="mx-auto w-full min-w-0 max-w-4xl p-5 sm:p-8">
       <PageHeader
         eyebrow={t("studio", "one")}
-        title={t("order")}
+        title={studio ? sectionTitle : t("order")}
         description={
           canClaim
             ? "Откликнитесь на открытый заказ; выданный вам — заберите в стол."
             : canIssue
-              ? "Выдайте заказ — технари откликнутся, вы выберете, кому отдать."
-              : "Что сейчас в работе между ОС и технарями."
+              ? `Выдайте заказ — ${techMany} откликнутся, вы выберете, кому отдать.`
+              : studio
+                ? "Что сейчас в работе у команды."
+                : "Что сейчас в работе между ОС и технарями."
         }
         actions={
           canIssue ? (
@@ -668,7 +713,7 @@ export default function OrdersPage() {
 
       {historyTab && history === null && historyError !== null ? (
         <EmptyState
-          eyebrow="Заказы"
+          eyebrow={sectionTitle}
           title="Не удалось загрузить заказы"
           description={`Список не прочитался — это не значит, что заказов нет. ${historyError}`}
           action={
@@ -679,7 +724,7 @@ export default function OrdersPage() {
         />
       ) : !historyTab && ordersError ? (
         <EmptyState
-          eyebrow="Заказы"
+          eyebrow={sectionTitle}
           title="Не удалось загрузить заказы"
           description="Список не прочитался — это не значит, что заказов нет. Проверьте доступ и повторите."
           action={
@@ -692,7 +737,7 @@ export default function OrdersPage() {
         <p className="py-10 text-center text-sm text-muted-foreground">Загружаем заказы…</p>
       ) : visible.length === 0 ? (
         <EmptyState
-          eyebrow="Заказы"
+          eyebrow={sectionTitle}
           title={
             tab === "open"
               ? "Открытых заказов нет"
@@ -706,7 +751,7 @@ export default function OrdersPage() {
                     ? "В столы пока ничего не забрали"
                     : "Отменённых нет"
           }
-          description={tab === "open" && canIssue ? "Нажмите «Выдать заказ» — технари получат уведомление." : undefined}
+          description={tab === "open" && canIssue ? `Нажмите «Выдать заказ» — ${techMany} получат уведомление.` : undefined}
           action={
             tab === "open" && canIssue ? (
               <Button className="gap-1.5" onClick={() => setIssueOpen(true)}>
@@ -748,10 +793,11 @@ export default function OrdersPage() {
                       {isAssignee && order.status === "assigned" && (
                         <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium text-primary">выдан вам</span>
                       )}
-                      {order.status === "open" && claimScope === "all" && (
+                      {/* В студии все заказы открыты всем — метка ничего не отличает. */}
+                      {order.status === "open" && claimScope === "all" && !studio && (
                         <span
                           className="rounded-full border border-sky-400/40 bg-sky-400/10 px-2 py-0.5 text-[10px] font-medium text-sky-200"
-                          title="Откликнуться могут все технари, даже с заказом в работе"
+                          title={`Откликнуться могут все ${techMany}, даже с заказом в работе`}
                         >
                           откликаются все
                         </span>
@@ -799,7 +845,8 @@ export default function OrdersPage() {
                   </div>
                 </div>
 
-                {order.note && <p className="mt-2 text-sm text-muted-foreground">{order.note}</p>}
+                {order.note &&
+                  (studio ? <StudioOrderNote note={order.note} /> : <p className="mt-2 text-sm text-muted-foreground">{order.note}</p>)}
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   {order.status === "open" && (
@@ -837,7 +884,7 @@ export default function OrdersPage() {
                               ? deskRowHref(order.takenPageId, order.takenSubPageId, order.takenRowId)
                               : deskHref(order.takenPageId, order.takenSubPageId)
                           }
-                          state={deskNavState({ to: "/orders?status=taken", label: "Заказы" })}
+                          state={deskNavState({ to: "/orders?status=taken", label: sectionTitle })}
                           className="inline-flex items-center gap-1 text-primary hover:underline"
                         >
                           открыть стол <ExternalLink className="h-3 w-3" />
@@ -910,12 +957,13 @@ export default function OrdersPage() {
                     {/* «Свободные / Все» — кто может откликнуться. Постоянно у
                         каждого открытого заказа — у Owner, Тимлида и всех ОС
                         (и у чужого заказа тоже): быстро открыть заказ и
-                        занятым, когда свободных нет. */}
-                    {canIssue && order.status === "open" && (
+                        занятым, когда свободных нет. В студии отклик открыт
+                        всем (claimScope "all") — переключателя нет. */}
+                    {canIssue && order.status === "open" && !studio && (
                       <div
                         role="radiogroup"
                         aria-label="Кто может откликнуться"
-                        title="Кто может откликнуться: только свободные (без заказа в работе) или все технари"
+                        title={`Кто может откликнуться: только свободные (без заказа в работе) или все ${techMany}`}
                         className="inline-flex h-8 items-center rounded-lg border border-border bg-background/40 p-0.5"
                       >
                         {(["free", "all"] as const).map((scope) => (
@@ -948,6 +996,7 @@ export default function OrdersPage() {
                         <RandomModeChooser
                           disabled={busy}
                           busy={busyId === order.id}
+                          studio={studio}
                           statsOf={() => {
                             const candidates = candidatesFor(order);
                             const scope = orderClaimScope(order);
@@ -992,7 +1041,7 @@ export default function OrdersPage() {
                             order.status === "assigned" &&
                             !(await confirmDialog({
                               title: `Отменить заказ «${order.client}»?`,
-                              description: `Заказ уже выдан${order.assignedName ? ` (${nameOf(order.assignedUid, order.assignedName)})` : ""}. Если он успел приехать в стол, строку оттуда уберёт только сам технарь.`,
+                              description: `Заказ уже выдан${order.assignedName ? ` (${nameOf(order.assignedUid, order.assignedName)})` : ""}. Если он успел приехать в стол, строку оттуда уберёт только сам ${studio ? "менеджер" : "технарь"}.`,
                             }))
                           )
                             return;
@@ -1019,7 +1068,7 @@ export default function OrdersPage() {
                           if (
                             !(await confirmDialog({
                               title: `Удалить заказ «${order.client}»?`,
-                              description: inDesk ? "Строка в столе технаря удалится вместе с ним." : undefined,
+                              description: inDesk ? (studio ? "Строка в столе менеджера удалится вместе с ним." : "Строка в столе технаря удалится вместе с ним.") : undefined,
                               destructive: true,
                             }))
                           )
@@ -1039,7 +1088,7 @@ export default function OrdersPage() {
                                   );
                                 } catch (error) {
                                   const anyway = await confirmDialog({
-                                    title: "Строку у технаря убрать не удалось",
+                                    title: studio ? "Строку у менеджера убрать не удалось" : "Строку у технаря убрать не удалось",
                                     description: `${firestoreErrorText(error, error instanceof Error && error.message ? error.message : "Ошибка базы")}. Удалить заказ всё равно? Строку тогда уберёт Owner.`,
                                     destructive: true,
                                   });
@@ -1079,7 +1128,15 @@ export default function OrdersPage() {
         </div>
       )}
 
-      <IssueOrderDialog open={issueOpen} onOpenChange={setIssueOpen} myOs={myOs} osOptions={osOptions} onSubmit={handleIssue} />
+      <IssueOrderDialog
+        open={issueOpen}
+        onOpenChange={setIssueOpen}
+        myOs={myOs}
+        osOptions={osOptions}
+        onSubmit={handleIssue}
+        studio={studio}
+        workTypeOptions={studioWorkTypes}
+      />
       {deskIssuer ? (
         <>
           <OsDeskIssueDialog

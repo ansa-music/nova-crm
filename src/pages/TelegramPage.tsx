@@ -33,6 +33,7 @@ import { TgConnDot, TgElsewhere, TgRetryIn } from "@/components/telegram/TgConne
 import { confirmDialog } from "@/utils/appDialog";
 import { cn } from "@/utils/cn";
 import { myDisplayName } from "@/utils/displayName";
+import { useStudioMode } from "@/config/studio";
 
 /**
  * «Telegram» (просьба Nurba 26.09.2026): рабочий аккаунт Telegram прямо в
@@ -49,6 +50,11 @@ export default function TelegramPage() {
   const { profile } = useAuth();
   const uid = profile?.uid ?? null;
   const isOwner = permissions.actsAsOwner;
+  // «NOVA Studio» (только вид): аккаунт один, подключает его Owner, доступ у
+  // всех выдаётся сам. Не-Owner своего входа (QR, «по-старому») не видит —
+  // иначе он мог бы подключить к студии личный Telegram. Без ОС и «Технарю».
+  const studio = useStudioMode();
+  const studioNoLogin = studio && !isOwner;
   const canHave = permissions.isResolved;
   const access = useTelegramAccess(activeWorkspaceId, uid, canHave);
   const granted = canHave && access.granted;
@@ -111,6 +117,7 @@ export default function TelegramPage() {
 
   // «Технарю»: открыть переписку с клиентом технарю заказа (SQL 20261035).
   const techGrant = useMemo<TgTechGrantTools | null>(() => {
+    if (studio) return null;
     if (!activeWorkspaceId || !serverMode) return null;
     const candidates = members.filter((m) => m.uid && m.uid !== uid && m.status !== "invited" && memberHasRole(m, "manager"));
     return {
@@ -121,7 +128,7 @@ export default function TelegramPage() {
         return c ? { pageId: c.pageId, rowId: c.rowId } : null;
       },
     };
-  }, [activeWorkspaceId, serverMode, members, uid, chatLinks.clients]);
+  }, [studio, activeWorkspaceId, serverMode, members, uid, chatLinks.clients]);
 
   const linking = useMemo<TgLinking | null>(() => {
     if (!activeWorkspaceId || !uid || !chatLinks.loaded || chatLinks.missingSql) return null;
@@ -174,7 +181,11 @@ export default function TelegramPage() {
     return (
       <AccessDenied
         title="Раздел Telegram закрыт"
-        reason="Раздел Telegram Owner открывает отдельным людям — попросите его выдать вам доступ."
+        reason={
+          studio
+            ? "Telegram подключает Owner — после подключения он появится у всех."
+            : "Раздел Telegram Owner открывает отдельным людям — попросите его выдать вам доступ."
+        }
       />
     );
   }
@@ -255,7 +266,13 @@ export default function TelegramPage() {
     // Owner: пошаговая инструкция «Как подключить» с отметками сделанного.
     body = (
       <Pane wide>
-        <TelegramSetupGuide workspaceId={activeWorkspaceId} config={config} refreshKey={accessRev} onOpenAccess={() => setManageOpen(true)} />
+        <TelegramSetupGuide
+          workspaceId={activeWorkspaceId}
+          config={config}
+          refreshKey={accessRev}
+          onOpenAccess={() => setManageOpen(true)}
+          studio={studio}
+        />
       </Pane>
     );
   } else if (!config) {
@@ -307,11 +324,28 @@ export default function TelegramPage() {
         <TgChats me={me} chatId={chatId} onOpenChat={(id) => setChatParam(id === null ? "" : String(id))} linking={linking} />
       </>
     );
+  } else if (studioNoLogin && serverMode && tg.auth.kind === "password") {
+    // Студия: облачный пароль аккаунта менеджерам не раздаём — его хранит сервер.
+    body = (
+      <Pane>
+        <Alert tone="info" title="Облачный пароль Telegram не сохранён">
+          Owner подключает аккаунт с галочкой «Запомнить пароль» — после этого Telegram откроется здесь сам.
+        </Alert>
+      </Pane>
+    );
   } else if (serverMode && tg.auth.kind === "password") {
     // Пароль на сервере не сохранён — облачный пароль вводят один раз в этом браузере.
     body = (
       <Pane>
         <TgLogin auth={tg.auth} lastEnd={null} />
+      </Pane>
+    );
+  } else if (studioNoLogin) {
+    body = (
+      <Pane>
+        <Alert tone="info" title="Telegram ещё не подключён">
+          Telegram подключает Owner — после подключения он появится у всех.
+        </Alert>
       </Pane>
     );
   } else if (!serverMode && !isOwner && granted && server.key && !server.loading && !server.sqlMissing && !tgFunctionMissing() && tg.auth.kind === "signedOut" && !legacyLogin) {
@@ -353,7 +387,7 @@ export default function TelegramPage() {
           </span>
         )}
         {manageButton}
-        {serverMode && isOwner && (
+        {serverMode && isOwner && !studio && (
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setCourierOpen(true)} title="Бот, через который технари отправляют клиентам файлы">
             <Paperclip className="h-4 w-4" /> Файлы технарей
           </Button>

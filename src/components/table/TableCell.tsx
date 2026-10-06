@@ -14,6 +14,7 @@ import { cn } from "@/utils/cn";
 import type { PageColumn } from "@/types";
 import { DeskLinkButton } from "@/components/common/DeskLinkButton";
 import type { DeskLink } from "@/utils/personDeskLinks";
+import { deadlineToneTitle, type DeadlineTone } from "@/utils/studioDeadline";
 
 interface TableCellProps {
   column: PageColumn;
@@ -51,6 +52,8 @@ interface TableCellProps {
     isNewOrder?: boolean;
     /** Строка переехала из прошлого периода: подпись «16–30 сен» (чип «перенос»). */
     carriedLabel?: string | null;
+    /** Воркспейс «NOVA Studio»: в визитке дедлайн и требования, без персов и минут. */
+    studio?: boolean;
   } | null;
   coarsePointer?: boolean;
   /** Current table search — matching substrings get highlighted. */
@@ -86,6 +89,12 @@ interface TableCellProps {
   rowHeight?: number;
   /** «↗ открыть стол» у ячейки ОС / технаря (`utils/personDeskLinks.ts`). */
   deskLink?: DeskLink | null;
+  /**
+   * «NOVA Studio»: ячейка дедлайна подсвечена — просрочен (красный) или сдать
+   * сегодня/завтра (янтарь). Тон считает таблица один раз на строку; без
+   * студии проп не приходит, и дата рисуется как у всех.
+   */
+  deadlineTone?: DeadlineTone | null;
 }
 
 /** Списочная ячейка с кнопкой «открыть стол» справа; без ссылки — как была. */
@@ -159,6 +168,7 @@ export function TableCell({
   display,
   rowHeight,
   deskLink,
+  deadlineTone,
 }: TableCellProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const tdRef = useRef<HTMLTableCellElement>(null);
@@ -280,6 +290,21 @@ export function TableCell({
       const n = Number(String(stringValue).replace(/\s/g, "").replace(",", "."));
       const shown = Number.isFinite(n) ? formatNumber(n) : stringValue;
       return <span className={cn("font-mono text-[12.5px] tabular-nums", isNegative && "font-medium text-destructive")}>{shown}</span>;
+    }
+    if (column.type === "date" && stringValue && deadlineTone) {
+      // Дедлайн студии: заливка тоном, а не только цвет текста — заметно и в
+      // плотной строке, и на телефоне; подпись словами — в подсказке.
+      return (
+        <span
+          className={cn(
+            "truncate rounded px-1.5 py-px text-[12.5px] font-medium",
+            deadlineTone === "overdue" ? "bg-destructive/15 text-destructive" : "bg-warning/15 text-warning"
+          )}
+          title={deadlineToneTitle(deadlineTone)}
+        >
+          {formatOrderDate(Number(stringValue))}
+        </span>
+      );
     }
     if (column.type === "date" && stringValue) {
       return <span className="truncate text-[12.5px] text-muted-foreground">{formatOrderDate(Number(stringValue))}</span>;
@@ -684,7 +709,9 @@ export function TableCell({
                   ? `Заказ с «Заказов»${clientCard.summary ? ` · ${clientCard.summary}` : ""} — открыть карточку`
                   : clientCard.summary
                     ? `Карточка клиента: ${clientCard.summary}`
-                    : "Карточка клиента — персы, минуты, дедлайн, пожелания")
+                    : clientCard.studio
+                      ? "Карточка клиента — дедлайн, ссылка, требования"
+                      : "Карточка клиента — персы, минуты, дедлайн, пожелания")
               }
               aria-label="Карточка клиента"
               onMouseDown={(e) => e.stopPropagation()}

@@ -9,6 +9,7 @@ import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { toast } from "@/components/ui/sonner";
 import { useOrderAssignment } from "@/hooks/useOrderAssignment";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { useStudioMode } from "@/config/studio";
 import { bigQueueView, shortMoney, useBigOrderQueue } from "@/services/bigOrderQueueService";
 import { saveRandomSettings, useRandomSettings } from "@/services/randomService";
 import { cn } from "@/utils/cn";
@@ -45,6 +46,8 @@ function times(n: number): string {
 export function RandomSettingsPanel() {
   const { activeWorkspaceId, activeWorkspace } = useWorkspace();
   const { technicians, deskByUid, orderCounts } = useOrderAssignment(true);
+  // «NOVA Studio»: те же люди называются менеджерами (только подписи).
+  const studio = useStudioMode();
   const snap = useRandomSettings(activeWorkspaceId, true, activeWorkspace?.randomSettings);
   const saved = snap.data;
   const savedKey = randomSettingsKey(saved);
@@ -205,7 +208,7 @@ export function RandomSettingsPanel() {
             Сумма чека
           </CardTitle>
           <CardDescription>
-            Пороги делят заказы на группы по сумме чека. У каждого технаря ниже появится свой множитель на каждую группу —
+            Пороги делят заказы на группы по сумме чека. У каждого {studio ? "менеджера" : "технаря"} ниже появится свой множитель на каждую группу —
             например, ×2 на крупных чеках и ×0 на мелких.
           </CardDescription>
         </CardHeader>
@@ -280,7 +283,7 @@ export function RandomSettingsPanel() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Dices className="h-4 w-4 text-primary" />
-            Личный шанс технаря
+            {studio ? "Личный шанс менеджера" : "Личный шанс технаря"}
           </CardTitle>
           <CardDescription>
             ×1 — обычный шанс, ×2 — вдвое выше, ×0 — на «Рандоме» и в «Своей рулетке» не выпадает (отдать вручную можно).
@@ -308,7 +311,7 @@ export function RandomSettingsPanel() {
               ))}
             </div>
           ) : null}
-          {sorted.length === 0 ? <p className="text-sm text-muted-foreground">Технарей пока нет.</p> : null}
+          {sorted.length === 0 ? <p className="text-sm text-muted-foreground">{studio ? "Менеджеров пока нет." : "Технарей пока нет."}</p> : null}
           {sorted.map((m) => {
             const w = personalRandomWeight(clean, m.uid);
             const hasDesk = deskByUid.has(m.uid);

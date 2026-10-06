@@ -5,7 +5,8 @@ import { deskRowHref } from "@/utils/deskLinks";
 import { generateId } from "@/utils/id";
 import { formatOrderDate } from "@/utils/date";
 import { formatCurrency } from "@/utils/format";
-import { buildQuickOrderRow, mergeColumnPicks } from "@/utils/quickOrder";
+import { buildQuickOrderRow, extrasWithoutDeadline, mergeColumnPicks, studioOrderDeskCells } from "@/utils/quickOrder";
+import { studioSavedFor } from "@/config/studio";
 import { sendNotification } from "@/services/notificationService";
 import { addRow, deleteRow, fetchRows, markRowOrder, updateRowCellsBulk } from "@/services/pageService";
 import { addSubPageRow, deleteSubPageRow, fetchSubPageRows, fetchSubPages, updateSubPageRowCellsBulk } from "@/services/subPageService";
@@ -162,13 +163,15 @@ export function orderSummary(order: Pick<WorkOrder, "client" | "minutes" | "pers
  * видно ровно заголовок и две строки — поэтому срочность и дедлайн стоят
  * первыми: по ним решают, бросать ли текущее дело.
  */
-function newOrderBody(order: WorkOrder): string {
+function newOrderBody(order: WorkOrder, studio = false): string {
   const parts: string[] = [];
   if (order.urgency && order.urgency !== "normal") parts.push(WORK_ORDER_URGENCY_LABELS[order.urgency]);
   if (order.deadline) parts.push(`до ${formatOrderDate(order.deadline)}`);
   if (order.price != null) parts.push(formatCurrency(order.price));
   if (order.osLabel) parts.push(`ОС: ${order.osLabel}`);
   const head = parts.join(" · ");
+  // В студии раздел называется «Рандом» (подпись пункта меню).
+  if (studio) return head ? `${head} — откликнитесь на «Рандоме»` : "Откликнитесь на «Рандоме», если готовы взять.";
   return head ? `${head} — откликнитесь на «Заказах»` : "Откликнитесь на «Заказах», если готовы взять.";
 }
 
@@ -206,6 +209,13 @@ export async function createOrder(input: CreateOrderInput): Promise<WorkOrder> {
     updatedAt: now,
   };
   if (input.osSource) order.osSource = input.osSource;
+  // NOVA Studio: откликаться могут ВСЕ менеджеры, даже с заказами в работе —
+  // у команды всегда по несколько работ в работе, и «Свободным» на заказ не
+  // откликнулся бы никто. Флаг — СОХРАНЁННЫЙ документ workspace (это запись).
+  // База принимает поле при создании (`order_write('create')`, правило
+  // Firestore — `claimScope in ['free','all']`). У остальных — поля нет, как было.
+  const studio = studioSavedFor(input.workspaceId);
+  if (studio) order.claimScope = "all";
   let saved: WorkOrder = order;
   let inFirestore = ordersBackendFor(input.workspaceId) === "firestore";
   if (!inFirestore) {
@@ -222,7 +232,7 @@ export async function createOrder(input: CreateOrderInput): Promise<WorkOrder> {
     {
       workspaceId: input.workspaceId,
       title: `Новый заказ: ${orderSummary(order)}`,
-      body: newOrderBody(order),
+      body: studio ? newOrderBody(order, true) : newOrderBody(order),
       priority: "important",
       fromUid: input.createdBy,
       fromName: input.createdByName,
@@ -252,7 +262,9 @@ export async function setOrderClaim(workspaceId: string, order: WorkOrder, me: {
         title: `${me.name} готов взять заказ ${order.client}`,
         body: order.osSource
           ? "Выберите технаря прямо на своём столе — окно откроется само."
-          : "Выдайте заказ ему или выберите другого технаря.",
+          : studioSavedFor(workspaceId)
+            ? "Выдайте заказ ему или выберите другого менеджера."
+            : "Выдайте заказ ему или выберите другого технаря.",
         priority: "normal",
         fromUid: me.uid,
         fromName: me.name,
@@ -755,17 +767,39 @@ export async function takeOrderToDesk(input: {
   // безвредна: значение в нём хранится и появится, когда столбец покажут.
   const visible = targetColumns.filter((c) => !c.hidden);
   const forPick = mergeColumnPicks(visible, targetColumns);
-  const { cells, extras } = buildQuickOrderRow(targetColumns, forPick, {
+  // NOVA Studio: «Тип работы» и «Тема» приезжают первой строкой пожеланий
+  // («[Курсовая] Тема: …», см. IssueOrderDialog) — раскладываем их по своим
+  // столбцам, телефон — в «Телефон / Telegram», сегодня — в «Дату заказа».
+  // Флаг — СОХРАНЁННЫЙ документ workspace; без него путь прежний.
+  const studio = studioSavedFor(workspaceId)
+    ? studioOrderDeskCells({
+        columns: targetColumns,
+        note: order.note,
+        phone: order.phone,
+        deadline: order.deadline,
+        optionsOf: (column) => getColumnOptions(column, input.workspace),
+        now: Date.now(),
+      })
+    : null;
+  const { cells, extras: quickExtras } = buildQuickOrderRow(targetColumns, forPick, {
     client: order.client,
     number: order.phone,
     os: order.osValue,
     check: order.price == null ? "" : String(order.price),
     persons: order.persons == null ? "" : String(order.persons),
     minutes: order.minutes == null ? "" : String(order.minutes),
-    note: order.note,
+    note: studio ? studio.note : order.note,
     link: order.link,
     deadline: order.deadline,
   });
+  if (studio) {
+    for (const key of studio.clear) cells[key] = "";
+    Object.assign(cells, studio.cells);
+  }
+  // Студия: срок у строки один. Лёг в столбец срока стола — в визитку его не
+  // дублируем (её поле «Дедлайн сдачи» при таком столбце скрыто); столбца нет —
+  // срок, как у всех, остаётся в визитке.
+  const extras = studio?.deadlineInColumn ? extrasWithoutDeadline(quickExtras) : quickExtras;
 
   // Заказ приезжает сразу «В работе» — технарю не нужно проставлять статус
   // руками, и заказ сразу считается загрузкой на «Технарях».
@@ -789,6 +823,9 @@ export async function takeOrderToDesk(input: {
   if (blank) {
     const patch: Record<string, string | number | null> = {};
     for (const [key, value] of Object.entries(cells)) if (isFilledCellValue(value)) patch[key] = value;
+    // Студия: дату заказа ставим только в пустую ячейку — повтор заезда в ту же
+    // строку не переписывает уже стоящую дату.
+    if (studio?.dateKey && isFilledCellValue(blank.cells[studio.dateKey])) delete patch[studio.dateKey];
     // Слот заняли сейчас — время внесения (порядок «новые снизу», дата заказа)
     // считается от этой минуты, а не от того, когда завели пустую строку.
     const filledAt = !mine && isBlankRow(blank) ? Date.now() : undefined;

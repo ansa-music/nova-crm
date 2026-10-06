@@ -3,6 +3,7 @@ import { Clock, Headset, Loader2, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NICK_MAX_LENGTH, nickOptionsOf } from "@/services/memberService";
+import { isStudioWorkspace } from "@/config/studio";
 import { cn } from "@/utils/cn";
 import { roleLabel, type JoinRequest, type JoinRequestRole, type Workspace } from "@/types";
 
@@ -10,6 +11,14 @@ const ROLE_CHOICES: { role: JoinRequestRole; title: string; hint: string; icon: 
   { role: "manager", title: "Технарь", hint: "свой стол, заказы", icon: Wrench },
   { role: "os", title: "ОС", hint: "выдаю заказы, оцениваю", icon: Headset },
 ];
+
+/**
+ * «NOVA Studio»: роль одна — «Менеджер». Подпись — из настройки ЭТОГО
+ * workspace: `roleLabel` смотрит активную компанию гостя, а не студию.
+ */
+function studioManagerLabel(workspace: Workspace | null | undefined): string {
+  return workspace?.site?.roles?.manager ?? "Менеджер";
+}
 
 /**
  * Заявка на вход: человек приходит БЕЗ роли и сам говорит, кем работает, и —
@@ -30,7 +39,13 @@ export function JoinRequestForm({
 }) {
   const pending = request?.status === "pending";
   const [editing, setEditing] = useState(false);
-  const [role, setRole] = useState<JoinRequestRole | null>(request?.requestedRole ?? null);
+  const [pickedRole, setRole] = useState<JoinRequestRole | null>(request?.requestedRole ?? null);
+  // Заявка в студию — по документу ЭТОГО workspace (он у гостя не активный).
+  const studio = isStudioWorkspace(workspace);
+  const role: JoinRequestRole | null = studio ? "manager" : pickedRole;
+  const roleChoices: typeof ROLE_CHOICES = studio
+    ? [{ role: "manager", title: studioManagerLabel(workspace), hint: "свой стол, заказы", icon: Wrench }]
+    : ROLE_CHOICES;
   const [nick, setNick] = useState(request?.requestedNick ?? "");
   const listId = useId();
   const suggestions = useMemo(
@@ -45,7 +60,11 @@ export function JoinRequestForm({
           <Clock className="h-4 w-4 shrink-0" /> Заявка отправлена, ждём подтверждения
         </div>
         <p className="text-[12px] text-muted-foreground">
-          {request?.requestedRole ? roleLabel(request.requestedRole) : "Роль не выбрана"}
+          {request?.requestedRole
+            ? studio && request.requestedRole === "manager"
+              ? studioManagerLabel(workspace)
+              : roleLabel(request.requestedRole)
+            : "Роль не выбрана"}
           {request?.requestedNick ? ` · ник «${request.requestedNick}»` : ""}
         </p>
         <button
@@ -78,8 +97,8 @@ export function JoinRequestForm({
       )}
       <div className="flex flex-col gap-1.5">
         <p className="text-[12px] text-muted-foreground">Кем вы работаете?</p>
-        <div className="grid grid-cols-2 gap-2">
-          {ROLE_CHOICES.map(({ role: value, title, hint, icon: Icon }) => (
+        <div className={studio ? "grid grid-cols-1 gap-2" : "grid grid-cols-2 gap-2"}>
+          {roleChoices.map(({ role: value, title, hint, icon: Icon }) => (
             <button
               key={value}
               type="button"
@@ -119,7 +138,9 @@ export function JoinRequestForm({
             ))}
           </datalist>
         )}
-        <span className="text-[11px]">Нет ника — оставьте пустым: его выдаст Тимлид.</span>
+        <span className="text-[11px]">
+          {studio ? "Нет ника — оставьте пустым: его выдаст Owner." : "Нет ника — оставьте пустым: его выдаст Тимлид."}
+        </span>
       </label>
 
       <div className="flex gap-2">

@@ -116,8 +116,12 @@ export const BottomNav = memo(function BottomNav({
   const slot = bottomBarSlot(nav);
   const slotActive = pathMatches(pathname, slot.to) && !homeActive;
   const moreActive = !homeActive && !slotActive && !pathMatches(pathname, "/orders");
+  // «NOVA Studio»: у менеджера на месте второй кнопки Telegram — его
+  // непрочитанное стоит на ней, а не на «Ещё» (лист «Ещё» этот пункт прячет).
+  // В Nova слот своего бейджа не несёт — 0.
+  const slotBadge = nav.studioMember && slot.key === "telegram" ? (nav.items.find((i) => i.key === "telegram")?.badge ?? 0) : 0;
   // Бейдж «Ещё» — всё непрочитанное, что не видно на трёх других кнопках.
-  const moreBadge = nav.badgeTotal - (orders?.badge ?? 0);
+  const moreBadge = nav.badgeTotal - (orders?.badge ?? 0) - slotBadge;
 
   return (
     // min-h, а не h: при border-box отступ под home indicator съедал высоту
@@ -131,7 +135,7 @@ export const BottomNav = memo(function BottomNav({
       )}
     >
       <Tab to={home.to} label={home.label} icon={home.icon} active={homeActive} alert={home.alert} />
-      <Tab to={slot.to} label={slot.label} icon={slot.icon} active={slotActive} />
+      <Tab to={slot.to} label={slot.label} icon={slot.icon} active={slotActive} badge={slotBadge || undefined} />
       {orders ? (
         <Tab to="/orders" label={orders.label} icon={ClipboardList} active={pathMatches(pathname, "/orders")} alert={nav.ordersAlert} />
       ) : null}

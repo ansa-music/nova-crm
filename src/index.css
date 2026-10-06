@@ -1198,3 +1198,388 @@ html[data-keyboard="open"] .nova-vv-card {
     animation: nova-wheel-enter 420ms cubic-bezier(0.2, 0.9, 0.25, 1.15);
   }
 }
+
+/* ============================================================================
+   «Космос» — вид воркспейса «NOVA Studio» (06.10.2026).
+   Всё ниже действует ТОЛЬКО под html[data-site-fx="cosmos"]: атрибут ставит и
+   снимает useSiteConfigBridge (applySiteTheme), у других компаний его нет, и
+   ни одно правило не совпадает. Ключевые кадры атрибутом не ограничить —
+   поэтому у всех имя с префиксом nova-cosmos (существующие glass-pop,
+   shimmer, nova-fade-in, nova-wheel-enter не трогаем).
+   Правила проекта и здесь: таблицы, липкие ячейки, шапка и итоги остаются
+   непрозрачными (поверхности космоса — без альфы, их пишет мост); никакого
+   transform, filter, backdrop-filter, contain или isolation на .page-surface,
+   колонке, main и обёртке PageShell — сломают fixed-окна (RowCardSheet).
+   Анимируются только transform и opacity, background-position — никогда.
+   ========================================================================== */
+
+/* Корень каркаса прозрачный — сквозь поля страниц видно небо (CosmosBackdrop).
+   Вес атрибут + класс перебивает утилиту bg-background. Карточки, окна,
+   меню, шапка и стол остаются на своих непрозрачных поверхностях. */
+html[data-site-fx="cosmos"] .page-surface {
+  background-color: transparent;
+}
+/* Пока ленивый фон не догрузился — индиго вместо графита index.css.
+   Особенности Inter (cv02, ss01…) у Onest означали бы другие глифы — сброшены. */
+html[data-site-fx="cosmos"] body {
+  background-color: hsl(var(--background));
+  font-feature-settings: normal;
+}
+
+/* Шрифты студии (ссылку на Google Fonts мост вставляет только при флаге):
+   текст — Onest, заголовки — Unbounded. Моноширинные цифры не трогаем. */
+html[data-site-fx="cosmos"] {
+  font-family: Onest, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+html[data-site-fx="cosmos"] .font-sans {
+  font-family: Onest, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+html[data-site-fx="cosmos"] h1,
+html[data-site-fx="cosmos"] h2,
+html[data-site-fx="cosmos"] .font-serif,
+html[data-site-fx="cosmos"] .wordmark {
+  font-family: Unbounded, Onest, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* Unbounded широкий: чуть сжимаем разрядку, чтобы заголовки не вылезали. */
+  letter-spacing: -0.02em;
+}
+
+/* Карточки: тонкая «звёздная» кайма и холодное свечение снизу — только
+   box-shadow (ни filter, ни blur). У карточек со своей тенью или кольцом
+   (shadow/ring в классах) их вид не перебиваем. */
+html[data-site-fx="cosmos"] .bg-card.rounded-xl:not([class*="shadow"]):not([class*="ring-"]),
+html[data-site-fx="cosmos"] .desk-cluster,
+html[data-site-fx="cosmos"] .today-card,
+html[data-site-fx="cosmos"] .surface-card,
+html[data-site-fx="cosmos"] .glass-pane,
+html[data-site-fx="cosmos"] .glass-panel {
+  box-shadow:
+    inset 0 1px 0 hsl(230 100% 88% / 0.05),
+    0 0 0 1px hsl(230 100% 80% / 0.05),
+    0 18px 40px -28px hsl(230 100% 70% / 0.45);
+}
+
+/* Активный пункт меню — мягкое свечение акцента. */
+html[data-site-fx="cosmos"] .nav-link-active {
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--primary) / 0.28),
+    0 0 18px -6px hsl(var(--primary) / 0.55);
+}
+
+/* Главная кнопка (Button default — bg-primary, data-size ставит сам Button)
+   светится акцентом; сильнее — под мышью. */
+html[data-site-fx="cosmos"] [data-size].bg-primary:not(:disabled) {
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.35),
+    0 6px 22px -8px hsl(var(--primary) / 0.6);
+  transition: box-shadow var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-site-fx="cosmos"] [data-size].bg-primary:not(:disabled):hover {
+    box-shadow:
+      0 0 0 1px hsl(var(--primary) / 0.5),
+      0 8px 30px -8px hsl(var(--primary) / 0.8);
+  }
+}
+
+/* Смена раздела — плавное появление и на телефоне (у Nova только ПК с
+   мышью). Только opacity и без fill-mode: transform на обёртке экрана
+   сломал бы fixed-окна внутри main. */
+@keyframes nova-cosmos-page-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  html[data-site-fx="cosmos"] .page-enter {
+    animation: nova-cosmos-page-in 200ms var(--ease-out);
+  }
+}
+
+/* ---- Фон: components/common/CosmosBackdrop.tsx ------------------------------
+   Корень слоя (fixed, inset 0, z-index -1 внутри #root, pointer-events none,
+   contain strict) позиционирован инлайном. Здесь — краски и движение. */
+
+/* Туманность — статичные градиенты на самом корне: фиолет, индиго, бирюза
+   низкой насыщенности. Ноль анимации. */
+html[data-site-fx="cosmos"] .nova-cosmos-root {
+  background:
+    radial-gradient(ellipse 60% 50% at 16% 20%, hsl(262 70% 45% / 0.2), transparent 70%),
+    radial-gradient(ellipse 55% 45% at 84% 16%, hsl(232 80% 55% / 0.15), transparent 70%),
+    radial-gradient(ellipse 50% 60% at 80% 84%, hsl(178 70% 40% / 0.11), transparent 70%),
+    radial-gradient(ellipse 45% 40% at 26% 88%, hsl(286 60% 40% / 0.11), transparent 70%),
+    hsl(var(--background));
+}
+
+/* «Аврора» — широкая мягкая лента; медленно дышит opacity и сдвигом. */
+html[data-site-fx="cosmos"] .nova-cosmos-aurora {
+  position: absolute;
+  left: -20%;
+  top: -12%;
+  width: 140%;
+  height: 62%;
+  background:
+    radial-gradient(ellipse 42% 34% at 28% 58%, hsl(170 80% 55% / 0.1), transparent 70%),
+    radial-gradient(ellipse 40% 30% at 58% 46%, hsl(262 85% 65% / 0.12), transparent 70%),
+    radial-gradient(ellipse 34% 26% at 82% 60%, hsl(230 90% 70% / 0.08), transparent 70%);
+  opacity: 0.7;
+  transform: rotate(-8deg);
+  animation: nova-cosmos-aurora 48s ease-in-out infinite alternate;
+}
+@keyframes nova-cosmos-aurora {
+  from { opacity: 0.45; transform: translate3d(-3%, 0, 0) rotate(-8deg) scaleY(1); }
+  to { opacity: 0.9; transform: translate3d(3%, 2%, 0) rotate(-5deg) scaleY(1.15); }
+}
+
+/* Звёзды — два тайла точек. Слой больше окна ровно на тайл и едет transform
+   на тайл за 240/300 с: шов незаметен, перерисовки нет (только композитор).
+   Второй тайл ещё и мерцает opacity. */
+html[data-site-fx="cosmos"] .nova-cosmos-stars {
+  position: absolute;
+  left: 0;
+  top: 0;
+  background-repeat: repeat;
+}
+html[data-site-fx="cosmos"] .nova-cosmos-stars-a {
+  width: calc(100% + 256px);
+  height: calc(100% + 256px);
+  background-size: 256px 256px;
+  background-image:
+    radial-gradient(1px 1px at 23px 41px, hsl(0 0% 100% / 0.85), transparent),
+    radial-gradient(1px 1px at 87px 13px, hsl(230 100% 88% / 0.8), transparent),
+    radial-gradient(1.4px 1.4px at 141px 77px, hsl(0 0% 100% / 0.9), transparent),
+    radial-gradient(1px 1px at 201px 29px, hsl(0 0% 100% / 0.7), transparent),
+    radial-gradient(1px 1px at 243px 121px, hsl(230 100% 88% / 0.75), transparent),
+    radial-gradient(1px 1px at 59px 151px, hsl(0 0% 100% / 0.75), transparent),
+    radial-gradient(1.4px 1.4px at 117px 197px, hsl(230 100% 90% / 0.85), transparent),
+    radial-gradient(1px 1px at 179px 163px, hsl(0 0% 100% / 0.65), transparent),
+    radial-gradient(1px 1px at 223px 227px, hsl(0 0% 100% / 0.8), transparent),
+    radial-gradient(1px 1px at 31px 233px, hsl(230 100% 88% / 0.7), transparent),
+    radial-gradient(1px 1px at 97px 103px, hsl(0 0% 100% / 0.6), transparent),
+    radial-gradient(1px 1px at 163px 249px, hsl(36 100% 80% / 0.6), transparent);
+  opacity: 0.8;
+  animation: nova-cosmos-drift-a 240s linear infinite;
+}
+html[data-site-fx="cosmos"] .nova-cosmos-stars-b {
+  width: calc(100% + 397px);
+  height: 100%;
+  background-size: 397px 397px;
+  background-image:
+    radial-gradient(1.8px 1.8px at 61px 83px, hsl(0 0% 100% / 0.95), transparent),
+    radial-gradient(5px 5px at 61px 83px, hsl(230 100% 85% / 0.18), transparent),
+    radial-gradient(1.6px 1.6px at 233px 41px, hsl(230 100% 90% / 0.9), transparent),
+    radial-gradient(1.6px 1.6px at 331px 197px, hsl(0 0% 100% / 0.85), transparent),
+    radial-gradient(5px 5px at 331px 197px, hsl(230 100% 85% / 0.16), transparent),
+    radial-gradient(1.6px 1.6px at 151px 271px, hsl(0 0% 100% / 0.8), transparent),
+    radial-gradient(1.8px 1.8px at 37px 347px, hsl(36 100% 78% / 0.75), transparent),
+    radial-gradient(1.6px 1.6px at 283px 329px, hsl(230 100% 90% / 0.85), transparent);
+  opacity: 0.7;
+  animation:
+    nova-cosmos-drift-b 300s linear infinite,
+    nova-cosmos-twinkle 7s ease-in-out infinite;
+}
+@keyframes nova-cosmos-drift-a {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-256px, -256px, 0); }
+}
+@keyframes nova-cosmos-drift-b {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-397px, 0, 0); }
+}
+@keyframes nova-cosmos-twinkle {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* Слабое оранжевое ядро туманности. Во время «варпа» коротко вспыхивает. */
+html[data-site-fx="cosmos"] .nova-cosmos-core {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: 70vmax;
+  height: 70vmax;
+  margin: -35vmax 0 0 -35vmax;
+  border-radius: 50%;
+  background: radial-gradient(circle, hsl(20 100% 60% / 0.12), hsl(28 100% 62% / 0.05) 35%, transparent 65%);
+  opacity: 0.65;
+}
+html[data-site-fx="cosmos"] .nova-cosmos-core[data-run] {
+  animation: nova-cosmos-core-flash 500ms var(--ease-out);
+}
+@keyframes nova-cosmos-core-flash {
+  0% { opacity: 0.65; transform: scale(1); }
+  30% { opacity: 1; transform: scale(1.2); }
+  100% { opacity: 0.65; transform: scale(1); }
+}
+
+/* Орбита — тонкий наклонённый эллипс через весь экран, с оранжевой дугой.
+   Статична. */
+html[data-site-fx="cosmos"] .nova-cosmos-orbit,
+html[data-site-fx="cosmos"] .nova-cosmos-orbit-arc {
+  position: absolute;
+  border-radius: 50%;
+}
+html[data-site-fx="cosmos"] .nova-cosmos-orbit {
+  left: -15vw;
+  top: 44vh;
+  width: 130vw;
+  height: 46vh;
+  border: 1px solid hsl(230 100% 82% / 0.07);
+  transform: rotate(-12deg);
+}
+html[data-site-fx="cosmos"] .nova-cosmos-orbit-arc {
+  inset: -1px;
+  border: 1px solid transparent;
+  border-top-color: hsl(20 100% 65% / 0.3);
+}
+
+/* Кольцо рун и созвездие (SVG) — еле заметно и очень медленно вращается. */
+html[data-site-fx="cosmos"] .nova-cosmos-runes {
+  --nova-cosmos-rune-size: min(118vmin, 1180px);
+  position: absolute;
+  width: var(--nova-cosmos-rune-size);
+  height: var(--nova-cosmos-rune-size);
+  left: calc(66% - var(--nova-cosmos-rune-size) / 2);
+  top: calc(50% - var(--nova-cosmos-rune-size) / 2);
+  opacity: 0.075;
+  animation: nova-cosmos-spin 600s linear infinite;
+}
+@media (max-width: 767px) {
+  html[data-site-fx="cosmos"] .nova-cosmos-runes {
+    left: calc(50% - var(--nova-cosmos-rune-size) / 2);
+    opacity: 0.06;
+  }
+}
+@keyframes nova-cosmos-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* «Трансформация» при смене раздела: 500 мс вспышка лучей от центра — на
+   самом фоне (он не предок контента, transform здесь безопасен). Слой живёт
+   только во время вспышки; базовая opacity 0 — после кадров он невидим. */
+html[data-site-fx="cosmos"] .nova-cosmos-warp {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: 120vmax;
+  height: 120vmax;
+  margin: -60vmax 0 0 -60vmax;
+  border-radius: 50%;
+  background:
+    repeating-conic-gradient(from 3deg, transparent 0deg 4deg, hsl(230 100% 88% / 0.2) 4.4deg, transparent 4.8deg 11deg),
+    repeating-conic-gradient(from 0deg, transparent 0deg 2.2deg, hsl(20 100% 70% / 0.12) 2.5deg, transparent 2.8deg 7deg);
+  -webkit-mask-image: radial-gradient(circle, transparent 5%, #000 20%, #000 38%, transparent 62%);
+  mask-image: radial-gradient(circle, transparent 5%, #000 20%, #000 38%, transparent 62%);
+  opacity: 0;
+  animation: nova-cosmos-warp 500ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@keyframes nova-cosmos-warp {
+  0% { opacity: 0; transform: scale(0.4) rotate(0deg); }
+  30% { opacity: 0.85; }
+  100% { opacity: 0; transform: scale(1.5) rotate(6deg); }
+}
+
+/* Статика (тач, «меньше движения», экономия трафика — data-static ставит
+   CosmosBackdrop): бесконечных анимаций нет. Пауза — свёрнутая вкладка и
+   стол (data-paused), открытое окно Radix (body[data-scroll-locked]) и
+   клавиатура телефона (html[data-keyboard="open"]). */
+html[data-site-fx="cosmos"] .nova-cosmos-root[data-static] .nova-cosmos-anim {
+  animation: none;
+}
+html[data-site-fx="cosmos"] .nova-cosmos-root[data-paused] .nova-cosmos-anim,
+html[data-site-fx="cosmos"] body[data-scroll-locked] .nova-cosmos-anim,
+html[data-site-fx="cosmos"][data-keyboard="open"] .nova-cosmos-anim {
+  animation-play-state: paused;
+}
+@media (hover: none), (pointer: coarse) {
+  html[data-site-fx="cosmos"] .nova-cosmos-anim {
+    animation: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-site-fx="cosmos"] .nova-cosmos-anim,
+  html[data-site-fx="cosmos"] .nova-cosmos-core[data-run] {
+    animation: none !important;
+  }
+  html[data-site-fx="cosmos"] .nova-cosmos-warp {
+    display: none;
+  }
+}
+
+/* ---- Барабан «Рандома» в виде «орбиты» (RandomWheelDialog) -----------------
+   Только краски вокруг колеса: вращение и посадка на сектор те же. Звёзды —
+   тенями точки (box-shadow не растит прокрутку окна, а у окна overflow-y
+   auto — фон шире колеса дал бы полосу прокрутки вбок на телефоне). */
+html[data-site-fx="cosmos"] .nova-cosmos-wheel {
+  isolation: isolate;
+}
+html[data-site-fx="cosmos"] .nova-cosmos-wheel::before,
+html[data-site-fx="cosmos"] .nova-cosmos-wheel::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  border-radius: 50%;
+}
+/* Ореол туманности за колесом. */
+html[data-site-fx="cosmos"] .nova-cosmos-wheel::after {
+  inset: 0;
+  z-index: -2;
+  box-shadow:
+    0 0 0 10px hsl(250 40% 10% / 0.55),
+    0 0 60px 24px hsl(262 70% 45% / 0.2),
+    0 0 110px 36px hsl(230 90% 55% / 0.1);
+}
+/* Звёзды кольцом вокруг колеса (точка 2 px в углу и её тени). */
+html[data-site-fx="cosmos"] .nova-cosmos-wheel::before {
+  left: -1px;
+  top: -1px;
+  width: 2px;
+  height: 2px;
+  z-index: -1;
+  box-shadow:
+    308px 115px 0 0 hsl(0 0% 100% / 0.85),
+    280px 165px 0 0 hsl(230 100% 85% / 0.9),
+    275px 201px 0 0 hsl(0 0% 100% / 0.85),
+    252px 222px 0 0 hsl(230 100% 85% / 0.9),
+    215px 246px 0 0 hsl(0 0% 100% / 0.85),
+    183px 262px 0 0 hsl(36 100% 74% / 0.85),
+    153px 270px 0 0.6px hsl(0 0% 100% / 0.85),
+    118px 265px 0 0 hsl(230 100% 85% / 0.9),
+    59px 252px 0 0 hsl(0 0% 100% / 0.85),
+    40px 240px 0 0.6px hsl(230 100% 85% / 0.9),
+    17px 226px 0 0 hsl(0 0% 100% / 0.85),
+    -4px 202px 0 0 hsl(0 0% 100% / 0.85),
+    -27px 168px 0 0 hsl(0 0% 100% / 0.85),
+    -47px 131px 0 0 hsl(230 100% 85% / 0.9),
+    -35px 96px 0 0 hsl(0 0% 100% / 0.85),
+    -21px 73px 0 0 hsl(0 0% 100% / 0.85),
+    5px 35px 0 0.6px hsl(230 100% 85% / 0.9),
+    43px 22px 0 0.6px hsl(0 0% 100% / 0.85),
+    82px 0px 0 0.6px hsl(0 0% 100% / 0.85),
+    125px -13px 0 0 hsl(230 100% 85% / 0.9),
+    157px 0px 0 0.6px hsl(0 0% 100% / 0.85),
+    172px 0px 0 0 hsl(230 100% 85% / 0.9),
+    221px 16px 0 0 hsl(0 0% 100% / 0.85),
+    248px 48px 0 0 hsl(0 0% 100% / 0.85),
+    291px 72px 0 0.6px hsl(36 100% 74% / 0.85),
+    293px 111px 0 0.6px hsl(0 0% 100% / 0.85);
+}
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  html[data-site-fx="cosmos"] .nova-cosmos-wheel::before {
+    animation: nova-cosmos-twinkle 5s ease-in-out infinite;
+  }
+}
+/* Стрелка светится: пятно акцента под треугольником (без filter). */
+html[data-site-fx="cosmos"] .nova-cosmos-wheel-pointer::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 1px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: hsl(var(--primary) / 0.6);
+  box-shadow: 0 0 14px 6px hsl(var(--primary) / 0.45);
+  z-index: -1;
+  pointer-events: none;
+}

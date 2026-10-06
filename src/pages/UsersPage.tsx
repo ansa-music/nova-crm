@@ -57,6 +57,7 @@ import { useMembersRefresh } from "@/hooks/useMembersRefresh";
 import { usePresenceMap } from "@/hooks/usePresenceMap";
 import { roleLabel, EXTRA_ROLES, memberHasRole, rolesOf, type JoinRequest, type PageIconName, type Role, type WorkspaceMember } from "@/types";
 import { confirmDialog } from "@/utils/appDialog";
+import { STUDIO_ASSIGNABLE_ROLES, useStudioMode } from "@/config/studio";
 
 /** Owner выдаёт и «Тимлид+»; Тимлиду этой роли в списке нет. */
 const LEADPLUS_ASSIGNABLE: Role[] = ["teamlead", "leadplus", "admin", "manager", "os", "viewer"];
@@ -73,10 +74,15 @@ const ROLE_CHIPS: { id: Role | "invited"; label: string }[] = [
   { id: "invited", label: "invited" },
 ];
 
+/** «NOVA Studio»: ролей две — Owner и «Менеджер». */
+const STUDIO_ROLES: Role[] = [...STUDIO_ASSIGNABLE_ROLES];
+
 export default function UsersPage() {
   const { profile } = useAuth();
   const { activeWorkspaceId, activeWorkspace, members, pages } = useWorkspace();
   const permissions = usePermissions();
+  // «NOVA Studio» (только вид): выдаётся одна роль, второй роли нет, чипы — Owner и «Менеджер».
+  const studio = useStudioMode();
   const [expandedUid, setExpandedUid] = useState<string | null>(null);
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -352,14 +358,21 @@ export default function UsersPage() {
       <PageHeader
         eyebrow="Workspace"
         title="Пользователи"
-        description="Кто в команде и что каждому видно. Owner видит все столы всегда, остальным доступ выдаётся явно; Тимлид таблиц столов не видит."
+        description={
+          studio
+            ? "Кто в команде и что каждому видно. Owner видит все столы всегда, остальным доступ выдаётся явно."
+            : "Кто в команде и что каждому видно. Owner видит все столы всегда, остальным доступ выдаётся явно; Тимлид таблиц столов не видит."
+        }
         actions={
           <>
-            <Button asChild variant="outline" className="min-h-11 gap-1.5 sm:min-h-0">
-              <Link to="/team">
-                <Contact className="h-4 w-4" /> Команда и ники
-              </Link>
-            </Button>
+            {/* «NOVA Studio»: «Команды» нет (маршрут уводит на главную) — ники правятся здесь. */}
+            {!studio && (
+              <Button asChild variant="outline" className="min-h-11 gap-1.5 sm:min-h-0">
+                <Link to="/team">
+                  <Contact className="h-4 w-4" /> Команда и ники
+                </Link>
+              </Button>
+            )}
             <Button className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => setInviteOpen(true)}>
               <Plus className="h-4 w-4" /> Пригласить
             </Button>
@@ -387,10 +400,17 @@ export default function UsersPage() {
             </section>
             <section className="flex flex-col gap-2">
               <h3 className="section">Ссылка для вступления</h3>
-              <p className="text-xs text-muted-foreground">
-                По этой ссылке человек приходит без роли: выбирает, кем работает (Технарь или ОС), пишет свой ник, если он
-                есть, — и ждёт одобрения. Вы можете впустить как есть или поменять роль и ник.
-              </p>
+              {studio ? (
+                <p className="text-xs text-muted-foreground">
+                  По этой ссылке человек приходит без роли, пишет свой ник, если он есть, — и ждёт одобрения. Впускаете вы — как
+                  «{roleLabel("manager")}»; ник можно поменять.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  По этой ссылке человек приходит без роли: выбирает, кем работает (Технарь или ОС), пишет свой ник, если он
+                  есть, — и ждёт одобрения. Вы можете впустить как есть или поменять роль и ник.
+                </p>
+              )}
               <div className="flex items-center gap-2">
                 <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted px-3 py-2 text-xs">{joinLink}</code>
                 <Button variant="outline" size="sm" className="min-h-11 shrink-0 gap-1.5 sm:min-h-0" onClick={handleCopyLink}>
@@ -492,7 +512,12 @@ export default function UsersPage() {
           />
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {ROLE_CHIPS.map((chip) => {
+          {(studio
+            ? ROLE_CHIPS.filter((chip) => chip.id === "owner" || chip.id === "manager").map((chip) =>
+                chip.id === "manager" ? { ...chip, label: roleLabel("manager") } : chip
+              )
+            : ROLE_CHIPS
+          ).map((chip) => {
             const on = roleChip === chip.id;
             return (
               <button
@@ -530,12 +555,12 @@ export default function UsersPage() {
           // Запись «Тимлид+» правит только Owner (как правила members и core_write).
           const selfLocked = (member.uid === profile?.uid || member.role === "leadplus") && !viewerIsOwner;
           const extraRoles = rolesOf(member).slice(1);
-          const addableRoles = EXTRA_ROLES.filter((r) => r !== member.role && !extraRoles.includes(r));
+          const addableRoles = studio ? [] : EXTRA_ROLES.filter((r) => r !== member.role && !extraRoles.includes(r));
           // Запись Owner правит создатель, а выданный Owner — только свою
           // (ник, вторая роль), не чужую.
           const ownerRowOpen = !isOwner || viewerIsCreator || (viewerIsOwner && member.uid === profile?.uid);
           const canEditExtraRoles =
-            member.status === "active" && Boolean(member.uid) && !selfLocked && ownerRowOpen;
+            !studio && member.status === "active" && Boolean(member.uid) && !selfLocked && ownerRowOpen;
           // Ники — по разделу «Команды» (Технари / ОС / Другие), плюс ник,
           // оставшийся от прошлой роли: открепить его можно и отсюда.
           const nickKinds = member.status === "active" && member.uid ? nickKindsShownFor(member) : [];
@@ -654,16 +679,20 @@ export default function UsersPage() {
                   <RoleSelect
                     className="w-full sm:w-32"
                     value="owner"
+                    assignableRoles={studio ? STUDIO_ROLES : undefined}
                     onChange={(role) => void handleRevokeOwner(member, role)}
                   />
                 ) : isOwner ? (
                   <Badge variant="outline">Owner</Badge>
+                ) : studio && member.role === "manager" ? (
+                  // Роль одна — выпадашка с одним пунктом была бы шумом.
+                  <Badge variant="outline">{roleLabel("manager")}</Badge>
                 ) : (
                   <RoleSelect
                     className="w-full sm:w-32"
                     value={member.role}
                     disabled={selfLocked}
-                    assignableRoles={viewerIsOwner ? LEADPLUS_ASSIGNABLE : undefined}
+                    assignableRoles={studio ? STUDIO_ROLES : viewerIsOwner ? LEADPLUS_ASSIGNABLE : undefined}
                     onChange={(role) =>
                       handleRoleChange(member.status === "invited" ? member.email : member.uid, role, member.extraRoles)
                     }
