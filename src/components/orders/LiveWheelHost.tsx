@@ -1,5 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { RandomWheelDialog, type WheelCandidate } from "@/components/orders/RandomWheelDialog";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import type { WheelCandidate } from "@/components/orders/RandomWheelDialog";
+
+const RandomWheelDialog = lazy(() =>
+  import("@/components/orders/RandomWheelDialog").then((m) => ({ default: m.RandomWheelDialog }))
+);
 import { useSiteConfig } from "@/config/siteTerms";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { fetchLatestSpin, isOwnSpin, WHEEL_FRESH_MS, WHEEL_TOPIC, type LiveSpin } from "@/services/randomService";
@@ -67,14 +71,19 @@ export function LiveWheelHost() {
     return member ? displayNameOf(member) : spin.byName;
   }, [spin, members]);
 
+  // Барабан (с конфетти) грузится, только когда кто-то реально крутит: раньше
+  // его код лежал в стартовом наборе у каждого при входе.
+  if (!spin) return null;
   return (
-    <RandomWheelDialog
-      key={spin?.id ?? "none"}
-      pool={pool}
-      winnerUid={spin?.winnerUid ?? null}
-      orderClient={spin?.title || "Заказ"}
-      watch={spin ? { byName } : null}
-      onClose={() => setSpin(null)}
-    />
+    <Suspense fallback={null}>
+      <RandomWheelDialog
+        key={spin.id}
+        pool={pool}
+        winnerUid={spin.winnerUid ?? null}
+        orderClient={spin.title || "Заказ"}
+        watch={{ byName }}
+        onClose={() => setSpin(null)}
+      />
+    </Suspense>
   );
 }

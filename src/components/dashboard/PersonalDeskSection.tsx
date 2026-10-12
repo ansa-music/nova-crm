@@ -6,7 +6,7 @@ import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
 import { RecentRowsPanel } from "@/components/dashboard/RecentRowsPanel";
 import { TechnicianQueue } from "@/components/dashboard/TechnicianQueue";
 import { WaitingForYou } from "@/components/dashboard/WaitingForYou";
-import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialog";
+import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialogLazy";
 import { DeskStudioSheet } from "@/components/pagesnav/DeskStudioSheet";
 import { useAuth } from "@/hooks/useAuth";
 import { isFresh, isLoadedOk } from "@/hooks/useCachedBatchLoads";

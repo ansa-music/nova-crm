@@ -4,7 +4,7 @@ import { ClipboardList, Eye, Moon, Pin, Search, Sun, Users } from "lucide-react"
 import type { LucideIcon } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialog";
+import { CreatePageDialog } from "@/components/pagesnav/CreatePageDialogLazy";
 import { useAuth } from "@/hooks/useAuth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";

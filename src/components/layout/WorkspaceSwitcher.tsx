@@ -8,7 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialog";
+import { CreateWorkspaceDialog } from "@/components/layout/CreateWorkspaceDialogLazy";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAuth } from "@/hooks/useAuth";
 import { isWorkspaceAdmin } from "@/utils/adminAccess";
