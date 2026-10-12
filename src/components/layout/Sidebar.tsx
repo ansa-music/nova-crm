@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, type FocusEvent, type PointerEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type FocusEvent, type PointerEvent } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import {
   ChevronDown,
@@ -9,6 +9,7 @@ import {
   Plus,
   Search,
   Settings,
+  Sparkles,
   User,
   UserCog,
 } from "lucide-react";
@@ -36,6 +37,7 @@ import { useUiStore, type SidebarMode } from "@/store/uiStore";
 import { useCanHover } from "@/hooks/useMediaQuery";
 import { useAccountMenu, useNavModel } from "@/hooks/useNavModel";
 import { MORE_SECTION_KEY, NAV_SECTIONS_KEY, isNavItemActive, pathMatches, type NavChild, type NavSection } from "@/config/nav";
+import { signatureSections, signatureTopKeys } from "@/config/signatureNav";
 import { preloadRoute } from "@/config/pageLoaders";
 import { useSiteConfig } from "@/config/siteTerms";
 import { BrandMark } from "@/components/common/BrandMark";
@@ -447,7 +449,15 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
     openCreatePage: () => setCreatePageOpen(true),
     openCreateWorkspace: () => setCreateWsOpen(true),
   });
-  const sections: NavSection[] = nav.sections;
+  // NOVA Signature: те же пункты модели, но по смысловым группам (и без
+  // страницы «Ещё» — её разделы стоят в группах). Классика — как была.
+  const uiSkin = useUiStore((s) => s.uiSkin);
+  const setUiSkin = useUiStore((s) => s.setUiSkin);
+  const signature = uiSkin === "signature";
+  const sections: NavSection[] = useMemo(
+    () => (signature ? signatureSections(nav.sections, signatureTopKeys(nav)) : nav.sections.filter((s) => s.key !== MORE_SECTION_KEY)),
+    [signature, nav]
+  );
   function goHome() {
     navigate(nav.home.to);
     onNavigate?.();
@@ -540,7 +550,7 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-thin">
           <NavSections
-            sections={sections.filter((s) => s.key !== MORE_SECTION_KEY)}
+            sections={sections}
             collapsed={collapsed}
             titles={railLocked}
             pathname={location.pathname}
@@ -703,6 +713,10 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
                   {opt.active ? " ·" : ""}
                 </DropdownMenuItem>
               ))}
+              <DropdownMenuItem onClick={() => setUiSkin(signature ? "classic" : "signature")}>
+                <Sparkles className="h-4 w-4" />
+                {signature ? "Вернуть прежний вид" : "Новый вид: NOVA Signature"}
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void account.shortcuts.run()}>
                 <account.shortcuts.icon className="h-4 w-4" /> {account.shortcuts.label}
               </DropdownMenuItem>

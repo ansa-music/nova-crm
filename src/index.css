@@ -1583,3 +1583,146 @@ html[data-site-fx="cosmos"] .nova-cosmos-wheel-pointer::before {
   z-index: -1;
   pointer-events: none;
 }
+
+/*
+  NOVA Signature — личное оформление (uiStore.uiSkin → html[data-ui="signature"]).
+  Только токены и несколько правил вида: разметку, данные и права не трогает.
+  Без атрибута (по умолчанию) ни одно правило ниже не действует — «классика»
+  остаётся как была. Вид «космос» (NOVA Studio) исключён селектором: у него свои
+  поверхности и шрифты. Акцент и фон, которые компания задала в Конструкторе,
+  мост пишет инлайном на <html> — они сильнее и остаются за компанией.
+  Палитра: графит/обсидиан — холст #0B0D13, поверхность #191E2A, приподнятая
+  #252D3F, акцент #929CFF, текст #F8F9FC / #A6B0C3. Формат — те же HSL-триплеты.
+*/
+html[data-ui="signature"]:not([data-site-fx]) {
+  --background: 225 27% 6%;
+  --foreground: 225 40% 98%;
+
+  --card: 222 25% 13%;
+  --card-foreground: 225 40% 98%;
+
+  --popover: 222 26% 20%;
+  --popover-foreground: 225 40% 98%;
+
+  /* Тёмная подпись на светлом акценте: ~7:1. */
+  --primary: 235 100% 79%;
+  --primary-foreground: 233 45% 10%;
+
+  --muted: 222 22% 16%;
+  --muted-foreground: 219 19% 71%;
+
+  --accent: 222 24% 18%;
+  --accent-foreground: 235 100% 86%;
+
+  --border: 222 20% 21%;
+  --input: 222 22% 17%;
+  --ring: 235 100% 79%;
+
+  --sidebar: 225 27% 8%;
+  --sidebar-foreground: 219 19% 71%;
+  --sidebar-border: 222 20% 15%;
+  --sidebar-accent: 222 24% 15%;
+
+  --radius: 0.625rem;
+  --os-radius: 10px;
+  --desk-accent: 235 100% 79%;
+}
+
+html[data-ui="signature"]:not([data-site-fx]) body {
+  background-color: hsl(var(--background));
+}
+
+/* Фокус клавиатуры — заметное кольцо 2px вместо волосяной линии. */
+html[data-ui="signature"]:not([data-site-fx]) :focus-visible {
+  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.7);
+}
+
+/* Заголовки — гротеск вместо антиквы: плотнее и спокойнее в рабочем интерфейсе. */
+html[data-ui="signature"]:not([data-site-fx]) .font-serif,
+html[data-ui="signature"]:not([data-site-fx]) .display,
+html[data-ui="signature"]:not([data-site-fx]) .hero {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+}
+
+/* Одна кнопка на действие: дубли, помеченные `data-sig-hide`, в Signature скрыты. */
+html[data-ui="signature"]:not([data-site-fx]) [data-sig-hide] {
+  display: none !important;
+}
+
+/* Шапка раздела: выразительный заголовок и читаемое пояснение (14px). */
+html[data-ui="signature"]:not([data-site-fx]) .page-head h1 {
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  color: hsl(var(--foreground));
+}
+html[data-ui="signature"]:not([data-site-fx]) .page-head-desc {
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 22px;
+  color: hsl(var(--muted-foreground));
+}
+/* Надзаголовки — обычным шрифтом 11px, а не моноширинной микроподписью. */
+html[data-ui="signature"]:not([data-site-fx]) .eyebrow {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: hsl(var(--muted-foreground));
+}
+
+/* Пустое состояние — спроектированная панель, а не две строки в пустоте. */
+html[data-ui="signature"]:not([data-site-fx]) .empty-state {
+  margin: 24px auto 0;
+  width: 100%;
+  max-width: 560px;
+  gap: 8px;
+  padding: 48px 32px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 16px;
+  background: hsl(var(--card));
+}
+html[data-ui="signature"]:not([data-site-fx]) .empty-state > .eyebrow {
+  display: none;
+}
+html[data-ui="signature"]:not([data-site-fx]) .empty-state-icon {
+  display: flex;
+  height: 48px;
+  width: 48px;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+  border-radius: 12px;
+  border: 1px solid hsl(var(--primary) / 0.3);
+  background: hsl(var(--primary) / 0.12);
+  color: hsl(var(--primary));
+}
+html[data-ui="signature"]:not([data-site-fx]) .empty-state-icon svg {
+  height: 22px;
+  width: 22px;
+}
+html[data-ui="signature"]:not([data-site-fx]) .empty-state-title {
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+html[data-ui="signature"]:not([data-site-fx]) .empty-state-desc {
+  max-width: 44ch;
+  font-size: 14px;
+  line-height: 22px;
+}
+html[data-ui="signature"]:not([data-site-fx]) .empty-state-action {
+  margin-top: 16px;
+}
+
+/* Активный пункт меню: спокойная подложка и акцентная риска слева — акцент
+   показывает «где я», а не красит всю строку. */
+html[data-ui="signature"]:not([data-site-fx]) .nav-link-active,
+html[data-ui="signature"]:not([data-site-fx]) .nav-link-active:hover {
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--primary) / 0.14);
+  box-shadow: inset 2px 0 0 hsl(var(--primary));
+}

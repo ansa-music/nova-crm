@@ -30,16 +30,17 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center gap-1.5 px-6 text-center",
+        // Классы `empty-state*` — крючки вида NOVA Signature (index.css); без него не значат ничего.
+        "empty-state flex flex-col items-center gap-1.5 px-6 text-center",
         bordered ? "rounded-xl border border-dashed border-border py-12" : "py-16",
         className
       )}
     >
-      {icon && <div className="mb-1 text-muted-foreground [&_svg]:h-5 [&_svg]:w-5">{icon}</div>}
+      {icon && <div className="empty-state-icon mb-1 text-muted-foreground [&_svg]:h-5 [&_svg]:w-5">{icon}</div>}
       {eyebrow && <p className="eyebrow">{eyebrow}</p>}
-      <p className="text-[13px] font-medium leading-5 text-foreground">{title}</p>
-      {description && <p className="max-w-sm text-[13px] leading-5 text-muted-foreground">{description}</p>}
-      {action && <div className="mt-3">{action}</div>}
+      <p className="empty-state-title text-[13px] font-medium leading-5 text-foreground">{title}</p>
+      {description && <p className="empty-state-desc max-w-sm text-[13px] leading-5 text-muted-foreground">{description}</p>}
+      {action && <div className="empty-state-action mt-3">{action}</div>}
     </div>
   );
 }

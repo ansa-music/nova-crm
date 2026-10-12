@@ -56,6 +56,7 @@ import {
   type TechLoadSummary,
 } from "@/utils/techLoad";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
+import { TeamModeSwitch } from "@/components/layout/SignatureSwitches";
 import { cn } from "@/utils/cn";
 import { useTerms } from "@/config/siteTerms";
 import {
@@ -528,6 +529,8 @@ export default function TechniciansPage() {
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-6xl p-5 sm:p-8 lg:p-10">
+      <TeamModeSwitch />
+
       <PageHeader
         eyebrow={t("studio", "one")}
         title={t("technician")}

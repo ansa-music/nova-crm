@@ -4895,6 +4895,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       {canEdit && !ordersFromOsOnly && viewMode === "table" && processedRows.length > 0 && (
         <button
           type="button"
+          // В Signature скрыта: та же «Строка» уже стоит в тулбаре — одна кнопка на действие.
+          data-sig-hide=""
           onClick={() => void handleAddRow()}
           className="flex h-11 shrink-0 items-center gap-2 border-t border-border/50 bg-background px-3 text-left text-sm text-muted-foreground hover:bg-muted/70 hover:text-foreground"
         >

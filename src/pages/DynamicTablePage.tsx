@@ -2449,7 +2449,8 @@ export default function DynamicTablePage() {
             <DropdownMenuItem onClick={() => setChatOpen(true)}>
               <MessageSquare className="h-4 w-4" /> Чат страницы
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setStatsOpen(true)}>
+            {/* В Signature пункт скрыт, пока в шапке видна кнопка «Статистика» — одна кнопка на действие. */}
+            <DropdownMenuItem data-sig-hide={!personalSpaceOpen ? "" : undefined} onClick={() => setStatsOpen(true)}>
               <BarChart3 className="h-4 w-4" /> Статистика
             </DropdownMenuItem>
             <DropdownMenuItem

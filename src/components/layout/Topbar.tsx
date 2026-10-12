@@ -7,6 +7,8 @@ import { RoleSwitcher } from "@/components/common/RoleSwitcher";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { QuickAccess } from "@/components/layout/QuickAccess";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { SignatureTopNav } from "@/components/layout/SignatureTopNav";
+import { useUiStore } from "@/store/uiStore";
 import { useIsMobile, useIsTablet } from "@/hooks/useMediaQuery";
 import { usePageMeta } from "@/hooks/useNavModel";
 
@@ -25,7 +27,18 @@ export const Topbar = memo(function Topbar({ title }: { title?: string }) {
   const meta = usePageMeta(pathname);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  if (!isCompactNav) return null;
+  const signature = useUiStore((s) => s.uiSkin === "signature");
+
+  if (!isCompactNav) {
+    if (!signature) return null;
+    // NOVA Signature, десктоп: частые разделы — в верхней панели. Заголовка
+    // тут нет (он в шапке самой страницы), колокольчик и аккаунт — в боковой.
+    return (
+      <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center border-b border-border bg-background px-3">
+        <SignatureTopNav className="overflow-x-auto [scrollbar-width:none]" />
+      </header>
+    );
+  }
 
   const heading = title ?? meta.title;
 
@@ -84,10 +97,17 @@ export const Topbar = memo(function Topbar({ title }: { title?: string }) {
           <Sidebar mobile onNavigate={() => setMobileNavOpen(false)} />
         </SheetContent>
       </Sheet>
-      <h1 className="min-w-0 truncate text-sm font-semibold">{heading}</h1>
-      <div className="flex-1" />
-      {/* Планшет: меню спрятано в «гамбургер» — главные кнопки в шапке. */}
-      <QuickAccess />
+      {/* В Signature вместо заголовка — та же верхняя панель, что на десктопе. */}
+      {signature ? (
+        <SignatureTopNav className="flex-1 overflow-x-auto [scrollbar-width:none]" />
+      ) : (
+        <>
+          <h1 className="min-w-0 truncate text-sm font-semibold">{heading}</h1>
+          <div className="flex-1" />
+          {/* Планшет: меню спрятано в «гамбургер» — главные кнопки в шапке. */}
+          <QuickAccess />
+        </>
+      )}
       <NotificationBell />
       <RoleSwitcher />
     </header>

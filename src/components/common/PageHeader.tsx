@@ -44,7 +44,7 @@ export function PageHeader({
   className?: string;
 }) {
   return (
-    <div className={cn(compact ? "mb-3" : "mb-6", className)}>
+    <div className={cn("page-head", compact ? "mb-3" : "mb-6", className)}>
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
         {/* flex-1 обязателен: без него блок заголовка в ряду с широкими
             действиями (поиск + чипы) сжимался до ширины слова, и описание
@@ -59,7 +59,7 @@ export function PageHeader({
           >
             {title}
           </h1>
-          {description && <p className="mt-1 max-w-[62ch] text-[13px] leading-5 text-muted-foreground">{description}</p>}
+          {description && <p className="page-head-desc mt-1 max-w-[62ch] text-[13px] leading-5 text-muted-foreground">{description}</p>}
         </div>
         {actions && (
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">{actions}</div>

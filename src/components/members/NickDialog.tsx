@@ -66,7 +66,10 @@ export function nickChoiceToTarget(choice: NickChoice): NickTarget {
 
 /**
  * Подобрать выбор по нику, который человек написал сам (в заявке): есть в
- * списке и свободен — берём его, иначе — «новый ник с таким именем».
+ * списке и свободен — берём его. Ника в списке нет — НЕ предлагаем завести
+ * его «новым» по умолчанию (просьба Nurba 12.10.2026): иначе придуманный
+ * сотрудником ник попадал в справочник одним нажатием «Впустить».
+ * Руководитель выбирает ник из списка сам.
  */
 export function suggestNickChoice(
   nick: string | undefined | null,
@@ -78,7 +81,7 @@ export function suggestNickChoice(
   const label = nick?.trim().slice(0, NICK_MAX_LENGTH) ?? "";
   if (!label) return null;
   const option = options.find((o) => o.label.trim().toLowerCase() === label.toLowerCase());
-  if (!option) return { kind: "new", label };
+  if (!option) return null;
   const takenBy = members.find((m) => m.uid !== selfUid && memberNickValue(m, kind) === option.value);
   return takenBy ? null : { kind: "option", value: option.value };
 }

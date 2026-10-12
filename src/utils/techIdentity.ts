@@ -33,7 +33,8 @@ export interface TechIdentity {
 type MemberLike = Pick<WorkspaceMember, "uid" | "status" | "techNickValue" | "techNick" | "nickname" | "name" | "photoURL">;
 
 function realNameFor(member: MemberLike | null, label: string | null): string | null {
-  const real = member ? member.nickname?.trim() || member.name?.trim() || "" : "";
+  // Самописный `nickname` не показываем — только закреплённый ник и имя аккаунта.
+  const real = member ? member.name?.trim() || "" : "";
   if (!real) return null;
   if (label && real.toLocaleLowerCase("ru") === label.toLocaleLowerCase("ru")) return null;
   return real;
@@ -97,7 +98,6 @@ export function techIdentityOfUid(
     (member?.techNickValue ? techNickOptions?.find((o) => o.value === member.techNickValue)?.label?.trim() : "") ||
     member?.techNick?.trim() ||
     fallbackName?.trim() ||
-    member?.nickname?.trim() ||
     member?.name?.trim() ||
     null;
   if (!label) return null;

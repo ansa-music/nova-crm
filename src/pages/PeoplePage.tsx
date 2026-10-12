@@ -20,6 +20,7 @@ import { canOpenDesk, groupDeskSubtitle, personLabel } from "@/utils/peopleDesks
 import { getPresenceStatus, PRESENCE_DOT_COLOR } from "@/utils/presence";
 import { roleLabel, memberHasRole, rolesOf } from "@/types";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
+import { TeamModeSwitch } from "@/components/layout/SignatureSwitches";
 import { cn } from "@/utils/cn";
 import { useTerms } from "@/config/siteTerms";
 import type { Role, WorkspacePage } from "@/types";
@@ -138,6 +139,8 @@ export default function PeoplePage() {
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-2xl p-5 sm:p-8">
+      <TeamModeSwitch />
+
       <PageHeader
         eyebrow={t("studio", "one")}
         title={t("people", "one")}

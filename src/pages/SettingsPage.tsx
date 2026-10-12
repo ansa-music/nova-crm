@@ -484,10 +484,7 @@ export default function SettingsPage() {
                   <Label htmlFor="name">Имя</Label>
                   <Input id="name" {...profileForm.register("name")} />
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="nickname">Ник</Label>
-                  <Input id="nickname" {...profileForm.register("nickname")} placeholder="как в чате" />
-                </div>
+                {/* Поля «Ник» нет: рабочий ник закрепляет руководитель в «Команде», сам себе его не пишут. */}
                 <div className="flex flex-col gap-1.5">
                   <Label>Email</Label>
                   <Input value={profile?.email ?? ""} disabled />

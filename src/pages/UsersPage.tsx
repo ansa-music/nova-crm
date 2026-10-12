@@ -8,6 +8,7 @@ import { Link, Navigate } from "react-router";
 import { displayNameOf } from "@/utils/displayName";
 import { getPresenceStatus, PRESENCE_DOT_COLOR, PRESENCE_LABEL } from "@/utils/presence";
 import { PageHeader } from "@/components/common/PageHeader";
+import { TeamModeSwitch } from "@/components/layout/SignatureSwitches";
 import { Alert } from "@/components/ui/alert";
 import { useTenantInfo } from "@/hooks/useTenantInfo";
 import { seatsState } from "@/utils/seats";
@@ -355,6 +356,8 @@ export default function UsersPage() {
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-4xl p-4 sm:p-8">
+      <TeamModeSwitch />
+
       <PageHeader
         eyebrow="Workspace"
         title="Пользователи"

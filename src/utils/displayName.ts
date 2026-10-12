@@ -9,11 +9,15 @@ type NickedEntity = NickHolder & {
  * Как показать человека — ПО НИКУ, везде и у всех (просьба Nurba
  * 25.09.2026). Рабочий ник, выданный руководством (ник технаря, ник ОС или
  * ник «Другие» — ник его раздела первым, `workNickOf`), идёт первым: человек
- * работает под ним. Нет выданного — ник, который человек выбрал себе сам, и
- * только потом полное имя.
+ * работает под ним. Нет выданного — имя аккаунта.
+ *
+ * Ник, который человек вписал себе сам (`nickname`), в подпись НЕ идёт
+ * (просьба Nurba 12.10.2026: «везде и всегда только привязанный ник»): он
+ * ничем не проверяется, и человек без закреплённого ника мог назваться чужим
+ * рабочим ником и так показываться всем.
  */
 export function displayNameOf(entity: NickedEntity | null | undefined): string {
-  return workNickOf(entity) || entity?.nickname?.trim() || entity?.name?.trim() || "Пользователь";
+  return workNickOf(entity) || entity?.name?.trim() || "Пользователь";
 }
 
 /**
@@ -22,7 +26,8 @@ export function displayNameOf(entity: NickedEntity | null | undefined): string {
  * там подпись по нику дала бы «Sako … Sako», и не понять, чей он.
  */
 export function realNameOf(entity: { nickname?: string; name?: string; email?: string } | null | undefined): string {
-  return entity?.nickname?.trim() || entity?.name?.trim() || entity?.email?.trim() || "Пользователь";
+  // Самописный `nickname` не показываем нигде — см. `displayNameOf`.
+  return entity?.name?.trim() || entity?.email?.trim() || "Пользователь";
 }
 
 /**

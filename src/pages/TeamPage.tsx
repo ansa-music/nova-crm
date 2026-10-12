@@ -4,6 +4,7 @@ import { Contact, Lock, Search, Users } from "lucide-react";
 import { AccessDenied } from "@/components/common/AccessDenied";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
+import { TeamModeSwitch } from "@/components/layout/SignatureSwitches";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -124,6 +125,8 @@ export default function TeamPage() {
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-4xl p-4 sm:p-8">
+      <TeamModeSwitch />
+
       <PageHeader
         eyebrow="Workspace"
         title={t("team", "one")}

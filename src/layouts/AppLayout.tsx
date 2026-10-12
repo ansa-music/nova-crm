@@ -64,6 +64,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useTableDiagWatch } from "@/hooks/useTableDiagWatch";
 import { useIsMobile, useIsTablet } from "@/hooks/useMediaQuery";
 import { useUiStore } from "@/store/uiStore";
+import { SkinPromoBanner } from "@/components/layout/SkinPromoBanner";
 import { isWorkspaceAdmin } from "@/utils/adminAccess";
 import { companyStartPath, FALLBACK_JOIN_WORKSPACE_ID, getJoinIntent } from "@/utils/joinIntent";
 
@@ -325,6 +326,7 @@ const AppChrome = memo(function AppChrome({
         {!isFullscreen && <SupabaseSqlBanner />}
         {!isFullscreen && trial ? <TrialBanner info={trial} /> : null}
         {!isFullscreen && <InstallAppBanner />}
+        {!isFullscreen && <SkinPromoBanner />}
         {isFullscreen && <TableChromeExit label="Свернуть" />}
         {/* overflow-x задан явно: один `overflow-y-auto` даёт и горизонтальный
             скролл, и широкие страницы ездили бы вместе с рейкой; вбок

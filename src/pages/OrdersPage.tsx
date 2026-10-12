@@ -754,7 +754,8 @@ export default function OrdersPage() {
           description={tab === "open" && canIssue ? `Нажмите «Выдать заказ» — ${techMany} получат уведомление.` : undefined}
           action={
             tab === "open" && canIssue ? (
-              <Button className="gap-1.5" onClick={() => setIssueOpen(true)}>
+              // В Signature скрыта: «Выдать заказ» уже стоит в шапке страницы.
+              <Button data-sig-hide="" className="gap-1.5" onClick={() => setIssueOpen(true)}>
                 <Plus className="h-4 w-4" /> Выдать заказ
               </Button>
             ) : historyTab && historyHasMore ? (
@@ -1022,7 +1023,7 @@ export default function OrdersPage() {
                           disabled={busy}
                           onClick={() => void withBusy(order.id, () => (activeWorkspaceId ? unassignOrder(activeWorkspaceId, order, { uid, name: myName }) : Promise.resolve()), "Не удалось отозвать")}
                         >
-                          <Undo2 className="h-3.5 w-3.5" /> В открытые
+                          <Undo2 className="h-3.5 w-3.5" /> Перевыдать
                         </Button>
                       </>
                     )}

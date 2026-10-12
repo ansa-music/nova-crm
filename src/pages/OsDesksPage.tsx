@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ArrowRight, Loader2, Lock, RefreshCw } from "lucide-react";
+import { ArrowRight, Loader2, Lock, RefreshCw, ScanEye } from "lucide-react";
 import { EmptyState } from "@/components/common/EmptyState";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { PageHeader } from "@/components/common/PageHeader";
+import { DesksModeSwitch } from "@/components/layout/SignatureSwitches";
 import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
@@ -112,6 +113,7 @@ export default function OsDesksPage() {
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-5xl p-4 sm:p-8">
+      <DesksModeSwitch />
       <PageHeader
         eyebrow="Мониторинг"
         title={t("osDesk")}
@@ -135,8 +137,20 @@ export default function OsDesksPage() {
       {rows.length === 0 ? (
         <EmptyState
           eyebrow="Столы ОС"
+          icon={<ScanEye />}
           title="Столов ОС пока нет"
-          description="Стол заводится сам, когда ОС первый раз открывает свой раздел «Стол ОС»."
+          description="Создавать их не нужно: стол заводится сам, когда ОС первый раз открывает свой раздел «Стол ОС». После этого он появится здесь со сводкой за месяц."
+          // Кнопки «создать стол» нет намеренно — стол ОС руками не заводят.
+          // Руководству — переход туда, где ОС получает роль и ник.
+          action={
+            permissions.canManageUsers ? (
+              <Button asChild variant="outline" className="gap-1.5">
+                <Link to="/team">
+                  Открыть «Команду» <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            ) : undefined
+          }
         />
       ) : (
         <>

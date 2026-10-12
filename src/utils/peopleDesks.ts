@@ -1,7 +1,7 @@
 import { memberHasRole, type Role, type WorkspaceMember, type WorkspacePage } from "@/types";
 import { workNickOf } from "@/utils/teamGroup";
 
-/** Подпись человека: рабочий ник (технаря или «Другие») → свой ник → имя. См. `displayNameOf`. */
+/** Подпись человека: закреплённый рабочий ник → имя аккаунта (самописный ник не показываем). См. `displayNameOf`. */
 export function personLabel(
   member?: {
     name?: string;
@@ -15,7 +15,7 @@ export function personLabel(
   } | null
 ) {
   if (!member) return "";
-  return workNickOf(member) || member.nickname || member.name || "";
+  return workNickOf(member) || member.name || "";
 }
 
 /**

@@ -32,6 +32,7 @@ import { formatDate } from "@/utils/date";
 import { myDisplayName } from "@/utils/displayName";
 import { canOpenDesk, deskOwnerName, personLabel, resolvedCoverUrl } from "@/utils/peopleDesks";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
+import { DesksModeSwitch } from "@/components/layout/SignatureSwitches";
 import { cn } from "@/utils/cn";
 import { useTerms } from "@/config/siteTerms";
 import type { WorkspacePage } from "@/types";
@@ -194,6 +195,7 @@ export default function DesksPage() {
 
   return (
     <div className="relative mx-auto w-full min-w-0 max-w-6xl p-5 sm:p-8 lg:p-10">
+      <DesksModeSwitch />
       <PageHeader
         eyebrow={t("studio", "one")}
         title={t("desk")}

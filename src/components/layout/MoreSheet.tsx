@@ -1,5 +1,6 @@
 import { NavLink, useLocation } from "react-router";
-import { Building2, Check, ChevronDown, Search } from "lucide-react";
+import { Building2, Check, ChevronDown, Search, Sparkles } from "lucide-react";
+import { useUiStore } from "@/store/uiStore";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   DropdownMenu,
@@ -107,6 +108,8 @@ function MoreSheetBody({
   const { pathname } = useLocation();
   const { profile } = useAuth();
   const nav = useNavModel();
+  const uiSkin = useUiStore((s) => s.uiSkin);
+  const setUiSkin = useUiStore((s) => s.setUiSkin);
   const account = useAccountMenu({
     openCreatePage: () => {
       close();
@@ -233,6 +236,16 @@ function MoreSheetBody({
                   <a.icon className="h-[18px] w-[18px] shrink-0 text-muted-foreground" /> {a.label}
                 </button>
               ))}
+
+            {/* Вид интерфейса — тот же личный выбор, что в меню аккаунта на десктопе. */}
+            <button
+              type="button"
+              onClick={() => setUiSkin(uiSkin === "signature" ? "classic" : "signature")}
+              className="flex min-h-11 items-center gap-2.5 rounded-lg px-2 text-left text-[14px] text-foreground hover:bg-foreground/5"
+            >
+              <Sparkles className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
+              {uiSkin === "signature" ? "Вернуть прежний вид" : "Новая версия дизайна"}
+            </button>
 
             {/* Тема — сегментом, все три варианта видны сразу. */}
             <div className="flex min-h-11 items-center gap-2.5 px-2 text-[14px]">

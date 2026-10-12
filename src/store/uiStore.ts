@@ -5,6 +5,9 @@ export type ThemeMode = "light" | "dark" | "system";
 
 export type SidebarMode = "open" | "hover" | "rail";
 
+/** Оформление интерфейса: `classic` — прежняя Nova, `signature` — NOVA Signature. */
+export type UiSkin = "classic" | "signature";
+
 interface UiState {
   theme: ThemeMode;
   /**
@@ -28,6 +31,14 @@ interface UiState {
    * умолчание по устройству (см. Sidebar).
    */
   sidebarMode: SidebarMode | null;
+  /**
+   * Личный выбор оформления (на устройство). По умолчанию `classic`: пока
+   * человек сам не включил NOVA Signature, сайт выглядит и работает как раньше.
+   * Данных и прав выбор не касается — только токены темы и группировка меню.
+   */
+  uiSkin: UiSkin;
+  /** Человек закрыл плашку «Новая версия дизайна» — больше не показываем. */
+  skinPromoDismissed: boolean;
   shortcutsHelpOpen: boolean;
   tableFullscreen: boolean;
   tableImmersive: boolean;
@@ -49,6 +60,8 @@ interface UiState {
    */
   setSidebarPinned: (pinned: boolean) => void;
   setSidebarMode: (mode: SidebarMode) => void;
+  setUiSkin: (skin: UiSkin) => void;
+  dismissSkinPromo: () => void;
   setShortcutsHelpOpen: (open: boolean) => void;
   setTableFullscreen: (fullscreen: boolean) => void;
   setTableImmersive: (immersive: boolean) => void;
@@ -63,6 +76,8 @@ export const useUiStore = create<UiState>()(
       theme: "dark",
       sidebarPinned: null,
       sidebarMode: null,
+      uiSkin: "classic",
+      skinPromoDismissed: false,
       shortcutsHelpOpen: false,
       tableFullscreen: false,
       tableImmersive: false,
@@ -71,6 +86,8 @@ export const useUiStore = create<UiState>()(
       setTheme: (theme) => set({ theme }),
       setSidebarPinned: (sidebarPinned) => set({ sidebarPinned }),
       setSidebarMode: (sidebarMode) => set({ sidebarMode }),
+      setUiSkin: (uiSkin) => set({ uiSkin }),
+      dismissSkinPromo: () => set({ skinPromoDismissed: true }),
       setShortcutsHelpOpen: (shortcutsHelpOpen) => set({ shortcutsHelpOpen }),
       setTableFullscreen: (tableFullscreen) => set({ tableFullscreen }),
       setTableImmersive: (tableImmersive) => set({ tableImmersive }),
@@ -90,6 +107,8 @@ export const useUiStore = create<UiState>()(
         theme: s.theme,
         sidebarPinned: s.sidebarPinned,
         sidebarMode: s.sidebarMode,
+        uiSkin: s.uiSkin,
+        skinPromoDismissed: s.skinPromoDismissed,
         deskAlerts: s.deskAlerts,
       }),
     }

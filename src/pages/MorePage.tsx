@@ -8,6 +8,8 @@ import { brandName, useSiteConfig } from "@/config/siteTerms";
 import { useStudioMode } from "@/config/studio";
 import { isStudioBlockedPath } from "@/components/common/StudioGate";
 import { cn } from "@/utils/cn";
+import { signatureSections } from "@/config/signatureNav";
+import { useUiStore } from "@/store/uiStore";
 
 /**
  * «Ещё» — отдельная страница со всеми разделами, которых нет в быстром
@@ -73,6 +75,19 @@ export default function MorePage() {
   const grouped = new Set(GROUPS.flatMap((g) => g.keys));
   const rest = items.filter((i) => !grouped.has(i.key));
   if (rest.length > 0) groups.push({ title: "Другое", items: rest });
+  // NOVA Signature: кнопка «Все разделы» верхней панели ведёт сюда, и страница
+  // показывает ВСЕ разделы роли (а не только «остальные») — теми же группами,
+  // что боковая панель, плюс то, что вынесено наверх, и «Настройки».
+  const signature = useUiStore((s) => s.uiSkin === "signature");
+  if (signature) {
+    const all = signatureSections(nav.sections, new Set())
+      .map((s) => ({ title: s.title ?? "Главное", items: studio ? s.items.filter((i) => !isStudioBlockedPath(i.to)) : s.items }))
+      .filter((g) => g.items.length > 0);
+    const settings = nav.items.find((i) => i.key === "settings");
+    if (settings) all.push({ title: "Настройки", items: [settings] });
+    groups.length = 0;
+    groups.push(...all);
+  }
   // В студии подпись страницы — из её же главного меню, без технарей, ОС и ABS.
   const studioMain = studio
     ? (nav.sections.find((s) => s.key !== MORE_SECTION_KEY)?.items ?? [])
@@ -89,8 +104,8 @@ export default function MorePage() {
     <div className="mx-auto w-full min-w-0 max-w-4xl p-5 sm:p-8">
       <PageHeader
         eyebrow={brandName()}
-        title="Ещё"
-        description={description}
+        title={signature ? "Все разделы" : "Ещё"}
+        description={signature ? "Всё, что доступно вам в Nova. Частое — в панели сверху." : description}
         actions={
           <button
             type="button"
