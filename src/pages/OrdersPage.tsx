@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { CalendarClock, Clock3, ExternalLink, Hand, Inbox, Link2, Phone, Plus, Trash2, Undo2, UserCheck, Users, XCircle } from "lucide-react";
+import { CalendarClock, Clock3, ExternalLink, Hand, Inbox, Link2, Pencil, Phone, Plus, Trash2, Undo2, UserCheck, Users, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/common/EmptyState";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
@@ -27,6 +27,8 @@ import {
   countOrdersWithStatus,
   createOrder,
   deleteOrder,
+  editOrder,
+  reissueOrder,
   removeOrderDeskRow,
   fetchOrder,
   fetchOrderHistoryPage,
@@ -48,10 +50,10 @@ import { feedOpenOrdersFromPage, releaseOpenOrdersPageFeed } from "@/services/op
 import { useOrdersBackend } from "@/services/orderStore";
 import { firestoreErrorText } from "@/utils/dbError";
 import { packStudioOrderNote, parseOptionalNumber, parseStudioOrderNote } from "@/utils/quickOrder";
-import { myDisplayName } from "@/utils/displayName";
+import { myDisplayName, NO_NICK_LABEL } from "@/utils/displayName";
 import { usePersonName } from "@/hooks/usePersonName";
 import { formatCurrency } from "@/utils/format";
-import { almatyNoonMillis, formatOrderDate, timeAgo } from "@/utils/date";
+import { almatyNoonMillis, formatOrderDate, timeAgo, ymdInTimeZone } from "@/utils/date";
 import { hasFullAccess } from "@/utils/permissions";
 import { confirmDialog } from "@/utils/appDialog";
 import { parseHttpUrl } from "@/utils/httpUrl";
@@ -232,6 +234,9 @@ export default function OrdersPage() {
   const deskIssuer = canIssue && permissions.hasRole("os");
   const [deskIssueOpen, setDeskIssueOpen] = useState(false);
   const [deskNewOpen, setDeskNewOpen] = useState(false);
+  /** Заказ, который сейчас правят («Изменить»); правка и перевыдача — только у заказов в Supabase. */
+  const [editId, setEditId] = useState<string | null>(null);
+  const sbOrders = ordersBackend === "supabase";
   const openIssue = useCallback(() => (deskIssuer ? setDeskIssueOpen(true) : setIssueOpen(true)), [deskIssuer]);
   // Палитра Ctrl+K и нижняя панель шлют «Новый заказ» на /orders#new: открываем
   // диалог выдачи и стираем хэш, чтобы F5 не открывал его снова.
@@ -809,7 +814,10 @@ export default function OrdersPage() {
                       {(() => {
                         const author = nameOf(order.createdBy, order.createdByName);
                         const os = order.osLabel?.trim() ?? "";
-                        const same = os !== "" && author.trim().toLocaleLowerCase("ru") === os.toLocaleLowerCase("ru");
+                        // Автор без закреплённого ника при известном ОС — «Без ника» в строке только шум.
+                        const same =
+                          os !== "" &&
+                          (author === NO_NICK_LABEL || author.trim().toLocaleLowerCase("ru") === os.toLocaleLowerCase("ru"));
                         return `${os ? `ОС ${os} · ` : ""}${same ? "" : `${author} · `}${timeAgo(order.createdAt)}`;
                       })()}
                     </p>
@@ -1062,6 +1070,66 @@ export default function OrdersPage() {
                         <Undo2 className="h-3.5 w-3.5" /> Вернуть в открытые
                       </Button>
                     )}
+                    {/* Правка опубликованного заказа (SQL 20261046, `order_edit`):
+                        пока он не в столе. Права и состояние проверяет база. */}
+                    {canManage && sbOrders && order.source !== "fs" && !studio && (order.status === "open" || order.status === "assigned") && (
+                      <Button size="sm" variant="ghost" className="h-8 gap-1.5 text-muted-foreground" disabled={busy} onClick={() => setEditId(order.id)}>
+                        <Pencil className="h-3.5 w-3.5" /> Изменить
+                      </Button>
+                    )}
+                    {/* «Перевыдать» из стола (SQL 20261046, `order_reissue`): строка у
+                        технаря убирается, заказ снова открыт, технари откликаются
+                        заново. Заказ, который ведёт ОС (выдан со стола ОС или
+                        подхвачен ОС), перевыдают на столе ОС — туда и ведёт ссылка;
+                        подхваченному база сама откажет с объяснением. */}
+                    {canManage && sbOrders && order.source !== "fs" && !studio && order.status === "taken" && !order.osSource && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 gap-1.5"
+                        disabled={busy}
+                        onClick={async () => {
+                          if (!activeWorkspaceId || !profile) return;
+                          if (
+                            !(await confirmDialog({
+                              title: `Перевыдать заказ «${order.client}»?`,
+                              description: `Заказ вернётся в открытые, технари откликнутся заново. Строка в столе${order.assignedName ? ` (${nameOf(order.assignedUid, order.assignedName)})` : ""} удалится вместе со всем, что в неё внесли.`,
+                              confirmLabel: "Перевыдать",
+                            }))
+                          )
+                            return;
+                          void withBusy(
+                            order.id,
+                            async () => {
+                              await reissueOrder({
+                                workspaceId: activeWorkspaceId,
+                                order,
+                                actor: { uid: profile.uid, name: myName },
+                                technicianUids: technicians.map((m) => m.uid),
+                              });
+                              setHistory((prev) => (prev === null ? prev : prev.filter((o) => o.id !== order.id)));
+                              setHistoryCounts((c) => bumpHistoryCount(c, "taken", -1));
+                              setTab("open");
+                              toast.success("Заказ снова открыт", { description: "Технари получили уведомление." });
+                            },
+                            "Не удалось перевыдать"
+                          );
+                        }}
+                      >
+                        <Undo2 className="h-3.5 w-3.5" /> Перевыдать
+                      </Button>
+                    )}
+                    {canManage && order.status === "taken" && order.osSource && (
+                      <Button asChild size="sm" variant="outline" className="h-8 gap-1.5">
+                        <Link
+                          to={deskRowHref(order.osSource.pageId, order.osSource.tabId, order.osSource.rowId)}
+                          state={deskNavState({ to: "/orders?status=taken", label: sectionTitle })}
+                          title="Заказ выдан со стола ОС: там снимите технаря и нажмите «Всем технарям — на „Заказы“»"
+                        >
+                          <Undo2 className="h-3.5 w-3.5" /> Перевыдать на столе ОС
+                        </Link>
+                      </Button>
+                    )}
                     {canManage && (order.status === "cancelled" || order.status === "taken") && (
                       <Button
                         size="sm"
@@ -1143,6 +1211,58 @@ export default function OrdersPage() {
         studio={studio}
         workTypeOptions={studioWorkTypes}
       />
+      {(() => {
+        const editing = editId ? (visible.find((o) => o.id === editId) ?? null) : null;
+        return (
+          <IssueOrderDialog
+            open={Boolean(editing)}
+            onOpenChange={(open) => !open && setEditId(null)}
+            myOs={myOs}
+            osOptions={osOptions}
+            edit={
+              editing
+                ? {
+                    osLabel: editing.osLabel,
+                    initial: {
+                      client: editing.client,
+                      phone: editing.phone,
+                      link: editing.link,
+                      deadline: editing.deadline ? ymdInTimeZone(editing.deadline) : "",
+                      urgency: editing.urgency,
+                      price: editing.price != null ? String(editing.price) : "",
+                      persons: editing.persons != null ? String(editing.persons) : "",
+                      minutes: editing.minutes != null ? String(editing.minutes) : "",
+                      note: editing.note,
+                      osValue: editing.osValue,
+                      workType: "",
+                      topic: "",
+                    },
+                  }
+                : null
+            }
+            onSubmit={async (form) => {
+              if (!activeWorkspaceId || !editing) return;
+              try {
+                await editOrder(activeWorkspaceId, editing, {
+                  client: form.client,
+                  phone: form.phone,
+                  link: form.link,
+                  deadline: deadlineMillis(form.deadline),
+                  urgency: form.urgency,
+                  price: parseOptionalNumber(form.price),
+                  persons: parseOptionalNumber(form.persons),
+                  minutes: parseOptionalNumber(form.minutes),
+                  note: form.note,
+                });
+                toast.success("Заказ изменён");
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : "Не удалось изменить заказ");
+                throw error;
+              }
+            }}
+          />
+        );
+      })()}
       {deskIssuer ? (
         <>
           <OsDeskIssueDialog

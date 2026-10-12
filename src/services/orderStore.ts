@@ -449,6 +449,42 @@ export async function sbOrderWrite(workspaceId: string, id: string, op: OrderOp,
   return rowToOrder(row, workspaceId);
 }
 
+/** В базе ещё нет функции (SQL старее сборки) — операция недоступна, пока Owner не обновит SQL. */
+export class OrderSqlOutdated extends Error {}
+
+/**
+ * Отдельные функции заказа (SQL 20261046): `order_edit` — правка
+ * опубликованного заказа, `order_reissue` — «Перевыдать» из «В столах».
+ * Только Supabase: в Firestore-заказах этих операций нет.
+ */
+export async function sbOrderCall(
+  workspaceId: string,
+  id: string,
+  fn: "order_edit" | "order_reissue",
+  args?: Record<string, unknown>
+): Promise<WorkOrder> {
+  const params: Record<string, unknown> = { p_workspace: workspaceId, p_id: id };
+  if (fn === "order_edit") params.p_args = args ?? {};
+  const { data, error } = await supabaseRows.rpc(fn, params);
+  if (error) {
+    // Функции нет — это «SQL не обновлён», а не «таблицы заказов нет»: биржу не выключаем.
+    if (isSbMissingError(error)) {
+      throw new OrderSqlOutdated("Нужно обновить базу: Owner — «Настройки → Строки таблиц → Скопировать SQL» и вставить в Supabase");
+    }
+    if (error.code === "P0002") throw new Error("Заказа уже нет — обновите страницу");
+    // NV409 — заказ ведёт ОС (выдан со стола ОС или подхвачен): перевыдают на столе ОС.
+    if (error.code === "NV409") {
+      throw new Error("Этот заказ ведёт ОС: на столе ОС снимите технаря и нажмите «Всем технарям — на „Заказы“»");
+    }
+    throw sbError(error);
+  }
+  const obj = (typeof data === "string" ? JSON.parse(data) : data) as Record<string, unknown> & { rev?: number; deleted?: boolean };
+  const row: OrderRow = { id, data: obj, rev: Number(obj?.rev) || 0, deleted: Boolean(obj?.deleted), status: String(obj?.status ?? "") };
+  applyLocal(workspaceId, row);
+  ringTopic(ordersTopic(workspaceId));
+  return rowToOrder(row, workspaceId);
+}
+
 /**
  * Запись в то хранилище, где заказ лежит. Заказ из Supabase — только туда;
  * из Firestore (метка `fs`) — только в Firestore; неизвестно откуда (есть

@@ -25,6 +25,7 @@ import {
   ordersBackendFor,
   OrderNotInSupabase,
   routeOrderWrite,
+  sbOrderCall,
   sbOrderWrite,
   subscribeLiveOrdersFeed,
   type OrderHistoryCursor,
@@ -537,6 +538,71 @@ export async function assignOrder(input: {
     },
     [input.technician.uid]
   ).catch(() => {});
+}
+
+/** Поля заказа, которые можно поправить после публикации (SQL `order_edit`). */
+export type OrderEditPatch = Partial<
+  Pick<WorkOrder, "client" | "phone" | "link" | "deadline" | "urgency" | "price" | "persons" | "minutes" | "note">
+>;
+
+/**
+ * Правка опубликованного заказа — пока он «Открыт» или «Выдан» (просьба Nurba
+ * 12.10.2026). Отклики, выдача, автор и ОС заказа не меняются. Только заказы в
+ * Supabase: права и состояние проверяет база (`order_edit`).
+ */
+export async function editOrder(workspaceId: string, order: Pick<WorkOrder, "id">, patch: OrderEditPatch): Promise<WorkOrder> {
+  const args: Record<string, unknown> = { ...patch };
+  for (const key of ["client", "phone", "link", "note"] as const) {
+    if (typeof args[key] === "string") args[key] = (args[key] as string).trim();
+  }
+  return sbOrderCall(workspaceId, order.id, "order_edit", args);
+}
+
+/**
+ * «Перевыдать» заказ из «В столах»: строка у технаря убирается, заказ снова
+ * «Открыт», отклики сброшены — технари откликаются заново. База откажет, если
+ * заказ ведёт ОС (со стола ОС или подхвачен ОС): его перевыдают на столе ОС.
+ */
+export async function reissueOrder(input: {
+  workspaceId: string;
+  order: WorkOrder;
+  actor: { uid: string; name: string };
+  /** Кого позвать: uid всех активных технарей. */
+  technicianUids: string[];
+}): Promise<WorkOrder> {
+  const saved = await sbOrderCall(input.workspaceId, input.order.id, "order_reissue");
+  const prev = input.order.assignedUid;
+  await sendNotification(
+    {
+      workspaceId: input.workspaceId,
+      title: `Новый заказ: ${orderSummary(saved)}`,
+      body: newOrderBody(saved),
+      priority: "important",
+      fromUid: input.actor.uid,
+      fromName: input.actor.name,
+      target: "selected",
+      href: "/orders",
+    },
+    input.technicianUids.filter((uid) => uid !== input.actor.uid && uid !== prev)
+  ).catch(() => {
+    /* заказ уже открыт */
+  });
+  if (prev && prev !== input.actor.uid) {
+    await sendNotification(
+      {
+        workspaceId: input.workspaceId,
+        title: `Заказ ${input.order.client} забрали из вашего стола`,
+        body: "Выдающий вернул его в открытые — строка из стола убрана.",
+        priority: "normal",
+        fromUid: input.actor.uid,
+        fromName: input.actor.name,
+        target: "selected",
+        href: "/orders",
+      },
+      [prev]
+    ).catch(() => {});
+  }
+  return saved;
 }
 
 /** Вернуть выданный заказ в открытые (назначенный ещё не забрал). */

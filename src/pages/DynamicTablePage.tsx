@@ -127,6 +127,7 @@ import {
   isApprovalStatusValue,
 } from "@/utils/columnOptions";
 import { firestoreErrorText } from "@/utils/dbError";
+import { useSendOsRowToExchange } from "@/hooks/useSendOsRowToExchange";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import {
   canOpenDesk,
@@ -1143,6 +1144,25 @@ export default function DynamicTablePage() {
   /** Заказ строки уже у технаря: есть копия или её адрес на строке. */
   const rowIssued = (row: PageRow) =>
     osRowIssued(row, myOrders.bySource.get(row.id) ?? null);
+  /** «Всем технарям — на „Заказы“» из окна выбора технаря — то же, что «Общий» в «Как выдать?». */
+  const sendOsRowToExchange = useSendOsRowToExchange();
+  async function sendTechPickToExchange() {
+    if (!page || !techPickRow) return;
+    const row = techPickRow;
+    const client = cellStr(row, osKeys.client) || "Заказ";
+    setTechPickBusy(true);
+    try {
+      await sendOsRowToExchange({ row, pageId: page.id, tabId: activeSubPageId, keys: osKeys });
+      setTechPick(null);
+      toast.success(`${client} — на «Заказах»`, {
+        description: "Технари получили уведомление. Отклики появятся в столбце «Технарь» — нажмите и выберите технаря.",
+      });
+    } catch (error) {
+      toast.error(firestoreErrorText(error, error instanceof Error && error.message ? error.message : "Не удалось выставить заказ на «Заказы»"));
+    } finally {
+      setTechPickBusy(false);
+    }
+  }
   async function setRowTechnician(nick: string, name = "", uid = "") {
     if (!activeWorkspaceId || !page || !techPickRow) return;
     const row = techPickRow;
@@ -2247,6 +2267,14 @@ export default function DynamicTablePage() {
                 }
                 selectedNick={nick || null}
                 checkTotal={row ? osRowGross(row, osKeys) : null}
+                // На «Заказы» — только свой невыданный заказ без технаря: у
+                // выданного сначала снимают технаря, а чужой стол ОС выставил бы
+                // заказ под ником смотрящего.
+                onExchange={
+                  row && isMyOsDesk && cellStr(row, osKeys.client) && !nick && !rowIssued(row)
+                    ? () => void sendTechPickToExchange()
+                    : null
+                }
                 busy={techPickBusy}
                 allowClear
                 onPick={(tech) => void setRowTechnician(tech.nick, tech.name, tech.uid)}

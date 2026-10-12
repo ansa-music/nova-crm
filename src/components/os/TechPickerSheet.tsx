@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownAZ, Check, Crown, Loader2, Search, SlidersHorizontal, UserX } from "lucide-react";
+import { ArrowDownAZ, Check, Crown, Loader2, Search, SlidersHorizontal, Store, UserX } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { pageChipClass } from "@/components/common/PageHeader";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -99,7 +99,10 @@ export function TechPickerSheet({
   mode,
   secondary,
   checkTotal,
+  onExchange,
 }: {
+  /** Выставить заказ на «Заказы» всем технарям вместо выбора одного; нет — кнопки нет. */
+  onExchange?: (() => void) | null;
   open: boolean;
   title?: string;
   description?: string;
@@ -365,6 +368,23 @@ export function TechPickerSheet({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+          {/* «Всем технарям» прямо из окна выбора (просьба Nurba 12.10.2026):
+              заказ уходит на «Заказы», технари откликаются. Крупный заказ
+              (очередь «300к+») на биржу не идёт — там кнопки нет. */}
+          {onExchange && !bigMode ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onExchange}
+              className="mb-3 flex min-h-12 w-full items-center gap-3 rounded-xl border border-primary/40 bg-primary/[0.08] px-3 py-2 text-left transition-colors hover:border-primary/70 hover:bg-primary/[0.14] disabled:opacity-60"
+            >
+              <Store className="h-4 w-4 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">Всем технарям — на «Заказы»</span>
+                <span className="block text-xs text-muted-foreground">Технари получат уведомление и откликнутся, потом выберете из откликнувшихся.</span>
+              </span>
+            </button>
+          ) : null}
           {allowClear && onClear && selectedNick ? (
             <button
               type="button"

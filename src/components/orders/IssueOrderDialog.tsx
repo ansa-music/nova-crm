@@ -65,10 +65,15 @@ interface IssueOrderDialogProps {
   studio?: boolean;
   /** Варианты «Тип работы» (своё поле workspace `work_type`) — для студии. */
   workTypeOptions?: StatusOption[];
+  /**
+   * Правка уже опубликованного заказа: форма открывается с его полями, кнопка —
+   * «Сохранить». ОС заказа правкой не меняется — показан подписью `osLabel`.
+   */
+  edit?: { initial: IssueOrderForm; osLabel: string } | null;
 }
 
 /** «Выдать заказ» — те же поля, что попадут в строку стола технаря. */
-export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit, fromDesk = false, studio = false, workTypeOptions = [] }: IssueOrderDialogProps) {
+export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit, fromDesk = false, studio = false, workTypeOptions = [], edit = null }: IssueOrderDialogProps) {
   // Свой ник первым, остальные — как в общем списке «Ответственный».
   const orderedOs = myOs
     ? [myOs, ...osOptions.filter((o) => o.value !== myOs.value)]
@@ -83,10 +88,12 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
 
   useEffect(() => {
     if (!open) return;
-    setForm({ ...EMPTY, osValue: myOs?.value ?? "" });
+    setForm(edit ? { ...EMPTY, ...edit.initial } : { ...EMPTY, osValue: myOs?.value ?? "" });
     setShowInactiveOs(false);
     const t = window.setTimeout(() => clientRef.current?.focus(), 40);
     return () => window.clearTimeout(t);
+    // `edit` в зависимостях нет намеренно: это новый объект на каждый рендер
+    // родителя, а форму заполняем один раз — на открытие.
   }, [open, myOs?.value]);
 
   const set = <K extends keyof IssueOrderForm>(key: K, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
@@ -99,7 +106,7 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
   // Без схемы браузер считает адрес относительным и уводит внутрь CRM.
   const linkBad = form.link.trim() !== "" && !isHttpUrl(form.link);
   // В студии ОС нет — поле скрыто и не обязательно.
-  const needsOs = !fromDesk && !studio && orderedOs.length > 0;
+  const needsOs = !edit && !fromDesk && !studio && orderedOs.length > 0;
   const canSave = Boolean(form.client.trim()) && !personsBad && !minutesBad && !priceBad && (!needsOs || Boolean(form.osValue)) && !saving;
 
   async function handleSubmit() {
@@ -123,9 +130,11 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{fromDesk ? "Новый заказ" : "Выдать заказ"}</DialogTitle>
+          <DialogTitle>{edit ? "Изменить заказ" : fromDesk ? "Новый заказ" : "Выдать заказ"}</DialogTitle>
           <DialogDescription>
-            {fromDesk
+            {edit
+              ? "Правка сразу видна всем на «Заказах». Отклики и выдача остаются как были."
+              : fromDesk
               ? "Заказ ляжет строкой на ваш стол ОС и сразу уйдёт на «Заказы» — технари смогут откликнуться."
               : studio
                 ? `${term("technician")} увидят заказ и смогут откликнуться — даже с работами в процессе.`
@@ -194,7 +203,9 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="io-os">ОС</Label>
-              {fromDesk ? (
+              {edit ? (
+                <Input id="io-os" value={edit.osLabel || "—"} disabled />
+              ) : fromDesk ? (
                 <Input id="io-os" value={myOs ? `${myOs.label} · вы` : "вы"} disabled />
               ) : orderedOs.length > 0 ? (
                 <Select value={form.osValue || undefined} onValueChange={(v) => set("osValue", v)}>
@@ -335,7 +346,7 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
           <DialogFooter>
             <Button type="submit" disabled={!canSave}>
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-              {fromDesk ? "Выдать с моего стола" : "Выдать заказ"}
+              {edit ? "Сохранить" : fromDesk ? "Выдать с моего стола" : "Выдать заказ"}
             </Button>
           </DialogFooter>
         </form>
