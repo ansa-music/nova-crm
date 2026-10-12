@@ -349,7 +349,7 @@ function readPersistedSortState(viewKey: string): SortState {
 
 /**
  * Порядок строк без сортировки по столбцу (utils/rowEntryOrder.ts) — выбор
- * человека на эту вкладку. Нет записи — «по времени внесения, новые снизу».
+ * человека на эту вкладку. Нет записи — «Вручную» (DEFAULT_ROW_ORDER_MODE).
  */
 function orderModeStorageKey(viewKey: string) {
   return `nova-crm:table-order:${viewKey}`;
@@ -4457,7 +4457,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onGroupByChange={changeGroupBy}
         orderMode={orderMode}
         onOrderModeChange={changeOrderMode}
-        canManualOrder={manualRowOrder || orderMode === "manual"}
+        canManualOrder
         sortState={sortState}
         onSortColumn={handleSortDirection}
         onCollapseAllGroups={() => setCollapsedGroups(new Set(groups?.entries.map(([label]) => label) ?? []))}

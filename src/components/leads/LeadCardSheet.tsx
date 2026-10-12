@@ -41,6 +41,7 @@ export function LeadCardSheet({
   statusOptions,
   os,
   osMembers,
+  inactiveOs = [],
   tech,
   techDeskHidden = false,
   historyCtx,
@@ -59,6 +60,7 @@ export function LeadCardSheet({
   statusOptions: readonly StatusOption[];
   os: WorkspaceMember | null;
   osMembers: readonly WorkspaceMember[];
+  inactiveOs?: readonly WorkspaceMember[];
   tech: TechIdentity | null;
   /** Стол технаря закрыт «только для Owner», а смотрит не Owner: копии не видно, стол не открыть. */
   techDeskHidden?: boolean;
@@ -158,7 +160,7 @@ export function LeadCardSheet({
               <Field label="ОС">
                 <div className="flex min-w-0 items-center gap-1">
                   <div className="min-w-0 flex-1">
-                    <OsPicker current={os} osMembers={osMembers} disabled={order.kind !== "os"} onPick={(m) => onMoveOs(order, m)} />
+                    <OsPicker current={os} osMembers={osMembers} inactiveOs={inactiveOs} disabled={order.kind !== "os"} onPick={(m) => onMoveOs(order, m)} />
                   </div>
                   <DeskLinkButton link={osLink} withText="Стол" />
                 </div>

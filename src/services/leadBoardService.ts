@@ -543,6 +543,31 @@ export function osMembersOf(members: readonly WorkspaceMember[]): WorkspaceMembe
   return members.filter((m) => m.uid && m.status === "active" && (m.role === "os" || (m.extraRoles ?? []).includes("os")));
 }
 
+/**
+ * ОС для «кому передать заказ» (просьба Nurba 13.10.2026: «кидать и в
+ * неактуальные столы ОС, но неактуальные ники — только внизу, в папке»).
+ * Неактуальный — ник в неактуальных, стол ОС в «Неактуальных» или роль ОС
+ * снята, а стол остался. Заказ на такой стол уходит как на обычный.
+ */
+export function splitOsMembers(
+  members: readonly WorkspaceMember[],
+  osDesks: readonly WorkspacePage[],
+  responsibleOptions: readonly StatusOption[] | undefined
+): { active: WorkspaceMember[]; inactive: WorkspaceMember[] } {
+  const live = new Set(osMembersOf(members).map((m) => m.uid));
+  const inactiveNicks = new Set((responsibleOptions ?? []).filter((o) => o.inactive).map((o) => o.value));
+  const active: WorkspaceMember[] = [];
+  const inactive: WorkspaceMember[] = [];
+  for (const m of members) {
+    if (!m.uid || m.status !== "active") continue;
+    const desk = findOsDeskOf([...osDesks], m.uid);
+    if (!live.has(m.uid) && !desk) continue;
+    const retired = !live.has(m.uid) || Boolean(desk?.inactive) || Boolean(m.osNickValue && inactiveNicks.has(m.osNickValue));
+    (retired ? inactive : active).push(m);
+  }
+  return { active, inactive };
+}
+
 export function osDeskOf(osDesks: readonly WorkspacePage[], uid: string | null): WorkspacePage | null {
   return findOsDeskOf([...osDesks], uid);
 }

@@ -7,13 +7,14 @@ import { isBlankRow } from "@/utils/blankRow";
  * внесли в таблицу, а не по дате, которую вписали; и чтобы можно было
  * новые сверху или снизу»).
  *
- * - `entry-asc`  — по времени внесения, новые снизу (умолчание);
+ * - `entry-asc`  — по времени внесения, новые снизу;
  * - `entry-desc` — по времени внесения, новые сверху;
- * - `manual`     — как расставили руками (перетаскивание, «вставить строку»).
+ * - `manual`     — как расставили руками (перетаскивание, «вставить строку»);
+ *                  умолчание у всех столов (просьба Nurba 13.10.2026).
  */
 export type RowOrderMode = "entry-asc" | "entry-desc" | "manual";
 
-export const DEFAULT_ROW_ORDER_MODE: RowOrderMode = "entry-asc";
+export const DEFAULT_ROW_ORDER_MODE: RowOrderMode = "manual";
 
 export const ROW_ORDER_MODE_LABELS: Record<RowOrderMode, string> = {
   "entry-asc": "Новые снизу",

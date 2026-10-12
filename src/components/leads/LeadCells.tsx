@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown, Wrench } from "lucide-react";
+import { Archive, Check, ChevronDown, Wrench } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import {
   DropdownMenu,
@@ -141,6 +141,7 @@ export function PersonPill({ color, children, className }: { color: string | nul
 export function OsPicker({
   current,
   osMembers,
+  inactiveOs = [],
   onPick,
   disabled,
   fallback,
@@ -148,6 +149,8 @@ export function OsPicker({
 }: {
   current: WorkspaceMember | null;
   osMembers: readonly WorkspaceMember[];
+  /** Неактуальные ОС — внизу, в раскрывающейся папке; передать заказ им тоже можно. */
+  inactiveOs?: readonly WorkspaceMember[];
   onPick: (member: WorkspaceMember) => void;
   disabled?: boolean;
   fallback?: string;
@@ -158,6 +161,7 @@ export function OsPicker({
     <OsLabel member={current} fallback={fallback} />
   );
   const shown = pill && current ? <PersonPill color={pill.color}>{label}</PersonPill> : label;
+  const [showInactive, setShowInactive] = useState(false);
   if (disabled) {
     return (
       <span className="flex h-7 min-w-0 items-center px-1.5">
@@ -166,7 +170,7 @@ export function OsPicker({
     );
   }
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={(open) => !open && setShowInactive(false)}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
@@ -185,6 +189,26 @@ export function OsPicker({
             {m.uid === current?.uid ? <Check className="ml-auto h-3.5 w-3.5" /> : null}
           </DropdownMenuItem>
         ))}
+        {inactiveOs.length > 0 && <DropdownMenuSeparator />}
+        {inactiveOs.length > 0 && !showInactive && (
+          <DropdownMenuItem
+            className="text-xs text-muted-foreground"
+            onSelect={(e) => {
+              e.preventDefault();
+              setShowInactive(true);
+            }}
+          >
+            <Archive className="h-3.5 w-3.5" /> Неактуальные · {inactiveOs.length}
+          </DropdownMenuItem>
+        )}
+        {showInactive && <DropdownMenuLabel className="text-xs text-muted-foreground">Неактуальные</DropdownMenuLabel>}
+        {showInactive &&
+          inactiveOs.map((m) => (
+            <DropdownMenuItem key={m.uid} className="opacity-70" disabled={m.uid === current?.uid} onSelect={() => onPick(m)}>
+              <OsLabel member={m} />
+              {m.uid === current?.uid ? <Check className="ml-auto h-3.5 w-3.5" /> : null}
+            </DropdownMenuItem>
+          ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );

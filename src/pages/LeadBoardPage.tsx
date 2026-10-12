@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { ArrowDown, ArrowDownUp, ArrowUp, Check, ChevronDown, ChevronRight, History, IdCard, Layers, Loader2, Lock, Plus, RefreshCw, Search, Sparkles, Wrench } from "lucide-react";
+import { Archive, ArrowDown, ArrowDownUp, ArrowUp, Check, ChevronDown, ChevronRight, History, IdCard, Layers, Loader2, Lock, Plus, RefreshCw, Search, Sparkles, Wrench } from "lucide-react";
 import { AccessDenied } from "@/components/common/AccessDenied";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { Alert } from "@/components/ui/alert";
@@ -39,9 +39,9 @@ import {
   leadTablesFor,
   leadTechDeskHidden,
   moveLeadOs,
-  osMembersOf,
   patchLeadCells,
   patchLeadExtras,
+  splitOsMembers,
   type LeadOrder,
   type LeadStats,
 } from "@/services/leadBoardService";
@@ -182,7 +182,13 @@ function LeadBoard({ workspaceId, viewerIsOwner }: { workspaceId: string; viewer
 
   const statusOptions = useMemo(() => getColumnOptions(STATUS_COLUMN, activeWorkspace), [activeWorkspace]);
   const techNickOptions = activeWorkspace?.techNickOptions ?? [];
-  const osMembers = useMemo(() => osMembersOf(members), [members]);
+  // Неактуальные ОС — отдельно: в выпадашках они внизу, в папке «Неактуальные».
+  const { active: osMembers, inactive: inactiveOs } = useMemo(
+    () => splitOsMembers(members, osDesks, activeWorkspace?.responsibleOptions),
+    [members, osDesks, activeWorkspace?.responsibleOptions]
+  );
+  const [showInactiveOs, setShowInactiveOs] = useState(false);
+  const inactiveShown = showInactiveOs || inactiveOs.some((m) => m.uid === osFilter);
   const memberByUid = useMemo(() => new Map(members.map((m) => [m.uid, m])), [members]);
   const historyCtx: LeadHistoryContext = useMemo(
     () => ({ members, statusOptions, techNickOptions, pagesById }),
@@ -357,7 +363,7 @@ function LeadBoard({ workspaceId, viewerIsOwner }: { workspaceId: string; viewer
             <Button variant="outline" className="min-h-11 gap-1.5 sm:min-h-9" onClick={() => setFeedOpen(true)}>
               <History className="h-4 w-4" /> Лента изменений
             </Button>
-            <Button className="min-h-11 gap-1.5 sm:min-h-9" onClick={() => setNewOpen(true)} disabled={osMembers.length === 0}>
+            <Button className="min-h-11 gap-1.5 sm:min-h-9" onClick={() => setNewOpen(true)} disabled={osMembers.length + inactiveOs.length === 0}>
               <Plus className="h-4 w-4" /> Клиент
             </Button>
           </div>
@@ -396,6 +402,26 @@ function LeadBoard({ workspaceId, viewerIsOwner }: { workspaceId: string; viewer
                 <OsLabel member={m} />
               </SelectItem>
             ))}
+            {inactiveOs.length > 0 && !inactiveShown && (
+              <button
+                type="button"
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowInactiveOs(true);
+                }}
+                className="mt-1 flex w-full items-center gap-1.5 rounded-sm border-t border-border/60 px-2 pb-1 pt-2 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Archive className="h-3 w-3 shrink-0" /> Неактуальные · {inactiveOs.length}
+              </button>
+            )}
+            {inactiveShown &&
+              inactiveOs.map((m) => (
+                <SelectItem key={m.uid} value={m.uid} className="opacity-70">
+                  <OsLabel member={m} />
+                </SelectItem>
+              ))}
           </SelectContent>
         </Select>
         <SortMenu sort={sort} onSort={setSort} className={mobile ? "min-w-0 flex-1 justify-start" : undefined} />
@@ -479,6 +505,7 @@ function LeadBoard({ workspaceId, viewerIsOwner }: { workspaceId: string; viewer
                         tech={techOf(o)}
                         techHidden={techHiddenOf(o)}
                         osMembers={osMembers}
+                        inactiveOs={inactiveOs}
                         statusOptions={statusOptions}
                         onOpen={() => setOpenKey(o.key)}
                         onCell={onCell}
@@ -504,6 +531,7 @@ function LeadBoard({ workspaceId, viewerIsOwner }: { workspaceId: string; viewer
         statusOptions={statusOptions}
         os={openOrder?.osUid ? (memberByUid.get(openOrder.osUid) ?? null) : null}
         osMembers={osMembers}
+        inactiveOs={inactiveOs}
         tech={openOrder ? techOf(openOrder) : null}
         techDeskHidden={openOrder ? techHiddenOf(openOrder) : false}
         osLink={openOrder ? osLinkOf(openOrder) : null}
@@ -543,6 +571,7 @@ function LeadBoard({ workspaceId, viewerIsOwner }: { workspaceId: string; viewer
           onOpenChange={setNewOpen}
           workspaceId={workspaceId}
           osMembers={osMembers}
+          inactiveOs={inactiveOs}
           osDesks={osDesks}
           statusOptions={statusOptions}
           fromUid={profile.uid}
@@ -839,6 +868,7 @@ function LeadRow({
   tech,
   techHidden,
   osMembers,
+  inactiveOs,
   statusOptions,
   onOpen,
   onCell,
@@ -856,6 +886,7 @@ function LeadRow({
   tech: TechIdentity | null;
   techHidden: boolean;
   osMembers: readonly WorkspaceMember[];
+  inactiveOs: readonly WorkspaceMember[];
   statusOptions: readonly StatusOption[];
   onOpen: () => void;
   onCell: (order: LeadOrder, key: string, value: string) => Promise<void>;
@@ -914,7 +945,7 @@ function LeadRow({
       </div>
       <div className="flex min-w-0 items-center gap-0.5 px-1">
         <div className="min-w-0">
-          <OsPicker current={os} osMembers={osMembers} disabled={order.kind !== "os"} onPick={(m) => onMoveOs(order, m)} pill={{ color: osColor }} />
+          <OsPicker current={os} osMembers={osMembers} inactiveOs={inactiveOs} disabled={order.kind !== "os"} onPick={(m) => onMoveOs(order, m)} pill={{ color: osColor }} />
         </div>
         <DeskLinkButton link={osLink} />
       </div>

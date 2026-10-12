@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Loader2, UserPlus } from "lucide-react";
+import { Archive, Loader2, UserPlus } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,7 @@ export function NewLeadDialog({
   onOpenChange,
   workspaceId,
   osMembers,
+  inactiveOs = [],
   osDesks,
   statusOptions,
   fromUid,
@@ -40,6 +41,8 @@ export function NewLeadDialog({
   onOpenChange: (open: boolean) => void;
   workspaceId: string;
   osMembers: readonly WorkspaceMember[];
+  /** Неактуальные ОС — внизу списка, в раскрывающейся папке. */
+  inactiveOs?: readonly WorkspaceMember[];
   osDesks: readonly WorkspacePage[];
   statusOptions: readonly StatusOption[];
   fromUid: string;
@@ -55,14 +58,18 @@ export function NewLeadDialog({
   const navigate = useNavigate();
   const activeMethods = methods.filter((m) => !m.inactive);
   const [busy, setBusy] = useState(false);
+  const [showInactiveOs, setShowInactiveOs] = useState(false);
+  // Выбранный неактуальный ОС остаётся в списке и после закрытия папки.
+  const inactiveShown = showInactiveOs || inactiveOs.some((m) => m.uid === osUid);
 
   useEffect(() => {
     if (!open) return;
     setForm(EMPTY);
-    setOsUid(defaultOsUid && osMembers.some((m) => m.uid === defaultOsUid) ? defaultOsUid : "");
+    setOsUid(defaultOsUid && [...osMembers, ...inactiveOs].some((m) => m.uid === defaultOsUid) ? defaultOsUid : "");
     setPricePay("");
     setUpsellPay("");
-  }, [open, defaultOsUid, osMembers]);
+    setShowInactiveOs(false);
+  }, [open, defaultOsUid, osMembers, inactiveOs]);
 
   const set = (key: keyof typeof EMPTY) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const missing = !form.client.trim() ? "Впишите имя клиента" : !osUid ? "Выберите ОС" : null;
@@ -70,7 +77,7 @@ export function NewLeadDialog({
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (missing || busy) return;
-    const os = osMembers.find((m) => m.uid === osUid);
+    const os = [...osMembers, ...inactiveOs].find((m) => m.uid === osUid);
     if (!os) return;
     setBusy(true);
     const lead: NewLeadInput = {
@@ -134,6 +141,26 @@ export function NewLeadDialog({
                       {personLabel(m)}
                     </SelectItem>
                   ))}
+                  {inactiveOs.length > 0 && !inactiveShown && (
+                    <button
+                      type="button"
+                      onPointerDown={(e) => e.preventDefault()}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setShowInactiveOs(true);
+                      }}
+                      className="mt-1 flex w-full items-center gap-1.5 rounded-sm border-t border-border/60 px-2 pb-1 pt-2 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <Archive className="h-3 w-3 shrink-0" /> Неактуальные · {inactiveOs.length}
+                    </button>
+                  )}
+                  {inactiveShown &&
+                    inactiveOs.map((m) => (
+                      <SelectItem key={m.uid} value={m.uid} className="opacity-70">
+                        {personLabel(m)} · неактуальный
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>

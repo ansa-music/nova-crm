@@ -50,7 +50,7 @@ import { useUiStore } from "@/store/uiStore";
 import { redo, undo, useUndoState } from "@/utils/undoStore";
 import type { PageColumn, StatusOption, TableViewMode } from "@/types";
 import type { SortState } from "@/types/table";
-import { ROW_ORDER_MODE_LABELS, type RowOrderMode } from "@/utils/rowEntryOrder";
+import { DEFAULT_ROW_ORDER_MODE, ROW_ORDER_MODE_LABELS, type RowOrderMode } from "@/utils/rowEntryOrder";
 import type { SavedTableView } from "@/utils/savedTableViews";
 import { DATE_PRESET_LABELS, DATE_PRESET_ORDER, type DatePreset } from "@/utils/dateRanges";
 
@@ -422,14 +422,14 @@ export function TableToolbar({
       )}
 
       {/* Порядок строк — видимый чип (просьба Nurba 26.09.2026): по умолчанию
-          «по времени внесения, новые снизу»; можно «новые сверху», ручной
+          «Вручную» (с 13.10.2026); можно «новые снизу», «новые сверху», ручной
           порядок и сортировку по любому столбцу. */}
       {orderMode && onOrderModeChange && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className={cn(CHIP_CLASS, sortColumn || orderMode !== "entry-asc" ? CHIP_ACTIVE : CHIP_IDLE)}
+              className={cn(CHIP_CLASS, sortColumn || orderMode !== DEFAULT_ROW_ORDER_MODE ? CHIP_ACTIVE : CHIP_IDLE)}
               title="Порядок строк"
             >
               <span className="hidden sm:inline">Порядок: </span>
