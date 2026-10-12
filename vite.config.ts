@@ -7,6 +7,11 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Модуль входа Supabase в Nova не выполняется (вход через Firebase, оба
+      // клиента — с `accessToken`), но supabase-js импортирует его всегда.
+      // Подменяем пустышкой: минус ~100 КБ из стартового набора. Запросы к базе
+      // и хранилищу остаются теми же — `node scripts/check-supabase-auth-stub.mjs`.
+      "@supabase/auth-js": path.resolve(__dirname, "./src/lib/supabaseAuthStub.ts"),
     },
   },
   server: {

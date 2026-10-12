@@ -9,7 +9,11 @@ export const SUPABASE_ANON_KEY: string =
 
 export const ROW_FILES_BUCKET = "row-files";
 
+// `accessToken: null` — «сессии нет, ходим анонимным ключом», ровно как раньше с
+// `auth: { persistSession: false }`. Разница в том, что в этом режиме supabase-js
+// не создаёт модуль входа Supabase, и его можно не класть в сборку
+// (src/lib/supabaseAuthStub.ts; равенство запросов — scripts/check-supabase-auth-stub.mjs).
 export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false },
+  accessToken: async () => null,
 });
 
