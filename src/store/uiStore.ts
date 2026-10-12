@@ -108,12 +108,17 @@ export const useUiStore = create<UiState>()(
        * новый вид; остальные сохранённые настройки (меню, метки столов) целы.
        * Кто после этого сам вернёт прежний вид — у того он и останется.
        */
-      version: 1,
+      // Версия 2 (просьба Nurba 13.10.2026): меню «Раскрывать при наведении» —
+      // умолчание у ВСЕХ: прежний выбор положения меню один раз сбрасывается
+      // (на устройстве без мыши умолчанием остаётся открытое меню — наводить
+      // там нечем). Кто после этого выберет другое — у того оно и останется.
+      version: 2,
       migrate: (persisted, version) => {
         // Сохранённое состояние — те же поля, что в `partialize`; недостающие zustand дольёт умолчаниями.
         type Saved = Pick<UiState, "theme" | "sidebarPinned" | "sidebarMode" | "uiSkin" | "skinPromoDismissed" | "deskAlerts">;
         const state = (persisted ?? {}) as Saved;
-        return version < 1 ? { ...state, uiSkin: "signature" } : state;
+        const skinned = version < 1 ? { ...state, uiSkin: "signature" as const } : state;
+        return version < 2 ? { ...skinned, sidebarMode: null, sidebarPinned: null } : skinned;
       },
       // Старый ключ `sidebarCollapsed` в сохранённом состоянии просто
       // игнорируется: в partialize его нет, при следующей записи он исчезнет.
