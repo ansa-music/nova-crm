@@ -32,8 +32,8 @@ interface UiState {
    */
   sidebarMode: SidebarMode | null;
   /**
-   * Личный выбор оформления (на устройство). По умолчанию `classic`: пока
-   * человек сам не включил NOVA Signature, сайт выглядит и работает как раньше.
+   * Личный выбор оформления (на устройство). По умолчанию `signature` — новый
+   * вид у всех (с 12.10.2026); прежний включается кнопкой в меню аккаунта.
    * Данных и прав выбор не касается — только токены темы и группировка меню.
    */
   uiSkin: UiSkin;
@@ -76,7 +76,7 @@ export const useUiStore = create<UiState>()(
       theme: "dark",
       sidebarPinned: null,
       sidebarMode: null,
-      uiSkin: "classic",
+      uiSkin: "signature",
       skinPromoDismissed: false,
       shortcutsHelpOpen: false,
       tableFullscreen: false,
@@ -86,7 +86,8 @@ export const useUiStore = create<UiState>()(
       setTheme: (theme) => set({ theme }),
       setSidebarPinned: (sidebarPinned) => set({ sidebarPinned }),
       setSidebarMode: (sidebarMode) => set({ sidebarMode }),
-      setUiSkin: (uiSkin) => set({ uiSkin }),
+      // Вернулся к прежнему виду сам — плашку «Новая версия дизайна» больше не показываем.
+      setUiSkin: (uiSkin) => set(uiSkin === "classic" ? { uiSkin, skinPromoDismissed: true } : { uiSkin }),
       dismissSkinPromo: () => set({ skinPromoDismissed: true }),
       setShortcutsHelpOpen: (shortcutsHelpOpen) => set({ shortcutsHelpOpen }),
       setTableFullscreen: (tableFullscreen) => set({ tableFullscreen }),
@@ -99,6 +100,21 @@ export const useUiStore = create<UiState>()(
     }),
     {
       name: "nova-crm:ui",
+      /**
+       * Версия 1 (12.10.2026, просьба Nurba: «у всех новый интерфейс по
+       * умолчанию, старый — по кнопке»). До неё `uiSkin: "classic"` лежал в
+       * сохранённом состоянии у каждого, кто открывал сайт, — смена одного
+       * умолчания ни у кого бы не сработала. Поэтому один раз переводим всех на
+       * новый вид; остальные сохранённые настройки (меню, метки столов) целы.
+       * Кто после этого сам вернёт прежний вид — у того он и останется.
+       */
+      version: 1,
+      migrate: (persisted, version) => {
+        // Сохранённое состояние — те же поля, что в `partialize`; недостающие zustand дольёт умолчаниями.
+        type Saved = Pick<UiState, "theme" | "sidebarPinned" | "sidebarMode" | "uiSkin" | "skinPromoDismissed" | "deskAlerts">;
+        const state = (persisted ?? {}) as Saved;
+        return version < 1 ? { ...state, uiSkin: "signature" } : state;
+      },
       // Старый ключ `sidebarCollapsed` в сохранённом состоянии просто
       // игнорируется: в partialize его нет, при следующей записи он исчезнет.
       // `tableFullscreen` тоже не сохраняем: после F5 человек попадал в стол
