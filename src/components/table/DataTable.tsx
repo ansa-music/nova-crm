@@ -41,6 +41,7 @@ import { TableRow, createCellActionPulse } from "@/components/table/TableRow";
 import { GroupHeaderRow } from "@/components/table/GroupHeaderRow";
 import { TableToolbar } from "@/components/table/TableToolbar";
 import { QuickOrderDialog } from "@/components/table/QuickOrderDialog";
+import { OsDeskOrderDialog } from "@/components/table/OsDeskOrderDialog";
 import { StudioOrderDialog } from "@/components/table/StudioOrderDialog";
 import {
   deadlineClock,
@@ -52,6 +53,9 @@ import {
   type DeadlineTone,
 } from "@/utils/studioDeadline";
 import { buildQuickOrderRow, findQuickOrderColumns, parseOptionalNumber, type QuickOrderInput } from "@/utils/quickOrder";
+import { buildOsDeskOrderRow, type OsDeskOrderForm } from "@/utils/osDeskOrder";
+import { resolveOsDeskKeys } from "@/utils/osDeskKeys";
+import { paymentMethodsOf } from "@/utils/payment";
 import {
   captureTableView,
   loadSavedTableViews,
@@ -3393,6 +3397,46 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     }
   }
 
+  /**
+   * Стол ОС: заказ из своей формы (`OsDeskOrderDialog`) — тем же путём, что
+   * быстрый заказ: первая пустая строка, иначе новая внизу; одна undo-команда.
+   * Статус из группы («+ в группу») перекрывает «Утверждение» формы.
+   */
+  async function handleOsDeskOrder(input: OsDeskOrderForm) {
+    const statusKey = resolveOsDeskKeys(columns).status;
+    const statusCol = columns.find((c) => c.key === statusKey);
+    const { cells, extras } = buildOsDeskOrderRow(columns, input, statusCol ? getColumnOptions(statusCol, activeWorkspace) : []);
+    if (quickOrderStatus && statusCol) cells[statusCol.key] = quickOrderStatus;
+    try {
+      const blank = firstBlankRow();
+      if (blank) {
+        const cleared = Object.fromEntries(Object.keys(cells).map((key) => [key, ""]));
+        await fillRowService(workspaceId, page.id, blank.id, cells, extras);
+        pushCommand({
+          undo: () => fillRowService(workspaceId, page.id, blank.id, cleared, null),
+          redo: () => fillRowService(workspaceId, page.id, blank.id, cells, extras),
+        });
+        pendingScrollRowIdRef.current = blank.id;
+        toast.success("Заказ в столе", { description: "Записан в первую пустую строку" });
+        return;
+      }
+      const newRow = await addRowService(workspaceId, page.id, cells, nextRowOrder(), extras ?? undefined);
+      let liveId = newRow.id;
+      pushCommand({
+        undo: () => deleteRowService(workspaceId, page.id, liveId),
+        redo: async () => {
+          const restored = await addRowService(workspaceId, page.id, cells, nextRowOrder(), extras ?? undefined);
+          liveId = restored.id;
+        },
+      });
+      pendingScrollRowIdRef.current = newRow.id;
+      toast.success("Заказ в столе");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось записать заказ");
+      throw error;
+    }
+  }
+
   function handleContextMenuOpen(rowId: string) {
     contextRowIdRef.current = rowId;
   }
@@ -5121,6 +5165,17 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           }}
           columns={studioOrderColumns}
           onSave={handleStudioOrder}
+        />
+      ) : page.osDesk ? (
+        // Стол ОС: своя форма — цена, апсейл, способы оплаты, ссылка, дедлайн.
+        <OsDeskOrderDialog
+          open={quickOrderOpen}
+          onOpenChange={(open) => {
+            setQuickOrderOpen(open);
+            if (!open) setQuickOrderStatus(null);
+          }}
+          methods={paymentMethodsOf(activeWorkspace)}
+          onSave={handleOsDeskOrder}
         />
       ) : (
       <QuickOrderDialog
