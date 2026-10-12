@@ -39,7 +39,6 @@ import {
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
-import { AccessDenied } from "@/components/common/AccessDenied";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { BigCountBadge } from "@/components/orders/BigCountBadge";
 import { confirmDialog } from "@/utils/appDialog";
@@ -180,9 +179,6 @@ export default function BigOrdersPage() {
       </div>
     );
   }
-  if (!canManage) {
-    return <AccessDenied reason="Очередь крупных заказов ведут ответственные, которых назначил Owner." />;
-  }
   if (!cfg || !activeWorkspaceId) {
     return (
       <div className="mx-auto w-full max-w-3xl p-4 sm:p-8">
@@ -190,7 +186,54 @@ export default function BigOrdersPage() {
       </div>
     );
   }
+  // Очередь видят все (просьба Nurba 12.10.2026), правят — ответственные и
+  // Owner. База и так отдаёт очередь любому участнику (`big_queue_get`) и
+  // отклоняет чужую запись («not a queue manager»); здесь — экран без кнопок.
+  if (!canManage) return <BigOrdersReadOnly cfg={cfg} members={members} />;
   return <BigOrdersBody ws={activeWorkspaceId} cfg={cfg} members={members} isOwner={isOwner} />;
+}
+
+/** Очередь крупных заказов на просмотр: кто в очереди и в каком порядке, без единого действия. */
+function BigOrdersReadOnly({ cfg, members }: { cfg: BigQueueConfig; members: WorkspaceMember[] }) {
+  const byUid = useMemo(() => new Map(members.map((m) => [m.uid, m])), [members]);
+  const nameOf = (uid: string) => personLabel(byUid.get(uid)) || "нет в команде";
+  const managerNames = cfg.managers.map(nameOf);
+  const person = (uid: string, index?: number) => (
+    <li key={uid} className="flex min-h-11 items-center gap-2.5 px-3 py-1.5 sm:px-4">
+      {index !== undefined && (
+        <span className="w-6 shrink-0 text-center font-mono text-[12px] tabular-nums text-muted-foreground">{index + 1}</span>
+      )}
+      <MemberAvatar id={uid} name={byUid.get(uid)?.name} photoURL={byUid.get(uid)?.photoURL} className="h-7 w-7 shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-sm">{nameOf(uid)}</span>
+      <BigCountBadge count={cfg.counts[uid]} since={cfg.countsSince} />
+    </li>
+  );
+  return (
+    <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-4 p-4 sm:p-8">
+      <PageHeader
+        eyebrow="Очередь технарей"
+        title={`Заказы от ${shortMoney(cfg.threshold)}+`}
+        description={`Заказ с чеком от ${formatNumber(cfg.threshold)} ${currencySymbol()} ОС отдаёт технарю из очереди, №1 — первым. Только просмотр: очередь ведут ${
+          managerNames.length ? managerNames.join(", ") : "Owner"
+        }.`}
+      />
+      <Alert tone={cfg.enabled ? "info" : "warning"}>
+        {cfg.enabled ? "Очередь работает." : "Очередь на паузе — крупные заказы сейчас выдаются как обычно."}
+      </Alert>
+      <Section eyebrow={`в очереди ${cfg.queue.length}`} title="Активная очередь" padded={false}>
+        {cfg.queue.length === 0 ? (
+          <p className="px-4 py-5 text-sm text-muted-foreground">Очередь пуста.</p>
+        ) : (
+          <ol className="flex flex-col divide-y divide-border">{cfg.queue.map((uid, i) => person(uid, i))}</ol>
+        )}
+      </Section>
+      {cfg.pool.length > 0 && (
+        <Section eyebrow={`не в очереди · ${cfg.pool.length}`} title="Группа" padded={false}>
+          <ul className="flex flex-col divide-y divide-border">{cfg.pool.map((uid) => person(uid))}</ul>
+        </Section>
+      )}
+    </div>
+  );
 }
 
 function BigOrdersBody({

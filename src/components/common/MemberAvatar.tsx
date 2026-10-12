@@ -1,5 +1,4 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { displayNameOf } from "@/utils/displayName";
 import { cn } from "@/utils/cn";
 
 // Cool navy/cyan/teal hues so avatars sit in the neon chrome without purple or walnut.
@@ -27,8 +26,10 @@ interface MemberAvatarProps {
   className?: string;
 }
 
-export function MemberAvatar({ id, name, nickname, photoURL, className }: MemberAvatarProps) {
-  const label = displayNameOf({ name, nickname });
+export function MemberAvatar({ id, name, photoURL, className }: MemberAvatarProps) {
+  // Только инициалы на кружке (подписи тут нет): берём имя аккаунта, иначе у
+  // всех без фото стояло бы одно и то же «БН» от «Без ника».
+  const label = name?.trim() || "?";
   const hue = hueFromId(id || "unknown");
   return (
     <Avatar className={cn("h-8 w-8", className)}>

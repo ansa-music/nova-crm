@@ -2473,7 +2473,9 @@ export default function DynamicTablePage() {
             )}
             <DropdownMenuSeparator />
             {/* У стола «только для Owner» видимость решает не ответственный. */}
-            {isResponsible && !page.ownerOnly && (
+            {/* Столы всегда открыты (просьба Nurba 12.10.2026): скрыть стол отсюда
+                больше нельзя, пункт остаётся только чтобы ОТКРЫТЬ уже скрытый. */}
+            {isResponsible && !page.ownerOnly && page.hiddenByResponsible && (
               <DropdownMenuItem onClick={handleToggleVisibility}>
                 {page.hiddenByResponsible ? (
                   <>

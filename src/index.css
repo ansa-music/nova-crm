@@ -1609,7 +1609,9 @@ html[data-ui="signature"]:not([data-site-fx]) {
   --primary-foreground: 233 45% 10%;
 
   --muted: 222 22% 16%;
-  --muted-foreground: 219 19% 71%;
+  /* Вторичный текст светлее исходных #A6B0C3 (71%): по коду он часто идёт ещё и
+     с прозрачностью /70–/80 и на 11–12px переставал читаться. */
+  --muted-foreground: 218 24% 80%;
 
   --accent: 222 24% 18%;
   --accent-foreground: 235 100% 86%;
@@ -1619,7 +1621,7 @@ html[data-ui="signature"]:not([data-site-fx]) {
   --ring: 235 100% 79%;
 
   --sidebar: 225 27% 8%;
-  --sidebar-foreground: 219 19% 71%;
+  --sidebar-foreground: 220 26% 86%;
   --sidebar-border: 222 20% 15%;
   --sidebar-accent: 222 24% 15%;
 
@@ -1644,6 +1646,18 @@ html[data-ui="signature"]:not([data-site-fx]) .hero {
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   font-weight: 600;
   letter-spacing: -0.022em;
+}
+
+/* Мелкий вторичный текст (11–12px) — без дополнительной прозрачности и чуть
+   плотнее: подписи карточек заказов и заголовки групп меню должны читаться. */
+html[data-ui="signature"]:not([data-site-fx]) .text-xs.text-muted-foreground,
+html[data-ui="signature"]:not([data-site-fx]) .text-\[11px\].text-muted-foreground,
+html[data-ui="signature"]:not([data-site-fx]) .text-\[12px\].text-muted-foreground {
+  color: hsl(var(--muted-foreground));
+}
+html[data-ui="signature"]:not([data-site-fx]) nav[aria-label="Разделы"] .eyebrow {
+  color: hsl(var(--muted-foreground));
+  font-weight: 600;
 }
 
 /* Одна кнопка на действие: дубли, помеченные `data-sig-hide`, в Signature скрыты. */

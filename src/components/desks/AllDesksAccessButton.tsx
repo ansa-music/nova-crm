@@ -110,13 +110,7 @@ export function AllDesksAccessButton({
             <span className="block text-[11px] text-muted-foreground">Смотрят все, правка — только у кого была</span>
           </span>
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => void apply(false)} className="items-start gap-2">
-          <EyeOff className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            <span className="block font-medium">Закрыть все</span>
-            <span className="block text-[11px] text-muted-foreground">Смотреть — только по запросу к ответственному</span>
-          </span>
-        </DropdownMenuItem>
+        {/* «Закрыть все» убрано (просьба Nurba 12.10.2026): столы всегда открыты на просмотр. */}
       </DropdownMenuContent>
     </DropdownMenu>
   );

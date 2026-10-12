@@ -388,7 +388,9 @@ function buildDefaultSections(inp: NavInputs, g: NavGates, sig: NavSignals, desk
           to: "/big-orders",
           label: `Заказы от ${shortMoney(sig.bigQueue?.threshold ?? 300_000)}+`,
           icon: Crown,
-          show: Boolean(sig.bigQueue?.manager),
+          // Видят все, у кого очередь включена в базе (просьба Nurba 12.10.2026);
+          // правят по-прежнему ответственные и Owner — на самой странице.
+          show: Boolean(sig.bigQueue),
           hint: sig.bigQueue?.paused ? "пауза" : undefined,
         },
         // У ОС дом — «Технари» (дубль убирает фильтр ниже); стол ОС — свой пункт.

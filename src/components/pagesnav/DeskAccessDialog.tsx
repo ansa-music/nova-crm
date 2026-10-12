@@ -327,7 +327,8 @@ export function DeskAccessDialog({
             </section>
           )}
 
-          {canToggleVisibility && (
+          {/* Столы всегда открыты: переключатель виден, только пока стол ещё скрыт, — чтобы его открыть. */}
+          {canToggleVisibility && page.hiddenByResponsible && (
             <section
               className={cn(
                 "flex items-center gap-3 rounded-xl border p-3",

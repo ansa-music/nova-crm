@@ -805,8 +805,13 @@ export default function OrdersPage() {
                       )}
                     </p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      {order.osLabel ? `ОС ${order.osLabel} · ` : ""}
-                      {nameOf(order.createdBy, order.createdByName)} · {timeAgo(order.createdAt)}
+                      {/* Выдал сам ОС заказа — ник один раз, а не «ОС Меруерт · Меруерт». */}
+                      {(() => {
+                        const author = nameOf(order.createdBy, order.createdByName);
+                        const os = order.osLabel?.trim() ?? "";
+                        const same = os !== "" && author.trim().toLocaleLowerCase("ru") === os.toLocaleLowerCase("ru");
+                        return `${os ? `ОС ${os} · ` : ""}${same ? "" : `${author} · `}${timeAgo(order.createdAt)}`;
+                      })()}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
