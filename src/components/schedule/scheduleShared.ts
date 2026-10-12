@@ -83,16 +83,23 @@ export const CELL_KIND_LETTER: Record<Exclude<CellKind, "hours">, string> = {
 };
 
 /** Цвет клетки по виду (фон, рамка, текст). */
+/**
+ * Рабочий день — спокойный зелёный, а не пустая серая клетка (просьба Nurba
+ * 12.10.2026: «график неудобный, сделай понятнее»): сетка из одних серых
+ * прямоугольников не читалась — непонятно, заполнено или нет. Теперь «зелёное
+ * — работает, красное — выходной» видно с первого взгляда. «Пришёл в выходной»
+ * — тот же зелёный, но плотнее и с рамкой: это отметка, а не обычный день.
+ */
 export const CELL_KIND_LOOK: Record<CellKind, string> = {
-  work: "border-transparent bg-foreground/[0.045] text-muted-foreground",
+  work: "border-success/20 bg-success/[0.10] text-success/90",
   off: "border-destructive/45 bg-destructive/[0.16] text-destructive",
   excused: "border-warning/45 bg-warning/[0.16] text-warning",
   hours: "border-primary/45 bg-primary/[0.14] text-primary",
-  came: "border-success/45 bg-success/[0.16] text-success",
+  came: "border-success/70 bg-success/[0.28] text-success",
 };
 
-/** Рабочий день в субботу/воскресенье — чуть темнее, чтобы неделя читалась. */
-export const WEEKEND_WORK_LOOK = "bg-foreground/[0.085]";
+/** Рабочий день в субботу/воскресенье — чуть бледнее, чтобы неделя читалась. */
+export const WEEKEND_WORK_LOOK = "border-success/15 bg-success/[0.06]";
 
 /** Час начала смены в клетку месяца: «12», «9», «12:30». */
 export function shiftStart(hours: ScheduleHours): string {

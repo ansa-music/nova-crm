@@ -293,10 +293,10 @@ export default function OrdersPage() {
    * «Все» — кнопка Owner/Тимлида у заказа — пускает и занятых.
    */
   function claimBlockReasonFor(technicianUid: string, order: WorkOrder): string | null {
-    return (
-      scheduleBlockReasonFor(technicianUid) ??
-      (orderClaimScope(order) === "free" && inWorkUids.has(technicianUid) ? "уже есть заказ в работе" : null)
-    );
+    // Выходной и «отпросился» отклик больше НЕ закрывают (просьба Nurba
+    // 12.10.2026): человек сам решает, готов ли взять заказ в свой выходной.
+    // В окне выдачи выходной по-прежнему виден пометкой (`blockReasonFor`).
+    return orderClaimScope(order) === "free" && inWorkUids.has(technicianUid) ? "уже есть заказ в работе" : null;
   }
 
   /**
@@ -498,7 +498,8 @@ export default function OrdersPage() {
    * такого запрета есть ссылка «попросить отметку». «Заказ в работе»
    * снимает кнопка «Все» у заказа.
    */
-  const myScheduleBlock = canClaim ? scheduleBlockReasonFor(uid) : null;
+  // График отклик больше не закрывает — ссылка «попросить отметку» у заказа не нужна.
+  const myScheduleBlock: string | null = null;
 
   async function withBusy(id: string, fn: () => Promise<void>, fail: string) {
     setBusyId(id);
@@ -704,7 +705,7 @@ export default function OrdersPage() {
       {schedulesFailed && (
         <div className="mb-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
-            <span className="min-w-0 flex-1">График не прочитан — выходные сейчас не учитываются ни в откликах, ни в «Рандоме».</span>
+            <span className="min-w-0 flex-1">График не прочитан — выходные сейчас не учитываются в «Рандоме» и в пометках при выдаче.</span>
             <button
               type="button"
               onClick={retrySchedules}

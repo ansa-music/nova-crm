@@ -5,6 +5,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  CircleHelp,
   ClipboardPaste,
   HardHat,
   Headset,
@@ -274,6 +275,7 @@ export default function SchedulePage() {
   const [pickedDay, setPickedDay] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [density, setDensity] = useScheduleDensity();
+  const [helpOpen, setHelpOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -609,7 +611,8 @@ export default function SchedulePage() {
     (row: ScheduleRow, column: SheetColumn): SheetCell => {
       const cell = weekCellsOfId(row.uid)[column.id] ?? WORK_CELL;
       const kind: CellKind = cell.off ? "off" : cell.hours ? "hours" : "work";
-      const text = cell.off ? "вых" : cell.hours ? formatScheduleHours(cell.hours) : "";
+      // Рабочий день тоже подписан: пустая клетка читалась как «не заполнено».
+      const text = cell.off ? "вых" : cell.hours ? formatScheduleHours(cell.hours) : "раб";
       const what = cell.off ? "выходной" : cell.hours ? `смена ${formatScheduleHours(cell.hours)}` : "рабочий весь день";
       return { kind, text, title: `${row.label} · ${WEEK_DOW_SHORT[Number(column.id)]} — ${what}` };
     },
@@ -1306,10 +1309,10 @@ export default function SchedulePage() {
         : "Кто работает в выбранный день, у кого смена с/до и кого нет."
       : view === "week"
         ? canEdit
-          ? "Постоянная неделя каждого. Нажмите на клетку и выберите, что поставить — сохранится сразу и само разложится в «Месяц»."
-          : "Постоянная неделя команды: у кого какие выходные и смены. Разовые выходные — во вкладке «Месяц»."
+          ? "Постоянная неделя каждого: зелёное — работает, красное — выходной. Нажмите на клетку, чтобы поменять."
+          : "Постоянная неделя команды: зелёное — работает, красное — выходной. Разовые выходные — во вкладке «Месяц»."
         : canEdit
-          ? "Конкретные даты: отпуск, отгул, «поменялись». Нажмите на клетку и выберите, что поставить — сохранится сразу."
+          ? "Конкретные даты: отпуск, отгул, «поменялись». Нажмите на клетку, чтобы поменять."
           : "Кто работает, у кого выходной и кто отпросился. График ведёт руководство.";
 
   return (
@@ -1481,8 +1484,8 @@ export default function SchedulePage() {
         {iAmScheduled && scheduleReady && myToday !== "work" && !canEdit && (
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/35 bg-warning/[0.08] px-3 py-2.5 text-[12px]">
             <p className="min-w-0 flex-1">
-              {myToday === "off" ? "Сегодня у вас выходной" : "Сегодня вы отпросились"} — отклики на заказы закрыты. График
-              правит Тимлид, но можно попросить отметить выход.
+              {myToday === "off" ? "Сегодня у вас выходной" : "Сегодня вы отпросились"} — откликаться на заказы всё равно
+              можно. График правит Тимлид; если вы вышли работать, попросите отметить выход.
             </p>
             {myRequest?.status === "pending" ? (
               <>
@@ -1576,6 +1579,19 @@ export default function SchedulePage() {
                   <span className="hidden md:inline">Из таблицы</span>
                 </Button>
               )}
+              {canEdit && view !== "day" && (
+                <Button
+                  variant={helpOpen ? "secondary" : "outline"}
+                  size="sm"
+                  className="h-9 gap-1.5"
+                  aria-pressed={helpOpen}
+                  onClick={() => setHelpOpen((v) => !v)}
+                  title="Как ставить выходные и смены"
+                >
+                  <CircleHelp className="h-3.5 w-3.5" />
+                  <span className="hidden md:inline">Как править</span>
+                </Button>
+              )}
               <div className="inline-flex items-center rounded-lg border border-border p-0.5" role="group" aria-label="Масштаб графика">
                 {DENSITY_OPTIONS.map((option) => (
                   <button
@@ -1606,8 +1622,10 @@ export default function SchedulePage() {
             </div>
           )}
 
-          {canEdit && view !== "day" && (
-            <p className="border-b border-border/60 px-3 py-1.5 text-[11px] leading-4 text-muted-foreground">
+          {/* Как править — по кнопке «?» в панели, а не постоянной строкой над сеткой:
+              она нужна в первый раз, а место занимала всегда. */}
+          {canEdit && view !== "day" && helpOpen && (
+            <p className="border-b border-border/60 bg-primary/[0.05] px-3 py-2 text-[12px] leading-5 text-muted-foreground">
               {mobile ? (
                 view === "week" ? (
                   "Нажмите на клетку, чтобы поменять. Нажмите на имя — вся неделя человека в одном окне."
@@ -1799,7 +1817,7 @@ function Legend({ mode, className }: { mode: "month" | "week"; className?: strin
   const items: Array<{ kind: CellKind; text: string; label: string }> =
     mode === "week"
       ? [
-          { kind: "work", text: "", label: "рабочий" },
+          { kind: "work", text: "раб", label: "рабочий" },
           { kind: "off", text: "вых", label: "выходной" },
           { kind: "hours", text: "12–15", label: "смена с/до" },
         ]

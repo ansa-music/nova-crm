@@ -224,11 +224,13 @@ export function ScheduleSheet({
             const Icon = section.icon;
             const sectionRowIds = section.rows.map((row) => row.uid);
             const sectionRow = (
-              <tr key={`s:${section.id}`}>
-                <td className={cn("sticky left-0 z-10 bg-card px-2 pb-1 pt-3", size.nameCol)}>
+              // Раздел — отдельной полосой: без неё «Технари», «ОС» и «Руководство»
+              // сливались в один длинный список.
+              <tr key={`s:${section.id}`} className="[&>td]:border-y [&>td]:border-border/60 [&>td]:bg-muted">
+                <td className={cn("sticky left-0 z-10 px-2 py-1.5", size.nameCol)}>
                   <span className="flex min-w-0 items-center gap-1.5">
-                    <Icon className="h-3.5 w-3.5 shrink-0 text-primary" />
-                    <span className="min-w-0 truncate text-[13px] font-semibold">{section.title}</span>
+                    <Icon className="h-4 w-4 shrink-0 text-primary" />
+                    <span className="min-w-0 truncate text-[13px] font-semibold uppercase tracking-wide">{section.title}</span>
                     <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">{section.rows.length}</span>
                     {section.menu}
                   </span>
@@ -258,7 +260,7 @@ export function ScheduleSheet({
                     ? `На смене ${count} — меньше нормы ${section.min}`
                     : `На смене ${count} из ${section.rows.length}`;
                   return (
-                    <td key={column.id} className={cn("px-px pb-1 pt-3 text-center", column.today && "bg-primary/[0.07]")}>
+                    <td key={column.id} className="px-px py-1.5 text-center">
                       {canEdit && onSelectColumn ? (
                         <button
                           type="button"
@@ -436,7 +438,13 @@ const SheetRow = memo(function SheetRow({
         return (
           <td
             key={column.id}
-            className={cn("p-px text-center", column.today && "bg-primary/[0.07]", "group-hover/row:bg-foreground/[0.03]")}
+            // Сегодня — заметной колонкой, суббота и воскресенье — лёгким тоном:
+            // глаз сразу находит «где я в неделе/месяце».
+            className={cn(
+              "border-b border-border/30 p-0.5 text-center",
+              column.today ? "bg-primary/[0.12]" : column.weekend && "bg-foreground/[0.035]",
+              "group-hover/row:bg-foreground/[0.05]"
+            )}
           >
             <button
               type="button"
