@@ -12,6 +12,7 @@ import {
   ClaimUnsupportedError,
   nudgeOpenDesk,
   OS_CLAIM_KICK_EVENT,
+  OS_CLAIM_TOPIC,
   OS_CLAIMED_EVENT,
   pickClaims,
   sbClaimOsOrder,
@@ -22,6 +23,9 @@ import {
 } from "@/services/rows/osOrderClaim";
 import { putPageAcl } from "@/services/rows/rowAclService";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
+import { onOwnRowWrite } from "@/services/rows/supabaseRowStore";
+import { listenTopic, ringTopic } from "@/services/sb/topicDoorbell";
+import { useWorkspaceStore } from "@/store/workspaceStore";
 import { deskRowHref } from "@/utils/deskLinks";
 import { personLabel } from "@/utils/peopleDesks";
 import { useSiteConfig } from "@/config/siteTerms";
@@ -37,18 +41,24 @@ import type { WorkspaceMember, WorkspacePage } from "@/types";
  * - через ~3 с после того, как столы и участники загрузились;
  * - дальше раз в 2 минуты, пока вкладка на виду;
  * - при возврате на вкладку (не чаще раза в минуту);
- * - когда ОС открыл свой стол (`OS_CLAIM_KICK_EVENT`).
+ * - когда ОС открыл свой стол (`OS_CLAIM_KICK_EVENT`);
+ * - СРАЗУ по «звонку» `OS_CLAIM_TOPIC`: технарь записал строку с ником ОС
+ *   (`useOsClaimRinger`) — и на свёрнутой вкладке тоже, иначе заказ ждал бы,
+ *   пока ОС вернётся в Nova.
  * Один заход за раз, а между вкладками одного браузера — «аренда» в
  * localStorage: две вкладки не спрашивают базу одновременно (а если и
  * спросят, база ответит второй «уже взят»).
  *
- * Строка забирается, только когда «отлежалась» 3 минуты (`CLAIM_QUIET_MS`):
- * после забора она у технаря под замком, и ловить её посреди набора нельзя.
+ * Строка забирается, когда «отлежалась» (`claimQuietMs`: заказ с биржи —
+ * сразу, стол «Заполняет сам» — 5 с, иначе 30 с без правок): после забора в
+ * «Смешанном» режиме она у технаря под замком, и ловить её посреди набора нельзя.
  */
 const FIRST_RUN_MS = 3_000;
 const EVERY_MS = 120_000;
 const ON_RETURN_MIN_GAP_MS = 60_000;
 const KICK_MIN_GAP_MS = 10_000;
+/** По звонку технаря — почти сразу; серию звонков склеиваем. */
+const RING_DELAY_MS = 400;
 const LEASE_MS = 90_000;
 /** SQL не вставлен — спросим снова через столько. */
 const UNSUPPORTED_RECHECK_MS = 10 * 60_000;
@@ -100,6 +110,10 @@ export interface OsClaimContext {
   /** Все столы, включая столы ОС. */
   pages: readonly WorkspacePage[];
   members: readonly WorkspaceMember[];
+  /** Режим «Технари заполняют сами» — пауза перед забором короче. */
+  techFillsAll?: boolean;
+  /** Что не доехало и почему — сказать ОС (один раз на причину). */
+  onSkipped?: (skipped: Partial<Record<string, number>>) => void;
   seen: ClaimSeenMemory;
   osTabCache: { current: { monthKey: string; at: number; tab: OsDeskTab } | null };
 }
@@ -144,8 +158,9 @@ export async function runOsClaimPass(ctx: OsClaimContext): Promise<OsClaimPassRe
   }
   const monthKey = currentPeriodKeyOf(ctx.workspaceId);
   const now = Date.now();
-  const base = { candidates, pages: ctx.pages, members: ctx.members, monthKey, now, seen: ctx.seen };
+  const base = { candidates, pages: ctx.pages, members: ctx.members, monthKey, now, seen: ctx.seen, techFillsAll: ctx.techFillsAll };
   let pick = pickClaims({ ...base, limit: Number.POSITIVE_INFINITY });
+  ctx.onSkipped?.(pick.skipped);
   if (pick.ready.length === 0) return { claimed: 0, waitMs: pick.waitMs };
   // Заказы, которые Owner вернул технарю, — не забираем снова (см. sbFetchReturnedSources).
   const returned = await sbFetchReturnedSources(
@@ -287,8 +302,11 @@ export function useOsOrderClaims() {
   );
   // Столы и участники загрузились — без них годную строку не отличить от чужой.
   const ready = enabled && allPages.length > 0 && members.length > 0 && membersLoadState === "ready";
-  const latest = useRef({ pages: allPages, members, osNickValue, osName });
-  latest.current = { pages: allPages, members, osNickValue, osName };
+  const techFillsAll = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === activeWorkspaceId)?.techFillsAll === true
+  );
+  const latest = useRef({ pages: allPages, members, osNickValue, osName, techFillsAll });
+  latest.current = { pages: allPages, members, osNickValue, osName, techFillsAll };
 
   useEffect(() => {
     if (!ready || !activeWorkspaceId || !uid) return;
@@ -300,18 +318,40 @@ export function useOsOrderClaims() {
     let running = false;
     let lastRunAt = 0;
     let waitTimer: number | null = null;
+    let ringTimer: number | null = null;
+    let again = false;
+    const toldSkipped = new Set<string>();
 
     const schedule = (ms: number) => {
       if (waitTimer !== null) window.clearTimeout(waitTimer);
       waitTimer = window.setTimeout(() => {
         waitTimer = null;
-        void run();
-      }, Math.min(EVERY_MS, Math.max(5_000, ms)));
+        void run(true);
+      }, Math.min(EVERY_MS, Math.max(1_000, ms)));
     };
 
-    async function run() {
-      if (disposed || running) return;
-      if (document.visibilityState !== "visible") return;
+    // Заказ с вашим ником есть, а приехать не может — ОС должен это знать,
+    // а не гадать, почему стол пуст. Один раз на причину за сессию.
+    const onSkipped = (skipped: Partial<Record<string, number>>) => {
+      for (const [reason, count] of Object.entries(skipped)) {
+        if (!count || reason === "quiet" || reason === "returned" || reason === "desk") continue;
+        if (toldSkipped.has(reason)) continue;
+        toldSkipped.add(reason);
+        toast.info(`Заказы технарей с вашим ником не доехали на стол: ${count}`, {
+          description: SKIP_TEXT[reason] ?? reason,
+          duration: 12_000,
+        });
+      }
+    };
+
+    /** `hidden` — можно и на свёрнутой вкладке (звонок технаря и дозабор после него). */
+    async function run(hidden = false) {
+      if (disposed) return;
+      if (running) {
+        again = true;
+        return;
+      }
+      if (!hidden && document.visibilityState !== "visible") return;
       const now = Date.now();
       if (claimsUnsupported(now)) return;
       if (!takeLease(leaseKey, now)) return;
@@ -326,11 +366,13 @@ export function useOsOrderClaims() {
           osName: cur.osName,
           pages: cur.pages,
           members: cur.members,
+          techFillsAll: cur.techFillsAll,
+          onSkipped,
           seen,
           osTabCache,
         });
         unsupportedAt = 0;
-        if (!disposed && result.waitMs !== null) schedule(result.waitMs + 1_000);
+        if (!disposed && result.waitMs !== null) schedule(result.waitMs + 300);
       } catch (error) {
         if (error instanceof ClaimUnsupportedError) {
           // SQL 20261002 не вставлен — молча ждём 10 минут.
@@ -340,8 +382,21 @@ export function useOsOrderClaims() {
         }
       } finally {
         running = false;
+        if (again && !disposed) {
+          again = false;
+          schedule(RING_DELAY_MS);
+        }
       }
     }
+
+    const onRing = () => {
+      if (ringTimer !== null) return;
+      ringTimer = window.setTimeout(() => {
+        ringTimer = null;
+        void run(true);
+      }, RING_DELAY_MS);
+    };
+    const stopRing = listenTopic(`nova:${workspaceId}:${OS_CLAIM_TOPIC}`, onRing);
 
     const first = window.setTimeout(() => void run(), FIRST_RUN_MS);
     const every = window.setInterval(() => void run(), EVERY_MS);
@@ -358,10 +413,40 @@ export function useOsOrderClaims() {
       window.clearTimeout(first);
       window.clearInterval(every);
       if (waitTimer !== null) window.clearTimeout(waitTimer);
+      if (ringTimer !== null) window.clearTimeout(ringTimer);
+      stopRing();
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener(OS_CLAIM_KICK_EVENT, onKick);
     };
   }, [ready, activeWorkspaceId, uid]);
+}
+
+/**
+ * «Звонок» сессиям ОС: эта вкладка записала в стол технаря строку, тронув
+ * столбец ОС или клиента (или строку целиком — заказ с «Заказов»). В звонке
+ * нет данных; ОС по нему спрашивает базу, что забрать (`rows_os_claimable`).
+ * Столы ОС и столы без опубликованной карты столбцов не звонят.
+ */
+export function useOsClaimRinger() {
+  const { activeWorkspaceId, allPages } = useWorkspace();
+  const osDeskOn = isModuleEnabled(useSiteConfig(), "osDesk");
+  const enabled = Boolean(osDeskOn && activeWorkspaceId && usesSupabaseRows(activeWorkspaceId));
+  const pagesRef = useRef(allPages);
+  pagesRef.current = allPages;
+  useEffect(() => {
+    if (!enabled || !activeWorkspaceId) return;
+    const workspaceId = activeWorkspaceId;
+    return onOwnRowWrite((event) => {
+      if (event.workspaceId !== workspaceId) return;
+      const page = pagesRef.current.find((p) => p.id === event.pageId);
+      const keys = page?.osFieldKeys;
+      if (!page || page.osDesk || page.isDashboard || page.inactive || !keys?.os) return;
+      if ((keys.tabId ?? "") !== event.tab) return;
+      const touched = event.cellKeys.includes(keys.os) || (keys.client ? event.cellKeys.includes(keys.client) : false);
+      if (!touched) return;
+      ringTopic(`nova:${workspaceId}:${OS_CLAIM_TOPIC}`);
+    });
+  }, [enabled, activeWorkspaceId]);
 }
 
 /** Куда лёг заказ, забранный ради просьбы технаря. */

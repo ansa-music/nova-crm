@@ -343,8 +343,35 @@ export async function sbFetchReturnedSources(
 // Что забирать в этот заход — чистая функция (проверки без базы).
 // ---------------------------------------------------------------------------
 
-/** Строка должна «отлежаться» (технарь дописывает её) — 3 минуты. */
-export const CLAIM_QUIET_MS = 180_000;
+/**
+ * Сколько строка должна «отлежаться» без правок, прежде чем ОС её заберёт
+ * (технарь дописывает её, а после забора в «Смешанном» режиме она под замком).
+ * Было 3 минуты на всё — и заказ появлялся у ОС через 3–5 минут (жалоба Nurba
+ * 13.10.2026: «у ОС не отображается тот заказ»). Теперь по случаю — `claimQuietMs`.
+ */
+export const CLAIM_QUIET_MS = 30_000;
+/** Стол «Заполняет сам»: замка после забора нет — ждать почти нечего. */
+export const CLAIM_QUIET_FILLS_MS = 5_000;
+/**
+ * Строку не трогали дольше этого (по её `updatedAt`) — она уже отлежалась, и
+ * ждать ещё раз после входа ОС незачем. Запас большой: `updatedAt` — часы
+ * устройства технаря, и отставать на 10 минут они не должны.
+ */
+export const CLAIM_OLD_ROW_MS = 10 * 60_000;
+/** Тема «звонка»: технарь записал строку с ником ОС — сессии ОС проверяют сразу. */
+export const OS_CLAIM_TOPIC = "osclaim";
+
+/**
+ * Пауза перед забором для этой строки: заказ с биржи (`orderId`) технарь не
+ * набирает — сразу; давно лежащая строка — сразу; стол «Заполняет сам» —
+ * `CLAIM_QUIET_FILLS_MS`; иначе `CLAIM_QUIET_MS`.
+ */
+export function claimQuietMs(row: PageRow, techFills: boolean, now: number): number {
+  if (row.orderId) return 0;
+  const updated = typeof row.updatedAt === "number" ? row.updatedAt : 0;
+  if (updated > 0 && now - updated > CLAIM_OLD_ROW_MS) return 0;
+  return techFills ? CLAIM_QUIET_FILLS_MS : CLAIM_QUIET_MS;
+}
 /** Не больше стольких заборов за заход: остальное — в следующий. */
 export const CLAIM_MAX_PER_RUN = 25;
 
@@ -404,8 +431,8 @@ function cellOf(row: PageRow, key: string | undefined): string {
  *   изменений уже столько времени — по своим часам. Время правки строки
  *   (`updatedAt`) не годится: это часы устройства технаря, и отстающие на
  *   3 минуты часы делали только что начатую строку «старой» — ОС забирал её
- *   посреди набора, и следующая правка цены падала на замке. Цена — строка,
- *   давно лежащая у технаря, при первом взгляде тоже ждёт 3 минуты;
+ *   посреди набора, и следующая правка цены падала на замке. Сколько ждать —
+ *   `claimQuietMs` (заказ с биржи и давно лежащая строка — нисколько);
  * - у ответственного есть ник технаря, и ник ведёт на него же, а стол — тот,
  *   куда проход стола ОС сам положил бы заказ (иначе он «переехал» бы);
  * - это не строка, которую Owner вернул технарю (`os_…` — копия заказа ОС,
@@ -421,10 +448,12 @@ export function pickClaims(input: {
   now: number;
   seen: ClaimSeenMemory;
   returned?: ReadonlySet<string>;
+  /** Одна пауза на все строки (0 — без «отлёживания»); нет — по случаю, `claimQuietMs`. */
   quietMs?: number;
+  /** Режим «Технари заполняют сами» у всего workspace. */
+  techFillsAll?: boolean;
   limit?: number;
 }): ClaimPickResult {
-  const quietMs = input.quietMs ?? CLAIM_QUIET_MS;
   const limit = input.limit ?? CLAIM_MAX_PER_RUN;
   const skipped: ClaimPickResult["skipped"] = {};
   const skip = (reason: ClaimSkipReason) => {
@@ -473,6 +502,7 @@ export function pickClaims(input: {
     const seenAt = prev && prev.version === version ? prev.at : input.now;
     if (!prev || prev.version !== version) input.seen.set(key, { version, at: input.now });
     // Только по своим часам и своему наблюдению (см. JSDoc).
+    const quietMs = input.quietMs ?? claimQuietMs(row, Boolean(input.techFillsAll || page.techEditable), input.now);
     const quietLeft = quietMs - (input.now - seenAt);
     if (quietLeft > 0) {
       skip("quiet");
