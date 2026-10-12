@@ -45,7 +45,7 @@ import { useSbImportAutopilot } from "@/hooks/useSbImportAutopilot";
 import { useOrderAutoPickup } from "@/hooks/useOrderAutoPickup";
 import { useOwnerOnlyUpkeep } from "@/hooks/useOwnerOnlyUpkeep";
 import { useOsExchangeHandoff } from "@/hooks/useOsExchangeHandoff";
-import { useOsClaimRinger, useOsOrderClaims } from "@/hooks/useOsOrderClaims";
+import { useOsClaimRinger, useOsOrderClaims, useOwnerOsAdoptBackup } from "@/hooks/useOsOrderClaims";
 import { useTechSyncBridge } from "@/hooks/useTechSyncBridge";
 import { useOsDispatchLogWatch } from "@/hooks/useOsDispatchLogWatch";
 import { useNotificationAlerts } from "@/hooks/useNotificationAlerts";
@@ -100,6 +100,7 @@ export function AppLayout() {
   // Заказы, записанные технарями с ником этого ОС, — сами к нему на стол.
   useOsOrderClaims();
   useOsClaimRinger();
+  useOwnerOsAdoptBackup();
   // Авто-передача ОС: правки технаря, который заполняет стол сам, — сразу на
   // стол ОС, без кнопки «Передать ОС». В остальных режимах хук ничего не
   // слушает и ничего не спрашивает.

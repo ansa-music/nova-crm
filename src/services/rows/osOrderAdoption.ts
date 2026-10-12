@@ -8,7 +8,7 @@ import { sbFetchAllPageRows, sbFetchRows, sbPatchRow } from "@/services/rows/sup
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { buildMirrorCells, mirrorSyncHash } from "@/services/rows/osOrderMirror";
 import { openOsDeskCurrentTab, type OsDeskTab } from "@/services/rows/osDeskIssue";
-import { sbFindDeskRowTab } from "@/services/rows/osOrderClaim";
+import { claimQuietMs, sbFindDeskRowTab } from "@/services/rows/osOrderClaim";
 import {
   fetchTechSyncState,
   sbTechSync,
@@ -63,6 +63,8 @@ export interface OsAdoptionReport {
   unknownOsNicks: string[];
   createdOsDesks: number;
   errors: string[];
+  /** Авто-режим: строки, которые ещё «отлёживаются» (дописывают) — зайти позже. */
+  waiting?: number;
 }
 
 export interface OsAdoptionProgress {
@@ -351,6 +353,13 @@ export async function adoptOrdersToOsDesks(input: {
   workspace?: { techFillsAll?: boolean } | null;
   /** Только эти столы («Передать ОС» у одного технаря на «Правке столов»); нет — все. */
   pageIds?: readonly string[];
+  /**
+   * Авто-режим (сессия Owner страхует подхват ОС, `useOwnerOsAdoptBackup`):
+   * как подхват — не трогает заказы, возвращённые технарю, строки без клиента
+   * и те, что ещё дописывают; столы с авто-передачей базы пропускает. Кнопка
+   * «Передать ОС» идёт без него — она и есть явный путь назад.
+   */
+  auto?: { now: number };
   onProgress?: (p: OsAdoptionProgress) => void;
 }): Promise<OsAdoptionReport> {
   const { workspaceId, members } = input;
@@ -392,7 +401,9 @@ export async function adoptOrdersToOsDesks(input: {
       // Общий прогон («передать все») столы «только для Owner» не трогает:
       // строки-источники легли бы на столы ОС, а их читают все. У одного
       // стола «Передать ОС» — осознанное решение Owner.
-      (only || !p.ownerOnly)
+      (only || !p.ownerOnly) &&
+      // Авто-режим — тоже общий прогон: стол «только для Owner» не трогаем никогда.
+      (!input.auto || !p.ownerOnly)
   );
   const techDesks = candidates.filter((p) => currentMonthSubPageId(p, monthKey));
   for (const stale of candidates.filter((p) => !currentMonthSubPageId(p, monthKey))) {
@@ -438,6 +449,8 @@ export async function adoptOrdersToOsDesks(input: {
       continue;
     }
     report.desks += 1;
+    // Стол с работающей авто-передачей база связывает сама — авто-режим не мешает.
+    if (input.auto && syncOn && techFillsDesk(page, workspace)) continue;
 
     let rows: PageRow[];
     try {
@@ -468,6 +481,15 @@ export async function adoptOrdersToOsDesks(input: {
       if (!osValue) {
         report.skippedNoOs += 1;
         continue;
+      }
+      if (input.auto) {
+        if (row.id.startsWith("os_") || cellText(row, OS_RELEASED_FROM_KEY) === osValue) continue;
+        if (!cellText(row, keys.client)) continue;
+        const quiet = claimQuietMs(row, techFillsDesk(page, workspace), input.auto.now);
+        if (quiet > 0 && input.auto.now - (row.updatedAt || 0) < quiet) {
+          report.waiting = (report.waiting ?? 0) + 1;
+          continue;
+        }
       }
       const osMember = members.find((m) => m.status === "active" && m.osNickValue === osValue && m.uid);
       if (!osMember?.uid) {

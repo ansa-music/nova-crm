@@ -6,7 +6,7 @@ import { currentPeriodKeyOf } from "@/services/periodService";
 import { sendNotification } from "@/services/notificationService";
 import { osDeskId } from "@/services/osDeskService";
 import { openOsDeskCurrentTab, type OsDeskTab } from "@/services/rows/osDeskIssue";
-import { buildClaimSource } from "@/services/rows/osOrderAdoption";
+import { adoptOrdersToOsDesks, buildClaimSource } from "@/services/rows/osOrderAdoption";
 import {
   CLAIM_MAX_PER_RUN,
   ClaimUnsupportedError,
@@ -446,6 +446,136 @@ export function useOsClaimRinger() {
       if (!touched) return;
       ringTopic(`nova:${workspaceId}:${OS_CLAIM_TOPIC}`);
     });
+  }, [enabled, activeWorkspaceId]);
+}
+
+/**
+ * Страховка подхвата — сессия настоящего Owner (жалоба Nurba 13.10.2026: «в
+ * столе тех добавил заказ — у ОС не появился»). Подхват делает вкладка САМОГО
+ * ОС, и пока его нет в сети, заказ с его ником на его стол не попадал. Owner
+ * вправе писать в любые столы — его вкладка передаёт такие заказы сама тем же
+ * кодом, что кнопка «Передать ОС», но в авто-режиме (без возвращённых
+ * технарю и без строк, которые ещё дописывают):
+ * - своя запись в стол (клиент или ник ОС) — этот стол, когда строка отлежится;
+ * - чужой «звонок» `OS_CLAIM_TOPIC` — все столы, через `BACKUP_RING_MS`
+ *   (сначала шанс вкладке самого ОС), не чаще раза в `BACKUP_SCAN_GAP_MS`.
+ */
+const BACKUP_RING_MS = 45_000;
+const BACKUP_SCAN_GAP_MS = 120_000;
+const BACKUP_RETRY_MS = 8_000;
+
+export function useOwnerOsAdoptBackup() {
+  const permissions = usePermissions();
+  const { activeWorkspaceId, allPages, members, membersLoadState } = useWorkspace();
+  const osDeskOn = isModuleEnabled(useSiteConfig(), "osDesk");
+  const enabled = Boolean(
+    osDeskOn &&
+      activeWorkspaceId &&
+      permissions.isResolved &&
+      permissions.upkeepOwner &&
+      membersLoadState === "ready" &&
+      usesSupabaseRows(activeWorkspaceId)
+  );
+  const latest = useRef({ pages: allPages, members });
+  latest.current = { pages: allPages, members };
+
+  useEffect(() => {
+    if (!enabled || !activeWorkspaceId) return;
+    const workspaceId = activeWorkspaceId;
+    /** Столы, которые ждут передачи; `all` — все столы (по чужому звонку). */
+    const dirty = new Set<string>();
+    let all = false;
+    let timer: number | null = null;
+    let dueAt = 0;
+    let running = false;
+    let disposed = false;
+    let lastOwnWriteAt = 0;
+    let lastScanAt = 0;
+    const toldWhy = new Set<string>();
+
+    const schedule = (ms: number) => {
+      const at = Date.now() + ms;
+      if (timer !== null && dueAt <= at) return;
+      if (timer !== null) window.clearTimeout(timer);
+      dueAt = at;
+      timer = window.setTimeout(() => {
+        timer = null;
+        void run();
+      }, ms);
+    };
+
+    async function run() {
+      if (disposed) return;
+      if (running) {
+        schedule(BACKUP_RETRY_MS);
+        return;
+      }
+      const scanAll = all;
+      const pageIds = [...dirty];
+      if (!scanAll && pageIds.length === 0) return;
+      all = false;
+      dirty.clear();
+      running = true;
+      try {
+        if (scanAll) lastScanAt = Date.now();
+        const report = await adoptOrdersToOsDesks({
+          workspaceId,
+          members: latest.current.members,
+          pageIds: scanAll ? undefined : pageIds,
+          auto: { now: Date.now() },
+        });
+        if (report.adopted > 0) {
+          toast.success(`На столы ОС переданы заказы: ${report.adopted}`, {
+            description: "ОС не было в сети — заказы с их никами передала ваша вкладка.",
+          });
+        }
+        // Свой стол, а заказ не ушёл — сказать почему (один раз на причину).
+        if (!scanAll && report.adopted === 0 && (report.waiting ?? 0) === 0) {
+          const why =
+            report.errors[0] ??
+            (report.unknownOsNicks.length > 0
+              ? "Ник ОС из строки не закреплён за аккаунтом с ролью ОС — закрепите его на «Команде»"
+              : "");
+          if (why && !toldWhy.has(why)) {
+            toldWhy.add(why);
+            toast.info("Заказ не передан на стол ОС", { description: why, duration: 12_000 });
+          }
+        }
+        if ((report.waiting ?? 0) > 0 && !disposed) {
+          if (scanAll) all = true;
+          else for (const id of pageIds) dirty.add(id);
+          schedule(BACKUP_RETRY_MS);
+        }
+      } catch (error) {
+        console.warn("[os-adopt-backup] передача не удалась", error);
+      } finally {
+        running = false;
+      }
+    }
+
+    const stopWrites = onOwnRowWrite((event) => {
+      if (event.workspaceId !== workspaceId) return;
+      const page = latest.current.pages.find((p) => p.id === event.pageId);
+      const keys = page?.osFieldKeys;
+      if (!page || page.osDesk || page.isDashboard || page.inactive || !keys?.os) return;
+      if ((keys.tabId ?? "") !== event.tab) return;
+      if (!event.cellKeys.includes(keys.os) && !(keys.client && event.cellKeys.includes(keys.client))) return;
+      lastOwnWriteAt = Date.now();
+      dirty.add(page.id);
+      schedule(BACKUP_RETRY_MS);
+    });
+    const stopRing = listenTopic(`nova:${workspaceId}:${OS_CLAIM_TOPIC}`, () => {
+      // Свой же звонок (своя запись уже учтена выше) — не повод читать все столы.
+      if (Date.now() - lastOwnWriteAt < 2_000) return;
+      all = true;
+      schedule(Math.max(BACKUP_RING_MS, BACKUP_SCAN_GAP_MS - (Date.now() - lastScanAt)));
+    });
+    return () => {
+      disposed = true;
+      if (timer !== null) window.clearTimeout(timer);
+      stopWrites();
+      stopRing();
+    };
   }, [enabled, activeWorkspaceId]);
 }
 
