@@ -37,8 +37,32 @@ function emit() {
   listeners.forEach((fn) => fn());
 }
 
+/**
+ * Один заказ — одно окно (просьба Nurba 12.10.2026: «уведомление приходит один
+ * раз»). «Новый заказ: X», «Заказ X открыт всем» и «Вам выдан заказ: X» — про
+ * один и тот же заказ: если окно про него уже висит, второе не встаёт в
+ * очередь, а «выдан вам» заменяет собой «новый» на том же месте.
+ */
+function orderKeyOf(item: OrderPopupItem): string {
+  return item.title
+    .replace(/^(Вам выдан заказ|Новый заказ):\s*/i, "")
+    .replace(/^Заказ\s+/i, "")
+    .replace(/\s+открыт всем$/i, "")
+    .trim()
+    .toLocaleLowerCase("ru");
+}
+
 export function showOrderPopup(item: OrderPopupItem) {
   if (queue.some((q) => q.id === item.id)) return;
+  const key = orderKeyOf(item);
+  const same = queue.findIndex((q) => orderKeyOf(q) === key);
+  if (same >= 0) {
+    // Про этот заказ окно уже есть: повышаем его до «выдан вам», иначе молчим.
+    if (!item.assigned || queue[same].assigned) return;
+    queue = queue.map((q, i) => (i === same ? item : q));
+    emit();
+    return;
+  }
   queue = [...queue, item];
   emit();
 }

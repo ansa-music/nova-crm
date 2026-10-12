@@ -20,7 +20,10 @@ import { firestoreErrorText } from "@/utils/dbError";
 import { cn } from "@/utils/cn";
 import { realNameOf } from "@/utils/displayName";
 import { canHoldNick, nickLockedFor, nickLockReason } from "@/utils/teamGroup";
-import type { StatusOption, WorkspaceMember } from "@/types";
+import type { StatusOption, WorkspaceMember, WorkspacePage } from "@/types";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { setPageInactive } from "@/services/pageService";
+import { worksAsTechnician } from "@/utils/peopleDesks";
 
 const LIST_TEXT: Record<NickKind, { title: string; description: string; roleHint: string; bindHint: string; nobody: string }> = {
   os: {
@@ -85,6 +88,7 @@ export function NickListCard({
   const [busy, setBusy] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [bindOption, setBindOption] = useState<StatusOption | null>(null);
+  const { allPages } = useWorkspace();
 
   const boundBy = useMemo(() => {
     const map = new Map<string, WorkspaceMember>();
@@ -143,10 +147,95 @@ export function NickListCard({
     }
   }
 
+  /**
+   * Столы человека, который держит этот ник (просьба Nurba 12.10.2026: «ник
+   * уходит в неактуальные — его стол тоже»): ник технаря → его столы, ник ОС →
+   * его стол ОС. Держателя ищем среди всех участников, не только активных —
+   * у неактуального ника человек часто уже убран из команды. У ника «Другие»
+   * столов нет; столы Owner не трогаем.
+   */
+  function desksOf(option: StatusOption): { holder: WorkspaceMember; desks: WorkspacePage[] } | null {
+    if (kind === "other") return null;
+    const holder = boundBy.get(option.value) ?? members.find((m) => m.uid && memberNickValue(m, kind) === option.value);
+    if (!holder?.uid || holder.role === "owner") return null;
+    const desks = allPages.filter(
+      (p) => !p.inactive && p.responsibleUserId === holder.uid && (kind === "os" ? Boolean(p.osDesk) : !p.osDesk)
+    );
+    return desks.length > 0 ? { holder, desks } : null;
+  }
+
+  /** Убрать столы в «Неактуальные». Ошибка одного стола не останавливает остальные. */
+  async function retireDesks(found: { holder: WorkspaceMember; desks: WorkspacePage[] }): Promise<{ done: number; failed: number }> {
+    let done = 0;
+    let failed = 0;
+    for (const page of found.desks) {
+      try {
+        await setPageInactive(workspaceId, page, true, meUid, worksAsTechnician(found.holder));
+        done++;
+      } catch {
+        failed++;
+      }
+    }
+    return { done, failed };
+  }
+
+  // Ники уже в неактуальных, а столы их людей ещё в работе — разовая уборка кнопкой.
+  const staleDesks = options
+    .filter((o) => o.inactive)
+    .map(desksOf)
+    .filter((f): f is { holder: WorkspaceMember; desks: WorkspacePage[] } => f !== null);
+  const staleCount = staleDesks.reduce((sum, f) => sum + f.desks.length, 0);
+
+  async function retireStaleDesks() {
+    const names = staleDesks.flatMap((f) => f.desks.map((p) => `«${p.name}»`));
+    const ok = await confirmDialog({
+      title: `Убрать в неактуальные столы неактуальных ников (${staleCount})?`,
+      description: `${names.slice(0, 8).join(", ")}${names.length > 8 ? ` и ещё ${names.length - 8}` : ""}. Ничего не удаляется — стол можно вернуть из «Неактуальных».`,
+      confirmLabel: "Убрать столы",
+    });
+    if (!ok) return;
+    setBusy("__stale__");
+    try {
+      let done = 0;
+      let failed = 0;
+      for (const found of staleDesks) {
+        const r = await retireDesks(found);
+        done += r.done;
+        failed += r.failed;
+      }
+      if (failed > 0) toast.warning(`В неактуальные ушло столов: ${done}, не удалось: ${failed}`);
+      else toast.success(`В неактуальные ушло столов: ${done}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function toggleInactive(option: StatusOption) {
+    // Вместе с ником уходит и стол его человека — спрашиваем заранее, чтобы
+    // это не было сюрпризом. Возврат ника стол сам НЕ возвращает.
+    const found = option.inactive ? null : desksOf(option);
+    if (found) {
+      const ok = await confirmDialog({
+        title: `«${option.label}» — в неактуальные?`,
+        description: `Вместе с ником в неактуальные уйдёт ${found.desks.length === 1 ? "стол" : "столы"} ${found.desks.map((p) => `«${p.name}»`).join(", ")}. Ничего не удаляется — вернуть можно из «Неактуальных».`,
+        confirmLabel: "В неактуальные",
+      });
+      if (!ok) return;
+    }
     setBusy(option.value);
     try {
       await setNickOptionInactive({ workspaceId, kind, value: option.value, inactive: !option.inactive });
+      if (found) {
+        const r = await retireDesks(found);
+        if (r.failed > 0) {
+          toast.warning(`«${option.label}» — в неактуальных, но стол убрать не удалось`, {
+            description: "Уберите его вручную: «Столы» → «⋯» → «В неактуальные».",
+          });
+          return;
+        }
+        toast.success(`«${option.label}» и ${r.done === 1 ? "стол" : `столы (${r.done})`} — в неактуальных`);
+        return;
+      }
       toast.success(option.inactive ? `«${option.label}» снова в работе` : `«${option.label}» — в неактуальных`);
     } catch (error) {
       toast.error("Не удалось изменить ник", { description: firestoreErrorText(error, "База не приняла запись") });
@@ -266,6 +355,19 @@ export function NickListCard({
             </button>
           )}
           {showInactive && inactive.map(row)}
+          {staleCount > 0 && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="min-h-11 gap-1.5 self-start sm:min-h-0"
+              disabled={busy !== null}
+              onClick={() => void retireStaleDesks()}
+            >
+              {busy === "__stale__" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
+              Убрать столы неактуальных ников · {staleCount}
+            </Button>
+          )}
         </div>
       </CardContent>
 

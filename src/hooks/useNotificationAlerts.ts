@@ -29,6 +29,8 @@ import type { Notification } from "@/types";
 
 const SEEN_KEY = "nova:notify-announced";
 const SEEN_LIMIT = 200;
+/** Сколько после входа считаем приходящие уведомления «прошлыми» (без звука и окна). */
+const ENTRY_SETTLE_MS = 8_000;
 
 function loadSeen(): Set<string> {
   try {
@@ -107,6 +109,22 @@ export function useNotificationAlerts() {
     if (fromCache) return;
     const seen = seenRef.current ?? loadSeen();
     seenRef.current = seen;
+    // Вход на сайт: всё, что приехало в первые секунды, — прошлое (просьба
+    // Nurba 12.10.2026: «при входе приходят уведомления от уже выданных
+    // заказов»). Запас на расхождение часов (`CLOCK_SKEW_MS`) пропускал сюда
+    // уведомления двухминутной давности — а заказ за это время уже забрали.
+    // Такие помечаем показанными молча: они остаются в колокольчике, но ни
+    // звука, ни окна. Настоящее новое придёт следующим снимком.
+    if (Date.now() - startedAtRef.current < ENTRY_SETTLE_MS) {
+      let marked = false;
+      for (const n of notifications) {
+        if (n.read || seen.has(n.id)) continue;
+        seen.add(n.id);
+        marked = true;
+      }
+      if (marked) saveSeen(seen);
+      return;
+    }
     const fresh = pickFreshNotifications(notifications, seen, startedAtRef.current);
     if (fresh.length === 0) return;
     for (const n of fresh) seen.add(n.id);
@@ -142,10 +160,16 @@ function announce(n: Notification, navigate: (to: string) => void, silent: boole
   const hidden = document.visibilityState !== "visible" || !document.hasFocus();
   const shown = hidden && showBrowserNotification({ title: n.title, body: n.body, tag: n.id, href, silent });
   // Заказ (выдан вам / новый на бирже) — окном поверх любого экрана с кнопкой
-  // «Перейти к заказу» (OrderPopupHost), и на виду, и после возврата на
-  // вкладку: всплывашка браузера мимо взгляда — окно останется.
+  // «Перейти к заказу» (OrderPopupHost). Одно уведомление — один показ
+  // (просьба Nurba 12.10.2026):
+  // - сайт свёрнут и браузер показал свою всплывашку — окна на сайте уже нет;
+  // - человек смотрит на «Заказы» — новый заказ он видит в списке, окно про
+  //   него лишнее (звук уже был); «выдан вам» показываем и там.
   const popup = orderPopupOf(n);
   if (popup) {
+    if (shown) return;
+    const onOrders = !hidden && window.location.pathname.startsWith("/orders");
+    if (onOrders && !popup.assigned) return;
     showOrderPopup(popup);
     return;
   }
