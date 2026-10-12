@@ -1,8 +1,9 @@
 import { approvalStatusValue } from "@/utils/columnOptions";
 import { normalizeNumericInput, parseLooseNumber } from "@/utils/numberInput";
-import { parseDateInput } from "@/utils/osDates";
-import { resolveOsDeskKeys } from "@/utils/osDeskKeys";
+import { almatyDay, parseDateInput } from "@/utils/osDates";
+import { resolveOsDeskKeys, type OsDeskKeys } from "@/utils/osDeskKeys";
 import { paymentPatch } from "@/utils/payment";
+import { OS_RECEIVED_ON_KEY } from "@/utils/reservedCellKeys";
 import { normalizeRowExtras, type RowExtras } from "@/utils/rowExtras";
 import type { PageColumn, PaymentMethod, StatusOption } from "@/types";
 
@@ -56,15 +57,43 @@ export function osDeskOrderMissing(form: OsDeskOrderForm): string | null {
 }
 
 /**
+ * «Новый заказ» с «Заказов» (`IssueOrderDialog fromDesk`): апсейл и способы
+ * оплаты — ячейками поверх строки, которую кладёт `addOsDeskOrderRow`.
+ * Способ пишется только к вписанной сумме, как в форме стола.
+ */
+export function deskOrderExtraCells(
+  form: { price: string; upsell?: string; pricePayId?: string; upsellPayId?: string },
+  keys: Pick<OsDeskKeys, "price" | "upsell">,
+  methods: readonly PaymentMethod[],
+  columns: readonly PageColumn[]
+): Record<string, string | number | null> {
+  const cells: Record<string, string | number | null> = {};
+  // Нет столбца — не пишем: сумма в невидимой ячейке всё равно вошла бы в «Итого».
+  const has = (key: string) => columns.some((c) => c.key === key);
+  const method = (id: string | undefined) => (id ? (methods.find((m) => m.id === id) ?? null) : null);
+  const pricePay = method(form.pricePayId);
+  if (form.price.trim() && pricePay && has(keys.price)) Object.assign(cells, paymentPatch(keys.price, pricePay));
+  const upsell = (form.upsell ?? "").trim() ? normalizeNumericInput(form.upsell ?? "") : "";
+  if (upsell && has(keys.upsell)) {
+    cells[keys.upsell] = upsell;
+    const upsellPay = method(form.upsellPayId);
+    if (upsellPay) Object.assign(cells, paymentPatch(keys.upsell, upsellPay));
+  }
+  return cells;
+}
+
+/**
  * Ячейки и визитка строки стола ОС. Как `addOsDeskOrderRow` + `addLead`:
  * статус — «Утверждение» (выдать можно только такой заказ), способ оплаты
- * пишется вместе со снимком комиссии. «Итого» и дату получения не пишем —
- * их ставит сам стол (`useOsTotalsKeeper`, `osReceivedAt`).
+ * пишется вместе со снимком комиссии, дата получения — сегодня (с
+ * 13.10.2026 её ставит заведение заказа, кнопка в «Датах» — для правки).
+ * «Итого» не пишем — его считает сам стол (`useOsTotalsKeeper`).
  */
 export function buildOsDeskOrderRow(
   columns: readonly PageColumn[],
   form: OsDeskOrderForm,
-  statusOptions: readonly StatusOption[]
+  statusOptions: readonly StatusOption[],
+  now: number = Date.now()
 ): { cells: Record<string, string | number | null>; extras: RowExtras | null } {
   const k = resolveOsDeskKeys(columns);
   const has = (key: string) => columns.some((c) => c.key === key);
@@ -85,6 +114,7 @@ export function buildOsDeskOrderRow(
   const linkInCell = Boolean(link) && has(k.link);
   if (linkInCell) cells[k.link] = link;
   if (has(k.status)) cells[k.status] = approvalStatusValue(statusOptions);
+  cells[OS_RECEIVED_ON_KEY] = String(almatyDay(now));
   const extras = normalizeRowExtras({
     persons: parseLooseNumber(form.persons),
     minutes: parseLooseNumber(form.minutes),

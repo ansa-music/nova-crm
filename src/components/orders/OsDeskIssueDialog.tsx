@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { ClipboardList, Crown, Loader2, Plus, Search, Send } from "lucide-react";
+import { ClipboardList, Crown, History, Loader2, Plus, Search, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { chipClass } from "@/components/ui/chip";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -15,6 +15,7 @@ import { osNickLabel } from "@/services/memberService";
 import {
   fetchOsDeskTabRows,
   openOsDeskCurrentTab,
+  openOsDeskPreviousTab,
   osDeskRowState,
   sortByReceivedDesc,
   type OsDeskTab,
@@ -25,7 +26,9 @@ import { formatCurrency } from "@/utils/format";
 import { formatDayMonth, formatFullDate, osDateSlots, slotShown } from "@/utils/osDates";
 import { osRowGross, osRowTotal } from "@/utils/payment";
 import { bigQueueView, isBigCheck, shortMoney, useBigOrderQueue } from "@/services/bigOrderQueueService";
-import { deskNavState, deskRowHref } from "@/utils/deskLinks";
+import { deskHref, deskNavState, deskRowHref } from "@/utils/deskLinks";
+import { periodSettingsOf } from "@/services/periodService";
+import { periodLabel } from "@/utils/periods";
 import { myDisplayName } from "@/utils/displayName";
 import { cn } from "@/utils/cn";
 import { WORK_ORDER_URGENCY_LABELS, type PageRow, type WorkOrder, type WorkOrderUrgency } from "@/types";
@@ -68,6 +71,8 @@ export function OsDeskIssueDialog({
   const bigView = bigQueueView(useBigOrderQueue(activeWorkspaceId, open));
   const [tab, setTab] = useState<OsDeskTab | null>(null);
   const [rows, setRows] = useState<PageRow[] | null>(null);
+  /** Прошлая вкладка стола: заказы, оставшиеся там «на утверждении» (только счёт и ссылка). */
+  const [prev, setPrev] = useState<{ tab: OsDeskTab & { periodKey: string }; rows: PageRow[] } | null>(null);
   const [noDesk, setNoDesk] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -95,6 +100,7 @@ export function OsDeskIssueDialog({
     if (!open || !activeWorkspaceId || !profile) return;
     let cancelled = false;
     setRows(null);
+    setPrev(null);
     setError(null);
     setNoDesk(false);
     (async () => {
@@ -117,6 +123,14 @@ export function OsDeskIssueDialog({
         if (cancelled) return;
         setTab(opened);
         setRows(list);
+        // Прошлый период — заметкой: не прочитался — окно работает как раньше.
+        try {
+          const prevTab = await openOsDeskPreviousTab(opened);
+          const prevRows = prevTab ? await fetchOsDeskTabRows(prevTab) : null;
+          if (!cancelled && prevTab && prevRows) setPrev({ tab: prevTab, rows: prevRows });
+        } catch (prevError) {
+          console.warn("[заказы] прошлая вкладка стола ОС не прочитана:", prevError);
+        }
       } catch (err) {
         if (!cancelled) setError(firestoreErrorText(err, "Не удалось прочитать ваш стол ОС"));
       }
@@ -140,6 +154,11 @@ export function OsDeskIssueDialog({
     }
     return out;
   }, [rows, tab, liveOrderIds, statusOptions, sentIds]);
+
+  const prevIssuable = useMemo(
+    () => (prev ? prev.rows.filter((row) => osDeskRowState(row, prev.tab.keys, liveOrderIds, statusOptions) === "issuable").length : 0),
+    [prev, liveOrderIds, statusOptions]
+  );
 
   const q = query.trim().toLowerCase();
   const visible = q && tab
@@ -238,7 +257,11 @@ export function OsDeskIssueDialog({
                         <span className="min-w-0 flex-1 truncate text-sm font-medium">{client}</span>
                         {total !== null && total > 0 ? (
                           <span className="shrink-0 font-mono text-[12.5px] tabular-nums">{formatCurrency(total)}</span>
-                        ) : null}
+                        ) : (
+                          <span className="shrink-0 text-[11px] text-warning" title="Технарь получит заказ без суммы — впишите цену на столе">
+                            без цены
+                          </span>
+                        )}
                       </div>
                       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
                         {received ? (
@@ -281,6 +304,20 @@ export function OsDeskIssueDialog({
               })}
             </ul>
           )}
+          {prev && prevIssuable > 0 && !error ? (
+            <Link
+              to={deskHref(prev.tab.page.id, prev.tab.tabId)}
+              state={deskNavState({ to: "/orders", label: "Заказы" })}
+              onClick={() => onOpenChange(false)}
+              className="mt-2 flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[12.5px] text-warning hover:bg-warning/15"
+            >
+              <History className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 flex-1">
+                В прошлом периоде ({periodLabel(prev.tab.periodKey, periodSettingsOf(prev.tab.workspaceId))}) осталось на утверждении без технаря:{" "}
+                {prevIssuable}. Открыть вкладку и выдать оттуда →
+              </span>
+            </Link>
+          ) : null}
           {rows && !error && (grouped.exchange > 0 || grouped.issued > 0 || grouped.other > 0) ? (
             <p className="mt-2 text-[11px] text-muted-foreground">
               {grouped.exchange > 0 ? `Уже на «Заказах»: ${grouped.exchange}. ` : ""}

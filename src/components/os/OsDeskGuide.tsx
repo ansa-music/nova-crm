@@ -41,7 +41,7 @@ export function OsDeskGuide({ approvalColor, onDismiss }: { approvalColor?: stri
         <p className={cn("text-muted-foreground", !more && "max-md:hidden")}>
           <span className="font-medium text-foreground">Как выдать заказ:</span> ① впишите клиента — встанет
           «Утверждение» ② в столбце «Технарь» — «Выдать…»: всем на «Заказы» или одному технарю ③ статус меняйте
-          здесь — у технаря он обновится сам.
+          здесь — у технаря он обновится сам. Технарь видит «Пожелания» из визитки; «Примечание» — заметка для вас.
         </p>
         <p className={cn("text-muted-foreground md:hidden", more && "hidden")}>
           <span className="font-medium text-foreground">Выдача:</span> «Выдать…» у заказа → всем или одному

@@ -3260,6 +3260,14 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
   }
 
   /** Ссылка из столбца-ссылки — чтобы визитка показывала её, даже если строку завели руками. */
+  /**
+   * Столбец «Ссылка» стола ОС (нет столбца или стол не ОС — null). Ключ — тот
+   * же, что читают биржа и копия технарю (`resolveOsDeskKeys`), а не «первый
+   * видимый url-столбец»: иначе визитка писала бы в чужой столбец.
+   */
+  const osLinkKey = page.osDesk ? resolveOsDeskKeys(columns).link : null;
+  const osLinkColumn = osLinkKey ? (columns.find((c) => c.key === osLinkKey) ?? null) : null;
+
   function linkCell(row: PageRow, key?: string): string | null {
     if (!key) return null;
     const raw = String(row.cells[key] ?? "").trim();
@@ -3453,7 +3461,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       persons: row.extras?.persons ?? numberCell(row, quickOrderCols.persons?.key),
       minutes: row.extras?.minutes ?? numberCell(row, quickOrderCols.minutes?.key),
       note: row.extras?.note ?? null,
-      link: row.extras?.link ?? linkCell(row, quickOrderCols.link?.key),
+      // Стол ОС: ссылка одна — в столбце «Ссылка»; визитка показывает и правит его.
+      link: osLinkColumn ? (linkCell(row, osLinkColumn.key) ?? row.extras?.link ?? null) : (row.extras?.link ?? linkCell(row, quickOrderCols.link?.key)),
       deadline: row.extras?.deadline ?? null,
       voice: row.extras?.voice ?? null,
       voiceLang: row.extras?.voiceLang ?? null,
@@ -3474,9 +3483,17 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     const before: RowExtras | null = hasRowExtras(row.extras) ? rowExtrasWithNulls(row.extras ?? null) : null;
     // Whole map with explicit nulls (rowExtrasWithNulls) — по КАЖДОМУ полю
     // визитки: merge иначе вернул бы только что стёртое значение обратно.
+    // Стол ОС со столбцом «Ссылка»: визитка пишет ссылку и в столбец (его
+    // читают биржа и копия технарю), и в визитку — как раньше: визитка едет
+    // технарю целиком, а столбца ссылки у его стола может не быть.
+    const cardLink = osLinkColumn ? (next?.link ?? "").trim() : null;
     const written: RowExtras | null = next ? rowExtrasWithNulls(next) : null;
     const patch: Record<string, string | number | null> = {};
     const oldPatch: Record<string, string | number | null> = {};
+    if (osLinkColumn && cardLink !== null && String(row.cells[osLinkColumn.key] ?? "").trim() !== cardLink) {
+      patch[osLinkColumn.key] = cardLink;
+      oldPatch[osLinkColumn.key] = row.cells[osLinkColumn.key] ?? "";
+    }
     for (const [col, value] of [
       [quickOrderCols.persons, next?.persons ?? null],
       [quickOrderCols.minutes, next?.minutes ?? null],
@@ -5144,6 +5161,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                 pageId: page.id,
                 // Студия: срок строки — столбец срока стола, поле визитки скрыто.
                 hasDeadlineColumn: Boolean(studioDeadline?.column),
+                noteHint: page.osDesk ? "увидит технарь" : undefined,
               }
             : undefined
         }

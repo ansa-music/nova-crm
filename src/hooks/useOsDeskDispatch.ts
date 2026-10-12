@@ -43,7 +43,8 @@ import { isExchangeHandoffRow } from "@/services/rows/osExchange";
 import { firestoreErrorText } from "@/utils/dbError";
 import { deskRowHref } from "@/utils/deskLinks";
 import { parseLooseNumber } from "@/utils/numberInput";
-import { OS_ISSUED_AT_KEY, OS_ISSUED_ON_KEY, OS_LOST_FOR_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
+import { OS_ISSUED_AT_KEY, OS_ISSUED_ON_KEY, OS_LOST_FOR_KEY, OS_RECEIVED_ON_KEY, OS_STATUS_SENT_KEY } from "@/utils/reservedCellKeys";
+import { almatyDay, cellMillis, osReceivedAt } from "@/utils/osDates";
 import { personLabel } from "@/utils/peopleDesks";
 import { osRowTotal } from "@/utils/payment";
 import { OS_DEAD_LINK_PROBLEM } from "@/utils/osTechCell";
@@ -618,7 +619,12 @@ export function useOsDeskDispatch(input: OsDeskDispatchInput) {
         busy.current.add(row.id);
         try {
           await sbPatchRow(cur.workspaceId, cur.pageId, cur.subPageId, row.id, {
-            cells: { [statusColumn.key]: approvalStatusValue(statusOptions) },
+            cells: {
+              [statusColumn.key]: approvalStatusValue(statusOptions),
+              // Вместе с «Утверждением» — дата получения (с 13.10.2026 её ставит
+              // заведение заказа); уже поставленную ОС не трогаем.
+              ...(cellMillis(row.cells[OS_RECEIVED_ON_KEY]) ? {} : { [OS_RECEIVED_ON_KEY]: String(almatyDay(osReceivedAt(row) ?? Date.now())) }),
+            },
           });
           changed = true;
         } catch {

@@ -126,6 +126,12 @@ export function OsDispatchChoiceDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {checkTotal <= 0 ? (
+          <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[12.5px] text-warning">
+            Цена не указана — технарь получит заказ без суммы. Впишите «Цену» в строке или выдайте как есть.
+          </p>
+        ) : null}
+
         <div className="grid gap-2 sm:grid-cols-2">
             <button
               type="button"

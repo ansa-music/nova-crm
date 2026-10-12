@@ -76,6 +76,8 @@ interface RowCardSheetProps {
      * сравнение остаётся по значению.
      */
     hasDeadlineColumn?: boolean;
+    /** Пояснение у «Пожеланий» в визитке. */
+    noteHint?: string;
   };
   /** Доп. панель над полями — сейчас это «Выдача» на столе ОС. */
   extraPanel?: React.ReactNode;
@@ -482,6 +484,7 @@ export function RowCardSheet({
                       onSave={(next) => clientCard.onSave(record.id, next)}
                       pageId={clientCard.pageId}
                       hasDeadlineColumn={clientCard.hasDeadlineColumn}
+                      noteHint={clientCard.noteHint}
                     />
                   </div>
                 ) : null}
