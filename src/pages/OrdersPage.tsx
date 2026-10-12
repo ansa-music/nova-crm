@@ -1270,14 +1270,13 @@ export default function OrdersPage() {
             onOpenChange={setDeskIssueOpen}
             liveOrderIds={liveOrderIds}
             onNewOrder={() => setDeskNewOpen(true)}
-            onWithoutDesk={
-              fullAccess
-                ? () => {
-                    setDeskIssueOpen(false);
-                    setIssueOpen(true);
-                  }
-                : undefined
-            }
+            // Любой ОС выдаёт заказ и за другого ОС (просьба Nurba 12.10.2026) —
+            // раньше «мимо стола» было только у руководства. В окне выдачи
+            // список ОС открыт: свой ник первым, выбрать можно любого.
+            onWithoutDesk={() => {
+              setDeskIssueOpen(false);
+              setIssueOpen(true);
+            }}
             onIssued={() => setTab("open")}
           />
           <IssueOrderDialog

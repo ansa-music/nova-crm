@@ -57,7 +57,7 @@ export function OsDeskIssueDialog({
   liveOrderIds: ReadonlySet<string> | null;
   /** «Новый заказ (нет на столе)». */
   onNewOrder: () => void;
-  /** Руководство (Owner/Тимлид + ОС) может выдать и мимо стола. */
+  /** Выдать мимо своего стола — за любого ОС (с 12.10.2026 доступно каждому ОС). */
   onWithoutDesk?: () => void;
   onIssued?: (order: WorkOrder) => void;
 }) {
@@ -307,7 +307,7 @@ export function OsDeskIssueDialog({
               onClick={onWithoutDesk}
               className={cn("ml-auto text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline")}
             >
-              Выдать без стола
+              Выдать за другого ОС (без стола)
             </button>
           ) : null}
         </div>
