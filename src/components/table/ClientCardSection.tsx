@@ -159,6 +159,7 @@ export function ClientCardSection({
   onSave,
   pageId,
   hasDeadlineColumn = false,
+  noteHint,
 }: {
   rowId: string;
   initial: RowExtras;
@@ -168,6 +169,8 @@ export function ClientCardSection({
   pageId?: string;
   /** Студия: у стола есть столбец срока (`studioDeadlineColumn`) — срок строки в нём. */
   hasDeadlineColumn?: boolean;
+  /** Пояснение у «Пожеланий» (стол ОС: «увидит технарь»). */
+  noteHint?: string;
 }) {
   const { activeWorkspace } = useWorkspace();
   const { actsAsOwner } = usePermissions();
@@ -558,6 +561,7 @@ export function ClientCardSection({
         <div className="grid gap-1.5 sm:col-span-2">
           <label htmlFor={`cc-note-${rowId}`} className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
             <NotebookPen className="h-3.5 w-3.5" /> {studio ? "Требования" : "Пожелания"}
+            {noteHint ? <span className="text-[11px] opacity-80">· {noteHint}</span> : null}
           </label>
           <Textarea
             id={`cc-note-${rowId}`}

@@ -90,7 +90,9 @@ export async function sendOsRowToExchange(input: SendToExchangeInput): Promise<W
     price: total > 0 ? total : null,
     persons: row.extras?.persons ?? null,
     minutes: row.extras?.minutes ?? null,
-    note: cell(row, k.note) || row.extras?.note || "",
+    // «Пожелания» визитки — то, что видит технарь и в своём столе; «Примечание»
+    // (заметка ОС) — запасным, если пожеланий нет (с 13.10.2026, раньше наоборот).
+    note: row.extras?.note || cell(row, k.note) || "",
     osValue: input.osValue,
     osLabel: input.osLabel,
     createdBy: input.me.uid,

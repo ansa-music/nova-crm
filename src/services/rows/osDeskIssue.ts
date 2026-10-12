@@ -2,13 +2,13 @@ import { addRow, fetchRows, updateRowCellsBulk, updatePageMainTab } from "@/serv
 import { addSubPageRow, fetchSubPageFresh, fetchSubPageRows, updateSubPageRowCellsBulk } from "@/services/subPageService";
 import { ensureMonthTab } from "@/services/monthTabService";
 import { currentPeriodKeyOf, periodSettingsOf } from "@/services/periodService";
-import { periodLabel } from "@/utils/periods";
+import { periodLabel, periodTabId, previousPeriodKey } from "@/utils/periods";
 import { ensureOsDesk, findOsDeskOf, resolveOsDeskKeys, type OsDeskKeys } from "@/services/osDeskService";
 import { isBlankRow } from "@/utils/blankRow";
 import { approvalStatusValue, isApprovalStatusValue, isDoneStatusLabel } from "@/utils/columnOptions";
 import { normalizeNumericInput } from "@/utils/numberInput";
 import { mirrorAddressOf } from "@/utils/osDispatchPlan";
-import { cellMillis, osReceivedAt } from "@/utils/osDates";
+import { almatyDay, cellMillis, osReceivedAt } from "@/utils/osDates";
 import { OS_RECEIVED_ON_KEY } from "@/utils/reservedCellKeys";
 import type { PageColumn, PageRow, StatusOption, WorkOrder, WorkspacePage } from "@/types";
 
@@ -72,6 +72,33 @@ export async function openOsDeskCurrentTab(input: {
     manualOrder = tab?.rowOrder === "manual";
   }
   return { workspaceId: page.workspaceId, page, tabId, columns, keys: resolveOsDeskKeys(columns), manualOrder };
+}
+
+/**
+ * Вкладка ПРОШЛОГО периода того же стола ОС (просьба Nurba 13.10.2026:
+ * заказы «на утверждении», оставшиеся в прошлой вкладке, из окна выдачи не
+ * видны, а переноса периода у стола ОС нет). Только чтение: вкладку не
+ * заводим. null — прошлого периода у стола нет или это та же вкладка.
+ */
+export async function openOsDeskPreviousTab(current: OsDeskTab): Promise<(OsDeskTab & { periodKey: string }) | null> {
+  const { page, workspaceId } = current;
+  const periodKey = previousPeriodKey(currentPeriodKeyOf(workspaceId), periodSettingsOf(workspaceId));
+  let tabId: string | null;
+  if (page.mainTabMonthKey === periodKey) tabId = null;
+  else if (page.autoMonthKey === periodKey && page.autoMonthSubPageId) tabId = page.autoMonthSubPageId;
+  // «Основная» ещё не названа периодом — прошлого периода у стола не было.
+  else if (!page.mainTabMonthKey && !page.autoMonthKey) return null;
+  else tabId = periodTabId(periodKey);
+  if (tabId === current.tabId) return null;
+  let columns = page.columns ?? [];
+  let manualOrder = page.rowOrder === "manual";
+  if (tabId) {
+    const tab = await fetchSubPageFresh(workspaceId, page.id, tabId);
+    if (!tab) return null;
+    if (tab.columns?.length) columns = tab.columns;
+    manualOrder = tab.rowOrder === "manual";
+  }
+  return { workspaceId, page, tabId, columns, keys: resolveOsDeskKeys(columns), manualOrder, periodKey };
 }
 
 export function fetchOsDeskTabRows(tab: OsDeskTab): Promise<PageRow[]> {
@@ -182,6 +209,8 @@ export async function addOsDeskOrderRow(input: {
   // заказ ляжет на биржу. Не лёг (сеть, отказ) — строка остаётся «на
   // утверждении» и выдаётся со стола или из того же окна, как обычно.
   if (has(k.status)) cells[k.status] = approvalStatusValue([...input.statusOptions]);
+  // Дата получения — сегодня (с 13.10.2026 ставится при заведении заказа).
+  cells[OS_RECEIVED_ON_KEY] = String(almatyDay(Date.now()));
   if (input.extraCells) Object.assign(cells, input.extraCells);
   const extras: RowExtras = {};
   if (order.persons) extras.persons = order.persons;

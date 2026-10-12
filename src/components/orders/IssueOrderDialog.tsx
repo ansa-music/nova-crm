@@ -11,7 +11,7 @@ import { isHttpUrl } from "@/utils/httpUrl";
 import { splitOptionsByActivity } from "@/utils/columnOptions";
 import { cn } from "@/utils/cn";
 import { term } from "@/config/siteTerms";
-import { WORK_ORDER_URGENCY_LABELS, type StatusOption, type WorkOrderUrgency } from "@/types";
+import { WORK_ORDER_URGENCY_LABELS, type PaymentMethod, type StatusOption, type WorkOrderUrgency } from "@/types";
 
 export interface IssueOrderForm {
   client: string;
@@ -29,9 +29,13 @@ export interface IssueOrderForm {
   workType: string;
   /** NOVA Studio: тема работы; у остальных всегда пусто. */
   topic: string;
+  /** Только «Новый заказ» со своего стола ОС (`fromDesk`): апсейл и способы оплаты (id). */
+  upsell?: string;
+  pricePayId?: string;
+  upsellPayId?: string;
 }
 
-const EMPTY: IssueOrderForm = { client: "", phone: "", link: "", deadline: "", urgency: "normal", price: "", persons: "", minutes: "", note: "", osValue: "", workType: "", topic: "" };
+const EMPTY: IssueOrderForm = { client: "", phone: "", link: "", deadline: "", urgency: "normal", price: "", persons: "", minutes: "", note: "", osValue: "", workType: "", topic: "", upsell: "", pricePayId: "", upsellPayId: "" };
 
 const URGENCY_PICKS: Array<{ value: WorkOrderUrgency; tone: string }> = [
   { value: "normal", tone: "border-border text-muted-foreground" },
@@ -70,10 +74,12 @@ interface IssueOrderDialogProps {
    * «Сохранить». ОС заказа правкой не меняется — показан подписью `osLabel`.
    */
   edit?: { initial: IssueOrderForm; osLabel: string } | null;
+  /** Способы оплаты — для «Нового заказа» со стола ОС (`fromDesk`). */
+  methods?: readonly PaymentMethod[];
 }
 
 /** «Выдать заказ» — те же поля, что попадут в строку стола технаря. */
-export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit, fromDesk = false, studio = false, workTypeOptions = [], edit = null }: IssueOrderDialogProps) {
+export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit, fromDesk = false, studio = false, workTypeOptions = [], edit = null, methods = [] }: IssueOrderDialogProps) {
   // Свой ник первым, остальные — как в общем списке «Ответственный».
   const orderedOs = myOs
     ? [myOs, ...osOptions.filter((o) => o.value !== myOs.value)]
@@ -103,11 +109,25 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
   const minutesBad = form.minutes.trim() !== "" && minutesNum == null;
   const priceNum = parseOptionalNumber(form.price);
   const priceBad = form.price.trim() !== "" && priceNum == null;
+  const upsellBad = fromDesk && (form.upsell ?? "").trim() !== "" && parseOptionalNumber(form.upsell ?? "") == null;
+  const payItems = (
+    <>
+      <SelectItem value="__none">Без способа</SelectItem>
+      {methods
+        .filter((m) => !m.inactive)
+        .map((m) => (
+          <SelectItem key={m.id} value={m.id}>
+            {m.label}
+            {m.commissionPct ? ` −${String(m.commissionPct).replace(".", ",")}%` : ""}
+          </SelectItem>
+        ))}
+    </>
+  );
   // Без схемы браузер считает адрес относительным и уводит внутрь CRM.
   const linkBad = form.link.trim() !== "" && !isHttpUrl(form.link);
   // В студии ОС нет — поле скрыто и не обязательно.
   const needsOs = !edit && !fromDesk && !studio && orderedOs.length > 0;
-  const canSave = Boolean(form.client.trim()) && !personsBad && !minutesBad && !priceBad && (!needsOs || Boolean(form.osValue)) && !saving;
+  const canSave = Boolean(form.client.trim()) && !personsBad && !minutesBad && !priceBad && !upsellBad && (!needsOs || Boolean(form.osValue)) && !saving;
 
   async function handleSubmit() {
     if (!canSave) return;
@@ -149,7 +169,7 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
           }}
         >
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="io-client">Имя клиента</Label>
+            <Label htmlFor="io-client">{studio ? "Имя клиента" : "Имя"}</Label>
             <Input id="io-client" ref={clientRef} value={form.client} onChange={(e) => set("client", e.target.value)} placeholder="Айгерим" autoComplete="off" />
           </div>
           {studio ? (
@@ -245,7 +265,7 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="io-link" className="flex items-center gap-1.5">
-                <Link2 className="h-3.5 w-3.5 text-muted-foreground" /> Ссылка на клиента
+                <Link2 className="h-3.5 w-3.5 text-muted-foreground" /> {studio ? "Ссылка на клиента" : "AmoCRM ссылка"}
               </Label>
               <Input
                 id="io-link"
@@ -267,7 +287,7 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="io-price" className="flex items-center gap-1.5">
-              <Banknote className="h-3.5 w-3.5 text-muted-foreground" /> {studio ? "Сумма" : "Цена заказа"}
+              <Banknote className="h-3.5 w-3.5 text-muted-foreground" /> {studio ? "Сумма" : "Цена"}
             </Label>
             <Input
               id="io-price"
@@ -279,6 +299,40 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
               autoComplete="off"
             />
           </div>
+          {/* Заказ со своего стола ОС: те же поля продажи, что в форме стола (`OsDeskOrderDialog`). */}
+          {fromDesk && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5 sm:col-span-2">
+              <Label>Оплата цены</Label>
+              <Select value={form.pricePayId || "__none"} onValueChange={(v) => set("pricePayId", v === "__none" ? "" : v)}>
+                <SelectTrigger aria-label="Оплата цены">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>{payItems}</SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="io-upsell">Апсейл</Label>
+              <Input
+                id="io-upsell"
+                value={form.upsell ?? ""}
+                onChange={(e) => set("upsell", e.target.value)}
+                className={cn(upsellBad && "border-destructive")}
+                inputMode="numeric"
+                autoComplete="off"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Оплата апсейла</Label>
+              <Select value={form.upsellPayId || "__none"} onValueChange={(v) => set("upsellPayId", v === "__none" ? "" : v)}>
+                <SelectTrigger aria-label="Оплата апсейла">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>{payItems}</SelectContent>
+              </Select>
+            </div>
+          </div>
+          )}
           {/* Персонажи и минуты — мультфильмы Nova; у студии их нет. */}
           {!studio && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -340,7 +394,7 @@ export function IssueOrderDialog({ open, onOpenChange, myOs, osOptions, onSubmit
               rows={2}
               value={form.note}
               onChange={(e) => set("note", e.target.value)}
-              placeholder={studio ? "Объём, оформление, оригинальность — попадут в визитку клиента" : "Попадут в визитку клиента в столе"}
+              placeholder={studio ? "Объём, оформление, оригинальность — попадут в визитку клиента" : "Попадут в визитку клиента — их увидит технарь"}
             />
           </div>
           <DialogFooter>

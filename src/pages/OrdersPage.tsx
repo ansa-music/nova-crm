@@ -9,6 +9,8 @@ import { OsDeskIssueDialog } from "@/components/orders/OsDeskIssueDialog";
 import { useSendOsRowToExchange } from "@/hooks/useSendOsRowToExchange";
 import { osNickLabel } from "@/services/memberService";
 import { addOsDeskOrderRow, fetchOsDeskTabRows, openOsDeskCurrentTab } from "@/services/rows/osDeskIssue";
+import { deskOrderExtraCells } from "@/utils/osDeskOrder";
+import { paymentMethodsOf } from "@/utils/payment";
 import { DEFAULT_STATUS_OPTIONS, ensureApprovalStatus, ensureDoneStatus } from "@/utils/columnOptions";
 import { AssignOrderDialog } from "@/components/orders/AssignOrderDialog";
 import { RandomWheelDialog, type WheelCandidate } from "@/components/orders/RandomWheelDialog";
@@ -591,6 +593,9 @@ export default function OrdersPage() {
           deadline: deadlineMillis(form.deadline),
         },
         statusOptions: ensureApprovalStatus(ensureDoneStatus(activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS)),
+        // Апсейл и способы оплаты — как в форме стола ОС: на «Заказы» уйдёт
+        // «Итого» за вычетом комиссии (`sendOsRowToExchange` считает по строке).
+        extraCells: deskOrderExtraCells(form, tab.keys, paymentMethodsOf(activeWorkspace), tab.columns),
       });
       placed = true;
       await sendOsRowToExchange({ row, pageId: tab.page.id, tabId: tab.tabId, keys: tab.keys, urgency: form.urgency });
@@ -1307,6 +1312,7 @@ export default function OrdersPage() {
             osOptions={osOptions}
             onSubmit={handleDeskNewOrder}
             fromDesk
+            methods={paymentMethodsOf(activeWorkspace)}
           />
         </>
       ) : null}
