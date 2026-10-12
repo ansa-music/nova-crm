@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { CalendarClock, Clock3, ExternalLink, Hand, Inbox, Link2, Pencil, Phone, Plus, Trash2, Undo2, UserCheck, Users, XCircle } from "lucide-react";
+import { CalendarClock, Clock3, Copy, ExternalLink, Hand, Inbox, Link2, Pencil, Phone, Plus, Trash2, Undo2, UserCheck, Users, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/common/EmptyState";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
@@ -48,6 +48,7 @@ import {
 } from "@/services/orderService";
 import { feedOpenOrdersFromPage, releaseOpenOrdersPageFeed } from "@/services/openOrdersPulse";
 import { useOrdersBackend } from "@/services/orderStore";
+import { copyText } from "@/services/promptService";
 import { firestoreErrorText } from "@/utils/dbError";
 import { packStudioOrderNote, parseOptionalNumber, parseStudioOrderNote } from "@/utils/quickOrder";
 import { myDisplayName, NO_NICK_LABEL } from "@/utils/displayName";
@@ -838,8 +839,27 @@ export default function OrdersPage() {
                     {order.persons != null && (
                       <span className="inline-flex items-center gap-1 tabular"><Users className="h-3.5 w-3.5" /> {order.persons} перс</span>
                     )}
+                    {/* Номер — одним нажатием в буфер (просьба Nurba 12.10.2026: «чтобы
+                        технарь сразу мог скопировать»). Значок трубки остаётся
+                        ссылкой tel: — позвонить с телефона. */}
                     {order.phone && (
-                      <a href={`tel:${order.phone.replace(/[^\d+]/g, "")}`} className="inline-flex items-center gap-1 tabular hover:text-foreground"><Phone className="h-3.5 w-3.5" /> {order.phone}</a>
+                      <span className="inline-flex items-center gap-1 tabular">
+                        <a href={`tel:${order.phone.replace(/[^\d+]/g, "")}`} aria-label={`Позвонить ${order.phone}`} title="Позвонить" className="hover:text-foreground">
+                          <Phone className="h-3.5 w-3.5" />
+                        </a>
+                        <button
+                          type="button"
+                          title="Скопировать номер"
+                          aria-label={`Скопировать номер ${order.phone}`}
+                          className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-foreground transition-colors hover:bg-primary/15 hover:text-primary"
+                          onClick={async () => {
+                            if (await copyText(order.phone)) toast.success("Номер скопирован", { description: order.phone, duration: 2500 });
+                            else toast.error("Не удалось скопировать — выделите номер вручную");
+                          }}
+                        >
+                          {order.phone} <Copy className="h-3 w-3 opacity-70" />
+                        </button>
+                      </span>
                     )}
                     {/* Только настоящий http(s)-адрес: «instagram.com/x» без схемы
                         браузер считает относительным и уводит внутрь CRM. */}
