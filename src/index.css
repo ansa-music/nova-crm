@@ -1732,6 +1732,35 @@ html[data-ui="signature"]:not([data-site-fx]) .empty-state-action {
   margin-top: 16px;
 }
 
+/* Телефон: заголовок и пустое состояние компактнее — на 375px крупная шапка и
+   поля 48/32 съедали пол-экрана. */
+/* Телефон (≤767): название раздела уже стоит в верхней шапке (Topbar) — второй
+   раз в шапке страницы не повторяем, остаются пояснение и действия. */
+@media (max-width: 767px) {
+  html[data-ui="signature"]:not([data-site-fx]) .page-head h1,
+  html[data-ui="signature"]:not([data-site-fx]) .page-head .eyebrow {
+    display: none;
+  }
+  html[data-ui="signature"]:not([data-site-fx]) .page-head-desc {
+    margin-top: 0;
+  }
+}
+@media (max-width: 639px) {
+  html[data-ui="signature"]:not([data-site-fx]) .page-head-desc {
+    font-size: 13px;
+    line-height: 20px;
+  }
+  html[data-ui="signature"]:not([data-site-fx]) .empty-state {
+    margin-top: 12px;
+    padding: 28px 18px;
+    border-radius: 14px;
+  }
+  html[data-ui="signature"]:not([data-site-fx]) .empty-state-title {
+    font-size: 16px;
+    line-height: 22px;
+  }
+}
+
 /* Активный пункт меню: спокойная подложка и акцентная риска слева — акцент
    показывает «где я», а не красит всю строку. */
 html[data-ui="signature"]:not([data-site-fx]) .nav-link-active,

@@ -1,6 +1,8 @@
 import { NavLink, useLocation } from "react-router";
-import { Building2, Check, ChevronDown, Search, Sparkles } from "lucide-react";
+import { Building2, Check, ChevronDown, Gamepad2, Search, Sparkles } from "lucide-react";
 import { useUiStore } from "@/store/uiStore";
+import { TOP_NAV_KEYS, signatureSections } from "@/config/signatureNav";
+import { openMiniGame } from "@/components/common/MiniGameHost";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   DropdownMenu,
@@ -127,9 +129,26 @@ function MoreSheetBody({
   const hiddenKeys = new Set([...BOTTOM_BAR_KEYS, MORE_ITEM_KEY]);
   const slot = bottomBarSlot(nav);
   if (slot.key !== DESKS_ITEM_KEY) hiddenKeys.add(slot.key);
-  const sections = nav.sections
-    .map((s) => ({ ...s, items: s.items.filter((i) => !hiddenKeys.has(i.key)) }))
-    .filter((s) => s.items.length > 0);
+  // NOVA Signature: те же группы, что в боковой панели на ПК, а частое из
+  // верхней панели (ABS, график, промты, Грок) — первой группой: на телефоне
+  // верхней панели нет, и лист «Ещё» — единственный вход в эти разделы.
+  // «Настройки» в группах нет (на ПК они в меню аккаунта) — здесь своей плиткой.
+  const signature = uiSkin === "signature";
+  const byKey = new Map(nav.items.map((i) => [i.key, i]));
+  const settingsItem = byKey.get("settings");
+  const sections = (
+    signature
+      ? [
+          {
+            key: "sig-top",
+            title: "Частое",
+            items: TOP_NAV_KEYS.map((k) => byKey.get(k)).filter((i): i is NavItem => Boolean(i) && !hiddenKeys.has(i!.key)),
+          },
+          ...signatureSections(nav.sections, new Set([...hiddenKeys, ...TOP_NAV_KEYS])),
+          { key: "sig-settings", title: "Настройки", items: settingsItem ? [settingsItem] : [] },
+        ]
+      : nav.sections.map((s) => ({ ...s, items: s.items.filter((i) => !hiddenKeys.has(i.key)) }))
+  ).filter((s) => s.items.length > 0);
   const activeWs = account.workspaces.find((w) => w.active);
 
   function runAndClose(run: () => void | Promise<void>) {
@@ -246,6 +265,17 @@ function MoreSheetBody({
               <Sparkles className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
               {uiSkin === "signature" ? "Вернуть прежний вид" : "Новая версия дизайна"}
             </button>
+            {/* Игра для перерыва — на ПК это значок в верхней панели. */}
+            {signature && (
+              <button
+                type="button"
+                onClick={() => runAndClose(openMiniGame)}
+                className="flex min-h-11 items-center gap-2.5 rounded-lg px-2 text-left text-[14px] text-foreground hover:bg-foreground/5"
+              >
+                <Gamepad2 className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
+                Игра для перерыва
+              </button>
+            )}
 
             {/* Тема — сегментом, все три варианта видны сразу. */}
             <div className="flex min-h-11 items-center gap-2.5 px-2 text-[14px]">

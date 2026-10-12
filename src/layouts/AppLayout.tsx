@@ -65,6 +65,7 @@ import { useTableDiagWatch } from "@/hooks/useTableDiagWatch";
 import { useIsMobile, useIsTablet } from "@/hooks/useMediaQuery";
 import { useUiStore } from "@/store/uiStore";
 import { SkinPromoBanner } from "@/components/layout/SkinPromoBanner";
+import { MiniGameHost } from "@/components/common/MiniGameHost";
 import { isWorkspaceAdmin } from "@/utils/adminAccess";
 import { companyStartPath, FALLBACK_JOIN_WORKSPACE_ID, getJoinIntent } from "@/utils/joinIntent";
 
@@ -320,6 +321,7 @@ const AppChrome = memo(function AppChrome({
       <TelegramUploadPill />
       <TelegramBackground />
       <AccentColorSync />
+      <MiniGameHost />
       {!isCompactNav && !isFullscreen && <Sidebar />}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {!isFullscreen && <Topbar />}

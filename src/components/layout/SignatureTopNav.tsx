@@ -1,4 +1,3 @@
-import { lazy, Suspense, useState } from "react";
 import { NavLink, useLocation } from "react-router";
 import { Gamepad2, Home, LayoutGrid, Table2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -9,8 +8,7 @@ import { useStudioMode } from "@/config/studio";
 import { term, useSiteConfig } from "@/config/siteTerms";
 import { isHomeActive, useNavModel } from "@/hooks/useNavModel";
 import { cn } from "@/utils/cn";
-
-const MiniGame = lazy(() => import("@/components/common/MiniGame"));
+import { openMiniGame } from "@/components/common/MiniGameHost";
 
 /**
  * Верхняя панель NOVA Signature — частое одним нажатием с любого экрана
@@ -29,7 +27,6 @@ export function SignatureTopNav({ className }: { className?: string }) {
   const desk = topDeskTarget(nav);
   const byKey = new Map(nav.items.map((i) => [i.key, i]));
   const more = byKey.get(MORE_ITEM_KEY);
-  const [gameOpen, setGameOpen] = useState(false);
 
   const linkClass = (active: boolean, alert = false) =>
     cn(
@@ -91,21 +88,16 @@ export function SignatureTopNav({ className }: { className?: string }) {
         return item ? itemLink(item) : null;
       })}
       {/* Игра для перерыва — значок без подписи рядом с «Грок лимитом» (просьба
-          Nurba 12.10.2026). Окно и сама игра грузятся только по нажатию. */}
+          Nurba 12.10.2026). Окно держит `MiniGameHost` в каркасе; игра грузится по нажатию. */}
       <button
         type="button"
         aria-label="Игра"
         title="Перерыв: игра"
-        onClick={() => setGameOpen(true)}
+        onClick={openMiniGame}
         className={cn(linkClass(false), "w-9 justify-center px-0")}
       >
         <Gamepad2 className="h-4 w-4" />
       </button>
-      {gameOpen ? (
-        <Suspense fallback={null}>
-          <MiniGame open onOpenChange={setGameOpen} />
-        </Suspense>
-      ) : null}
       {more ? (
         <NavLink
           to={more.to}

@@ -18,14 +18,15 @@ export interface PageModeTab {
  */
 export function PageModeSwitch({ tabs, label, className }: { tabs: PageModeTab[]; label: string; className?: string }) {
   return (
-    <nav className={cn("inline-flex w-fit rounded-lg border border-border p-0.5", className)} aria-label={label}>
+    // max-w-full + прокрутка вбок: четыре вкладки на телефоне 375px иначе вылезали бы за экран.
+    <nav className={cn("inline-flex w-fit max-w-full overflow-x-auto rounded-lg border border-border p-0.5 [scrollbar-width:none]", className)} aria-label={label}>
       {tabs.map((tab) => (
         <NavLink
           key={tab.to}
           to={tab.to}
           className={({ isActive }) =>
             cn(
-              "inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-colors sm:h-8",
+              "inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-[13px] font-medium transition-colors sm:h-8",
               isActive ? "bg-primary/[0.12] text-primary" : "text-muted-foreground hover:text-foreground"
             )
           }
