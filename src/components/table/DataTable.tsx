@@ -295,18 +295,19 @@ function groupStorageKey(viewKey: string) {
 }
 
 /**
- * Группировка по умолчанию — столбец-статус: стол по макету читается блоками
- * «В работе / Ждём оплату / Готово» с суммами в заголовках. Нет статуса —
- * без группировки.
+ * Группировка по умолчанию — БЕЗ групп (просьба Nurba 13.10.2026: «Сбросить»
+ * возвращал группы по статусу, а умолчание — «Группировать: нет» и порядок
+ * «Вручную»). Раньше умолчанием был столбец-статус. Группы по статусу —
+ * выбор человека на вкладку, он запоминается как и прежде.
  */
-function defaultGroupByKey(columns: PageColumn[]): string | null {
-  return columns.find((c) => c.type === "status" && !c.hidden)?.key ?? null;
+function defaultGroupByKey(_columns: PageColumn[]): string | null {
+  return null;
 }
 
 /**
  * Запомненная группировка вкладки (по образцу readPersistedSortState).
  * Пустая строка в хранилище — человек ЯВНО выключил группы; нет записи —
- * умолчание по статусу. Ключ пропавшего столбца тоже сводится к умолчанию,
+ * умолчание (без групп). Ключ пропавшего столбца тоже сводится к умолчанию,
  * иначе все строки легли бы в одну безымянную группу.
  */
 function readPersistedGroupBy(viewKey: string, columns: PageColumn[]): string | null {
@@ -3081,9 +3082,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setPageIndex(0);
   }
 
-  // Группировка по статусу — умолчание стола, а не фильтр: иначе «Сбросить»
-  // висел бы всегда. Активной считается только группировка НЕ по умолчанию
-  // (другой столбец или выключенные группы).
+  // Умолчание стола — без групп; активной («Сбросить», чип) считается любая
+  // включённая группировка.
   const defaultGroupKey = useMemo(() => defaultGroupByKey(columns), [columns]);
   const isCustomGrouping = groupByKey !== defaultGroupKey;
 
@@ -3118,7 +3118,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     setStatusFilter(null);
     setDateFilter(null);
     setMineOnly(false);
-    // К умолчанию (статус), а не к «без групп» — и забываем запомненный выбор.
+    // К умолчанию (без групп) — и забываем запомненный выбор.
     setGroupByKey(defaultGroupKey);
     setCollapsedGroups(new Set());
     try {
