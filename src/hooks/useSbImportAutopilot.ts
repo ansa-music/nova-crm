@@ -1,6 +1,8 @@
 import { useEffect } from "react";
+import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { ensureAccessImported } from "@/services/accessStore";
 import { ensureAnnouncementsImported } from "@/services/announcementService";
 import { ensureCoreImported } from "@/services/coreStore";
 import { ensureGrokImported } from "@/services/grokStore";
@@ -22,6 +24,7 @@ export function useSbImportAutopilot() {
   const lead = permissions.upkeepRetire;
   const owner = permissions.upkeepOwner;
   const rowsBackend = activeWorkspace?.rowsBackend ?? null;
+  const me = useAuth().profile?.uid ?? null;
 
   useEffect(() => {
     if (!lead || !activeWorkspaceId || rowsBackend !== "supabase") return;
@@ -48,6 +51,20 @@ export function useSbImportAutopilot() {
       })
       .catch((error) => console.warn("[core] перенос столов в Supabase не удался — повторим при следующей загрузке", error));
   }, [owner, activeWorkspaceId, rowsBackend]);
+
+  // Доступы (запросы на просмотр, наблюдатели, ключ и заявки по ключу) —
+  // Owner: наблюдателей и заявки читает он один; запросы на просмотр — свои.
+  useEffect(() => {
+    if (!owner || !me || !activeWorkspaceId || rowsBackend !== "supabase") return;
+    const key = `${activeWorkspaceId}:access`;
+    if (attempted.has(key)) return;
+    attempted.add(key);
+    void ensureAccessImported(activeWorkspaceId, me)
+      .then((n) => {
+        if (n > 0) console.info(`[access] перенесено в Supabase: ${n}`);
+      })
+      .catch((error) => console.warn("[access] перенос в Supabase не удался — повторим при следующей загрузке", error));
+  }, [owner, me, activeWorkspaceId, rowsBackend]);
 
   // Грок переносит только Owner: закрытые аккаунты целиком читает лишь он.
   useEffect(() => {

@@ -6,6 +6,7 @@ import { pingInboxChanged } from "@/utils/inboxEvents";
 import { sendNotification } from "@/services/notificationService";
 import { changeMemberRole } from "@/services/memberService";
 import { roleLabel, type OwnerAccessRequest, type Role } from "@/types";
+import { accessBackendNow, accessErrorText, commitAccess, fetchAccessDocs } from "@/services/accessStore";
 
 /**
  * Ключ доступа из «Настройки → Ключ доступа».
@@ -40,18 +41,27 @@ export interface OwnerAccessKeyInfo {
   updatedByName: string | null;
 }
 
-/** Текущий ключ — только Owner (правило `ownerAccess`). */
-export async function fetchOwnerAccessKey(workspaceId: string): Promise<OwnerAccessKeyInfo> {
-  if (!db) return { key: OWNER_ACCESS_KEY, custom: false, updatedAt: null, updatedByName: null };
-  const snap = await getDoc(paths.ownerAccessKey(workspaceId));
-  if (!snap.exists()) return { key: OWNER_ACCESS_KEY, custom: false, updatedAt: null, updatedByName: null };
-  const data = snap.data() as { key?: string; updatedAt?: unknown; updatedByName?: string };
+const DEFAULT_KEY_INFO: OwnerAccessKeyInfo = { key: OWNER_ACCESS_KEY, custom: false, updatedAt: null, updatedByName: null };
+
+function keyInfoOf(data: { key?: unknown; updatedAt?: unknown; updatedByName?: unknown }): OwnerAccessKeyInfo {
   return {
     key: String(data.key ?? ""),
     custom: true,
     updatedAt: data.updatedAt ? normalizeTimestamp(data.updatedAt as number) : null,
-    updatedByName: data.updatedByName ?? null,
+    updatedByName: typeof data.updatedByName === "string" ? data.updatedByName : null,
   };
+}
+
+/** Текущий ключ — только создатель (правило `ownerAccess` / RLS `ownerkey`). */
+export async function fetchOwnerAccessKey(workspaceId: string): Promise<OwnerAccessKeyInfo> {
+  if (!db) return DEFAULT_KEY_INFO;
+  if ((await accessBackendNow(workspaceId)) === "supabase") {
+    const docs = await fetchAccessDocs(workspaceId, "ownerkey", "key");
+    if (docs !== null) return docs[0] ? keyInfoOf(docs[0].data) : DEFAULT_KEY_INFO;
+  }
+  const snap = await getDoc(paths.ownerAccessKey(workspaceId));
+  if (!snap.exists()) return DEFAULT_KEY_INFO;
+  return keyInfoOf(snap.data() as { key?: string; updatedAt?: unknown; updatedByName?: string });
 }
 
 /** Сменить ключ — только Owner. Старые заявки остаются, новые проходят только с новым ключом. */
@@ -65,6 +75,15 @@ export async function setOwnerAccessKey(input: {
   const key = normalizeOwnerAccessKey(input.key);
   if (key.length < OWNER_ACCESS_KEY_MIN) throw new Error(`Ключ — не короче ${OWNER_ACCESS_KEY_MIN} символов`);
   if (key.length > OWNER_ACCESS_KEY_MAX) throw new Error(`Ключ — не длиннее ${OWNER_ACCESS_KEY_MAX} символов`);
+  if ((await accessBackendNow(input.workspaceId)) === "supabase") {
+    // Хеш и uid автора считает база.
+    await commitAccess(input.workspaceId, [{ kind: "ownerkey", id: "key", op: "set", data: { key, updatedByName: input.actorName } }]).catch(
+      (error) => {
+        throw new Error(accessErrorText(error));
+      }
+    );
+    return;
+  }
   await setDoc(paths.ownerAccessKey(input.workspaceId), {
     key,
     hash: await ownerAccessKeyHash(input.workspaceId, key),
@@ -89,6 +108,10 @@ export async function fetchMyOwnerAccessRequest(
   uid: string
 ): Promise<OwnerAccessRequest | null> {
   if (!db) return null;
+  if ((await accessBackendNow(workspaceId)) === "supabase") {
+    const docs = await fetchAccessDocs(workspaceId, "ownerreq", uid);
+    if (docs !== null) return docs[0] ? mapRequest(docs[0].data, docs[0].id) : null;
+  }
   const snap = await getDoc(paths.ownerAccessRequest(workspaceId, uid));
   if (!snap.exists()) return null;
   return mapRequest(snap.data(), snap.id);
@@ -97,6 +120,10 @@ export async function fetchMyOwnerAccessRequest(
 /** Все заявки workspace — читает только Owner (правило `ownerAccessRequests`). */
 export async function fetchOwnerAccessRequests(workspaceId: string): Promise<OwnerAccessRequest[]> {
   if (!db) return [];
+  if ((await accessBackendNow(workspaceId)) === "supabase") {
+    const docs = await fetchAccessDocs(workspaceId, "ownerreq");
+    if (docs !== null) return docs.map((d) => mapRequest(d.data, d.id)).sort((a, b) => b.createdAt - a.createdAt);
+  }
   const snap = await getDocs(paths.ownerAccessRequests(workspaceId));
   return snap.docs
     .map((d) => mapRequest(d.data(), d.id))
@@ -126,7 +153,7 @@ export async function requestOwnerAccess(input: {
   if (targets.length === 0) throw new Error("В workspace не найден Owner, некому отправить запрос");
 
   const now = Date.now();
-  const row: OwnerAccessRequest = {
+  let row: OwnerAccessRequest = {
     id: input.fromUid,
     workspaceId: input.workspaceId,
     fromUid: input.fromUid,
@@ -140,13 +167,26 @@ export async function requestOwnerAccess(input: {
     keyHash: await ownerAccessKeyHash(input.workspaceId, input.key),
     grantedRole: null,
   };
-  try {
-    await setDoc(paths.ownerAccessRequest(input.workspaceId, input.fromUid), row);
-  } catch (error) {
-    // Ключ сверяет правило (текущий ключ знает только Owner), поэтому неверный
-    // ключ приходит отказом прав.
-    if ((error as { code?: string })?.code === "permission-denied") throw new Error("Неверный ключ доступа");
-    throw error;
+  if ((await accessBackendNow(input.workspaceId)) === "supabase") {
+    // Ключ сверяет база (текущий ключ знает только создатель): неверный —
+    // отказ прав 42501 с текстом про ключ.
+    const docs = await commitAccess(input.workspaceId, [
+      { kind: "ownerreq", id: input.fromUid, op: "set", data: { fromName: row.fromName, fromEmail: row.fromEmail, keyHash: row.keyHash, createdAt: row.createdAt } },
+    ]).catch((error) => {
+      const code = (error as { code?: string })?.code;
+      const text = accessErrorText(error, "Не удалось отправить запрос");
+      throw new Error(code === "42501" && /ключ/i.test(text) ? "Неверный ключ доступа" : text);
+    });
+    if (docs?.[0]) row = mapRequest(docs[0].data, docs[0].id);
+  } else {
+    try {
+      await setDoc(paths.ownerAccessRequest(input.workspaceId, input.fromUid), row);
+    } catch (error) {
+      // Ключ сверяет правило (текущий ключ знает только Owner), поэтому неверный
+      // ключ приходит отказом прав.
+      if ((error as { code?: string })?.code === "permission-denied") throw new Error("Неверный ключ доступа");
+      throw error;
+    }
   }
   await sendNotification(
     {
@@ -195,17 +235,31 @@ export async function resolveOwnerAccessRequest(input: {
   if (input.status === "approved") {
     await changeMemberRole(input.workspaceId, input.request.fromUid, role, input.currentExtraRoles);
   }
-  await setDoc(
-    paths.ownerAccessRequest(input.workspaceId, input.request.fromUid),
-    {
-      status: input.status,
-      updatedAt: Date.now(),
-      resolvedByUid: input.actorUid,
-      resolvedByName: input.actorName,
-      grantedRole: input.status === "approved" ? role : null,
-    },
-    { merge: true }
-  );
+  if ((await accessBackendNow(input.workspaceId)) === "supabase") {
+    // Кто решил и когда — ставит база.
+    await commitAccess(input.workspaceId, [
+      {
+        kind: "ownerreq",
+        id: input.request.fromUid,
+        op: "merge",
+        data: { status: input.status, resolvedByName: input.actorName, grantedRole: input.status === "approved" ? role : null },
+      },
+    ]).catch((error) => {
+      throw new Error(accessErrorText(error));
+    });
+  } else {
+    await setDoc(
+      paths.ownerAccessRequest(input.workspaceId, input.request.fromUid),
+      {
+        status: input.status,
+        updatedAt: Date.now(),
+        resolvedByUid: input.actorUid,
+        resolvedByName: input.actorName,
+        grantedRole: input.status === "approved" ? role : null,
+      },
+      { merge: true }
+    );
+  }
   await sendNotification(
     {
       workspaceId: input.workspaceId,

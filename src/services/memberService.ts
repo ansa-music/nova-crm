@@ -21,6 +21,7 @@ import { withDbTimeout } from "@/utils/dbError";
 import { addOwnWorkspaceId } from "@/services/authService";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { putMemberAcl, removeMemberAcl, setObserverAcl } from "@/services/rows/rowAclService";
+import { dropDeskObserverDoc } from "@/services/deskObserverService";
 import { EXTRA_ROLES, type Role, type StatusOption, type Workspace, type WorkspaceMember } from "@/types";
 import { fetchPagesFresh } from "@/services/pageService";
 import { SB_DEL } from "@/services/sb/docStore";
@@ -882,6 +883,7 @@ export async function deleteMemberCompletely(input: {
       }
     }
     if (uid) await setObserverAcl(workspaceId, uid, false).catch(() => undefined);
+    if (uid) await dropDeskObserverDoc(workspaceId, uid);
     return { removed: { member: purged.member, invite: purged.invite, joinRequests: purged.joinRequests, observer: Boolean(uid) } };
   }
 
@@ -903,6 +905,7 @@ export async function deleteMemberCompletely(input: {
   if (uid) batch.delete(paths.deskObserver(workspaceId, uid));
   await withDbTimeout(batch.commit(), "Удаление пользователя");
   await dropFromRowsAcl(workspaceId, uid, true);
+  if (uid) await dropDeskObserverDoc(workspaceId, uid);
   pruneTelegramDevices(workspaceId);
 
   return {

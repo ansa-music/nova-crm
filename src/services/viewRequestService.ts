@@ -9,6 +9,9 @@ import { toggleUserPageAccess } from "@/services/pageService";
 import type { ViewRequest, WorkspacePage } from "@/types";
 import { isOsDeskId } from "@/services/osDeskService";
 import { deskHref } from "@/utils/deskLinks";
+import { ACCESS_FEED, accessBackendFor, accessBackendNow, accessErrorText, commitAccess, watchAccessBackend } from "@/services/accessStore";
+import { watchSbDocs, type SbDoc } from "@/services/sb/docFeed";
+import type { SbBackend } from "@/services/sb/sbCollections";
 
 function mapRequests(docs: { id: string; data: () => import("firebase/firestore").DocumentData }[]): ViewRequest[] {
   return docs
@@ -19,6 +22,15 @@ function mapRequests(docs: { id: string; data: () => import("firebase/firestore"
       updatedAt: normalizeTimestamp(r.updatedAt),
     }))
     .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+function mapSbRequest(doc: SbDoc): ViewRequest {
+  const r = { ...(doc.data as Partial<ViewRequest>), id: doc.id } as ViewRequest;
+  return { ...r, createdAt: normalizeTimestamp(r.createdAt), updatedAt: normalizeTimestamp(r.updatedAt) };
+}
+
+function mapSbRequests(docs: SbDoc[]): ViewRequest[] {
+  return docs.map(mapSbRequest).sort((a, b) => b.createdAt - a.createdAt);
 }
 
 /**
@@ -138,7 +150,54 @@ function watchSide(
   };
 }
 
+/**
+ * Свои запросы (от меня и ко мне) — из того хранилища, где доступы сейчас
+ * (`accessStore`): Supabase после переноса (политика и так отдаёт только
+ * свои), иначе прежние окна Firestore. Переподписывается, когда перенос
+ * сделан.
+ */
 export function subscribeToMyViewRequests(
+  workspaceId: string,
+  uid: string,
+  cb: (rows: ViewRequest[]) => void
+) {
+  let stopInner: (() => void) | null = null;
+  const start = (backend: SbBackend) => {
+    stopInner?.();
+    stopInner = null;
+    if (backend !== "supabase") {
+      stopInner = subscribeFirestoreViewRequests(workspaceId, uid, cb);
+      return;
+    }
+    let fallback: (() => void) | null = null;
+    const stop = watchSbDocs(
+      ACCESS_FEED,
+      workspaceId,
+      {
+        initial: (q) => q.eq("kind", "viewreq"),
+        match: (d) => d.kind === "viewreq" && (d.data.fromUid === uid || d.data.toUid === uid),
+      },
+      (docs) => cb(mapSbRequests(docs)),
+      {
+        onMissing: () => {
+          if (!fallback) fallback = subscribeFirestoreViewRequests(workspaceId, uid, cb);
+        },
+      }
+    );
+    stopInner = () => {
+      stop();
+      fallback?.();
+    };
+  };
+  const stopWatch = watchAccessBackend(workspaceId, start);
+  start(accessBackendFor(workspaceId));
+  return () => {
+    stopWatch();
+    stopInner?.();
+  };
+}
+
+function subscribeFirestoreViewRequests(
   workspaceId: string,
   uid: string,
   cb: (rows: ViewRequest[]) => void
@@ -185,7 +244,7 @@ export async function requestDeskView(input: {
   if (current?.status === "pending") return current;
   const id = generateId("viewreq");
   const now = Date.now();
-  const row: ViewRequest = {
+  let row: ViewRequest = {
     id,
     workspaceId: input.workspaceId,
     pageId: input.page.id,
@@ -197,7 +256,21 @@ export async function requestDeskView(input: {
     createdAt: now,
     updatedAt: now,
   };
-  await setDoc(paths.viewRequest(input.workspaceId, id), row);
+  if ((await accessBackendNow(input.workspaceId)) === "supabase") {
+    // Адресата база берёт из копии прав стола; свой ожидающий запрос по тому
+    // же столу она вернёт вместо нового — тогда и уведомлять некого.
+    const docs = await commitAccess(input.workspaceId, [{ kind: "viewreq", id, op: "set", data: { ...row } }]).catch((error) => {
+      throw new Error(accessErrorText(error, "Не удалось отправить запрос"));
+    });
+    const saved = docs?.[0];
+    if (saved && saved.id !== id) {
+      pingInboxChanged();
+      return mapSbRequest(saved);
+    }
+    if (saved) row = mapSbRequest(saved);
+  } else {
+    await setDoc(paths.viewRequest(input.workspaceId, id), row);
+  }
   await sendNotification(
     {
       workspaceId: input.workspaceId,
@@ -213,9 +286,9 @@ export async function requestDeskView(input: {
       href: input.page.osDesk ? deskHref(input.page.id) : "/desks",
       pageId: input.page.id,
       kind: "view-request",
-      viewRequestId: id,
+      viewRequestId: row.id,
     },
-    [toUid]
+    [row.toUid]
   ).catch(() => {
     /* request itself already saved */
   });
@@ -255,11 +328,19 @@ export async function resolveDeskViewRequest(input: {
   if (input.status === "approved" && input.page) {
     await toggleUserPageAccess(input.workspaceId, input.page, input.request.fromUid, true);
   }
-  await setDoc(
-    paths.viewRequest(input.workspaceId, input.request.id),
-    { status: input.status, updatedAt: Date.now() },
-    { merge: true }
-  );
+  if ((await accessBackendNow(input.workspaceId)) === "supabase") {
+    await commitAccess(input.workspaceId, [
+      { kind: "viewreq", id: input.request.id, op: "merge", data: { status: input.status, updatedAt: Date.now() } },
+    ]).catch((error) => {
+      throw new Error(accessErrorText(error));
+    });
+  } else {
+    await setDoc(
+      paths.viewRequest(input.workspaceId, input.request.id),
+      { status: input.status, updatedAt: Date.now() },
+      { merge: true }
+    );
+  }
   await sendNotification(
     {
       workspaceId: input.workspaceId,

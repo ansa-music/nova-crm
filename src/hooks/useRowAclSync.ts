@@ -4,6 +4,7 @@ import { reconcileSupabaseOsExempt } from "@/services/rows/osExempt";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useRowsBackend } from "@/hooks/useRowsBackend";
+import { accessBackendNow } from "@/services/accessStore";
 import { fetchDeskObserverUidsFresh } from "@/services/deskObserverService";
 import { fetchMembersFresh } from "@/services/memberService";
 import { coreMembersBackendFor, reconcileMemberShadows } from "@/services/coreStore";
@@ -87,7 +88,9 @@ export function useRowAclSync() {
           if (fixed) console.warn(`[core] тени участников в Firestore выровнены: ${fixed}`);
         }
         if (ctx.realRole === "owner") {
-          observers = await fetchDeskObserverUidsFresh(wsId);
+          // Доступы в Supabase: наблюдателей в копию прав кладёт сама
+          // `access_write` — сверка их не трогает (null = «не знаем»).
+          if ((await accessBackendNow(wsId)) !== "supabase") observers = await fetchDeskObserverUidsFresh(wsId);
           if (await reconcileSupabaseLive(wsId).catch(() => false)) {
             console.warn("[rows] хранилище Supabase было заперто без переноса — открыто");
           }

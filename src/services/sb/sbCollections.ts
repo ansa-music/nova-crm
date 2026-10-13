@@ -50,6 +50,7 @@ export const SB_TABLES: Record<CollectionKey, string> = {
   grok: "grok_docs",
   personal: "personal_docs",
   core: "core_docs",
+  access: "access_docs",
 };
 
 export const SB_COLLECTION_LABELS: Record<CollectionKey, string> = {
@@ -68,6 +69,7 @@ export const SB_COLLECTION_LABELS: Record<CollectionKey, string> = {
   grok: "Грок лимит",
   personal: "Личная зона столов",
   core: "Ядро: столы, вкладки, участники, настройки",
+  access: "Доступы: запросы на просмотр, наблюдатели, ключ доступа",
 };
 
 export const SB_COLLECTION_KEYS = Object.keys(SB_TABLES) as CollectionKey[];
