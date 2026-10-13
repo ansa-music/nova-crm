@@ -41,6 +41,7 @@ import { signatureSections, signatureTopKeys } from "@/config/signatureNav";
 import { preloadRoute } from "@/config/pageLoaders";
 import { useSiteConfig } from "@/config/siteTerms";
 import { BrandMark } from "@/components/common/BrandMark";
+import { InstallAppIcon } from "@/components/common/InstallApp";
 
 /** Сколько ждать мышь на рейке, прежде чем раскрыть панель поверх стола. */
 const PEEK_OPEN_MS = 220;
@@ -518,6 +519,8 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
               {site.brand ? <BrandMark variant="mark" /> : "N"}
             </button>
             <NotificationBell className="h-10 w-10 rounded-lg" onOpenChange={onHoldChange(setBellOpen)} />
+            {/* Значок установки приложения: во что сворачивается плашка над контентом. */}
+            <InstallAppIcon />
           </div>
         ) : (
           <div className="mb-4 flex items-center justify-between gap-2 px-1">
@@ -528,7 +531,12 @@ export const Sidebar = memo(function Sidebar({ mobile, onNavigate }: { mobile?: 
                 <span className="font-serif text-[22px] font-medium leading-none text-foreground">NOVA</span>
               )}
             </button>
-            {!mobile && <NotificationBell className="rounded-lg" onOpenChange={onHoldChange(setBellOpen)} />}
+            {!mobile && (
+              <div className="flex shrink-0 items-center gap-0.5">
+                <InstallAppIcon />
+                <NotificationBell className="rounded-lg" onOpenChange={onHoldChange(setBellOpen)} />
+              </div>
+            )}
           </div>
         )}
 

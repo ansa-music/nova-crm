@@ -3,6 +3,7 @@ import { useLocation } from "react-router";
 import { Menu, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { InstallAppIcon } from "@/components/common/InstallApp";
 import { RoleSwitcher } from "@/components/common/RoleSwitcher";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { QuickAccess } from "@/components/layout/QuickAccess";
@@ -50,6 +51,8 @@ export const Topbar = memo(function Topbar({ title }: { title?: string }) {
           <p className="eyebrow truncate leading-none">{meta.eyebrow}</p>
           <h1 className="truncate text-[15px] font-semibold leading-tight">{heading}</h1>
         </div>
+        {/* Значок установки приложения — пока его можно поставить (сам решает, показываться ли). */}
+        <InstallAppIcon className="h-11 w-11" />
         <Button
           type="button"
           variant="ghost"
@@ -108,6 +111,7 @@ export const Topbar = memo(function Topbar({ title }: { title?: string }) {
           <QuickAccess />
         </>
       )}
+      <InstallAppIcon />
       <NotificationBell />
       <RoleSwitcher />
     </header>
