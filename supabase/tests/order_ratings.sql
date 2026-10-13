@@ -191,10 +191,12 @@ begin
   execute 'set local role anon';
   g1 := public.rate_order('WR','RP1','month-2026-10-1','h1', 8, 'Половина 1');
   g2 := public.rate_order('WR','RP1','month-2026-10-2','h2', 6, 'Половина 2');
+  -- Считаем ДО оценок h3–h5: их период — текущий месяц, и в октябре 2026 они
+  -- сами ложатся в «2026-10-2» третьей парой (так набор и упал 14.10.2026).
+  select count(*)::text into cnt from public.order_rating_totals('WR', array['2026-10-1','2026-10-2']);
   g3 := public.rate_order('WR','RP2','x2','h3', 7, '', cur || '-2');
   g4 := public.rate_order('WR','RP2','x2','h4', 7, '', cur || '-3');
   g5 := public.rate_order('WR','RP2','x2','h5', 7, '', prev2 || '-1');
-  select count(*)::text into cnt from public.order_rating_totals('WR', array['2026-10-1','2026-10-2']);
   execute 'reset role';
   perform set_config('request.jwt.claims', '', true);
   perform tst.expect('месяц оценки — первая половина из id вкладки', g1 ->> 'monthKey', '2026-10-1');

@@ -6,9 +6,15 @@
 -- (owner_only.sql, core_docs.sql), между ними запускать нельзя. На той же базе
 -- второй раз не запускается: фикстура заводит ники, и повтор упрётся в дубль.
 --
--- ВНИМАНИЕ (13.10.2026): файл написан без локального прогона — переносной
--- Postgres на машине разработки был стёрт. Первый же прогон может показать
--- ошибку в самой проверке, а не в миграции; чините проверку по факту.
+-- База — с локалью, где lower() понижает кириллицу (кластер ICU:
+-- initdb --locale-provider=icu --icu-locale=en-US; в Supabase это так и есть).
+-- В локали C проверка «дубль без учёта регистра» провалится: это локаль, а не
+-- функция.
+--
+-- Прогон 14.10.2026 на PostgreSQL 16.4 (все миграции дважды → desk_rows_rls.sql
+-- → core_members.sql → этот файл): провалов нет; 8 намеренных поломок
+-- миграции — все пойманы (проверка «пустое значение» добавлена после первой
+-- из них: без неё замена защиты на «if false» проходила незамеченной).
 \set ON_ERROR_STOP 1
 set client_min_messages = warning;
 truncate tst.results;
@@ -90,6 +96,27 @@ select tst.expect('значение из ДРУГОГО списка — отк�
   tst.val('TL', format($q$select core_nick_rename('W', 'os', %L, 'Что-то')::text$q$, current_setting('tst.free_value'))), 'error:P0002');
 select tst.expect('неизвестный вид ника — отказ',
   tst.val('TL', format($q$select core_nick_rename('W', 'boss', %L, 'Что-то')::text$q$, current_setting('tst.free_value'))), 'error:22023');
+-- Пустое значение — не ник. Кривой список (вариант без значения) и участник
+-- с пустым значением вместо ника: без защиты функция сочла бы его
+-- «держателем» и переписала бы ему подпись.
+select set_config('tst.t1_doc', (select data::text from public.core_docs where workspace_id = 'W' and kind = 'member' and id = 'T1'), false);
+select set_config('tst.tech_list', (select (data -> 'techNickOptions')::text from public.core_docs where workspace_id = 'W' and kind = 'workspace' and id = 'W'), false);
+update public.core_docs set data = data || jsonb_build_object('techNickOptions',
+    (data -> 'techNickOptions') || '[{"value":"","label":"Пусто","color":"0 0% 50%"}]'::jsonb)
+  where workspace_id = 'W' and kind = 'workspace' and id = 'W';
+update public.core_docs set data = data || '{"techNickValue":"","techNick":"Был"}'::jsonb
+  where workspace_id = 'W' and kind = 'member' and id = 'T1';
+select tst.expect('пустое значение — не ник: отказ',
+  tst.val('TL', $q$select core_nick_rename('W', 'tech', '', 'Захват')::text$q$), 'error:P0002');
+select tst.expect('…подпись участника с пустым значением не тронута',
+  coalesce((select data ->> 'techNick' from public.core_docs where workspace_id = 'W' and kind = 'member' and id = 'T1'), '<null>'), 'Был');
+select tst.expect('…и вариант без значения в списке не переименован',
+  coalesce(tst.nick_label('techNickOptions', ''), '<null>'), 'Пусто');
+select tst.expect('null вместо значения — тот же отказ',
+  tst.val('TL', $q$select core_nick_rename('W', 'tech', null, 'Захват')::text$q$), 'error:P0002');
+update public.core_docs set data = current_setting('tst.t1_doc')::jsonb where workspace_id = 'W' and kind = 'member' and id = 'T1';
+update public.core_docs set data = data || jsonb_build_object('techNickOptions', current_setting('tst.tech_list')::jsonb)
+  where workspace_id = 'W' and kind = 'workspace' and id = 'W';
 -- Одинаковая подпись в РАЗНЫХ списках — не дубль.
 select tst.expect('та же подпись, что у ника другого списка, — можно',
   tst.val('TL', format($q$select core_nick_rename('W', 'tech', %L, 'Ос А') ->> 'label'$q$, current_setting('tst.free_value'))), 'Ос А');
