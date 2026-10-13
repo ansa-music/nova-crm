@@ -15,6 +15,9 @@ import { ringTargets, saltedTopic, whenRingSalt, workspaceOfTopic } from "@/serv
  * В звонке НЕТ данных — только id вкладки: анонимный ключ публичный, и
  * посторонний, зная тему, узнает разве что «там что-то поменялось». Ложный
  * звонок стоит читателю одного крошечного запроса «rev > курсор».
+ * Единственное исключение — «заметки» (`ringTopic(topic, note)`): короткие
+ * непрозрачные id (например, id стола), по которым слушатель проверяет одно
+ * место, а не всё подряд. Содержимого в них нет и быть не должно.
  *
  * Серия записей за 600 мс — один звонок. Тема у себя открыта — по сокету
  * (ещё не вошла — по REST тем же каналом), нет — по REST (`httpSend`,
@@ -24,8 +27,8 @@ import { ringTargets, saltedTopic, whenRingSalt, workspaceOfTopic } from "@/serv
  * обратно не приносит (`self: false`).
  */
 
-type Ring = () => void;
-type RoomRing = (rid: string | null) => void;
+type Ring = (notes?: readonly string[]) => void;
+type RoomRing = (rid: string | null, notes: readonly string[]) => void;
 
 interface Room {
   channel: RealtimeChannel;
@@ -45,7 +48,15 @@ let ringSeq = 0;
 let client: SupabaseClient | null = supabase;
 /** Комнаты по ФИЗИЧЕСКОЙ теме (прежняя и солёная — разные комнаты). */
 const rooms = new Map<string, Room>();
-const pending = new Map<string, ReturnType<typeof setTimeout>>();
+const pending = new Map<string, { timer: ReturnType<typeof setTimeout>; notes: Set<string> }>();
+/** Не больше стольких заметок в звонке и не длиннее стольких знаков каждая. */
+const NOTES_MAX = 20;
+const NOTE_MAX_LENGTH = 200;
+
+function cleanNotes(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((n): n is string => typeof n === "string" && n.length > 0 && n.length <= NOTE_MAX_LENGTH).slice(0, NOTES_MAX);
+}
 /** Слушатели этой вкладки по темам — им свой звонок доставляется напрямую. */
 const localListeners = new Map<string, Set<Ring>>();
 
@@ -63,10 +74,11 @@ function joinRoom(target: SupabaseClient, topic: string, onRing: RoomRing, onSta
     rooms.set(topic, created);
     channel
       .on("broadcast", { event: RING_EVENT }, (message) => {
-        const payload = (message?.payload ?? {}) as { from?: unknown; rid?: unknown };
+        const payload = (message?.payload ?? {}) as { from?: unknown; rid?: unknown; notes?: unknown };
         if (payload.from === instanceId) return;
         const rid = typeof payload.rid === "string" ? payload.rid : null;
-        for (const listener of created.listeners) listener(rid);
+        const notes = cleanNotes(payload.notes);
+        for (const listener of created.listeners) listener(rid, notes);
       })
       .subscribe((status) => {
         const ready = status === "SUBSCRIBED";
@@ -90,8 +102,9 @@ function joinRoom(target: SupabaseClient, topic: string, onRing: RoomRing, onSta
 }
 
 /**
- * Слушать тему. `onRing()` — кто-то записал; `onStatus(ready)` — канал
- * поднялся/упал (не поднялся — у читателя остаётся опрос).
+ * Слушать тему. `onRing(notes)` — кто-то записал (заметки звонившего, если
+ * были); `onStatus(ready)` — канал поднялся/упал (не поднялся — у читателя
+ * остаётся опрос).
  *
  * Слушаются две комнаты: прежняя тема и солёная (services/sb/ringSalt.ts),
  * как только соль известна; «готово» тогда решает солёная. Один и тот же
@@ -118,13 +131,13 @@ export function listenTopic(topic: string, onRing: Ring, onStatus?: (ready: bool
   }
 
   const seen: string[] = [];
-  const deliver: RoomRing = (rid) => {
+  const deliver: RoomRing = (rid, notes) => {
     if (rid) {
       if (seen.includes(rid)) return;
       seen.push(rid);
       if (seen.length > 32) seen.shift();
     }
-    onRing();
+    onRing(notes);
   };
   let legacyReady = false;
   let saltedReady = false;
@@ -165,30 +178,40 @@ export function listenTopic(topic: string, onRing: Ring, onStatus?: (ready: bool
   };
 }
 
-/** В теме что-то записано — позвонить всем, кто её слушает (и своим — сразу). */
-export function ringTopic(topic: string) {
-  if (pending.has(topic)) return;
-  pending.set(
-    topic,
-    setTimeout(() => {
+/**
+ * В теме что-то записано — позвонить всем, кто её слушает (и своим — сразу).
+ * `note` — необязательный непрозрачный id (см. шапку файла); заметки серии
+ * звонков склеиваются в один звонок.
+ */
+export function ringTopic(topic: string, note?: string) {
+  const queued = pending.get(topic);
+  if (queued) {
+    if (note) queued.notes.add(note);
+    return;
+  }
+  const entry = {
+    notes: new Set<string>(note ? [note] : []),
+    timer: setTimeout(() => {
       pending.delete(topic);
+      const notes = cleanNotes([...entry.notes]);
       for (const listener of [...(localListeners.get(topic) ?? [])]) {
         try {
-          listener();
+          listener(notes);
         } catch {
           /* чужой слушатель не должен ронять звонок остальным */
         }
       }
       const rid = `${instanceId}.${++ringSeq}`;
-      for (const physical of ringTargets(topic)) void send(physical, rid);
-    }, RING_COALESCE_MS)
-  );
+      for (const physical of ringTargets(topic)) void send(physical, rid, notes);
+    }, RING_COALESCE_MS),
+  };
+  pending.set(topic, entry);
 }
 
-async function send(topic: string, rid: string) {
+async function send(topic: string, rid: string, notes: readonly string[]) {
   const target = client;
   if (!target) return;
-  const payload = { from: instanceId, rid };
+  const payload = notes.length > 0 ? { from: instanceId, rid, notes } : { from: instanceId, rid };
   try {
     const room = rooms.get(topic);
     if (room) {

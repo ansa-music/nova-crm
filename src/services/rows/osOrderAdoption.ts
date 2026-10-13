@@ -4,11 +4,12 @@ import { fetchSubPageFresh } from "@/services/subPageService";
 import { currentMonthSubPageId, isMonthlyDesk } from "@/services/monthTabService";
 import { currentPeriodKeyOf } from "@/services/periodService";
 import { computeOsFieldKeys, sameOsFieldKeys } from "@/utils/osFieldKeys";
-import { sbFetchAllPageRows, sbFetchRows, sbPatchRow } from "@/services/rows/supabaseRowStore";
+import { DESK_ROWS_TABLE, supabaseRows } from "@/lib/supabaseRows";
+import { recordToRow, sbFetchAllPageRows, sbFetchRows, sbPatchRow } from "@/services/rows/supabaseRowStore";
 import { usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { buildMirrorCells, mirrorSyncHash } from "@/services/rows/osOrderMirror";
 import { openOsDeskCurrentTab, type OsDeskTab } from "@/services/rows/osDeskIssue";
-import { claimQuietMs, sbFindDeskRowTab } from "@/services/rows/osOrderClaim";
+import { CLAIM_MAX_PER_RUN, claimQuietMs, sbFetchReturnedSources, sbFindDeskRowTab } from "@/services/rows/osOrderClaim";
 import {
   fetchTechSyncState,
   sbTechSync,
@@ -29,7 +30,7 @@ import {
 import { normalizeNumericInput } from "@/utils/numberInput";
 import { isBlankRow } from "@/utils/blankRow";
 import { personLabel } from "@/utils/peopleDesks";
-import type { OsFieldKeys, PageRow, WorkspaceMember, WorkspacePage } from "@/types";
+import { memberHasRole, type OsFieldKeys, type PageRow, type WorkspaceMember, type WorkspacePage } from "@/types";
 
 /**
  * Перенос уже заведённых заказов под управление ОС (разово, Owner).
@@ -206,6 +207,27 @@ async function ensureOsFieldKeys(
   return { keys, published: true };
 }
 
+/**
+ * Авто-режим: несвязанные строки вкладки (без метки ОС), у которых в столбце
+ * ОС что-то стоит, — свежие первыми. Не вся вкладка: страховку Owner зовут на
+ * каждый заказ технаря, и качать сотни строк ради одной нельзя.
+ */
+async function fetchUnlinkedOsRows(workspaceId: string, pageId: string, tabId: string, osKey: string): Promise<PageRow[]> {
+  let query = supabaseRows
+    .from(DESK_ROWS_TABLE)
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .eq("page_id", pageId)
+    .eq("tab_id", tabId)
+    .is("os_uid", null);
+  // Ключ столбца подставляется в имя поля запроса — только «простой» ключ;
+  // иначе фильтруем по одной метке ОС, а пустые ячейки отсеет разбор ниже.
+  if (/^[A-Za-z0-9_]+$/.test(osKey)) query = query.not(`cells->>${osKey}`, "is", null).neq(`cells->>${osKey}`, "");
+  const { data, error } = await query.order("updated_at", { ascending: false }).limit(300);
+  if (error) throw new Error(error.message || "Не удалось прочитать строки стола");
+  return ((data ?? []) as Parameters<typeof recordToRow>[0][]).map(recordToRow);
+}
+
 /** Ответы `rows_tech_sync`, после которых строка осталась у технаря, — словами для отчёта Owner. */
 const SYNC_ADOPT_SKIP_TEXT: Record<string, string> = {
   no_client: "в строке нет имени клиента",
@@ -358,8 +380,13 @@ export async function adoptOrdersToOsDesks(input: {
    * как подхват — не трогает заказы, возвращённые технарю, строки без клиента
    * и те, что ещё дописывают; столы с авто-передачей базы пропускает. Кнопка
    * «Передать ОС» идёт без него — она и есть явный путь назад.
+   * Ещё авто-режим не везёт заказы тому, кто ОС уже не работает (ник в
+   * «Неактуальных», роль ОС снята, стол ОС в неактуальных), и читает не всю
+   * вкладку, а только несвязанные строки с ником ОС: его зовут на каждый
+   * заказ технаря, и трафик Supabase на это не бесконечный. `pages` — список
+   * столов из памяти вкладки (без него читается свежий с сервера).
    */
-  auto?: { now: number };
+  auto?: { now: number; pages?: readonly WorkspacePage[] };
   onProgress?: (p: OsAdoptionProgress) => void;
 }): Promise<OsAdoptionReport> {
   const { workspaceId, members } = input;
@@ -381,7 +408,7 @@ export async function adoptOrdersToOsDesks(input: {
 
   // Список столов — СВЕЖИЙ с сервера: неполный список молча оставил бы часть
   // заказов у технарей (урок прошлого переноса).
-  const pages = await fetchPagesFresh(workspaceId);
+  const pages = input.auto?.pages ? [...input.auto.pages] : await fetchPagesFresh(workspaceId);
   // Вкладка ТЕКУЩЕГО месяца — только та, что `currentMonthSubPageId` считает
   // текущей (сверка с autoMonthKey). Голый autoMonthSubPageId у отставшего
   // стола указывает на прошлый месяц: Owner записал бы ему карту от старой
@@ -420,6 +447,12 @@ export async function adoptOrdersToOsDesks(input: {
   const syncOn = techDesks.some((p) => techFillsDesk(p, workspace))
     ? techSyncActive(await fetchTechSyncState(workspaceId))
     : false;
+  const inactiveOsNicks = new Set(
+    (useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.responsibleOptions ?? [])
+      .filter((o) => o.inactive)
+      .map((o) => o.value)
+  );
+  let autoAdopted = 0;
   const unknownNicks = new Set<string>();
   const osDeskByUid = new Map<string, WorkspacePage>();
   /** Вкладка текущего месяца стола ОС (как её откроет сам стол) — по uid ОС. */
@@ -454,7 +487,9 @@ export async function adoptOrdersToOsDesks(input: {
 
     let rows: PageRow[];
     try {
-      rows = await sbFetchRows(workspaceId, page.id, tabId);
+      rows = input.auto
+        ? await fetchUnlinkedOsRows(workspaceId, page.id, tabId, keys.os ?? "").catch(() => sbFetchRows(workspaceId, page.id, tabId))
+        : await sbFetchRows(workspaceId, page.id, tabId);
     } catch (error) {
       report.errors.push(`«${page.name}»: строки не прочитались — ${error instanceof Error ? error.message : String(error)}`);
       continue;
@@ -499,9 +534,12 @@ export async function adoptOrdersToOsDesks(input: {
         unknownNicks.add(osValue);
         continue;
       }
+      // Авто-режим: тому, кто ОС уже не работает, заказы сами не едут.
+      if (input.auto && (!memberHasRole(osMember, "os") || inactiveOsNicks.has(osValue))) continue;
 
       // Стола ОС может ещё не быть — заводим (это делает Owner).
       let osDesk = osDeskByUid.get(osMember.uid) ?? findOsDeskOf(pages, osMember.uid);
+      if (input.auto && osDesk?.inactive) continue;
       if (!osDesk) {
         try {
           osDesk = await ensureOsDesk({ workspaceId, uid: osMember.uid, name: personLabel(osMember) });
@@ -534,6 +572,21 @@ export async function adoptOrdersToOsDesks(input: {
         }
         if (!osTab) continue;
         osTabByUid.set(osMember.uid, osTab);
+      }
+
+      if (input.auto) {
+        // Источник на столе ОС помечен «вернули технарю» (старые возвраты — без
+        // отметки на самой строке технаря): как и подхват ОС, не берём снова.
+        // Не прочиталось — не рискуем, зайдём в следующий раз.
+        const srcKey = sourceRowIdFor(row.id);
+        const returned = await sbFetchReturnedSources(workspaceId, osDesk.id, [srcKey]).catch(() => null);
+        if (returned === null || returned.has(srcKey)) continue;
+        // За заход — не больше, чем берёт подхват ОС; остальное — следующим.
+        if (autoAdopted >= CLAIM_MAX_PER_RUN) {
+          report.waiting = (report.waiting ?? 0) + 1;
+          continue;
+        }
+        autoAdopted += 1;
       }
 
       const techNick = techNickOfDesk;
