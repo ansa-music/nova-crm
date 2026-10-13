@@ -2604,7 +2604,9 @@ export default function DynamicTablePage() {
           <span className="min-w-0 flex-1">
             <span className="font-medium">Стол в неактуальных.</span>{" "}
             <span className="text-muted-foreground">
-              Его нет в «Столах», на дашборде и в «Технарях» — данные сохранены.
+              {page.osDesk
+                ? "Его нет в «Столах ОС» — данные сохранены."
+                : "Его нет в «Столах», на дашборде и в «Технарях» — данные сохранены."}
             </span>
           </span>
           {canRetireThisDesk && (

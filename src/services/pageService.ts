@@ -747,7 +747,9 @@ export async function setPageInactive(
   if (coreSb) batch.set(paths.page(workspaceId, page.id), patch, { merge: true });
   else batch.update(paths.page(workspaceId, page.id), patch);
   const claimUid = page.responsibleUserId;
-  if (claimUid && responsibleIsTechnician) {
+  // Стол ОС в квоту «один стол технаря» не входит: возврат стола ОС человеку
+  // с ролью Технаря иначе занял бы его claim этим столом.
+  if (claimUid && responsibleIsTechnician && !page.osDesk) {
     try {
       const claim = await getDoc(paths.managerPageClaim(workspaceId, claimUid));
       if (inactive && claim.exists() && claim.data()?.pageId === page.id) batch.delete(claim.ref);

@@ -11,7 +11,7 @@ function claimsDesk(page: WorkspacePage, members: WorkspaceMember[]) {
 export async function restoreDesk(page: WorkspacePage, members: WorkspaceMember[], byUid: string) {
   try {
     await setPageInactive(page.workspaceId, page, false, byUid, claimsDesk(page, members));
-    toast.success(`«${page.name}» снова в столах`);
+    toast.success(page.osDesk ? `«${page.name}» снова в столах ОС` : `«${page.name}» снова в столах`);
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "Не удалось вернуть стол");
   }
@@ -24,8 +24,9 @@ export async function restoreDesk(page: WorkspacePage, members: WorkspaceMember[
 export async function retireDesk(page: WorkspacePage, members: WorkspaceMember[], byUid: string) {
   const ok = await confirmDialog({
     title: `Убрать «${page.name}» в неактуальные?`,
-    description:
-      "Стол пропадёт из «Столов», дашборда и «Технарей». Вкладки и строки сохранятся — вернуть можно в любой момент в «Столы» → «Неактуальные».",
+    description: page.osDesk
+      ? "Стол пропадёт из «Столов ОС». Вкладки и строки сохранятся — вернуть можно в любой момент в «Столы ОС» → «Неактуальные»."
+      : "Стол пропадёт из «Столов», дашборда и «Технарей». Вкладки и строки сохранятся — вернуть можно в любой момент в «Столы» → «Неактуальные».",
     confirmLabel: "В неактуальные",
   });
   if (!ok) return false;

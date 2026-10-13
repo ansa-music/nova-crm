@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ArrowRight, Loader2, Lock, RefreshCw, ScanEye } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowRight, Loader2, Lock, RefreshCw, ScanEye } from "lucide-react";
 import { EmptyState } from "@/components/common/EmptyState";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { PageHeader } from "@/components/common/PageHeader";
+import { restoreDesk, retireDesk } from "@/components/desks/deskRetireActions";
 import { DesksModeSwitch } from "@/components/layout/SignatureSwitches";
 import { RequestDeskViewButton } from "@/components/pagesnav/RequestDeskViewButton";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useViewRequests } from "@/hooks/useViewRequests";
@@ -14,9 +16,10 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { osNickLabel } from "@/services/memberService";
 import { fetchOsDeskMonthStats, type OsDeskMonthStats } from "@/services/osDeskStatsService";
 import { cn } from "@/utils/cn";
-import { timeAgo, zonedDateFormat } from "@/utils/date";
+import { formatDate, timeAgo, zonedDateFormat } from "@/utils/date";
 import { deskHref, deskNavState } from "@/utils/deskLinks";
 import { displayNameOf, myDisplayName } from "@/utils/displayName";
+import { personLabel } from "@/utils/peopleDesks";
 import { formatCurrency } from "@/utils/format";
 import { useTerms } from "@/config/siteTerms";
 import type { WorkspaceMember, WorkspacePage } from "@/types";
@@ -29,6 +32,12 @@ type StatsState = { status: "loading" } | { status: "ok"; stats: OsDeskMonthStat
  * firestore.rules). Ветка «Запросить просмотр» осталась на случай, если
  * права ещё не разрешились. Сводка за месяц — по столам, которые смотрящий
  * вправе читать.
+ *
+ * Стол ОС в «Неактуальных» (`page.inactive`: ник ОС увели в неактуальные на
+ * «Команде» или Owner убрал стол сам) здесь не показывается и в сводку не
+ * входит — он в листе «Неактуальные», откуда его можно вернуть (жалоба Nurba
+ * 13.10.2026: «неактуальные столы ОС не пропадают»). `useWorkspace().osDesks`
+ * по-прежнему отдаёт ВСЕ столы ОС: по нему ищут стол человека, а не рисуют список.
  */
 export default function OsDesksPage() {
   const t = useTerms();
@@ -39,9 +48,20 @@ export default function OsDesksPage() {
   const { requestView, latestForPage, reload } = useViewRequests(activeWorkspaceId, uid);
   const [stats, setStats] = useState<Record<string, StatsState>>({});
   const [refreshing, setRefreshing] = useState(false);
+  const [inactiveOpen, setInactiveOpen] = useState(false);
+
+  const inactiveDesks = useMemo(
+    () => osDesks.filter((p) => p.inactive).sort((a, b) => (b.inactiveAt ?? 0) - (a.inactiveAt ?? 0)),
+    [osDesks]
+  );
+  // Убирать стол ОС в неактуальные прямо отсюда — как в меню самого стола:
+  // только тот, кто правит столы целиком (Owner). Вернуть — кто ведёт
+  // «Неактуальные» (Owner и Тимлид: Тимлид уводит стол вместе с ником ОС).
+  const mayRetire = permissions.canRetireDesks && permissions.hasFullDeskAccess;
+  const mayRestore = permissions.canRetireDesks;
 
   const rows = useMemo(() => {
-    const list = osDesks.map((page) => {
+    const list = osDesks.filter((p) => !p.inactive).map((page) => {
       const owner = members.find((m) => m.uid === page.responsibleUserId) ?? null;
       return { page, owner, canOpen: permissions.canAccessPage(page) };
     });
@@ -125,11 +145,28 @@ export default function OsDesksPage() {
               : "Личные таблицы ОС. Чтобы открыть чужой стол, запросите просмотр — разрешает сам ОС."
         }
         actions={
-          openable.length > 0 ? (
-            <Button variant="outline" className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => void refresh()} disabled={refreshing}>
-              {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              Обновить
-            </Button>
+          openable.length > 0 || inactiveDesks.length > 0 ? (
+            <>
+              {inactiveDesks.length > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-11 gap-1.5 sm:min-h-0"
+                  data-os-desks-inactive
+                  onClick={() => setInactiveOpen(true)}
+                >
+                  <Archive className="h-3.5 w-3.5" />
+                  Неактуальные
+                  <span className="font-mono text-[11px] tabular text-muted-foreground">{inactiveDesks.length}</span>
+                </Button>
+              )}
+              {openable.length > 0 && (
+                <Button variant="outline" className="min-h-11 gap-1.5 sm:min-h-0" onClick={() => void refresh()} disabled={refreshing}>
+                  {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  Обновить
+                </Button>
+              )}
+            </>
           ) : undefined
         }
       />
@@ -138,8 +175,12 @@ export default function OsDesksPage() {
         <EmptyState
           eyebrow="Столы ОС"
           icon={<ScanEye />}
-          title="Столов ОС пока нет"
-          description="Создавать их не нужно: стол заводится сам, когда ОС первый раз открывает свой раздел «Стол ОС». После этого он появится здесь со сводкой за месяц."
+          title={inactiveDesks.length > 0 ? "Все столы ОС — в неактуальных" : "Столов ОС пока нет"}
+          description={
+            inactiveDesks.length > 0
+              ? "Действующих столов ОС сейчас нет. Убранные лежат в «Неактуальных» (кнопка сверху) — данные сохранены."
+              : "Создавать их не нужно: стол заводится сам, когда ОС первый раз открывает свой раздел «Стол ОС». После этого он появится здесь со сводкой за месяц."
+          }
           // Кнопки «создать стол» нет намеренно — стол ОС руками не заводят.
           // Руководству — переход туда, где ОС получает роль и ник.
           action={
@@ -194,6 +235,18 @@ export default function OsDesksPage() {
                       </p>
                     </div>
                     {!canOpen && <Lock className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                    {mayRetire && (
+                      <button
+                        type="button"
+                        title="В неактуальные — стол уйдёт из этого списка, данные сохранятся"
+                        aria-label={`Убрать стол «${nameOf(owner, page)}» в неактуальные`}
+                        data-os-desk-retire
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:h-8 sm:w-8"
+                        onClick={() => void retireDesk(page, members, permissions.uid)}
+                      >
+                        <Archive className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
 
                   {canOpen ? (
@@ -254,6 +307,76 @@ export default function OsDesksPage() {
           </div>
         </>
       )}
+
+      <Sheet open={inactiveOpen} onOpenChange={setInactiveOpen}>
+        <SheetContent side="right" className="flex w-full max-w-md flex-col overflow-y-auto p-0">
+          <SheetHeader className="border-b border-border px-5 py-4 pr-12">
+            <SheetTitle>Неактуальные столы ОС</SheetTitle>
+            <p className="text-sm text-muted-foreground">
+              Их нет в «Столах ОС» и в сводке. Вкладки и строки сохранены
+              {mayRestore ? " — стол можно вернуть в любой момент." : "."}
+            </p>
+          </SheetHeader>
+          <div className="flex flex-col gap-3 p-4">
+            {inactiveDesks.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Неактуальных столов ОС нет.</p>
+            ) : (
+              inactiveDesks.map((page) => {
+                const owner = members.find((m) => m.uid === page.responsibleUserId) ?? null;
+                const by = personLabel(members.find((m) => m.uid === page.inactiveBy) ?? null);
+                const canOpen = permissions.canAccessPage(page);
+                return (
+                  <div key={page.id} data-os-desk-inactive-row className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <MemberAvatar
+                        id={page.responsibleUserId ?? page.id}
+                        name={owner?.name}
+                        nickname={owner?.nickname}
+                        photoURL={owner?.photoURL}
+                        className="h-9 w-9 shrink-0 opacity-70"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium">{nameOf(owner, page)}</p>
+                        <p className="truncate text-[12px] text-muted-foreground">
+                          {[
+                            owner ? null : "не в команде",
+                            page.inactiveAt ? `неактуален с ${formatDate(page.inactiveAt, "d MMM yyyy")}` : null,
+                            by ? `убрал(а) ${by}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      </div>
+                    </div>
+                    {(canOpen || mayRestore) && (
+                      <div className="flex gap-2">
+                        {canOpen && (
+                          <Button asChild size="sm" variant="outline" className="min-h-11 flex-1">
+                            <Link to={deskHref(page.id)} state={deskNavState({ to: "/os-desks", label: "Столы ОС" })}>
+                              Открыть
+                            </Link>
+                          </Button>
+                        )}
+                        {mayRestore && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="min-h-11 flex-1 gap-1.5"
+                            onClick={() => void restoreDesk(page, members, permissions.uid)}
+                          >
+                            <ArchiveRestore className="h-3.5 w-3.5" />
+                            Вернуть в столы ОС
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
