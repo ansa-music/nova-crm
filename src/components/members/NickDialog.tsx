@@ -1,6 +1,6 @@
 import { isLeadRole } from "@/types/role";
-import { useMemo, useState } from "react";
-import { Archive, AtSign, Check, Lock, Plus, Search } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { Archive, AtSign, Check, Lock, Pencil, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
+import { desksNamedAfterNick, RenameNickDialog, renameNickWithDesks } from "@/components/members/RenameNickDialog";
 import { useStudioMode } from "@/config/studio";
 import {
   linkMemberNick,
@@ -23,11 +24,13 @@ import {
 } from "@/services/memberService";
 import { bindScheduleGroupPersonToMember } from "@/services/scheduleGroupService";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useWorkspace } from "@/hooks/useWorkspace";
 import { confirmDialog } from "@/utils/appDialog";
 import { cn } from "@/utils/cn";
 import { firestoreErrorText } from "@/utils/dbError";
 import { realNameOf } from "@/utils/displayName";
 import { splitOptionsByActivity } from "@/utils/columnOptions";
+import { nickLockedFor } from "@/utils/teamGroup";
 import type { Role, StatusOption, WorkspaceMember } from "@/types";
 
 export type NickChoice = { kind: "option"; value: string } | { kind: "new"; label: string };
@@ -288,7 +291,16 @@ function studioKindText(kind: NickKind): (typeof KIND_TEXT)[NickKind] {
   };
 }
 
-/** Закрепить за участником ник (ОС или технаря) или открепить его. Тимлид/Owner only. */
+/**
+ * Закрепить за участником ник (ОС или технаря), открепить его или
+ * переименовать. Тимлид/Owner only.
+ *
+ * «Переименовать» стоит здесь же (жалоба Nurba 14.10.2026: «не могу найти, где
+ * переименовать ник»): в это окно ведёт карандаш у ника человека, а
+ * переименование жило только в списке ников внизу «Команды». Ввести в поиск
+ * новое имя и нажать «Закрепить» — это ДРУГОЙ ник: прежний остаётся в списке
+ * вместе со своими заказами.
+ */
 export function NickDialog({
   workspaceId,
   kind,
@@ -306,10 +318,16 @@ export function NickDialog({
   onClose: () => void;
   onSaved: () => Promise<void> | void;
 }) {
-  const { uid: actorUid } = usePermissions();
+  const { uid: actorUid, actsAsOwner, isWorkspaceOwner } = usePermissions();
+  const { allPages } = useWorkspace();
   const studio = useStudioMode();
   const value = memberNickValue(member, kind);
   const currentValue = value && options.some((o) => o.value === value) ? value : null;
+  const currentOption = currentValue ? options.find((o) => o.value === currentValue) ?? null : null;
+  // Переименовать ник человека вправе тот же, кто вправе его закрепить.
+  const canRename = Boolean(currentOption) && !nickLockedFor(member, actorUid ?? "", actsAsOwner, isWorkspaceOwner);
+  const [renaming, setRenaming] = useState(false);
+  const renamedRef = useRef(false);
   const [choice, setChoice] = useState<NickChoice | null>(currentValue ? { kind: "option", value: currentValue } : null);
   const [saving, setSaving] = useState(false);
   // Настоящее имя, а не ник: у технаря с ником иначе вышло бы «Ник технаря · Sako».
@@ -367,6 +385,35 @@ export function NickDialog({
     }
   }
 
+  if (renaming && currentOption) {
+    const desks = desksNamedAfterNick(allPages, kind, member, currentOption.label);
+    return (
+      <RenameNickDialog
+        kind={kind}
+        option={currentOption}
+        options={options}
+        holder={member}
+        deskName={actsAsOwner ? (desks[0]?.name ?? null) : null}
+        // «Отмена» возвращает к выбору ника; после записи закрывается всё окно.
+        onClose={() => (renamedRef.current ? onClose() : setRenaming(false))}
+        onSubmit={async (label) => {
+          const ok = await renameNickWithDesks({
+            workspaceId,
+            kind,
+            option: currentOption,
+            to: label,
+            holder: member,
+            desks,
+            viewerIsOwner: actsAsOwner,
+          });
+          renamedRef.current = ok;
+          if (ok) void Promise.resolve(onSaved()).catch(() => undefined);
+          return ok;
+        }}
+      />
+    );
+  }
+
   return (
     <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
       <DialogContent className="sm:max-w-md">
@@ -395,6 +442,24 @@ export function NickDialog({
             <AtSign className="h-3 w-3" />
             Ник «{lostNick}» удалён из списка — вернуть его
           </button>
+        )}
+
+        {currentOption && canRename && (
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-h-11 min-w-0 max-w-full gap-1.5 border-primary/30 bg-primary/12 text-primary hover:bg-primary/20 hover:text-primary sm:min-h-0"
+              onClick={() => setRenaming(true)}
+              disabled={saving}
+              data-nick-rename
+            >
+              <Pencil className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">Переименовать «{currentOption.label}»</span>
+            </Button>
+            <span className="min-w-0 text-[11px] text-muted-foreground">подпись сменится везде, заказы останутся на этом нике</span>
+          </div>
         )}
 
         <DialogFooter className="gap-2 sm:justify-between">
