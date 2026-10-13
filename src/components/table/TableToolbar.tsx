@@ -576,14 +576,16 @@ export function TableToolbar({
       <div className="hidden flex-1 sm:block" />
 
       {/* Подсветку новых заказов снимает только сам технарь — до этого чип
-          висит и показывает, сколько строк приехало с «Заказов». Янтарный
-          текст без заливки: один акцент на экране — бирюзовый. */}
+          висит и показывает, сколько строк подсвечено (приехали с «Заказов»
+          или технарь зажёг сам). Чип гасит ВСЕ разом; по одной строке — «⋯»,
+          правый клик или Alt+клик по номеру. Янтарный текст без заливки:
+          один акцент на экране — бирюзовый. */}
       {highlightCount > 0 && onClearHighlights && (
         <button
           type="button"
           onClick={onClearHighlights}
           className="inline-flex h-9 shrink-0 items-center whitespace-nowrap px-1 text-[12px] text-warning hover:underline sm:h-8"
-          title="Снять подсветку с новых заказов"
+          title="Снять подсветку со всех строк. По одной — «⋯» у строки или Alt+клик по номеру"
         >
           {highlightCount} {highlightCount === 1 ? "новый" : "новых"} · снять
         </button>

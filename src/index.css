@@ -1083,26 +1083,45 @@ html body[data-scroll-locked] {
   opacity: 1;
 }
 
-/* Строка, приехавшая заказом с «Заказов»: держится подсвеченной, пока
-   технарь сам не снимет подсветку чипом «N новых» в тулбаре. */
-/* Новый заказ с «Заказов» — ЯНТАРНЫЙ, а не цвета акцента: акцентом в таблице
-   подсвечены выделение, активная ячейка и «добавлено недавно», и технарь
-   путал приехавший заказ с собственной строкой. Заливки строки больше нет
-   (она спорила с зеброй) — признак держат янтарная полоса слева (3px, как в
-   макете) и янтарный чип визитки. */
-.table-instrument tbody tr.table-row-new .table-row-rail {
-  background: hsl(var(--warning));
-  opacity: 1;
-}
-/* Полоса слева у новой строки — даже когда у стола нет своего цвета-рейла. */
-.table-instrument tbody tr.table-row-new td:first-child::before {
+/* Строка, приехавшая заказом с «Заказов» (или подсвеченная технарём вручную):
+   держится подсвеченной, пока технарь сам не снимет подсветку — по одной
+   строке («⋯», правый клик, Alt+клик по номеру) или чипом «N новых». */
+/* Новый заказ — ЯНТАРНЫЙ, а не цвета акцента: акцентом в таблице подсвечены
+   выделение, активная ячейка и «добавлено недавно», и технарь путал
+   приехавший заказ с собственной строкой. С 13.10.2026 ячейка с номером
+   ГОРИТ ЦЕЛИКОМ (просьба Nurba: «ячейка с цифрой полностью загоралась») —
+   прежняя полоса 3px терялась под рейлом статуса. Заливка — псевдоэлементом
+   поверх фона ячейки: зебра, наведение и выделение красят сам td и с ней не
+   спорят. Остальная строка не заливается (заливка спорила с зеброй); рейл
+   статуса остаётся поверх янтаря. Селектор длинный нарочно: цвет номера
+   должен перебить `.text-muted-foreground` и под личным оформлением
+   (`html[data-ui="signature"] .text-[11px].text-muted-foreground`). */
+.table-instrument tbody tr.table-data-row.table-row-new > td.table-sticky-col:first-child::before {
   content: "";
   position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
+  inset: 0;
   background: hsl(var(--warning));
+  box-shadow: inset 0 0 10px color-mix(in srgb, white 50%, hsl(var(--warning)));
+}
+.table-instrument tbody tr.table-data-row.table-row-new > td.table-sticky-col:first-child {
+  color: hsl(var(--warning-foreground));
+  font-weight: 700;
+}
+/* Значки гаттера на янтаре — тёмные: серое на жёлтом не читается. */
+.table-instrument tbody tr.table-data-row.table-row-new > td.table-sticky-col:first-child [data-row-drag],
+.table-instrument tbody tr.table-data-row.table-row-new > td.table-sticky-col:first-child [data-row-menu] {
+  color: hsl(var(--warning-foreground) / 0.75);
+}
+.table-instrument tbody tr.table-data-row.table-row-new > td.table-sticky-col:first-child [data-row-menu]:hover {
+  background: hsl(var(--warning-foreground) / 0.14);
+  color: hsl(var(--warning-foreground));
+}
+.table-instrument tbody tr.table-data-row.table-row-new > td.table-sticky-col:first-child [data-row-check]:not([data-state="checked"]) {
+  border-color: hsl(var(--warning-foreground) / 0.6);
+}
+/* Выделенная подсвеченная строка: янтарь остаётся, выделение — кольцом. */
+.table-instrument tbody tr.table-data-row.table-row-new.table-data-row-selected > td.table-sticky-col:first-child::before {
+  box-shadow: inset 0 0 0 2px hsl(var(--primary));
 }
 
 /* Ghost "+ Новая строка" at the bottom of the grid. */
