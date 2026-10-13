@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, Archive, ArchiveRestore, AtSign, Link2, Loader2, Plus, Search, Unlink } from "lucide-react";
+import { AlertTriangle, Archive, ArchiveRestore, AtSign, Link2, Loader2, Pencil, Plus, Search, Unlink } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { adoptScheduleRowByNick } from "@/components/members/NickDialog";
@@ -11,19 +11,33 @@ import {
   addNickOption,
   linkMemberNick,
   memberNickValue,
+  NICK_KIND_META,
   NICK_MAX_LENGTH,
+  renameNickOption,
   setNickOptionInactive,
   type NickKind,
 } from "@/services/memberService";
 import { confirmDialog } from "@/utils/appDialog";
-import { firestoreErrorText } from "@/utils/dbError";
+import { firestoreErrorText, withDbTimeout } from "@/utils/dbError";
 import { cn } from "@/utils/cn";
 import { realNameOf } from "@/utils/displayName";
 import { canHoldNick, nickLockedFor, nickLockReason } from "@/utils/teamGroup";
 import type { StatusOption, WorkspaceMember, WorkspacePage } from "@/types";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { setPageInactive } from "@/services/pageService";
+import { renamePage, setPageInactive } from "@/services/pageService";
 import { worksAsTechnician } from "@/utils/peopleDesks";
+
+/**
+ * Название стола, собранное из ника («Стол ОС · Ник», «Стол Ник» или сам
+ * ник), — с новым ником. null — стол назвали по-своему, его не трогаем.
+ */
+function deskNameAfterRename(name: string, from: string, to: string): string | null {
+  const current = name.trim();
+  for (const prefix of ["Стол ОС · ", "Стол ", ""]) {
+    if (current === `${prefix}${from.trim()}`) return `${prefix}${to}`;
+  }
+  return null;
+}
 
 const LIST_TEXT: Record<NickKind, { title: string; description: string; roleHint: string; bindHint: string; nobody: string }> = {
   os: {
@@ -54,10 +68,10 @@ const LIST_TEXT: Record<NickKind, { title: string; description: string; roleHint
 
 /**
  * Список ников одного вида на «Команде»: кто к какому нику привязан,
- * свободные ники, «Привязать» / «Отвязать» / «В неактуальные». Кто остался
- * без ника — видно в карточке людей раздела, здесь это не дублируется.
- * Привязывают Owner и Тимлид; Тимлид — не себе и не Owner (так же держат
- * правила).
+ * свободные ники, «Привязать» / «Отвязать» / переименовать / «В
+ * неактуальные». Кто остался без ника — видно в карточке людей раздела,
+ * здесь это не дублируется. Привязывают и переименовывают Owner и Тимлид;
+ * Тимлид — не себе и не Owner (так же держат правила).
  */
 export function NickListCard({
   kind,
@@ -88,6 +102,7 @@ export function NickListCard({
   const [busy, setBusy] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [bindOption, setBindOption] = useState<StatusOption | null>(null);
+  const [renameOption, setRenameOption] = useState<StatusOption | null>(null);
   const { allPages } = useWorkspace();
 
   const boundBy = useMemo(() => {
@@ -244,6 +259,65 @@ export function NickListCard({
     }
   }
 
+  /**
+   * Столы держателя, названные по самому нику: название сменится вслед за
+   * ником (у ника ОС — его стол ОС, у остальных — обычные столы).
+   */
+  function desksNamedAfter(option: StatusOption): WorkspacePage[] {
+    const holder = boundBy.get(option.value);
+    if (!holder?.uid) return [];
+    return allPages.filter(
+      (p) =>
+        p.responsibleUserId === holder.uid &&
+        Boolean(p.osDesk) === (kind === "os") &&
+        deskNameAfterRename(p.name, option.label, option.label) !== null
+    );
+  }
+
+  /**
+   * Переименовать ник: подпись в списке и у человека, который его держит, —
+   * одной записью (`renameNickOption`). Столы, названные по нику, следом
+   * переименовывает только Owner: название стола правит он или хозяин стола.
+   * true — записано.
+   */
+  async function rename(option: StatusOption, to: string): Promise<boolean> {
+    const holder = boundBy.get(option.value);
+    const desks = desksNamedAfter(option);
+    try {
+      const saved = await renameNickOption({ workspaceId, kind, value: option.value, label: to });
+      // Подпись в списке та же — значит, чинили копию, отставшую у держателя.
+      const same = saved.label === option.label.trim();
+      const notes: string[] = [];
+      if (holder) notes.push(same ? `${realNameOf(holder)}: подпись теперь как в списке` : `${realNameOf(holder)} теперь под новым ником`);
+      if (desks.length > 0 && viewerIsOwner) {
+        let failed = 0;
+        for (const page of desks) {
+          try {
+            // С потолком ожидания: запись стола без связи не падает, а висит.
+            await withDbTimeout(
+              renamePage(workspaceId, page.id, deskNameAfterRename(page.name, option.label, saved.label) ?? page.name),
+              "Название стола"
+            );
+          } catch {
+            failed++;
+          }
+        }
+        notes.push(failed > 0 ? "название стола сменить не удалось — поправьте его вручную" : desks.length === 1 ? "стол переименован" : `столы переименованы (${desks.length})`);
+      } else if (desks.length > 0) {
+        notes.push(`стол «${desks[0].name}» называется по-старому — его название меняет Owner или хозяин стола`);
+      }
+      toast.success(same ? `Подпись «${saved.label}» обновлена` : `«${option.label}» теперь «${saved.label}»`, {
+        description: notes.join(" · ") || undefined,
+      });
+      // Список освежаем фоном: ник уже записан, и окно ждать этого не должно.
+      void Promise.resolve(onChanged()).catch(() => undefined);
+      return true;
+    } catch (error) {
+      toast.error("Не удалось переименовать ник", { description: firestoreErrorText(error, "База не приняла запись") });
+      return false;
+    }
+  }
+
   function row(option: StatusOption) {
     const owner = boundBy.get(option.value);
     const wrongRole = owner ? !canHoldNick(kind, owner) : false;
@@ -294,6 +368,17 @@ export function NickListCard({
               <Link2 className="h-3.5 w-3.5" /> Привязать
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="min-h-11 px-2 text-muted-foreground sm:h-7 sm:min-h-0"
+            disabled={busy === option.value || locked}
+            title={locked && owner ? nickLockReason(owner, viewerIsOwner) : "Переименовать ник"}
+            aria-label={`Переименовать ник «${option.label}»`}
+            onClick={() => setRenameOption(option)}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -384,7 +469,122 @@ export function NickListCard({
           onSaved={onChanged}
         />
       )}
+      {renameOption && (
+        <RenameNickDialog
+          kind={kind}
+          option={renameOption}
+          options={options}
+          holder={boundBy.get(renameOption.value) ?? null}
+          deskName={viewerIsOwner ? (desksNamedAfter(renameOption)[0]?.name ?? null) : null}
+          onClose={() => setRenameOption(null)}
+          onSubmit={(label) => rename(renameOption, label)}
+        />
+      )}
     </Card>
+  );
+}
+
+/**
+ * Переименовать ник. Меняется только подпись: заказы, столы и счётчики
+ * привязаны к значению варианта и остаются на нём. Подпись, которая уже есть
+ * у другого ника этого списка, не принимается — два одинаковых ника не
+ * отличить ни в выборе, ни в заказах (то же проверяет база). Прежнюю подпись
+ * сохранить можно в одном случае: копия у держателя отстала от списка
+ * (подпись меняли в редакторе вариантов «Ответственный», который участников
+ * не трогает) — тогда «Сохранить» её чинит.
+ */
+function RenameNickDialog({
+  kind,
+  option,
+  options,
+  holder,
+  deskName,
+  onClose,
+  onSubmit,
+}: {
+  kind: NickKind;
+  option: StatusOption;
+  options: StatusOption[];
+  holder: WorkspaceMember | null;
+  /** Стол, названный по нику, — переименуется вместе с ним. */
+  deskName: string | null;
+  onClose: () => void;
+  /** true — записано, окно можно закрыть. */
+  onSubmit: (label: string) => Promise<boolean>;
+}) {
+  const [label, setLabel] = useState(option.label);
+  const [saving, setSaving] = useState(false);
+  const current = option.label.trim();
+  const next = label.trim().slice(0, NICK_MAX_LENGTH);
+  const clash = next ? options.find((o) => o.value !== option.value && o.label.trim().toLowerCase() === next.toLowerCase()) : undefined;
+  const holderLabel = holder ? ((holder[NICK_KIND_META[kind].label] as string | undefined) ?? "").trim() : null;
+  const stale = holderLabel !== null && holderLabel !== current;
+  const blocked = !next || Boolean(clash) || (next === current.slice(0, NICK_MAX_LENGTH) && !stale);
+
+  async function save() {
+    if (blocked || saving) return;
+    setSaving(true);
+    const ok = await onSubmit(next);
+    setSaving(false);
+    if (ok) onClose();
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Переименовать «{option.label}»</DialogTitle>
+          <DialogDescription>
+            Меняется только подпись: заказы, оценки и счётчики привязаны к самому нику и остаются на нём.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save();
+          }}
+        >
+          <Input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            maxLength={NICK_MAX_LENGTH}
+            placeholder="Новый ник"
+            aria-label="Новый ник"
+            aria-invalid={Boolean(clash)}
+            autoComplete="off"
+            autoFocus
+          />
+          {clash ? (
+            <p className="text-[12px] text-destructive" role="alert">
+              Ник «{clash.label}» уже есть в списке{clash.inactive ? " — в неактуальных" : ""}.
+            </p>
+          ) : (
+            <p className="text-[12px] text-muted-foreground">
+              {holder ? `Закреплён за: ${realNameOf(holder)} — он останется на этом нике.` : "Ник свободен — ни за кем не закреплён."}
+              {stale ? ` У него сейчас записано «${holderLabel || "—"}» — «Сохранить» это исправит.` : ""}
+              {deskName ? ` Стол «${deskName}» переименуется вместе с ником.` : ""}
+            </p>
+          )}
+          {kind === "os" && (
+            <p className="text-[12px] text-muted-foreground">
+              Прежняя подпись останется в уже выданных заказах. Ячейки, куда ник вписан текстом (текстовый столбец «ОС»), перестанут
+              считаться заказами этого ОС.
+            </p>
+          )}
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+              Отмена
+            </Button>
+            <Button type="submit" disabled={blocked || saving} className="gap-1.5">
+              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Сохранить
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -37,6 +37,7 @@ import {
   rpcNickAdd,
   rpcNickInactive,
   rpcNickLink,
+  rpcNickRename,
   shadowMemberDelete,
   shadowMemberPatch,
   shadowMemberSet,
@@ -591,9 +592,10 @@ function reviveOption(options: StatusOption[], value: string): StatusOption[] {
 /**
  * Закрепить за участником ник (любого вида) или открепить (`target`
  * null). Тимлид/Owner only: self-service правило участника эти поля не
- * пускает, а Тимлид не может поставить ник сам себе. Варианты в списке
- * никогда не переименовываются и не удаляются: на нике могут висеть месяцы
- * заказов. Возвращает value закреплённого варианта.
+ * пускает, а Тимлид не может поставить ник сам себе. Варианты из списка не
+ * удаляются: на нике могут висеть месяцы заказов (подпись меняет отдельная
+ * `renameNickOption`, значение при этом прежнее). Возвращает value
+ * закреплённого варианта.
  *
  * «Ник уже у другого» проверяется по списку участников на клиенте — правила
  * уникальность не держат (как и у ников ОС).
@@ -718,6 +720,88 @@ export async function setNickOptionInactive(input: {
       : reviveOption(options, input.value);
     tx.set(workspaceRef, { [meta.list]: next }, { merge: true });
   }), "Неактуальный ник");
+}
+
+/**
+ * Отказ функции ника — её собственным текстом: он по-русски и по делу («Ник
+ * «…» уже есть в списке»), а общий перевод по коду дал бы «База не приняла
+ * запись (23505)». Нет самой функции — SQL ещё не накатан.
+ */
+function nickRpcError(error: unknown): unknown {
+  const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+  if (code === "PGRST202" || code === "42883") {
+    return new Error("Переименование ников ещё не включено в базе — попробуйте после обновления сайта", { cause: error });
+  }
+  const message = error instanceof Error ? error.message : "";
+  if (["23505", "P0002", "22023", "42501"].includes(code) && /[а-яё]/i.test(message) && !message.startsWith("core_nick_")) {
+    return new Error(message, { cause: error });
+  }
+  return error;
+}
+
+/**
+ * Переименовать ник (просьба Nurba 13.10.2026; только Owner и Тимлид — на
+ * «Команде»). Меняется ТОЛЬКО подпись: значение варианта прежнее, поэтому
+ * заказы, столы, счётчики и оценки остаются на этом нике. Подпись лежит в
+ * двух местах — в списке workspace и копией на участнике, который ник держит
+ * (по ней человека подписывают везде, `workNickOf`), — и пишется в оба разом.
+ * Ник человека, чей ник спрашивающему трогать не положено (свой у Тимлида,
+ * ник Owner), не переименовывается: это держат и функция, и правила members.
+ * Возвращает записанную подпись и тех, у кого сменилась её копия.
+ */
+export async function renameNickOption(input: {
+  workspaceId: string;
+  kind: NickKind;
+  value: string;
+  label: string;
+}): Promise<{ label: string; uids: string[] }> {
+  if (!db) throw new Error("Firebase не настроен");
+  const meta = NICK_KIND_META[input.kind];
+  const label = input.label.trim().slice(0, NICK_MAX_LENGTH);
+  if (!label) throw new Error("Введите ник");
+  if (membersOnSupabase(input.workspaceId)) {
+    // Список, занятость подписи и копии на участниках — одной транзакцией в базе.
+    const result = await withDbTimeout(rpcNickRename(input.workspaceId, input.kind, input.value, label), "Переименование ника").catch(
+      (error: unknown) => {
+        throw nickRpcError(error);
+      }
+    );
+    const saved = typeof result?.label === "string" && result.label ? result.label : label;
+    const uids = Array.isArray(result?.uids) ? result.uids.filter((uid): uid is string => typeof uid === "string") : [];
+    // Тени в Firestore — фоном: запись уже в базе, а `setDoc` без связи не
+    // падает, а висит (окно осталось бы в «сохраняю…»). Отказ тень глотает
+    // сама, выровняет её сверка Owner (`reconcileMemberShadows`).
+    for (const uid of uids) void shadowMemberPatch(input.workspaceId, uid, { [meta.label]: saved });
+    return { label: saved, uids };
+  }
+  const firestore = db;
+  const workspaceRef = paths.workspace(input.workspaceId);
+  // Кто держит ник — свежим запросом к серверу (как `assertNickFree`): список
+  // участников в браузере не живой, и закреплённый минуту назад ник остался
+  // бы со старой подписью.
+  const holders = await withDbTimeout(
+    getDocsFromServer(query(paths.members(input.workspaceId), where(meta.value, "==", input.value))),
+    "Переименование ника"
+  );
+  return withDbTimeout(runTransaction(firestore, async (tx) => {
+    const snap = await tx.get(workspaceRef);
+    const options = nickOptionsOf(snap.data() as Partial<Workspace> | undefined, input.kind);
+    if (!options.some((o) => o.value === input.value)) throw new Error("Этого ника уже нет в списке");
+    if (options.some((o) => o.value !== input.value && o.label.trim().toLowerCase() === label.toLowerCase())) {
+      throw new Error(`Ник «${label}» уже есть в списке`);
+    }
+    // Все чтения транзакции — до записей.
+    const fresh = await Promise.all(holders.docs.map((d) => tx.get(d.ref)));
+    const uids: string[] = [];
+    tx.set(workspaceRef, { [meta.list]: options.map((o) => (o.value === input.value ? { ...o, label } : o)) }, { merge: true });
+    for (const memberSnap of fresh) {
+      const member = memberSnap.data() as WorkspaceMember | undefined;
+      if (!member || member[meta.value] !== input.value) continue;
+      tx.set(memberSnap.ref, { [meta.label]: label }, { merge: true });
+      if (member.uid) uids.push(member.uid);
+    }
+    return { label, uids };
+  }), "Переименование ника");
 }
 
 /**
