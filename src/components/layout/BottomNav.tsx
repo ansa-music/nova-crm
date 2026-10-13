@@ -2,9 +2,11 @@ import { memo, useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router";
 import { ClipboardList, Menu } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 import { bottomBarSlot, isHomeActive, useNavModel } from "@/hooks/useNavModel";
-import { pathMatches } from "@/config/nav";
+import { DESKS_ITEM_KEY, pathMatches, pathOnly } from "@/config/nav";
 import { preloadRoute } from "@/config/pageLoaders";
+import { osDeskId } from "@/services/osDeskService";
 import { cn } from "@/utils/cn";
 
 /**
@@ -109,12 +111,20 @@ export const BottomNav = memo(function BottomNav({
   onMore: () => void;
 }) {
   const { pathname } = useLocation();
+  const { profile } = useAuth();
   const nav = useNavModel();
   const home = nav.home;
-  const homeActive = isHomeActive(pathname, home);
+  // Своего стола нет — дом это «Столы»: открытый оттуда стол тоже «дома»
+  // (слот «Столы» у такого человека занят «Дашбордом», и горело бы «Ещё»).
+  const homeActive = isHomeActive(pathname, home) || (pathOnly(home.to) === "/desks" && pathname.startsWith("/page/"));
   const orders = nav.items.find((i) => i.key === "orders");
   const slot = bottomBarSlot(nav);
-  const slotActive = pathMatches(pathname, slot.to) && !homeActive;
+  // У ОС «/os-desk» сразу уводит на сам стол — `/page/osdesk_{uid}`: кнопка
+  // «Стол ОС» горит и там (раньше на своём столе у ОС горело «Ещё»).
+  const onMyOsDesk = slot.key === "os-desk" && Boolean(profile?.uid && pathname === `/page/${osDeskId(profile.uid)}`);
+  // Чужой стол открывают из «Столов» — там и горит (раньше горело «Ещё»).
+  const onOtherDesk = slot.key === DESKS_ITEM_KEY && pathname.startsWith("/page/");
+  const slotActive = (pathMatches(pathname, slot.to) || onMyOsDesk || onOtherDesk) && !homeActive;
   const moreActive = !homeActive && !slotActive && !pathMatches(pathname, "/orders");
   // «NOVA Studio»: у менеджера на месте второй кнопки Telegram — его
   // непрочитанное стоит на ней, а не на «Ещё» (лист «Ещё» этот пункт прячет).

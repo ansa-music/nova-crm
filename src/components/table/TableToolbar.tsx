@@ -522,15 +522,15 @@ export function TableToolbar({
       )}
 
       {/* Канбану нужен столбец-статус, таблице и карточкам — нет. На телефоне
-          сегмент видов нужен под пальцем, на десктопе он в «⋯». Активный вид —
-          акцентной подложкой, а не variant="secondary": тот теперь bg-muted и на
-          чёрном почти не отличим от ghost. */}
+          сегмент видов нужен под пальцем (кнопки 40×36, были 34×28), на десктопе
+          он в «⋯». Активный вид — акцентной подложкой, а не variant="secondary":
+          тот теперь bg-muted и на чёрном почти не отличим от ghost. */}
       <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border p-0.5 sm:hidden">
         <Button
           variant="ghost"
           size="sm"
           aria-pressed={viewMode === "table"}
-          className={cn("h-7 min-w-0 gap-1.5 rounded-sm px-2.5", viewMode === "table" && SEGMENT_ACTIVE)}
+          className={cn("h-9 min-w-10 gap-1.5 rounded-sm px-2.5", viewMode === "table" && SEGMENT_ACTIVE)}
           onClick={() => onViewModeChange("table")}
           title="Таблица"
         >
@@ -540,7 +540,7 @@ export function TableToolbar({
           variant="ghost"
           size="sm"
           aria-pressed={viewMode === "cards"}
-          className={cn("h-7 min-w-0 gap-1.5 rounded-sm px-2.5", viewMode === "cards" && SEGMENT_ACTIVE)}
+          className={cn("h-9 min-w-10 gap-1.5 rounded-sm px-2.5", viewMode === "cards" && SEGMENT_ACTIVE)}
           onClick={() => onViewModeChange("cards")}
           title="Карточки"
         >
@@ -551,7 +551,7 @@ export function TableToolbar({
             variant="ghost"
             size="sm"
             aria-pressed={viewMode === "kanban"}
-            className={cn("h-7 min-w-0 gap-1.5 rounded-sm px-2.5", viewMode === "kanban" && SEGMENT_ACTIVE)}
+            className={cn("h-9 min-w-10 gap-1.5 rounded-sm px-2.5", viewMode === "kanban" && SEGMENT_ACTIVE)}
             onClick={() => onViewModeChange("kanban")}
             title="Канбан"
           >

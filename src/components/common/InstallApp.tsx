@@ -137,6 +137,10 @@ export function InstallAppBanner() {
   if (!mobile && mode !== "prompt") return null;
   // На «Заказах» у iPhone своя плашка «установите приложение» — не дублируем.
   if (isIos() && pathname.startsWith("/orders")) return null;
+  // Стол на телефоне — рабочий экран: каждая полоса над списком отнимает заказ.
+  // Здесь плашки нет; она остаётся на остальных экранах и пунктом в «Ещё».
+  // Ровно «/os-desk» (переход на свой стол ОС), не «/os-desks» — там список.
+  if (mobile && (pathname.startsWith("/page/") || pathname === "/os-desk")) return null;
 
   const hide = () => {
     setHidden(true);

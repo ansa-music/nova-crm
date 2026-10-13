@@ -205,6 +205,16 @@ export function periodShortLabel(key: string, settings: PeriodSettings = DEFAULT
   return `${range.dayFrom}–${range.dayTo} ${MONTHS_SHORT[range.monthIndex]}`;
 }
 
+/**
+ * «Окт» / «1–15 окт» — подпись сегмента на телефоне: три месяца и «···»
+ * помещаются в одну строку с кнопками шапки стола.
+ */
+export function periodCompactLabel(key: string, settings: PeriodSettings = DEFAULT_PERIODS): string {
+  if (!PERIOD_RE.test(key)) return key;
+  if (key.length !== 7) return periodShortLabel(key, settings);
+  return MONTHS_NOM[periodRange(key, settings).monthIndex].slice(0, 3);
+}
+
 /** «месяц» / «период» — для подписей вроде «за этот период». */
 export function periodNoun(key: string): "месяц" | "период" {
   return key.length === 9 ? "период" : "месяц";

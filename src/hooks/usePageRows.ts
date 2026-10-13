@@ -116,6 +116,26 @@ export function useSyncedTableRows(
     let accessTimer: number | null = null;
     /** Подряд не ответившие проверки доступа — со второй говорим человеку. */
     let accessFailures = 0;
+    /**
+     * Вопрос о доступе ещё открыт: показана плашка «права не доехали» / «доступ
+     * закрыт» либо проверку отложили, потому что вкладка была свёрнута. Только
+     * тогда (и у опустевшего стола — `emptyServer` ниже) возврат на вкладку
+     * проверяет доступ. Без этого флага проверка шла
+     * при КАЖДОМ возврате, и её «читать можно» перечитывало стол заново:
+     * таблица размонтировалась, карточка заказа закрывалась, прокрутка
+     * сбрасывалась — на телефоне так кончалось каждое переключение в мессенджер
+     * и обратно. В режиме Firestore та же проверка ошибочно зажигала плашку.
+     */
+    let accessWanted = false;
+    /**
+     * Последний снимок С СЕРВЕРА у подтверждённого стола пуст. Пустота — это и
+     * «строки удалили», и «право читать пропало» (копия прав в Supabase
+     * разошлась с документом стола): RLS отказ не называет. Такой стол
+     * сверяется в момент, когда опустел, и при возврате на вкладку. «Читать
+     * можно» ничего не меняет (подтверждённый стол не перечитывается), «нельзя»
+     * — плашка и опрос, как у стола без доехавших прав.
+     */
+    let emptyServer = false;
 
     // Пока плашка «права не доехали» — перепроверяем раз в 15 с (Supabase
     // такие запросы не тарифицирует): запись прав событием строк не приходит,
@@ -132,21 +152,34 @@ export function useSyncedTableRows(
     };
     const checkAccess = () => {
       if (cancelled || accessChecking) return;
-      if (document.visibilityState === "hidden") return; // вернутся — проверим
+      if (document.visibilityState === "hidden") {
+        accessWanted = true; // вернутся — проверим
+        return;
+      }
       accessChecking = true;
       void sbPageAccess(workspaceId, pageId)
         .then((access) => {
           if (cancelled) return;
           accessFailures = 0;
           diag("rows:access", `read=${access.canRead} acl=${access.hasAcl}`);
+          accessWanted = !access.canRead;
           if (access.canRead) {
+            const wasConfirmed = accessConfirmed;
             accessConfirmed = true;
             confirmedKey.current = key;
             setAccessPending(false);
             setAccessDenied(false);
-            setReloadNonce((n) => n + 1); // перечитать уже с подтверждёнными правами
+            // Перечитываем, только когда право подтвердилось впервые: выборка
+            // могла пройти ещё по старым правам. У подтверждённого стола это
+            // сверка пустоты — перечитка размонтировала бы таблицу зря.
+            if (!wasConfirmed) setReloadNonce((n) => n + 1);
             return;
           }
+          // Право читать пропало у подтверждённого стола: его пустота больше не
+          // «строк нет». Подтверждение снимаем — вернутся права, стол перечитается.
+          accessConfirmed = false;
+          if (confirmedKey.current === key) confirmedKey.current = "";
+          setServerSynced(false);
           // Запись о правах стола есть, а человека в ней нет — это отказ, а
           // не «не доехало»: ждать нечего, нужно просить доступ.
           setAccessDenied(access.hasAcl);
@@ -155,6 +188,7 @@ export function useSyncedTableRows(
         })
         .catch((error) => {
           if (cancelled) return;
+          accessWanted = true;
           accessFailures += 1;
           // Первый промах молчим (бывает кочка в сети), со второго — говорим:
           // иначе стол стоит пустым и непонятно, ждать или звать на помощь.
@@ -194,6 +228,11 @@ export function useSyncedTableRows(
       }
       setReadError(null);
       setServerSynced(fromServer);
+      // Подтверждённый стол опустел (или открылся пустым) — одна сверка доступа
+      // на каждое «стало пусто»; до сюда доходит только подтверждённый.
+      const wasEmpty = emptyServer;
+      emptyServer = backend === "supabase" && fromServer && data.length === 0;
+      if (emptyServer && !wasEmpty) checkAccess();
     };
     // Ошибка чтения — таблица остаётся «загружается» (хранилище повторит само),
     // а НЕ показывает строки прошлой вкладки как строки этой: правка такой
@@ -207,7 +246,7 @@ export function useSyncedTableRows(
     };
 
     const onVisible = () => {
-      if (document.visibilityState === "visible") checkAccess();
+      if (document.visibilityState === "visible" && (accessWanted || emptyServer)) checkAccess();
     };
     document.addEventListener("visibilitychange", onVisible);
 

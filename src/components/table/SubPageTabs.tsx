@@ -65,7 +65,8 @@ import {
   reorderSubPages,
 } from "@/services/subPageService";
 import { ensureMonthTabForKey, findMonthTab } from "@/services/monthTabService";
-import { nextPeriodKey, periodShortLabel, previousPeriodKey, type PeriodSettings } from "@/utils/periods";
+import { nextPeriodKey, periodCompactLabel, periodShortLabel, previousPeriodKey, type PeriodSettings } from "@/utils/periods";
+import { useIsMobile } from "@/hooks/useMediaQuery";
 import { setDefaultSubPage } from "@/services/pageService";
 import { snapshotSubPage, restoreSubPageSnapshot } from "@/services/pageSnapshotService";
 import { pushUndoCommand, undo } from "@/utils/undoStore";
@@ -328,6 +329,8 @@ export function SubPageTabs({
   // Сегмент «прошлый | текущий | следующий»: ключи от текущего месяца по
   // Алматы, вкладки — по id month-YYYY-MM, sub.monthKey или имени. У стола
   // ОС главная вкладка сама названа месяцем — тогда сегмент ведёт на неё.
+  // Телефон: сегмент стоит в одной строке с кнопками шапки — месяцы тремя буквами.
+  const compact = useIsMobile();
   const segmentKeys: Array<[string, MonthSegment["slot"]]> = [
     [previousPeriodKey(monthKey, periods), "prev"],
     [monthKey, "current"],
@@ -339,7 +342,8 @@ export function SubPageTabs({
     // живой кнопкой на скрытую вкладку. Архивные живут в списке «Архив»;
     // сегмент считает месяц пустым, и «следующий» её восстановит.
     const found = isMain ? null : findMonthTab(subPages, key);
-    return { key, slot, label: periodShortLabel(key, periods), isMain, tab: found && !found.isArchived ? found : null };
+    const label = compact ? periodCompactLabel(key, periods) : periodShortLabel(key, periods);
+    return { key, slot, label, isMain, tab: found && !found.isArchived ? found : null };
   });
   const segmentTabIds = new Set(segments.flatMap((s) => (s.tab ? [s.tab.id] : [])));
   const mainInSegment = segments.some((s) => s.isMain);

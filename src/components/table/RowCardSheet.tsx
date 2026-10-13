@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Archive, CalendarDays, CheckCheck, ChevronLeft, ChevronRight, Copy, Lightbulb, LightbulbOff, Trash2, X } from "lucide-react";
+import { Archive, CalendarDays, CheckCheck, ChevronLeft, ChevronRight, Copy, Lightbulb, LightbulbOff, MoreHorizontal, Trash2, X } from "lucide-react";
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { ClientCardSection } from "@/components/table/ClientCardSection";
 import { splitOptionsByActivity } from "@/utils/columnOptions";
 import { DiskLinkChip } from "@/components/table/DiskLinkChip";
 import { DateCalendar } from "@/components/table/DateCalendar";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatCurrencyCell, formatNumber } from "@/utils/format";
@@ -129,6 +130,38 @@ export function RowCardSheet({
   // флагом: полей с вариантами в карточке несколько, и раскрытие одного
   // не должно раскрывать остальные.
   const [inactiveOpenKey, setInactiveOpenKey] = useState<string | null>(null);
+  /**
+   * Разделы карточки для чипов-переходов (телефон). Карточка ОС — это
+   * «Визитка», «Выдача», «Касса» и «Поля» на 1800 px прокрутки: до «Кассы»
+   * приходилось листать три экрана. Раздел помечает себя сам
+   * (`data-card-section="Имя"`), карточка только собирает метки из своей
+   * прокрутки — панели стола ОС и технаря приходят готовыми узлами.
+   */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [sections, setSections] = useState<string[]>([]);
+  const rowId = row?.id ?? null;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!open || !el) {
+      setSections([]);
+      return;
+    }
+    const read = () => {
+      const names = [...el.querySelectorAll<HTMLElement>("[data-card-section]")].map((n) => n.dataset.cardSection ?? "").filter(Boolean);
+      setSections((prev) => (prev.join("|") === names.join("|") ? prev : names));
+    };
+    read();
+    const observer = new MutationObserver(read);
+    observer.observe(el, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [open, rowId]);
+
+  function jumpTo(name: string) {
+    const el = scrollRef.current;
+    const target = el ? [...el.querySelectorAll<HTMLElement>("[data-card-section]")].find((n) => n.dataset.cardSection === name) : null;
+    if (!el || !target) return;
+    el.scrollTo({ top: target.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 8, behavior: "smooth" });
+  }
 
   useEffect(() => {
     if (!open) {
@@ -207,6 +240,9 @@ export function RowCardSheet({
   const identityKeys = new Set([titleCol?.key, statusCol?.key, responsibleCol?.key].filter(Boolean) as string[]);
   const rest = columns.filter((c) => !identityKeys.has(c.key) && !hiddenFieldKeys?.includes(c.key));
   const isDone = isDoneStatusLabel(statusLabel);
+  const hasActions = editableRow && Boolean(onMarkDone || onDuplicate || onDelete || onToggleHighlight);
+  const canMarkDone = hasActions && Boolean(onMarkDone && statusCol) && !isDone;
+  const canToggleHighlight = Boolean(onToggleHighlight) && Boolean(record?.highlight || canHighlight);
 
   function commitDraft(col: PageColumn) {
     if (!record || !onCellChange) return;
@@ -299,7 +335,7 @@ export function RowCardSheet({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-sm hover:bg-accent"
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-sm hover:bg-accent [@media(pointer:coarse)]:h-11"
             >
               <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
               <span className={cn("tabular", !text && "text-muted-foreground")}>{text || "Выбрать дату"}</span>
@@ -342,7 +378,7 @@ export function RowCardSheet({
           }
         },
         className: cn(
-          "w-full rounded-lg border border-primary bg-background px-3 py-1.5 text-sm outline-none shadow-[0_0_8px_hsl(var(--primary)/0.35)]",
+          "w-full rounded-lg border border-primary bg-background px-3 py-1.5 text-sm outline-none shadow-[0_0_8px_hsl(var(--primary)/0.35)] [@media(pointer:coarse)]:py-2.5",
           isNumeric && "text-right tabular-nums"
         ),
       };
@@ -405,19 +441,21 @@ export function RowCardSheet({
             exit={{ opacity: 0 }}
             onClick={() => onOpenChange(false)}
           />
-          <div className="nova-vv-fit pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+          {/* Телефон — карточка на весь экран: с полями по краям сверху и снизу
+              торчал каркас стола, а прокрутке оставалось 420 px из 812. */}
+          <div className="nova-vv-fit pointer-events-none fixed inset-0 z-50 flex items-center justify-center sm:p-4">
             <motion.div
               key={record.id}
               layoutId={rowCardLayoutId(record.id)}
               role="dialog"
               aria-modal="true"
-              className="nova-vv-card hud-frame glass-float pointer-events-auto flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-md"
+              className="nova-vv-card hud-frame glass-float pointer-events-auto flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-md max-sm:h-full max-sm:max-h-none max-sm:rounded-none max-sm:border-0"
               transition={{ type: "spring", stiffness: 400, damping: 30 }}
             >
-              <div className={cn("border-b border-white/10 px-5 py-5 text-left sm:px-6", headerTint)}>
+              <div className={cn("shrink-0 border-b border-white/10 px-4 py-3 text-left sm:px-6 sm:py-5", headerTint)}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="eyebrow mb-2 flex items-center gap-2 text-primary">
+                    <p className="eyebrow mb-1 flex items-center gap-2 text-primary sm:mb-2">
                       Карточка клиента
                       {position && (
                         <span className="rounded-full bg-primary/12 px-1.5 py-0.5 font-mono text-[10px] tabular text-primary">
@@ -434,7 +472,7 @@ export function RowCardSheet({
                       <div className="mt-1">{renderValue(titleCol)}</div>
                     ) : (
                       <h2
-                        className={cn("hero break-words text-[1.4rem] sm:text-[1.55rem]", titleCol && canEditCell(titleCol) && "cursor-text rounded-md hover:bg-primary/8")}
+                        className={cn("hero break-words text-[1.25rem] sm:text-[1.55rem]", titleCol && canEditCell(titleCol) && "cursor-text rounded-md hover:bg-primary/8")}
                         onClick={() => titleCol && beginEdit(titleCol)}
                         title={titleCol && canEditCell(titleCol) ? "Нажмите, чтобы изменить" : undefined}
                       >
@@ -456,17 +494,19 @@ export function RowCardSheet({
                     <button
                       type="button"
                       onClick={() => onOpenChange(false)}
-                      className="rounded-md p-2 text-muted-foreground transition-opacity hover:text-foreground"
+                      className="flex items-center justify-center rounded-md p-2 text-muted-foreground transition-opacity hover:text-foreground [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
                     >
                       <X className="h-4 w-4" />
                       <span className="sr-only">Закрыть</span>
                     </button>
                   </div>
                 </div>
-                <div className="mt-4 flex flex-wrap items-center gap-3">
+                <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 sm:mt-4">
                   {statusCol && (
                     <div className="flex items-center gap-2">
-                      <span className="eyebrow">{statusCol.label}</span>
+                      {/* На телефоне подпись не нужна: статус узнаётся по точке и
+                          слову, а с подписью «Статус» и «ОС» не помещались в строку. */}
+                      <span className="eyebrow max-sm:hidden">{statusCol.label}</span>
                       {renderValue(statusCol, { inline: true })}
                     </div>
                   )}
@@ -478,7 +518,21 @@ export function RowCardSheet({
                   )}
                 </div>
               </div>
-              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-4 scrollbar-thin sm:px-6">
+              {sections.length > 1 && (
+                <div data-card-jump className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-white/10 px-4 py-2 sm:hidden">
+                  {sections.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => jumpTo(name)}
+                      className="inline-flex h-9 shrink-0 items-center rounded-full border border-border px-3 text-[13px] font-medium text-muted-foreground active:bg-primary/12 active:text-primary"
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 py-3 scrollbar-thin sm:px-6 sm:py-4">
                 {/* Визитка — первой: ради неё карточку и открывают (что просил
                     клиент), поля таблицы ниже. */}
                 {clientCard ? (
@@ -496,7 +550,7 @@ export function RowCardSheet({
                 ) : null}
                 {extraPanel ? <div className="mb-4">{extraPanel}</div> : null}
                 {rest.length > 0 && (
-                  <div>
+                  <div data-card-section="Поля">
                     <p className="eyebrow mb-2">Поля</p>
                     <div className="flex flex-col">
                       {rest.map((col) => {
@@ -525,11 +579,11 @@ export function RowCardSheet({
                             }
                             title={rowEditable ? "Нажмите, чтобы изменить" : undefined}
                             className={cn(
-                              "flex items-start justify-between gap-4 border-t border-border/50 py-2.5",
+                              "flex items-start justify-between gap-4 border-t border-border/50 py-2.5 [@media(pointer:coarse)]:min-h-12 [@media(pointer:coarse)]:items-center",
                               rowEditable && "-mx-2 cursor-text rounded-md px-2 transition-colors hover:bg-primary/[0.06] focus-visible:bg-primary/[0.06] focus-visible:outline-none"
                             )}
                           >
-                            <p className="shrink-0 pt-1 text-[12px] text-muted-foreground">{col.label}</p>
+                            <p className="shrink-0 pt-1 text-[12px] text-muted-foreground [@media(pointer:coarse)]:pt-0 [@media(pointer:coarse)]:text-[13px]">{col.label}</p>
                             <div className="min-w-0 max-w-[70%] text-right">{renderValue(col)}</div>
                           </div>
                         );
@@ -542,45 +596,102 @@ export function RowCardSheet({
                   {record.updatedAt && record.updatedAt !== record.createdAt ? ` · изменено ${formatDate(record.updatedAt)}` : ""}
                 </p>
               </div>
-              {editableRow && (onMarkDone || onDuplicate || onDelete || onToggleHighlight) && (
-                <div className="flex flex-wrap items-center gap-2 border-t border-white/10 px-5 py-3 sm:px-6">
-                  {onMarkDone && statusCol && !isDone && (
-                    <Button variant="outline" size="sm" className="h-8 gap-1.5 text-success hover:text-success" onClick={() => onMarkDone(record.id)}>
-                      <CheckCheck className="h-3.5 w-3.5" /> Отметить «Готово»
-                    </Button>
-                  )}
-                  {onDuplicate && (
-                    <Button variant="ghost" size="sm" className="h-8 gap-1.5" onClick={() => onDuplicate(record.id)}>
-                      <Copy className="h-3.5 w-3.5" /> Дублировать
-                    </Button>
-                  )}
-                  {onToggleHighlight && (record.highlight || canHighlight) && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={cn("h-8 gap-1.5", record.highlight && "text-warning hover:text-warning")}
-                      onClick={() => onToggleHighlight(record.id)}
-                    >
-                      {record.highlight ? <LightbulbOff className="h-3.5 w-3.5" /> : <Lightbulb className="h-3.5 w-3.5" />}
-                      {record.highlight ? "Снять подсветку" : "Подсветить как новый"}
-                    </Button>
-                  )}
-                  <div className="flex-1" />
-                  {onDelete && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 gap-1.5 text-destructive hover:text-destructive"
-                      onClick={() => {
-                        onDelete(record.id);
-                        onOpenChange(false);
-                      }}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" /> Удалить
-                    </Button>
-                  )}
-                </div>
-              )}
+              {/* Подвал. Компьютер — как был: действия в ряд, есть только у того,
+                  кто правит. Телефон — всегда: «Закрыть» под большим пальцем
+                  (крестик наверху экрана), главное действие во всю ширину и
+                  остальное в «⋯» — четыре кнопки в два ряда съедали 100 px. */}
+              <div
+                className={cn(
+                  "flex shrink-0 flex-wrap items-center gap-2 border-t border-white/10 px-4 py-3 max-sm:flex-nowrap max-sm:pb-[max(env(safe-area-inset-bottom),0.75rem)] sm:px-6",
+                  !hasActions && "sm:hidden"
+                )}
+              >
+                <Button variant="outline" className={cn("h-11 shrink-0 px-4 sm:hidden", !canMarkDone && "flex-1")} onClick={() => onOpenChange(false)}>
+                  Закрыть
+                </Button>
+                {canMarkDone && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5 text-success hover:text-success max-sm:h-11 max-sm:min-w-0 max-sm:flex-1"
+                    onClick={() => onMarkDone?.(record.id)}
+                  >
+                    <CheckCheck className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">Отметить «Готово»</span>
+                  </Button>
+                )}
+                {hasActions && (
+                  <div className="hidden sm:contents">
+                    {onDuplicate && (
+                      <Button variant="ghost" size="sm" className="h-8 gap-1.5" onClick={() => onDuplicate(record.id)}>
+                        <Copy className="h-3.5 w-3.5" /> Дублировать
+                      </Button>
+                    )}
+                    {canToggleHighlight && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={cn("h-8 gap-1.5", record.highlight && "text-warning hover:text-warning")}
+                        onClick={() => onToggleHighlight?.(record.id)}
+                      >
+                        {record.highlight ? <LightbulbOff className="h-3.5 w-3.5" /> : <Lightbulb className="h-3.5 w-3.5" />}
+                        {record.highlight ? "Снять подсветку" : "Подсветить как новый"}
+                      </Button>
+                    )}
+                    <div className="flex-1" />
+                    {onDelete && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 gap-1.5 text-destructive hover:text-destructive"
+                        onClick={() => {
+                          onDelete(record.id);
+                          onOpenChange(false);
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Удалить
+                      </Button>
+                    )}
+                  </div>
+                )}
+                {hasActions && (onDuplicate || canToggleHighlight || onDelete) && (
+                  <div className="ml-auto sm:hidden">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="icon" className="h-11 w-11" aria-label="Ещё действия">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" side="top">
+                        {onDuplicate && (
+                          <DropdownMenuItem className="min-h-11" onClick={() => onDuplicate(record.id)}>
+                            <Copy className="h-4 w-4" /> Дублировать
+                          </DropdownMenuItem>
+                        )}
+                        {canToggleHighlight && (
+                          <DropdownMenuItem className="min-h-11" onClick={() => onToggleHighlight?.(record.id)}>
+                            {record.highlight ? <LightbulbOff className="h-4 w-4" /> : <Lightbulb className="h-4 w-4" />}
+                            {record.highlight ? "Снять подсветку" : "Подсветить как новый"}
+                          </DropdownMenuItem>
+                        )}
+                        {onDelete && (
+                          <>
+                            {(onDuplicate || canToggleHighlight) && <DropdownMenuSeparator />}
+                            <DropdownMenuItem
+                              className="min-h-11 text-destructive focus:text-destructive"
+                              onClick={() => {
+                                onDelete(record.id);
+                                onOpenChange(false);
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" /> Удалить
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                )}
+              </div>
             </motion.div>
           </div>
         </>

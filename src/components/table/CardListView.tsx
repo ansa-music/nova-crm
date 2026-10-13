@@ -87,8 +87,11 @@ export function CardListView({ columns, rows, canEdit, onOpenRow, onAddOrder, re
   }, [orders, fields.currency]);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-background p-3 pb-[max(env(safe-area-inset-bottom,0px),12px)] scrollbar-thin">
-      <div className="mb-2 flex items-center justify-between gap-2 px-1 text-xs text-muted-foreground">
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-background p-3 pb-[max(env(safe-area-inset-bottom,0px),12px)] scrollbar-thin max-sm:pb-20">
+      {/* На телефоне число заказов и сумму уже показывает полоса итогов под
+          списком — вторая такая строка над ним только отнимала место. Без суммы
+          (нет денежного столбца) полосы итогов нет, и строка остаётся. */}
+      <div className={cn("mb-2 flex items-center justify-between gap-2 px-1 text-xs text-muted-foreground", total !== null && "max-sm:hidden")}>
         <span>
           {orders.length} {orders.length === 1 ? "заказ" : "заказов"}
         </span>

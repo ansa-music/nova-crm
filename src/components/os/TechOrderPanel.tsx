@@ -260,7 +260,7 @@ export function TechOrderPanel({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted/30 p-3">
+    <div data-card-section="Заказ ОС" className="flex flex-col gap-3 rounded-xl border border-border bg-muted/30 p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-medium">Заказ ведёт ОС</span>
         {/* С живым списком просьб состояние видно ниже («Запрос у ОС»), а
@@ -285,7 +285,7 @@ export function TechOrderPanel({
           onBlur={() => link !== String(row.cells[TECH_LINK_KEY] ?? "") && void save({ [TECH_LINK_KEY]: link })}
           placeholder="https://…"
           disabled={!canWrite || busy}
-          className="h-9"
+          className="h-9 [@media(pointer:coarse)]:h-11"
         />
       </label>
 
@@ -297,7 +297,7 @@ export function TechOrderPanel({
           onBlur={() => note !== String(row.cells[TECH_NOTE_KEY] ?? "") && void save({ [TECH_NOTE_KEY]: note })}
           placeholder="Что важно знать по заказу"
           disabled={!canWrite || busy}
-          className="h-9"
+          className="h-9 [@media(pointer:coarse)]:h-11"
         />
       </label>
 
@@ -317,7 +317,7 @@ export function TechOrderPanel({
             <Button
               size="sm"
               variant="outline"
-              className="min-h-9"
+              className="min-h-9 [@media(pointer:coarse)]:min-h-11"
               onClick={() => void askSuccess()}
               disabled={busy || requested}
             >
@@ -328,12 +328,12 @@ export function TechOrderPanel({
           {canRequest && !pending && !draftKind ? (
             <>
               {onAskStatus || live ? null : (
-                <Button size="sm" variant="outline" className="min-h-9" disabled={busy} onClick={() => setDraftKind("status")}>
+                <Button size="sm" variant="outline" className="min-h-9 [@media(pointer:coarse)]:min-h-11" disabled={busy} onClick={() => setDraftKind("status")}>
                   <Workflow className="h-4 w-4" />
                   Попросить статус…
                 </Button>
               )}
-              <Button size="sm" variant="outline" className="min-h-9" disabled={busy} onClick={() => setDraftKind("delete")}>
+              <Button size="sm" variant="outline" className="min-h-9 [@media(pointer:coarse)]:min-h-11" disabled={busy} onClick={() => setDraftKind("delete")}>
                 <Trash2 className="h-4 w-4" />
                 Попросить удалить
               </Button>
@@ -346,7 +346,7 @@ export function TechOrderPanel({
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs">
           <span className="font-medium text-warning">Запрос у ОС: {requestText(pending)}</span>
           {pending.note ? <span className="text-muted-foreground">· {pending.note}</span> : null}
-          <Button size="sm" variant="ghost" className="ml-auto h-8 gap-1" disabled={busy} onClick={() => void withdraw()}>
+          <Button size="sm" variant="ghost" className="ml-auto h-8 gap-1 [@media(pointer:coarse)]:h-10" disabled={busy} onClick={() => void withdraw()}>
             <Undo2 className="h-3.5 w-3.5" /> Отозвать
           </Button>
         </div>
@@ -364,7 +364,7 @@ export function TechOrderPanel({
           </span>
           {draftKind === "status" ? (
             <Select value={draftStatus} onValueChange={setDraftStatus}>
-              <SelectTrigger className="h-9 w-full sm:w-[220px]">
+              <SelectTrigger className="h-9 w-full sm:w-[220px] [@media(pointer:coarse)]:h-11">
                 <SelectValue placeholder="Какой статус" />
               </SelectTrigger>
               <SelectContent>
@@ -381,14 +381,14 @@ export function TechOrderPanel({
             maxLength={ORDER_REQUEST_NOTE_MAX}
             onChange={(e) => setDraftNote(e.target.value)}
             placeholder={draftKind === "delete" ? "Почему удалить (дубль, клиент отказался…)" : "Комментарий для ОС"}
-            className="h-9"
+            className="h-9 [@media(pointer:coarse)]:h-11"
           />
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" className="min-h-9" disabled={busy} onClick={() => void sendRequest()}>
+            <Button size="sm" className="min-h-9 [@media(pointer:coarse)]:min-h-11" disabled={busy} onClick={() => void sendRequest()}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               Отправить ОС
             </Button>
-            <Button size="sm" variant="ghost" className="min-h-9" disabled={busy} onClick={() => setDraftKind(null)}>
+            <Button size="sm" variant="ghost" className="min-h-9 [@media(pointer:coarse)]:min-h-11" disabled={busy} onClick={() => setDraftKind(null)}>
               Отмена
             </Button>
           </div>

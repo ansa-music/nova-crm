@@ -5072,13 +5072,15 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
           итоги прячет; плюс суммы и «Выделено». */}
       {(grandTotals || (selectionStats && selectionStats.count > 0)) && (
         <div className="table-totals-bar z-20">
-          <div className="flex min-w-0 items-baseline gap-x-3">
+          {/* Телефон: одна строка с прокруткой вбок — суммы в два-три ряда
+              отнимали у списка целую карточку. */}
+          <div className="table-totals-row flex min-w-0 items-baseline gap-x-3 max-sm:overflow-x-auto">
             <span className="shrink-0 whitespace-nowrap" title="Строк показано с учётом фильтров">
               {formatCount(filledProcessedRows.length, ["строка", "строки", "строк"])}
               {groups ? ` · ${formatCount(groups.entries.length, ["группа", "группы", "групп"])}` : ""}
             </span>
-            <span className="mx-3 min-w-4 flex-1 self-center border-b border-dotted border-muted-foreground/30" aria-hidden />
-            <div className="flex min-w-0 flex-wrap items-baseline justify-end gap-x-5 gap-y-1">
+            <span className="mx-3 min-w-4 flex-1 self-center border-b border-dotted border-muted-foreground/30 max-sm:hidden" aria-hidden />
+            <div className="flex min-w-0 flex-wrap items-baseline justify-end gap-x-5 gap-y-1 max-sm:min-w-max max-sm:flex-1 max-sm:flex-nowrap max-sm:gap-x-4">
               {grandTotals?.parts.map((part) => (
                 <p key={part.key} className="flex min-w-0 items-baseline gap-2 whitespace-nowrap">
                   <span className="truncate">{grandTotals.parts.length === 1 ? "Общий" : part.label}</span>

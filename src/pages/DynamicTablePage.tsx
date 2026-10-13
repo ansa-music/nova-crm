@@ -2325,7 +2325,10 @@ export default function DynamicTablePage() {
           сам класс не трогаем: им живут чат и Грок. */}
       <div
         className={cn(
-          "page-header flex-wrap gap-x-4 gap-y-2 border-transparent bg-transparent py-2.5 sm:flex-nowrap",
+          // Телефон: одна строка — месяцы, статистика и ⋯. Раньше месяцы
+          // уходили второй строкой, а «+ Заказ» стоял наверху, куда не достать
+          // большим пальцем; теперь он плавающей кнопкой над списком.
+          "page-header flex-wrap gap-x-4 gap-y-2 border-transparent bg-transparent py-2.5 max-sm:flex-nowrap max-sm:gap-x-2 max-sm:py-1.5 sm:flex-nowrap",
           chromeHidden && "hidden",
         )}
       >
@@ -2339,7 +2342,12 @@ export default function DynamicTablePage() {
           onClick={goBack}
           aria-label={cameFrom ? `Назад: ${cameFrom.label}` : "Назад"}
           title={cameFrom ? `Назад: ${cameFrom.label}` : "Назад"}
-          className="-ml-1.5 h-9 min-w-11 shrink-0 gap-1 rounded-lg px-2 text-[12.5px] text-muted-foreground hover:text-foreground sm:h-8 sm:min-w-0"
+          className={cn(
+            "-ml-1.5 h-9 min-w-11 shrink-0 gap-1 rounded-lg px-2 text-[12.5px] text-muted-foreground hover:text-foreground sm:h-8 sm:min-w-0 [@media(pointer:coarse)]:h-11",
+            // На телефоне на СВОЁМ столе «Назад» не нужен (дом — нижняя панель),
+            // если сюда не привели из другого раздела. На чужом столе остаётся.
+            !cameFrom && isOwnDesk && "max-sm:hidden",
+          )}
         >
           <ArrowLeft className="h-4 w-4" />
           <span className="hidden sm:inline">
@@ -2371,11 +2379,13 @@ export default function DynamicTablePage() {
             </TooltipContent>
           </Tooltip>
         )}
+        {/* На телефоне — только замок: с подписью сегменту месяцев оставалось
+            90 px из 177, и «Ноя» с «···» уезжали за прокрутку. */}
         {!canEditData && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="inline-flex shrink-0 cursor-default items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                <Lock className="h-3 w-3" /> Только просмотр
+              <span className="inline-flex shrink-0 cursor-default items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground max-sm:py-1.5">
+                <Lock className="h-3 w-3" /> <span className="max-sm:sr-only">Только просмотр</span>
               </span>
             </TooltipTrigger>
             <TooltipContent>
@@ -2387,10 +2397,11 @@ export default function DynamicTablePage() {
             </TooltipContent>
           </Tooltip>
         )}
-        {/* На телефоне сегмент месяцев уходит второй строкой на всю ширину —
-            иначе он давится кнопкой «+ Заказ» и обрезается. */}
+        {/* На телефоне сегмент месяцев стоит в той же строке и забирает всё
+            свободное место (подписи там короткие — «Окт»); не поместился —
+            прокручивается внутри себя. */}
         {!personalSpaceOpen && (
-          <div className="order-last min-w-0 basis-full overflow-x-auto sm:order-none sm:basis-auto sm:shrink-0 sm:overflow-visible">
+          <div className="desk-header-tabs min-w-0 overflow-x-auto max-sm:flex-1 sm:shrink-0 sm:overflow-visible">
             <SubPageTabs
               workspaceId={page.workspaceId}
               page={page}
@@ -2406,7 +2417,7 @@ export default function DynamicTablePage() {
             />
           </div>
         )}
-        <div className="flex-1" />
+        <div className={cn("flex-1", !personalSpaceOpen && "max-sm:hidden")} />
         {/* Итоги по видимым строкам — свой маленький компонент на сторе:
             правка в таблице перерисовывает только его, а не всю страницу. */}
         <DeskSummaryInline store={summaryStore} />
@@ -2427,7 +2438,7 @@ export default function DynamicTablePage() {
             onClick={() => setStatsOpen(!statsOpen)}
             className={cn(
               // Подсвечена всегда (акцент + мягкое кольцо), открытая — плотнее.
-              "h-9 shrink-0 gap-1.5 rounded-lg border-primary/45 bg-primary/12 px-2.5 text-[12.5px] font-semibold text-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.12)] hover:bg-primary/20 hover:text-primary max-xl:min-w-9 max-xl:justify-center max-xl:px-0 sm:h-8",
+              "h-9 shrink-0 gap-1.5 rounded-lg border-primary/45 bg-primary/12 px-2.5 text-[12.5px] font-semibold text-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.12)] hover:bg-primary/20 hover:text-primary max-xl:min-w-9 max-xl:justify-center max-xl:px-0 sm:h-8 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11",
               statsOpen && "border-primary bg-primary/25",
             )}
           >
@@ -2437,10 +2448,11 @@ export default function DynamicTablePage() {
             <span className="hidden xl:inline">Статистика</span>
           </Button>
         ) : null}
+        {/* На телефоне эти кнопки заменяет плавающая «+ Заказ» над списком. */}
         {actions?.canQuickOrder ? (
           <Button
             size="sm"
-            className="h-9 shrink-0 gap-1 rounded-lg bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground sm:h-8"
+            className="h-9 shrink-0 gap-1 rounded-lg bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground max-sm:hidden sm:h-8"
             onClick={actions.quickOrder}
           >
             <Plus className="h-3.5 w-3.5" /> Заказ
@@ -2448,7 +2460,7 @@ export default function DynamicTablePage() {
         ) : actions?.canAddRow ? (
           <Button
             size="sm"
-            className="h-9 shrink-0 gap-1 rounded-lg bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground sm:h-8"
+            className="h-9 shrink-0 gap-1 rounded-lg bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground max-sm:hidden sm:h-8"
             onClick={actions.addRow}
           >
             <Plus className="h-3.5 w-3.5" /> Строка
@@ -2773,7 +2785,20 @@ export default function DynamicTablePage() {
             />
           ) : null}
 
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+            {/* Телефон: «+ Заказ» под большим пальцем — над списком, выше полосы
+                итогов. Скрыта на весь экран (там свой чип в тулбаре), в личном
+                пространстве и пока открыта клавиатура (`.desk-fab` в index.css). */}
+            {!rowsLoading && !chromeHidden && !personalSpaceOpen && (actions?.canQuickOrder || actions?.canAddRow) ? (
+              <Button
+                type="button"
+                data-desk-fab
+                className="desk-fab absolute bottom-12 right-4 z-20 h-12 gap-1.5 rounded-full bg-primary px-5 text-[15px] font-semibold text-primary-foreground shadow-[0_6px_20px_rgba(0,0,0,0.45)] sm:hidden"
+                onClick={actions.canQuickOrder ? actions.quickOrder : actions.addRow}
+              >
+                <Plus className="h-5 w-5" /> {actions.canQuickOrder ? "Заказ" : "Строка"}
+              </Button>
+            ) : null}
             {rowsLoading ? (
               <div className="p-4">
                 <div className="overflow-hidden rounded-[16px] border border-border/60">

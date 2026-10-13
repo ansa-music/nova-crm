@@ -1196,6 +1196,40 @@ html[data-keyboard="open"] .nova-vv-fit {
 html[data-keyboard="open"] .nova-vv-card {
   max-height: calc(var(--vv-h) - 1rem) !important;
 }
+/* Карточка заказа на телефоне занимает весь экран — с клавиатурой всю его
+   видимую часть, без полей по краям. */
+@media (max-width: 639px) {
+  html[data-keyboard="open"] .nova-vv-card {
+    max-height: var(--vv-h) !important;
+  }
+}
+/* Плавающая «+ Заказ» стола: при открытой клавиатуре (поиск, правка) она
+   висела бы над клавишами и закрывала список. */
+html[data-keyboard="open"] .desk-fab {
+  display: none;
+}
+/* Выделили строки — на том же месте встаёт панель действий: кнопку убираем. */
+:has(.bulk-action-bar) > .desk-fab {
+  display: none;
+}
+/* В виде «Таблица» последняя строка не должна оставаться под кнопкой. */
+@media (max-width: 639px) {
+  :has(> .desk-fab) .table-grid-scroll {
+    padding-bottom: 5rem;
+  }
+}
+/* Полоса итогов и сегмент месяцев в шапке стола на телефоне прокручиваются
+   вбок — без полосы прокрутки. Два класса в селекторе нарочно: варианты
+   Tailwind (`max-sm:overflow-x-auto` со своим `scrollbar-width: thin`) стоят в
+   конце таблицы стилей и при равном весе перебили бы правило. */
+.table-totals-bar .table-totals-row,
+.page-header .desk-header-tabs {
+  scrollbar-width: none;
+}
+.table-totals-bar .table-totals-row::-webkit-scrollbar,
+.page-header .desk-header-tabs::-webkit-scrollbar {
+  display: none;
+}
 
 /* Барабан «Рандома» появляется с лёгким поворотом (05.10.2026). Только opacity и
    отдельные `scale`/`rotate` — не `transform`: вращение колеса живёт во вложенном

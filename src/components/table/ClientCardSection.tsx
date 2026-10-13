@@ -50,7 +50,7 @@ function sameExtras(a: RowExtras | null, b: RowExtras | null): boolean {
 
 function pickChip(active: boolean, disabled = false) {
   return cn(
-    "h-8 min-w-8 rounded-md border px-2.5 text-xs font-medium tabular-nums transition-colors",
+    "h-8 min-w-8 rounded-md border px-2.5 text-xs font-medium tabular-nums transition-colors [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:min-w-9 [@media(pointer:coarse)]:text-sm",
     active ? "border-primary/30 bg-primary/[0.12] text-primary" : "border-border bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
     disabled && "opacity-60"
   );
@@ -127,7 +127,7 @@ function ChoiceField({
           autoComplete="off"
           placeholder={placeholder}
           aria-label="Свой вариант"
-          className="h-8 w-36 text-sm"
+          className="h-8 w-36 text-sm [@media(pointer:coarse)]:h-10"
         />
       )}
     </div>
@@ -341,7 +341,7 @@ export function ClientCardSection({
       });
     }
     return (
-      <section className="rounded-xl border border-primary/30 bg-primary/[0.05] p-3 sm:p-4">
+      <section data-card-section="Визитка" className="rounded-xl border border-primary/30 bg-primary/[0.05] p-3 sm:p-4">
         <p className="eyebrow mb-2 flex items-center gap-1.5 text-primary">
           <IdCard className="h-3.5 w-3.5" /> Визитка клиента
           {pageId && <TgRowChatButton pageId={pageId} rowId={rowId} />}
@@ -381,7 +381,7 @@ export function ClientCardSection({
   }
 
   return (
-    <section className="rounded-xl border border-primary/30 bg-primary/[0.05] p-3 sm:p-4">
+    <section data-card-section="Визитка" className="rounded-xl border border-primary/30 bg-primary/[0.05] p-3 sm:p-4">
       <p className="eyebrow mb-3 flex items-center gap-1.5 text-primary">
         <IdCard className="h-3.5 w-3.5" /> Визитка клиента
         {pageId && <TgRowChatButton pageId={pageId} rowId={rowId} />}
@@ -418,7 +418,7 @@ export function ClientCardSection({
               autoComplete="off"
               placeholder="другое"
               aria-label="Персонажи"
-              className={cn("h-8 w-20 text-sm", personsBad && "border-destructive")}
+              className={cn("h-8 w-20 text-sm [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:min-w-16 [@media(pointer:coarse)]:flex-1", personsBad && "border-destructive")}
             />
           </div>
         </div>
@@ -443,7 +443,7 @@ export function ClientCardSection({
               autoComplete="off"
               placeholder="другое"
               aria-label="Минуты"
-              className={cn("h-8 w-20 text-sm", minutesBad && "border-destructive")}
+              className={cn("h-8 w-20 text-sm [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:min-w-16 [@media(pointer:coarse)]:flex-1", minutesBad && "border-destructive")}
             />
           </div>
         </div>
@@ -457,7 +457,7 @@ export function ClientCardSection({
               <button
                 type="button"
                 aria-pressed={voice === "yes"}
-                className={cn("h-7 rounded-[5px] px-2.5 text-xs font-medium", voice === "yes" ? "bg-primary/[0.12] text-primary" : "text-muted-foreground hover:text-foreground")}
+                className={cn("h-7 rounded-[5px] px-2.5 text-xs font-medium [@media(pointer:coarse)]:h-9 [@media(pointer:coarse)]:px-4 [@media(pointer:coarse)]:text-sm", voice === "yes" ? "bg-primary/[0.12] text-primary" : "text-muted-foreground hover:text-foreground")}
                 onClick={() => setVoice(voice === "yes" ? "" : "yes")}
               >
                 есть
@@ -465,7 +465,7 @@ export function ClientCardSection({
               <button
                 type="button"
                 aria-pressed={voice === "no"}
-                className={cn("h-7 rounded-[5px] px-2.5 text-xs font-medium", voice === "no" ? "bg-primary/[0.12] text-primary" : "text-muted-foreground hover:text-foreground")}
+                className={cn("h-7 rounded-[5px] px-2.5 text-xs font-medium [@media(pointer:coarse)]:h-9 [@media(pointer:coarse)]:px-4 [@media(pointer:coarse)]:text-sm", voice === "no" ? "bg-primary/[0.12] text-primary" : "text-muted-foreground hover:text-foreground")}
                 onClick={() => setVoice(voice === "no" ? "" : "no")}
               >
                 нет
@@ -520,7 +520,7 @@ export function ClientCardSection({
               scheduleSave();
             }}
             {...fieldProps}
-            className="h-9 w-full sm:w-44"
+            className="h-9 w-full sm:w-44 [@media(pointer:coarse)]:h-11"
           />
         </div>
         )}
@@ -540,7 +540,7 @@ export function ClientCardSection({
               placeholder={studio ? "Задание, методичка, файлы — ссылка https://" : "Ссылка на клиента из AmoCRM"}
               inputMode="url"
               autoComplete="off"
-              className="h-9 min-w-0 flex-1"
+              className="h-9 min-w-0 flex-1 [@media(pointer:coarse)]:h-11"
             />
             {/* Только настоящий http(s)-адрес: «amocrm.ru/…» без схемы браузер увёл бы на страницу CRM. */}
             {href ? (
@@ -548,7 +548,7 @@ export function ClientCardSection({
                 href={href.toString()}
                 target="_blank"
                 rel="noreferrer noopener"
-                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/[0.12] px-2.5 text-xs font-medium text-primary hover:bg-primary/20"
+                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/[0.12] px-2.5 text-xs font-medium text-primary hover:bg-primary/20 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:px-3"
                 title="Открыть в новой вкладке"
               >
                 <ExternalLink className="h-3.5 w-3.5" /> Открыть

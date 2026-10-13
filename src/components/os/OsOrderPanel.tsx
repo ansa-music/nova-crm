@@ -358,7 +358,7 @@ export function OsOrderPanel({
     : null;
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted/30 p-3">
+    <div data-card-section="Выдача" className="flex flex-col gap-3 rounded-xl border border-border bg-muted/30 p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-medium">Выдача</span>
         {headerChip ? <CellActionButton view={headerChip} inline onRun={() => undefined} /> : null}
@@ -441,7 +441,7 @@ export function OsOrderPanel({
       ) : null}
 
       {payment ? (
-        <div className="flex flex-col gap-1.5 rounded-lg border border-border/70 p-2">
+        <div data-card-section="Касса" className="flex flex-col gap-1.5 rounded-lg border border-border/70 p-2">
           {[
             { key: keys.price, label: "Цена" },
             { key: keys.upsell, label: "Апсейл" },
