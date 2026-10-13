@@ -22,7 +22,8 @@
 --     ключом создателя (нет своего — с ключом по умолчанию); решает создатель.
 -- Пишет только access_write (пачкой, одна транзакция); удаление мягкое,
 -- прямой записи нет. Перенос — access_import (Owner).
--- nova_schema_version() = '20261047'.
+-- nova_schema_version() = '20261049' (номер — после 20261047_game_scores и
+-- 20261048_nick_rename параллельных сессий).
 -- =====================================================================
 
 create table if not exists public.access_docs (
@@ -395,7 +396,7 @@ create or replace function public.nova_schema_version() returns text
 language sql immutable
 set search_path = public, pg_temp
 as $$
-  select '20261047'
+  select '20261049'
 $$;
 revoke all on function public.nova_schema_version() from public, anon, authenticated;
 grant execute on function public.nova_schema_version() to anon, authenticated;
