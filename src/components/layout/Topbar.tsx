@@ -35,7 +35,7 @@ export const Topbar = memo(function Topbar({ title }: { title?: string }) {
     // тут нет (он в шапке самой страницы), колокольчик и аккаунт — в боковой.
     return (
       <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center border-b border-border bg-background px-3">
-        <SignatureTopNav className="overflow-x-auto [scrollbar-width:none]" />
+        <SignatureTopNav className="flex-1 overflow-x-auto [scrollbar-width:none]" />
       </header>
     );
   }

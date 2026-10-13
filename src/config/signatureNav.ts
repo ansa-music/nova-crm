@@ -1,4 +1,4 @@
-import { MORE_ITEM_KEY, pathMatches, type NavItem, type NavSection } from "@/config/nav";
+import { MORE_ITEM_KEY, isNavItemActive, pathMatches, type NavItem, type NavSection } from "@/config/nav";
 import type { NavModel } from "@/hooks/useNavModel";
 
 /**
@@ -7,7 +7,8 @@ import type { NavModel } from "@/hooks/useNavModel";
  * остаются из модели — здесь нет ни одного своего пункта и ни одной проверки.
  *
  * Частое — в ВЕРХНЕЙ панели (просьба Nurba 12.10.2026): «Мой стол», «Заказы»,
- * ABS, «График», «Промты», «Грок лимит» и кнопка «все разделы». В боковой
+ * «Все столы» (13.10.2026), ABS, «График», «Промты», «Грок лимит» и кнопка
+ * «все разделы». В боковой
  * панели их нет — одна кнопка на раздел. Там же слиты «Столы» + «Столы ОС» и
  * «Технари» + «Команда» + «Пользователи» + «Люди»: один пункт, внутри страницы
  * переключатель (`SignatureSwitches`). Пункт с незнакомым ключом не теряется —
@@ -35,6 +36,20 @@ export function signatureTopKeys(nav: Pick<NavModel, "items" | "isOs" | "home" |
 
 /** Один пункт «Столы»: внутри «Столы / Столы ОС». */
 export const DESKS_GROUP_KEYS = ["desks", "os-desks"] as const;
+
+/**
+ * «Все столы» верхней панели (просьба Nurba 13.10.2026: «добавь туда кнопку
+ * все столы — там и ОС, и тех»). Ведёт на первую доступную роли вкладку
+ * раздела «Столы / Столы ОС» и горит на любой из них; на «Столах» ниже
+ * списка технарей стоят и столы ОС (`DesksPage`). Вкладок у роли нет — `null`.
+ * В боковой панели пункт «Столы» ОСТАЁТСЯ (в `signatureTopKeys` его нет):
+ * под ним живут закреплённые столы.
+ */
+export function topAllDesksTarget(items: NavItem[]): { to: string; activeOn: (pathname: string) => boolean } | null {
+  const tabs = groupTabs(items, DESKS_GROUP_KEYS);
+  if (tabs.length === 0) return null;
+  return { to: tabs[0].to, activeOn: (pathname) => tabs.some((tab) => isNavItemActive(tab, pathname)) };
+}
 
 /**
  * Один пункт «Команда». Порядок — и порядок вкладок, и «куда ведёт пункт»
