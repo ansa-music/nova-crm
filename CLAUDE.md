@@ -4651,6 +4651,14 @@ iPhone: уведомления и удобство ввода в таблицу,
 - GitHub: `https://github.com/ansa-music/nova-crm` (публичный; закрыть может только Nurba)
 - Деплой: `https://nurba-6e70d.web.app`, Firebase-проект `nurba-6e70d`, аккаунт `nurpro2005@gmail.com`
 - Supabase: `xoqivqqcmunavuwpsmsd.supabase.co` (URL/anon key в `src/lib/supabase.ts`, фоллбэк на env)
+- **Копии базы Supabase** (13.10.2026, бесплатный тариф копий не делает): `.github/workflows/backup.yml`
+  каждую ночь (03:00 по Алматы) и по кнопке — `scripts/backup-supabase.sh`: `pg_dump` схем public/auth/storage
+  (custom), шифрование openssl AES-256 (PBKDF2), самопроверка (расшифровать, сверить, `pg_restore --list`),
+  артефакт на 90 дней и, если заданы `BACKUP_S3_*`, копия в своё S3-хранилище. Секреты: `SUPABASE_DB_URL`
+  (Session pooler с паролем) и `BACKUP_PASSPHRASE` (хранить отдельно от GitHub) — без них шаг только пишет
+  notice. Файлы бакета `row-files` в копию НЕ входят. Как восстановить — в шапке скрипта. Проверено
+  локально на PG16: дамп → шифр → восстановление в пустую базу, данные и кириллица совпали; чужой пароль —
+  отказ. На раннере GitHub не гонялось: первый запуск — кнопкой «Run workflow» после добавления секретов.
 - CI/CD: `.github/workflows/deploy.yml`, автодеплой на push в `main`:
   `npm ci` → `npm run type-check` → `npm run build` → `firebase deploy --only hosting,firestore:rules`.
   Падает на любом шаге — деплоя не будет. Правки `firestore.rules` деплоятся тем же пайплайном,

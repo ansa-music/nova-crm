@@ -1,0 +1,94 @@
+name: Backup Supabase database
+
+# Ночная шифрованная копия базы Supabase: бесплатный тариф копий не делает, а
+# после переезда в Supabase это единственная история данных. Скрипт —
+# scripts/backup-supabase.sh (там же, как восстановить).
+#
+# Секреты GitHub (Settings → Secrets and variables → Actions):
+#   SUPABASE_DB_URL     строка «Session pooler» из Supabase → Connect, с паролем базы.
+#   BACKUP_PASSPHRASE   пароль шифрования копий — хранить отдельно от GitHub.
+# Необязательно, чтобы класть копию ещё и в своё S3-совместимое хранилище
+# (Cloudflare R2, Backblaze B2 — у обоих 10 ГБ бесплатно):
+#   BACKUP_S3_BUCKET, BACKUP_S3_ENDPOINT, BACKUP_S3_KEY, BACKUP_S3_SECRET
+# Без секретов шаг ничего не делает и так и говорит.
+#
+# Артефакт зашифрован: репозиторий публичный, и без пароля файл бесполезен.
+on:
+  schedule:
+    - cron: "0 22 * * *" # 03:00 по Алматы
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check secrets
+        id: gate
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$DB_URL" ] || [ -z "$PASS" ]; then
+            echo "::notice::Копия не снята: задайте секреты SUPABASE_DB_URL и BACKUP_PASSPHRASE."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Клиент той же или более новой версии, что сервер: pg_dump старее сервера отказывает.
+      - name: Install PostgreSQL 17 client
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          pg_dump --version
+
+      - name: Dump and encrypt
+        if: steps.gate.outputs.ready == 'true'
+        id: dump
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          OUT_DIR: backups
+        run: bash scripts/backup-supabase.sh
+
+      - name: Upload artifact (90 days)
+        if: steps.gate.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-backup-${{ github.run_id }}
+          path: |
+            backups/*.dump.enc
+            backups/*.sha256
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Upload to S3-compatible storage (optional)
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          if [ -z "$BUCKET" ] || [ -z "$ENDPOINT" ] || [ -z "$AWS_ACCESS_KEY_ID" ]; then
+            echo "Своё хранилище не задано — копия только в артефакте."
+            exit 0
+          fi
+          aws s3 cp backups/ "s3://$BUCKET/nova-backups/" --recursive --endpoint-url "$ENDPOINT"
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ "${{ steps.gate.outputs.ready }}" != "true" ]; then
+            echo "Секреты не заданы — копия не снималась." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Копия базы Supabase: ${{ steps.dump.outputs.summary }}" >> "$GITHUB_STEP_SUMMARY"
+          fi
