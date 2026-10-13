@@ -55,9 +55,11 @@ export function isWeekend(monthKey: string, dayKey: string): boolean {
 /** «чт, 17 сент.» — день месяца в заголовке палитры и подсказках. */
 export function dayLabel(monthKey: string, dayKey: string): string {
   const [year, month] = monthKey.split("-").map(Number);
-  return new Intl.DateTimeFormat("ru-RU", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(
-    new Date(Date.UTC(year, month - 1, Number(dayKey)))
-  );
+  const date = new Date(Date.UTC(year, month - 1, Number(dayKey)));
+  // Кривой ключ (например, id столбца другого вида) — пустая подпись, а не
+  // RangeError от Intl посреди отрисовки.
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("ru-RU", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(date);
 }
 
 /**
@@ -97,6 +99,16 @@ export const CELL_KIND_LOOK: Record<CellKind, string> = {
   hours: "border-primary/45 bg-primary/[0.14] text-primary",
   came: "border-success/70 bg-success/[0.28] text-success",
 };
+
+/**
+ * Готовые обычные недели: какие дни выходные (`getUTCDay()`: 0 = вс, 6 = сб).
+ * Одним нажатием в окне человека и в «Настроить нескольким».
+ */
+export const QUICK_WEEKS: ReadonlyArray<{ label: string; hint: string; off: readonly number[] }> = [
+  { label: "5/2", hint: "выходные — суббота и воскресенье", off: [6, 0] },
+  { label: "6/1", hint: "выходной — воскресенье", off: [0] },
+  { label: "Без выходных", hint: "все дни рабочие", off: [] },
+];
 
 /** Рабочий день в субботу/воскресенье — чуть бледнее, чтобы неделя читалась. */
 export const WEEKEND_WORK_LOOK = "border-success/15 bg-success/[0.06]";

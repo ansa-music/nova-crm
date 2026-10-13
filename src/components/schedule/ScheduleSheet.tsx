@@ -14,11 +14,11 @@ import { cellKey } from "@/utils/scheduleEdit";
 import { cn } from "@/utils/cn";
 
 export interface SheetColumn {
-  /** День месяца («7») или день недели («1» = пн … «0» = вс). */
+  /** День месяца («7»), дата недели («2026-10-13») или день недели правила («1» = пн … «0» = вс). */
   id: string;
   /** Крупно в шапке: «7» / «Пн». */
   top: string;
-  /** Мелко под ним: «пн». */
+  /** Мелко под ним: «пн» / «13 окт.». */
   sub?: string;
   weekend: boolean;
   today: boolean;
@@ -43,13 +43,16 @@ export interface SheetCell {
   kind: CellKind;
   text: string;
   title: string;
+  /** День не такой, как в обычной неделе, — точка в углу клетки («разово»). */
+  mark?: boolean;
 }
 
 /**
  * Сетка графика — ОДНА таблица на все разделы (Технари, ОС, Руководство,
  * свой): дни у всех разделов стоят друг под другом, шапка с датами и колонка
  * имён закреплены, строка раздела сразу показывает «на смене» по каждому
- * дню. Та же сетка и для месяца (31 день), и для недели (Пн…Вс).
+ * дню. Та же сетка и для месяца (31 день), и для недели по датам, и для
+ * обычной недели-правила (Пн…Вс).
  *
  * Правится она выделением (см. `useGridSelection`): клик, протяжка, Shift,
  * Ctrl, стрелки, клик по дню в шапке — весь столбец. Что поставить,
@@ -309,7 +312,7 @@ export function ScheduleSheet({
                   columns={columns}
                   colsSig={colsSig}
                   cells={cells}
-                  cellsSig={cells.map((cell) => `${cell.kind}:${cell.text}:${cell.title}`).join("|")}
+                  cellsSig={cells.map((cell) => `${cell.kind}:${cell.text}:${cell.title}:${cell.mark ? 1 : 0}`).join("|")}
                   selMask={selMask}
                   pendMask={pendMask}
                   focusCol={focusCol}
@@ -467,6 +470,13 @@ const SheetRow = memo(function SheetRow({
               )}
             >
               <CellText text={cell.text} month={mode === "month"} />
+              {cell.mark && (
+                <span
+                  aria-hidden
+                  data-cell-mark
+                  className={cn("absolute rounded-full bg-current opacity-90", mode === "month" ? "right-px top-px h-1 w-1" : "right-1 top-1 h-1.5 w-1.5")}
+                />
+              )}
             </button>
           </td>
         );

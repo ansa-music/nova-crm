@@ -3,7 +3,7 @@ import { CalendarRange, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ShiftField } from "@/components/schedule/ShiftField";
-import type { ScheduleRow } from "@/components/schedule/scheduleShared";
+import { QUICK_WEEKS, type ScheduleRow } from "@/components/schedule/scheduleShared";
 import { cn } from "@/utils/cn";
 import { weekCellText } from "@/utils/weekTemplate";
 import { sameScheduleHours, WEEK_DOW_SHORT, WEEK_DOWS, type ScheduleHours, type WeekCell } from "@/types";
@@ -36,15 +36,15 @@ function sameCell(a: WeekCell, b: WeekCell): boolean {
 const KIND_LABEL: Record<Kind, string> = { work: "Работа", off: "Выходной", hours: "Смена" };
 
 /**
- * Неделя одного человека — все семь дней в одном окне. Открывается кликом по
- * имени: чтобы поставить человеку выходной и неполную смену, раньше надо было
- * выбрать кисть, прокрутить таблицу до его строки и попасть в клетку, а время
- * набирать в панели наверху. Здесь день — три кнопки и поле смены текстом.
+ * Обычная неделя одного человека — все семь дней в одном окне. Открывается
+ * кликом по имени во вкладке «Обычная неделя» и ссылкой из окна клетки: день —
+ * три кнопки и поле смены текстом.
  *
- * «Как у …» копирует неделю другого человека: у технарей со сменой «2/2» или
- * одинаковыми выходными её незачем прокликивать заново.
+ * «Быстро» ставит готовую неделю («5/2», «6/1», «без выходных») одним
+ * нажатием, смены рабочих дней при этом остаются. «Как у …» копирует неделю
+ * другого человека: одинаковые выходные незачем прокликивать заново.
  *
- * «Сохранить» пишет неделю сразу (и раскладывает её в «Месяц» с сегодняшнего
+ * «Сохранить» пишет неделю сразу (и раскладывает её на даты с сегодняшнего
  * дня) — как любая правка в сетке; вернуть — Ctrl+Z или «Отменить» в панели.
  */
 export function PersonWeekDialog({
@@ -95,6 +95,21 @@ export function PersonWeekDialog({
     });
   }
 
+  /** Готовая неделя: выходные — по шаблону, смены остальных дней не трогаем. */
+  function applyQuick(off: readonly number[]) {
+    setCopyFrom("");
+    setDays((prev) =>
+      Object.fromEntries(
+        WEEK_DOWS.map((dow) => {
+          const day = prev[String(dow)];
+          if (off.includes(dow)) return [String(dow), { kind: "off", hours: null }];
+          return [String(dow), day.kind === "off" ? { kind: "work", hours: null } : day];
+        })
+      )
+    );
+  }
+  const offDows = WEEK_DOWS.filter((dow) => days[String(dow)].kind === "off");
+
   function copyWeek(id: string) {
     setCopyFrom(id);
     const source = others.find((o) => o.row.uid === id);
@@ -120,13 +135,35 @@ export function PersonWeekDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CalendarRange className="h-4 w-4 shrink-0 text-primary" />
-            Неделя: {row.label}
+            Обычная неделя: {row.label}
           </DialogTitle>
           <DialogDescription>
-            Постоянные выходные и смены по дням недели. Сохраняется сразу и раскладывается в «Месяц» с сегодняшнего дня;
-            разовые отметки месяца не трогаются.
+            Правило на каждую неделю: выходные и смены по дням. Сохраняется сразу и действует с сегодняшнего дня; разовые
+            отметки на конкретные даты не трогаются.
           </DialogDescription>
         </DialogHeader>
+
+        <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground">
+          Быстро:
+          {QUICK_WEEKS.map((quick) => {
+            const on = offDows.length === quick.off.length && quick.off.every((dow) => offDows.includes(dow as (typeof WEEK_DOWS)[number]));
+            return (
+              <button
+                key={quick.label}
+                type="button"
+                aria-pressed={on}
+                title={quick.hint}
+                onClick={() => applyQuick(quick.off)}
+                className={cn(
+                  "min-h-10 rounded-md border px-2.5 text-[12px] transition-colors sm:min-h-8",
+                  on ? "border-primary/60 bg-primary/15 font-medium text-primary" : "border-border hover:text-foreground"
+                )}
+              >
+                {quick.label}
+              </button>
+            );
+          })}
+        </div>
 
         {others.length > 0 && (
           <label className="flex flex-wrap items-center gap-2 text-[12px] text-muted-foreground">

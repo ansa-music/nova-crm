@@ -243,6 +243,25 @@ export async function saveScheduleDraft(input: {
 }
 
 /**
+ * То же по нескольким месяцам ОДНОЙ пачкой. Неделя на стыке месяцев лежит в
+ * двух документах: две записи подряд при сбое между ними оставили бы половину
+ * правки в базе — без ошибки для первой половины и без «Отменить».
+ */
+export async function saveScheduleDrafts(input: {
+  workspaceId: string;
+  actorUid: string;
+  months: Array<{ monthKey: string; changes: ScheduleDraftChange[] }>;
+}) {
+  const writes = input.months.flatMap((month) =>
+    month.changes.length > 0
+      ? scheduleChangesToWrites({ workspaceId: input.workspaceId, monthKey: month.monthKey, actorUid: input.actorUid, changes: month.changes })
+      : []
+  );
+  if (writes.length === 0) return;
+  await commitScheduleWrites(input.workspaceId, writes);
+}
+
+/**
  * Те же записи, что у `saveScheduleDraft`, списком — в ЧУЖУЮ пачку: неделя
  * графика пишет себя и раскладку по месяцам одной пачкой, чтобы после сбоя
  * не остаться с новой неделей и старым месяцем.

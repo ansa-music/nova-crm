@@ -23,7 +23,7 @@ export interface WeekSaveInput {
 }
 
 /**
- * Запись постоянной недели прямо из сетки — без режима правки и «Сохранить».
+ * Запись обычной недели (правила) прямо из сетки — без режима правки и «Сохранить».
  *
  * Правки идут по ОЧЕРЕДИ: каждая читает месяцы с сервера и раскладывает
  * неделю, сравнивая месяц с ПРОШЛОЙ неделей человека. Две параллельные
@@ -58,9 +58,9 @@ export function useWeekTemplateWriter({ workspaceId, actorUid }: { workspaceId: 
         // назад, может ещё не дойти туда — и раскладка не увидела бы её
         // (например, «отпросился»), а своей пачкой переписала бы день. Без
         // связи ожидание не кончилось бы никогда — поэтому с пределом.
-        if (db) await withDbTimeout(waitForPendingWrites(db), "Постоянная неделя не сохранена");
+        if (db) await withDbTimeout(waitForPendingWrites(db), "Обычная неделя не сохранена");
         // То же для графика в Supabase: записи месяца в пути — дождаться.
-        await withDbTimeout(waitScheduleWrites(), "Постоянная неделя не сохранена");
+        await withDbTimeout(waitScheduleWrites(), "Обычная неделя не сохранена");
         if (input.changes.length === 0) {
           // Неделя уже такая — пишем только разовые клетки месяца.
           for (const month of input.extra ?? []) {
@@ -69,7 +69,7 @@ export function useWeekTemplateWriter({ workspaceId, actorUid }: { workspaceId: 
           }
           return;
         }
-        const previous = await withDbTimeout(fetchWeekTemplateFresh(workspaceId), "Постоянная неделя не сохранена");
+        const previous = await withDbTimeout(fetchWeekTemplateFresh(workspaceId), "Обычная неделя не сохранена");
         // Месяц и день — из ОДНОГО чтения часов в момент записи: иначе в
         // первую минуту 1-го числа пара «прошлый месяц + день 1» переписала
         // бы весь прошедший месяц.

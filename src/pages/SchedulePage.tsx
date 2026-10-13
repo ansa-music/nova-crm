@@ -13,9 +13,11 @@ import {
   MoreHorizontal,
   Pencil,
   Redo2,
+  Repeat,
   Search,
   Settings2,
   ShieldCheck,
+  SlidersHorizontal,
   Undo2,
   UserPlus,
   X,
@@ -23,6 +25,7 @@ import {
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { EmptyState } from "@/components/common/EmptyState";
 import { WeekPasteDialog, type WeekPasteResult } from "@/components/schedule/WeekPasteDialog";
+import { BulkWeekDialog, type BulkWeekResult } from "@/components/schedule/BulkWeekDialog";
 import { PersonWeekDialog } from "@/components/schedule/PersonWeekDialog";
 import { MyScheduleCard } from "@/components/schedule/MyScheduleCard";
 import { PersonMonthDialog } from "@/components/schedule/PersonMonthDialog";
@@ -51,6 +54,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -69,7 +76,7 @@ import { monthTabNameForKey } from "@/services/subPageService";
 import { saveScheduleGroup, subscribeScheduleGroup } from "@/services/scheduleGroupService";
 import { LAY_MONTHS_MAX, subscribeWeekTemplate } from "@/services/scheduleTemplateService";
 import { useScheduleBackend } from "@/services/scheduleStore";
-import { saveScheduleDraft } from "@/services/techScheduleService";
+import { saveScheduleDraft, saveScheduleDrafts } from "@/services/techScheduleService";
 import {
   cancelScheduleRequest,
   requestScheduleMark,
@@ -84,16 +91,27 @@ import { pushUndoCommand, redo, undo, useUndoState, type UndoCommand } from "@/u
 import { applyParsedCell, frequentShifts, matchesPersonQuery } from "@/utils/weekTemplate";
 import { formatDate, ymdInTimeZone } from "@/utils/date";
 import {
+  addDays,
+  anchorMonthOf,
+  dayMonthShort,
+  mondayOf,
+  weekDates,
+  weekNearLabel,
+  weekRangeLabel,
+  ymdOf,
+} from "@/utils/scheduleWeek";
+import {
   monthCellKind,
-  monthCellsToWeekCells,
   monthSelectionKinds,
   planMonthEdit,
   planMonthRestore,
   planWeekEdit,
+  splitByMonth,
   splitCellKey,
   weekActionOf,
+  weekRefsOf,
   cellKey,
-  type MonthCellRef,
+  type DateCellRef,
   type WeekAction,
   type WeekCellRef,
   type WeekPersonChange,
@@ -107,6 +125,7 @@ import {
   mergeShiftPresets,
   newSchedulePersonId,
   normalizeWeekEntry,
+  sameScheduleHours,
   scheduleDayKey,
   scheduleHoursOf,
   scheduleRequestId,
@@ -127,15 +146,47 @@ import {
 import { useTerms } from "@/config/siteTerms";
 import type { ScheduleBulkAction, ScheduleBulkPlan } from "@/utils/scheduleBulk";
 
-type ScheduleView = "week" | "month" | "day";
+/**
+ * Виды графика. «Неделя», «Месяц» и «День» — НАСТОЯЩИЕ даты, один и тот же
+ * график в разном масштабе. «Обычная неделя» (`pattern`) — правило без дат:
+ * кто по каким дням работает обычно. До 13.10.2026 правило называлось
+ * «Неделя» и стояло первой вкладкой — его принимали за «эту неделю».
+ */
+type ScheduleView = "week" | "month" | "day" | "pattern";
 
-const VIEWS: readonly ScheduleView[] = ["week", "month", "day"];
-const VIEW_LABELS: Record<ScheduleView, string> = { week: "Неделя", month: "Месяц", day: "День" };
+const VIEWS: readonly ScheduleView[] = ["week", "month", "day", "pattern"];
+const VIEW_LABELS: Record<ScheduleView, string> = { week: "Неделя", month: "Месяц", day: "День", pattern: "Обычная неделя" };
+const VIEW_HINTS: Record<ScheduleView, string> = {
+  week: "Кто когда работает на неделе — по датам",
+  month: "Весь месяц по дням",
+  day: "Кто работает в выбранный день",
+  pattern: "Правило: кто по каким дням работает обычно",
+};
 
-const DENSITY_OPTIONS: Array<{ value: ScheduleDensity; title: string; className: string }> = [
-  { value: "compact", title: "Мелко — больше дней на экране", className: "text-[11px]" },
-  { value: "normal", title: "Обычно", className: "text-[14px]" },
-  { value: "large", title: "Крупно — чтобы не щуриться", className: "text-[18px]" },
+const NO_SCHEDULES: ReadonlyMap<string, TechSchedule> = new Map();
+
+/**
+ * Подсказка «график устроен по-новому» — тем, кто его правит, один раз на
+ * устройство. Раньше первой вкладкой стояло правило, и правка в «Неделе»
+ * меняла все будущие недели; теперь там даты, и та же привычка поставила бы
+ * разовый выходной вместо постоянного.
+ */
+const NEW_LAYOUT_TIP_KEY = "nova:schedule-tip:dates-week";
+
+function tipSeenBefore(): boolean {
+  try {
+    return window.localStorage.getItem(NEW_LAYOUT_TIP_KEY) === "1";
+  } catch {
+    // Приватное окно без хранилища: подсказку просто покажем ещё раз.
+    return false;
+  }
+}
+
+
+const DENSITY_OPTIONS: Array<{ value: ScheduleDensity; title: string }> = [
+  { value: "compact", title: "Мелко — больше дней на экране" },
+  { value: "normal", title: "Обычно" },
+  { value: "large", title: "Крупно — чтобы не щуриться" },
 ];
 
 const WORK_CELL: WeekCell = { off: false, hours: null };
@@ -158,7 +209,7 @@ function actionText(action: PaletteAction | ScheduleBulkAction, shift: ScheduleH
   if (action === "hours") return shift ? `Смена ${formatScheduleHours(shift)}` : "Смена";
   if (action === "came") return "Пришёл в выходной";
   if (action === "clear-hours") return "Часы сняты";
-  if (action === "restore") return "Как в постоянной неделе";
+  if (action === "restore") return "Как в обычной неделе";
   return CELL_KIND_LABEL[action];
 }
 
@@ -241,10 +292,14 @@ function revealCell(scroller: HTMLElement, cell: HTMLElement) {
  * сразу. Режимов «Редактировать»/«Сохранить» больше нет: их забывали, и
  * правки терялись. Вернуть — Ctrl+Z или «Отменить» в панели сетки.
  *
- * «Неделя» — постоянный распорядок: сам раскладывается в «Месяц» с
- * сегодняшнего дня. «Месяц» — конкретные даты: отпуск, «поменялись»,
- * «отпросился». Из месяца выходной можно сразу сделать постоянным —
- * «Повторять каждую субботу» в палитре.
+ * Устройство после реконструкции 13.10.2026 (просьба Nurba: «неудобная и
+ * непонятная»): «Неделя», «Месяц» и «День» — НАСТОЯЩИЕ даты, один график в
+ * разном масштабе («Неделя» листается стрелками и на стыке месяцев читает и
+ * пишет оба). Правило без дат — отдельная вкладка «Обычная неделя»: само
+ * раскладывается на даты с сегодняшнего дня. Любой день из сетки по датам
+ * можно сразу сделать правилом — «Когда: только этот день / каждую субботу» в
+ * палитре; день, который отличается от правила, помечен точкой («разово»).
+ * «Настроить нескольким» задаёт обычную неделю сразу группе людей.
  *
  * Правит график Owner, Тимлид и те, кого Owner назначил в «Настройке
  * графика»; остальные смотрят (клик по клетке — что в ней стоит).
@@ -256,7 +311,7 @@ export default function SchedulePage() {
   const { activeWorkspaceId, activeWorkspace, members, pages } = useWorkspace();
   const currentMonth = useCurrentMonthKey();
   const mobile = useIsMobile();
-  const [monthKey, setMonthKey] = useState(currentMonth);
+  const [monthKeyState, setMonthKey] = useState(currentMonth);
   const [group, setGroup] = useState<ScheduleGroup | null>(null);
   const [section, setSection] = useState<string>("all");
   const [requests, setRequests] = useState<ScheduleRequest[]>([]);
@@ -264,6 +319,16 @@ export default function SchedulePage() {
   // «График» открывается на «Неделе» (просьба Nurba): вид — в адресе, и
   // пункт меню без параметра всегда ведёт на неделю.
   const [view, setView] = useUrlState<ScheduleView>("v", "week", { values: VIEWS });
+  const isPattern = view === "pattern";
+  // «Неделя» — настоящая неделя по датам. Какая неделя открыта — в состоянии
+  // страницы, а не в адресе: F5 и пункт меню возвращают на текущую.
+  const todayYmd = ymdInTimeZone(Date.now());
+  const [weekStart, setWeekStart] = useState(() => mondayOf(ymdInTimeZone(Date.now())));
+  const weekDays = useMemo(() => weekDates(weekStart), [weekStart]);
+  // Месяц, с которым работает страница: в «Неделе» — месяц открытой недели
+  // (на стыке месяцев второй читается отдельно — `otherMonthKey`).
+  const monthKey = view === "week" ? anchorMonthOf(weekStart, todayYmd) : monthKeyState;
+  const otherMonthKey = view === "week" ? weekDays.find((d) => d.monthKey !== monthKey)?.monthKey ?? null : null;
   const [template, setTemplate] = useState<WeekTemplate | null>(null);
   const [templateLoaded, setTemplateLoaded] = useState(false);
   const [templateFailed, setTemplateFailed] = useState(false);
@@ -271,9 +336,16 @@ export default function SchedulePage() {
   const [query, setQuery] = useState("");
   const [personTarget, setPersonTarget] = useState<ScheduleRow | null>(null);
   const [personMonth, setPersonMonth] = useState<ScheduleRow | null>(null);
+  // Окно «Месяц человека» из клетки ВТОРОГО месяца недели на стыке открывает
+  // этот месяц, а не якорный (там этого дня нет).
+  const [personMonthAt, setPersonMonthAt] = useState<string | null>(null);
+  // «Когда: каждую …» в окне клетки — здесь, чтобы его видели и клавиши сетки.
+  const [weeklyPick, setWeeklyPick] = useState(false);
   const [paste, setPaste] = useState<{ text: string } | null>(null);
   const [pickedDay, setPickedDay] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [tipSeen, setTipSeen] = useState(tipSeenBefore);
   const [density, setDensity] = useScheduleDensity();
   const [helpOpen, setHelpOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -295,20 +367,40 @@ export default function SchedulePage() {
   const canEdit =
     (permissions.canRetireDesks || (permissions.isResolved && Boolean(uid) && settings.editors.includes(uid))) &&
     Boolean(activeWorkspaceId);
-  const {
-    schedules,
-    loaded: schedulesLoaded,
-    failed: schedulesFailed,
-    retry: retrySchedules,
-  } = useTechSchedules(activeWorkspaceId, monthKey, permissions.isResolved);
+  const mainMonth = useTechSchedules(activeWorkspaceId, monthKey, permissions.isResolved);
+  // Неделя на стыке месяцев читает и второй месяц. Без стыка ключ тот же —
+  // подписка общая, второго чтения нет.
+  const otherMonth = useTechSchedules(activeWorkspaceId, otherMonthKey ?? monthKey, permissions.isResolved);
+  const schedules = mainMonth.schedules;
+  const otherSchedules = otherMonth.schedules;
+  const schedulesLoaded = mainMonth.loaded && otherMonth.loaded;
+  const schedulesFailed = mainMonth.failed || otherMonth.failed;
+  const retryMain = mainMonth.retry;
+  const retryOther = otherMonth.retry;
+  const retrySchedules = useCallback(() => {
+    retryMain();
+    retryOther();
+  }, [retryMain, retryOther]);
   // Править можно только поверх ПРОЧИТАННОГО с сервера графика: до первого
   // снимка база выглядит пустой, и правка сравнивалась бы с пустотой.
   const scheduleReady = schedulesLoaded && !schedulesFailed;
+  // «Сегодня» живёт в основном месяце: полосы про сегодня второго месяца не ждут.
+  const mainReady = mainMonth.loaded && !mainMonth.failed;
   const byUid = useMemo(() => {
     const map = new Map<string, TechSchedule>();
     for (const s of schedules) map.set(s.uid, s);
     return map;
   }, [schedules]);
+  const byUidOther = useMemo(() => {
+    const map = new Map<string, TechSchedule>();
+    for (const s of otherSchedules) map.set(s.uid, s);
+    return map;
+  }, [otherSchedules]);
+  /** График месяца: открытого или второго месяца недели на стыке. */
+  const schedulesOf = useCallback(
+    (key: string): ReadonlyMap<string, TechSchedule> => (key === monthKey ? byUid : key === otherMonthKey ? byUidOther : NO_SCHEDULES),
+    [monthKey, otherMonthKey, byUid, byUidOther]
+  );
 
   // Чужие member-документы не живые — обновим, иначе у только что
   // заведённого человека не будет ни ника, ни фото.
@@ -338,9 +430,10 @@ export default function SchedulePage() {
     return subscribePendingScheduleRequests(activeWorkspaceId, setPendingAll, () => setPendingAll([]), scheduleBackend);
   }, [activeWorkspaceId, canEdit, scheduleBackend]);
 
-  // Неделю слушаем, пока она открыта, а у тех, кто правит, — и в месяце:
-  // оттуда выходной можно сделать постоянным («Повторять каждую субботу»).
-  const needTemplate = view === "week" || canEdit;
+  // Обычную неделю слушаем, пока она открыта, в «Неделе» по датам (по ней
+  // видно, какой день «разово»), а у тех, кто правит, — всегда: из любой
+  // клетки день можно сделать правилом («каждую субботу»).
+  const needTemplate = view !== "day" || canEdit;
   useEffect(() => {
     setTemplate(null);
     setTemplateLoaded(false);
@@ -435,7 +528,6 @@ export default function SchedulePage() {
   const customIds = useMemo(() => new Set(allCustomRows.map((row) => row.uid)), [allCustomRows]);
 
   const isCurrentMonth = monthKey === currentMonth;
-  const todayYmd = ymdInTimeZone(Date.now());
   const todayDow = new Date(`${todayYmd}T00:00:00Z`).getUTCDay();
   const todayKey = isCurrentMonth ? scheduleDayKey(todayYmd) : null;
   const myToday = todayKey ? scheduleStateOf(byUid.get(uid), todayKey) : "work";
@@ -589,23 +681,96 @@ export default function SchedulePage() {
       })),
     [todayDow]
   );
-  const columns = view === "week" ? weekColumns : monthColumns;
+  // «Неделя» по датам: столбец — дата («Пн» и «13 окт.» под ним), id — «2026-10-13».
+  const dateColumns: SheetColumn[] = useMemo(
+    () =>
+      weekDays.map((d) => ({
+        id: d.ymd,
+        top: WEEK_DOW_SHORT[d.dow],
+        sub: dayMonthShort(d.ymd),
+        weekend: d.dow === 0 || d.dow === 6,
+        today: d.ymd === todayYmd,
+        past: d.ymd < todayYmd,
+      })),
+    [weekDays, todayYmd]
+  );
+  const columns = isPattern ? weekColumns : view === "week" ? dateColumns : monthColumns;
   const colIds = useMemo(() => columns.map((c) => c.id), [columns]);
+  /** Столбец сетки по датам → месяц и день: в «Неделе» id — дата, в «Месяце» — день месяца. */
+  const refOfCol = useCallback(
+    (colId: string) => (view === "week" ? { monthKey: colId.slice(0, 7), dayKey: scheduleDayKey(colId) } : { monthKey, dayKey: colId }),
+    [view, monthKey]
+  );
 
-  const monthCellOf = useCallback(
+  /**
+   * Что стоит в этот день по обычной неделе. null — сравнивать не с чем:
+   * неделя ещё не прочитана или на этот месяц её пока не раскладывали (месяц
+   * дальше следующего выглядел бы сплошь «разовым»).
+   */
+  const usualOf = useCallback(
+    (personId: string, month: string, dayKey: string): WeekCell | null => {
+      if (!templateReady) return null;
+      const entry = template?.people?.[personId] ?? null;
+      // Правила нет (ни выходных, ни смен) — сравнивать не с чем: у тех, кому
+      // график ставят по датам, «разовым» оказался бы каждый выходной.
+      if (!entry || !hasWeek(entry)) return null;
+      if ((entry.appliedThrough ?? "") < month) return null;
+      // Сохранённое правило, без записей «в пути»: пока оно пишется, месяцы
+      // под него ещё не разложены, и точки вспыхнули бы на всех будущих днях.
+      return (storedWeek.get(personId) ?? emptyWeek)[String(weekdayOf(month, dayKey))] ?? WORK_CELL;
+    },
+    [templateReady, template, storedWeek, emptyWeek]
+  );
+
+  const dateCellOf = useCallback(
     (row: ScheduleRow, column: SheetColumn): SheetCell => {
-      const schedule = byUid.get(row.uid) ?? null;
-      const kind = monthCellKind(schedule, column.id);
-      const hours = kind === "hours" || kind === "came" ? scheduleHoursOf(schedule, column.id) : null;
-      const text = kind === "off" ? "В" : kind === "excused" ? "О" : kind === "came" ? "✓" : hours ? shiftStart(hours) : "";
+      const ref = refOfCol(column.id);
+      const schedule = schedulesOf(ref.monthKey).get(row.uid) ?? null;
+      const kind = monthCellKind(schedule, ref.dayKey);
+      const hours = kind === "hours" || kind === "came" ? scheduleHoursOf(schedule, ref.dayKey) : null;
+      // В неделе клетка широкая — пишем словами; в месяце места на букву.
+      const text =
+        view === "week"
+          ? kind === "off"
+            ? "вых"
+            : kind === "excused"
+              ? "отпр."
+              : kind === "came"
+                ? "пришёл"
+                : hours
+                  ? formatScheduleHours(hours)
+                  : "раб"
+          : kind === "off"
+            ? "В"
+            : kind === "excused"
+              ? "О"
+              : kind === "came"
+                ? "✓"
+                : hours
+                  ? shiftStart(hours)
+                  : "";
       const what = kind === "hours" && hours ? `смена ${formatScheduleHours(hours)}` : CELL_KIND_LABEL[kind].toLowerCase();
+      // «Разово» — день не такой, как в обычной неделе. Только сегодня и
+      // вперёд: прошедшие дни могли идти по прежнему правилу.
+      const usual = ymdOf(ref.monthKey, ref.dayKey) >= todayYmd ? usualOf(row.uid, ref.monthKey, ref.dayKey) : null;
+      const asUsual = usual
+        ? usual.off
+          ? kind === "off"
+          : usual.hours
+            ? kind === "hours" && sameScheduleHours(hours, usual.hours)
+            : kind === "work"
+        : true;
+      const usualText = usual ? (usual.off ? "выходной" : usual.hours ? `смена ${formatScheduleHours(usual.hours)}` : "рабочий день") : "";
       return {
         kind,
         text,
-        title: `${row.label} · ${dayLabel(monthKey, column.id)} — ${what}${kind === "came" && hours ? ` · ${formatScheduleHours(hours)}` : ""}`,
+        mark: !asUsual,
+        title: `${row.label} · ${dayLabel(ref.monthKey, ref.dayKey)} — ${what}${kind === "came" && hours ? ` · ${formatScheduleHours(hours)}` : ""}${
+          asUsual ? "" : ` · разово (обычно — ${usualText})`
+        }`,
       };
     },
-    [byUid, monthKey]
+    [refOfCol, schedulesOf, view, todayYmd, usualOf]
   );
   const weekCellOf = useCallback(
     (row: ScheduleRow, column: SheetColumn): SheetCell => {
@@ -619,18 +784,22 @@ export default function SchedulePage() {
     [weekCellsOfId]
   );
   const countOf = useCallback(
-    (sec: SheetSection, column: SheetColumn) =>
-      view === "week"
-        ? sec.rows.filter((row) => !weekCellsOfId(row.uid)[column.id]?.off).length
-        : sec.rows.filter((row) => scheduleStateOf(byUid.get(row.uid) ?? null, column.id) === "work").length,
-    [view, weekCellsOfId, byUid]
+    (sec: SheetSection, column: SheetColumn) => {
+      if (isPattern) return sec.rows.filter((row) => !weekCellsOfId(row.uid)[column.id]?.off).length;
+      const ref = refOfCol(column.id);
+      const month = schedulesOf(ref.monthKey);
+      return sec.rows.filter((row) => scheduleStateOf(month.get(row.uid) ?? null, ref.dayKey) === "work").length;
+    },
+    [isPattern, weekCellsOfId, refOfCol, schedulesOf]
   );
   const totalOf = useCallback(
     (row: ScheduleRow) =>
-      view === "week"
+      isPattern
         ? WEEK_DOWS.filter((dow) => weekCellsOfId(row.uid)[String(dow)]?.off).length
-        : monthDays.filter((d) => scheduleStateOf(byUid.get(row.uid) ?? null, d) === "off").length,
-    [view, weekCellsOfId, monthDays, byUid]
+        : view === "week"
+          ? weekDays.filter((d) => scheduleStateOf(schedulesOf(d.monthKey).get(row.uid) ?? null, d.dayKey) === "off").length
+          : monthDays.filter((d) => scheduleStateOf(byUid.get(row.uid) ?? null, d) === "off").length,
+    [isPattern, view, weekCellsOfId, weekDays, schedulesOf, monthDays, byUid]
   );
 
   // --- выделение и палитра ---------------------------------------------------
@@ -677,17 +846,27 @@ export default function SchedulePage() {
     setAnchorEl(el);
   }, [view, selection.focus, paletteOpen]);
 
-  const selectedCells = useMemo(() => [...selection.selected].map(splitCellKey), [selection.selected]);
-  const monthTarget: MonthCellRef[] = useMemo(() => {
-    if (view === "day") return dayTarget ? [{ uid: dayTarget.uid, dayKey: dayKeyOfDayView() }] : [];
-    if (view !== "month") return [];
-    return selectedCells.map(([rowId, colId]) => ({ uid: rowId, dayKey: colId }));
+  // Только клетки ОТКРЫТОЙ сетки. Выделение сбрасывается эффектом — уже после
+  // первой отрисовки нового вида, и в ней старые ключи («uid|2026-10-13» в
+  // месяце, «uid|13» в неделе) разбирались бы как даты другого вида.
+  const colSet = useMemo(() => new Set(colIds), [colIds]);
+  const selectedCells = useMemo(
+    () => [...selection.selected].map(splitCellKey).filter(([, colId]) => colSet.has(colId)),
+    [selection.selected, colSet]
+  );
+  /** Выделенные клетки по датам («Неделя», «Месяц», «День»): человек, месяц и день. */
+  const dateTarget: DateCellRef[] = useMemo(() => {
+    if (view === "day") return dayTarget ? [{ uid: dayTarget.uid, monthKey, dayKey: dayKeyOfDayView() }] : [];
+    if (view === "pattern") return [];
+    return selectedCells.map(([rowId, colId]) => ({ uid: rowId, ...refOfCol(colId) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, selectedCells, dayTarget, pickedDay, monthKey]);
+  }, [view, selectedCells, dayTarget, pickedDay, monthKey, refOfCol]);
   const weekTarget: WeekCellRef[] = useMemo(
-    () => (view === "week" ? selectedCells.map(([rowId, colId]) => ({ personId: rowId, dow: colId })) : []),
+    () => (view === "pattern" ? selectedCells.map(([rowId, colId]) => ({ personId: rowId, dow: colId })) : []),
     [view, selectedCells]
   );
+  /** Id столбца клетки в открытом виде — по нему сетка показывает «сохраняется». */
+  const colIdOfCell = (cell: DateCellRef) => (view === "week" ? ymdOf(cell.monthKey, cell.dayKey) : cell.dayKey);
 
   const markPending = useCallback((keys: string[], on: boolean) => {
     setPendingKeys((prev) => {
@@ -740,51 +919,65 @@ export default function SchedulePage() {
     }
   }
 
-  async function applyMonth(cells: MonthCellRef[], action: ScheduleBulkAction, shift: ScheduleHours | null, weekly: boolean) {
+  /**
+   * Правка клеток по датам. Неделя на стыке месяцев лежит в двух документах —
+   * план и запись идут по каждому месяцу отдельно. `weekly` — «каждую среду»:
+   * тот же выбор становится правилом обычной недели.
+   */
+  async function applyDates(cells: DateCellRef[], action: ScheduleBulkAction, shift: ScheduleHours | null, weekly: boolean) {
     if (!activeWorkspaceId || !canEdit || cells.length === 0) return;
     if (!scheduleReady) {
       toast.error("График ещё загружается — подождите секунду");
       return;
     }
     if (weekWriter.busy) {
-      // Постоянная неделя ещё раскладывается по месяцу: правка, посчитанная
+      // Обычная неделя ещё раскладывается по месяцу: правка, посчитанная
       // сейчас, считалась бы от месяца ДО раскладки и легла бы не туда.
-      toast("Секунду — сохраняю постоянную неделю");
+      toast("Секунду — сохраняю обычную неделю");
       return;
     }
     const workspaceId = activeWorkspaceId;
-    const writeMonth = monthKey;
-    const plan = planMonthEdit(byUid, cells, action, shift);
+    const groups = splitByMonth(cells);
+    const plans = groups.map((group) => ({
+      monthKey: group.monthKey,
+      plan: planMonthEdit(schedulesOf(group.monthKey), group.cells, action, shift),
+    }));
+    const touched = plans.reduce((sum, item) => sum + item.plan.touched, 0);
     const weekAction = weekly ? weekActionOf(action) : null;
-    const wplan =
-      weekAction && templateReady ? planWeekEdit(weekCellsOfId, monthCellsToWeekCells(writeMonth, cells), weekAction, shift) : null;
+    const weekRefs = weekRefsOf(groups);
+    const wplan = weekAction && templateReady ? planWeekEdit(weekCellsOfId, weekRefs, weekAction, shift) : null;
     const weekChanges = wplan?.changes ?? [];
-    if (plan.touched === 0 && weekChanges.length === 0) {
+    if (touched === 0 && weekChanges.length === 0) {
       setLastDone("Уже так — ничего не поменялось");
       return;
     }
     const what = actionText(action, shift);
-    const label = weekChanges.length > 0 ? `${what} — ${everyLabel([...new Set(monthCellsToWeekCells(writeMonth, cells).map((c) => c.dow))])}` : `${what} · ${formatCount(Math.max(plan.touched, 1), CELLS_FORMS)}`;
-    const write = (changes: typeof plan.changes, week: WeekPersonChange[] | null) =>
-      week && week.length > 0
-        ? weekWriter.save({
-            changes: week,
-            extra: [{ monthKey: writeMonth, changes }],
-            throughMonth: writeMonth >= currentMonth ? writeMonth : undefined,
-          })
-        : saveScheduleDraft({ workspaceId, monthKey: writeMonth, actorUid: uid, changes });
+    const label =
+      weekChanges.length > 0
+        ? `${what} — ${everyLabel([...new Set(weekRefs.map((c) => c.dow))])}`
+        : `${what} · ${formatCount(Math.max(touched, 1), CELLS_FORMS)}`;
+    const lastMonth = groups.map((g) => g.monthKey).sort().pop() ?? monthKey;
+    const write = async (pick: "changes" | "undo", week: WeekPersonChange[] | null) => {
+      const months = plans.map((item) => ({ monthKey: item.monthKey, changes: item.plan[pick] }));
+      if (week && week.length > 0) {
+        await weekWriter.save({ changes: week, extra: months, throughMonth: lastMonth >= currentMonth ? lastMonth : undefined });
+        return;
+      }
+      // Оба месяца недели на стыке — одной пачкой: либо записалось всё, либо ничего.
+      await saveScheduleDrafts({ workspaceId, actorUid: uid, months });
+    };
     await runEdit({
       label,
-      keys: cells.map((cell) => cellKey(cell.uid, cell.dayKey)),
-      apply: () => write(plan.changes, weekChanges),
-      revert: () => write(plan.undo, wplan?.undo ?? null),
+      keys: cells.map((cell) => cellKey(cell.uid, colIdOfCell(cell))),
+      apply: () => write("changes", weekChanges),
+      revert: () => write("undo", wplan?.undo ?? null),
     });
   }
 
   async function applyWeek(cells: WeekCellRef[], action: WeekAction, shift: ScheduleHours | null) {
     if (!activeWorkspaceId || !canEdit || cells.length === 0) return;
     if (!templateReady) {
-      toast.error("Неделя ещё загружается — подождите секунду");
+      toast.error("Обычная неделя ещё загружается — подождите секунду");
       return;
     }
     const wplan = planWeekEdit(weekCellsOfId, cells, action, shift);
@@ -793,50 +986,59 @@ export default function SchedulePage() {
       return;
     }
     await runEdit({
-      label: `${actionText(action, shift)} · ${formatCount(wplan.touched, CELLS_FORMS)} недели`,
+      label: `${actionText(action, shift)} · ${formatCount(wplan.touched, CELLS_FORMS)} обычной недели`,
       keys: cells.map((cell) => cellKey(cell.personId, cell.dow)),
       apply: () => weekWriter.save({ changes: wplan.changes }),
       revert: () => weekWriter.save({ changes: wplan.undo }),
     });
   }
 
-  async function applyMonthRestore(cells: MonthCellRef[]) {
+  async function applyDatesRestore(cells: DateCellRef[]) {
     if (!activeWorkspaceId || !canEdit || cells.length === 0) return;
     if (!scheduleReady || !templateReady) {
       toast.error("График ещё загружается — подождите секунду");
       return;
     }
     if (weekWriter.busy) {
-      toast("Секунду — сохраняю постоянную неделю");
+      toast("Секунду — сохраняю обычную неделю");
       return;
     }
     const workspaceId = activeWorkspaceId;
-    const writeMonth = monthKey;
-    const plan = planMonthRestore(byUid, cells, writeMonth, weekCellsOfId);
-    if (plan.touched === 0) {
-      setLastDone("Уже как в постоянной неделе");
+    const plans = splitByMonth(cells).map((group) => ({
+      monthKey: group.monthKey,
+      plan: planMonthRestore(schedulesOf(group.monthKey), group.cells, group.monthKey, weekCellsOfId),
+    }));
+    const touched = plans.reduce((sum, item) => sum + item.plan.touched, 0);
+    if (touched === 0) {
+      setLastDone("Уже как в обычной неделе");
       return;
     }
+    const write = (pick: "changes" | "undo") =>
+      saveScheduleDrafts({
+        workspaceId,
+        actorUid: uid,
+        months: plans.map((item) => ({ monthKey: item.monthKey, changes: item.plan[pick] })),
+      });
     await runEdit({
-      label: `Как в постоянной неделе · ${formatCount(plan.touched, CELLS_FORMS)}`,
-      keys: cells.map((cell) => cellKey(cell.uid, cell.dayKey)),
-      apply: () => saveScheduleDraft({ workspaceId, monthKey: writeMonth, actorUid: uid, changes: plan.changes }),
-      revert: () => saveScheduleDraft({ workspaceId, monthKey: writeMonth, actorUid: uid, changes: plan.undo }),
+      label: `Как в обычной неделе · ${formatCount(touched, CELLS_FORMS)}`,
+      keys: cells.map((cell) => cellKey(cell.uid, colIdOfCell(cell))),
+      apply: () => write("changes"),
+      revert: () => write("undo"),
     });
   }
 
   function applyPalette(action: PaletteAction, opts: { shift: ScheduleHours | null; weekly: boolean }) {
     setPaletteOpen(false);
     if (action === "restore") {
-      if (view !== "week") void applyMonthRestore(monthTarget);
+      if (view !== "pattern") void applyDatesRestore(dateTarget);
       if (view === "day") setDayTarget(null);
       return;
     }
-    if (view === "week") {
+    if (view === "pattern") {
       if (action === "excused" || action === "came") return;
       void applyWeek(weekTarget, action, opts.shift);
     } else {
-      void applyMonth(monthTarget, action, opts.shift, opts.weekly);
+      void applyDates(dateTarget, action, opts.shift, opts.weekly);
     }
     if (view === "day") setDayTarget(null);
   }
@@ -919,15 +1121,19 @@ export default function SchedulePage() {
       }
       if (!canEdit) return;
       const byCode: Record<string, ScheduleBulkAction> =
-        view === "week"
+        view === "pattern"
           ? { KeyD: "off", KeyH: "work", Delete: "work", Backspace: "work" }
           : { KeyD: "off", KeyH: "work", KeyJ: "excused", KeyG: "came", Delete: "work", Backspace: "work" };
       const action = byCode[event.code] ?? byCode[event.key];
       if (!action) return;
+      // В окне клетки выбрано «каждую …» — клавиша ставит то же, что кнопка:
+      // правило. «Отпросился» и «Пришёл» правилом не бывают — как и их кнопки.
+      const everyWeek = view !== "pattern" && paletteOpen && weeklyPick;
+      if (everyWeek && (action === "excused" || action === "came")) return;
       event.preventDefault();
       setPaletteOpen(false);
-      if (view === "week") void applyWeek(weekTarget, action as WeekAction, null);
-      else void applyMonth(monthTarget, action, null, false);
+      if (view === "pattern") void applyWeek(weekTarget, action as WeekAction, null);
+      else void applyDates(dateTarget, action, null, everyWeek);
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -946,9 +1152,9 @@ export default function SchedulePage() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // Ctrl+V с таблицей из Google Sheets прямо на неделе — без поиска кнопки.
+  // Ctrl+V с таблицей из Google Sheets прямо на обычной неделе — без поиска кнопки.
   useEffect(() => {
-    if (view !== "week" || !canEdit || paste) return;
+    if (view !== "pattern" || !canEdit || paste) return;
     function onPaste(event: ClipboardEvent) {
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
@@ -956,7 +1162,7 @@ export default function SchedulePage() {
       if (!text.includes("\t")) return;
       event.preventDefault();
       if (!templateReady) {
-        toast.error("Неделя ещё загружается — вставьте через секунду");
+        toast.error("Обычная неделя ещё загружается — вставьте через секунду");
         return;
       }
       setPaste({ text });
@@ -980,8 +1186,7 @@ export default function SchedulePage() {
   // --- палитра: что показать ---------------------------------------------------
 
   const palette = useMemo(() => {
-    const isWeek = view === "week";
-    if (isWeek) {
+    if (view === "pattern") {
       const cells = weekTarget;
       if (cells.length === 0) return null;
       const people = new Set(cells.map((c) => c.personId));
@@ -1007,74 +1212,112 @@ export default function SchedulePage() {
         cameAvailable: false,
         restore: null,
         weekly: null,
-        blocked: templateReady ? null : "Неделя ещё загружается — подождите секунду.",
-        extraLink:
+        blocked: templateReady ? null : "Обычная неделя ещё загружается — подождите секунду.",
+        links:
           singleRow && canEdit
-            ? { label: `Вся неделя · ${singleRow.label}`, onClick: () => { setPaletteOpen(false); openPerson(singleRow); } }
+            ? [{ label: `Вся обычная неделя · ${singleRow.label}`, onClick: () => { setPaletteOpen(false); openPerson(singleRow); } }]
             : singleRow
-              ? { label: `Весь месяц · ${singleRow.label}`, onClick: () => { setPaletteOpen(false); setPersonMonth(singleRow); } }
-              : null,
+              ? [{ label: `Весь месяц · ${singleRow.label}`, onClick: () => { setPaletteOpen(false); setPersonMonth(singleRow); } }]
+              : [],
       };
     }
-    const cells = monthTarget;
+    const cells = dateTarget;
     if (cells.length === 0) return null;
+    const groups = splitByMonth(cells);
     const people = new Set(cells.map((c) => c.uid));
     const single = cells.length === 1 ? cells[0] : null;
     const rowOf = (id: string) => rowById.get(id) ?? patternRows.find((row) => row.uid === id) ?? null;
     const singleRow = people.size === 1 ? rowOf(cells[0].uid) : null;
-    const kinds = monthSelectionKinds(byUid, cells);
+    const kinds = new Map<CellKind, number>();
+    for (const group of groups) {
+      for (const [kind, count] of monthSelectionKinds(schedulesOf(group.monthKey), group.cells)) kinds.set(kind, (kinds.get(kind) ?? 0) + count);
+    }
     const current = kinds.size === 1 ? [...kinds.keys()][0] : null;
-    const shiftNow = single ? scheduleHoursOf(byUid.get(single.uid), single.dayKey) : null;
+    const shiftNow = single ? scheduleHoursOf(schedulesOf(single.monthKey).get(single.uid), single.dayKey) : null;
     const cameAvailable = cells.some((c) => {
-      const kind = monthCellKind(byUid.get(c.uid) ?? null, c.dayKey);
+      const kind = monthCellKind(schedulesOf(c.monthKey).get(c.uid) ?? null, c.dayKey);
       return kind === "off" || kind === "excused";
     });
-    const dows = [...new Set(monthCellsToWeekCells(monthKey, cells).map((c) => c.dow))];
-    const ahead = monthsBetween(currentMonth, monthKey);
+    const dows = [...new Set(weekRefsOf(groups).map((c) => c.dow))];
+    const months = groups.map((g) => g.monthKey).sort();
+    const firstMonth = months[0] ?? monthKey;
+    const lastMonth = months[months.length - 1] ?? monthKey;
+    const ahead = monthsBetween(currentMonth, lastMonth);
     const weeklyReason =
-      monthKey < currentMonth
-        ? "Прошедший месяц: постоянная неделя действует с сегодняшнего дня"
+      firstMonth < currentMonth
+        ? "Прошедший месяц: обычная неделя действует с сегодняшнего дня"
         : ahead >= LAY_MONTHS_MAX
-          ? "Слишком далеко вперёд — поставьте во вкладке «Неделя»"
+          ? "Слишком далеко вперёд — поставьте во вкладке «Обычная неделя»"
           : !templateReady
-            ? "Неделя ещё загружается"
+            ? "Обычная неделя ещё загружается"
             : null;
-    // Что по постоянной неделе в этот день — чтобы было видно, разовое это
+    // Что по обычной неделе в этот день — чтобы было видно, разовое это
     // или «так каждую неделю».
     let weekNote = "";
     if (single && templateReady) {
-      const dow = String(weekdayOf(monthKey, single.dayKey));
+      const dow = String(weekdayOf(single.monthKey, single.dayKey));
       const weekCell = weekCellsOfId(single.uid)[dow] ?? WORK_CELL;
       weekNote = weekCell.off
-        ? ` · по неделе: выходной ${WEEKDAY_EVERY[dow].replace(/^кажд\S+ /, "в ")}`
+        ? ` · обычно: выходной ${WEEKDAY_EVERY[dow].replace(/^кажд\S+ /, "в ")}`
         : weekCell.hours
-          ? ` · по неделе: смена ${formatScheduleHours(weekCell.hours)}`
-          : "";
+          ? ` · обычно: смена ${formatScheduleHours(weekCell.hours)}`
+          : current && current !== "work"
+            ? " · обычно: рабочий день"
+            : "";
     }
     const describe = (kind: CellKind) =>
       kind === "hours" && shiftNow ? `смена ${formatScheduleHours(shiftNow)}` : CELL_KIND_LABEL[kind].toLowerCase();
-    // «Как в постоянной неделе» — у кого неделя вообще задана.
+    // «Как в обычной неделе» — у кого неделя вообще задана.
     const withWeek = templateReady && cells.some((c) => hasWeek(template?.people?.[c.uid]));
+    const restoreTouched = withWeek
+      ? groups.reduce((sum, g) => sum + planMonthRestore(schedulesOf(g.monthKey), g.cells, g.monthKey, weekCellsOfId).touched, 0)
+      : 0;
     return {
       title: single
-        ? `${singleRow?.label ?? "—"} · ${dayLabel(monthKey, single.dayKey)}`
+        ? `${singleRow?.label ?? "—"} · ${dayLabel(single.monthKey, single.dayKey)}`
         : `${singleRow ? `${singleRow.label} · ` : ""}${formatCount(cells.length, CELLS_FORMS)}${people.size > 1 ? ` · ${people.size} чел.` : ""}`,
       subtitle: current ? `Сейчас: ${describe(current)}${weekNote}` : `Сейчас: ${mixedText(kinds)}`,
       current,
       currentShift: shiftNow,
       cameAvailable,
-      restore: withWeek ? { touched: planMonthRestore(byUid, cells, monthKey, weekCellsOfId).touched } : null,
-      weekly: { label: everyLabel(dows), disabledReason: weeklyReason },
+      restore: withWeek ? { touched: restoreTouched } : null,
+      weekly: { label: everyLabel(dows), onceLabel: single ? "Только этот день" : "Только эти дни", disabledReason: weeklyReason },
       blocked: scheduleReady ? null : "График ещё загружается — подождите секунду.",
-      extraLink: singleRow
-        ? { label: `Весь месяц · ${singleRow.label}`, onClick: () => { setPaletteOpen(false); setDayTarget(null); setPersonMonth(singleRow); } }
-        : null,
+      links: singleRow
+        ? [
+            {
+              label: `Весь месяц · ${singleRow.label}`,
+              onClick: () => {
+                setPaletteOpen(false);
+                setDayTarget(null);
+                setPersonMonthAt(cells[0].monthKey);
+                setPersonMonth(singleRow);
+              },
+            },
+            ...(canEdit && templateReady
+              ? [
+                  {
+                    label: `Обычная неделя · ${singleRow.label}`,
+                    onClick: () => {
+                      setPaletteOpen(false);
+                      setDayTarget(null);
+                      setPersonTarget(singleRow);
+                    },
+                  },
+                ]
+              : []),
+          ]
+        : [],
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, weekTarget, monthTarget, weekCellsOfId, byUid, rowById, patternRows, monthKey, currentMonth, templateReady, scheduleReady, canEdit, template]);
+  }, [view, weekTarget, dateTarget, weekCellsOfId, schedulesOf, rowById, patternRows, monthKey, currentMonth, templateReady, scheduleReady, canEdit, template]);
 
   const paletteKey = `${view}|${monthKey}|${[...selection.selected].join(",")}|${dayTarget?.uid ?? ""}|${dayKey}`;
   const paletteShown = paletteOpen && palette !== null && (view !== "day" || dayTarget !== null);
+  // Новое выделение или закрытое окно — снова «только этот день».
+  useEffect(() => {
+    setWeeklyPick(false);
+  }, [paletteKey, paletteShown]);
 
   // --- действия страницы -------------------------------------------------------
 
@@ -1177,10 +1420,52 @@ export default function SchedulePage() {
   }
 
   function goToMonth(next: string) {
-    setMonthKey(next);
+    // В «Неделе» месяц следует за неделей: открываем неделю, которая целиком
+    // лежит в нужном месяце (неделя с 7-м числом — всегда такая).
+    if (view === "week") setWeekStart(mondayOf(`${next}-07`));
+    else setMonthKey(next);
   }
 
-  /** Имя: неделя человека у того, кто её правит (в «Неделе»), иначе — весь месяц крупно. */
+  /** Стрелки шапки: в «Неделе» — на неделю, в «Месяце» и «Дне» — на месяц. */
+  function stepPeriod(direction: -1 | 1) {
+    if (view === "week") setWeekStart(addDays(weekStart, direction * 7));
+    else goToMonth(direction < 0 ? previousMonthKey(monthKey) : nextMonthKey(monthKey));
+  }
+
+  function goToday() {
+    setWeekStart(mondayOf(todayYmd));
+    setMonthKey(currentMonth);
+    setPickedDay(null);
+  }
+
+  /** Сменить вид, не потеряв место: из недели — в её месяц, из месяца и дня — в их неделю. */
+  function changeView(next: ScheduleView) {
+    if (next === view) return;
+    if (view === "week" && next !== "pattern") {
+      setMonthKey(monthKey);
+      // «День» открывается на дне этой недели: сегодня, если оно в ней, иначе
+      // первый её день в этом месяце.
+      if (next === "day") {
+        const hasToday = weekDays.some((d) => d.ymd === todayYmd);
+        setPickedDay(hasToday ? null : weekDays.find((d) => d.monthKey === monthKey)?.dayKey ?? null);
+      }
+    }
+    if (next === "week" && view !== "pattern") {
+      // Чужой месяц — неделя с 7-м числом: она целиком лежит в нём (неделя с
+      // 1-м числом может «принадлежать» прошлому месяцу, и возврат в «Месяц»
+      // открыл бы его).
+      setWeekStart(
+        view === "day"
+          ? mondayOf(ymdOf(monthKeyState, dayKeyOfDayView()))
+          : monthKeyState === currentMonth
+            ? mondayOf(todayYmd)
+            : mondayOf(`${monthKeyState}-07`)
+      );
+    }
+    setView(next);
+  }
+
+  /** Имя: обычная неделя человека у того, кто её правит (во вкладке правила), иначе — весь месяц крупно. */
   function openPerson(row: ScheduleRow) {
     if (!canEdit || !templateReady) return;
     setPersonTarget(row);
@@ -1188,9 +1473,10 @@ export default function SchedulePage() {
   const onNameClick = useCallback(
     (row: ScheduleRow) => {
       setPaletteOpen(false);
-      if (view === "week" && canEdit) {
+      if (view === "pattern" && canEdit) {
         if (templateReady) setPersonTarget(row);
       } else {
+        setPersonMonthAt(null);
         setPersonMonth(row);
       }
     },
@@ -1203,10 +1489,40 @@ export default function SchedulePage() {
     const change: WeekPersonChange = { personId: row.uid, cells, entry: normalizeWeekEntry(cells) };
     const back: WeekPersonChange = { personId: row.uid, cells: before, entry: normalizeWeekEntry(before) };
     await runEdit({
-      label: `Неделя · ${row.label}`,
-      keys: WEEK_DOWS.map((dow) => cellKey(row.uid, String(dow))),
+      label: `Обычная неделя · ${row.label}`,
+      // Клетки «сохраняются» только в сетке правила: в сетках по датам те же
+      // ключи значили бы числа месяца.
+      keys: isPattern ? WEEK_DOWS.map((dow) => cellKey(row.uid, String(dow))) : [],
       apply: () => weekWriter.save({ changes: [change] }),
       revert: () => weekWriter.save({ changes: [back] }),
+    });
+  }
+
+  /** «Настроить нескольким»: обычная неделя сразу группе — одной правкой и одним «Отменить». */
+  async function applyBulkWeek(list: BulkWeekResult[]) {
+    setBulkOpen(false);
+    if (!templateReady) {
+      toast.error("Обычная неделя ещё загружается — попробуйте через секунду");
+      return;
+    }
+    const changes: WeekPersonChange[] = [];
+    const back: WeekPersonChange[] = [];
+    for (const { row, cells } of list) {
+      const before = weekCellsOfId(row.uid);
+      const entry = normalizeWeekEntry(cells);
+      if (sameWeek(entry, normalizeWeekEntry(before))) continue;
+      changes.push({ personId: row.uid, cells, entry });
+      back.push({ personId: row.uid, cells: before, entry: normalizeWeekEntry(before) });
+    }
+    if (changes.length === 0) {
+      toast.success("У выбранных и так такая неделя — ничего не поменялось");
+      return;
+    }
+    await runEdit({
+      label: `Обычная неделя · ${changes.length} чел.`,
+      keys: isPattern ? changes.flatMap((c) => WEEK_DOWS.map((dow) => cellKey(c.personId, String(dow)))) : [],
+      apply: () => weekWriter.save({ changes }),
+      revert: () => weekWriter.save({ changes: back }),
     });
   }
 
@@ -1251,11 +1567,11 @@ export default function SchedulePage() {
     setSection("all");
     setQuery("");
     if (changes.length === 0) {
-      toast.success("Неделя и так такая — ничего не поменялось");
+      toast.success("Обычная неделя и так такая — ничего не поменялось");
       return;
     }
     await runEdit({
-      label: `Неделя из таблицы · ${changes.length} чел.`,
+      label: `Обычная неделя из таблицы · ${changes.length} чел.`,
       keys: changes.flatMap((c) => WEEK_DOWS.map((dow) => cellKey(c.personId, String(dow)))),
       apply: () => weekWriter.save({ changes }),
       revert: () => weekWriter.save({ changes: back }),
@@ -1266,10 +1582,9 @@ export default function SchedulePage() {
    * Пакет из окна «Месяц человека» — один batch. Возвращает «Отменить»: окно
    * показывает её у себя (тост под затемнением окна не нажать).
    */
-  async function applyPersonBulk(row: ScheduleRow, plan: ScheduleBulkPlan): Promise<() => Promise<void>> {
+  async function applyPersonBulk(row: ScheduleRow, plan: ScheduleBulkPlan, writeMonth: string): Promise<() => Promise<void>> {
     if (!activeWorkspaceId || plan.touched.length === 0) return async () => {};
     const workspaceId = activeWorkspaceId;
-    const writeMonth = monthKey;
     const write = (change: typeof plan.change) =>
       saveScheduleDraft({ workspaceId, monthKey: writeMonth, actorUid: uid, changes: [{ uid: row.uid, ...change }] });
     let undone = false;
@@ -1302,18 +1617,32 @@ export default function SchedulePage() {
   const canUndoHere = undoState.undoTop !== null && scheduleCommands.has(undoState.undoTop);
   const canRedoHere = undoState.redoTop !== null && scheduleCommands.has(undoState.redoTop);
 
+  // Месяц окна «Месяц человека»: якорный или второй месяц недели на стыке.
+  const dialogMonth = personMonthAt !== null && personMonthAt === otherMonthKey ? personMonthAt : monthKey;
+  const weekLabel = weekRangeLabel(weekStart, todayYmd);
+  const weekNear = weekNearLabel(weekStart, todayYmd);
+  const onToday = view === "week" ? weekStart === mondayOf(todayYmd) : isCurrentMonth;
+  const bulkSections = [
+    ...baseSections.map((s) => ({ id: s.id, title: s.title, rows: s.rows })),
+    ...(customRows.length > 0 ? [{ id: "custom", title: groupName, rows: customRows }] : []),
+  ];
+
   const description =
     view === "day"
       ? canEdit
         ? "Кто работает в выбранный день. Нажмите на человека — выходной, отпросился, смена."
         : "Кто работает в выбранный день, у кого смена с/до и кого нет."
-      : view === "week"
+      : view === "pattern"
         ? canEdit
-          ? "Постоянная неделя каждого: зелёное — работает, красное — выходной. Нажмите на клетку, чтобы поменять."
-          : "Постоянная неделя команды: зелёное — работает, красное — выходной. Разовые выходные — во вкладке «Месяц»."
-        : canEdit
-          ? "Конкретные даты: отпуск, отгул, «поменялись». Нажмите на клетку, чтобы поменять."
-          : "Кто работает, у кого выходной и кто отпросился. График ведёт руководство.";
+          ? "Правило на каждую неделю: кто по каким дням работает обычно. Действует с сегодняшнего дня, пока не поменяете. Разовые замены ставьте во вкладке «Неделя»."
+          : "Кто по каким дням работает обычно. Разовые выходные и замены — во вкладках «Неделя» и «Месяц»."
+        : view === "week"
+          ? canEdit
+            ? "Кто когда работает на неделе — по датам: зелёное — работает, красное — выходной. Нажмите на клетку, чтобы поменять."
+            : "Кто когда работает на неделе: зелёное — работает, красное — выходной. График ведёт руководство."
+          : canEdit
+            ? "Весь месяц по дням: отпуск, отгулы, замены. Нажмите на клетку, чтобы поменять."
+            : "Кто работает, у кого выходной и кто отпросился. График ведёт руководство.";
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-[1600px] px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
@@ -1326,55 +1655,61 @@ export default function SchedulePage() {
         className="mb-4"
         actions={
           <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-            <div className="inline-flex rounded-lg border border-border p-0.5" role="tablist" aria-label="Вид графика">
+            <div
+              className="inline-flex max-w-full overflow-x-auto rounded-lg border border-border p-0.5 [scrollbar-width:none]"
+              role="tablist"
+              aria-label="Вид графика"
+            >
               {VIEWS.map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  role="tab"
-                  aria-selected={view === v}
-                  onClick={() => setView(v)}
-                  className={cn(
-                    "min-h-10 rounded-md px-3 text-[13px] transition-colors sm:min-h-8",
-                    view === v ? "bg-primary/15 font-medium text-primary" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {VIEW_LABELS[v]}
-                </button>
+                // «Обычная неделя» — правило, а не масштаб: стоит отдельно, со своим значком.
+                <span key={v} className="contents">
+                  {v === "pattern" && <span aria-hidden className="mx-1 my-1.5 w-px self-stretch bg-border" />}
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={view === v}
+                    title={VIEW_HINTS[v]}
+                    onClick={() => changeView(v)}
+                    className={cn(
+                      "inline-flex min-h-10 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-[13px] transition-colors sm:min-h-8 sm:px-3",
+                      view === v ? "bg-primary/15 font-medium text-primary" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {v === "pattern" && <Repeat className="h-3.5 w-3.5 shrink-0" />}
+                    {VIEW_LABELS[v]}
+                  </button>
+                </span>
               ))}
             </div>
-            {view !== "week" && (
-              // Стрелки и месяц — одной группой: на телефоне шапка переносится.
+            {view !== "pattern" && (
+              // Стрелки и период — одной группой: на телефоне шапка переносится.
               <div className="flex items-center gap-1">
                 <Button
                   variant="outline"
                   size="icon"
                   className="h-10 w-10 sm:h-8 sm:w-8"
-                  aria-label="Предыдущий месяц"
-                  onClick={() => goToMonth(previousMonthKey(monthKey))}
+                  aria-label={view === "week" ? "Предыдущая неделя" : "Предыдущий месяц"}
+                  onClick={() => stepPeriod(-1)}
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <span className="min-w-[8rem] text-center text-sm font-medium">{monthLabel}</span>
+                <span className="min-w-[8.5rem] text-center text-sm font-medium leading-4" data-schedule-period>
+                  {view === "week" ? weekLabel : monthLabel}
+                  {view === "week" && weekNear && (
+                    <span className="block text-[11px] font-normal leading-3 text-muted-foreground">{weekNear}</span>
+                  )}
+                </span>
                 <Button
                   variant="outline"
                   size="icon"
                   className="h-10 w-10 sm:h-8 sm:w-8"
-                  aria-label="Следующий месяц"
-                  onClick={() => goToMonth(nextMonthKey(monthKey))}
+                  aria-label={view === "week" ? "Следующая неделя" : "Следующий месяц"}
+                  onClick={() => stepPeriod(1)}
                 >
                   <ChevronRight className="h-4 w-4" />
                 </Button>
-                {!isCurrentMonth && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="min-h-10 sm:min-h-0"
-                    onClick={() => {
-                      setMonthKey(currentMonth);
-                      setPickedDay(null);
-                    }}
-                  >
+                {!onToday && (
+                  <Button variant="ghost" size="sm" className="min-h-10 sm:min-h-0" onClick={goToday}>
                     Сегодня
                   </Button>
                 )}
@@ -1435,16 +1770,44 @@ export default function SchedulePage() {
 
         {/* Кто сегодня на смене — одной строкой: руководство открывает «График»
             ровно за этим. Тап — вид «День» на сегодня. */}
-        {view !== "day" && isCurrentMonth && scheduleReady && todayKey && (
+        {view !== "day" && isCurrentMonth && mainReady && todayKey && (
           <TodayOnShift
             sections={baseSections}
             schedules={byUid}
             todayKey={todayKey}
             onOpen={() => {
-              setPickedDay(null);
+              goToday();
               setView("day");
             }}
           />
+        )}
+
+        {canEdit && !tipSeen && (
+          <div
+            data-schedule-tip
+            className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-primary/35 bg-primary/[0.06] px-3 py-2.5 text-[12px] leading-5"
+          >
+            <p className="min-w-0 flex-1 basis-64">
+              <b className="font-medium">График устроен по-новому.</b> «Неделя» теперь показывает настоящие даты: правка в ней
+              меняет только выбранный день. Правило на каждую неделю — во вкладке «Обычная неделя» или выбором «каждую …» в
+              окне клетки.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-h-10 shrink-0 sm:h-8 sm:min-h-0"
+              onClick={() => {
+                setTipSeen(true);
+                try {
+                  window.localStorage.setItem(NEW_LAYOUT_TIP_KEY, "1");
+                } catch {
+                  // Без хранилища подсказка вернётся при следующем заходе — не страшно.
+                }
+              }}
+            >
+              Понятно
+            </Button>
+          </div>
         )}
 
         {canEdit && pendingRequests.length > 0 && (
@@ -1481,7 +1844,7 @@ export default function SchedulePage() {
           </div>
         )}
 
-        {iAmScheduled && scheduleReady && myToday !== "work" && !canEdit && (
+        {iAmScheduled && mainReady && myToday !== "work" && !canEdit && (
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/35 bg-warning/[0.08] px-3 py-2.5 text-[12px]">
             <p className="min-w-0 flex-1">
               {myToday === "off" ? "Сегодня у вас выходной" : "Сегодня вы отпросились"} — откликаться на заказы всё равно
@@ -1504,10 +1867,10 @@ export default function SchedulePage() {
           </div>
         )}
 
-        {view === "week" && templateFailed && (
-          <FailBanner text="Неделя не загрузилась — показана пустой, правка выключена." onRetry={() => setTemplateAttempt((n) => n + 1)} />
+        {view === "pattern" && templateFailed && (
+          <FailBanner text="Обычная неделя не загрузилась — показана пустой, правка выключена." onRetry={() => setTemplateAttempt((n) => n + 1)} />
         )}
-        {view !== "week" && schedulesFailed && (
+        {view !== "pattern" && schedulesFailed && (
           <FailBanner text="График не загрузился — показан пустым, правка выключена." onRetry={retrySchedules} />
         )}
       </div>
@@ -1520,7 +1883,7 @@ export default function SchedulePage() {
           <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2">
             {/* На телефоне поиск — во всю строку: рядом с кнопками от него
                 оставалось «Най». */}
-            <div className="relative min-w-0 flex-1 basis-full sm:max-w-[16rem] sm:basis-auto">
+            <div className="relative min-w-[9rem] flex-1 sm:max-w-[16rem]">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
                 ref={searchRef}
@@ -1552,7 +1915,7 @@ export default function SchedulePage() {
                 найдено: <span className="font-medium tabular-nums text-foreground">{foundCount}</span>
               </span>
             )}
-            {!searching && view !== "day" && <Legend mode={view === "week" ? "week" : "month"} className="hidden lg:flex" />}
+            {!searching && view !== "day" && <Legend mode={view} marks={templateReady} className="hidden lg:flex" />}
             <div className="ml-auto flex items-center gap-1.5">
               {canEdit && (
                 <SaveStatus
@@ -1564,7 +1927,20 @@ export default function SchedulePage() {
                   onRedo={() => void redo()}
                 />
               )}
-              {canEdit && view === "week" && (
+              {canEdit && isPattern && (
+                // Главное действие вкладки правила: неделя сразу нескольким.
+                <Button
+                  size="sm"
+                  className="h-9 gap-1.5"
+                  disabled={!templateReady}
+                  onClick={() => setBulkOpen(true)}
+                  title="Выбрать людей и задать им обычную неделю одним разом"
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Настроить нескольким</span>
+                </Button>
+              )}
+              {canEdit && isPattern && (
                 // Вставка из Google Sheets — дело компьютера; на телефоне кнопка
                 // только отнимала место у поиска.
                 <Button
@@ -1573,52 +1949,51 @@ export default function SchedulePage() {
                   className="hidden h-9 gap-1.5 sm:inline-flex"
                   disabled={!templateReady}
                   onClick={() => setPaste({ text: "" })}
-                  title="Вставить неделю из Google Sheets / Excel (или просто Ctrl+V)"
+                  title="Вставить обычную неделю из Google Sheets / Excel (или просто Ctrl+V)"
                 >
                   <ClipboardPaste className="h-3.5 w-3.5" />
                   <span className="hidden md:inline">Из таблицы</span>
                 </Button>
               )}
-              {canEdit && view !== "day" && (
-                <Button
-                  variant={helpOpen ? "secondary" : "outline"}
-                  size="sm"
-                  className="h-9 gap-1.5"
-                  aria-pressed={helpOpen}
-                  onClick={() => setHelpOpen((v) => !v)}
-                  title="Как ставить выходные и смены"
-                >
-                  <CircleHelp className="h-3.5 w-3.5" />
-                  <span className="hidden md:inline">Как править</span>
-                </Button>
-              )}
-              <div className="inline-flex items-center rounded-lg border border-border p-0.5" role="group" aria-label="Масштаб графика">
-                {DENSITY_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    title={option.title}
-                    aria-label={option.title}
-                    aria-pressed={density === option.value}
-                    onClick={() => setDensity(option.value)}
-                    className={cn(
-                      "flex h-8 w-8 items-center justify-center rounded-md font-semibold leading-none transition-colors",
-                      option.className,
-                      density === option.value ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    A
-                  </button>
-                ))}
-              </div>
+              {/* Редкое — в одном меню: размер клеток, подсказка, быстрая настройка. */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" data-compact className="h-9 w-9" aria-label="Вид графика и подсказки" title="Размер клеток, подсказка">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuLabel>Размер клеток</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup value={density} onValueChange={(value) => setDensity(value as ScheduleDensity)}>
+                    {DENSITY_OPTIONS.map((option) => (
+                      <DropdownMenuRadioItem key={option.value} value={option.value}>
+                        {option.title}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                  {canEdit && view !== "day" && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={() => setHelpOpen((v) => !v)}>
+                        <CircleHelp className="h-4 w-4" /> {helpOpen ? "Скрыть подсказку" : "Как править график"}
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                  {canEdit && !isPattern && (
+                    <DropdownMenuItem disabled={!templateReady} onSelect={() => setBulkOpen(true)}>
+                      <SlidersHorizontal className="h-4 w-4" /> Обычная неделя нескольким…
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
 
           {/* На узком экране обозначения — отдельной строкой: в панели им места нет,
               а подсказки по наведению на телефоне не бывает. */}
-          {view !== "day" && !(searching && foundCount === 0) && (
+          {view === "month" && !(searching && foundCount === 0) && (
             <div className="border-b border-border/60 px-3 py-1.5 lg:hidden">
-              <Legend mode={view === "week" ? "week" : "month"} className="flex" />
+              <Legend mode={view} marks={templateReady} className="flex" />
             </div>
           )}
 
@@ -1627,18 +2002,19 @@ export default function SchedulePage() {
           {canEdit && view !== "day" && helpOpen && (
             <p className="border-b border-border/60 bg-primary/[0.05] px-3 py-2 text-[12px] leading-5 text-muted-foreground">
               {mobile ? (
-                view === "week" ? (
-                  "Нажмите на клетку, чтобы поменять. Нажмите на имя — вся неделя человека в одном окне."
+                isPattern ? (
+                  "Нажмите на клетку, чтобы поменять. Нажмите на имя — вся обычная неделя человека в одном окне."
                 ) : (
-                  "Нажмите на клетку, чтобы поменять. Нажмите на имя — весь месяц человека."
+                  "Нажмите на клетку, чтобы поменять: только этот день или каждую неделю. Нажмите на имя — весь месяц человека."
                 )
               ) : (
                 <>
-                  <b className="font-medium text-foreground/80">Клик</b> по клетке — выбрать, что поставить ·{" "}
+                  <b className="font-medium text-foreground/80">Клик</b> по клетке — выбрать, что поставить
+                  {isPattern ? "" : " (только этот день или каждую неделю)"} ·{" "}
                   <b className="font-medium text-foreground/80">протяните</b> мышью — несколько клеток · клик по{" "}
-                  {view === "week" ? "дню недели" : "числу"} — весь столбец · клавиши{" "}
+                  {view === "month" ? "числу" : "дню"} — весь столбец · клавиши{" "}
                   <Kbd>В</Kbd> <Kbd>Р</Kbd>
-                  {view === "month" && (
+                  {!isPattern && (
                     <>
                       {" "}
                       <Kbd>О</Kbd> <Kbd>П</Kbd>
@@ -1678,37 +2054,39 @@ export default function SchedulePage() {
             </div>
           ) : (
             <ScheduleSheet
-              mode={view === "week" ? "week" : "month"}
+              mode={view === "month" ? "month" : "week"}
               columns={columns}
               sections={sheetSections}
-              cellOf={view === "week" ? weekCellOf : monthCellOf}
+              cellOf={isPattern ? weekCellOf : dateCellOf}
               countOf={countOf}
               totalOf={totalOf}
               totalHead={
-                view === "week"
-                  ? { label: "Вых", title: "Выходных в неделю" }
-                  : { label: "Вых", title: "Выходных за месяц" }
+                isPattern
+                  ? { label: "Вых", title: "Выходных в обычной неделе" }
+                  : view === "week"
+                    ? { label: "Вых", title: "Выходных на этой неделе" }
+                    : { label: "Вых", title: "Выходных за месяц" }
               }
               density={density}
               meUid={uid}
-              canEdit={canEdit && (view === "week" ? templateReady : scheduleReady)}
+              canEdit={canEdit && (isPattern ? templateReady : scheduleReady)}
               selection={selection}
               pending={pendingKeys}
               onSelectColumn={selectColumn}
               onOpenPerson={onNameClick}
               onRemoveRow={(row) => void removePerson(row)}
               removableIds={customIds}
-              personHint={view === "week" && canEdit ? "вся неделя в одном окне" : "весь месяц крупно"}
+              personHint={isPattern && canEdit ? "обычная неделя в одном окне" : "весь месяц крупно"}
               scrollerRef={scrollerRef}
-              scrollToColumn={view === "month" ? todayKey : null}
+              // Сегодня — в окне сетки: в месяце и в неделе на узком экране (семь дней не помещаются).
+              scrollToColumn={view === "month" ? todayKey : view === "week" ? todayYmd : null}
             />
           )}
 
-          {view === "week" && (
+          {isPattern && (
             <p className="border-t border-border/60 px-3 py-2 text-[11px] leading-4 text-muted-foreground">
-              Неделя сама раскладывается во вкладку «Месяц»: с сегодняшнего дня и на весь следующий месяц, а 1-го числа — ещё
-              на месяц вперёд. Выходные и смены, поставленные в месяце на конкретную дату, «отпросился» и «пришёл» она не
-              перетирает.
+              Обычная неделя сама ложится на даты: с сегодняшнего дня и на весь следующий месяц, а 1-го числа — ещё на месяц
+              вперёд. Выходные и смены, поставленные на конкретную дату, «отпросился» и «пришёл» она не перетирает.
             </p>
           )}
         </section>
@@ -1724,19 +2102,31 @@ export default function SchedulePage() {
           }}
           anchor={anchorEl}
           mobile={mobile}
-          mode={view === "week" ? "week" : "month"}
+          mode={isPattern ? "week" : "month"}
           title={palette.title}
           subtitle={palette.subtitle}
           canEdit={canEdit}
           blocked={palette.blocked}
           current={palette.current}
           cameAvailable={palette.cameAvailable}
-          presets={view === "week" ? weekPresets : monthPresets}
+          presets={isPattern ? weekPresets : monthPresets}
           currentShift={palette.currentShift}
           weekly={palette.weekly}
+          repeat={weeklyPick}
+          onRepeat={setWeeklyPick}
           onApply={applyPalette}
-          extraLink={palette.extraLink}
+          links={palette.links}
           restore={canEdit ? palette.restore : null}
+        />
+      )}
+
+      {bulkOpen && (
+        <BulkWeekDialog
+          sections={bulkSections}
+          currentOf={weekCellsOfId}
+          presets={weekPresets}
+          onClose={() => setBulkOpen(false)}
+          onApply={(list) => void applyBulkWeek(list)}
         />
       )}
 
@@ -1769,16 +2159,22 @@ export default function SchedulePage() {
       {personMonth && (
         <PersonMonthDialog
           row={personMonth}
-          monthKey={monthKey}
-          monthLabel={monthLabel}
-          todayKey={todayKey}
-          schedule={byUid.get(personMonth.uid) ?? null}
+          monthKey={dialogMonth}
+          monthLabel={monthTabNameForKey(dialogMonth).toLowerCase()}
+          todayKey={dialogMonth === currentMonth ? scheduleDayKey(todayYmd) : null}
+          schedule={schedulesOf(dialogMonth).get(personMonth.uid) ?? null}
           ready={scheduleReady}
           canEdit={canEdit}
           presets={monthPresets}
-          onMonth={(direction) => goToMonth(direction < 0 ? previousMonthKey(monthKey) : nextMonthKey(monthKey))}
-          onApply={(plan) => applyPersonBulk(personMonth, plan)}
-          onClose={() => setPersonMonth(null)}
+          onMonth={(direction) => {
+            setPersonMonthAt(null);
+            goToMonth(direction < 0 ? previousMonthKey(dialogMonth) : nextMonthKey(dialogMonth));
+          }}
+          onApply={(plan) => applyPersonBulk(personMonth, plan, dialogMonth)}
+          onClose={() => {
+            setPersonMonth(null);
+            setPersonMonthAt(null);
+          }}
         />
       )}
 
@@ -1813,15 +2209,23 @@ function FailBanner({ text, onRetry }: { text: string; onRetry: () => void }) {
 }
 
 /** Обозначения — теми же цветами, что клетки, поэтому отдельная легенда внизу не нужна. */
-function Legend({ mode, className }: { mode: "month" | "week"; className?: string }) {
+function Legend({ mode, marks, className }: { mode: ScheduleView; marks: boolean; className?: string }) {
   const items: Array<{ kind: CellKind; text: string; label: string }> =
-    mode === "week"
+    mode === "pattern"
       ? [
           { kind: "work", text: "раб", label: "рабочий" },
           { kind: "off", text: "вых", label: "выходной" },
           { kind: "hours", text: "12–15", label: "смена с/до" },
         ]
-      : [
+      : mode === "week"
+        ? [
+            { kind: "work", text: "раб", label: "рабочий" },
+            { kind: "off", text: "вых", label: "выходной" },
+            { kind: "excused", text: "отпр.", label: "отпросился" },
+            { kind: "hours", text: "12–15", label: "смена" },
+            { kind: "came", text: "пришёл", label: "вышел в выходной" },
+          ]
+        : [
           { kind: "work", text: "", label: "рабочий" },
           { kind: "off", text: "В", label: "выходной" },
           { kind: "excused", text: "О", label: "отпросился" },
@@ -1843,6 +2247,15 @@ function Legend({ mode, className }: { mode: "month" | "week"; className?: strin
           {item.label}
         </span>
       ))}
+      {/* Точка в углу клетки — день не такой, как в обычной неделе. */}
+      {mode !== "pattern" && marks && (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="relative flex h-5 w-5 items-center justify-center rounded-[4px] border border-border" aria-hidden>
+            <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-foreground/70" />
+          </span>
+          разово, не как обычно
+        </span>
+      )}
     </div>
   );
 }

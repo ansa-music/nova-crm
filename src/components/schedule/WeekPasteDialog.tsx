@@ -178,7 +178,7 @@ export function WeekPasteDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ClipboardPaste className="h-4 w-4 shrink-0 text-primary" />
-            Вставить неделю из таблицы
+            Обычная неделя из таблицы
           </DialogTitle>
           <DialogDescription>
             Скопируйте в Google Sheets блок с именами и днями недели (можно вместе со строкой «Понедельник…») и вставьте
@@ -338,7 +338,7 @@ export function WeekPasteDialog({
           <Button className="min-h-11 sm:min-h-0" disabled={matched === 0} onClick={apply}>
             Сохранить неделю{changedDays > 0 ? ` · ${changedDays} дн.` : ""}
           </Button>
-          <p className="text-[11px] text-muted-foreground">Сразу разложится в «Месяц» с сегодняшнего дня. Вернуть — Ctrl+Z.</p>
+          <p className="text-[11px] text-muted-foreground">Станет обычной неделей: действует с сегодняшнего дня. Вернуть — Ctrl+Z.</p>
           <Button variant="ghost" className="ml-auto min-h-11 sm:min-h-0" onClick={onClose}>
             Отмена
           </Button>
