@@ -51,6 +51,25 @@ select tst.expect('лишнее поле — отказ', tst.try('TL', $q$selec
 select tst.expect('пачка атомарна: вторая запись с ошибкой откатывает первую',
   tst.try('TL', $q$select schedule_write('W', '[{"kind":"month","id":"T2_2026-09","op":"merge","data":{"uid":"T2","monthKey":"2026-09","days":{"1":"off"}}},{"kind":"month","id":"bad","op":"merge","data":{"uid":"T2"}}]')$q$), 'error');
 select tst.expect('…и первой нет', (select count(*)::text from public.schedule_docs where id = 'T2_2026-09'), '0');
+-- Неделя на стыке месяцев (вкладка «Неделя» по датам, 13.10.2026): клетки двух
+-- месяцев одного человека уходят ОДНОЙ пачкой — так их шлёт saveScheduleDrafts
+-- (сб 31 октября и вс 1 ноября → выходные), и той же пачкой идёт «Отменить».
+select tst.expect('два месяца одного человека — одной пачкой',
+  tst.jval('TL', $q$select jsonb_array_length(schedule_write('W', '[
+    {"kind":"month","id":"T2_2026-10","op":"merge","data":{"workspaceId":"W","uid":"T2","monthKey":"2026-10","days":{"31":"off"},"selfWork":{"31":{"$del":true}},"hours":{"31":{"$del":true}},"updatedAt":5,"updatedBy":"TL"}},
+    {"kind":"month","id":"T2_2026-11","op":"merge","data":{"workspaceId":"W","uid":"T2","monthKey":"2026-11","days":{"1":"off"},"selfWork":{"1":{"$del":true}},"hours":{"1":{"$del":true}},"updatedAt":5,"updatedBy":"TL"}}]'))::text$q$), '2');
+select tst.expect('…оба месяца записаны',
+  (select string_agg(month_key || ':' || (data -> 'days')::text, ' ' order by month_key) from public.schedule_docs where workspace_id = 'W' and kind = 'month' and uid = 'T2'),
+  '2026-10:{"31": "off"} 2026-11:{"1": "off"}');
+select tst.expect('…маркеров удаления в документах нет',
+  (select bool_and(data::text not like '%$del%')::text from public.schedule_docs where workspace_id = 'W' and kind = 'month' and uid = 'T2'), 'true');
+select tst.run('TL', $q$select schedule_write('W', '[
+    {"kind":"month","id":"T2_2026-10","op":"merge","data":{"workspaceId":"W","uid":"T2","monthKey":"2026-10","days":{"31":{"$del":true}},"selfWork":{"31":{"$del":true}},"updatedAt":6,"updatedBy":"TL"}},
+    {"kind":"month","id":"T2_2026-11","op":"merge","data":{"workspaceId":"W","uid":"T2","monthKey":"2026-11","days":{"1":{"$del":true}},"selfWork":{"1":{"$del":true}},"updatedAt":6,"updatedBy":"TL"}}]')$q$);
+select tst.expect('…«Отменить» той же пачкой возвращает оба дня в рабочие',
+  (select string_agg(month_key || ':' || coalesce((data -> 'days')::text, '{}'), ' ' order by month_key) from public.schedule_docs where workspace_id = 'W' and kind = 'month' and uid = 'T2'),
+  '2026-10:{} 2026-11:{}');
+delete from public.schedule_docs where workspace_id = 'W' and kind = 'month' and uid = 'T2';
 select tst.expect('все читают график', tst.try('V', $q$select * from schedule_docs where workspace_id = 'W' and kind = 'month'$q$, true), 'ok:1');
 select tst.expect('посторонний не читает', tst.try('X', $q$select * from schedule_docs$q$, true), 'ok:0');
 select tst.expect('прямая запись закрыта', tst.try('TL', $q$insert into schedule_docs (workspace_id, kind, id, data) values ('W','month','z','{}')$q$), 'error');

@@ -1,4 +1,4 @@
-import { CheckCheck, CheckCircle2, Copy, CopyPlus, Download, MoreHorizontal, Trash2, X } from "lucide-react";
+import { CheckCheck, CheckCircle2, Copy, CopyPlus, Download, Lightbulb, LightbulbOff, MoreHorizontal, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -36,6 +36,9 @@ interface BulkActionBarProps {
   onDuplicate?: () => void;
   onExportCsv?: () => void;
   canEdit?: boolean;
+  /** Подсветка выбранных строк: зажечь или (`highlightOff`) снять. Нет — кнопки нет. */
+  onHighlight?: () => void;
+  highlightOff?: boolean;
 }
 
 export function BulkActionBar({
@@ -53,6 +56,8 @@ export function BulkActionBar({
   onDuplicate,
   onExportCsv,
   canEdit,
+  onHighlight,
+  highlightOff = false,
 }: BulkActionBarProps) {
   if (count <= 0) return null;
   const hasOptions = Boolean(canEdit && onSetStatus && statusOptions && statusOptions.length > 0);
@@ -138,6 +143,18 @@ export function BulkActionBar({
           </DropdownMenu>
         )}
 
+        {canEdit && onHighlight && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 shrink-0 gap-1.5 rounded-full px-2.5 text-warning hover:text-warning sm:h-8"
+            onClick={onHighlight}
+            title={highlightOff ? "Снять подсветку с выбранных строк" : "Подсветить выбранные строки как новые"}
+          >
+            {highlightOff ? <LightbulbOff className="h-3.5 w-3.5" /> : <Lightbulb className="h-3.5 w-3.5" />}
+            <span className="hidden md:inline">{highlightOff ? "Снять подсветку" : "Подсветить"}</span>
+          </Button>
+        )}
         {onCopy && (
           <Button variant="ghost" size="sm" className="h-9 shrink-0 gap-1.5 rounded-full px-2.5 sm:h-8" onClick={onCopy} title="Скопировать выбранные строки (TSV)">
             <Copy className="h-3.5 w-3.5" />

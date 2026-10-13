@@ -107,9 +107,10 @@ export function canHoldNick(kind: NickKind, member: WorkspaceMember): boolean {
 }
 
 /**
- * Тимлид не трогает ни свой ник, ни записи Owner — так держат правила
- * members. Создатель workspace правит всё; выданный Owner — всех, кроме
- * ДРУГИХ Owner (роль Owner и записи Owner — только у создателя).
+ * Тимлид не трогает ни свой ник, ни записи Owner и Тимлид+ — так держат
+ * правила members (запись Тимлид+ ведёт только Owner). Создатель workspace
+ * правит всё; выданный Owner — всех, кроме ДРУГИХ Owner (роль Owner и записи
+ * Owner — только у создателя).
  */
 export function nickLockedFor(
   member: Pick<WorkspaceMember, "uid" | "role">,
@@ -119,10 +120,11 @@ export function nickLockedFor(
 ): boolean {
   if (viewerIsCreator) return false;
   if (viewerIsOwner) return member.role === "owner" && member.uid !== meUid;
-  return member.uid === meUid || member.role === "owner";
+  return member.uid === meUid || member.role === "owner" || member.role === "leadplus";
 }
 
 export function nickLockReason(member: Pick<WorkspaceMember, "role">, viewerIsOwner = false): string {
+  if (member.role === "leadplus") return "Ник Тимлид+ закрепляет Owner";
   if (member.role !== "owner") return "Свой ник закрепляет Owner или другой Тимлид";
   return viewerIsOwner ? "Ник другого Owner закрепляет создатель workspace" : "Ник Owner закрепляет сам Owner";
 }
@@ -148,8 +150,9 @@ export type NickHolder = {
  * роли (профиль `users/{uid}`) — ник технаря, «Другие», ОС по порядку.
  *
  * Ник ОС раньше в подпись не шёл («ключ заказов, а не подпись») — теперь
- * идёт: ОС работает под ним. Подпись ника ОС сохранена на участнике
- * (`osNick`) и не переименовывается; считается только при закреплённом
+ * идёт: ОС работает под ним. Подпись ника сохранена на участнике (`osNick`,
+ * `techNick`, `otherNick`) и меняется только вместе с вариантом в списке
+ * (`renameNickOption`); ник ОС считается только при закреплённом
  * `osNickValue`, чтобы откреплённый ник не всплывал подписью.
  */
 export function workNickOf(entity: NickHolder | null | undefined): string {

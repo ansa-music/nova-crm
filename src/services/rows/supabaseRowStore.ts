@@ -1934,7 +1934,8 @@ export async function sbSetOrder(workspaceId: string, pageId: string, tab: strin
   );
 }
 
-export async function sbClearHighlights(workspaceId: string, pageId: string, tab: string | null, rowIds: string[]): Promise<void> {
+/** Подсветка строк: снять (`on = false`) или поставить (`on = true`) — см. PageRow.highlight. */
+export async function sbSetHighlights(workspaceId: string, pageId: string, tab: string | null, rowIds: string[], on: boolean): Promise<void> {
   if (rowIds.length === 0) return;
   const now = Date.now();
   await optimistic(
@@ -1944,23 +1945,28 @@ export async function sbClearHighlights(workspaceId: string, pageId: string, tab
     (map) => {
       for (const id of rowIds) {
         const row = map.get(id);
-        if (row?.highlight) {
+        if (row && Boolean(row.highlight) !== on) {
           const next = { ...row, updatedAt: now };
-          delete next.highlight;
+          if (on) next.highlight = true;
+          else delete next.highlight;
           map.set(id, next);
         }
       }
     },
     rowIds,
     async () => {
-      const { error } = await supabaseRows
-        .from(DESK_ROWS_TABLE)
-        .update({ highlight: false, updated_at: now })
-        .eq("workspace_id", workspaceId)
-        .eq("page_id", pageId)
-        .eq("tab_id", tabKey(tab))
-        .in("id", rowIds);
-      if (error) throw toStoreError(error, "Не удалось снять подсветку");
+      // id уходят в адрес запроса (`id=in.(…)`): «выбрать все» на большом
+      // столе — сотни строк, поэтому пачками по 100.
+      for (let i = 0; i < rowIds.length; i += 100) {
+        const { error } = await supabaseRows
+          .from(DESK_ROWS_TABLE)
+          .update({ highlight: on, updated_at: now })
+          .eq("workspace_id", workspaceId)
+          .eq("page_id", pageId)
+          .eq("tab_id", tabKey(tab))
+          .in("id", rowIds.slice(i, i + 100));
+        if (error) throw toStoreError(error, on ? "Не удалось подсветить строку" : "Не удалось снять подсветку");
+      }
     }
   );
 }

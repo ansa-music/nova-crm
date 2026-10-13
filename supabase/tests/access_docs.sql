@@ -1,4 +1,4 @@
--- Проверки 20261047_access_docs.sql: запросы на просмотр, наблюдатели,
+-- Проверки 20261049_access_docs.sql: запросы на просмотр, наблюдатели,
 -- ключ доступа и заявки по ключу — в Postgres.
 -- Запускать ПОСЛЕ desk_rows_rls.sql (workspace W: O — создатель, TL — Тимлид,
 -- T1..T3 — технари, OS1/OS2 — ОС, AD — Admin, V — Viewer, OBS — наблюдатель
@@ -6,7 +6,7 @@
 \set ON_ERROR_STOP 1
 set client_min_messages = warning;
 truncate tst.results;
-\ir ../migrations/20261047_access_docs.sql
+\ir ../migrations/20261049_access_docs.sql
 
 create or replace function tst.jval(uid text, sql text) returns text language plpgsql as $$
 declare v text;
@@ -30,7 +30,7 @@ on conflict do nothing;
 delete from public.access_docs where workspace_id = 'W';
 delete from public.rows_owner_only where workspace_id = 'W';
 
-select tst.expect('версия схемы', public.nova_schema_version(), '20261047');
+select tst.expect('версия схемы', public.nova_schema_version(), '20261049');
 select tst.expect('хеш ключа — sha256 от «ws:ключ» в hex',
   public.access_key_hash('W', '21122005'), encode(sha256('W:21122005'::bytea), 'hex'));
 
@@ -208,7 +208,7 @@ select tst.expect('удалённое в базе переносом не вос
 select tst.expect('…документ остался удалённым', (select deleted::text from public.access_docs where kind = 'viewreq' and id = 'vr_1'), 'true');
 
 -- Повторный накат файла.
-\ir ../migrations/20261047_access_docs.sql
+\ir ../migrations/20261049_access_docs.sql
 select tst.expect('повторный накат: документы целы', (select count(*)::text from public.access_docs where workspace_id = 'W' and kind = 'viewreq' and not deleted), '2');
 select tst.expect('повторный накат: запись работает', tst.jval('O', $q$select jsonb_array_length(access_write('W', '[{"kind":"observer","id":"AD","op":"set","data":{"label":"x"}},{"kind":"observer","id":"AD","op":"delete"}]'))::text$q$), '2');
 

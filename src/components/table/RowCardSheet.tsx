@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Archive, CalendarDays, CheckCheck, ChevronLeft, ChevronRight, Copy, Trash2, X } from "lucide-react";
+import { Archive, CalendarDays, CheckCheck, ChevronLeft, ChevronRight, Copy, Lightbulb, LightbulbOff, Trash2, X } from "lucide-react";
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { ClientCardSection } from "@/components/table/ClientCardSection";
 import { splitOptionsByActivity } from "@/utils/columnOptions";
@@ -60,6 +60,10 @@ interface RowCardSheetProps {
   onMarkDone?: (rowId: string) => void;
   onDuplicate?: (rowId: string) => void;
   onDelete?: (rowId: string) => void;
+  /** Подсветка строки вкл/выкл — та же, что в таблице (нужна и на телефоне, где стол — карточками). */
+  onToggleHighlight?: (rowId: string) => void;
+  /** Можно ли зажечь подсветку; false — только снять (стол ОС). */
+  canHighlight?: boolean;
   /**
    * «Визитка клиента» — верхняя секция карточки (персы, минуты, дедлайн,
    * ссылка, пожелания), пишется сама. Нет — у стола нет столбца клиента.
@@ -111,6 +115,8 @@ export function RowCardSheet({
   onMarkDone,
   onDuplicate,
   onDelete,
+  onToggleHighlight,
+  canHighlight = false,
   clientCard,
   extraPanel,
   hiddenFieldKeys,
@@ -536,7 +542,7 @@ export function RowCardSheet({
                   {record.updatedAt && record.updatedAt !== record.createdAt ? ` · изменено ${formatDate(record.updatedAt)}` : ""}
                 </p>
               </div>
-              {editableRow && (onMarkDone || onDuplicate || onDelete) && (
+              {editableRow && (onMarkDone || onDuplicate || onDelete || onToggleHighlight) && (
                 <div className="flex flex-wrap items-center gap-2 border-t border-white/10 px-5 py-3 sm:px-6">
                   {onMarkDone && statusCol && !isDone && (
                     <Button variant="outline" size="sm" className="h-8 gap-1.5 text-success hover:text-success" onClick={() => onMarkDone(record.id)}>
@@ -546,6 +552,17 @@ export function RowCardSheet({
                   {onDuplicate && (
                     <Button variant="ghost" size="sm" className="h-8 gap-1.5" onClick={() => onDuplicate(record.id)}>
                       <Copy className="h-3.5 w-3.5" /> Дублировать
+                    </Button>
+                  )}
+                  {onToggleHighlight && (record.highlight || canHighlight) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn("h-8 gap-1.5", record.highlight && "text-warning hover:text-warning")}
+                      onClick={() => onToggleHighlight(record.id)}
+                    >
+                      {record.highlight ? <LightbulbOff className="h-3.5 w-3.5" /> : <Lightbulb className="h-3.5 w-3.5" />}
+                      {record.highlight ? "Снять подсветку" : "Подсветить как новый"}
                     </Button>
                   )}
                   <div className="flex-1" />

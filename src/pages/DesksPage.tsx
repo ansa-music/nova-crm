@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Archive, ArchiveRestore, LayoutGrid, List, MoreHorizontal, Search } from "lucide-react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { EmptyState } from "@/components/common/EmptyState";
 import { DeskCoverGrid } from "@/components/dashboard/DeskCoverGrid";
 import { DeskCoverStrip } from "@/components/dashboard/DeskCoverStrip";
@@ -21,6 +21,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import { useLeaderboard } from "@/hooks/useLeaderboard";
+import { useNavModel } from "@/hooks/useNavModel";
 import { usePresenceMap } from "@/hooks/usePresenceMap";
 import { useUrlState } from "@/hooks/useUrlState";
 import { useUserPageNav } from "@/hooks/useUserPageNav";
@@ -52,8 +53,12 @@ export default function DesksPage() {
   const t = useTerms();
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const { activeWorkspaceId, members, pages, inactivePages } = useWorkspace();
+  const { activeWorkspaceId, members, pages, inactivePages, osDesks } = useWorkspace();
   const permissions = usePermissions();
+  // Столы ОС — на этой же странице, ниже столов технарей (просьба Nurba
+  // 13.10.2026: «все столы — там и ОС, и тех»). Показываем, если раздел
+  // «Столы ОС» есть у роли в модели меню (роль и модули Конструктора).
+  const osDesksOn = useNavModel().items.some((item) => item.key === "os-desks");
   const { isLoadingWorkspaceData, ownerUid } = usePeopleDesks();
   const { requestView, latestForPage, reload } = useViewRequests(activeWorkspaceId, profile?.uid ?? null);
   const leaderboard = useLeaderboard(activeWorkspaceId);
@@ -146,6 +151,32 @@ export default function DesksPage() {
     [inactivePages]
   );
 
+  // Столы ОС тем же списком: свой первым, дальше по названию. Чипы «Мои /
+  // Чужие» и поиск действуют и на них; «Скрытые» — это про столы технарей.
+  const osRows = useMemo<DeskListRow[]>(() => {
+    if (!osDesksOn || chip === "hidden") return [];
+    const q = query.trim().toLowerCase();
+    return osDesks
+      .filter((page) => (chip === "mine" ? page.responsibleUserId === uid : chip === "others" ? page.responsibleUserId !== uid : true))
+      .map((page) => {
+        const owner = members.find((m) => m.uid === page.responsibleUserId) ?? null;
+        return {
+          // Стол ОС заводится с `hiddenByResponsible`, но читать его может любой
+          // участник — значок «скрыт от других» в списке был бы неправдой.
+          page: page.hiddenByResponsible ? { ...page, hiddenByResponsible: false } : page,
+          owner,
+          lastActiveAt: lastActiveOf(owner),
+          percent: null,
+          openable: permissions.canAccessPage(page),
+          pending: latestForPage(page.id)?.status === "pending",
+          pinned: false,
+          mine: page.responsibleUserId === uid,
+        };
+      })
+      .filter(({ page, owner }) => !q || page.name.toLowerCase().includes(q) || personLabel(owner).toLowerCase().includes(q))
+      .sort((a, b) => Number(b.mine) - Number(a.mine) || a.page.name.localeCompare(b.page.name, "ru"));
+  }, [osDesksOn, osDesks, chip, query, members, uid, permissions, lastActiveOf, latestForPage]);
+
   function mayOpen(page: WorkspacePage) {
     return canOpenDesk({
       page,
@@ -167,6 +198,17 @@ export default function DesksPage() {
     if (!toUid) throw new Error("Нет ответственного у стола");
     await requestView(page, myDisplayName(profile, members), toUid);
     await reload();
+  }
+
+  /** Запрос просмотра закрытого стола ОС — разрешает сам ОС. */
+  async function requestOsDesk(page: WorkspacePage) {
+    if (permissions.canAccessPage(page) || latestForPage(page.id)?.status === "pending") return;
+    try {
+      await sendRequest(page);
+      toast.success("Запрос отправлен");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось отправить запрос");
+    }
   }
 
   async function requestFromCard(page: WorkspacePage) {
@@ -258,6 +300,13 @@ export default function DesksPage() {
         }
       />
 
+      {/* Подпись группы — только когда ниже есть вторая группа, столы ОС. */}
+      {osRows.length > 0 && filtered.length > 0 ? (
+        <h2 className="mb-2 text-sm font-semibold">
+          {t("technician")}
+          <span className="ml-1.5 font-mono text-[11px] font-normal tabular-nums text-muted-foreground">{filtered.length}</span>
+        </h2>
+      ) : null}
       {filtered.length > 0 && view === "list" ? (
         <DeskListView
           rows={listRows}
@@ -328,12 +377,28 @@ export default function DesksPage() {
               : undefined
           }
         />
-      ) : (
+      ) : osRows.length > 0 ? null : (
         <EmptyState
           className="rounded-2xl border border-primary/25 bg-card py-16"
           title={query.trim() || chip !== "all" ? "Нет таких столов" : "Пока нет столов"}
         />
       )}
+
+      {osRows.length > 0 ? (
+        <section className={cn(filtered.length > 0 && "mt-8")} aria-label={t("osDesk")}>
+          <div className="mb-2 flex items-baseline justify-between gap-3">
+            <h2 className="text-sm font-semibold">
+              {t("osDesk")}
+              <span className="ml-1.5 font-mono text-[11px] font-normal tabular-nums text-muted-foreground">{osRows.length}</span>
+            </h2>
+            {/* Сводка за месяц (заказы, цена, апсейл, касса) — на отдельной странице: она читает строки столов. */}
+            <Link to="/os-desks" className="text-xs text-primary underline-offset-2 hover:underline">
+              Сводка за месяц →
+            </Link>
+          </div>
+          <DeskListView rows={osRows} onOpen={(page) => navigate(`/page/${page.id}`)} onRequest={(page) => void requestOsDesk(page)} />
+        </section>
+      ) : null}
 
       <Sheet open={inactiveOpen} onOpenChange={setInactiveOpen}>
         <SheetContent side="right" className="flex w-full max-w-md flex-col overflow-y-auto p-0">

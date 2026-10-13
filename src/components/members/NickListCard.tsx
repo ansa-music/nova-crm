@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, Archive, ArchiveRestore, AtSign, Link2, Loader2, Plus, Search, Unlink } from "lucide-react";
+import { AlertTriangle, Archive, ArchiveRestore, AtSign, Link2, Loader2, Pencil, Plus, Search, Unlink } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { adoptScheduleRowByNick } from "@/components/members/NickDialog";
+import { desksNamedAfterNick, RenameNickDialog, renameNickWithDesks } from "@/components/members/RenameNickDialog";
 import {
   addNickOption,
   linkMemberNick,
@@ -54,10 +55,10 @@ const LIST_TEXT: Record<NickKind, { title: string; description: string; roleHint
 
 /**
  * Список ников одного вида на «Команде»: кто к какому нику привязан,
- * свободные ники, «Привязать» / «Отвязать» / «В неактуальные». Кто остался
- * без ника — видно в карточке людей раздела, здесь это не дублируется.
- * Привязывают Owner и Тимлид; Тимлид — не себе и не Owner (так же держат
- * правила).
+ * свободные ники, «Привязать» / «Отвязать» / переименовать / «В
+ * неактуальные». Кто остался без ника — видно в карточке людей раздела,
+ * здесь это не дублируется. Привязывают и переименовывают Owner и Тимлид;
+ * Тимлид — не себе и не Owner (так же держат правила).
  */
 export function NickListCard({
   kind,
@@ -88,6 +89,7 @@ export function NickListCard({
   const [busy, setBusy] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [bindOption, setBindOption] = useState<StatusOption | null>(null);
+  const [renameOption, setRenameOption] = useState<StatusOption | null>(null);
   const { allPages } = useWorkspace();
 
   const boundBy = useMemo(() => {
@@ -244,6 +246,27 @@ export function NickListCard({
     }
   }
 
+  /** Столы держателя, названные по самому нику, — переименуются вслед за ним. */
+  function desksNamedAfter(option: StatusOption): WorkspacePage[] {
+    return desksNamedAfterNick(allPages, kind, boundBy.get(option.value), option.label);
+  }
+
+  /** Переименовать ник (у Owner — и столы, названные по нему). true — записано. */
+  async function rename(option: StatusOption, to: string): Promise<boolean> {
+    const ok = await renameNickWithDesks({
+      workspaceId,
+      kind,
+      option,
+      to,
+      holder: boundBy.get(option.value) ?? null,
+      desks: desksNamedAfter(option),
+      viewerIsOwner,
+    });
+    // Список освежаем фоном: ник уже записан, и окно ждать этого не должно.
+    if (ok) void Promise.resolve(onChanged()).catch(() => undefined);
+    return ok;
+  }
+
   function row(option: StatusOption) {
     const owner = boundBy.get(option.value);
     const wrongRole = owner ? !canHoldNick(kind, owner) : false;
@@ -294,6 +317,17 @@ export function NickListCard({
               <Link2 className="h-3.5 w-3.5" /> Привязать
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="min-h-11 px-2 text-muted-foreground sm:h-7 sm:min-h-0"
+            disabled={busy === option.value || locked}
+            title={locked && owner ? nickLockReason(owner, viewerIsOwner) : "Переименовать ник"}
+            aria-label={`Переименовать ник «${option.label}»`}
+            onClick={() => setRenameOption(option)}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -382,6 +416,17 @@ export function NickListCard({
           viewerIsCreator={viewerIsCreator}
           onClose={() => setBindOption(null)}
           onSaved={onChanged}
+        />
+      )}
+      {renameOption && (
+        <RenameNickDialog
+          kind={kind}
+          option={renameOption}
+          options={options}
+          holder={boundBy.get(renameOption.value) ?? null}
+          deskName={viewerIsOwner ? (desksNamedAfter(renameOption)[0]?.name ?? null) : null}
+          onClose={() => setRenameOption(null)}
+          onSubmit={(label) => rename(renameOption, label)}
         />
       )}
     </Card>

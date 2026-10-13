@@ -383,6 +383,15 @@ export function rpcNickInactive(workspaceId: string, kind: "os" | "tech" | "othe
   return rpc("core_nick_inactive", { p_workspace: workspaceId, p_kind: kind, p_value: value, p_inactive: inactive });
 }
 
+/**
+ * Переименовать ник (SQL 20261048): подпись в списке и её копия на
+ * участнике, который ник держит, — одной транзакцией; значение прежнее.
+ * `uids` — чьи копии подписи сменились (им же правится тень в Firestore).
+ */
+export function rpcNickRename(workspaceId: string, kind: "os" | "tech" | "other", value: string, label: string): Promise<{ value: string; label: string; oldLabel: string; uids: string[] }> {
+  return rpc("core_nick_rename", { p_workspace: workspaceId, p_kind: kind, p_value: value, p_label: label });
+}
+
 export function rpcApproveJoin(workspaceId: string, uid: string, role: string, nick: NickRpcTarget | null): Promise<{ nickLabel: string | null }> {
   return rpc("core_approve_join", { p_workspace: workspaceId, p_uid: uid, p_role: role, p_nick: nick });
 }

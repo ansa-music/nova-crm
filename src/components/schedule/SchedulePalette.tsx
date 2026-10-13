@@ -1,8 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, Clock, RotateCcw, X } from "lucide-react";
+import { ArrowRight, Clock, Repeat, RotateCcw, X } from "lucide-react";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/cn";
@@ -36,14 +35,25 @@ export interface SchedulePaletteProps {
   presets: ScheduleShiftPreset[];
   /** Смена в клетке сейчас — ею заполнено поле. */
   currentShift: ScheduleHours | null;
-  /** «Каждую неделю» (только в месяце): подпись дня недели или причина, почему нельзя. */
-  weekly: { label: string; disabledReason?: string | null } | null;
-  onApply: (action: PaletteAction, opts: { shift: ScheduleHours | null; weekly: boolean }) => void;
-  /** «Весь месяц · Имя» / «Вся неделя · Имя». */
-  extraLink?: { label: string; onClick: () => void } | null;
   /**
-   * «Как в постоянной неделе» (месяц): вернуть выделенные дни к обычному
-   * распорядку. `touched` — сколько клеток изменится (0 — уже так).
+   * «Когда» (клетки по датам): только этот день или каждую неделю. `label` —
+   * «каждую субботу», `onceLabel` — «Только этот день»; `disabledReason` —
+   * почему правилом сделать нельзя. null — выбора нет (вкладка правила).
+   */
+  weekly: { label: string; onceLabel?: string; disabledReason?: string | null } | null;
+  /**
+   * Выбрано «каждую …». Хранит страница, а не окно: клавиши В / Р ставят из
+   * сетки, и без этого при выбранном «каждую субботу» клавиша записала бы
+   * разовый день.
+   */
+  repeat: boolean;
+  onRepeat: (next: boolean) => void;
+  onApply: (action: PaletteAction, opts: { shift: ScheduleHours | null; weekly: boolean }) => void;
+  /** «Весь месяц · Имя», «Обычная неделя · Имя». */
+  links?: Array<{ label: string; onClick: () => void }>;
+  /**
+   * «Как в обычной неделе» (клетки по датам): вернуть выделенные дни к
+   * обычному распорядку. `touched` — сколько клеток изменится (0 — уже так).
    */
   restore?: { touched: number } | null;
 }
@@ -61,10 +71,11 @@ const ACTION_LABEL: Record<MainAction, { month: string; week: string }> = {
 };
 
 /**
- * Палитра клетки: выделили клетки — выбираете, что поставить. Всё главное —
- * крупными кнопками с буквой клавиши (В, Р, О, П), смены команды — в одно
- * касание, своя смена — одним полем текстом. Записывается сразу, «Отменить» —
- * Ctrl+Z или кнопка в панели сетки.
+ * Палитра клетки: выделили клетки — выбираете, что поставить. Сверху —
+ * «Когда»: только этот день или каждую неделю (тогда выбор становится
+ * правилом обычной недели). Всё главное — крупными кнопками с буквой клавиши
+ * (В, Р, О, П), смены команды — в одно касание, своя смена — одним полем
+ * текстом. Записывается сразу, «Отменить» — Ctrl+Z или кнопка в панели сетки.
  *
  * Та же палитра — у того, кто график только смотрит: без кнопок, с тем, что
  * стоит в клетке («смена 12:00–15:00») — на телефоне подсказок на наведение нет.
@@ -139,13 +150,14 @@ function PaletteBody({
   presets,
   currentShift,
   weekly,
+  repeat,
+  onRepeat: setRepeat,
   onApply,
-  extraLink,
+  links = [],
   restore,
   big = false,
 }: SchedulePaletteProps & { big?: boolean }) {
   const [text, setText] = useState(currentShift ? formatScheduleHours(currentShift) : "");
-  const [repeat, setRepeat] = useState(false);
   const parsed = useMemo(() => parseShiftText(text), [text]);
   const actions = mode === "month" ? MONTH_ACTIONS : WEEK_ACTIONS;
   const locked = Boolean(blocked);
@@ -156,17 +168,67 @@ function PaletteBody({
     onApply(action, { shift, weekly: weeklyOn });
   }
 
-  if (!canEdit) {
-    return extraLink ? <ExtraLink {...extraLink} /> : null;
-  }
+  const linkList = links.length > 0 ? (
+    <div className="flex flex-col">
+      {links.map((link) => (
+        <ExtraLink key={link.label} {...link} />
+      ))}
+    </div>
+  ) : null;
+
+  if (!canEdit) return linkList;
+
+  // «Отпросился» и «Пришёл» — про конкретную дату, правилом недели не бывают.
+  const dateOnly = (action: MainAction) => action === "excused" || action === "came";
 
   return (
     <div className="flex flex-col gap-3">
       {blocked && <p className="rounded-md bg-warning/10 px-2 py-1.5 text-[12px] text-warning">{blocked}</p>}
 
+      {weekly && (
+        <div className="flex flex-col gap-1">
+          <div className="grid grid-cols-2 gap-1 rounded-lg border border-border p-0.5" role="group" aria-label="Когда">
+            <button
+              type="button"
+              aria-pressed={!weeklyOn}
+              onClick={() => setRepeat(false)}
+              className={cn(
+                "rounded-md px-2 text-center font-medium transition-colors",
+                big ? "min-h-11 text-[14px]" : "min-h-8 text-[12px]",
+                !weeklyOn ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {weekly.onceLabel ?? "Только этот день"}
+            </button>
+            <button
+              type="button"
+              aria-pressed={weeklyOn}
+              disabled={Boolean(weekly.disabledReason)}
+              title={weekly.disabledReason ?? undefined}
+              onClick={() => setRepeat(true)}
+              className={cn(
+                "inline-flex items-center justify-center gap-1.5 rounded-md px-2 text-center font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45",
+                big ? "min-h-11 text-[14px]" : "min-h-8 text-[12px]",
+                weeklyOn ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Repeat className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 truncate first-letter:uppercase">{weekly.label}</span>
+            </button>
+          </div>
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            {weekly.disabledReason
+              ? weekly.disabledReason
+              : weeklyOn
+                ? "Станет правилом обычной недели — с сегодняшнего дня."
+                : "Разовая правка: обычная неделя не изменится."}
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-1.5">
         {actions.map((action) => {
-          const disabled = locked || (action === "came" && !cameAvailable);
+          const disabled = locked || (action === "came" && !cameAvailable) || (weeklyOn && dateOnly(action));
           const on = current === action;
           return (
             <button
@@ -175,9 +237,11 @@ function PaletteBody({
               disabled={disabled}
               onClick={() => apply(action)}
               title={
-                action === "came" && !cameAvailable
-                  ? "«Пришёл» — для выходного или «отпросился»: человек всё-таки вышел"
-                  : undefined
+                weeklyOn && dateOnly(action)
+                  ? "Только на конкретный день: правилом недели это не бывает"
+                  : action === "came" && !cameAvailable
+                    ? "«Пришёл» — для выходного или «отпросился»: человек всё-таки вышел"
+                    : undefined
               }
               className={cn(
                 "flex items-center gap-2 rounded-lg border px-2.5 text-left font-medium transition-[filter,box-shadow] disabled:cursor-not-allowed disabled:opacity-40",
@@ -202,19 +266,19 @@ function PaletteBody({
         })}
       </div>
 
-      {restore && (
+      {restore && !weeklyOn && (
         <button
           type="button"
           disabled={locked || restore.touched === 0}
           onClick={() => apply("restore")}
-          title={restore.touched === 0 ? "Выделенные дни и так как в постоянной неделе" : undefined}
+          title={restore.touched === 0 ? "Выделенные дни и так как в обычной неделе" : undefined}
           className={cn(
             "-mt-1 flex items-center gap-2 rounded-lg border border-dashed border-border px-2.5 text-left text-[12px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-40",
             big ? "min-h-11" : "min-h-8"
           )}
         >
           <RotateCcw className="h-3.5 w-3.5 shrink-0" />
-          <span className="min-w-0 flex-1">Как в постоянной неделе</span>
+          <span className="min-w-0 flex-1">Как в обычной неделе</span>
           {restore.touched > 0 && <span className="shrink-0 font-mono tabular-nums">{restore.touched}</span>}
         </button>
       )}
@@ -278,24 +342,7 @@ function PaletteBody({
         )}
       </div>
 
-      {weekly && (
-        <label
-          className={cn(
-            "flex items-center gap-2.5 rounded-lg border border-border/70 px-2.5 py-2",
-            weekly.disabledReason ? "opacity-60" : "cursor-pointer"
-          )}
-        >
-          <Switch checked={weeklyOn} disabled={Boolean(weekly.disabledReason)} onCheckedChange={setRepeat} />
-          <span className="min-w-0 flex-1 text-[12px] leading-4">
-            <span className="font-medium">Повторять {weekly.label}</span>
-            <span className="block text-muted-foreground">
-              {weekly.disabledReason ?? "Для «Выходной», «Рабочий» и смены — станет постоянной неделей"}
-            </span>
-          </span>
-        </label>
-      )}
-
-      {extraLink && <ExtraLink {...extraLink} />}
+      {linkList}
     </div>
   );
 }

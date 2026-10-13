@@ -262,6 +262,47 @@ export function monthCellsToWeekCells(monthKey: string, cells: MonthCellRef[]): 
   return out;
 }
 
+/** Клетка графика по дате: человек, месяц и день месяца. */
+export type DateCellRef = MonthCellRef & { monthKey: string };
+
+export interface MonthCells {
+  monthKey: string;
+  cells: MonthCellRef[];
+}
+
+/**
+ * Клетки по месяцам, в порядке выделения. Вкладка «Неделя» показывает
+ * настоящие даты, и неделя на стыке месяцев (28 сентября – 4 октября) лежит в
+ * двух документах `techSchedule` — план и запись идут по каждому отдельно.
+ */
+export function splitByMonth(cells: DateCellRef[]): MonthCells[] {
+  const out: MonthCells[] = [];
+  for (const cell of cells) {
+    let group = out.find((g) => g.monthKey === cell.monthKey);
+    if (!group) {
+      group = { monthKey: cell.monthKey, cells: [] };
+      out.push(group);
+    }
+    group.cells.push({ uid: cell.uid, dayKey: cell.dayKey });
+  }
+  return out;
+}
+
+/** Дни недели выделения по людям, без повторов между месяцами — для «каждую среду». */
+export function weekRefsOf(groups: MonthCells[]): WeekCellRef[] {
+  const seen = new Set<string>();
+  const out: WeekCellRef[] = [];
+  for (const group of groups) {
+    for (const ref of monthCellsToWeekCells(group.monthKey, group.cells)) {
+      const key = `${ref.personId}|${ref.dow}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(ref);
+    }
+  }
+  return out;
+}
+
 /** Действие месяца, которое имеет смысл повторять каждую неделю. */
 export function weekActionOf(action: ScheduleBulkAction): WeekAction | null {
   return action === "off" || action === "work" || action === "hours" ? action : null;

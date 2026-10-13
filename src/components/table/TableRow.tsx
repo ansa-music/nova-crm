@@ -3,7 +3,7 @@ import { CellActionButton, sameCellAction, type CellActionView } from "@/compone
 import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
 import { memo, useEffect, useReducer, useRef, useState } from "react";
-import { Copy, GripVertical, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { Copy, GripVertical, Lightbulb, LightbulbOff, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { TableCell } from "@/components/table/TableCell";
 import { rowExtrasSummary } from "@/utils/rowExtras";
 import { carriedLabel } from "@/utils/carryOver";
@@ -141,6 +141,13 @@ interface TableRowProps {
   deadlineTone?: DeadlineTone | null;
   /** «NOVA Studio»: подсказка кнопки визитки — без персов и минут. */
   studio?: boolean;
+  /**
+   * Подсветка строки вкл/выкл (пункт в «⋯» и Alt+клик по номеру) — просьба
+   * Nurba 13.10.2026. Нет колбэка — подсветку здесь не меняют (нет прав).
+   */
+  onToggleHighlight?: (rowId: string) => void;
+  /** Можно ли ЗАЖЕЧЬ подсветку; false — только снять (стол ОС). */
+  canHighlight?: boolean;
 }
 
 /**
@@ -272,8 +279,12 @@ function TableRowInner({
   deadlineKey,
   deadlineTone,
   studio,
+  onToggleHighlight,
+  canHighlight = false,
 }: TableRowProps) {
   const allowRowDrag = canReorder && !coarsePointer;
+  // Подсвеченную строку можно погасить; зажечь — заполненную и не на столе ОС.
+  const highlightToggle = Boolean(onToggleHighlight) && (Boolean(row.highlight) || (canHighlight && !blank));
   const [menuOpen, setMenuOpen] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.id,
@@ -316,6 +327,15 @@ function TableRowInner({
               onCloseAutoFocus={(e) => e.preventDefault()}
               onPointerDown={(e) => e.stopPropagation()}
             >
+              {highlightToggle && (
+                <>
+                  <DropdownMenuItem onClick={() => onToggleHighlight?.(row.id)}>
+                    {row.highlight ? <LightbulbOff className="h-3.5 w-3.5" /> : <Lightbulb className="h-3.5 w-3.5" />}
+                    {row.highlight ? "Снять подсветку" : "Подсветить как новый"}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               <DropdownMenuItem onClick={() => onInsertRowAbove?.(row.id)} disabled={!canEdit}>
                 Вставить строку выше
               </DropdownMenuItem>
@@ -374,10 +394,25 @@ function TableRowInner({
           // especially: selecting the row on mousedown and then toggling it
           // on click un-ticked it again, so a single row could never be ticked.
           if ((e.target as HTMLElement | null)?.closest("[data-row-menu], [data-row-drag], [data-row-check]")) return;
+          // Alt+клик по номеру — подсветка вкл/выкл одним движением; строку
+          // при этом не выделяем (выделение — обычным кликом).
+          if (e.altKey && e.button === 0 && highlightToggle) {
+            e.preventDefault();
+            onToggleHighlight?.(row.id);
+            return;
+          }
           onRowNumberMouseDown(row.id, e);
         }}
         onDoubleClick={() => onExpandRow(row.id)}
-        title="Двойной клик — открыть строку карточкой"
+        title={
+          row.highlight
+            ? highlightToggle
+              ? "Строка подсвечена как новая. Alt+клик — снять подсветку · двойной клик — открыть карточкой"
+              : "Строка подсвечена как новая. Двойной клик — открыть строку карточкой"
+            : highlightToggle
+              ? "Двойной клик — открыть строку карточкой · Alt+клик — подсветить как новый"
+              : "Двойной клик — открыть строку карточкой"
+        }
         className={cn(
           "table-sticky-col sticky left-0 z-[22] !overflow-visible select-none border-b border-r border-border/40 bg-background text-center font-mono text-[11px] tabular text-muted-foreground",
           !lastStickyKey && "table-sticky-edge",
@@ -631,6 +666,8 @@ function tableRowEqual(prev: TableRowProps, next: TableRowProps) {
     prev.deadlineKey !== next.deadlineKey ||
     prev.deadlineTone !== next.deadlineTone ||
     prev.studio !== next.studio ||
+    prev.canHighlight !== next.canHighlight ||
+    Boolean(prev.onToggleHighlight) !== Boolean(next.onToggleHighlight) ||
     prev.onCellAction !== next.onCellAction ||
     prev.getCellAction !== next.getCellAction ||
     prev.cellActionPulse !== next.cellActionPulse

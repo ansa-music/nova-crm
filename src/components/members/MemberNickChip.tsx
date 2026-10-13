@@ -55,7 +55,7 @@ export function MemberNickChip({
     : stale
         ? "Ник остался от прошлой роли — его можно открепить"
         : value
-          ? `Сменить или открепить ${prefix}`
+          ? `Переименовать, сменить или открепить ${prefix}`
           : empty;
   return (
     <button

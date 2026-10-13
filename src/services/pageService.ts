@@ -25,7 +25,7 @@ import type { PageColumn, PageIconName, PageRow, Role, StatusOption, WorkspacePa
 import { assertRowsWritable, usesSupabaseRows } from "@/services/rows/rowsBackend";
 import { deletePageAcl, putPageAcl, patchPageAcl } from "@/services/rows/rowAclService";
 import {
-  sbClearHighlights,
+  sbSetHighlights,
   sbDeleteRow,
   sbDeleteRows,
   sbFetchRows,
@@ -1489,22 +1489,28 @@ export async function markRowOrder(
   await setDoc(ref, { orderId, updatedAt: Date.now() }, { merge: true });
 }
 
-export async function clearRowHighlights(
+/**
+ * Подсветка строк «новый заказ» (PageRow.highlight): снять или поставить,
+ * одной записью на все строки. Ставить — с 13.10.2026: технарь зажигает
+ * подсветку сам, чтобы отметить строку для себя.
+ */
+export async function setRowHighlights(
   workspaceId: string,
   pageId: string,
   subPageId: string | null,
-  rowIds: string[]
+  rowIds: string[],
+  on: boolean
 ) {
   if (!db || rowIds.length === 0) return;
   assertRowsWritable(workspaceId);
   if (usesSupabaseRows(workspaceId)) {
-    await sbClearHighlights(workspaceId, pageId, subPageId, rowIds);
+    await sbSetHighlights(workspaceId, pageId, subPageId, rowIds, on);
     return;
   }
   const batch = writeBatch(db);
   for (const rowId of rowIds) {
     const ref = subPageId ? paths.subPageRow(workspaceId, pageId, subPageId, rowId) : paths.row(workspaceId, pageId, rowId);
-    batch.set(ref, { highlight: deleteField(), updatedAt: Date.now() }, { merge: true });
+    batch.set(ref, { highlight: on ? true : deleteField(), updatedAt: Date.now() }, { merge: true });
   }
   await batch.commit();
 }

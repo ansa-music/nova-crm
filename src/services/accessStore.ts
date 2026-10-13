@@ -8,7 +8,7 @@ import { isSbMissingError, sbTargetOf, type SbBackend } from "@/services/sb/sbCo
 import { useWorkspaceStore } from "@/store/workspaceStore";
 
 /**
- * Доступы в Supabase — таблица `access_docs` (SQL 20261047, 13.10.2026, этап
+ * Доступы в Supabase — таблица `access_docs` (SQL 20261049, 14.10.2026, этап
  * C переезда с Firestore): запросы на просмотр стола (`viewreq`),
  * «наблюдатели» (`observer`), ключ доступа (`ownerkey`, id всегда `key`) и
  * заявки по ключу (`ownerreq`, id = uid просителя).

@@ -21,7 +21,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { CheckCheck, Copy, CopyPlus, Filter, FilterX, Maximize2, Plus, Trash2 } from "lucide-react";
+import { CheckCheck, Copy, CopyPlus, Filter, FilterX, Lightbulb, LightbulbOff, Maximize2, Plus, Trash2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { LayoutGroup } from "framer-motion";
 import { useTableDiagWatch } from "@/hooks/useTableDiagWatch";
@@ -97,7 +97,7 @@ import {
   changeColumnType as changeColumnTypeServiceBase,
   duplicateColumn as duplicateColumnServiceBase,
   deleteColumn as deleteColumnServiceBase,
-  clearRowHighlights,
+  setRowHighlights,
   applyColumnLayout,
   schedulePageColumnsLayout,
   type ColumnLayoutPatch,
@@ -3274,17 +3274,81 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     return raw || null;
   }
 
-  // Строки, приехавшие заказом с «Заказов». Подсветку снимает только сам
-  // технарь — чипом в тулбаре, поэтому новый заказ нельзя не заметить.
+  // Строки, приехавшие заказом с «Заказов» (или подсвеченные вручную).
+  // Подсветка сама не гаснет — её снимает технарь, поэтому новый заказ
+  // нельзя не заметить.
   const highlightedRowIds = useMemo(() => rows.filter((r) => r.highlight).map((r) => r.id), [rows]);
+  // ЗАЖЕЧЬ подсветку можно на любом столе, кроме стола ОС: там она значит
+  // «ОС ещё не трогал строку» — по ней авто-передача решает, можно ли забрать
+  // заказ обратно (rows_tech_sync, 20261045). Снять можно везде.
+  const canLightRows = canEdit && !page.osDesk;
 
-  async function handleClearHighlights() {
-    if (highlightedRowIds.length === 0) return;
+  /**
+   * Подсветка строк вкл/выкл (просьба Nurba 13.10.2026: «выборочно отключить
+   * свечение и включить по надобности — отметить для себя»). Пишутся только
+   * строки, у которых она правда меняется; одна undo-команда на действие.
+   */
+  async function setRowsHighlight(ids: readonly string[], on: boolean) {
+    if (!canEdit) return;
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const changed = ids.filter((id) => {
+      const row = byId.get(id);
+      return Boolean(row) && Boolean(row?.highlight) !== on;
+    });
+    if (changed.length === 0) return;
+    const tab = subPageId ?? null;
     try {
-      await clearRowHighlights(workspaceId, page.id, subPageId ?? null, highlightedRowIds);
+      await setRowHighlights(workspaceId, page.id, tab, changed, on);
+      // На столе ОС отмены нет: Ctrl+Z после «снять» зажёг бы подсветку снова,
+      // а зажигать там нельзя (см. canLightRows).
+      if (canLightRows) {
+        pushCommand({
+          undo: () => setRowHighlights(workspaceId, page.id, tab, changed, !on),
+          redo: () => setRowHighlights(workspaceId, page.id, tab, changed, on),
+        });
+      }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось снять подсветку");
+      toast.error(error instanceof Error ? error.message : on ? "Не удалось подсветить строку" : "Не удалось снять подсветку");
     }
+  }
+
+  /** Одна строка: подсвечена — гасим, нет — зажигаем («⋯», правый клик, Alt+клик по номеру, карточка). */
+  function toggleRowHighlight(rowId: string) {
+    const row = rows.find((r) => r.id === rowId);
+    if (!row || !canEdit) return;
+    if (row.highlight) {
+      void setRowsHighlight([rowId], false);
+      return;
+    }
+    if (!canLightRows) {
+      toast.info("Строка не подсвечена");
+      return;
+    }
+    if (isBlankRow(row)) {
+      toast.info("Пустая строка — подсвечивать нечего");
+      return;
+    }
+    void setRowsHighlight([rowId], true);
+  }
+
+  function handleClearHighlights() {
+    void setRowsHighlight(highlightedRowIds, false);
+  }
+
+  // Выбранные строки: есть неподсвеченные (и зажигать можно) — зажигаем их,
+  // иначе гасим подсвеченные. Пустые слоты не зажигаем.
+  const selectedHighlight = useMemo(() => {
+    if (selectedRowIds.size === 0) return null;
+    const picked = rows.filter((r) => selectedRowIds.has(r.id));
+    return {
+      lit: picked.filter((r) => r.highlight).map((r) => r.id),
+      dark: picked.filter((r) => !r.highlight && !isBlankRow(r)).map((r) => r.id),
+    };
+  }, [rows, selectedRowIds]);
+  const bulkHighlightOn = Boolean(selectedHighlight && canLightRows && selectedHighlight.dark.length > 0);
+  const bulkHighlightIds = selectedHighlight ? (bulkHighlightOn ? selectedHighlight.dark : selectedHighlight.lit) : [];
+  function handleBulkHighlight() {
+    void setRowsHighlight(bulkHighlightIds, bulkHighlightOn);
   }
 
   // ---- Действия для шапки стола (DeskTableActions) ----
@@ -4301,6 +4365,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     copyRow: (id: string) => handleCopyRow(id),
     fillStart: handleFillStart,
     findDuplicates: handleFindDuplicates,
+    toggleHighlight: toggleRowHighlight,
   };
   const rowHandlersRef = useRef(rowHandlerImpl);
   rowHandlersRef.current = rowHandlerImpl;
@@ -4327,6 +4392,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       onCopyRow: (id: string) => h().copyRow(id),
       onFillStart: (rowId: string, colKey: string, e: React.PointerEvent) => h().fillStart(rowId, colKey, e),
       onFindDuplicates: (rowId: string, colKey: string) => h().findDuplicates(rowId, colKey),
+      onToggleHighlight: (rowId: string) => h().toggleHighlight(rowId),
     };
   }, []);
 
@@ -4423,6 +4489,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         deadlineKey={studioDeadline?.column?.key}
         deadlineTone={studioDeadline?.column ? studioDeadlineTone(displayRow) : undefined}
         studio={studio}
+        onToggleHighlight={canEdit ? rowHandlers.onToggleHighlight : undefined}
+        canHighlight={canLightRows}
       />
     );
   }
@@ -4808,6 +4876,12 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                         <CheckCheck className="h-3.5 w-3.5" /> Выбранные → «Готово»
                       </ContextMenuItem>
                     )}
+                    {canEdit && bulkHighlightIds.length > 0 && (
+                      <ContextMenuItem onClick={handleBulkHighlight}>
+                        {bulkHighlightOn ? <Lightbulb className="h-3.5 w-3.5" /> : <LightbulbOff className="h-3.5 w-3.5" />}
+                        {bulkHighlightOn ? "Подсветить выбранные" : "Снять подсветку с выбранных"}
+                      </ContextMenuItem>
+                    )}
                     <ContextMenuItem onClick={() => void handleDeleteSelected()} disabled={!canEdit} className="text-destructive focus:text-destructive">
                       <Trash2 className="h-3.5 w-3.5" /> Удалить выбранные ({selectedRowIds.size})
                     </ContextMenuItem>
@@ -4825,6 +4899,20 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
                     }}
                   >
                     <CheckCheck className="h-3.5 w-3.5" /> Отметить «Готово»
+                  </ContextMenuItem>
+                )}
+                {/* Подпись одна на оба состояния: меню рисуется до того, как
+                    известна строка под курсором (она в ref), действие решает
+                    по самой строке в момент клика. */}
+                {canEdit && (canLightRows || highlightedRowIds.length > 0) && (
+                  <ContextMenuItem
+                    onClick={() => {
+                      const id = contextRowIdRef.current ?? activeCell?.rowId;
+                      if (id) toggleRowHighlight(id);
+                    }}
+                  >
+                    <Lightbulb className="h-3.5 w-3.5" /> {canLightRows ? "Подсветить / снять подсветку" : "Снять подсветку"}
+                    <ContextMenuShortcut>Alt+клик</ContextMenuShortcut>
                   </ContextMenuItem>
                 )}
                 <ContextMenuSeparator />
@@ -5145,6 +5233,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
             : undefined
         }
         onDuplicate={(id) => void handleDuplicateRowById(id)}
+        onToggleHighlight={canEdit ? toggleRowHighlight : undefined}
+        canHighlight={canLightRows}
         onDelete={
           viewer && rowDeleteLockReason(rows.find((r) => r.id === expandedRowId), viewer, lockCtx)
             ? undefined
@@ -5224,6 +5314,8 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         onCopy={handleCopySelectedRows}
         onDuplicate={() => void handleDuplicateSelected()}
         onExportCsv={handleExportSelectedCsv}
+        onHighlight={bulkHighlightIds.length > 0 ? handleBulkHighlight : undefined}
+        highlightOff={!bulkHighlightOn}
       />
     </div>
     </LayoutGroup>
