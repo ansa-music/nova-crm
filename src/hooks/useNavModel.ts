@@ -6,6 +6,8 @@ import {
   ClipboardList,
   Contact,
   Download,
+  Eye,
+  EyeOff,
   HardHat,
   Home,
   Keyboard,
@@ -50,6 +52,7 @@ import { displayNameOf, myDisplayName } from "@/utils/displayName";
 import { PAGE_ICON_MAP } from "@/utils/pageIcons";
 import { confirmDialog } from "@/utils/appDialog";
 import { toast } from "@/components/ui/sonner";
+import { firestoreErrorText } from "@/utils/dbError";
 import { THEME_OPTIONS } from "@/components/layout/ThemeToggle";
 import { osDispatchLogState, subscribeOsDispatchLogState } from "@/services/osDispatchLogService";
 import { openOrdersState, subscribeOpenOrdersState } from "@/services/openOrdersPulse";
@@ -78,7 +81,7 @@ const MORE_PAGE_PATHS = [
   "/dispatch",
   "/settings",
 ];
-import { requestReloadEverywhere } from "@/services/workspaceService";
+import { requestReloadEverywhere, updateHideAmounts } from "@/services/workspaceService";
 import { downloadWorkspaceBackup } from "@/services/backupService";
 import { setActiveRole } from "@/services/memberService";
 import { signOutUser } from "@/firebase/auth";
@@ -916,6 +919,26 @@ export function useAccountMenu(opts: { openCreatePage?: () => void; openCreateWo
           toast.success("Сайт обновится у всех", { description: "И у вас — через 30 секунд." });
         } catch (error) {
           toast.error(error instanceof Error ? error.message : "Не удалось отправить обновление");
+        }
+      },
+    });
+  }
+  // Только Owner: «Скрыть суммы» от ОС и технарей одним нажатием (то же, что
+  // переключатель в «Настройки → Касса»).
+  if (permissions.actsAsOwner && activeWorkspaceId) {
+    const amountsHidden = Boolean(activeWorkspace?.hideAmounts);
+    actions.push({
+      key: "hide-amounts",
+      label: amountsHidden ? "Показать суммы всем" : "Скрыть суммы от ОС и технарей",
+      icon: amountsHidden ? Eye : EyeOff,
+      run: async () => {
+        try {
+          await updateHideAmounts(activeWorkspaceId, !amountsHidden);
+          toast.success(amountsHidden ? "Суммы снова видны всем" : "Суммы скрыты от ОС и технарей", {
+            description: amountsHidden ? undefined : "Руководство видит всё. Вернуть — тем же пунктом меню.",
+          });
+        } catch (error) {
+          toast.error(firestoreErrorText(error, "Не удалось переключить суммы"));
         }
       },
     });

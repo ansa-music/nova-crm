@@ -4,7 +4,7 @@ import { paths } from "@/firebase/firestore";
 import { deskRowHref } from "@/utils/deskLinks";
 import { generateId } from "@/utils/id";
 import { formatOrderDate } from "@/utils/date";
-import { formatCurrency } from "@/utils/format";
+import { formatCurrencyAlways } from "@/utils/format";
 import { buildQuickOrderRow, extrasWithoutDeadline, mergeColumnPicks, studioOrderDeskCells } from "@/utils/quickOrder";
 import { studioSavedFor } from "@/config/studio";
 import { sendNotification } from "@/services/notificationService";
@@ -168,7 +168,7 @@ function newOrderBody(order: WorkOrder, studio = false): string {
   const parts: string[] = [];
   if (order.urgency && order.urgency !== "normal") parts.push(WORK_ORDER_URGENCY_LABELS[order.urgency]);
   if (order.deadline) parts.push(`до ${formatOrderDate(order.deadline)}`);
-  if (order.price != null) parts.push(formatCurrency(order.price));
+  if (order.price != null) parts.push(formatCurrencyAlways(order.price));
   if (order.osLabel) parts.push(`ОС: ${order.osLabel}`);
   const head = parts.join(" · ");
   // В студии раздел называется «Рандом» (подпись пункта меню).

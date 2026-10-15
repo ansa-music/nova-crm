@@ -223,6 +223,11 @@ export async function updateTechBonuses(workspaceId: string, bonuses: number[]) 
   await updateWorkspace(workspaceId, { techBonuses: clean });
 }
 
+/** «Скрыть суммы» от ОС и технарей — переключатель Owner (`hooks/useAmountsHidden.ts`). */
+export async function updateHideAmounts(workspaceId: string, hidden: boolean) {
+  await updateWorkspace(workspaceId, { hideAmounts: hidden });
+}
+
 export async function updateResponsibleOptions(workspaceId: string, options: StatusOption[]) {
   await updateWorkspace(workspaceId, { responsibleOptions: options });
 }

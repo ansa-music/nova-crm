@@ -25,7 +25,7 @@ import { OS_DEAD_LINK_PROBLEM, type OsTechAction, type OsTechCellState } from "@
 import type { PageRow, PaymentMethod } from "@/types";
 import { PaymentChip } from "@/components/cashbox/PaymentChip";
 import { osRowFees, osRowTotal } from "@/utils/payment";
-import { formatCurrency } from "@/utils/format";
+import { AMOUNTS_HIDDEN, formatCurrency } from "@/utils/format";
 import { parseLooseNumber } from "@/utils/numberInput";
 import type { OsDateSlot } from "@/utils/osDates";
 import { OsDateButton, type OsDateSetter, type OsDatesInfo } from "@/components/os/OsDatesCell";
@@ -75,6 +75,8 @@ function AmountField({
   async function commit() {
     setEditing(false);
     if (draft.trim() === shown) return;
+    // «Скрыть суммы»: поле открывается пустым — пустое значит «не трогал».
+    if (AMOUNTS_HIDDEN && !draft.trim()) return;
     setSaving(true);
     try {
       await onSave(draft);
@@ -113,7 +115,7 @@ function AmountField({
     <button
       type="button"
       onClick={() => {
-        setDraft(shown);
+        setDraft(AMOUNTS_HIDDEN ? "" : shown);
         setEditing(true);
       }}
       disabled={saving}

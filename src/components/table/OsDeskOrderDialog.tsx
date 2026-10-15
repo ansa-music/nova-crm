@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { NumberPicks, OptionChips, ORDER_FIELD_CLASS, orderChipClass, OrderFormShell } from "@/components/table/OrderFormParts";
 import { ymdInTimeZone } from "@/utils/date";
-import { formatCurrency } from "@/utils/format";
+import { formatCurrencyAlways } from "@/utils/format";
 import { parseLooseNumber } from "@/utils/numberInput";
 import { EMPTY_OS_DESK_ORDER, osDeskOrderMissing, type OsDeskOrderForm } from "@/utils/osDeskOrder";
 import { addDays } from "@/utils/scheduleWeek";
@@ -125,8 +125,8 @@ export function OsDeskOrderDialog({
           {gross > 0 && !missing ? (
             <p className="flex flex-wrap items-baseline gap-x-2 text-sm" data-os-order-total>
               <span className="text-muted-foreground">Итого</span>
-              <span className="font-semibold tabular-nums">{formatCurrency(net)}</span>
-              {fees > 0 ? <span className="text-[12px] text-muted-foreground">комиссия −{formatCurrency(fees)}</span> : null}
+              <span className="font-semibold tabular-nums">{formatCurrencyAlways(net)}</span>
+              {fees > 0 ? <span className="text-[12px] text-muted-foreground">комиссия −{formatCurrencyAlways(fees)}</span> : null}
             </p>
           ) : null}
           {missing && !saving ? <p className="text-[12.5px] text-muted-foreground">{missing}</p> : null}

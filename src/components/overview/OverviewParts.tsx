@@ -5,7 +5,7 @@ import { ChevronDown, Crown, Gift, Star, Table2 } from "lucide-react";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { ScoreMeter } from "@/components/technicians/ScoreRating";
 import { cn } from "@/utils/cn";
-import { currencySymbol, formatCurrency, formatNumber } from "@/utils/format";
+import { AMOUNTS_HIDDEN, HIDDEN_AMOUNT, currencySymbol, formatCurrency, formatNumber } from "@/utils/format";
 import { personLabel } from "@/utils/peopleDesks";
 import { NO_STATUS_KEY } from "@/utils/techLoad";
 import type { OverviewDay, OverviewMonth, OverviewOsShare, OverviewTechnician } from "@/utils/overviewStats";
@@ -20,6 +20,7 @@ const compactNumber = new Intl.NumberFormat("ru-RU", { notation: "compact", maxi
 
 /** «12,4 млн ₸» — for tiles and axes; full value goes to the title/tooltip. */
 export function formatMoneyCompact(value: number): string {
+  if (AMOUNTS_HIDDEN) return HIDDEN_AMOUNT;
   if (!value) return `0 ${currencySymbol()}`;
   return Math.abs(value) < 10_000 ? formatCurrency(value) : `${compactNumber.format(value).replace(/.$/, "")} ${currencySymbol()}`;
 }
@@ -428,7 +429,9 @@ function DayTooltip({
 const axisTick = { fontSize: 11, fill: "hsl(var(--muted-foreground))" };
 
 export function DailyChart({ days, today, monthName }: { days: OverviewDay[]; today: number; monthName: string }) {
-  const [metric, setMetric] = useState<"count" | "sum">("count");
+  const [metricChoice, setMetric] = useState<"count" | "sum">("count");
+  // «Скрыть суммы»: только штуки — столбики сумм выдали бы соотношение денег.
+  const metric = AMOUNTS_HIDDEN ? "count" : metricChoice;
   const [asTable, setAsTable] = useState(false);
   const hasData = days.some((d) => d.count > 0);
   return (
@@ -437,15 +440,17 @@ export function DailyChart({ days, today, monthName }: { days: OverviewDay[]; to
       title={metric === "count" ? "Заказы по дням" : "Сумма заказов по дням"}
       action={
         <div className="flex items-center gap-2">
-          <Segmented
-            label="Показатель"
-            value={metric}
-            onChange={setMetric}
-            options={[
-              { value: "count", label: "Штуки" },
-              { value: "sum", label: "Сумма" },
-            ]}
-          />
+          {AMOUNTS_HIDDEN ? null : (
+            <Segmented
+              label="Показатель"
+              value={metric}
+              onChange={setMetric}
+              options={[
+                { value: "count", label: "Штуки" },
+                { value: "sum", label: "Сумма" },
+              ]}
+            />
+          )}
           <button
             type="button"
             onClick={() => setAsTable((v) => !v)}
@@ -550,7 +555,8 @@ function MonthTooltip({ active, payload }: { active?: boolean; payload?: { paylo
 
 /** Столбцы по периодам: целые месяцы и/или половины («1–15 окт») — подпись даёт `labelOf`. */
 export function MonthlyChart({ months, labelOf }: { months: OverviewMonth[]; labelOf: (key: string) => string }) {
-  const [metric, setMetric] = useState<"doneTotal" | "orders">("doneTotal");
+  const [metricChoice, setMetric] = useState<"doneTotal" | "orders">("doneTotal");
+  const metric = AMOUNTS_HIDDEN ? "orders" : metricChoice;
   const data = months.map((m) => ({ ...m, label: labelOf(m.monthKey) }));
   const halves = months.some((m) => m.monthKey.length > 7);
   const noun = halves ? "период" : "месяц";
@@ -560,15 +566,17 @@ export function MonthlyChart({ months, labelOf }: { months: OverviewMonth[]; lab
       eyebrow={halves ? "По периодам" : "По месяцам"}
       title={metric === "doneTotal" ? `«Готово» за ${noun}` : `Заказов за ${noun}`}
       action={
-        <Segmented
-          label="Показатель"
-          value={metric}
-          onChange={setMetric}
-          options={[
-            { value: "doneTotal", label: "Готово" },
-            { value: "orders", label: "Заказы" },
-          ]}
-        />
+        AMOUNTS_HIDDEN ? null : (
+          <Segmented
+            label="Показатель"
+            value={metric}
+            onChange={setMetric}
+            options={[
+              { value: "doneTotal", label: "Готово" },
+              { value: "orders", label: "Заказы" },
+            ]}
+          />
+        )
       }
     >
       <div className="h-52 w-full">

@@ -6,7 +6,7 @@ import { DiskLinkChip } from "@/components/table/DiskLinkChip";
 import { DateCalendar } from "@/components/table/DateCalendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { formatCurrencyCell, formatNumber } from "@/utils/format";
+import { AMOUNTS_HIDDEN, formatCurrencyCell, formatNumber } from "@/utils/format";
 import { formatOrderDate } from "@/utils/date";
 import { isOptionColumn, splitOptionsByActivity } from "@/utils/columnOptions";
 import { parseHttpUrl } from "@/utils/httpUrl";
@@ -281,7 +281,7 @@ export function TableCell({
     }
     if (column.type === "currency" && stringValue) {
       return (
-        <span className={cn("font-mono text-[12.5px] tabular-nums", isNegative && "font-medium text-destructive")}>
+        <span className={cn("font-mono text-[12.5px] tabular-nums", isNegative && !AMOUNTS_HIDDEN && "font-medium text-destructive")}>
           {formatCurrencyCell(stringValue)}
         </span>
       );
@@ -566,7 +566,7 @@ export function TableCell({
           autoCapitalize="off"
           spellCheck={false}
           value={editValue}
-          placeholder={column.type === "url" ? "https://…" : undefined}
+          placeholder={column.type === "url" ? "https://…" : column.type === "currency" && AMOUNTS_HIDDEN ? "новая сумма" : undefined}
           onChange={(e) => onEditValueChange(e.target.value)}
           onBlur={() => onCommitEdit("none")}
           onPaste={

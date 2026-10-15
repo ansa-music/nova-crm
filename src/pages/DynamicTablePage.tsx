@@ -179,7 +179,7 @@ import { orderRequestId, type OrderRequest } from "@/services/orderRequestServic
 import { isMonthlyDesk } from "@/services/monthTabService";
 import type { PageRow, PaymentMethod, SubPage, WorkspacePage } from "@/types";
 import type { DeskSummary, DeskTableActions } from "@/types/deskSummary";
-import { formatNumber } from "@/utils/format";
+import { AMOUNTS_HIDDEN, formatNumber } from "@/utils/format";
 import { PaymentChip } from "@/components/cashbox/PaymentChip";
 import {
   OsDatesCell,
@@ -302,8 +302,9 @@ function DeskSummaryInline({ store }: { store: DeskSummaryStore }) {
   const summary = useSyncExternalStore(store.subscribe, store.get, store.get);
   // Моно, без валюты: числа читаются столбиком. «В работе» и «Ждём» при нуле
   // молчат, без денежного столбца блока нет вовсе, без статуса — только
-  // «Общий». На узком экране блок не влезает — прячем.
-  if (!summary?.hasCurrency) return null;
+  // «Общий». На узком экране блок не влезает — прячем. «Скрыть суммы» — блока
+  // нет: в нём одни деньги.
+  if (!summary?.hasCurrency || AMOUNTS_HIDDEN) return null;
   return (
     <div className="hidden shrink-0 items-center gap-4 font-mono text-[12.5px] text-muted-foreground xl:flex">
       <span>

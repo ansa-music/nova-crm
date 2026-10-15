@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { NumberPicks, ORDER_FIELD_CLASS, OrderFormShell } from "@/components/table/OrderFormParts";
 import { StatusBadge } from "@/components/table/StatusBadge";
 import { splitOptionsByActivity } from "@/utils/columnOptions";
-import { formatCurrency } from "@/utils/format";
+import { formatCurrencyAlways } from "@/utils/format";
 import { parseOptionalNumber, type QuickOrderInput } from "@/utils/quickOrder";
 import type { StatusOption } from "@/types";
 
@@ -185,7 +185,7 @@ export function QuickOrderDialog({
             Чек <span className="text-primary">*</span>
           </Label>
           {/* Длинное число проще проверить глазами с разрядами: «120 000 ₸». */}
-          {checkNum != null && <span className="text-[12px] tabular-nums text-muted-foreground">{formatCurrency(checkNum)}</span>}
+          {checkNum != null && <span className="text-[12px] tabular-nums text-muted-foreground">{formatCurrencyAlways(checkNum)}</span>}
         </div>
         <Input
           id="qo-check"

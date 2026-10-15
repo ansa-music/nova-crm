@@ -55,7 +55,7 @@ import { firestoreErrorText } from "@/utils/dbError";
 import { packStudioOrderNote, parseOptionalNumber, parseStudioOrderNote } from "@/utils/quickOrder";
 import { myDisplayName, NO_NICK_LABEL } from "@/utils/displayName";
 import { usePersonName } from "@/hooks/usePersonName";
-import { formatCurrency } from "@/utils/format";
+import { formatCurrency, formatCurrencyAlways } from "@/utils/format";
 import { almatyNoonMillis, formatOrderDate, timeAgo, ymdInTimeZone } from "@/utils/date";
 import { hasFullAccess } from "@/utils/permissions";
 import { confirmDialog } from "@/utils/appDialog";
@@ -830,8 +830,12 @@ export default function OrdersPage() {
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    {/* «Скрыть суммы»: пока заказ раздаётся (открыт / выдан), сумму видят все —
+                        по ней технарь решает, откликаться ли; в истории она скрыта. */}
                     {order.price != null && (
-                      <span className="tabular font-medium text-foreground">{formatCurrency(order.price)}</span>
+                      <span className="tabular font-medium text-foreground">
+                        {order.status === "open" || order.status === "assigned" ? formatCurrencyAlways(order.price) : formatCurrency(order.price)}
+                      </span>
                     )}
                     {order.deadline != null && (
                       <span className="inline-flex items-center gap-1 tabular font-medium text-foreground">

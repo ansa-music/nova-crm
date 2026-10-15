@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { formatCurrencyCell, formatNumber } from "@/utils/format";
+import { AMOUNTS_HIDDEN, formatCurrencyCell, formatNumber } from "@/utils/format";
 import { formatDate, formatOrderDate } from "@/utils/date";
 import { DEFAULT_STATUS_OPTIONS, isDoneStatusLabel, isOptionColumn } from "@/utils/columnOptions";
 import { normalizeNumericInput } from "@/utils/numberInput";
@@ -248,6 +248,9 @@ export function RowCardSheet({
     if (!record || !onCellChange) return;
     setEditingKey(null);
     const oldValue = String(record.cells[col.key] ?? "");
+    // «Скрыть суммы»: скрытую сумму редактор показывает пустой — пустой ввод
+    // значит «не трогал», а не «стереть».
+    if (AMOUNTS_HIDDEN && col.type === "currency" && !draft.trim()) return;
     let next = draft;
     if (col.type === "number" || col.type === "currency") next = normalizeNumericInput(draft);
     else next = draft.trim();
@@ -256,7 +259,7 @@ export function RowCardSheet({
 
   function beginEdit(col: PageColumn) {
     if (!canEditCell(col) || !record) return;
-    setDraft(String(record.cells[col.key] ?? ""));
+    setDraft(AMOUNTS_HIDDEN && col.type === "currency" ? "" : String(record.cells[col.key] ?? ""));
     setEditingKey(col.key);
   }
 
@@ -364,6 +367,7 @@ export function RowCardSheet({
       const common = {
         value: draft,
         autoFocus: true,
+        placeholder: AMOUNTS_HIDDEN && col.type === "currency" ? "новая сумма" : undefined,
         onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(e.target.value),
         onBlur: () => commitDraft(col),
         onKeyDown: (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {

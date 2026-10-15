@@ -56,6 +56,7 @@ import { useOpenOrdersWatch } from "@/hooks/useOpenOrdersWatch";
 import { useRowsBackendBridge } from "@/hooks/useRowsBackendBridge";
 import { useTenantRegionBridge } from "@/hooks/useTenantRegionBridge";
 import { useSiteConfigBridge } from "@/hooks/useSiteConfigBridge";
+import { useAmountsHidden, useAmountsHiddenBridge } from "@/hooks/useAmountsHidden";
 import { useRowAclSync } from "@/hooks/useRowAclSync";
 import { useStudioProvision } from "@/hooks/useStudioProvision";
 import { useStudioUpkeep } from "@/hooks/useStudioUpkeep";
@@ -127,6 +128,8 @@ export function AppLayout() {
   useTenantRegionBridge(permissions.upkeepOwner);
   // «Конструктор сайта»: слова, меню, модули, цвета, бренд (нет поля — Nova).
   useSiteConfigBridge();
+  // «Скрыть суммы» (переключатель Owner): ОС и технари видят «•••» вместо денег.
+  useAmountsHiddenBridge(permissions.role, permissions.isResolved);
   // Воркспейс «NOVA Studio»: разовое создание у администратора платформы и
   // обслуживание (свой стол менеджера, общий Telegram) — только при флаге студии.
   useStudioProvision();
@@ -264,6 +267,10 @@ const AppChrome = memo(function AppChrome({
   trial: TenantInfo | null;
 }) {
   const location = useLocation();
+  // Owner переключил «Скрыть суммы» — страница пересобирается целиком: суммы
+  // считаются в отрисовке и в memo строк таблицы, и без пересборки часть
+  // экрана осталась бы со старыми числами (или «•••»).
+  const amountsHidden = useAmountsHidden();
   const isCompactNav = useIsTablet();
   const isPhone = useIsMobile();
   const keyboardOpen = useKeyboardOpen();
@@ -337,7 +344,7 @@ const AppChrome = memo(function AppChrome({
             прокручиваются только их собственные контейнеры. */}
         <main className={`flex min-h-0 flex-1 flex-col ${isOnTablePage ? "overflow-hidden" : "overflow-x-hidden overflow-y-auto"} scrollbar-thin`}>
           <PageShell>
-            <ErrorBoundary compact key={location.pathname}>
+            <ErrorBoundary compact key={amountsHidden ? `${location.pathname}#amounts-hidden` : location.pathname}>
               <Outlet />
             </ErrorBoundary>
           </PageShell>

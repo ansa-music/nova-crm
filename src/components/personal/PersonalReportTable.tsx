@@ -3,7 +3,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { formatCurrency } from "@/utils/format";
+import { formatCurrencyAlways } from "@/utils/format";
 import { normalizeNumericInput, parseLooseNumber } from "@/utils/numberInput";
 import {
   addPersonalReportRow,
@@ -138,7 +138,7 @@ export function PersonalReportTable({ workspaceId, pageId, uid, report, rows }: 
                       ) : (
                         <div className={cn("min-h-8 cursor-text px-2 py-1.5", !value && "text-muted-foreground")}>
                           {c.type === "currency" && value
-                            ? formatCurrency(parseLooseNumber(String(value)) ?? 0)
+                            ? formatCurrencyAlways(parseLooseNumber(String(value)) ?? 0)
                             : String(value ?? "—")}
                         </div>
                       )}
@@ -179,7 +179,7 @@ export function PersonalReportTable({ workspaceId, pageId, uid, report, rows }: 
       {priceColumn && (
         <div className="rounded-lg border border-border p-3">
           <p className="text-xs text-muted-foreground">Общая сумма</p>
-          <p className="mt-1 text-lg font-semibold">{formatCurrency(total)}</p>
+          <p className="mt-1 text-lg font-semibold">{formatCurrencyAlways(total)}</p>
         </div>
       )}
     </div>

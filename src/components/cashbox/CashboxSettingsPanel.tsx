@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { CreditCard, Loader2, Trophy } from "lucide-react";
+import { CreditCard, EyeOff, Loader2, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/sonner";
 import { PaymentMethodsEditor } from "@/components/cashbox/PaymentMethodsEditor";
 import { OsPaySettingsCard } from "@/components/cashbox/OsPaySettingsCard";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { updateTechBonuses } from "@/services/workspaceService";
+import { updateHideAmounts, updateTechBonuses } from "@/services/workspaceService";
 import { firestoreErrorText } from "@/utils/dbError";
 import { formatCurrency } from "@/utils/format";
 import { parseLooseNumber } from "@/utils/numberInput";
@@ -52,6 +53,8 @@ export function CashboxSettingsPanel() {
 
   return (
     <>
+      <HideAmountsCard />
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -108,5 +111,54 @@ export function CashboxSettingsPanel() {
 
       <OsPaySettingsCard />
     </>
+  );
+}
+
+/**
+ * «Скрыть суммы» (просьба Nurba 15.10.2026) — тот же переключатель есть в меню
+ * аккаунта. Что именно скрывается и где сумма остаётся видна —
+ * `hooks/useAmountsHidden.ts`.
+ */
+function HideAmountsCard() {
+  const { activeWorkspaceId, activeWorkspace } = useWorkspace();
+  const hidden = Boolean(activeWorkspace?.hideAmounts);
+  const [busy, setBusy] = useState(false);
+
+  async function toggle(next: boolean) {
+    if (!activeWorkspaceId) return;
+    setBusy(true);
+    try {
+      await updateHideAmounts(activeWorkspaceId, next);
+      toast.success(next ? "Суммы скрыты от ОС и технарей" : "Суммы снова видны всем");
+    } catch (error) {
+      toast.error(firestoreErrorText(error, "Не удалось переключить суммы"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between gap-3">
+          <span className="flex items-center gap-2">
+            <EyeOff className="h-4 w-4 text-primary" />
+            Скрыть суммы от ОС и технарей
+          </span>
+          <Switch
+            checked={hidden}
+            disabled={busy || !activeWorkspaceId}
+            onCheckedChange={(next) => void toggle(next)}
+            aria-label="Скрыть суммы от ОС и технарей"
+          />
+        </CardTitle>
+        <CardDescription>
+          Включено — у ОС, технарей и остальных не из руководства вместо денег везде «•••»: цены, апсейлы, «Итого», транши, кассы,
+          премии, итоги и статистика, в том числе по прошлым заказам. Вводить суммы они могут: в форме заказа и в ячейке стола
+          (редактор открывается пустым), а в момент выдачи заказа — на «Заказах» и в окнах выдачи ОС — сумма видна. Owner,
+          Тимлид и Тимлид+ видят всё. Это скрытие в интерфейсе, а не защита данных: строки по-прежнему приходят в браузер целиком.
+        </CardDescription>
+      </CardHeader>
+    </Card>
   );
 }

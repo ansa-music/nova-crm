@@ -22,7 +22,7 @@ import {
 } from "@/services/rows/osDeskIssue";
 import { DEFAULT_STATUS_OPTIONS, ensureApprovalStatus, ensureDoneStatus } from "@/utils/columnOptions";
 import { firestoreErrorText } from "@/utils/dbError";
-import { formatCurrency } from "@/utils/format";
+import { formatCurrencyAlways } from "@/utils/format";
 import { formatDayMonth, formatFullDate, osDateSlots, slotShown } from "@/utils/osDates";
 import { osRowGross, osRowTotal } from "@/utils/payment";
 import { bigQueueView, isBigCheck, shortMoney, useBigOrderQueue } from "@/services/bigOrderQueueService";
@@ -256,7 +256,7 @@ export function OsDeskIssueDialog({
                       <div className="flex items-baseline gap-2">
                         <span className="min-w-0 flex-1 truncate text-sm font-medium">{client}</span>
                         {total !== null && total > 0 ? (
-                          <span className="shrink-0 font-mono text-[12.5px] tabular-nums">{formatCurrency(total)}</span>
+                          <span className="shrink-0 font-mono text-[12.5px] tabular-nums">{formatCurrencyAlways(total)}</span>
                         ) : (
                           <span className="shrink-0 text-[11px] text-warning" title="Технарь получит заказ без суммы — впишите цену на столе">
                             без цены

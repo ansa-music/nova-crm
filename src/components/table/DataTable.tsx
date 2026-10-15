@@ -133,6 +133,7 @@ import { buildPersonDeskIndex, deskLinkForCell } from "@/utils/personDeskLinks";
 import { useUiStore } from "@/store/uiStore";
 import { updateResponsibleOptions, updateCustomFieldOptions, updateStatusOptions } from "@/services/workspaceService";
 import { APP_CURRENCY, formatCount, formatCurrency, formatCurrencyCell, formatNumber, downloadCsv } from "@/utils";
+import { AMOUNTS_HIDDEN, maskAmount } from "@/utils/format";
 import { formatOrderDate } from "@/utils/date";
 import { isSummableColumn, sumNumericCells } from "@/utils/tableAggregates";
 import { isBlankRow, isFilledCellValue } from "@/utils/blankRow";
@@ -1052,6 +1053,9 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       const raw = row.cells[column.key];
       const str = raw === null || raw === undefined ? "" : String(raw);
       if (!str) return "";
+      // «Скрыть суммы»: денежная ячейка для поиска и копирования пуста — иначе
+      // сумму можно было бы найти поиском или вынести в Excel.
+      if (column.type === "currency" && AMOUNTS_HIDDEN) return "";
       if (isOptionColumn(column.type)) {
         return getColumnOptions(column, activeWorkspace).find((o) => o.value === str)?.label ?? str;
       }
@@ -1572,7 +1576,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
         return;
       }
       setEditingCell({ rowId, colKey });
-      setEditValue(initialValue !== undefined ? initialValue : String(row.cells[colKey] ?? ""));
+      // «Скрыть суммы»: денежную ячейку можно только перезаписать — редактор
+      // открывается пустым, а пустой ввод сумму не стирает (handleCommitEdit).
+      const hiddenAmount = AMOUNTS_HIDDEN && col.type === "currency";
+      setEditValue(initialValue !== undefined ? initialValue : hiddenAmount ? "" : String(row.cells[colKey] ?? ""));
     },
     [canEdit, columns, rows, lockedKeys]
   );
@@ -1861,7 +1868,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
     if (!col || isOptionColumn(col.type) || col.type === "date" || lockedKeys?.[next.colKey]) return;
     const row = rows.find((r) => r.id === next.rowId);
     setEditingCell(next);
-    setEditValue(String(row?.cells[next.colKey] ?? ""));
+    setEditValue(AMOUNTS_HIDDEN && col.type === "currency" ? "" : String(row?.cells[next.colKey] ?? ""));
   }
 
   const handleCommitEdit = useCallback(
@@ -1871,6 +1878,13 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
       const row = rows.find((r) => r.id === rowId);
       const oldValue = String(row?.cells[colKey] ?? "");
       const col = columns.find((c) => c.key === colKey);
+      // Скрытую сумму редактор показывает пустой — пустой ввод значит «не
+      // трогал», а не «стереть» (стереть — Delete на выделенной ячейке).
+      if (AMOUNTS_HIDDEN && col?.type === "currency" && !editValue.trim()) {
+        setEditingCell(null);
+        moveActiveAfterCommit(direction, false);
+        return;
+      }
       let newValue = editValue;
       if (col?.type === "url") {
         newValue = editValue.trim();
@@ -5084,7 +5098,7 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
               {grandTotals?.parts.map((part) => (
                 <p key={part.key} className="flex min-w-0 items-baseline gap-2 whitespace-nowrap">
                   <span className="truncate">{grandTotals.parts.length === 1 ? "Общий" : part.label}</span>
-                  <span className="table-totals-sum text-foreground">{formatNumber(part.sum)} {APP_CURRENCY}</span>
+                  <span className="table-totals-sum text-foreground">{maskAmount(`${formatNumber(part.sum)} ${APP_CURRENCY}`)}</span>
                 </p>
               ))}
               {/* С xl шапка стола показывает «Готово · В работе · Ждём» сама
@@ -5094,16 +5108,16 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
               {grandTotals && deskSummary.hasStatus && (
                 <span className="flex items-baseline gap-x-4 whitespace-nowrap xl:hidden">
                   <span className="flex items-baseline gap-1.5">
-                    Готово <span className="table-totals-sum text-success">{formatNumber(deskSummary.done)}</span>
+                    Готово <span className="table-totals-sum text-success">{maskAmount(formatNumber(deskSummary.done))}</span>
                   </span>
                   {deskSummary.inProgress > 0 && (
                     <span className="flex items-baseline gap-1.5">
-                      В работе <span className="table-totals-sum text-primary">{formatNumber(deskSummary.inProgress)}</span>
+                      В работе <span className="table-totals-sum text-primary">{maskAmount(formatNumber(deskSummary.inProgress))}</span>
                     </span>
                   )}
                   {deskSummary.waiting > 0 && (
                     <span className="flex items-baseline gap-1.5">
-                      Ждём <span className="table-totals-sum text-warning">{formatNumber(deskSummary.waiting)}</span>
+                      Ждём <span className="table-totals-sum text-warning">{maskAmount(formatNumber(deskSummary.waiting))}</span>
                     </span>
                   )}
                 </span>
@@ -5113,10 +5127,10 @@ export function DataTable({ workspaceId, page, rows, canEdit, canEditStructure, 
               {selectionStats && selectionStats.count > 0 && (
                 <p
                   className="flex min-w-0 items-baseline gap-2 whitespace-nowrap"
-                  title={`Выделено ${selectionStats.cells} яч. · среднее ${formatNumber(Math.round(selectionStats.avg * 100) / 100)}`}
+                  title={`Выделено ${selectionStats.cells} яч. · среднее ${maskAmount(formatNumber(Math.round(selectionStats.avg * 100) / 100))}`}
                 >
                   <span className="text-primary">Выделено</span>
-                  <span className="table-totals-sum text-primary">{formatNumber(selectionStats.sum)}</span>
+                  <span className="table-totals-sum text-primary">{maskAmount(formatNumber(selectionStats.sum))}</span>
                   <span>· {selectionStats.count} знач.</span>
                 </p>
               )}

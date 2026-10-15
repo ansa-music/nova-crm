@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/utils/cn";
-import { formatNumber } from "@/utils/format";
+import { AMOUNTS_HIDDEN, formatNumber, maskAmount } from "@/utils/format";
 import { almatyDay, dateInputValue, formatDayMonth, formatFullDate, parseDateInput } from "@/utils/osDates";
 import { parseTrancheAmount, type TrancheInfo } from "@/utils/osTranche";
 
@@ -22,7 +22,7 @@ const swallow = {
 };
 
 function money(n: number): string {
-  return formatNumber(n);
+  return maskAmount(formatNumber(n));
 }
 
 /** Подсказка к траншу: «Второй транш 50 000 — ждём» / «принят 3 октября». */
@@ -36,10 +36,12 @@ export function trancheTitle(info: TrancheInfo): string {
 /** Окно правки: сумма, «Принят сегодня» / другой день, «Стереть». */
 function TrancheEditor({ info, onSet, onDone }: { info: TrancheInfo; onSet: TrancheSetter; onDone: () => void }) {
   // Поля — черновики: пишем по Enter / кнопке, а не на каждую цифру.
-  const [amountDraft, setAmountDraft] = useState(() => (info.amount !== null ? String(info.amount) : ""));
+  // «Скрыть суммы»: сумму можно только вписать заново — поле пустое, а пустое
+  // поле прежнюю сумму не стирает.
+  const [amountDraft, setAmountDraft] = useState(() => (info.amount !== null && !AMOUNTS_HIDDEN ? String(info.amount) : ""));
   const [dayDraft, setDayDraft] = useState(() => dateInputValue(info.paidOn ?? almatyDay(Date.now())));
   const parsed = parseTrancheAmount(amountDraft);
-  const amountChanged = amountDraft.trim() !== "" ? parsed !== null && parsed !== info.amount : info.amount !== null;
+  const amountChanged = amountDraft.trim() !== "" ? parsed !== null && parsed !== info.amount : info.amount !== null && !AMOUNTS_HIDDEN;
   const amountInvalid = amountDraft.trim() !== "" && parsed === null;
   const dayMs = parseDateInput(dayDraft);
   const today = almatyDay(Date.now());
@@ -66,7 +68,7 @@ function TrancheEditor({ info, onSet, onDone }: { info: TrancheInfo; onSet: Tran
           <Input
             autoFocus
             inputMode="decimal"
-            placeholder="например, 50 000"
+            placeholder={AMOUNTS_HIDDEN && info.amount !== null ? "сумма скрыта — впишите новую" : "например, 50 000"}
             value={amountDraft}
             aria-invalid={amountInvalid}
             aria-label="Сумма второго транша"

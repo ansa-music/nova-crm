@@ -44,7 +44,55 @@ export function currencySymbol(currency = APP_CURRENCY): string {
   return s;
 }
 
+/**
+ * Суммы скрыты от того, кто смотрит (просьба Nurba 15.10.2026): Owner включил
+ * `workspace.hideAmounts`, а смотрит не руководство (ОС, технарь…). Тогда все
+ * денежные форматтеры отдают `HIDDEN_AMOUNT` вместо числа. `let` с живой
+ * привязкой, как APP_CURRENCY: меняет только мост `useAmountsHiddenBridge`
+ * (AppLayout). Там, где сумму видеть положено и при скрытии (окна выдачи
+ * заказа, формы ввода, личная зона), — `formatCurrencyAlways`.
+ */
+export let AMOUNTS_HIDDEN = false;
+export const HIDDEN_AMOUNT = "•••";
+const amountsHiddenListeners = new Set<() => void>();
+let amountsHiddenNotified = false;
+
+/**
+ * Ставится ПРИ ОТРИСОВКЕ каркаса, молча: страницы рисуются после него и сразу
+ * видят нужное значение. Будить подписчиков посреди чужой отрисовки React не
+ * даёт — это делает `flushAmountsHidden` из эффекта моста.
+ */
+export function setAmountsHidden(hidden: boolean): void {
+  AMOUNTS_HIDDEN = hidden;
+}
+
+export function flushAmountsHidden(): void {
+  if (amountsHiddenNotified === AMOUNTS_HIDDEN) return;
+  amountsHiddenNotified = AMOUNTS_HIDDEN;
+  for (const listener of [...amountsHiddenListeners]) listener();
+}
+
+export function amountsHiddenSnapshot(): boolean {
+  return AMOUNTS_HIDDEN;
+}
+
+export function subscribeAmountsHidden(listener: () => void): () => void {
+  amountsHiddenListeners.add(listener);
+  return () => amountsHiddenListeners.delete(listener);
+}
+
+/** Сумма — или «•••», если суммы от смотрящего скрыты. Для своих склеек (`formatNumber` + знак). */
+export function maskAmount(text: string): string {
+  return AMOUNTS_HIDDEN ? HIDDEN_AMOUNT : text;
+}
+
 export function formatCurrency(value: number, currency = APP_CURRENCY): string {
+  if (AMOUNTS_HIDDEN) return HIDDEN_AMOUNT;
+  return formatCurrencyAlways(value, currency);
+}
+
+/** Сумма всегда, даже когда суммы скрыты: окна выдачи заказа, формы ввода, личная зона. */
+export function formatCurrencyAlways(value: number, currency = APP_CURRENCY): string {
   return new Intl.NumberFormat("ru-RU", {
     style: "currency",
     currency,
@@ -63,6 +111,8 @@ export function formatCurrency(value: number, currency = APP_CURRENCY): string {
  */
 export function formatCurrencyCell(raw: string): string {
   if (!raw) return "";
+  // Скрыто и текстом: «сохранено как текст» в денежной ячейке — тоже сумма.
+  if (AMOUNTS_HIDDEN) return HIDDEN_AMOUNT;
   const n = parseLooseNumber(raw);
   return n === null ? raw : formatCurrency(n);
 }
