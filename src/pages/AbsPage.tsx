@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { CalendarCheck2, Crown, FileChartColumn, Gift, HardHat, Medal, Settings2, Target, TrendingUp, UserRound } from "lucide-react";
+import { CalendarCheck2, Crown, FileChartColumn, FileSpreadsheet, Gift, HardHat, Medal, Settings2, Target, TrendingUp, UserRound } from "lucide-react";
+import { AbsSheetSetupDialog } from "@/components/abs/AbsSheetSetupDialog";
+import { AbsSheetView } from "@/components/abs/AbsSheetView";
 import { EmptyState } from "@/components/common/EmptyState";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
 import { PageHeader, pageChipClass } from "@/components/common/PageHeader";
 import { StatsModeSwitch } from "@/components/chat/ChatModeSwitch";
 import { BonusChip, formatMoneyCompact, ordersWord, Panel, StatTile } from "@/components/overview/OverviewParts";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAmountsHidden } from "@/hooks/useAmountsHidden";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentPeriodKey, usePeriodSettings } from "@/hooks/useCurrentPeriodKey";
 import { useDeskLoads, useOwnerDeskRecount } from "@/hooks/useDeskLoads";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { useAbsSheet } from "@/services/absSheetService";
 import { currentMonthSubPageId } from "@/services/monthTabService";
 import { fetchOsDeskMonthStats, type OsDeskMonthStats } from "@/services/osDeskStatsService";
 import { buildOsAbs, sortOsAbs, type OsAbsRow } from "@/utils/absStats";
@@ -29,7 +33,7 @@ import { publicWeeklyResults, useWeeklyRating, weeklyScoreOf, type WeeklyResults
 import type { StatusOption } from "@/types";
 
 const NO_OPTIONS: StatusOption[] = [];
-type View = "tech" | "os";
+type View = "tech" | "os" | "sheet";
 
 /**
  * «ABS система» (просьба Nurba 23.09.2026) — зарплатные рейтинги месяца.
@@ -39,6 +43,10 @@ type View = "tech" | "os";
  * ОС: KPI — доля заказов в «Готово», топ по апсейлам, процент от апсейла
  * после комиссии, доп. оклад лучшему по KPI и фикс за пороги KPI.
  * Суммы и проценты задаёт Owner в «Настройки → Касса».
+ *
+ * «Таблица» (`?v=sheet`, 17.10.2026): живая копия листов Google-таблицы фин.
+ * отчёта — services/absSheetService.ts. Вкладка видна Owner (подключить) и
+ * всем, кому Owner открыл таблицу; при «Скрыть суммы» — только руководству.
  */
 export default function AbsPage() {
   const t = useTerms();
@@ -50,8 +58,12 @@ export default function AbsPage() {
   const periods = usePeriodSettings();
   const range = useMemo(() => periodRange(monthKey, periods), [monthKey, periods]);
   const [params, setParams] = useSearchParams();
-  const view: View = params.get("v") === "os" ? "os" : "tech";
+  const rawView = params.get("v");
+  const view: View = rawView === "os" ? "os" : rawView === "sheet" ? "sheet" : "tech";
   const enabled = permissions.isResolved;
+  const amountsHidden = useAmountsHidden();
+  const sheet = useAbsSheet(activeWorkspaceId, enabled && !amountsHidden, view === "sheet");
+  const [sheetSetup, setSheetSetup] = useState(false);
 
   const { loads, failed, synced } = useDeskLoads(activeWorkspaceId, enabled);
   // Оценка недели (анонимная, средний балл прошлой недели) — рядом с местом в ABS.
@@ -131,6 +143,7 @@ export default function AbsPage() {
   const noun = periodNoun(monthKey);
   const isOwner = permissions.actsAsOwner;
   const setView = (v: View) => setParams(v === "tech" ? {} : { v }, { replace: true });
+  const sheetChip = !amountsHidden && (isOwner || (sheet.connected && sheet.allowed));
 
   if (!permissions.isResolved || (loads === null && !failed)) {
     return (
@@ -192,20 +205,42 @@ export default function AbsPage() {
               <UserRound className="h-3.5 w-3.5" />
               ОС
             </button>
+            {sheetChip && (
+              <button type="button" className={pageChipClass(view === "sheet")} onClick={() => setView("sheet")} data-abs-sheet-chip>
+                <FileSpreadsheet className="h-3.5 w-3.5" />
+                Таблица
+              </button>
+            )}
           </>
         }
       />
 
-      {failed && (
+      {failed && view !== "sheet" && (
         <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           Не удалось загрузить цифры столов. Обновите страницу.
         </p>
       )}
 
-      {view === "tech" ? (
+      {view === "sheet" ? (
+        amountsHidden ? (
+          <EmptyState bordered icon={<FileSpreadsheet />} title="Суммы скрыты" description="Owner скрыл суммы — таблица фин. отчёта видна только руководству." />
+        ) : (
+          <AbsSheetView
+            workspaceId={activeWorkspaceId ?? ""}
+            state={sheet}
+            isOwner={isOwner}
+            isLead={permissions.canManageUsers}
+            onSetup={() => setSheetSetup(true)}
+          />
+        )
+      ) : view === "tech" ? (
         <TechSection ranked={techRanked} bonuses={bonuses} myUid={uid} noun={noun} weekly={weeklyResults} />
       ) : (
         <OsSection rows={osRows} settings={osPay} myUid={uid} noun={noun} weekly={weeklyResults} loadingUpsell={osDesks.some((d) => d.responsibleUserId && !osStats[d.responsibleUserId])} />
+      )}
+
+      {isOwner && activeWorkspaceId && (
+        <AbsSheetSetupDialog workspaceId={activeWorkspaceId} open={sheetSetup} onOpenChange={setSheetSetup} />
       )}
     </div>
   );
