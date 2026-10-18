@@ -146,6 +146,14 @@ export interface Workspace {
    */
   hideAmounts?: boolean;
   /**
+   * ABS — «только таблица» (просьба Nurba 18.10.2026): у всех, включая Owner,
+   * ABS показывает одну Google-таблицу фин. отчёта; вкладки «Технари» / «ОС» и
+   * кнопки рейтингов («Оценка недели», «Прошлые периоды», «Настроить») скрыты.
+   * Правит только Owner (правило workspace и `core_workspace_owner_keys`). Нет
+   * поля — обычный ABS.
+   */
+  absSheetOnly?: boolean;
+  /**
    * Регион компании (SaaS этап 1): часовой пояс (IANA), валюта (ISO 4217) и
    * язык. Нет поля — Asia/Almaty, KZT, ru-KZ, то есть всё как было. Правит
    * только Owner (Тимлиду поле закрыто правилом workspace); копию в Supabase

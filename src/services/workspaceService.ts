@@ -228,6 +228,11 @@ export async function updateHideAmounts(workspaceId: string, hidden: boolean) {
   await updateWorkspace(workspaceId, { hideAmounts: hidden });
 }
 
+/** ABS — «только таблица» у всех (переключатель Owner на странице ABS). */
+export async function updateAbsSheetOnly(workspaceId: string, on: boolean) {
+  await updateWorkspace(workspaceId, { absSheetOnly: on });
+}
+
 export async function updateResponsibleOptions(workspaceId: string, options: StatusOption[]) {
   await updateWorkspace(workspaceId, { responsibleOptions: options });
 }

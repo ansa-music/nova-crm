@@ -195,9 +195,11 @@ export function OsDeskStats({
     <div className={cn("p-3 sm:p-4", !embedded && "border-b border-border")}>
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
         <p className="text-xs text-muted-foreground">Статистика ОС · {monthLower}: KPI и ваш процент с апсейла</p>
-        <Link to="/abs?v=os" className="ml-auto inline-flex items-center gap-1 text-xs text-primary underline-offset-2 hover:underline">
-          Все ОС в ABS <ArrowRight className="h-3 w-3" />
-        </Link>
+        {!activeWorkspace?.absSheetOnly && (
+          <Link to="/abs?v=os" className="ml-auto inline-flex items-center gap-1 text-xs text-primary underline-offset-2 hover:underline">
+            Все ОС в ABS <ArrowRight className="h-3 w-3" />
+          </Link>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">

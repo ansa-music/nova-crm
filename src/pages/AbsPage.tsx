@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { CalendarCheck2, Crown, FileChartColumn, FileSpreadsheet, Gift, HardHat, Medal, Settings2, Target, TrendingUp, UserRound } from "lucide-react";
+import { CalendarCheck2, Crown, Eye, EyeOff, FileChartColumn, FileSpreadsheet, Gift, HardHat, Medal, Settings2, Target, TrendingUp, UserRound } from "lucide-react";
+import { toast } from "sonner";
 import { AbsSheetSetupDialog } from "@/components/abs/AbsSheetSetupDialog";
 import { AbsSheetView } from "@/components/abs/AbsSheetView";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -16,10 +17,12 @@ import { useDeskLoads, useOwnerDeskRecount } from "@/hooks/useDeskLoads";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useAbsSheet } from "@/services/absSheetService";
+import { updateAbsSheetOnly } from "@/services/workspaceService";
 import { currentMonthSubPageId } from "@/services/monthTabService";
 import { fetchOsDeskMonthStats, type OsDeskMonthStats } from "@/services/osDeskStatsService";
 import { buildOsAbs, sortOsAbs, type OsAbsRow } from "@/utils/absStats";
 import { cn } from "@/utils/cn";
+import { firestoreErrorText } from "@/utils/dbError";
 import { DEFAULT_STATUS_OPTIONS } from "@/utils/columnOptions";
 import { formatCurrency, formatNumber } from "@/utils/format";
 import { bonusForPlace, buildOverview, rankByDone, type OverviewTechnician } from "@/utils/overviewStats";
@@ -49,6 +52,10 @@ type View = "tech" | "os" | "sheet";
  * Owner открыл таблицу; при «Скрыть суммы» — только руководству. С 18.10.2026
  * ABS открывается на ней (адрес без `?v`), рейтинги — `?v=tech` / `?v=os`; кому
  * таблица не открыта — на «Технарях», как раньше.
+ *
+ * «Только таблица» (`workspace.absSheetOnly`, переключатель Owner в шапке,
+ * 18.10.2026): у всех одна таблица, вкладки и кнопки рейтингов скрыты, цифры
+ * столов для рейтингов не читаются.
  */
 export default function AbsPage() {
   const t = useTerms();
@@ -64,6 +71,8 @@ export default function AbsPage() {
   const enabled = permissions.isResolved;
   const amountsHidden = useAmountsHidden();
   const isOwner = permissions.actsAsOwner;
+  const sheetOnly = Boolean(activeWorkspace?.absSheetOnly);
+  const [sheetOnlyBusy, setSheetOnlyBusy] = useState(false);
   // Читаем таблицу всегда (не только на её вкладке): по ответу решается, есть ли
   // вкладка и куда открывать ABS. Опрос раз в 20 с — второй вызов ниже, только
   // пока она на экране.
@@ -72,14 +81,15 @@ export default function AbsPage() {
   // Ответа ещё нет — держим «Таблицу» (скелет), чтобы ABS не прыгал с рейтинга на неё.
   const sheetPending = sheet.status === "idle" || sheet.status === "loading";
   const sheetDefault = !amountsHidden && (sheetPending || (sheetChip && (!isOwner || sheet.status !== "missing")));
-  const view: View =
-    rawView === "os" ? "os" : rawView === "tech" ? "tech" : rawView === "sheet" || sheetDefault ? "sheet" : "tech";
+  const view: View = sheetOnly
+    ? "sheet"
+    : rawView === "os" ? "os" : rawView === "tech" ? "tech" : rawView === "sheet" || sheetDefault ? "sheet" : "tech";
   useAbsSheet(activeWorkspaceId, enabled && !amountsHidden && view === "sheet", true);
   const [sheetSetup, setSheetSetup] = useState(false);
 
-  const { loads, failed, synced } = useDeskLoads(activeWorkspaceId, enabled);
+  const { loads, failed, synced } = useDeskLoads(activeWorkspaceId, enabled && !sheetOnly);
   // Оценка недели (анонимная, средний балл прошлой недели) — рядом с местом в ABS.
-  const weeklyResults = publicWeeklyResults(useWeeklyRating(activeWorkspaceId, enabled));
+  const weeklyResults = publicWeeklyResults(useWeeklyRating(activeWorkspaceId, enabled && !sheetOnly));
   useOwnerDeskRecount(enabled ? loads : null, synced);
 
   const statusOptions = activeWorkspace?.statusOptions ?? DEFAULT_STATUS_OPTIONS;
@@ -155,6 +165,38 @@ export default function AbsPage() {
   const noun = periodNoun(monthKey);
   const setView = (v: View) => setParams(v === "sheet" ? {} : { v }, { replace: true });
 
+  const toggleSheetOnly = async () => {
+    if (!activeWorkspaceId || sheetOnlyBusy) return;
+    const next = !sheetOnly;
+    setSheetOnlyBusy(true);
+    try {
+      await updateAbsSheetOnly(activeWorkspaceId, next);
+      if (next) setParams({}, { replace: true });
+      toast.success(next ? "ABS: только таблица — у всех" : "Рейтинги ABS снова видны");
+    } catch (error) {
+      toast.error(firestoreErrorText(error, "Не удалось переключить"));
+    } finally {
+      setSheetOnlyBusy(false);
+    }
+  };
+  const sheetOnlyButton = isOwner ? (
+    <button
+      type="button"
+      onClick={() => void toggleSheetOnly()}
+      disabled={sheetOnlyBusy}
+      aria-pressed={sheetOnly}
+      title={sheetOnly ? "Вернуть вкладки «Технари» и «ОС» и кнопки рейтингов" : "Скрыть у всех вкладки «Технари» и «ОС» и кнопки рейтингов — оставить только таблицу"}
+      className={cn(
+        "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border px-3 text-sm disabled:opacity-60 sm:min-h-9",
+        sheetOnly ? "border-primary/40 bg-primary/12 text-primary hover:bg-primary/20" : "border-border hover:bg-accent"
+      )}
+      data-abs-sheet-only
+    >
+      {sheetOnly ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+      {sheetOnly ? "Показать рейтинги" : "Только таблица"}
+    </button>
+  ) : null;
+
   if (!permissions.isResolved || (view !== "sheet" && loads === null && !failed)) {
     return (
       <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-4 p-5 sm:p-8">
@@ -177,51 +219,62 @@ export default function AbsPage() {
         className="mb-0"
         eyebrow={`ABS · ${monthName}`}
         title={t("abs", "one")}
-        description={`Касса и доплаты за ${noun}: технари — по «Готово», ОС — по KPI и апсейлам. Суммы и проценты задаёт Owner.`}
+        description={
+          sheetOnly
+            ? "Фин. отчёт из Google-таблицы — обновляется сам, через секунды после правки."
+            : `Касса и доплаты за ${noun}: технари — по «Готово», ОС — по KPI и апсейлам. Суммы и проценты задаёт Owner.`
+        }
         actions={
-          <>
-            <Link
-              to="/weekly-rating"
-              className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-border px-3 text-sm hover:bg-accent sm:min-h-9"
-            >
-              <CalendarCheck2 className="h-4 w-4" />
-              Оценка недели
-            </Link>
-            <Link
-              to="/reports"
-              className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-border px-3 text-sm hover:bg-accent sm:min-h-9"
-            >
-              <FileChartColumn className="h-4 w-4" />
-              Прошлые периоды
-            </Link>
-            {isOwner ? (
+          sheetOnly ? (
+            sheetOnlyButton
+          ) : (
+            <>
+              {sheetOnlyButton}
               <Link
-                to="/settings?tab=cashbox"
+                to="/weekly-rating"
                 className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-border px-3 text-sm hover:bg-accent sm:min-h-9"
               >
-                <Settings2 className="h-4 w-4" />
-                Настроить
+                <CalendarCheck2 className="h-4 w-4" />
+                Оценка недели
               </Link>
-            ) : null}
-          </>
+              <Link
+                to="/reports"
+                className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-border px-3 text-sm hover:bg-accent sm:min-h-9"
+              >
+                <FileChartColumn className="h-4 w-4" />
+                Прошлые периоды
+              </Link>
+              {isOwner ? (
+                <Link
+                  to="/settings?tab=cashbox"
+                  className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-border px-3 text-sm hover:bg-accent sm:min-h-9"
+                >
+                  <Settings2 className="h-4 w-4" />
+                  Настроить
+                </Link>
+              ) : null}
+            </>
+          )
         }
         filters={
-          <>
-            {sheetChip && (
-              <button type="button" className={pageChipClass(view === "sheet")} onClick={() => setView("sheet")} data-abs-sheet-chip>
-                <FileSpreadsheet className="h-3.5 w-3.5" />
-                Таблица
+          sheetOnly ? undefined : (
+            <>
+              {sheetChip && (
+                <button type="button" className={pageChipClass(view === "sheet")} onClick={() => setView("sheet")} data-abs-sheet-chip>
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  Таблица
+                </button>
+              )}
+              <button type="button" className={pageChipClass(view === "tech")} onClick={() => setView("tech")}>
+                <HardHat className="h-3.5 w-3.5" />
+                Технари
               </button>
-            )}
-            <button type="button" className={pageChipClass(view === "tech")} onClick={() => setView("tech")}>
-              <HardHat className="h-3.5 w-3.5" />
-              Технари
-            </button>
-            <button type="button" className={pageChipClass(view === "os")} onClick={() => setView("os")}>
-              <UserRound className="h-3.5 w-3.5" />
-              ОС
-            </button>
-          </>
+              <button type="button" className={pageChipClass(view === "os")} onClick={() => setView("os")}>
+                <UserRound className="h-3.5 w-3.5" />
+                ОС
+              </button>
+            </>
+          )
         }
       />
 
