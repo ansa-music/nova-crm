@@ -44,9 +44,11 @@ type View = "tech" | "os" | "sheet";
  * после комиссии, доп. оклад лучшему по KPI и фикс за пороги KPI.
  * Суммы и проценты задаёт Owner в «Настройки → Касса».
  *
- * «Таблица» (`?v=sheet`, 17.10.2026): живая копия листов Google-таблицы фин.
- * отчёта — services/absSheetService.ts. Вкладка видна Owner (подключить) и
- * всем, кому Owner открыл таблицу; при «Скрыть суммы» — только руководству.
+ * «Таблица» (17.10.2026): живая копия листов Google-таблицы фин. отчёта —
+ * services/absSheetService.ts. Вкладка видна Owner (подключить) и всем, кому
+ * Owner открыл таблицу; при «Скрыть суммы» — только руководству. С 18.10.2026
+ * ABS открывается на ней (адрес без `?v`), рейтинги — `?v=tech` / `?v=os`; кому
+ * таблица не открыта — на «Технарях», как раньше.
  */
 export default function AbsPage() {
   const t = useTerms();
@@ -59,10 +61,20 @@ export default function AbsPage() {
   const range = useMemo(() => periodRange(monthKey, periods), [monthKey, periods]);
   const [params, setParams] = useSearchParams();
   const rawView = params.get("v");
-  const view: View = rawView === "os" ? "os" : rawView === "sheet" ? "sheet" : "tech";
   const enabled = permissions.isResolved;
   const amountsHidden = useAmountsHidden();
-  const sheet = useAbsSheet(activeWorkspaceId, enabled && !amountsHidden, view === "sheet");
+  const isOwner = permissions.actsAsOwner;
+  // Читаем таблицу всегда (не только на её вкладке): по ответу решается, есть ли
+  // вкладка и куда открывать ABS. Опрос раз в 20 с — второй вызов ниже, только
+  // пока она на экране.
+  const sheet = useAbsSheet(activeWorkspaceId, enabled && !amountsHidden, false);
+  const sheetChip = !amountsHidden && (isOwner || (sheet.connected && sheet.allowed));
+  // Ответа ещё нет — держим «Таблицу» (скелет), чтобы ABS не прыгал с рейтинга на неё.
+  const sheetPending = sheet.status === "idle" || sheet.status === "loading";
+  const sheetDefault = !amountsHidden && (sheetPending || (sheetChip && (!isOwner || sheet.status !== "missing")));
+  const view: View =
+    rawView === "os" ? "os" : rawView === "tech" ? "tech" : rawView === "sheet" || sheetDefault ? "sheet" : "tech";
+  useAbsSheet(activeWorkspaceId, enabled && !amountsHidden && view === "sheet", true);
   const [sheetSetup, setSheetSetup] = useState(false);
 
   const { loads, failed, synced } = useDeskLoads(activeWorkspaceId, enabled);
@@ -141,11 +153,9 @@ export default function AbsPage() {
 
   const monthName = periodLabel(monthKey, periods);
   const noun = periodNoun(monthKey);
-  const isOwner = permissions.actsAsOwner;
-  const setView = (v: View) => setParams(v === "tech" ? {} : { v }, { replace: true });
-  const sheetChip = !amountsHidden && (isOwner || (sheet.connected && sheet.allowed));
+  const setView = (v: View) => setParams(v === "sheet" ? {} : { v }, { replace: true });
 
-  if (!permissions.isResolved || (loads === null && !failed)) {
+  if (!permissions.isResolved || (view !== "sheet" && loads === null && !failed)) {
     return (
       <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-4 p-5 sm:p-8">
         <StatsModeSwitch />
@@ -197,6 +207,12 @@ export default function AbsPage() {
         }
         filters={
           <>
+            {sheetChip && (
+              <button type="button" className={pageChipClass(view === "sheet")} onClick={() => setView("sheet")} data-abs-sheet-chip>
+                <FileSpreadsheet className="h-3.5 w-3.5" />
+                Таблица
+              </button>
+            )}
             <button type="button" className={pageChipClass(view === "tech")} onClick={() => setView("tech")}>
               <HardHat className="h-3.5 w-3.5" />
               Технари
@@ -205,12 +221,6 @@ export default function AbsPage() {
               <UserRound className="h-3.5 w-3.5" />
               ОС
             </button>
-            {sheetChip && (
-              <button type="button" className={pageChipClass(view === "sheet")} onClick={() => setView("sheet")} data-abs-sheet-chip>
-                <FileSpreadsheet className="h-3.5 w-3.5" />
-                Таблица
-              </button>
-            )}
           </>
         }
       />
