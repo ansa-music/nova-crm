@@ -45,6 +45,7 @@ import {
   loadOsDeskPage,
   loadOsDesksPage,
   loadOsDispatchPage,
+  loadOsSheetPage,
   loadDeskEditingPage,
   loadPlatformPage,
   loadPeoplePage,
@@ -74,6 +75,7 @@ const TechniciansPage = lazy(loadTechniciansPage);
 const OrdersPage = lazy(loadOrdersPage);
 const OsDeskPage = lazy(loadOsDeskPage);
 const OsDesksPage = lazy(loadOsDesksPage);
+const OsSheetPage = lazy(loadOsSheetPage);
 const AbsPage = lazy(loadAbsPage);
 const WeeklyRatingPage = lazy(loadWeeklyRatingPage);
 const PromptsPage = lazy(loadPromptsPage);
@@ -113,6 +115,7 @@ const MENU_PAGE_LOADERS: Array<() => Promise<unknown>> = [
   loadOsDeskPage,
   loadOsDesksPage,
   loadOsDispatchPage,
+  loadOsSheetPage,
   loadTeamPage,
   loadUsersPage,
   loadAnnouncementsPage,
@@ -309,6 +312,7 @@ function AppShell() {
             <Route path="orders" element={<ModuleGate module="orders"><OrdersPage /></ModuleGate>} />
             <Route path="os-desk" element={<StudioGate><ModuleGate module="osDesk"><OsDeskPage /></ModuleGate></StudioGate>} />
             <Route path="os-desks" element={<StudioGate><ModuleGate module="osDesk"><OsDesksPage /></ModuleGate></StudioGate>} />
+            <Route path="os-sheet" element={<StudioGate><ModuleGate module="osDesk"><OsSheetPage /></ModuleGate></StudioGate>} />
             <Route path="os-dispatch" element={<StudioGate><ModuleGate module="osDesk"><OsDispatchPage /></ModuleGate></StudioGate>} />
             <Route path="desk-editing" element={<StudioGate><DeskEditingPage /></StudioGate>} />
             <Route path="platform" element={<PlatformPage />} />

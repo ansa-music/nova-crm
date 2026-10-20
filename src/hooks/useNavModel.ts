@@ -33,7 +33,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Building2 as PlatformIcon, Crown, FileChartColumn, Sheet as LeadBoardIcon, Smartphone, Sparkles } from "lucide-react";
+import { Building2 as PlatformIcon, Crown, FileChartColumn, FileSpreadsheet, Sheet as LeadBoardIcon, Smartphone, Sparkles } from "lucide-react";
 import { useInstallMode } from "@/utils/pwa";
 import { startInstall } from "@/components/common/InstallApp";
 import { DESKS_ITEM_KEY, DESK_SHORTCUTS_LIMIT, EXTRA_ROUTE_META, MORE_ITEM_KEY, MORE_SECTION_KEY, pathMatches, pathOnly, type NavChild, type NavItem, type NavSection, type PageMeta } from "@/config/nav";
@@ -257,6 +257,9 @@ function navGates(inp: NavInputs) {
   // «Столы ОС» — все столы ОС на просмотр: у ВСЕХ, и у самих ОС тоже.
   const showOsDeskNav = permissions.isResolved && permissions.hasRole("os");
   const showOsDesksNav = permissions.isResolved;
+  // «Таблица ОС» — Google-таблица ОС с правкой из Nova: ОС (и второй ролью) и
+  // руководство. Остальным Owner может открыть её на просмотр — по ссылке.
+  const showOsSheetNav = permissions.isResolved && (permissions.hasRole("os") || hasFullAccess(permissions.role));
   // «Выдачи ОС» — мониторинг выборочных выдач: от Тимлида и выше.
   const showOsDispatchNav = permissions.isResolved && hasFullAccess(permissions.role);
   // «Правка столов» — кто заполняет столы технарей: только НАСТОЯЩИЙ Owner
@@ -324,6 +327,7 @@ function navGates(inp: NavInputs) {
     showTechniciansNav,
     showOsDeskNav,
     showOsDesksNav,
+    showOsSheetNav,
     showOsDispatchNav,
     showDeskEditingNav,
     showPlatformNav,
@@ -416,6 +420,7 @@ function buildDefaultSections(inp: NavInputs, g: NavGates, sig: NavSignals, desk
         },
         { key: "technicians", to: "/technicians", label: term("technician", "many", site), icon: HardHat, show: g.showTechniciansNav },
         { key: "os-desks", to: "/os-desks", label: term("osDesk", "many", site), icon: ScanEye, show: g.showOsDesksNav },
+        { key: "os-sheet", to: "/os-sheet", label: `Таблица ${term("os", "one", site)}`, icon: FileSpreadsheet, show: g.showOsSheetNav },
         // «Telegram» — рабочий аккаунт прямо в Nova (26.09.2026): у тех, кому
         // Owner открыл раздел (любая роль), и у самого Owner — он там выдаёт
         // доступ и ключи (просьба Nurba: «сделай слева как главное»).

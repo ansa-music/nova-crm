@@ -22,6 +22,7 @@ export const loadTechniciansPage = () => import("@/pages/TechniciansPage");
 export const loadOrdersPage = () => import("@/pages/OrdersPage");
 export const loadOsDeskPage = () => import("@/pages/OsDeskPage");
 export const loadOsDesksPage = () => import("@/pages/OsDesksPage");
+export const loadOsSheetPage = () => import("@/pages/OsSheetPage");
 export const loadAbsPage = () => import("@/pages/AbsPage");
 export const loadWeeklyRatingPage = () => import("@/pages/WeeklyRatingPage");
 export const loadPromptsPage = () => import("@/pages/PromptsPage");
@@ -58,6 +59,7 @@ const ROUTE_LOADERS: Record<string, () => Promise<unknown>> = {
   orders: loadOrdersPage,
   "os-desk": loadOsDeskPage,
   "os-desks": loadOsDesksPage,
+  "os-sheet": loadOsSheetPage,
   abs: loadAbsPage,
   "weekly-rating": loadWeeklyRatingPage,
   prompts: loadPromptsPage,

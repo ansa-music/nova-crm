@@ -115,9 +115,9 @@ export const MODULES: ModuleMeta[] = [
   {
     key: "osDesk",
     title: "Столы продавцов (ОС)",
-    hint: "Стол ОС, «Столы ОС», «Выдачи ОС»",
-    navKeys: ["os-desk", "os-desks", "os-dispatch"],
-    paths: ["os-desk", "os-desks", "os-dispatch"],
+    hint: "Стол ОС, «Столы ОС», «Таблица ОС», «Выдачи ОС»",
+    navKeys: ["os-desk", "os-desks", "os-sheet", "os-dispatch"],
+    paths: ["os-desk", "os-desks", "os-sheet", "os-dispatch"],
   },
   { key: "technicians", title: "Загрузка исполнителей", hint: "Кто свободен, кто занят", navKeys: ["technicians"], paths: ["technicians"] },
   { key: "grok", title: "Аккаунты сервисов (Грок)", hint: "Лимиты и пароли общих аккаунтов", navKeys: ["grok"], paths: ["grok-limit"] },

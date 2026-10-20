@@ -95,7 +95,7 @@ function mergeItems(items: NavItem[], keys: readonly string[], label?: string): 
 
 const GROUPS: { key: string; title?: string; keys: string[] }[] = [
   { key: "sig-home", keys: ["home"] },
-  { key: "sig-orders", title: "Заказы", keys: ["orders", "leads", "big-orders", "os-desk"] },
+  { key: "sig-orders", title: "Заказы", keys: ["orders", "leads", "big-orders", "os-desk", "os-sheet"] },
   { key: "sig-work", title: "Работа", keys: ["desks", "os-desks", "technicians", "people", "team", "users", "schedule"] },
   { key: "sig-flows", title: "Процессы", keys: ["os-dispatch", "dispatch", "desk-editing"] },
   { key: "sig-analytics", title: "Аналитика", keys: ["dashboard", "reports"] },
