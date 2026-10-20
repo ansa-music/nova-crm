@@ -73,21 +73,37 @@ var NOVA_MAX_BYTES = 3500000;
 var NOVA_PING_MS = 30 * 60 * 1000;
 var NOVA_FULL_MS = 10 * 60 * 1000;
 var NOVA_APPLY_MS = 100 * 1000;
-var NOVA_KIND_ROWS = 300;
+// Запуск Apps Script убивают через 6 минут: читать листы — не дольше 200 с от начала запуска.
+var NOVA_COLLECT_MS = 200 * 1000;
+// Лист прочитался не целиком — 30 минут не сверять его по таймеру (квота триггеров — 90 мин/сутки).
+var NOVA_SLOW_MS = 30 * 60 * 1000;
+// Скрытые строки без Sheets API — поштучные вызовы: не дольше 10 с за запуск, дальше — в следующий.
+var NOVA_LAYOUT_MS = 10 * 1000;
+// Без Sheets API лист читается кусками по стольку строк (срок проверяется между кусками).
+var NOVA_CHUNK_ROWS = 500;
+// Через Sheets API — кусками по 300 строк; «response too large» (413) — кусок вдвое меньше (не меньше 25),
+// удачный размер помнится для следующих запусков.
+var NOVA_API_ROWS = 300;
+var NOVA_API_MIN_ROWS = 25;
+var NOVA_KIND_ROWS = 100;
 var NOVA_TRIGGERS = ['novaOnChange', 'novaTick'];
+var NOVA_RUN_AT = 0;
+var NOVA_T = null;
 
-/** Подключить: триггеры + первая передача. Запускать вручную один раз (и в каждой новой копии таблицы). */
+/** Подключить: первая передача, потом триггеры. Запускать вручную один раз (и в каждой новой копии таблицы). */
 function novaSetup() {
   var ss = SpreadsheetApp.getActive();
+  // Старые триггеры — сразу долой: долгая первая передача не должна соревноваться с тиками.
   novaDropTriggers_();
-  ScriptApp.newTrigger('novaOnChange').forSpreadsheet(ss).onChange().create();
-  ScriptApp.newTrigger('novaTick').timeBased().everyMinutes(1).create();
   var props = PropertiesService.getScriptProperties();
   props.setProperty('novaSs', ss.getId());
-  ['novaHash', 'novaAt', 'novaFull', 'novaDirty'].forEach(function (k) {
+  ['novaHash', 'novaAt', 'novaFull', 'novaDirty', 'novaSlowUntil'].forEach(function (k) {
     props.deleteProperty(k);
   });
   var result = novaSay_(novaRun_('setup', null));
+  // Триггеры — только после удачной первой передачи.
+  ScriptApp.newTrigger('novaOnChange').forSpreadsheet(ss).onChange().create();
+  ScriptApp.newTrigger('novaTick').timeBased().everyMinutes(1).create();
   Logger.log('Nova: подключено — ' + result);
   try {
     ss.toast('Таблица подключена к Nova: ' + result, 'Nova', 8);
@@ -157,29 +173,96 @@ function novaDropTriggers_() {
 
 /** Все входы — под одним замком скрипта; занято — тихо выйти (догонит следующий запуск). */
 function novaRun_(mode, e) {
+  NOVA_RUN_AT = Date.now();
   var props = PropertiesService.getScriptProperties();
   var fresh = mode === 'setup' || mode === 'now' || (mode === 'change' && (!e || e.changeType !== 'EDIT'));
+  var manual = mode === 'setup' || mode === 'now';
   var lock = LockService.getScriptLock();
-  var wait = mode === 'setup' || mode === 'now' ? 60000 : mode === 'hook' ? 20000 : 5000;
+  // Ожидание замка тоже съедает квоту триггеров: тик и правка не ждут (догонит следующий тик).
+  var wait = manual ? 60000 : mode === 'hook' ? 1000 : 200;
   if (!lock.tryLock(wait)) {
     // Правку таблицы, которую не успели передать, передаст ближайший тик.
     if (mode === 'change') novaMarkDirty_(props, fresh);
-    if (mode === 'setup') throw new Error('Nova: скрипт сейчас занят передачей — запустите novaSetup ещё раз через минуту.');
+    if (manual) {
+      throw new Error('Nova: скрипт сейчас занят передачей. Запустите novaStop, подождите пару минут и снова запустите ' +
+        (mode === 'setup' ? 'novaSetup' : 'novaPushNow') + '.');
+    }
     return { busy: true };
   }
   try {
     var dirty = novaJson_(props.getProperty('novaDirty'), null);
     if (dirty && dirty.fresh) fresh = true;
-    if (mode === 'setup') return novaPush_(props, { force: true, fresh: true, claim: true, done: novaDoneLoad_(props) });
-    if (mode === 'change') return novaPush_(props, { force: false, fresh: fresh, done: novaDoneLoad_(props) });
-    return novaSync_(props, { force: mode === 'now', fresh: fresh, dirty: !!dirty });
+    if (mode === 'setup') return novaSetupPush_(props);
+    if (mode === 'change') {
+      // Лист недавно не успели прочитать целиком — не читать его на каждую правку, тик догонит позже.
+      if (novaSlow_(props)) {
+        novaMarkDirty_(props, fresh);
+        return { slow: true };
+      }
+      return novaPush_(props, { force: false, fresh: fresh, done: novaDoneLoad_(props) });
+    }
+    return novaSync_(props, { force: mode === 'now', fresh: fresh, dirty: !!dirty, manual: manual });
   } finally {
     lock.releaseLock();
   }
 }
 
+/**
+ * novaSetup: сначала лёгкая передача — только список листов, без самих листов (забрать подключение и
+ * узнать, какие листы выбрал Owner), потом — полная передача выбранных (пусто — первый видимый лист).
+ * Так тяжёлый первый лист не читается, если Owner выбрал другой.
+ */
+function novaSetupPush_(props) {
+  var ss = novaSs_(props);
+  var done = novaDoneLoad_(props);
+  var light = novaCall_('os_sheet_push', {
+    p_workspace: NOVA.workspace,
+    p_token: NOVA.token,
+    p_source: ss.getId(),
+    p_payload: {
+      v: 1,
+      id: ss.getId(),
+      title: ss.getName(),
+      sheets: ss.getSheets().slice(0, 60).map(function (sh) {
+        return sh.getName();
+      }),
+      tabs: []
+    },
+    p_done: novaDoneWire_(done),
+    p_claim: true
+  });
+  if (done.length) props.deleteProperty('novaDone');
+  props.setProperty('novaPick', JSON.stringify(Array.isArray(light.pick) ? light.pick : []));
+  return novaPush_(props, { force: true, fresh: true, claim: false, done: [], ss: ss });
+}
+
+function novaSlow_(props) {
+  return Number(props.getProperty('novaSlowUntil') || 0) > Date.now();
+}
+
+/** Читать листы можно до этого момента (от начала запуска). */
+function novaDeadline_() {
+  return (NOVA_RUN_AT || Date.now()) + NOVA_COLLECT_MS;
+}
+
+/** Время по фазам одного запуска — одна строка в журнале выполнения. */
+function novaClock_() {
+  if (!NOVA_T) NOVA_T = { read: 0, cols: 0, build: 0, push: 0, api: false, sizes: [], cut: false };
+  return NOVA_T;
+}
+
+function novaLogTiming_() {
+  var t = novaClock_();
+  function s(ms) {
+    return (ms / 1000).toFixed(1) + ' с';
+  }
+  Logger.log('Nova: чтение ' + s(t.read) + ' (' + (t.api ? 'API' : 'без API') + '), столбцы ' + s(t.cols) +
+    ', сборка ' + s(t.build) + ', передача ' + s(t.push) + ', строк ' + (t.sizes.join(' + ') || '0'));
+}
+
 function novaSay_(res) {
   if (res.busy) return 'занято — передам в следующий раз';
+  if (res.slow) return 'лист тяжёлый — передам позже';
   var parts = [];
   if (res.applied || res.failed) {
     parts.push('правок из Nova вписано: ' + (res.applied || 0) + (res.failed ? ', не вписано: ' + res.failed : ''));
@@ -240,17 +323,19 @@ function novaSync_(props, opts) {
       if (d.ok) res.applied++;
       else res.failed++;
     });
-    var due = Date.now() - Number(props.getProperty('novaFull') || 0) >= NOVA_FULL_MS;
-    if (!done.length && !pickChanged && !opts.dirty && !due && !opts.force) return res;
+    // Лист недавно не успели прочитать целиком — по таймеру и по отметке не сверять (только правки и выбор листов).
+    var slow = !opts.manual && novaSlow_(props);
+    var due = !slow && Date.now() - Number(props.getProperty('novaFull') || 0) >= NOVA_FULL_MS;
+    if (!done.length && !pickChanged && !(opts.dirty && !slow) && !due && !opts.force) return res;
     if (applied.length) SpreadsheetApp.flush();
     var pushed = novaPush_(props, { force: opts.force || pickChanged || done.length > 0, fresh: opts.fresh, done: done, ss: ss });
     res.pushed = res.pushed || pushed.pushed;
     res.changed = res.changed || pushed.changed;
     res.acked += pushed.acked;
     if (pushed.pushed) res.tabs = pushed.tabs;
-    opts = { force: false, fresh: false, dirty: false };
-    // Пока вписывали, в Nova поправили ещё — забрать сразу, а не через минуту.
-    if (!(pushed.pending > 0) || !applied.length || Date.now() - started > NOVA_APPLY_MS) break;
+    opts = { force: false, fresh: false, dirty: false, manual: opts.manual };
+    // Пока вписывали, в Nova поправили ещё — забрать сразу, а не через минуту (если чтение было быстрым).
+    if (!(pushed.pending > 0) || !applied.length || Date.now() - started > NOVA_APPLY_MS || Date.now() - NOVA_RUN_AT > 60000) break;
   }
   return res;
 }
@@ -263,42 +348,63 @@ function novaPush_(props, opts) {
   var fresh = !!opts.fresh;
   var done = opts.done || [];
   var started = Date.now();
-  for (var round = 0; round < 2; round++) {
-    var pick = novaJson_(props.getProperty('novaPick'), []);
-    var payload = novaCollect_(ss, pick, fresh);
-    var body = novaFit_(payload);
-    props.setProperty('novaFull', String(Date.now()));
-    var hash = novaDigest_(body);
-    var lastAt = Number(props.getProperty('novaAt') || 0);
-    if (!force && !claim && !done.length && props.getProperty('novaHash') === hash && Date.now() - lastAt < NOVA_PING_MS) break;
-    var out = novaCall_('os_sheet_push', {
-      p_workspace: NOVA.workspace,
-      p_token: NOVA.token,
-      p_source: ss.getId(),
-      p_payload: payload,
-      p_done: novaDoneWire_(done),
-      p_claim: claim
-    });
-    props.setProperty('novaHash', hash);
-    props.setProperty('novaAt', String(Date.now()));
-    if (done.length) props.deleteProperty('novaDone');
-    done = [];
-    claim = false;
-    fresh = false;
-    res.pushed = true;
-    res.tabs = payload.tabs.length;
-    if (out.changed) res.changed = true;
-    res.acked += Number(out.acked) || 0;
-    res.pending = Number(out.pending) || 0;
-    var nextPick = Array.isArray(out.pick) ? out.pick : [];
-    if (JSON.stringify(nextPick) === JSON.stringify(pick)) break;
-    // В Nova выбрали другие листы — передать их сразу.
-    props.setProperty('novaPick', JSON.stringify(nextPick));
-    force = true;
+  NOVA_T = null;
+  var clock = novaClock_();
+  try {
+    for (var round = 0; round < 2; round++) {
+      var pick = novaJson_(props.getProperty('novaPick'), []);
+      var payload = novaCollect_(ss, pick, fresh);
+      var t0 = Date.now();
+      var body = novaFit_(payload);
+      var hash = novaDigest_(body);
+      clock.build += Date.now() - t0;
+      clock.sizes = payload.tabs.map(function (tab) {
+        return tab.rows.length + '×' + (tab.rows.length ? tab.rows[0].length : 0);
+      });
+      props.setProperty('novaFull', String(Date.now()));
+      // Прочитали не всё — 30 минут не сверять лист по таймеру и на каждую правку.
+      if (clock.cut) props.setProperty('novaSlowUntil', String(Date.now() + NOVA_SLOW_MS));
+      else props.deleteProperty('novaSlowUntil');
+      var lastAt = Number(props.getProperty('novaAt') || 0);
+      if (!force && !claim && !done.length && props.getProperty('novaHash') === hash && Date.now() - lastAt < NOVA_PING_MS) break;
+      var t1 = Date.now();
+      var out = novaCall_('os_sheet_push', {
+        p_workspace: NOVA.workspace,
+        p_token: NOVA.token,
+        p_source: ss.getId(),
+        p_payload: payload,
+        p_done: novaDoneWire_(done),
+        p_claim: claim
+      });
+      clock.push += Date.now() - t1;
+      novaPushed_(props, hash, done, res, payload, out);
+      done = [];
+      claim = false;
+      fresh = false;
+      var nextPick = Array.isArray(out.pick) ? out.pick : [];
+      if (JSON.stringify(nextPick) === JSON.stringify(pick)) break;
+      // В Nova выбрали другие листы — передать их сразу.
+      props.setProperty('novaPick', JSON.stringify(nextPick));
+      force = true;
+    }
+  } finally {
+    novaLogTiming_();
   }
   novaClearDirty_(props, started);
   if (res.changed || res.acked) novaRing_();
   return res;
+}
+
+/** Передача принята: запомнить отпечаток, снять сохранённый отчёт, сложить итог. */
+function novaPushed_(props, hash, done, res, payload, out) {
+  props.setProperty('novaHash', hash);
+  props.setProperty('novaAt', String(Date.now()));
+  if (done.length) props.deleteProperty('novaDone');
+  res.pushed = true;
+  res.tabs = payload.tabs.length;
+  if (out.changed) res.changed = true;
+  res.acked += Number(out.acked) || 0;
+  res.pending = Number(out.pending) || 0;
 }
 
 function novaMarkDirty_(props, fresh) {
@@ -355,22 +461,36 @@ function novaDoneWire_(done) {
 // Таблица → Nova.
 
 function novaCollect_(ss, pick, fresh) {
+  var clock = novaClock_();
+  var deadline = novaDeadline_();
+  var t0 = Date.now();
   var sheets = ss.getSheets();
   var chosen = novaChoose_(sheets, pick);
   var grids = null;
   if (typeof Sheets !== 'undefined' && chosen.length > 0) {
     try {
-      grids = novaReadApi_(ss, chosen);
+      grids = chosen.map(function (sh) {
+        return novaReadApi_(ss, sh, deadline);
+      });
+      clock.api = true;
     } catch (e) {
-      Logger.log('Nova: Google Sheets API не ответил, беру цвета без условного форматирования — ' + e);
+      Logger.log('Nova: Google Sheets API не ответил, читаю без него (цвета без условного форматирования) — ' + novaErr_(e));
       grids = null;
     }
   }
   if (!grids) {
+    clock.api = false;
     grids = chosen.map(function (sh) {
-      return novaReadPlain_(sh, fresh);
+      return novaReadPlain_(sh, fresh, deadline);
     });
   }
+  clock.read += Date.now() - t0;
+  var t1 = Date.now();
+  var cols0 = clock.cols;
+  var tabs = chosen.map(function (sh, i) {
+    return novaTab_(sh, grids[i], fresh);
+  });
+  clock.build += Date.now() - t1 - (clock.cols - cols0);
   return {
     v: 1,
     id: ss.getId(),
@@ -378,10 +498,22 @@ function novaCollect_(ss, pick, fresh) {
     sheets: sheets.slice(0, 60).map(function (sh) {
       return sh.getName();
     }),
-    tabs: chosen.map(function (sh, i) {
-      return novaTab_(sh, grids[i], fresh);
-    })
+    tabs: tabs
   };
+}
+
+/** Не успели дочитать лист к сроку: отдать прочитанное (строки с первой — номера не сдвигаются). */
+function novaCut_(sh, grid, read) {
+  if (read >= grid.shown.length) return grid;
+  ['shown', 'kind', 'fx', 'bg', 'fg', 'bold', 'italic', 'align'].forEach(function (k) {
+    grid[k] = grid[k].slice(0, read);
+  });
+  grid.hiddenRows = grid.hiddenRows.filter(function (r) {
+    return r < read;
+  });
+  novaClock_().cut = true;
+  Logger.log('Nova: лист слишком тяжёлый — передал первые ' + read + ' строк / выберите лист поменьше («' + sh.getName() + '»)');
+  return grid;
 }
 
 function novaChoose_(sheets, pick) {
@@ -407,7 +539,12 @@ function novaChoose_(sheets, pick) {
 }
 
 function novaSize_(sh) {
-  return [Math.max(1, Math.min(sh.getLastRow(), NOVA_MAX_ROWS)), Math.max(1, Math.min(sh.getLastColumn(), NOVA_MAX_COLS))];
+  var last = sh.getLastRow();
+  // Номера строк в Nova — номера строк листа: читаем всегда с первой, но не больше NOVA_MAX_ROWS.
+  if (last > NOVA_MAX_ROWS) {
+    Logger.log('Nova: в листе «' + sh.getName() + '» ' + last + ' строк — в Nova уйдут первые ' + NOVA_MAX_ROWS);
+  }
+  return [Math.max(1, Math.min(last, NOVA_MAX_ROWS)), Math.max(1, Math.min(sh.getLastColumn(), NOVA_MAX_COLS))];
 }
 
 function novaColName_(n) {
@@ -420,34 +557,93 @@ function novaColName_(n) {
   return s;
 }
 
-/** Листы через Google Sheets API: значения, формулы, итоговые цвета, объединения, ширины — одним запросом. */
-function novaReadApi_(ss, chosen) {
-  var sizes = chosen.map(novaSize_);
-  var ranges = chosen.map(function (sh, i) {
-    return "'" + sh.getName().replace(/'/g, "''") + "'!A1:" + novaColName_(sizes[i][1]) + sizes[i][0];
-  });
-  var res = Sheets.Spreadsheets.get(ss.getId(), {
-    ranges: ranges,
-    fields: 'sheets(properties(sheetId,title,gridProperties(frozenRowCount,frozenColumnCount)),merges,' +
-      'data(rowMetadata(hiddenByUser,hiddenByFilter),columnMetadata(hiddenByUser,pixelSize),' +
-      'rowData(values(formattedValue,effectiveValue,userEnteredValue(formulaValue),' +
-      'effectiveFormat(backgroundColor,horizontalAlignment,numberFormat(type),textFormat(bold,italic,foregroundColor))))))'
-  });
-  var byId = {};
-  (res.sheets || []).forEach(function (s) {
-    if (s.properties) byId[s.properties.sheetId] = s;
-  });
-  return chosen.map(function (sh, i) {
-    var api = byId[sh.getSheetId()];
+var NOVA_API_CELLS = 'rowData(values(formattedValue,effectiveValue,userEnteredValue(formulaValue),' +
+  'effectiveFormat(backgroundColor,horizontalAlignment,numberFormat(type),textFormat(bold,italic,foregroundColor))))';
+
+/**
+ * Лист через Google Sheets API: значения, формулы, итоговые цвета, объединения, ширины. Кусками: весь
+ * лист одним запросом API отвергает («response too large», 413). На 413 тот же кусок читается вдвое
+ * меньшим (не меньше NOVA_API_MIN_ROWS строк — тогда уже без API), удачный размер помнится по листу.
+ * Между кусками — проверка срока: к сроку отдаётся прочитанное.
+ */
+function novaReadApi_(ss, sh, deadline) {
+  var size = novaSize_(sh);
+  var nRows = size[0];
+  var nCols = size[1];
+  var gid = sh.getSheetId();
+  var prefix = "'" + sh.getName().replace(/'/g, "''") + "'!A";
+  var props = PropertiesService.getScriptProperties();
+  var chunkKey = 'novaChunk:' + gid;
+  var chunk = Math.max(NOVA_API_MIN_ROWS, Math.min(NOVA_API_ROWS, Number(props.getProperty(chunkKey)) || NOVA_API_ROWS));
+  var shrunk = false;
+  var grid = novaEmptyGrid_(nRows, nCols);
+  var read = 0;
+  while (read < nRows) {
+    if (read > 0 && Date.now() > deadline) break;
+    var count = Math.min(chunk, nRows - read);
+    var first = read === 0;
+    var res;
+    try {
+      res = Sheets.Spreadsheets.get(ss.getId(), {
+        ranges: [prefix + (read + 1) + ':' + novaColName_(nCols) + (read + count)],
+        fields: first
+          ? 'sheets(properties(sheetId,gridProperties(frozenRowCount,frozenColumnCount)),merges,' +
+            'data(rowMetadata(hiddenByUser,hiddenByFilter),columnMetadata(hiddenByUser,pixelSize),' + NOVA_API_CELLS + '))'
+          : 'sheets(properties(sheetId),data(rowMetadata(hiddenByUser,hiddenByFilter),' + NOVA_API_CELLS + '))'
+      });
+    } catch (e) {
+      if (!novaTooLarge_(e) || chunk <= NOVA_API_MIN_ROWS) throw e;
+      chunk = Math.max(NOVA_API_MIN_ROWS, Math.floor(chunk / 2));
+      shrunk = true;
+      Logger.log('Nova: ответ Sheets API слишком большой — читаю «' + sh.getName() + '» по ' + chunk + ' строк');
+      continue;
+    }
+    var api = (res.sheets || []).filter(function (s) {
+      return s.properties && s.properties.sheetId === gid;
+    })[0];
     if (!api) throw new Error('нет листа ' + sh.getName());
-    var nRows = sizes[i][0];
-    var nCols = sizes[i][1];
-    var data = (api.data && api.data[0]) || {};
-    var rowData = data.rowData || [];
-    var grid = novaEmptyGrid_(nRows, nCols);
-    for (var r = 0; r < nRows; r++) {
-      var values = (rowData[r] && rowData[r].values) || [];
-      for (var c = 0; c < nCols; c++) {
+    novaApiRows_(grid, api, read, count, nCols);
+    if (first) novaApiLayout_(grid, api, nRows, nCols);
+    read += count;
+  }
+  if (shrunk) props.setProperty(chunkKey, String(chunk));
+  return novaCut_(sh, grid, read);
+}
+
+function novaTooLarge_(e) {
+  return /413|too large/i.test(novaErr_(e));
+}
+
+function novaApiLayout_(grid, api, nRows, nCols) {
+  var data = (api.data && api.data[0]) || {};
+  (api.merges || []).forEach(function (m) {
+    var r0 = m.startRowIndex || 0;
+    var c0 = m.startColumnIndex || 0;
+    if (r0 >= nRows || c0 >= nCols) return;
+    grid.merges.push([r0, c0, Math.min(m.endRowIndex, nRows) - r0, Math.min(m.endColumnIndex, nCols) - c0]);
+  });
+  var colMeta = data.columnMetadata || [];
+  for (var j = 0; j < nCols; j++) {
+    var cm = colMeta[j] || {};
+    grid.widths.push(cm.pixelSize || 100);
+    if (cm.hiddenByUser) grid.hiddenCols.push(j);
+  }
+  var gp = (api.properties && api.properties.gridProperties) || {};
+  grid.fr = gp.frozenRowCount || 0;
+  grid.fc = gp.frozenColumnCount || 0;
+}
+
+function novaApiRows_(grid, api, from, count, nCols) {
+  var data = (api.data && api.data[0]) || {};
+  var rowData = data.rowData || [];
+  var rowMeta = data.rowMetadata || [];
+  for (var i = 0; i < count; i++) {
+    var r = from + i;
+    var rm = rowMeta[i] || {};
+    if (rm.hiddenByUser || rm.hiddenByFilter) grid.hiddenRows.push(r);
+    var values = (rowData[i] && rowData[i].values) || [];
+    for (var c = 0; c < nCols; c++) {
+      {
         var cell = values[c] || {};
         var fmt = cell.effectiveFormat || {};
         var text = fmt.textFormat || {};
@@ -468,98 +664,102 @@ function novaReadApi_(ss, chosen) {
         grid.align[r][c] = novaAlign_(String(fmt.horizontalAlignment || '').toLowerCase(), kind);
       }
     }
-    (api.merges || []).forEach(function (m) {
-      var r0 = m.startRowIndex || 0;
-      var c0 = m.startColumnIndex || 0;
-      if (r0 >= nRows || c0 >= nCols) return;
-      grid.merges.push([r0, c0, Math.min(m.endRowIndex, nRows) - r0, Math.min(m.endColumnIndex, nCols) - c0]);
-    });
-    var colMeta = data.columnMetadata || [];
-    for (var j = 0; j < nCols; j++) {
-      var cm = colMeta[j] || {};
-      grid.widths.push(cm.pixelSize || 100);
-      if (cm.hiddenByUser) grid.hiddenCols.push(j);
-    }
-    var rowMeta = data.rowMetadata || [];
-    for (var k = 0; k < nRows; k++) {
-      var rm = rowMeta[k] || {};
-      if (rm.hiddenByUser || rm.hiddenByFilter) grid.hiddenRows.push(k);
-    }
-    var gp = (api.properties && api.properties.gridProperties) || {};
-    grid.fr = gp.frozenRowCount || 0;
-    grid.fc = gp.frozenColumnCount || 0;
-    return grid;
-  });
+  }
 }
 
-/** Лист без Google Sheets API: цвета, заданные руками (условное форматирование не видно). */
-function novaReadPlain_(sh, fresh) {
+/**
+ * Лист без Google Sheets API: цвета, заданные руками (условное форматирование не видно). Кусками по
+ * NOVA_CHUNK_ROWS строк; к сроку — что успели.
+ */
+function novaReadPlain_(sh, fresh, deadline) {
   var size = novaSize_(sh);
   var nRows = size[0];
   var nCols = size[1];
-  var range = sh.getRange(1, 1, nRows, nCols);
-  var raw = range.getValues();
-  var formulas = range.getFormulas();
-  var weights = range.getFontWeights();
-  var styles = range.getFontStyles();
-  var aligns = range.getHorizontalAlignments();
-  var fg;
-  try {
-    fg = range.getFontColors();
-  } catch (e) {
-    fg = null;
-  }
   var grid = novaEmptyGrid_(nRows, nCols);
-  grid.shown = range.getDisplayValues();
-  grid.bg = range.getBackgrounds();
-  for (var r = 0; r < nRows; r++) {
-    for (var c = 0; c < nCols; c++) {
-      var kind = novaKindOf_(raw[r][c]);
-      grid.kind[r][c] = kind;
-      grid.fx[r][c] = formulas[r][c] ? String(formulas[r][c]) : '';
-      grid.fg[r][c] = fg ? fg[r][c] : '#000000';
-      grid.bold[r][c] = weights[r][c] === 'bold';
-      grid.italic[r][c] = styles[r][c] === 'italic';
-      grid.align[r][c] = novaAlign_(String(aligns[r][c] || '').toLowerCase(), kind);
+  var read = 0;
+  while (read < nRows) {
+    if (read > 0 && Date.now() > deadline) break;
+    var count = Math.min(NOVA_CHUNK_ROWS, nRows - read);
+    var range = sh.getRange(read + 1, 1, count, nCols);
+    var raw = range.getValues();
+    var shown = range.getDisplayValues();
+    var formulas = range.getFormulas();
+    var bgs = range.getBackgrounds();
+    var weights = range.getFontWeights();
+    var styles = range.getFontStyles();
+    var aligns = range.getHorizontalAlignments();
+    var fg;
+    try {
+      fg = range.getFontColors();
+    } catch (e) {
+      fg = null;
     }
+    for (var i = 0; i < count; i++) {
+      var r = read + i;
+      for (var c = 0; c < nCols; c++) {
+        var kind = novaKindOf_(raw[i][c]);
+        grid.shown[r][c] = shown[i][c];
+        grid.kind[r][c] = kind;
+        grid.fx[r][c] = formulas[i][c] ? String(formulas[i][c]) : '';
+        grid.bg[r][c] = bgs[i][c];
+        grid.fg[r][c] = fg ? fg[i][c] : '#000000';
+        grid.bold[r][c] = weights[i][c] === 'bold';
+        grid.italic[r][c] = styles[i][c] === 'italic';
+        grid.align[r][c] = novaAlign_(String(aligns[i][c] || '').toLowerCase(), kind);
+      }
+    }
+    read += count;
   }
-  range.getMergedRanges().forEach(function (m) {
+  sh.getRange(1, 1, read, nCols).getMergedRanges().forEach(function (m) {
     var r0 = m.getRow() - 1;
     var c0 = m.getColumn() - 1;
     if (r0 < 0 || c0 < 0) return;
     grid.merges.push([r0, c0, Math.min(m.getNumRows(), nRows - r0), Math.min(m.getNumColumns(), nCols - c0)]);
   });
-  var layout = novaLayout_(sh, nRows, nCols, fresh);
+  var layout = novaLayout_(sh, read, nCols, fresh, deadline);
   grid.widths = layout.w.slice(0, nCols);
   grid.hiddenCols = layout.hc;
-  grid.hiddenRows = layout.hr;
+  grid.hiddenRows = layout.hr.filter(function (x) {
+    return x < read;
+  });
   grid.fr = sh.getFrozenRows();
   grid.fc = sh.getFrozenColumns();
-  return grid;
+  return novaCut_(sh, grid, read);
 }
 
 /**
- * Ширины и скрытое — поштучные вызовы, поэтому помним 10 минут (сбрасывает не-правка: вставка,
- * формат, скрытие). Строки, дописанные с тех пор, проверяются дополнительно.
+ * Ширины и скрытое без Sheets API — поштучные вызовы. Скрытые строки проверяются не дольше
+ * NOVA_LAYOUT_MS за запуск (непроверенные считаются видимыми), дальше — с того же места в следующий
+ * раз: прогресс помнится 6 часов. Не-правка (вставка, формат, скрытие, фильтр) начинает заново.
  */
-function novaLayout_(sh, nRows, nCols, fresh) {
+function novaLayout_(sh, nRows, nCols, fresh, deadline) {
   var cache = CacheService.getScriptCache();
   var key = 'novaLayout:' + sh.getSheetId() + ':' + nCols;
   var layout = fresh ? null : novaJson_(cache.get(key), null);
-  if (!layout || !Array.isArray(layout.w) || layout.w.length !== nCols || !Array.isArray(layout.hr)) {
+  var until = Math.min(Date.now() + NOVA_LAYOUT_MS, deadline || Infinity);
+  var changed = false;
+  if (!layout || !Array.isArray(layout.w) || layout.w.length !== nCols || !Array.isArray(layout.hr) || !Array.isArray(layout.hc)) {
     layout = { w: [], hc: [], hr: [], n: 0 };
     for (var c = 1; c <= nCols; c++) {
       layout.w.push(sh.getColumnWidth(c));
       if (sh.isColumnHiddenByUser(c)) layout.hc.push(c - 1);
     }
+    changed = true;
   }
-  if (!(layout.n >= nRows)) {
-    for (var r = (layout.n || 0) + 1; r <= nRows; r++) {
+  var r = (Number(layout.n) || 0) + 1;
+  if (r <= nRows) {
+    for (; r <= nRows && Date.now() < until; r++) {
       if (sh.isRowHiddenByUser(r) || sh.isRowHiddenByFilter(r)) layout.hr.push(r - 1);
     }
-    layout.n = nRows;
+    layout.n = r - 1;
+    changed = true;
+    if (layout.n < nRows) {
+      Logger.log('Nova: скрытые строки «' + sh.getName() + '» проверены до ' + layout.n + ' из ' + nRows + ' — остальные в следующий раз');
+    }
+  }
+  if (changed) {
     try {
-      cache.put(key, JSON.stringify(layout), 600);
+      cache.put(key, JSON.stringify(layout), 21600);
     } catch (e) {}
   }
   return layout;
@@ -710,7 +910,9 @@ function novaTab_(sh, grid, fresh) {
     fx.push(fline.length ? fline : null);
   }
   // Столбцы: проверка данных важнее типа значений.
+  var tr = Date.now();
   var rules = novaRules_(sh, hdr, nRows, nCols, fresh);
+  novaClock_().cols += Date.now() - tr;
   var cols = [];
   for (c = 0; c < nCols; c++) {
     var col = {};
@@ -804,7 +1006,9 @@ function novaHash36_(text) {
 }
 
 /**
- * Проверки данных по столбцам (последние ~300 строк данных): выпадающий список, флажок, дата, число.
+ * Проверки данных по столбцам (последние NOVA_KIND_ROWS строк данных): выпадающий список, флажок,
+ * дата, число. Одно чтение проверок на лист; у самих правил — вызовы только по столбцу (последнее
+ * правило столбца), а не по ячейке: каждый вызов у объекта таблицы — поход на сервер.
  * Меняются редко — помним 10 минут (сбрасывает не-правка).
  */
 function novaRules_(sh, hdr, nRows, nCols, fresh) {
@@ -816,33 +1020,26 @@ function novaRules_(sh, hdr, nRows, nCols, fresh) {
   }
   var rules = [];
   for (var c = 0; c < nCols; c++) rules.push(null);
+  // Срок вышел — без проверок данных (типы по значениям), и не запоминать.
+  if (Date.now() > novaDeadline_()) return rules;
   var last = Math.min(Math.max(nRows, hdr + 1), sh.getMaxRows());
   var first = Math.max(hdr, last - NOVA_KIND_ROWS);
   if (last > first && nCols > 0) {
     var dvs = sh.getRange(first + 1, 1, last - first, nCols).getDataValidations();
     var memo = {};
     for (var col = 0; col < nCols; col++) {
-      var tally = {};
-      var best = '';
-      var bestN = 0;
-      var none = 0;
-      for (var r = 0; r < dvs.length; r++) {
-        var dv = dvs[r][col];
-        var sig = dv ? novaRuleSig_(dv) : '';
-        if (!sig) {
-          none++;
-          continue;
+      var some = 0;
+      for (var r = 0; r < dvs.length; r++) if (dvs[r][col]) some++;
+      // Проверка у большинства строк выборки — столбец по ней; иначе — по значениям.
+      if (!some || some < dvs.length - some) continue;
+      for (var r2 = dvs.length - 1, tries = 0; r2 >= 0 && tries < 3; r2--) {
+        if (!dvs[r2][col]) continue;
+        tries++;
+        var rule = novaRuleKind_(dvs[r2][col], memo);
+        if (rule) {
+          rules[col] = rule;
+          break;
         }
-        if (!Object.prototype.hasOwnProperty.call(tally, sig)) tally[sig] = { n: 0, dv: dv };
-        tally[sig].n++;
-        if (tally[sig].n > bestN) {
-          bestN = tally[sig].n;
-          best = sig;
-        }
-      }
-      if (best && bestN >= none) {
-        if (!Object.prototype.hasOwnProperty.call(memo, best)) memo[best] = novaRuleKind_(tally[best].dv);
-        rules[col] = memo[best];
       }
     }
   }
@@ -856,28 +1053,27 @@ function novaRuleType_(dv) {
   return String(dv.getCriteriaType());
 }
 
-function novaRuleSig_(dv) {
-  var type = novaRuleType_(dv);
-  var vals = dv.getCriteriaValues() || [];
-  var ai = dv.getAllowInvalid() ? 1 : 0;
-  if (type === 'VALUE_IN_LIST') return type + '|' + ai + '|' + JSON.stringify(vals[0] || []);
-  if (type === 'VALUE_IN_RANGE') {
+/** Варианты списка — один раз на правило (список или диапазон), а не на каждую ячейку. */
+function novaOptionsOf_(type, vals, memo) {
+  var id;
+  if (type === 'VALUE_IN_LIST') {
+    id = 'L|' + JSON.stringify(vals[0] || []);
+  } else {
     var rg = vals[0];
-    return type + '|' + ai + '|' + (rg && rg.getSheet ? rg.getSheet().getSheetId() + '!' + rg.getA1Notation() : '');
+    id = rg && typeof rg.getA1Notation === 'function' ? 'R|' + rg.getSheet().getName() + '!' + rg.getA1Notation() : 'R|';
   }
-  if (type === 'CHECKBOX') return type + '|' + JSON.stringify(vals.map(String));
-  if (type.indexOf('DATE_') === 0) return 'DATE';
-  if (type.indexOf('NUMBER_') === 0) return 'NUMBER';
-  return '';
+  if (!memo) return novaOptionList_(type, vals);
+  if (!Object.prototype.hasOwnProperty.call(memo, id)) memo[id] = novaOptionList_(type, vals);
+  return memo[id];
 }
 
-function novaRuleKind_(dv) {
+function novaRuleKind_(dv, memo) {
   var type = novaRuleType_(dv);
-  var vals = dv.getCriteriaValues() || [];
   if (type === 'VALUE_IN_LIST' || type === 'VALUE_IN_RANGE') {
+    var vals = dv.getCriteriaValues() || [];
     var seen = {};
     var out = [];
-    novaOptionList_(type, vals).forEach(function (o) {
+    novaOptionsOf_(type, vals, memo).forEach(function (o) {
       var s = String(o).trim().slice(0, 100);
       if (!s || Object.prototype.hasOwnProperty.call(seen, s) || out.length >= 200) return;
       seen[s] = true;
@@ -945,7 +1141,7 @@ function novaHex_(v, fallback) {
 
 /** Правки из Nova по порядку; ошибка одной не останавливает остальные. */
 function novaApply_(ss, props, edits, stored, deadline) {
-  var ctx = { ss: ss, tz: ss.getSpreadsheetTimeZone(), tabs: {} };
+  var ctx = { ss: ss, tz: ss.getSpreadsheetTimeZone(), tabs: {}, opts: {} };
   var out = [];
   for (var i = 0; i < edits.length; i++) {
     // Не успели — остальное в следующий запуск (правки ждут в очереди).
@@ -1079,7 +1275,7 @@ function novaSetCell_(ctx, e) {
 
 /** Тип ячейки: её проверка данных → её значение → тип столбца. */
 function novaConvert_(ctx, t, c, rule, raw, v) {
-  var spec = rule ? novaRuleSpec_(rule) : null;
+  var spec = rule ? novaRuleSpec_(rule, ctx.opts) : null;
   if (!spec) {
     var kind = novaKindOf_(raw);
     if (kind) spec = { k: kind.charAt(0) };
@@ -1088,11 +1284,11 @@ function novaConvert_(ctx, t, c, rule, raw, v) {
   return novaValue_(ctx, spec, v);
 }
 
-function novaRuleSpec_(dv) {
+function novaRuleSpec_(dv, memo) {
   var type = novaRuleType_(dv);
   var vals = dv.getCriteriaValues() || [];
   if (type === 'VALUE_IN_LIST' || type === 'VALUE_IN_RANGE') {
-    return { k: 'l', o: novaOptionList_(type, vals), ai: dv.getAllowInvalid() ? 1 : 0 };
+    return { k: 'l', o: novaOptionsOf_(type, vals, memo), ai: dv.getAllowInvalid() ? 1 : 0 };
   }
   if (type === 'CHECKBOX') return { k: 'b', cb: vals.length ? [vals[0], vals.length > 1 ? vals[1] : ''] : null };
   if (type.indexOf('DATE_') === 0) return { k: 'd' };

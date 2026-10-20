@@ -46,6 +46,7 @@ export function OsSheetSetupDialog({
   const [audience, setAudience] = useState<"os" | "all">("os");
   const [pick, setPick] = useState<string[]>([]);
   const [hook, setHook] = useState("");
+  const [sheetName, setSheetName] = useState("");
 
   const apply = (next: OsSheetConfig) => {
     setCfg(next);
@@ -119,6 +120,8 @@ export function OsSheetSetupDialog({
     cfg !== null && (audience !== cfg.audience || pick.join("\u0001") !== cfg.pick.join("\u0001") || hookValue !== (cfg.hook ?? ""));
   const togglePick = (name: string, on: boolean) =>
     setPick((prev) => (on ? (prev.includes(name) || prev.length >= MAX_PICK ? prev : [...prev, name]) : prev.filter((n) => n !== name)));
+  // Листы из таблицы и вписанные руками (до первой передачи списка ещё нет).
+  const sheetList = cfg ? [...cfg.sheets, ...pick.filter((n) => !cfg.sheets.includes(n))] : [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -201,14 +204,38 @@ export function OsSheetSetupDialog({
 
             <section className="flex flex-col gap-2">
               <h3 className="text-sm font-medium">Какие листы показывать</h3>
-              {cfg.sheets.length === 0 ? (
+              {/* Лист можно вписать и до первой передачи: иначе novaSetup сначала читает первый
+                  лист таблицы — а он бывает самым тяжёлым и вовсе не тем. */}
+              <form
+                className="flex gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const name = sheetName.trim();
+                  if (!name) return;
+                  togglePick(name, true);
+                  setSheetName("");
+                }}
+              >
+                <Input
+                  value={sheetName}
+                  onChange={(e) => setSheetName(e.target.value)}
+                  placeholder="Название листа, как на ярлыке внизу таблицы"
+                  maxLength={100}
+                  data-os-sheet-name
+                />
+                <Button type="submit" variant="outline" disabled={!sheetName.trim() || pick.length >= MAX_PICK}>
+                  Добавить
+                </Button>
+              </form>
+              {sheetList.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Список листов появится после первой передачи. Пока не выбрано — передаётся первый лист таблицы.
+                  Список листов появится после первой передачи. Пока не выбрано — передаётся первый лист таблицы, поэтому
+                  нужный лист лучше вписать и сохранить до запуска novaSetup.
                 </p>
               ) : (
                 <>
                   <div className="flex max-h-52 flex-col gap-0.5 overflow-y-auto rounded-lg border border-border p-1">
-                    {cfg.sheets.map((name) => {
+                    {sheetList.map((name) => {
                       const on = pick.includes(name);
                       const disabled = !on && pick.length >= MAX_PICK;
                       return (
