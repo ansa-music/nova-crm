@@ -66,7 +66,7 @@ export function buildOsSheetScript(cfg: OsSheetScriptConfig): string {
  * к ней, а здесь передача остановится сама.
  */
 var NOVA = ${config};
-var NOVA_MAX_ROWS = 3000;
+var NOVA_MAX_ROWS = 2000;
 var NOVA_MAX_COLS = 40;
 var NOVA_MAX_TABS = 4;
 var NOVA_MAX_BYTES = 3500000;
@@ -516,19 +516,37 @@ function novaCut_(sh, grid, read) {
   return grid;
 }
 
+/** Имя листа для сравнения: регистр и лишние пробелы (в том числе неразрывные) не важны. */
+function novaSheetKey_(name) {
+  return String(name == null ? '' : name).replace(/[\s  ]+/g, ' ').trim().toLowerCase();
+}
+
 function novaChoose_(sheets, pick) {
   var chosen = [];
   var names = {};
+  var missing = [];
   (pick || []).forEach(function (name) {
-    if (names[name]) return;
+    var key = novaSheetKey_(name);
+    if (!key || names[key]) return;
     var found = sheets.filter(function (sh) {
-      return sh.getName() === name;
+      return novaSheetKey_(sh.getName()) === key;
     })[0];
     if (found) {
-      names[name] = true;
+      names[key] = true;
       chosen.push(found);
+    } else {
+      missing.push(name);
     }
   });
+  if (missing.length) {
+    Logger.log('Nova: в таблице нет листа «' + missing.join('», «') + '». Листы таблицы: «' +
+      sheets.map(function (sh) {
+        return sh.getName();
+      }).join('», «') + '» — отметьте нужный в Nova (Таблица ОС → Подключение).');
+  }
+  // Owner выбрал листы, но ни одного нет — не подменять их первым листом таблицы (он бывает огромным и
+  // не тем): передать только список листов, чтобы в Nova было из чего выбрать.
+  if (!chosen.length && missing.length) return [];
   if (!chosen.length) {
     var visible = sheets.filter(function (sh) {
       return !sh.isSheetHidden();

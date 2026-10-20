@@ -24,6 +24,8 @@ import { formatDate, timeAgo } from "@/utils/date";
 import { OS_SHEET_HOOK_RE } from "@/utils/osSheet";
 
 const MAX_PICK = 4;
+/** Имя листа для сравнения — как в скрипте (`novaSheetKey_`): регистр и лишние пробелы не важны. */
+const sheetKey = (name: string) => name.replace(/[\s  ]+/g, " ").trim().toLowerCase();
 
 /**
  * Подключение Google-таблицы ОС (только Owner): секрет → текст скрипта →
@@ -248,6 +250,9 @@ export function OsSheetSetupDialog({
                         >
                           <Checkbox checked={on} disabled={disabled} onCheckedChange={(v) => togglePick(name, v === true)} />
                           <span className="min-w-0 truncate">{name}</span>
+                          {cfg.sheets.length > 0 && !cfg.sheets.some((s) => sheetKey(s) === sheetKey(name)) && (
+                            <span className="shrink-0 text-xs text-destructive">нет в таблице</span>
+                          )}
                           {on && pick.length > 1 && <span className="ml-auto text-xs text-muted-foreground">{pick.indexOf(name) + 1}</span>}
                         </label>
                       );
