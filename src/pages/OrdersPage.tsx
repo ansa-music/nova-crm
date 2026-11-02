@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { CalendarClock, Clock3, Copy, ExternalLink, Hand, Inbox, Link2, Pencil, Phone, Plus, Trash2, Undo2, UserCheck, Users, XCircle } from "lucide-react";
+import { CalendarClock, Clock3, Copy, ExternalLink, Hand, Inbox, Link2, Pencil, Phone, Plus, Trash2, Undo2, UserCheck, Users, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/common/EmptyState";
 import { MemberAvatar } from "@/components/common/MemberAvatar";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { IssueOrderDialog, type IssueOrderForm } from "@/components/orders/IssueOrderDialog";
 import { OsDeskIssueDialog } from "@/components/orders/OsDeskIssueDialog";
 import { useSendOsRowToExchange } from "@/hooks/useSendOsRowToExchange";
@@ -37,6 +38,7 @@ import {
   isHistoryOrderStatus,
   setOrderCancelled,
   setOrderClaim,
+  setOrderClaimFor,
   setOrderClaimScope,
   subscribeOrders,
   type OrderHistoryCursor,
@@ -903,12 +905,91 @@ export default function OrdersPage() {
                             return <MemberAvatar key={c.uid} id={c.uid} name={m?.name ?? c.name} nickname={m?.nickname} photoURL={m?.photoURL} className="h-6 w-6 ring-2 ring-background" />;
                           })}
                         </span>
-                        <span>{claimants.map((c) => nameOf(c.uid, c.name)).join(", ")}</span>
+                        {/* Руководство (Owner, Тимлид, Тимлид+) снимает чужой отклик
+                            крестиком у имени (просьба Nurba 02.11.2026), а ставит —
+                            кнопкой «Отклик за технаря» ниже. Свой отклик — своей
+                            кнопкой «Откликнуться / Отозвать отклик». */}
+                        {fullAccess ? (
+                          <span className="flex flex-wrap items-center gap-1">
+                            {claimants.map((c) => {
+                              const name = nameOf(c.uid, c.name);
+                              if (c.uid === uid) return <span key={c.uid} className="px-1">{name}</span>;
+                              return (
+                                <span key={c.uid} className="inline-flex items-center gap-0.5 rounded-full border border-border py-0.5 pl-2 pr-0.5">
+                                  {name}
+                                  <button
+                                    type="button"
+                                    title={`Снять отклик: ${name}`}
+                                    aria-label={`Снять отклик: ${name}`}
+                                    disabled={busy}
+                                    className="flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive disabled:opacity-50 [@media(pointer:coarse)]:h-7 [@media(pointer:coarse)]:w-7"
+                                    onClick={async () => {
+                                      if (!activeWorkspaceId) return;
+                                      if (
+                                        !(await confirmDialog({
+                                          title: `Снять отклик ${name}?`,
+                                          description: `Отклик на заказ «${order.client}» уберётся, ${studio ? "менеджер" : "технарь"} получит уведомление и сможет откликнуться снова.`,
+                                          confirmLabel: "Снять отклик",
+                                        }))
+                                      )
+                                        return;
+                                      void withBusy(
+                                        order.id,
+                                        () => setOrderClaimFor(activeWorkspaceId, order, { uid: c.uid, name }, { uid, name: myName }, false),
+                                        "Не удалось снять отклик"
+                                      );
+                                    }}
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </span>
+                              );
+                            })}
+                          </span>
+                        ) : (
+                          <span>{claimants.map((c) => nameOf(c.uid, c.name)).join(", ")}</span>
+                        )}
                       </div>
                     ) : (
                       <span className="text-xs text-muted-foreground">Откликов пока нет</span>
                     )
                   )}
+                  {order.status === "open" && fullAccess && (() => {
+                    // Кого можно отметить: работающие за столом (как «Кому отдать»), ещё без отклика.
+                    const notClaimed = candidatesFor(order).filter((c) => c.claimedAt == null && c.uid !== uid);
+                    if (notClaimed.length === 0) return null;
+                    return (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs text-muted-foreground" disabled={busy}>
+                            <Plus className="h-3.5 w-3.5" /> Отклик за {studio ? "менеджера" : "технаря"}
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-72">
+                          {notClaimed.map((c) => (
+                            <DropdownMenuItem
+                              key={c.uid}
+                              disabled={!c.hasDesk}
+                              onSelect={() => {
+                                if (!activeWorkspaceId) return;
+                                void withBusy(
+                                  order.id,
+                                  () => setOrderClaimFor(activeWorkspaceId, order, { uid: c.uid, name: c.name }, { uid, name: myName }, true),
+                                  "Не удалось поставить отклик"
+                                );
+                              }}
+                            >
+                              <MemberAvatar id={c.uid} name={c.member.name} nickname={c.member.nickname} photoURL={c.member.photoURL} className="h-6 w-6 shrink-0" />
+                              <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                              {(!c.hasDesk || c.blockedReason) && (
+                                <span className="shrink-0 text-[10px] text-muted-foreground">{!c.hasDesk ? "нет стола" : c.blockedReason}</span>
+                              )}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    );
+                  })()}
                   {order.status === "assigned" && order.assignedName && (
                     <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                       <UserCheck className="h-3.5 w-3.5 text-amber-300" /> {nameOf(order.assignedUid, order.assignedName)}

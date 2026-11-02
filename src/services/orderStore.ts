@@ -454,17 +454,18 @@ export class OrderSqlOutdated extends Error {}
 
 /**
  * Отдельные функции заказа (SQL 20261046): `order_edit` — правка
- * опубликованного заказа, `order_reissue` — «Перевыдать» из «В столах».
+ * опубликованного заказа, `order_reissue` — «Перевыдать» из «В столах»;
+ * SQL 20261054: `order_claim_for` — руководство ставит и снимает отклик за технаря.
  * Только Supabase: в Firestore-заказах этих операций нет.
  */
 export async function sbOrderCall(
   workspaceId: string,
   id: string,
-  fn: "order_edit" | "order_reissue",
+  fn: "order_edit" | "order_reissue" | "order_claim_for",
   args?: Record<string, unknown>
 ): Promise<WorkOrder> {
   const params: Record<string, unknown> = { p_workspace: workspaceId, p_id: id };
-  if (fn === "order_edit") params.p_args = args ?? {};
+  if (fn === "order_edit" || fn === "order_claim_for") params.p_args = args ?? {};
   const { data, error } = await supabaseRows.rpc(fn, params);
   if (error) {
     // Функции нет — это «SQL не обновлён», а не «таблицы заказов нет»: биржу не выключаем.

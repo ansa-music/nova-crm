@@ -281,6 +281,43 @@ export async function setOrderClaim(workspaceId: string, order: WorkOrder, me: {
   }
 }
 
+/**
+ * Руководство (Owner, Тимлид, Тимлид+) ставит или снимает отклик ЗА технаря у
+ * открытого заказа (просьба Nurba 02.11.2026). Supabase — `order_claim_for`
+ * (SQL 20261054), заказ из Firestore — прежнее правило: руководство правит
+ * заказ целиком. Технарю — тихое уведомление в колокольчик: без `href` на
+ * «Заказы», иначе сыграл бы звук нового заказа.
+ */
+export async function setOrderClaimFor(
+  workspaceId: string,
+  order: WorkOrder,
+  target: { uid: string; name: string },
+  by: { uid: string; name: string },
+  claim: boolean
+) {
+  if (!db) throw new Error("Firebase не настроен");
+  if (order.source === "fs" || ordersBackendFor(workspaceId) === "firestore") {
+    const value: WorkOrderClaim | ReturnType<typeof deleteField> = claim
+      ? { uid: target.uid, name: target.name, at: Date.now() }
+      : deleteField();
+    await setDoc(paths.order(workspaceId, order.id), { claims: { [target.uid]: value }, updatedAt: Date.now() }, { merge: true });
+  } else {
+    await sbOrderCall(workspaceId, order.id, "order_claim_for", { uid: target.uid, on: claim, name: target.name });
+  }
+  await sendNotification(
+    {
+      workspaceId,
+      title: claim ? `За вас откликнулись на заказ ${order.client}` : `Ваш отклик на заказ ${order.client} снят`,
+      body: claim ? `Отклик поставил(а) ${by.name}.` : `Отклик снял(а) ${by.name}.`,
+      priority: "normal",
+      fromUid: by.uid,
+      fromName: by.name,
+      target: "selected",
+    },
+    [target.uid]
+  ).catch(() => {});
+}
+
 export interface OrderCandidate {
   uid: string;
   name: string;

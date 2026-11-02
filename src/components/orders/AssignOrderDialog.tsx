@@ -212,11 +212,18 @@ export function AssignOrderDialog({
       onClose={() => (bigOrder ? onOpenChange(false) : setPickerOpen(false))}
     />
     <Dialog open={Boolean(order) && !pickerOpen && !bigOrder} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md overflow-hidden" style={{ perspective: 900 }}>
+      {/* Колонка, а не сетка (жалоба Nurba 02.11.2026: «экран обрезан, не
+          понятно, что есть, а чего нет»). В сетке одна длинная строка списка
+          («стол · откликнулся меньше, чем через минуту» + % у Owner) растягивала
+          окно шире экрана, и правый край срезал `overflow-hidden`; низ списка
+          (55vh под шапкой и карточками) не влезал в 85vh и тоже срезался без
+          прокрутки. Теперь ширина — ровно окно, список занимает остаток высоты
+          и прокручивается сам, а на совсем низком экране прокручивается окно. */}
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] max-w-md flex-col overflow-x-hidden" style={{ perspective: 900 }}>
         {custom ? (
           <motion.div
             key="custom"
-            className="flex flex-col gap-4"
+            className="flex min-h-0 flex-1 flex-col gap-4"
             initial={reduce ? false : { opacity: 0, x: 28, rotateY: -8 }}
             animate={{ opacity: 1, x: 0, rotateY: 0 }}
             transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 34 }}
@@ -250,7 +257,7 @@ export function AssignOrderDialog({
                 Снять
               </Button>
             </div>
-            <div className="flex max-h-[50vh] flex-col gap-1.5 overflow-y-auto" data-custom-wheel>
+            <div className="flex min-h-[7.5rem] flex-1 flex-col gap-1.5 overflow-y-auto" data-custom-wheel>
               {candidates.map((c) => {
                 const allowed = eligibleCustom(c);
                 const on = allowed && custom.has(c.uid);
@@ -325,7 +332,7 @@ export function AssignOrderDialog({
         ) : (
           <motion.div
             key="list"
-            className="flex flex-col gap-4"
+            className="flex min-h-0 flex-1 flex-col gap-4"
             initial={reduce ? false : { opacity: 0, x: -28, rotateY: 8 }}
             animate={{ opacity: 1, x: 0, rotateY: 0 }}
             transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 34 }}
@@ -375,12 +382,12 @@ export function AssignOrderDialog({
           </Button>
         </div>
         {candidates.length > 6 ? (
-          <Button variant="outline" className="w-full gap-2" disabled={busy !== null} onClick={() => setPickerOpen(true)}>
+          <Button variant="outline" className="h-auto min-h-9 w-full gap-2 whitespace-normal py-2 text-center" disabled={busy !== null} onClick={() => setPickerOpen(true)}>
             <Maximize2 className="h-4 w-4" />
             Все {studio ? t("technician").toLowerCase() : "технари"} на весь экран · поиск и сортировка
           </Button>
         ) : null}
-        <div className="flex max-h-[55vh] flex-col gap-3 overflow-y-auto">
+        <div className="flex min-h-[7.5rem] flex-1 flex-col gap-3 overflow-y-auto">
           {claimed.length > 0 && (
             <div className="flex flex-col gap-1.5">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Откликнулись · {claimed.length}</p>
